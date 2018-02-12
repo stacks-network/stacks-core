@@ -2502,7 +2502,13 @@ def blockstack_export_db( snapshots_dir, block_height, **kw ):
     # TODO: this is hacky; find a generic way to find the atlas db path
     atlas_path = os.path.join(os.path.dirname(state_engine.get_db_path()), "atlas.db")
     if os.path.exists(atlas_path):
-        shutil.copy(atlas_path, os.path.join(export_dir, 'atlas.db'))
+        virtualchain.sqlite3_backup(atlas_path, os.path.join(export_dir, 'atlas.db'))
+
+    # save subdomaindb too
+    # TODO: this is hacky; find a generic way to find the atlas db path
+    subdomain_path = os.path.join(os.path.dirname(state_engine.get_db_path()), 'subdomains.db')
+    if os.path.exists(subdomain_path):
+        virtualchain.sqlite3_backup(subdomain_path, os.path.join(export_dir, 'subdomains.db'))
 
 
 def make_legacy_wallet( master_private_key, password ):
@@ -3333,7 +3339,7 @@ def check_historic_names_by_address( state_engine ):
     return ret
  
 
-def check_subdomain_db(**kw):
+def check_subdomain_db(firstblock=None, **kw):
     """
     Do sanity checks on the subdomain database.
     * verify that we can replay the zone files in order and arrive at the same subdomain database
@@ -3349,12 +3355,15 @@ def check_subdomain_db(**kw):
     if os.path.exists(new_opts['subdomaindb_path']):
         os.unlink(new_opts['subdomaindb_path'])
 
-    blockstack.lib.subdomains.SubdomainIndex.reindex(get_current_block(**kw), opts=new_opts)
+    blockstack.lib.subdomains.SubdomainIndex.reindex(get_current_block(**kw), firstblock=firstblock, opts=new_opts)
 
     # compare both databases
-    rc = os.system('sqlite3 "{}" "select * from subdomain_records order by parent_zonefile_index" > "/tmp/first.dump"; sqlite3 "{}" "select * from subdomain_records order by parent_zonefile_index" > "/tmp/second.dump"; cmp "/tmp/first.dump" "/tmp/second.dump"'.format(
-        blockstack_opts['subdomaindb_path'], new_opts['subdomaindb_path']))
+    cmd = 'sqlite3 "{}" "select * from subdomain_records order by parent_zonefile_index" > "/tmp/first.dump"; '.format(blockstack_opts['subdomaindb_path']) + \
+          'sqlite3 "{}" "select * from subdomain_records order by parent_zonefile_index" > "/tmp/second.dump"; '.format(new_opts['subdomaindb_path']) + \
+          'cmp "/tmp/first.dump" "/tmp/second.dump"'
 
+    print cmd
+    rc = os.system(cmd)
     if rc != 0:
         print '{} disagress with {}'.format(blockstack_opts['subdomaindb_path'], new_opts['subdomaindb_path'])
         return False
