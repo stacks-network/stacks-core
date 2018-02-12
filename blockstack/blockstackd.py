@@ -39,6 +39,7 @@ import blockstack_zones
 import keylib
 import base64
 import gc
+import argparse
 import jsonschema
 from jsonschema import ValidationError
 
@@ -2190,6 +2191,11 @@ def run_server( working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSH
         if child_pid < 0:
             log.error("Failed to daemonize: {}".format(child_pid))
             return -1
+
+        if child_pid > 0:
+            # we're the parent
+            log.debug("Running in the background as PID {}".format(child_pid))
+            sys.exit(0)
     
     server_state = server_setup(working_dir, port)
     atexit.register(server_shutdown, server_state)
@@ -2231,16 +2237,10 @@ def run_server( working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSH
     return 0
 
 
-def setup( working_dir, return_parser=False ):
+def setup(working_dir):
     """
     Do one-time initialization.
     Call this to set up global state and set signal handlers.
-
-    If return_parser is True, return a partially-
-    setup argument parser to be populated with
-    subparsers (i.e. as part of main())
-
-    Otherwise return None.
     """
 
     # set up our implementation
@@ -2265,27 +2265,10 @@ def setup( working_dir, return_parser=False ):
     # merge in command-line bitcoind options
     config_file = virtualchain.get_config_filename(virtualchain_hooks, working_dir)
 
-    arg_bitcoin_opts = None
-    argparser = None
-
-    if return_parser:
-       arg_bitcoin_opts, argparser = virtualchain.parse_bitcoind_args( return_parser=return_parser )
-
-    else:
-       arg_bitcoin_opts = virtualchain.parse_bitcoind_args( return_parser=return_parser )
-
-    # command-line overrides config file
-    for (k, v) in arg_bitcoin_opts.items():
-       bitcoin_opts[k] = v
-
     # store options
     set_bitcoin_opts( bitcoin_opts )
     set_blockstack_opts( blockstack_opts )
 
-    if return_parser:
-        return argparser
-    else:
-        return None
 
 
 def reconfigure(working_dir):
@@ -2358,11 +2341,12 @@ def check_and_set_envars( argv ):
 
     cli_envs = {}
     cli_args = {}
-    new_argv = [argv[0]]
+    new_argv = []
+    stripped_argv = []
 
     do_exec = False
-
-    for i in xrange(1, len(argv)):
+    i = 0
+    while i < len(argv):
 
         arg = argv[i]
         value = None
@@ -2376,25 +2360,24 @@ def check_and_set_envars( argv ):
                 if '=' in arg:
                     argparts = arg.split("=")
                     value_parts = argparts[1:]
+                    arg = argparts[0]
                     value = '='.join(value_parts)
 
                 elif i + 1 < len(argv):
                     value = argv[i+1]
-
-                    # shift down
-                    for j in xrange(i, len(argv) - 1):
-                        argv[i] = argv[i+1]
-
                     i += 1
 
                 else:
                     print >> sys.stderr, "%s requires an argument" % special_flag
                     return False
+
             else:
                 # just set
                 value = "1"
 
             break
+
+        i += 1
 
         if value is not None:
             if 'envar' in special_flags[special_flag]:
@@ -2413,15 +2396,20 @@ def check_and_set_envars( argv ):
         else:
             # not recognized
             new_argv.append(arg)
+            stripped_argv.append(arg)
 
     if do_exec:
         # re-exec
         for cli_env, cli_env_value in cli_envs.items():
             os.environ[cli_env] = cli_env_value
 
+        if os.environ.get("BLOCKSTACK_DEBUG") is not None:
+            print "Re-exec as {}".format(" ".join(new_argv))
+
         os.execv(new_argv[0], new_argv)
 
-    return cli_args
+    log.debug("Stripped argv: {}".format(' '.join(stripped_argv)))
+    return cli_args, stripped_argv
 
 
 def load_expected_snapshots( snapshots_path ):
@@ -2476,21 +2464,20 @@ def run_blockstackd():
     """
     run blockstackd
     """
-    special_args = check_and_set_envars( sys.argv )
+    special_args, new_argv = check_and_set_envars( sys.argv )
     working_dir = special_args.get('working_dir')
     if working_dir is None:
         working_dir = os.path.expanduser('~/.{}'.format(virtualchain_hooks.get_virtual_chain_name()))
         
-    argparser = setup( working_dir, return_parser=True )
-    if argparser is None:
-        # fatal error
-        os.abort()
+    setup(working_dir)
 
     # need sqlite3
     sqlite3_tool = virtualchain.sqlite3_find_tool()
     if sqlite3_tool is None:
         print 'Failed to find sqlite3 tool in your PATH.  Cannot continue'
         sys.exit(1)
+    
+    argparser = argparse.ArgumentParser()
 
     # get RPC server options
     subparsers = argparser.add_subparsers(
@@ -2509,16 +2496,25 @@ def run_blockstackd():
     parser.add_argument(
         '--port', action='store',
         help='port to bind on')
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
 
     # -------------------------------------
     parser = subparsers.add_parser(
         'stop',
         help='stop the blockstackd server')
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
 
     # -------------------------------------
     parser = subparsers.add_parser(
         'configure',
         help='reconfigure the blockstackd server')
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
 
     # -------------------------------------
     parser = subparsers.add_parser(
@@ -2527,6 +2523,9 @@ def run_blockstackd():
     parser.add_argument(
         '--force', action='store_true',
         help='Do not confirm the request to delete.')
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
 
     # -------------------------------------
     parser = subparsers.add_parser(
@@ -2535,6 +2534,9 @@ def run_blockstackd():
     parser.add_argument(
         'block_number', nargs='?',
         help="The block number to restore from (if not given, the last backup will be used)")
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
 
     # -------------------------------------
     parser = subparsers.add_parser(
@@ -2552,6 +2554,9 @@ def run_blockstackd():
     parser.add_argument(
         '--expected-snapshots', action='store',
         help='path to a .snapshots file with the expected consensus hashes')
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
 
     # -------------------------------------
     parser = subparsers.add_parser(
@@ -2571,6 +2576,9 @@ def run_blockstackd():
     parser.add_argument(
         '--num_required', action='store',
         help='the number of required signature matches')
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
 
     # -------------------------------------
     parser = subparsers.add_parser(
@@ -2585,6 +2593,9 @@ def run_blockstackd():
     parser.add_argument(
         'block_height', nargs='?',
         help='the block ID of the backup to use to make a fast-sync snapshot')
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
 
     # -------------------------------------
     parser = subparsers.add_parser(
@@ -2596,23 +2607,11 @@ def run_blockstackd():
     parser.add_argument(
         'private_key', action='store',
         help='a private key to use to sign the snapshot')
-
-    # -------------------------------------
-    subdomain_parser = subparsers.add_parser(
-        'subdomain', help='Subdomain commands')
-
-    subdomain_subparsers = subdomain_parser.add_subparsers(
-        dest='action', help='the subdomain action to be taken')
-
-    parser = subdomain_subparsers.add_parser(
-        'index', help='(Re)index subdomains over a block range')
     parser.add_argument(
-        'start_block', action='store', type=int, help='the starting block height')
-    parser.add_argument(
-        'end_block', action='store', type=int, help='the ending block height')
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
 
-
-    args, _ = argparser.parse_known_args()
+    args, _ = argparser.parse_known_args(new_argv[1:])
 
     if args.action == 'version':
         print "Blockstack version: %s" % VERSION
