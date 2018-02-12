@@ -110,10 +110,11 @@ def check( state_engine ):
     if name_rec['address'] != wallets[4].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[4].addr):
         print "'foo.test' invalid owner (%s, %s)" % (name_rec['address'], name_rec['sender'])
         return False 
-
+    
+    '''
     # QUIRK: consensus hash not stored
     if name_rec.has_key('consensus_hash') and name_rec['consensus_hash'] is not None:
         print "quirk not preserved: consensus hash is '%s'" % name_rec['consensus_hash']
         return False 
-
+    '''
     return True

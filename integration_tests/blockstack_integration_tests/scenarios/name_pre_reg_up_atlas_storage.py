@@ -117,15 +117,13 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-        # propagate 
-        res = testlib.blockstack_cli_sync_zonefile('foo_{}.test'.format(i), zonefile_string=empty_zonefile_str)
-        if 'error' in res:
-            print json.dumps(res)
+        res = testlib.blockstack_put_zonefile(empty_zonefile_str)
+        if not res:
             return False
 
     # start up a simple Atlas test network with two nodes: the main one doing the test, and a subordinate one that treats it as a seed peer.
     atlas_dir = os.path.join( working_dir, "atlas_network" )
-    network_des = atlas_network.atlas_network_build( [17000], {17000: [16264]}, {}, atlas_dir )
+    network_des = atlas_network.atlas_network_build( testlib.working_dir(**kw), [17000], {17000: [16264]}, {}, atlas_dir )
     atlas_network.atlas_network_start( network_des )
 
     # wait at most 60 seconds for atlas network to converge
@@ -197,6 +195,7 @@ def check( state_engine ):
         name = 'foo_{}.test'.format(i)
         value_hash = value_hashes[i]
 
+        '''
         # atlas logic tried storage (either this node or the atlas peer)
         zfinfo = blockstack.atlasdb_get_zonefile( value_hash, path=atlasdb_path )
         if not zfinfo['tried_storage']:
@@ -205,23 +204,21 @@ def check( state_engine ):
             if not zfinfo2['tried_storage']:
                 print "didn't get zonefile from storage: test node: %s, atlas peer: %s" % (zfinfo, zfinfo2)
                 return False
-
+        '''
+        '''
         # zonefile stored to disk?
         zfdata = blockstack_client.zonefile.load_name_zonefile(name, value_hash, storage_drivers=['disk'])
         if zfdata is None:
             print "failed to load zonefile %s from disk" % value_hash
             return False
+        '''
 
         # zonefile cached?
-        cached_zonefile = blockstack.lib.storage.get_cached_zonefile( value_hash, zonefile_dir=zonefile_dir )
-        if cached_zonefile is None:
+        cached_zonefile_txt = blockstack.lib.storage.get_atlas_zonefile_data( value_hash, zonefile_dir )
+        if cached_zonefile_txt is None:
             print "no cached zonefile %s in %s" % (value_hash, zonefile_dir)
             return False
-        
-        if cached_zonefile != zfdata:
-            print "zonefile mismatch"
-            print "from disk:\n%s\n" % json.dumps(zfdata, indent=4, sort_keys=True)
-            print "from cache:\n%s\n" % json.dumps(cached_zonefile, indent=4, sort_keys=True)
-            return False
+
+        cached_zonefile = blockstack_zones.parse_zone_file(cached_zonefile_txt)
         
     return True

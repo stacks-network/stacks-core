@@ -25,9 +25,12 @@ import sys
 import os
 import importlib
 
-from proxy import BlockstackRPCClient, set_default_proxy, get_default_proxy
+# from proxy import BlockstackRPCClient, set_default_proxy, get_default_proxy
+from proxy import set_default_proxy, get_default_proxy
 from virtualchain import SPVClient
 import storage
+
+import blockstack.lib.client as blockstackd_client
 
 from .constants import CONFIG_PATH, VERSION
 from .config import get_config, semver_match
@@ -93,7 +96,8 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
 
     # create proxy
     log.debug('Connect to {}://{}:{}'.format(server_protocol, server_host, server_port))
-    proxy = BlockstackRPCClient(server_host, server_port, protocol = server_protocol)
+    # proxy = BlockstackRPCClient(server_host, server_port, protocol=server_protocol)
+    proxy = blockstackd_client.connect_hostport('{}://{}:{}'.format(server_protocol, server_host, server_port))
 
     # load all storage drivers
     loaded = []
@@ -102,12 +106,15 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
         if storage_impl is None:
             log.error('Failed to load storage driver "{}"'.format(storage_driver))
             sys.exit(1)
+
         loaded.append(storage_driver)
         rc = register_storage(storage_impl, conf)
         if not rc:
             log.error('Failed to initialize storage driver "{}" ({})'.format(storage_driver, rc))
             sys.exit(1)
+
     log.debug('Loaded storage drivers {}'.format(loaded))
+
     # initialize SPV
     SPVClient.init(spv_headers_path)
     proxy.spv_headers_path = spv_headers_path

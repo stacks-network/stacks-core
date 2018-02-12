@@ -283,6 +283,7 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
     look up a set of name operations from the past, given the previous
     point in time's untrusted block ID and consensus hash.
     """
+    import blockstack
 
     log.debug('verify {}-{} to {}-{}'.format(
         current_block_id, current_consensus_hash, block_id, consensus_hash
@@ -400,6 +401,8 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         log.error('Failed to get nameops at {}: {}'.format(block_id, historic_nameops['error']))
         return {'error': 'BUG: no nameops found'}
 
+    log.debug("nameops at {}\n{}".format(block_id, json.dumps(historic_nameops, sort_keys=True)))
+
     # sanity check...
     for historic_op in historic_nameops:
         if 'opcode' not in historic_op:
@@ -410,9 +413,10 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
             historic_op['op'] = NAME_OPCODES[str(historic_op['opcode'])]
 
     # check integrity
+    opfields = blockstack.lib.virtualchain_hooks.get_opfields()
     serialized_historic_nameops = [
         virtualchain.StateEngine.serialize_op(
-            str(op['op'][0]), op, OPFIELDS, verbose=True
+            str(op['op'][0]), op, opfields, verbose=True
         ) for op in historic_nameops
     ]
 
@@ -422,6 +426,8 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         return {'error': 'Previous block/consensus hash is unreachable from trusted block/consensus hash'}
 
     if historic_nameops_hash != prev_nameops_hashes[block_id]:
+        log.error("historic nameops hash at {}: {}".format(block_id, historic_nameops_hash))
+        log.error("prev_nameops_hashes:\n{}".format(json.dumps(prev_nameops_hashes, indent=4, sort_keys=True)))
         return {
             'error': 'Hash mismatch: failed to get operations at {}-{} from {}-{} ({} != {})'.format(
                 block_id, consensus_hash, current_block_id, current_consensus_hash, historic_nameops_hash, prev_nameops_hashes[block_id]

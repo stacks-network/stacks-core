@@ -54,29 +54,26 @@ from virtualchain.lib.hashing import *
 
 log = virtualchain.get_logger("blockstack-core")
 
-import blockstack_client
-
-from lib import nameset as blockstack_state_engine
 from lib import get_db_state
-from lib.config import REINDEX_FREQUENCY
+from lib.client import BlockstackRPCClient
+from lib.client import ping as blockstack_ping
+from lib.client import OP_HEX_PATTERN, OP_CONSENSUS_HASH_PATTERN, OP_ADDRESS_PATTERN, OP_BASE64_EMPTY_PATTERN
+from lib.config import REINDEX_FREQUENCY, BLOCKSTACK_TEST, default_bitcoind_opts, is_subdomains_enabled
+from lib.util import url_to_host_port, atlas_inventory_to_string, daemonize, make_DID, parse_DID
 from lib import *
 from lib.storage import *
 from lib.atlas import *
 from lib.fast_sync import *
+from lib.subdomains import subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history, get_DID_subdomain, get_subdomains_owned_by_address
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
-from lib.consensus import *
 
 # global variables, for use with the RPC server
 bitcoind = None
 rpc_server = None
 storage_pusher = None
 gc_thread = None
-has_indexer = True
-
-from blockstack_client.utils import url_to_host_port, atlas_inventory_to_string
-from blockstack_client import queue_findone, queue_findall, queue_removeall, queue_append
 
 GC_EVENT_THRESHOLD = 15
 
@@ -121,12 +118,11 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
          return None
 
 
-def get_pidfile_path():
+def get_pidfile_path(working_dir):
    """
    Get the PID file path.
    """
-   working_dir = virtualchain.get_working_dir()
-   pid_filename = blockstack_state_engine.get_virtual_chain_name() + ".pid"
+   pid_filename = virtualchain_hooks.get_virtual_chain_name() + ".pid"
    return os.path.join( working_dir, pid_filename )
 
 
@@ -141,34 +137,15 @@ def put_pidfile( pidfile_path, pid ):
     return
 
 
-def get_logfile_path():
+def get_logfile_path(working_dir):
    """
    Get the logfile path for our service endpoint.
    """
-   working_dir = virtualchain.get_working_dir()
-   logfile_filename = blockstack_state_engine.get_virtual_chain_name() + ".log"
+   logfile_filename = virtualchain_hooks.get_virtual_chain_name() + ".log"
    return os.path.join( working_dir, logfile_filename )
 
 
-def get_lastblock():
-    """
-    Get the last block processed.
-    """
-    lastblock_filename = virtualchain.get_lastblock_filename()
-    if not os.path.exists( lastblock_filename ):
-        return None
-
-    try:
-        with open(lastblock_filename, "r") as f:
-           lastblock_txt = f.read()
-
-        lastblock = int(lastblock_txt.strip())
-        return lastblock
-    except:
-        return None
-
-
-def get_index_range():
+def get_index_range(working_dir):
     """
     Get the bitcoin block index range.
     Mask connection failures with timeouts.
@@ -179,7 +156,7 @@ def get_index_range():
     cryptocurrency node knows about.
     """
 
-    bitcoind_session = get_bitcoind( new=True )
+    bitcoind_session = get_bitcoind(new=True)
     assert bitcoind_session is not None
 
     first_block = None
@@ -187,9 +164,9 @@ def get_index_range():
     wait = 1.0
     while last_block is None and is_running():
 
-        first_block, last_block = virtualchain.get_index_range( bitcoind_session )
+        first_block, last_block = virtualchain.get_index_range('bitcoin', bitcoind_session, virtualchain_hooks, working_dir)
 
-        if last_block is None:
+        if first_block is None or last_block is None:
 
             # try to reconnnect
             log.error("Reconnect to bitcoind in {} seconds".format(wait))
@@ -201,14 +178,6 @@ def get_index_range():
 
         else:
             return first_block, last_block - NUM_CONFIRMATIONS
-
-
-def is_indexer():
-    """
-    Is this node indexing?
-    """
-    global has_indexer
-    return has_indexer
 
 
 def rpc_traceback():
@@ -234,7 +203,7 @@ def get_name_cost( db, name ):
     namespace = db.get_namespace( namespace_id )
     if namespace is None:
         # maybe importing?
-        log.debug("Revealing namespace '%s'" % namespace_id)
+        log.debug("Namespace '{}' is being revealed".format(namespace_id))
         namespace = db.get_namespace_reveal( namespace_id )
 
     if namespace is None:
@@ -366,15 +335,24 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
                 "client_port": RPC_SERVER_PORT
             }
 
+            params_fmt = ','.join(str(p) for p in params)
+            if len(params_fmt) > 100:
+                params_fmt = params_fmt[:100] + '...'
+
             # if this is running as part of the atlas network simulator,
             # then for methods whose first argument is 'atlas_network', then
             # the second argument is always the simulated client host/port
             # (for atlas-specific methods)
             if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1" and len(params) > 0 and params[0] == 'atlas_network':
-                log.debug("Reformatting '%s(%s)' as atlas network simulator call" % (method, params))
 
                 client_hostport = params[1]
                 params = params[3:]
+                params_fmt = ','.join(str(p) for p in params)
+                if len(params_fmt) > 100:
+                    params_fmt = params_fmt[:100] + '...'
+
+                log.debug("Reformatting '%s(%s)' as atlas network simulator call" % (method, params_fmt))
+
                 con_info = {}
 
                 if client_hostport is not None:
@@ -394,25 +372,28 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
 
             else:
                 if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1":
-                    log.debug("Inbound RPC begin %s(%s)" % ("rpc_" + str(method), params))
+                    log.debug("Inbound RPC begin %s(%s) from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
                 else:
-                    log.debug("RPC %s(%s)" % ("rpc_" + str(method), params))
+                    log.debug("RPC %s(%s) from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
 
             res = self.server.funcs["rpc_" + str(method)](*params, **con_info)
+
+            if 'deprecated' in res and res['deprecated']:
+                log.warn("DEPRECATED method call {} from {}".format(method, self.client_address[0]))
 
             # lol jsonrpc within xmlrpc
             ret = json.dumps(res)
 
             if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1":
-                log.debug("Inbound RPC end %s(%s)" % ("rpc_" + str(method), params))
+                log.debug("Inbound RPC end %s(%s) from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
 
             return ret
         except Exception, e:
-            print >> sys.stderr, "\n\n%s(%s)\n%s\n\n" % ("rpc_" + str(method), params, traceback.format_exc())
-            return json.dumps( rpc_traceback() )
+            print >> sys.stderr, "\n\n%s(%s)\n%s\n\n" % ("rpc_" + str(method), params_fmt, traceback.format_exc())
+            return json.dumps(rpc_traceback())
 
 
-class BlockstackdRPC( SimpleXMLRPCServer):
+class BlockstackdRPC(SimpleXMLRPCServer):
     """
     Blockstackd RPC server, used for querying
     the name database and the blockchain peer.
@@ -421,9 +402,12 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     as RPC methods.
     """
 
-    def __init__(self, host='0.0.0.0', port=config.RPC_SERVER_PORT, handler=BlockstackdRPCHandler ):
+    def __init__(self, working_dir, host='0.0.0.0', port=config.RPC_SERVER_PORT, subdomain_index=None, handler=BlockstackdRPCHandler ):
+        log.info("Serving database state from {}".format(working_dir))
         log.info("Listening on %s:%s" % (host, port))
         SimpleXMLRPCServer.__init__( self, (host, port), handler, allow_none=True )
+        
+        self.working_dir = working_dir
 
         # register methods
         for attr in dir(self):
@@ -431,20 +415,61 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 method = getattr(self, attr)
                 if callable(method) or hasattr(method, '__call__'):
                     self.register_function( method )
+        
+        # cache bitcoind info until we reindex, or a blocktime has passed
+        self.cache = {}
+
+        # remember how long ago we reached the given block height
+        self.last_indexing_time = time.time()
+
+        # subdomain indexer handle
+        self.subdomain_index = subdomain_index
 
 
-    def success_response(self, method_resp ):
+    def cache_flush(self):
+        """
+        Clear all cached state
+        """
+        self.cache = {}
+
+
+    def set_last_index_time(self, timestamp):
+        """
+        Set the time of last indexing.
+        Called by the indexing thread.
+        """
+        self.last_indexing_time = timestamp
+
+
+    def is_stale(self):
+        """
+        Are we behind the chain?
+        """
+        return self.last_indexing_time + RPC_MAX_INDEXING_DELAY < time.time()
+
+
+    def success_response(self, method_resp, **kw):
         """
         Make a standard "success" response,
         which contains some ancilliary data.
+
+        Also, detect if this node is too far behind the Bitcoin blockchain,
+        and if so, convert this into an error message.
         """
         resp = {
             'status': True,
-            'indexing': config.is_indexing(),
-            'lastblock': config.fast_getlastblock(),
+            'indexing': config.is_indexing(self.working_dir),
+            'lastblock': virtualchain_hooks.get_last_block(self.working_dir),
         }
 
-        resp.update( method_resp )
+        resp.update(kw)
+        resp.update(method_resp)
+        
+        if self.is_stale():
+            # our state is stale
+            resp['stale'] = True
+            resp['warning'] = 'Daemon has not reindexed since {}'.format(self.last_indexing_time)
+
         return resp
 
 
@@ -474,6 +499,19 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return True
 
 
+    def check_subdomain(self, fqn):
+        """
+        Verify that the given fqn is a subdomain
+        """
+        if type(fqn) not in [str, unicode]:
+            return False
+
+        if not is_subdomain(fqn):
+            return False
+
+        return True
+
+
     def check_block(self, block_id):
         """
         Verify that a block ID is valid
@@ -481,7 +519,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if type(block_id) not in [int, long]:
             return False
 
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if BLOCKSTACK_TEST:
             if block_id <= 0:
                 return False
 
@@ -552,71 +590,256 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         """
         verify that a string is an address
         """
-        return self.check_string(address, min_length=26, max_length=35, pattern=blockstack_client.schemas.OP_ADDRESS_PATTERN)
+        return self.check_string(address, min_length=26, max_length=35, pattern=OP_ADDRESS_PATTERN)
+
+
+    def sanitize_rec(self, rec):
+        """
+        sanitize a name/namespace record before returning it.
+        * canonicalize it
+        * remove quirk fields
+        """
+        opcode = rec['opcode']
+        canonical_op = op_canonicalize(opcode, rec)
+
+        # don't return internally-used quirk fields
+        quirk_fields = op_get_quirk_fields(opcode)
+        for f in quirk_fields:
+            if f in canonical_op:
+                del canonical_op[f]
+
+        canonical_op['opcode'] = opcode
+        return canonical_op
 
 
     def rpc_ping(self, **con_info):
         reply = {}
         reply['status'] = "alive"
+        reply['version'] = VERSION
+       
+        if self.is_stale():
+            reply['status'] = "stale"
+            
         return reply
+    
 
-
-    def rpc_get_name_blockchain_record(self, name, **con_info):
+    def load_name_info(self, db, name_record, did=None):
         """
-        Lookup the blockchain-derived whois info for a name.
+        Get some extra name information, given a db-loaded name record.
+        Return the updated name_record
+        """
+        name = str(name_record['name'])
+
+        # include the DID if not given
+        did_info = None
+        if did is None:
+            did_info = db.get_name_DID_info(name)
+            if did_info is None:
+                return {'error': 'Not found.'}
+
+        name_record = self.sanitize_rec(name_record)
+
+        namespace_id = get_namespace_from_name(name)
+        namespace_record = db.get_namespace(namespace_id, include_history=False)
+        if namespace_record is None:
+            namespace_record = db.get_namespace_reveal(namespace_id, include_history=False)
+
+        # when does this name expire (if it expires)?
+        if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
+            deadlines = BlockstackDB.get_name_deadlines(name_record, namespace_record, db.lastblock)
+            if deadlines is not None:
+                name_record['expire_block'] = deadlines['expire_block']
+                name_record['renewal_deadline'] = deadlines['renewal_deadline']
+            else:
+                # only possible if namespace is not yet ready
+                name_record['expire_block'] = -1
+                name_record['renewal_deadline'] = -1
+
+        else:
+            name_record['expire_block'] = -1
+            name_record['renewal_deadline'] = -1
+
+        if name_record['expire_block'] > 0 and name_record['expire_block'] <= db.lastblock:
+            name_record['expired'] = True
+        else:
+            name_record['expired'] = False
+
+        if did is None:
+            name_record['did'] = make_DID(did_info['name_type'], did_info['address'], did_info['index'])
+        else:
+            name_record['did'] = did
+
+        # try to get the zonefile as well 
+        if 'value_hash' in name_record and name_record['value_hash'] is not None:
+            conf = get_blockstack_opts()
+            if is_atlas_enabled(conf):
+                zfdata = self.get_zonefile_data(name_record['value_hash'], conf['zonefiles'])
+                if zfdata is not None:
+                    zfdata = base64.b64encode(zfdata)
+                    name_record['zonefile'] = zfdata
+
+        return name_record
+
+
+    def get_name_record(self, name, include_history=False):
+        """
+        Get the whois-related info for a name (not a subdomain).
+        Optionally include the history.
         Return {'status': True, 'record': rec} on success
         Return {'error': ...} on error
         """
-
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_name(name):
             return {'error': 'invalid name'}
+        
+        name = str(name)
 
-        db = get_db_state()
-
-        try:
-            name = str(name)
-        except Exception as e:
-            db.close()
-            return {"error": str(e)}
-
-        name_record = db.get_name(str(name))
+        db = get_db_state(self.working_dir)
+        name_record = db.get_name(str(name), include_history=include_history)
 
         if name_record is None:
             db.close()
             return {"error": "Not found."}
 
         else:
-
-            namespace_id = get_namespace_from_name(name)
-            namespace_record = db.get_namespace(namespace_id)
-            if namespace_record is None:
-                namespace_record = db.get_namespace_reveal(namespace_id)
-
-            # when does this name expire (if it expires)?
-            if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
-                deadlines = BlockstackDB.get_name_deadlines(name_record, namespace_record, db.lastblock)
-                if deadlines is not None:
-                    name_record['expire_block'] = deadlines['expire_block']
-                    name_record['renewal_deadline'] = deadlines['renewal_deadline']
-                else:
-                    # only possible if namespace is not yet ready
-                    name_record['expire_block'] = -1
-                    name_record['renewal_deadline'] = -1
-
-            else:
-                name_record['expire_block'] = -1
-                name_record['renewal_deadline'] = -1
-
-            if name_record['expire_block'] > 0 and name_record['expire_block'] <= db.lastblock:
-                name_record['expired'] = True
-            else:
-                name_record['expired'] = False
-
+            assert 'opcode' in name_record, 'BUG: missing opcode in {}'.format(json.dumps(name_record, sort_keys=True))
+            name_record = self.load_name_info(db, name_record)
             db.close()
-            return self.success_response( {'record': name_record} )
+
+            return {'status': True, 'record': name_record}
+
+
+    def get_subdomain_record(self, fqn, include_history=False):
+        """
+        Get the whois-related info for a subdomain.
+        Optionally include the history for the domain.
+        Return {'status': True, 'record': rec} on success
+        Return {'error': ...} on error
+        """
+        if not self.check_subdomain(fqn):
+            return {'error': 'invalid subdomain'}
+        
+        fqn = str(fqn)
+
+        # get current record
+        subdomain_rec = get_subdomain_info(fqn, check_pending=True, include_did=True)
+        if subdomain_rec is None:
+            return {'error': 'Failed to load subdomain'}
+   
+        ret = subdomain_rec.to_json()
+        if include_history:
+            subdomain_hist = get_subdomain_history(fqn, json=True)
+            ret['history'] = subdomain_hist
+
+        return {'status': True, 'record': ret}
+
+
+    def rpc_get_name_record(self, name, **con_info):
+        """
+        Get the curernt state of a name or subdomain, excluding its history.
+        Return {'status': True, 'record': rec} on success
+        Return {'error': ...} on error
+        """
+        res = None
+        if self.check_name(name):
+            res = self.get_name_record(name, include_history=False)
+        elif self.check_subdomain(name):
+            res = self.get_subdomain_record(name, include_history=False)
+        else:
+            return {'error': 'Invalid name or subdomain'}
+
+        if 'error' in res:
+            return res
+
+        return self.success_response({'record': res['record']})
+
+
+    def get_name_DID_record(self, did):
+        """
+        Given a DID for a name, return the name record.
+        Return {'record': ...} on success
+        Return {'error': ...} on error
+        """
+        try:
+            did_info = parse_DID(did)
+            assert did_info['name_type'] == 'name'
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            return {'error': 'Invalid DID'}
+
+        db = get_db_state(self.working_dir)
+        rec = db.get_DID_name(did)
+        if rec is None:
+            db.close()
+            return {'error': 'Failed to resolve DID to a non-revoked name'}
+
+        name_record = self.load_name_info(db, rec)
+        db.close()
+        return {'record': name_record}
+
+
+    def get_subdomain_DID_record(self, did):
+        """
+        Given a DID for subdomain, get the subdomain record
+        Return {'record': ...} on success
+        Return {'error': ...} on error
+        """
+        try:
+            did_info = parse_DID(did)
+            assert did_info['name_type'] == 'subdomain'
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            return {'error': 'Invalid DID'}
+
+        subrec = get_DID_subdomain(did, check_pending=True)
+        if subrec is None:
+            return {'error': 'Failed to load subdomain from {}'.format(did)}
+
+        return {'record': subrec.to_json()}
+
+
+    def rpc_get_DID_record(self, did, **con_info):
+        """
+        Given a DID, return the name or subdomain it corresponds to
+        """
+        try:
+            did_info = parse_DID(did)
+        except:
+            return {'error': 'Invalid DID'}
+
+        res = None
+        if did_info['name_type'] == 'name':
+            res = self.get_name_DID_record(did)
+        elif did_info['name_type'] == 'subdomain':
+            res = self.get_subdomain_DID_record(did)
+        
+        if 'error' in res:
+            return res
+
+        return self.success_response({'record': res['record']})
+
+
+    def rpc_get_name_blockchain_record(self, name, **con_info):
+        """
+        Lookup all blockchain state for a name or subdomain, including its history.
+        Return {'status': True, 'record': rec} on success
+        Return {'error': ...} on error
+        """
+        res = None
+        if self.check_name(name):
+            res = self.get_name_record(name, include_history=True)
+        elif self.check_subdomain(name):
+            res = self.get_subdomain_record(name, include_history=True)
+        else:
+            return {'error': 'Invalid name or subdomain'}
+
+        if 'error' in res:
+            return res
+
+        return self.success_response({'record': res['record']})
 
 
     def rpc_get_name_history_blocks( self, name, **con_info ):
@@ -625,13 +848,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'history_blocks': [...]} on success
         Return {'error': ...} on error
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_name(name):
             return {'error': 'invalid name'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         history_blocks = db.get_name_history_blocks( name )
         db.close()
         return self.success_response( {'history_blocks': history_blocks} )
@@ -640,147 +860,101 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_get_name_at( self, name, block_height, **con_info ):
         """
         Get all the states the name was in at a particular block height.
+        Does NOT work on expired names.
         Return {'status': true, 'record': ...}
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_name(name):
             return {'error': 'invalid name'}
 
         if not self.check_block(block_height):
-            return {'status': True, 'record': None}
+            return self.success_response({'record': None})
 
-        db = get_db_state()
-        name_at = db.get_name_at( name, block_height )
+        db = get_db_state(self.working_dir)
+        names_at = db.get_name_at( name, block_height, include_expired=False )
         db.close()
+        
+        ret = []
+        for name_rec in names_at:
+            if 'opcode' not in name_rec:
+                name_rec['opcode'] = op_get_opcode_name(name_rec['op'])
+            
+            ret.append(self.sanitize_rec(name_rec))
 
-        return self.success_response( {'records': name_at} )
+        return self.success_response( {'records': ret} )
 
 
     def rpc_get_historic_name_at( self, name, block_height, **con_info ):
         """
         Get all the states the name was in at a particular block height.
+        Works on expired and unexpired names.
         Return {'status': true, 'record': ...}
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_name(name):
             return {'error': 'invalid name'}
 
         if not self.check_block(block_height):
-            return {'status': True, 'record': None}
+            return self.success_response({'record': None})
 
-        db = get_db_state()
-        name_at = db.get_name_at( name, block_height, include_expired=True )
+        db = get_db_state(self.working_dir)
+        names_at = db.get_name_at( name, block_height, include_expired=True )
         db.close()
 
-        return self.success_response( {'records': name_at} )
+        ret = []
+        for name_rec in names_at:
+            if 'opcode' not in name_rec:
+                name_rec['opcode'] = op_get_opcode_name(name_rec['op'])
 
+            ret.append(self.sanitize_rec(name_rec))
 
-    def rpc_get_op_history_rows( self, history_id, offset, count, **con_info ):
+        return self.success_response( {'records': ret} )
+
+    
+    def rpc_get_num_nameops_at(self, block_id, **con_info):
         """
-        Get a page of history rows for a name or namespace
-        Return {'status': True, 'history_rows': [history rows]} on success
-        Return {'error': ...} on error
-        """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
-        if not self.check_name(history_id) and not self.check_namespace(history_id):
-            return {'error': 'Invalid name or namespace'}
-
-        if not self.check_offset(offset):
-            return {'error': 'invalid offset'}
-
-        if not self.check_count(count, 10):
-            return {'error': 'invalid count'}
-
-        db = get_db_state()
-        history_rows = db.get_op_history_rows( history_id, offset, count )
-        db.close()
-
-        return self.success_response( {'history_rows': history_rows} )
-
-
-    def rpc_get_num_op_history_rows( self, history_id, **con_info ):
-        """
-        Get the total number of history rows
-        Return {'status': True, 'count': count} on success
-        Return {'error': ...} on error
-        """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
-        if not self.check_name(history_id) and not self.check_namespace(history_id):
-            return {'error': 'Invalid name or namespace'}
-
-        db = get_db_state()
-        num_history_rows = db.get_num_op_history_rows( history_id )
-        db.close()
-
-        return self.success_response( {'count': num_history_rows} )
-
-
-    def rpc_get_nameops_affected_at( self, block_id, offset, count, **con_info ):
-        """
-        Get the sequence of name and namespace records affected at the given block.
-        The records returned will be in their *current* forms.  The caller
-        should use get_op_history_rows() to fetch the history delta that
-        can be used to restore the records to their *historic* forms i.e.
-        at the given block height.
-
-        Returns the list of name operations to be fed into virtualchain, as
-        {'status': True, 'nameops': [nameops]}
-
-        Returns {'error': ...} on failure
-
-        Used by SNV clients.
-        """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
-        if not self.check_block(block_id):
-            return {'error': 'Invalid block height'}
-
-        if not self.check_offset(offset):
-            return {'error': 'invalid offset'}
-
-        if not self.check_count(count, 10):
-            return {'error': 'invalid count'}
-
-        # do NOT restore history information, since we're paging
-        db = get_db_state()
-        prior_records = db.get_all_ops_at( block_id, offset=offset, count=count, include_history=False, restore_history=False )
-        db.close()
-        log.debug("%s name operations at block %s, offset %s, count %s" % (len(prior_records), block_id, offset, count))
-        for rec in prior_records:
-           if 'buckets' in rec and (isinstance(rec['buckets'], str) or
-                                    isinstance(rec['buckets'], unicode)):
-              rec['buckets'] = json.loads(rec['buckets'])
-
-        return self.success_response( {'nameops': prior_records} )
-
-
-    def rpc_get_num_nameops_affected_at( self, block_id, **con_info ):
-        """
-        Get the number of name and namespace operations at the given block.
-        Returns {'status': True, 'count': ...} on success
+        Get the number of Blockstack transactions that occured at the given block.
+        Returns {'count': ..} on success
         Returns {'error': ...} on error
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_block(block_id):
             return {'error': 'Invalid block height'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         count = db.get_num_ops_at( block_id )
         db.close()
 
-        log.debug("%s name operations at %s" % (count, block_id))
-        return self.success_response( {'count': count} )
+        log.debug("{} operations at {}".format(count, block_id))
+        return self.success_response({'count': count})
+
+
+    def rpc_get_nameops_at(self, block_id, offset, count, **con_info):
+        """
+        Get the name operations that occured in the given block.
+
+        Returns {'nameops': [...]} on success.
+        Returns {'error': ...} on error
+        """
+        if not self.check_block(block_id):
+            return {'error': 'Invalid block height'}
+
+        if not self.check_offset(offset):
+            return {'error': 'Invalid offset'}
+
+        if not self.check_count(count, 10):
+            return {'error': 'Invalid count'}
+
+        db = get_db_state(self.working_dir)
+        nameops = db.get_all_ops_at(block_id, offset=offset, count=count)
+        db.close()
+
+        log.debug("{} name operations at block {}, offset {}, count {}".format(len(nameops), block_id, offset, count))
+        ret = []
+        
+        for nameop in nameops:
+            assert 'opcode' in nameop, 'BUG: missing opcode in {}'.format(json.dumps(nameop, sort_keys=True))
+            canonical_op = self.sanitize_rec(nameop)
+            ret.append(canonical_op)
+        
+        return self.success_response({'nameops': ret})
 
 
     def rpc_get_nameops_hash_at( self, block_id, **con_info ):
@@ -791,18 +965,68 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Returns {'status': True, 'ops_hash': ops_hash} on success
         Returns {'error': ...} on error
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_block(block_id):
             return {'error': 'Invalid block height'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         ops_hash = db.get_block_ops_hash( block_id )
         db.close()
 
         return self.success_response( {'ops_hash': ops_hash} )
 
+
+    def get_cached_bitcoind_info(self):
+        """
+        Get cached bitcoind info.
+        Returns {'getinfo': {...}} on success
+        Return None if it is stale
+        """
+        cached_bitcoind_info = self.cache.get('bitcoind_info', None)
+        if cached_bitcoind_info is None:
+            # not cached
+            return None
+
+        now = time.time()
+        if cached_bitcoind_info['time'] + AVERAGE_SECONDS_PER_BLOCK < now:
+            # stale
+            return None
+
+        return cached_bitcoind_info['getinfo']
+
+
+    def set_cached_bitcoind_info(self, info):
+        """
+        Cache bitcoind info
+        """
+        self.cache['bitcoind_info'] = {'time': time.time(), 'getinfo': info}
+
+
+    def get_bitcoind_info(self):
+        """
+        Get bitcoind info.  Try the cache, and on cache miss, 
+        fetch from bitcoind and cache.
+        """
+        cached_bitcoind_info = self.get_cached_bitcoind_info()
+        if cached_bitcoind_info:
+            return cached_bitcoind_info
+
+        bitcoind_opts = default_bitcoind_opts( virtualchain.get_config_filename(virtualchain_hooks, self.working_dir), prefix=True )
+        bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
+
+        if bitcoind is None:
+            return {'error': 'Internal server error: failed to connect to bitcoind'}
+        
+        try:
+            info = bitcoind.getinfo()
+            assert 'error' not in info
+            assert 'blocks' in info
+
+            self.set_cached_bitcoind_info(info)
+            return info
+
+        except Exception as e:
+            raise
+        
 
     def rpc_getinfo(self, **con_info):
         """
@@ -814,26 +1038,17 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         * server_alive: True
         * [optional] zonefile_count: the number of zonefiles known
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
-        bitcoind_opts = blockstack_client.default_bitcoind_opts( virtualchain.get_config_filename(), prefix=True )
-        bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
-
-        if bitcoind is None:
-            return {'error': 'Internal server error: failed to connect to bitcoind'}
-
         conf = get_blockstack_opts()
-        info = bitcoind.getinfo()
+        info = self.get_bitcoind_info()
         reply = {}
         reply['last_block_seen'] = info['blocks']
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         reply['consensus'] = db.get_current_consensus()
         reply['server_version'] = "%s" % VERSION
         reply['last_block_processed'] = db.get_current_block()
         reply['server_alive'] = True
-        reply['indexing'] = config.is_indexing()
+        reply['indexing'] = config.is_indexing(self.working_dir)
 
         db.close()
 
@@ -841,7 +1056,24 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             # return zonefile inv length
             reply['zonefile_count'] = atlas_get_num_zonefiles()
 
+        if self.is_stale():
+            reply['stale'] = True
+            reply['warning'] = 'Daemon is behind the chain tip.  Do not rely on it for fresh information.'
+
         return reply
+
+
+    def rpc_get_subdomains_owned_by_address(self, address, **con_info):
+        """
+        Get the list of subdomains owned by an address.
+        Return {'status': True, 'subdomains': ...} on success
+        Return {'error': ...} on error
+        """
+        if not self.check_address(address):
+            return {'error': 'Invalid address'}
+
+        res = get_subdomains_owned_by_address(address)
+        return self.success_response({'subdomains': res})
 
 
     def rpc_get_names_owned_by_address(self, address, **con_info):
@@ -850,13 +1082,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'names': ...} on success
         Return {'error': ...} on error
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_address(address):
             return {'error': 'Invalid address'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         names = db.get_names_owned_by_address( address )
         db.close()
 
@@ -872,9 +1101,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'names': [{'name': ..., 'block_id': ..., 'vtxindex': ...}]} on success
         Return {'error': ...} on error
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_address(address):
             return {'error': 'Invalid address'}
 
@@ -884,7 +1110,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not self.check_count(count, 10):
             return {'error': 'invalid count'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         names = db.get_historic_names_by_address(address, offset, count)
         db.close()
 
@@ -900,14 +1126,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'count': ...} on success
         Return {'error': ...} on failure
         """
-
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_address(address):
             return {'error': 'Invalid address'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         ret = db.get_num_historic_names_by_address(address)
         db.close()
 
@@ -922,14 +1144,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return the cost of a given name, including fees
         Return value is in satoshis (as 'satoshis')
         """
-
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_name(name):
             return {'error': 'Invalid name or namespace'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         ret = get_name_cost( db, name )
         db.close()
 
@@ -944,14 +1162,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return the cost of a given namespace, including fees.
         Return value is in satoshis
         """
-
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_namespace(namespace_id):
             return {'error': 'Invalid name or namespace'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         cost, ns = get_namespace_cost( db, namespace_id )
         db.close()
 
@@ -971,14 +1185,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'record': ...} on success
         Return {'error': ...} on error
         """
-
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_namespace(namespace_id):
             return {'error': 'Invalid name or namespace'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         ns = db.get_namespace( namespace_id )
         if ns is None:
             # maybe revealed?
@@ -988,11 +1198,18 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             if ns is None:
                 return {"error": "No such namespace"}
 
+            assert 'opcode' in ns, 'BUG: missing opcode in {}'.format(json.dumps(ns, sort_keys=True))
+            ns = self.sanitize_rec(ns)
+
             ns['ready'] = False
             return self.success_response( {'record': ns} )
 
         else:
             db.close()
+            
+            assert 'opcode' in ns, 'BUG: missing opcode in {}'.format(json.dumps(ns, sort_keys=True))
+            ns = self.sanitize_rec(ns)
+
             ns['ready'] = True
             return self.success_response( {'record': ns} )
 
@@ -1003,11 +1220,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'count': count} on success
         Return {'error': ...} on error
         """
-
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         num_names = db.get_num_names()
         db.close()
 
@@ -1020,11 +1233,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'count': count} on success
         Return {'error': ...} on error
         """
-
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         num_names = db.get_num_names(include_expired=True)
         db.close()
 
@@ -1037,16 +1246,13 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_offset(offset):
             return {'error': 'invalid offset'}
 
         if not self.check_count(count, 100):
             return {'error': 'invalid count'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         all_names = db.get_all_names( offset=offset, count=count )
         db.close()
 
@@ -1059,16 +1265,13 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_offset(offset):
             return {'error': 'invalid offset'}
 
         if not self.check_count(count, 100):
             return {'error': 'invalid count'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         all_names = db.get_all_names( offset=offset, count=count, include_expired=True )
         db.close()
 
@@ -1081,11 +1284,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': true, 'namespaces': [...]} on success
         Return {'error': ...} on error
         """
-
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         all_namespaces = db.get_all_namespace_ids()
         db.close()
 
@@ -1098,14 +1297,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': true, 'count': count} on success
         Return {'error': ...} on error
         """
-
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_namespace(namespace_id):
             return {'error': 'Invalid name or namespace'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         num_names = db.get_num_names_in_namespace( namespace_id )
         db.close()
 
@@ -1118,9 +1313,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_namespace(namespace_id):
             return {'error': 'Invalid name or namespace'}
 
@@ -1133,8 +1325,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_namespace_valid( namespace_id ):
             return {'error': 'invalid namespace ID'}
 
-
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         res = db.get_names_in_namespace( namespace_id, offset=offset, count=count )
         db.close()
 
@@ -1147,13 +1338,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'status': True, 'consensus': ...} on success
         Return {'error': ...} on error
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if not self.check_block(block_id):
             return {'error': 'Invalid block height'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         consensus = db.get_consensus_at( block_id )
         db.close()
         return self.success_response( {'consensus': consensus} )
@@ -1167,9 +1355,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Returns {'status': True, 'consensus_hashes': dict} on success
         Returns {'error': ...} on success
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
         if type(block_id_list) != list:
             return {'error': 'Invalid block heights'}
 
@@ -1180,7 +1365,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             if not self.check_block(bid):
                 return {'error': 'Invalid block height'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         ret = {}
         for block_id in block_id_list:
             ret[block_id] = db.get_consensus_at(block_id)
@@ -1190,127 +1375,44 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return self.success_response( {'consensus_hashes': ret} )
 
 
-    def rpc_get_mutable_data( self, blockchain_id, fq_data_id, **con_info ):
-        """
-        Get a mutable data record written by a given user.
-        """
-        if type(fq_data_id) not in [str, unicode]:
-            return {'error': 'Invalid data ID'}
-
-        if len(fq_data_id) > 4096:
-            # no way this is valid
-            return {'error': 'Invalid data ID'}
-
-        if not self.check_name(blockchain_id):
-            return {'error': 'Invalid blockchain ID'}
-
-        conf = get_blockstack_opts()
-        if not conf['serve_data']:
-            return {'error': 'No data'}
-
-        drivers = conf.get('data_storage_drivers', None)
-        if drivers is not None:
-            drivers = drivers.split(',')
-
-        res = load_mutable_data_from_storage( blockchain_id, fq_data_id, drivers=drivers )
-        if res is None:
-            log.debug("Failed to get {}".format(fq_data_id))
-            return {'error': 'Failed to get data'}
-
-        return self.success_response({'data': res})
-
-
-    def rpc_get_immutable_data( self, blockchain_id, data_hash, **con_info ):
-        """
-        Get immutable data record written by a given user.
-        """
-        conf = get_blockstack_opts()
-        if not conf['serve_data']:
-            return {'error': 'No data'}
-
-        if not self.check_name(blockchain_id):
-            return {'error': 'Invalid blockchain ID'}
-
-        if not self.check_string(data_hash, min_length=32, max_length=128, pattern=blockstack_client.schemas.OP_HEX_PATTERN):
-            return {'error': 'Invalid address'}
-
-        client = get_blockstack_client_session()
-        return client.get_immutable( str(blockchain_id), str(data_hash) )
-
-
     def rpc_get_block_from_consensus( self, consensus_hash, **con_info ):
         """
         Given the consensus hash, find the block number (or None)
         """
-        if not is_indexer():
-            return {'error': 'Method not supported'}
-
-        if not self.check_string(consensus_hash, min_length=LENGTHS['consensus_hash']*2, max_length=LENGTHS['consensus_hash']*2, pattern=blockstack_client.schemas.OP_CONSENSUS_HASH_PATTERN):
+        if not self.check_string(consensus_hash, min_length=LENGTHS['consensus_hash']*2, max_length=LENGTHS['consensus_hash']*2, pattern=OP_CONSENSUS_HASH_PATTERN):
             return {'error': 'Not a valid consensus hash'}
 
-        db = get_db_state()
+        db = get_db_state(self.working_dir)
         block_id = db.get_block_from_consensus( consensus_hash )
         db.close()
         return self.success_response( {'block_id': block_id} )
 
 
-    def get_zonefile_data( self, config, zonefile_hash, name=None ):
+    def get_zonefile_data( self, zonefile_hash, zonefile_dir ):
         """
         Get a zonefile by hash
         Return the serialized zonefile on success
         Return None on error
         """
-
         # check cache
-        cached_zonefile_data = get_cached_zonefile_data( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
-        if cached_zonefile_data is not None:
+        atlas_zonefile_data = get_atlas_zonefile_data( zonefile_hash, zonefile_dir )
+        if atlas_zonefile_data is not None:
             # check hash
-            zfh = blockstack_client.get_zonefile_data_hash( cached_zonefile_data )
+            zfh = get_zonefile_data_hash( atlas_zonefile_data )
             if zfh != zonefile_hash:
-                log.debug("Invalid cached zonefile %s" % zonefile_hash )
-                remove_cached_zonefile_data( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
+                log.debug("Invalid local zonefile %s" % zonefile_hash )
+                remove_atlas_zonefile_data( zonefile_hash, zonefile_dir )
 
             else:
-                log.debug("Zonefile %s is cached" % zonefile_hash)
-                return cached_zonefile_data
+                log.debug("Zonefile %s is local" % zonefile_hash)
+                return atlas_zonefile_data
 
         return None
 
 
-    def get_zonefile_data_by_name( self, conf, name, name_rec=None ):
-        """
-        Get a zonefile by name
-        Return the serialized zonefile on success
-        Return None one error
-        """
-
-        if name_rec is None:
-            if not is_indexer():
-                return None
-
-            db = get_db_state()
-            name_rec = db.get_name( name )
-            db.close()
-
-        if name_rec is None:
-            return None
-
-        zonefile_hash = name_rec.get('value_hash', None)
-        if zonefile_hash is None:
-            return None
-
-        # find zonefile
-        zonefile_data = self.get_zonefile_data( conf, zonefile_hash, name=name )
-        if zonefile_data is None:
-            return None
-
-        return zonefile_data
-
-
     def rpc_get_zonefiles( self, zonefile_hashes, **con_info ):
         """
-        Get zonefiles from the local cache,
-        or (on miss), from upstream storage.
+        Get zonefiles from the local zonefile set.
         Only return at most 100 zonefiles.
         Return {'status': True, 'zonefiles': {zonefile_hash: zonefile}} on success
         Return {'error': ...} on error
@@ -1318,8 +1420,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         zonefiles will be serialized to string and base64-encoded
         """
         conf = get_blockstack_opts()
-        if not conf['serve_zonefiles']:
+        if not is_atlas_enabled(conf):
             return {'error': 'No data'}
+            
+        if 'zonefiles' not in conf:
+            return {'error': 'No zonefiles directory (likely a configuration bug)'}
 
         if type(zonefile_hashes) != list:
             log.error("Not a zonefile hash list")
@@ -1330,12 +1435,12 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'Too many requests (no more than 100 allowed)'}
 
         for zfh in zonefile_hashes:
-            if not self.check_string(zfh, min_length=LENGTHS['value_hash']*2, max_length=LENGTHS['value_hash']*2, pattern=blockstack_client.schemas.OP_HEX_PATTERN):
+            if not self.check_string(zfh, min_length=LENGTHS['value_hash']*2, max_length=LENGTHS['value_hash']*2, pattern=OP_HEX_PATTERN):
                 return {'error': 'Invalid zone file hash'}
 
         ret = {}
         for zonefile_hash in zonefile_hashes:
-            zonefile_data = self.get_zonefile_data( conf, zonefile_hash )
+            zonefile_data = self.get_zonefile_data( zonefile_hash, conf['zonefiles'] )
             if zonefile_data is None:
                 continue
 
@@ -1349,18 +1454,17 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_put_zonefiles( self, zonefile_datas, **con_info ):
         """
         Replicate one or more zonefiles, given as serialized strings.
-        Note that the system *only* takes well-formed zonefiles.
+        Only stores zone files whose zone file hashes were announced on the blockchain (i.e. not subdomain zone files)
         Returns {'status': True, 'saved': [0|1]'} on success ('saved' is a vector of success/failure)
         Returns {'error': ...} on error
         Takes at most 5 zonefiles
         """
-
         conf = get_blockstack_opts()
-        if not conf['serve_zonefiles']:
+        if not is_atlas_enabled(conf):
             return {'error': 'No data'}
-
-        if not is_indexer():
-            return {'error': 'Method not supported'}
+        
+        if 'zonefiles' not in conf:
+            return {'error': 'No zonefiles directory (likely a configuration error)'}
 
         if type(zonefile_datas) != list:
             return {'error': 'Invalid data'}
@@ -1369,12 +1473,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'Too many zonefiles'}
 
         for zfd in zonefile_datas:
-            if not self.check_string(zfd, max_length=((4 * RPC_MAX_ZONEFILE_LEN) / 3) + 3, pattern=blockstack_client.schemas.OP_BASE64_PATTERN):
-                return {'error': 'Invalid zone file payload (exceeds {} bytes)'.format(RPC_MAX_ZONEFILE_LEN)}
+            if not self.check_string(zfd, max_length=((4 * RPC_MAX_ZONEFILE_LEN) / 3) + 3, pattern=OP_BASE64_EMPTY_PATTERN):
+                return {'error': 'Invalid zone file payload (exceeds {} bytes and/or not base64-encoded)'.format(RPC_MAX_ZONEFILE_LEN)}
 
         zonefile_dir = conf.get("zonefiles", None)
         saved = []
-        db = get_db_state()
 
         for zonefile_data in zonefile_datas:
 
@@ -1390,375 +1493,45 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 log.debug("Zonefile too long")
                 saved.append(0)
                 continue
-
-            zonefile_hash = blockstack_client.get_zonefile_data_hash( str(zonefile_data) )
-
-            # does it correspond to a valid zonefile?
-            names_with_hash = db.get_names_with_value_hash( zonefile_hash )
-            if names_with_hash is None or len(names_with_hash) == 0:
-                log.debug("Unknown zonefile hash %s" % zonefile_hash)
+            
+            # is this zone file already discovered?
+            zonefile_hash = get_zonefile_data_hash(str(zonefile_data))
+            zfinfos = atlasdb_get_zonefiles_by_hash(zonefile_hash, path=conf['atlasdb_path'])
+            if not zfinfos:
+                # nope
+                log.debug("Unknown zonefile hash {}".format(zonefile_hash))
                 saved.append(0)
                 continue
-
-            rc = store_cached_zonefile_data( str(zonefile_data), zonefile_dir=zonefile_dir )
-            if not rc:
-                log.error("Failed to cache {}".format(zonefile_hash))
-                saved.append(0)
-                continue
-
-            # maybe a proper zonefile?  if so, get the name out
-            name = None
-            txid = None
-            try:
-                zonefile = blockstack_zones.parse_zone_file( str(zonefile_data) )
-                name = str(zonefile['$origin'])
-                txid = db.get_name_value_hash_txid( name, zonefile_hash )
-            except Exception, e:
-                log.debug("Not a well-formed zonefile: %s" % zonefile_hash)
-
-            # queue for replication
-            rc = storage_enqueue_zonefile( txid, str(zonefile_hash), str(zonefile_data) )
+            
+            # keep this zone file
+            rc = store_atlas_zonefile_data( str(zonefile_data), zonefile_dir )
             if not rc:
                 log.error("Failed to store zonefile {}".format(zonefile_hash))
                 saved.append(0)
                 continue
+             
+            # mark this zone file as present, so we don't ask anyone else for it
+            was_present = atlasdb_set_zonefile_present(zonefile_hash, True, path=conf['atlasdb_path'])
+            if was_present:
+                # we already got this zone file
+                log.debug("Already have zonefile {}".format(zonefile_hash))
+                saved.append(1)
+                continue
 
-            log.debug("Enqueued {}".format(zonefile_hash))
+            if self.subdomain_index:
+                # got new zonefile
+                # let the subdomain indexer know, along with giving it the minimum block height
+                min_block_height = min([zfi['block_height'] for zfi in zfinfos])
+
+                log.debug("Enqueue {} from {} for subdomain processing".format(zonefile_hash, min_block_height))
+                self.subdomain_index.enqueue_zonefile(zonefile_hash, min_block_height)
+
+            log.debug("Stored new zonefile {}".format(zonefile_hash))
             saved.append(1)
 
-        db.close()
-
-        log.debug("Saved %s zonefile(s)\n", sum(saved))
+        log.debug("Saved {} zonefile(s)".format(sum(saved)))
         log.debug("Reply: {}".format({'saved': saved}))
         return self.success_response( {'saved': saved} )
-
-
-    def get_name_rec(self, name):
-        """
-        Get a name record, even if we're not an indexer node.
-        Return the name rec on success
-        Return {'error': ...} on failure
-        """
-        name_rec = None
-
-        if is_indexer():
-            # fetch from db directly
-            db = get_db_state()
-            name_rec = db.get_name(name)
-            db.close()
-
-            if name_rec is None:
-                return {'error': 'No such name'}
-
-        else:
-            # fetch from upstream
-            name_rec = blockstack_client.proxy.get_name_blockchain_record(name)
-            if 'error' in name_rec:
-                return name_rec
-
-        return name_rec
-
-
-    def rpc_get_profile(self, name, **con_info):
-        """
-        Get a profile for a particular name
-        Return {'profile': profile text} on success
-        Return {'error': ...} on error
-        """
-        conf = get_blockstack_opts()
-        if not conf['serve_profiles']:
-            return {'error': 'No data'}
-
-        if not self.check_name(name):
-            return {'error': 'Invalid name'}
-
-        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
-        profile_storage_drivers = conf['profile_storage_drivers'].split(",")
-
-        name_rec = self.get_name_rec(name)
-        if 'error' in name_rec:
-            return name_rec
-
-        # find zonefile
-        zonefile_data = self.get_zonefile_data_by_name( conf, name, name_rec=name_rec )
-        if zonefile_data is None:
-            return {'error': 'No zonefile'}
-
-        # deserialize
-        try:
-            zonefile_dict = blockstack_zones.parse_zone_file( zonefile_data )
-        except:
-            return {'error': 'Nonstandard zonefile'}
-
-        # find the profile
-        try:
-            # NOTE: since we did not generate this zonefile (i.e. it's untrusted input, and we may be using different storage drivers),
-            # don't trust its URLs.  Auto-generate them using our designated drivers instead.
-            # Also, do not attempt to decode the profile.  The client will do this instead (avoid any decode-related attack vectors)
-            res = blockstack_client.get_profile(name, profile_storage_drivers=profile_storage_drivers,
-                                                zonefile_storage_drivers=zonefile_storage_drivers,
-                                                user_zonefile=zonefile_dict, name_record=name_rec,
-                                                use_zonefile_urls=False, decode_profile=False)
-            if 'error' in res:
-               log.error("Failed to load profile '{}'".format(name))
-               return res
-            profile = res['profile']
-            zonefile = res['zonefile']
-        except Exception, e:
-            log.exception(e)
-            log.error("Failed to load profile for '{}'".fomrat(name))
-            return {'error': 'Failed to load profile'}
-
-        if 'error' in zonefile:
-            return zonefile
-
-        else:
-            return self.success_response( {'profile': profile} )
-
-
-    def verify_data_timestamp( self, datum ):
-        """
-        Verify that the mutable timestamp is fresh,
-        and that the datum has a valid timestamp.
-        Return {'status': True} on success
-        Return {'error': ...} on error
-        """
-
-        # needs a timestamp
-        if 'timestamp' not in datum.keys():
-            log.debug("Datum has no timestamp")
-            return {'error': 'Datum has no timestamp'}
-
-        if type(datum['timestamp']) not in [int, long, float]:
-            log.debug("Datum has invalid timestamp type")
-            return {'error': 'Invalid timestamp type'}
-
-        timestamp = datum['timestamp']
-
-        # timestamp needs to be fresh
-        now = time.time()
-        if abs(now - timestamp) > 30:
-            log.debug("Out-of-sync timestamp: |%s - %s| == %s" % (now, timestamp, abs(now, timestamp)))
-            return {'error': 'Invalid timestamp'}
-
-        else:
-            log.debug("Client and server differ by %s seconds" % abs(now - timestamp))
-            return {'status': True}
-
-
-    def load_mutable_data( self, name, data_txt, max_len=RPC_MAX_PROFILE_LEN, storage_drivers=None ):
-        """
-        Parse and authenticate user-given data
-        Return {'status': True, 'data': data dict, 'data_pubkey': public key, 'owner': True|False} on success
-        Return {'error': ...} on failure
-        """
-
-        if type(name) not in [str, unicode]:
-            return {'error': 'Invalid name'}
-
-        if not is_name_valid(name):
-            return {'error': 'Invalid name'}
-
-        if type(data_txt) not in [str, unicode]:
-            return {'error': 'Data must be a serialized JWT'}
-
-        if len(data_txt) > RPC_MAX_PROFILE_LEN:
-            return {'error': 'Serialized data is too big'}
-
-        conf = get_blockstack_opts()
-        if conf['redirect_data']:
-            # redirect!
-            servers = filter(lambda x: len(x) > 0, conf['data_servers'].split(','))
-            return {'error': 'redirect', 'servers': servers}
-
-        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
-        zonefile_dict = None
-
-        # find name record
-        name_rec = self.get_name_rec(name)
-        if 'error' in name_rec:
-            return name_rec
-
-        if name_rec is None:
-            log.debug("No name for '%s'" % name)
-            return {'error': 'No such name'}
-
-        # find zonefile
-        zonefile_data = self.get_zonefile_data_by_name( conf, name, name_rec=name_rec )
-        if zonefile_data is None:
-            log.debug("No zonefile for '%s'" % name)
-            return {'error': 'No zonefile'}
-
-        # must be standard
-        try:
-            zonefile_dict = blockstack_zones.parse_zone_file( zonefile_data )
-        except:
-            log.debug("Non-standard zonefile for %s" % name)
-            return {'error': 'Nonstandard zonefile'}
-
-        # first, try to verify with zonefile public key (if one is given)
-        user_data_pubkey = blockstack_client.user_zonefile_data_pubkey( zonefile_dict )
-        user_data = None
-
-        if user_data_pubkey is not None:
-            try:
-                user_data = blockstack_client.parse_signed_data( data_txt, user_data_pubkey )
-                if os.environ.get("BLOCKSTACK_TEST") == "1":
-                    log.debug("Loaded {}".format(user_data))
-
-            except Exception, e:
-                log.exception(e)
-                log.debug("Failed to authenticate data")
-                return {'error': 'Failed to authenticate data'}
-
-        else:
-            log.warn("Falling back to verifying with owner address")
-            owner_addr = name_rec.get('address', None)
-            if owner_addr is None:
-                log.debug("No owner address")
-                return {'error': 'No owner address'}
-
-            try:
-                user_data = blockstack_client.parse_signed_data( data_txt, None, public_key_hash=owner_addr )
-            except Exception, e:
-                log.exception(e)
-                log.debug("Failed to authenticate data")
-                return {'error': 'Failed to authenticate data'}
-
-        # profiles and v1 data will be parsed out to a mutable data dict.
-        # v2 data will be parsed out to a serialized mutable data blob
-        if isinstance(user_data, (str, unicode)):
-            try:
-                user_data = json.loads(user_data)
-            except:
-                log.debug("Failed to parse mutable data blob")
-                return {'error': 'Failed to parse mutable data blob'}
-
-        # must be a dict with a 'timestamp' field (either a profile or a mutable data blob)
-        user_data_schema = {
-            'type': 'object',
-            'properties': {
-                'timestamp': {
-                    'type': 'number',
-                    'minimum': 0,
-                },
-            },
-        }
-
-        try:
-            jsonschema.validate(user_data, user_data_schema)
-        except Exception as e:
-            log.debug("Failed to validate user data")
-            if os.environ.get("BLOCKSTACK_TEST") == "1":
-                log.exception(e)
-
-            return {'error': 'Invalid mutable data blob'}
-
-        # authentic!  try to verify via timestamp
-        res = self.verify_data_timestamp( user_data )
-        if 'error' in res:
-            log.debug("Failed to verify with timestamp.")
-            return {'error': 'Invalid timestamp', 'reason': 'timestamp', 'zonefile': zonefile_dict}
-
-        return {'status': True, 'data': user_data}
-
-
-    def rpc_put_profile(self, name, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, **con_info ):
-        """
-        Store a profile for a particular name
-        @profile_txt must be a serialized JWT signed by the key in the user's zonefile.
-        @prev_profile_hash_or_ignored, if given, must be the hex string representation of the hash of the previous profile
-           (this argument is obsolete in 0.14.1)
-        @sigb64_or_ignored, if given, must cover prev_profile_hash+profile_txt
-           (this argument is obsolete in 0.14.1)
-        """
-        conf = get_blockstack_opts()
-        if not conf['serve_profiles']:
-            return {'error': 'No data'}
-
-        if not self.check_name(name):
-            return {'error': 'Invalid name'}
-
-        data_info = self.load_mutable_data(name, profile_txt, max_len=RPC_MAX_PROFILE_LEN)
-        if 'error' in data_info:
-            return data_info
-
-        res = storage_enqueue_profile( name, str(profile_txt) )
-        if not res:
-            log.error('Failed to queue {}-byte profile for {}'.format(len(profile_txt), name))
-            return {'error': 'Failed to queue profile'}
-
-        log.debug("Queued {}-byte profile for {}".format(len(profile_txt), name))
-        return self.success_response( {'num_replicas': 1, 'num_failures': 0} )
-
-
-    def rpc_put_mutable_data(self, blockchain_id, data_txt, **con_info ):
-        """
-        Store mutable data
-        @data_txt is the data to store
-
-        Only works if the mutable data payload has an associated blockchain ID that matches @blockchain_id
-
-        This method does NOT need access to the database.
-        However, it only works if the caller has a registered name.
-        """
-
-        conf = get_blockstack_opts()
-        if not conf['serve_data']:
-            return {'error': 'No data'}
-
-        if not self.check_name(blockchain_id):
-            return {'error': 'Invalid name'}
-
-        if type(data_txt) not in [str, unicode]:
-            return {'error': 'Data must be a serialized JWT'}
-
-        # must be v2 or later
-        if not data_txt.startswith('bsk2.'):
-            return {'error': 'Obsolete data format'}
-
-        data_info = self.load_mutable_data(blockchain_id, data_txt, max_len=RPC_MAX_DATA_LEN)
-        if 'error' in data_info:
-            log.debug("Failed to parse mutable data: {}".format(data_info['error']))
-            return data_info
-
-        user_data = data_info['data']
-
-        # must be mutable data
-        try:
-            jsonschema.validate(user_data, blockstack_client.schemas.DATA_BLOB_SCHEMA)
-        except ValidationError as ve:
-            log.debug("User data is not a mutable data blob")
-            return {'error': 'Not a mutable data blob'}
-
-        # must match name
-        if not user_data.has_key('blockchain_id') or blockchain_id != user_data['blockchain_id']:
-            log.debug("Data has no blockchain_id, or does not match {} (got {})".format(blockchain_id, user_data.get('blockchain_id', "None")))
-            return {'error': 'Failed to validate data: invalid or missing blockchain ID'}
-
-        fq_data_id = user_data['fq_data_id']
-
-        res = storage_enqueue_data( blockchain_id, fq_data_id, str(data_txt) )
-        if not res:
-            log.error('Failed to queue {}-byte datum for {}'.format(len(data_txt), blockchain_id))
-            return {'error': 'Failed to queue datum'}
-
-        log.debug("Queued {}-byte datum from {}".format(len(data_txt), blockchain_id))
-        return self.success_response( {'num_replicas': 1, 'num_failures': 0} )
-
-
-    def rpc_get_data_servers( self, **con_info ):
-        """
-        Get the list of data servers
-        Return {'status': True, 'servers': ...} on success
-        Return {'error': ...} on error
-        """
-        conf = get_blockstack_opts()
-        if not conf.get('redirect_data', False):
-            return {'error': 'No data servers'}
-
-        servers = filter(lambda x: len(x) > 0, conf['data_servers'].split(','))
-        return {'status': True, 'servers': servers}
 
 
     def rpc_get_zonefiles_by_block( self, from_block, to_block, offset, count, **con_info ):
@@ -1773,7 +1546,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                                        'zonefile_hash' : '0000000' } ] }
         """
         conf = get_blockstack_opts()
-        if not conf['atlas']:
+        if not is_atlas_enabled(conf):
             return {'error': 'Not an atlas node'}
 
         if not self.check_block(from_block):
@@ -1788,18 +1561,37 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not self.check_count(count, 100):
             return {'error': 'invalid count'}
 
-        zonefile_info = atlasdb_get_zonefiles_by_block(from_block, to_block, offset, count)
+        zonefile_info = atlasdb_get_zonefiles_by_block(from_block, to_block, offset, count, path=conf['atlasdb_path'])
         if 'error' in zonefile_info:
            return zonefile_info
 
         return self.success_response( {'zonefile_info': zonefile_info } )
 
 
+    def peer_exchange(self, peer_host, peer_port):
+        """
+        Exchange peers.
+        Add the given peer to the list of new peers to consider.
+        Return the list of healthy peers
+        """
+        # get peers
+        peer_list = atlas_get_live_neighbors( "%s:%s" % (peer_host, peer_port) )
+        if len(peer_list) > atlas_max_neighbors():
+            random.shuffle(peer_list)
+            peer_list = peer_list[:atlas_max_neighbors()]
+
+        log.debug("Enqueue remote peer {}:{}".format(peer_host, peer_port))
+        atlas_peer_enqueue( "%s:%s" % (peer_host, peer_port))
+
+        log.debug("Live peers reply to %s:%s: %s" % (peer_host, peer_port, peer_list))
+        return peer_list
+
+
     def rpc_get_atlas_peers( self, **con_info ):
         """
         Get the list of peer atlas nodes.
         Give its own atlas peer hostport.
-        Return at most 100 peers
+        Return at most atlas_max_neighbors() peers
         Return {'status': True, 'peers': ...} on success
         Return {'error': ...} on failure
         """
@@ -1811,16 +1603,51 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         client_host = con_info['client_host']
         client_port = con_info['client_port']
 
-        # get peers
-        peer_list = atlas_get_live_neighbors( "%s:%s" % (client_host, client_port) )
-        if len(peer_list) > atlas_max_neighbors():
-            random.shuffle(peer_list)
-            peer_list = peer_list[:atlas_max_neighbors()]
+        peers = self.peer_exchange(client_host, client_port)
+        return self.success_response( {'peers': peers} )
 
-        atlas_peer_enqueue( "%s:%s" % (client_host, client_port))
 
-        log.debug("Live peers to %s:%s: %s" % (client_host, client_port, peer_list))
-        return self.success_response( {'peers': peer_list} )
+    def rpc_atlas_peer_exchange(self, remote_peer, **con_info):
+        """
+        Accept a remotely-given atlas peer, and return our list
+        of healthy peers.  The remotely-given atlas peer will only
+        be considered if the caller is localhost; otherwise, the caller's
+        socket-given information will be used.  This is to prevent
+        a malicious node from filling up this node's peer table with
+        junk.
+
+        Returns at most atlas_max_neighbors() peers
+        Returns {'status': True, 'peers': ...} on success
+        Returns {'error': ...} on failure
+        """
+        conf = get_blockstack_opts()
+        if not conf.get('atlas', False):
+            return {'error': 'Not an atlas node'}
+
+        # take the socket-given information if this is not localhost
+        client_host = con_info['client_host']
+        client_port = con_info['client_port']
+
+        peer_host = None
+        peer_port = None
+        
+        LOCALHOST = ['127.0.0.1', '::1', 'localhost']
+        if client_host not in LOCALHOST:
+            # we don't allow a non-localhost peer to insert an arbitrary host
+            peer_host = client_host
+            peer_port = client_port
+
+        else:
+            try:
+                peer_host, peer_port = url_to_host_port(remote_peer)
+                assert peer_host
+                assert peer_port
+            except:
+                # invalid
+                return {'error': 'Invalid remote peer address'}
+        
+        peers = self.peer_exchange(peer_host, peer_port)
+        return self.success_response({'peers': peers})
 
 
     def rpc_get_zonefile_inventory( self, offset, length, **con_info ):
@@ -1832,7 +1659,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Return {'error': ...} on error.
         """
         conf = get_blockstack_opts()
-        if not conf['atlas']:
+        if not is_atlas_enabled(conf):
             return {'error': 'Not an atlas node'}
 
         if not self.check_offset(offset):
@@ -1843,7 +1670,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         zonefile_inv = atlas_get_zonefile_inventory( offset=offset, length=length )
 
-        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        if BLOCKSTACK_TEST:
             log.debug("Zonefile inventory is '%s'" % (atlas_inventory_to_string(zonefile_inv)))
 
         return self.success_response( {'inv': base64.b64encode(zonefile_inv) } )
@@ -1866,17 +1693,18 @@ class BlockstackdRPCServer( threading.Thread, object ):
     """
     RPC server thread
     """
-    def __init__(self, port ):
-        super( BlockstackdRPCServer, self ).__init__()
-        self.rpc_server = None
+    def __init__(self, working_dir, port, subdomain_index=None):
+        super(BlockstackdRPCServer, self).__init__()
         self.port = port
+        self.working_dir = working_dir
+        self.subdomain_index = subdomain_index
+        self.rpc_server = BlockstackdRPC( self.working_dir, port=self.port, subdomain_index=self.subdomain_index )
 
 
     def run(self):
         """
         Serve until asked to stop
         """
-        self.rpc_server = BlockstackdRPC( port=self.port )
         self.rpc_server.serve_forever()
 
 
@@ -1891,6 +1719,20 @@ class BlockstackdRPCServer( threading.Thread, object ):
                 log.warning("Failed to shut down server socket")
 
             self.rpc_server.shutdown()
+
+
+    def cache_flush(self):
+        """
+        Flush any cached state
+        """
+        self.rpc_server.cache_flush()
+
+
+    def set_last_index_time(self, timestamp):
+        """
+        Set the time that we last indexed
+        """
+        self.rpc_server.set_last_index_time(timestamp)
 
 
 class GCThread( threading.Thread ):
@@ -1921,317 +1763,44 @@ class GCThread( threading.Thread ):
         self.event_count += 1
 
 
-class BlockstackStoragePusher( threading.Thread ):
-    """
-    worker thread to push data into storage providers,
-    so we don't block the RPC server.
-    """
-    def __init__(self, conf, queue_path):
-        threading.Thread.__init__(self)
-        self.running = False
-        self.accepting = True
-        self.queue_path = queue_path
-        self.config = conf
-
-        self.zonefile_dir = conf.get('zonefile_dir', None)
-        self.zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
-        self.zonefile_storage_drivers_write = conf['zonefile_storage_drivers_write'].split(",")
-        self.profile_storage_drivers = conf['profile_storage_drivers'].split(",")
-        self.profile_storage_drivers_write = conf['profile_storage_drivers_write'].split(",")
-        self.data_storage_drivers = conf['data_storage_drivers'].split(',')
-        self.data_storage_drivers_write = conf['data_storage_drivers_write'].split(',')
-        self.atlasdb_path = conf.get('atlasdb_path', None)
-
-        self.zonefile_queue_id = "push-zonefile"
-        self.profile_queue_id = "push-profile"
-        self.data_queue_id = "push-data"
-
-        # do not store data to ourselves
-        if 'blockstack_server' in self.zonefile_storage_drivers:
-            log.warn("Removing 'blockstack_server' from zone file storage drivers")
-            self.zonefile_storage_drivers.remove('blockstack_server')
-
-        if 'blockstack_server' in self.zonefile_storage_drivers_write:
-            log.warn("Removing 'blockstack_server' from zone file storage write drivers")
-            self.zonefile_storage_drivers_write.remove('blockstack_server')
-
-        if 'blockstack_server' in self.profile_storage_drivers:
-            log.warn("Removing 'blockstack_server' from profile storage drivers")
-            self.profile_storage_drivers.remove('blockstack_server')
-
-        if 'blockstack_server' in self.profile_storage_drivers_write:
-            log.warn("Removing 'blockstack_server' from profile storage write drivers")
-            self.profile_storage_drivers_write.remove('blockstack_server')
-
-        if 'blockstack_server' in self.data_storage_drivers:
-            log.warn("Removing 'blockstack_server' from data storage drivers")
-            self.data_storage_drivers.remove('blockstack_server')
-
-        if 'blockstack_server' in self.data_storage_drivers_write:
-            log.warn("Removing 'blockstack_server' from data storage write drivers")
-            self.data_storage_drivers_write.remove('blockstack_server')
-
-
-    def enqueue_zonefile( self, txid, zonefile_hash, zonefile_data ):
-        """
-        Enqueue a zonefile for replication
-        """
-        if type(zonefile_data) not in [str, unicode]:
-            log.debug("Invalid zonefile data type")
-            return False
-
-        if txid is not None and type(txid) not in [str, unicode]:
-            log.debug("Invalid txid type")
-            return False
-
-        if type(zonefile_hash) not in [str, unicode]:
-            log.debug("Invalid zonefile hash type")
-            return False
-
-        txid = str(txid)
-        zonefile_hash = str(zonefile_hash)
-        zonefile_data = str(zonefile_data)
-
-        try:
-            # NOTE: we don't use or rely on the name here, but use the zonefile hash instead
-            existing = queue_findone( self.zonefile_queue_id, zonefile_hash, path=self.queue_path )
-            if len(existing) > 0:
-                log.error("Already queued {}".format(zonefile_hash))
-                return False
-
-            log.debug("Queue {}-byte zonefile".format(len(zonefile_data)))
-
-            # NOTE: we don't use or rely on the name here, but use the zonefile hash instead
-            res = queue_append( self.zonefile_queue_id, zonefile_hash, txid, block_height=0, zonefile_hash=zonefile_hash, zonefile_data=zonefile_data, path=self.queue_path )
-            assert res
-            return True
-        except Exception as e:
-            log.exception(e)
-            return False
-
-
-    def enqueue_profile_or_data( self, blockchain_id, queue_id, data ):
-        """
-        Enqueue a profile or mutable data for replication
-        """
-        if type(blockchain_id) not in [str, unicode]:
-            log.debug("Invalid name type")
-            return False
-
-        if type(data) not in [str, unicode]:
-            log.debug("Invalid profile or data type")
-            return False
-
-        blockchain_id = str(blockchain_id)
-        data = str(data)
-
-        try:
-            existing = queue_findone( queue_id, blockchain_id, path=self.queue_path )
-            if len(existing) > 0:
-                log.error("Already queued something for {}".format(blockchain_id))
-                return False
-
-            log.debug("Queue {}-byte datum for {}".format(len(data), blockchain_id))
-            res = queue_append( queue_id, blockchain_id, "00" * 32, block_height=0, profile=data, path=self.queue_path )
-            assert res
-            return True
-        except Exception as e:
-            log.exception(e)
-            return False
-
-
-    def enqueue_profile( self, blockchain_id, profile_data ):
-        """
-        Enqueue a profile for replication
-        """
-        return self.enqueue_profile_or_data(blockchain_id, self.profile_queue_id, profile_data)
-
-
-    def enqueue_data( self, blockchain_id, fq_data_id, data_txt ):
-        """
-        Enqueue a mutable datum for replication
-        """
-        data_payload = {
-            'data_txt': data_txt,
-            'fq_data_id': fq_data_id
-        }
-
-        return self.enqueue_profile_or_data(blockchain_id, self.data_queue_id, json.dumps(data_payload))
-
-
-    def store_one_zonefile(self):
-        """
-        Find and store one zonefile
-        """
-        # find a zonefile
-        entries = queue_findall( self.zonefile_queue_id, limit=1, path=self.queue_path )
-        if entries is None or len(entries) == 0:
-            # empty
-            return False
-
-        entry = entries[0]
-        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers_write,
-                                              skip=['blockstack_server','blockstack_resolver','dht'], cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
-
-        if not res:
-            log.error("Failed to store zonefile {} ({} bytes)".format(entry['zonefile_hash'], len(entry['zonefile'])))
-            return False
-
-        log.debug("Replicated zonefile {} ({} bytes)".format(entry['zonefile_hash'], len(entry['zonefile'])))
-
-        if self.atlasdb_path is not None:
-            # mark present in the atlas subsystem
-            atlasdb_set_zonefile_present( str(entry['zonefile_hash']), True, path=self.atlasdb_path )
-
-        queue_removeall( entries, path=self.queue_path )
-        return res
-
-
-    def store_one_profile_or_datum(self, queue_id, storage_drivers):
-        """
-        Find and store one profile or datum
-        """
-        entries = queue_findall( queue_id, limit=1, path=self.queue_path )
-        if entries is None or len(entries) == 0:
-            # empty
-            return False
-
-        entry = entries[0]
-
-        blockchain_id = str(entry['fqu'])
-        fq_data_id = None
-        data_txt = None
-        profile = False
-
-        try:
-            # mutable data?
-            payload = json.loads(entry['profile'])
-
-            assert isinstance(payload, dict)
-            assert payload.has_key('fq_data_id')
-            assert payload.has_key('data_txt')
-
-            fq_data_id = str(payload['fq_data_id'])
-            data_txt = str(payload['data_txt'])
-
-            if os.environ.get("BLOCKSTACK_TEST") == "1":
-                log.debug("mutable datum: {}".format(entry['profile']))
-                log.debug("mutable datum txt: {}".format(data_txt))
-
-        except AssertionError:
-
-            # profile
-            fq_data_id = blockchain_id
-            data_txt = str(entry['profile'])
-            profile = True
-
-        except Exception as e:
-            log.exception(e)
-            log.debug("entry = {}".format(entry))
-            log.debug("Abandoning data from {}".format(blockchain_id))
-            queue_removeall( entries, path=self.queue_path )
-            return False
-
-        success = store_mutable_data_to_storage( blockchain_id, fq_data_id, data_txt, profile=profile, required=storage_drivers, skip=['blockstack_server','blockstack_resolver'])
-        if not success:
-            log.error("Failed to store data for {} ({} bytes) (rc = {})".format(blockchain_id, len(data_txt), success))
-            queue_removeall( entries, path=self.queue_path )
-            return False
-
-        log.debug("Replicated data for {} ({} bytes)".format(blockchain_id, len(data_txt)))
-        queue_removeall( entries, path=self.queue_path )
-        return True
-
-
-    def store_one_profile(self):
-        """
-        Find and store one profile
-        """
-        return self.store_one_profile_or_datum(self.profile_queue_id, self.profile_storage_drivers)
-
-
-    def store_one_datum(self):
-        """
-        Find and store one mutable datum
-        """
-        return self.store_one_profile_or_datum(self.data_queue_id, self.data_storage_drivers)
-
-
-    def run(self):
-        """
-        Push zonefiles and profiles
-        """
-        global gc_thread
-
-        self.running = True
-        while self.running:
-
-            res_zonefile = self.store_one_zonefile()
-            res_profile = self.store_one_profile()
-            res_data = self.store_one_datum()
-
-            if not res_zonefile and not res_profile and not res_data:
-                time.sleep(1.0)
-                gc_thread.gc_event()
-                continue
-
-            else:
-                gc_thread.gc_event()
-
-        log.debug("StoragePusher thread exit")
-        self.running = False
-
-
-    def signal_stop(self):
-        self.running = False
-        log.debug("StoragePusher signal stop")
-
-
-    def drain(self):
-        """
-        Stop taking requests and wait for the queue to drain
-        """
-        self.accepting = False
-        return
-
-
-def rpc_start( port ):
+def rpc_start( working_dir, port, subdomain_index=None ):
     """
     Start the global RPC server thread
+    Returns the RPC server thread
     """
-    global rpc_server
-
-    # let everyone in this thread know the PID
-    os.environ["BLOCKSTACK_RPC_PID"] = str(os.getpid())
-
-    rpc_server = BlockstackdRPCServer( port )
-
-    log.debug("Starting RPC")
-    rpc_server.start()
+    rpc_srv = BlockstackdRPCServer( working_dir, port, subdomain_index=subdomain_index )
+    log.debug("Starting RPC on port {}".format(port))
+    rpc_srv.start()
+    return rpc_srv
 
 
-def rpc_stop():
+def rpc_chain_sync(server_state, ew_block_height, finish_time):
+    """
+    Flush the global RPC server cache, and tell the rpc server that we've
+    reached the given block height at the given time.
+    """
+    rpc_srv = server_state['rpc']
+    if rpc_srv is not None:
+        rpc_srv.cache_flush()
+        rpc_srv.set_last_index_time(finish_time)
+
+
+def rpc_stop(server_state):
     """
     Stop the global RPC server thread
     """
-    global rpc_server
-    if rpc_server is not None:
+    rpc_srv = server_state['rpc']
+
+    if rpc_srv is not None:
         log.debug("Shutting down RPC")
-        rpc_server.stop_server()
-        rpc_server.join()
+        rpc_srv.stop_server()
+        rpc_srv.join()
         log.debug("RPC joined")
 
     else:
         log.debug("RPC already joined")
 
-
-def get_storage_queue_path():
-   """
-   Path to the on-disk storage queue
-   """
-   working_dir = virtualchain.get_working_dir()
-   db_filename = blockstack_state_engine.get_virtual_chain_name() + ".queue"
-   return os.path.join( working_dir, db_filename )
+    server_state['rpc'] = None
 
 
 def gc_start():
@@ -2250,86 +1819,36 @@ def gc_stop():
     Stop a the optimistic GC thread
     """
     global gc_thread
-
-    log.debug("Shutting down GC thread")
-    gc_thread.signal_stop()
-    gc_thread.join()
-    log.debug("GC thread joined")
-
-
-def storage_start( blockstack_opts ):
-    """
-    Start the global data-pusher thread
-    """
-    global storage_pusher
-
-    storage_queue = get_storage_queue_path()
-    storage_pusher = BlockstackStoragePusher( blockstack_opts, storage_queue )
-    log.debug("Starting storage pusher")
-    storage_pusher.start()
+    
+    if gc_thread:
+        log.debug("Shutting down GC thread")
+        gc_thread.signal_stop()
+        gc_thread.join()
+        log.debug("GC thread joined")
+        gc_thread = None
+    else:
+        log.debug("GC thread already joined")
 
 
-def storage_stop():
-    """
-    Stop the global data-pusher thread
-    """
-    global storage_pusher
-
-    # if we're testing, then drain the storage queue completely
-    if os.environ.get("BLOCKSTACK_TEST") == "1":
-        log.debug("Draining storage pusher queue")
-        storage_pusher.drain()
-
-    log.debug("Shutting down storage pusher")
-    storage_pusher.signal_stop()
-    storage_pusher.join()
-    log.debug("Storage pusher joined")
-
-
-def storage_enqueue_zonefile( txid, zonefile_hash, zonefile_data ):
-    """
-    Queue a zonefile for replication
-    """
-    global storage_pusher
-    return storage_pusher.enqueue_zonefile( txid, zonefile_hash, zonefile_data )
-
-
-def storage_enqueue_profile( name, profile_data ):
-    """
-    Queue a profile for replication
-    """
-    global storage_pusher
-    return storage_pusher.enqueue_profile( name, profile_data )
-
-
-def storage_enqueue_data( blockchain_id, fq_data_id, datum ):
-    """
-    Queue mutable data for replication
-    """
-    global storage_pusher
-    return storage_pusher.enqueue_data( blockchain_id, fq_data_id, datum )
-
-
-def atlas_start( blockstack_opts, db, port ):
+def atlas_init(blockstack_opts, db, port=None):
     """
     Start up atlas functionality
     """
+    if port is None:
+        port = blockstack_opts['rpc_port']
+
     # start atlas node
     atlas_state = None
-    if blockstack_opts['atlas']:
-
+    if is_atlas_enabled(blockstack_opts):
         atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
         atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
-        zonefile_dir = blockstack_opts.get('zonefiles', None)
-        zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
-        zonefile_storage_drivers_write = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers_write'].split(","))
+        zonefile_dir = blockstack_opts['zonefiles']
         my_hostname = blockstack_opts['atlas_hostname']
 
-        initial_peer_table = atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
-        atlas_peer_table_init( initial_peer_table )
+        initial_peer_table = atlasdb_init(blockstack_opts['atlasdb_path'], zonefile_dir, db, atlas_seed_peers, atlas_blacklist, validate=True)
+        atlas_peer_table_init(initial_peer_table)
 
-        atlas_state = atlas_node_start( my_hostname, port, atlasdb_path=blockstack_opts['atlasdb_path'],
-                                        zonefile_storage_drivers=zonefile_storage_drivers, zonefile_storage_drivers_write=zonefile_storage_drivers_write, zonefile_dir=zonefile_dir )
+        atlas_state = atlas_node_init(my_hostname, port, blockstack_opts['atlasdb_path'], zonefile_dir, db.working_dir)
 
     return atlas_state
 
@@ -2368,6 +1887,12 @@ def check_server_running(pid):
     """
     Determine if the given process is running
     """
+    if pid == os.getpid():
+        # special case--we're in Docker or some other kind of container
+        # (or we got really unlucky and got the same PID twice).
+        # this PID does not correspond to another running server, either way.
+        return False
+
     try:
         os.kill(pid, 0)
         return True
@@ -2378,7 +1903,7 @@ def check_server_running(pid):
             raise
 
 
-def stop_server( clean=False, kill=False ):
+def stop_server( working_dir, clean=False, kill=False ):
     """
     Stop the blockstackd server.
     """
@@ -2388,7 +1913,7 @@ def stop_server( clean=False, kill=False ):
 
     for i in xrange(0, 5):
         # try to kill the main supervisor
-        pid_file = get_pidfile_path()
+        pid_file = get_pidfile_path(working_dir)
         if not os.path.exists(pid_file):
             dead = True
             break
@@ -2418,9 +1943,9 @@ def stop_server( clean=False, kill=False ):
 
         # is it actually dead?
         blockstack_opts = get_blockstack_opts()
-        srv = blockstack_client.proxy.BlockstackRPCClient('localhost', blockstack_opts['rpc_port'], timeout=5, protocol = 'http')
+        srv = BlockstackRPCClient('localhost', blockstack_opts['rpc_port'], timeout=5, protocol='http')
         try:
-            res = blockstack_client.ping(proxy=srv)
+            res = blockstack_ping(proxy=srv)
         except socket.error as se:
             # dead?
             if se.errno == errno.ECONNREFUSED:
@@ -2467,6 +1992,9 @@ def blockstack_tx_filter( tx ):
     """
     if not 'nulldata' in tx:
         return False
+    
+    if tx['nulldata'] is None:
+        return False
 
     payload = binascii.unhexlify( tx['nulldata'] )
     if payload.startswith("id"):
@@ -2476,7 +2004,7 @@ def blockstack_tx_filter( tx ):
         return False
 
 
-def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
+def index_blockchain(server_state, expected_snapshots=GENESIS_SNAPSHOT):
     """
     Index the blockchain:
     * find the range of blocks
@@ -2486,15 +2014,13 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
     Return False if not
     Aborts on error
     """
-
-    if not is_indexer():
-        # nothing to do
-        return True
+    working_dir = server_state['working_dir']
+    log.debug("index blockchain in {}".format(working_dir))
 
     bt_opts = get_bitcoin_opts()
-    start_block, current_block = get_index_range()
+    start_block, current_block = get_index_range(working_dir)
 
-    db = get_db_state()
+    db = get_db_state(working_dir)
     old_lastblock = db.lastblock
 
     if start_block is None and current_block is None:
@@ -2503,10 +2029,11 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
         return False
 
     # bring the db up to the chain tip.
+    # NOTE: at each block, the atlas db will be synchronized by virtualchain_hooks
     log.debug("Begin indexing (up to %s)" % current_block)
-    set_indexing( True )
-    rc = virtualchain_hooks.sync_blockchain( bt_opts, current_block, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter )
-    set_indexing( False )
+    set_indexing( working_dir, True )
+    rc = virtualchain_hooks.sync_blockchain(working_dir, bt_opts, current_block, subdomain_index=server_state['subdomains'], expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter)
+    set_indexing( working_dir, False )
 
     db.close()
 
@@ -2514,33 +2041,19 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
         log.debug("Stopped indexing at %s" % current_block)
         return rc
 
-    # synchronize atlas db
-    # this is a recovery path--shouldn't be necessary unless
-    # we're starting from a lack of atlas.db state (i.e. an older
-    # version of the server, or a removed/corrupted atlas.db file).
-    # TODO: this is racy--we also do this in virtualchain-hooks
-    blockstack_opts = get_blockstack_opts()
-    if blockstack_opts.get('atlas', False):
-        db = get_db_state()
-        if old_lastblock < db.lastblock:
-            log.debug("Synchronize Atlas DB from %s to %s" % (old_lastblock+1, db.lastblock+1))
-            zonefile_dir = blockstack_opts.get('zonefiles', get_zonefile_dir())
-            atlasdb_sync_zonefiles( db, old_lastblock+1, zonefile_dir=zonefile_dir )
-
-        db.close()
+    # uncache state specific to this block
+    rpc_chain_sync(server_state, current_block, time.time())
 
     log.debug("End indexing (up to %s)" % current_block)
     return rc
 
 
-def blockstack_exit( atlas_state ):
+def blockstack_exit(atlas_state):
     """
     Shut down the server on exit(3)
     """
     if atlas_state is not None:
         atlas_node_stop( atlas_state )
-
-    storage_stop()
 
 
 def blockstack_signal_handler( sig, frame ):
@@ -2550,105 +2063,137 @@ def blockstack_signal_handler( sig, frame ):
     set_running(False)
 
 
-def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None ):
+def server_setup(working_dir, port=None):
     """
-    Run the blockstackd RPC server, optionally in the foreground.
+    Set up the server.
+    Start all subsystems, write pid file, set up signal handlers, set up DB.
+    Returns a server instance.
     """
-    bt_opts = get_bitcoin_opts()
     blockstack_opts = get_blockstack_opts()
-    indexer_log_file = get_logfile_path()
-    pid_file = get_pidfile_path()
-    working_dir = virtualchain.get_working_dir()
+    pid_file = get_pidfile_path(working_dir)
 
     if port is None:
         port = blockstack_opts['rpc_port']
-
-    logfile = None
-    if not foreground:
-        try:
-            if os.path.exists( indexer_log_file ):
-                logfile = open( indexer_log_file, "a" )
-            else:
-                logfile = open( indexer_log_file, "a+" )
-        except OSError, oe:
-            log.error("Failed to open '%s': %s" % (indexer_log_file, oe.strerror))
-            os.abort()
-
-        # become a daemon
-        child_pid = os.fork()
-        if child_pid == 0:
-
-            # child! detach, setsid, and make a new child to be adopted by init
-            sys.stdin.close()
-            os.dup2( logfile.fileno(), sys.stdout.fileno() )
-            os.dup2( logfile.fileno(), sys.stderr.fileno() )
-            os.setsid()
-
-            daemon_pid = os.fork()
-            if daemon_pid == 0:
-
-                # daemon!
-                os.chdir("/")
-
-            elif daemon_pid > 0:
-
-                # parent (intermediate child)
-                sys.exit(0)
-
-            else:
-
-                # error
-                sys.exit(1)
-
-        elif child_pid > 0:
-
-            # grand-parent
-            # wait for intermediate child
-            pid, status = os.waitpid( child_pid, 0 )
-            sys.exit(status)
 
     # set up signals
     signal.signal( signal.SIGINT, blockstack_signal_handler )
     signal.signal( signal.SIGQUIT, blockstack_signal_handler )
     signal.signal( signal.SIGTERM, blockstack_signal_handler )
 
-    # put supervisor pid file
-    put_pidfile( pid_file, os.getpid() )
+    # put pid file
+    put_pidfile(pid_file, os.getpid())
 
     # start GC
     gc_start()
 
     # clear indexing state
-    set_indexing( False )
-
-    # make sure client is initialized
-    get_blockstack_client_session()
+    set_indexing(working_dir, False)
 
     # get db state
-    db = get_db_state()
-
-    # start atlas node
-    atlas_state = atlas_start( blockstack_opts, db, port )
-    atexit.register( blockstack_exit, atlas_state )
-
+    db = get_or_instantiate_db_state(working_dir)
+    
+    # set up atlas state
+    atlas_state = atlas_init(blockstack_opts, db, port=port)
     db.close()
 
-    # start storage
-    storage_start( blockstack_opts )
+    # set up subdomains state
+    subdomain_state = subdomains_init(blockstack_opts, working_dir, atlas_state)
+    
+    # start atlas node
+    if atlas_state:
+        atlas_node_start(atlas_state)
 
     # start API server
-    rpc_start(port)
-    set_running( True )
+    rpc_srv = rpc_start(working_dir, port, subdomain_index=subdomain_state)
+    set_running(True)
 
     # clear any stale indexing state
-    set_indexing( False )
+    set_indexing(working_dir, False)
+
+    ret = {
+        'working_dir': working_dir,
+        'atlas': atlas_state,
+        'subdomains': subdomain_state,
+        'rpc': rpc_srv,
+        'pid_file': pid_file,
+        'port': port,
+    }
+
+    return ret
+
+
+def server_atlas_shutdown(server_state):
+    """
+    Shut down just the atlas system
+    (used for testing)
+    """
+    # stop atlas node
+    log.debug("Stopping Atlas node")
+    atlas_stop(server_state['atlas'])
+    server_state['atlas'] = None
+    return 
+
+
+def server_shutdown(server_state):
+    """
+    Shut down server subsystems.
+    Remove PID file.
+    """
+    set_running( False )
+
+    # stop API server
+    rpc_stop(server_state)
+
+    # stop atlas node
+    server_atlas_shutdown(server_state)
+
+    # stopping GC
+    gc_stop()
+
+    # clear PID file
+    try:
+        if os.path.exists(server_state['pid_file']):
+            os.unlink(server_state['pid_file'])
+    except:
+        pass
+
+    return True
+
+
+def run_server( working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None ):
+    """
+    Run blockstackd.  Optionally daemonize.
+    Return 0 on success
+    Return negative on error
+    """
+    global rpc_server
+
+    indexer_log_path = get_logfile_path(working_dir)
+    
+    logfile = None
+    if not foreground:
+        if os.path.exists(indexer_log_path):
+            logfile = open(indexer_log_path, 'a')
+        else:
+            logfile = open(indexer_log_path, 'a+')
+
+        child_pid = daemonize(logfile)
+        if child_pid < 0:
+            log.error("Failed to daemonize: {}".format(child_pid))
+            return -1
+    
+    server_state = server_setup(working_dir, port)
+    atexit.register(server_shutdown, server_state)
+
+    rpc_server = server_state['rpc']
+
     log.debug("Begin Indexing")
 
     running = True
     while is_running():
 
         try:
-           running = index_blockchain(expected_snapshots=expected_snapshots)
+           running = index_blockchain(server_state, expected_snapshots=expected_snapshots)
         except Exception, e:
            log.exception(e)
            log.error("FATAL: caught exception while indexing")
@@ -2667,39 +2212,17 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
                 break
 
     log.debug("End Indexing")
-    set_running( False )
-
-    # stop API server
-    log.debug("Stopping API server")
-    rpc_stop()
-
-    # stop atlas node
-    log.debug("Stopping Atlas node")
-    atlas_stop( atlas_state )
-    atlas_state = None
-
-    # stopping storage
-    log.debug("Stopping storage pusher")
-    storage_stop()
-
-    # stopping GC
-    log.debug("Stopping GC worker")
-    gc_stop()
-
+    server_shutdown(server_state)
+    
     # close logfile
     if logfile is not None:
         logfile.flush()
         logfile.close()
-
-    try:
-        os.unlink( pid_file )
-    except:
-        pass
-
+    
     return 0
 
 
-def setup( working_dir=None, return_parser=False ):
+def setup( working_dir, return_parser=False ):
     """
     Do one-time initialization.
     Call this to set up global state and set signal handlers.
@@ -2712,36 +2235,32 @@ def setup( working_dir=None, return_parser=False ):
     """
 
     # set up our implementation
-    virtualchain.setup_virtualchain( impl=blockstack_state_engine )
-    working_dir = virtualchain.get_working_dir()
-
     log.debug("Working dir: {}".format(working_dir))
-
     if not os.path.exists( working_dir ):
         os.makedirs( working_dir, 0700 )
 
     # acquire configuration, and store it globally
-    opts = configure( interactive=True )
+    opts = configure( working_dir, interactive=True )
     blockstack_opts = opts['blockstack']
     bitcoin_opts = opts['bitcoind']
 
     # config file version check
     config_server_version = blockstack_opts.get('server_version', None)
     if (config_server_version is None or config.versions_need_upgrade(config_server_version, VERSION)):
-       print >> sys.stderr, "Obsolete or unrecognizable config file ({}): '{}' != '{}'".format(virtualchain.get_config_filename(), config_server_version, VERSION)
+       print >> sys.stderr, "Obsolete or unrecognizable config file ({}): '{}' != '{}'".format(virtualchain.get_config_filename(virtualchain_hooks, working_dir), config_server_version, VERSION)
        print >> sys.stderr, 'Please see the release notes for version {} for instructions to upgrade (in the release-notes/ folder).'.format(VERSION)
        return None
 
     log.debug("config:\n%s" % json.dumps(opts, sort_keys=True, indent=4))
 
     # merge in command-line bitcoind options
-    config_file = virtualchain.get_config_filename()
+    config_file = virtualchain.get_config_filename(virtualchain_hooks, working_dir)
 
     arg_bitcoin_opts = None
     argparser = None
 
     if return_parser:
-      arg_bitcoin_opts, argparser = virtualchain.parse_bitcoind_args( return_parser=return_parser )
+       arg_bitcoin_opts, argparser = virtualchain.parse_bitcoind_args( return_parser=return_parser )
 
     else:
        arg_bitcoin_opts = virtualchain.parse_bitcoind_args( return_parser=return_parser )
@@ -2760,56 +2279,25 @@ def setup( working_dir=None, return_parser=False ):
         return None
 
 
-def reconfigure():
+def reconfigure(working_dir):
     """
     Reconfigure blockstackd.
     """
-    configure( force=True )
+    configure( working_dir, force=True )
     print "Blockstack successfully reconfigured."
     sys.exit(0)
 
 
-def clean( confirm=True ):
+def verify_database(trusted_consensus_hash, consensus_block_height, untrusted_working_dir, trusted_working_dir, start_block=None, expected_snapshots={}):
     """
-    Remove blockstack's db, lastblock, and snapshot files.
-    Prompt for confirmation
+    Verify that a database is consistent with a
+    known-good consensus hash.
+    Return True if valid.
+    Return False if not
     """
-
-    delete = False
-    exit_status = 0
-
-    if confirm:
-        warning = "WARNING: THIS WILL DELETE YOUR BLOCKSTACK DATABASE!\n"
-        warning+= "Database: '%s'\n" % blockstack_state_engine.working_dir
-        warning+= "Are you sure you want to proceed?\n"
-        warning+= "Type 'YES' if so: "
-        value = raw_input( warning )
-
-        if value != "YES":
-            sys.exit(exit_status)
-
-        else:
-            delete = True
-
-    else:
-        delete = True
-
-
-    if delete:
-        print "Deleting..."
-
-        db_filename = virtualchain.get_db_filename()
-        lastblock_filename = virtualchain.get_lastblock_filename()
-        snapshots_filename = virtualchain.get_snapshots_filename()
-
-        for path in [db_filename, lastblock_filename, snapshots_filename]:
-            try:
-                os.unlink( path )
-            except:
-                log.warning("Unable to delete '%s'" % path)
-                exit_status = 1
-
-    sys.exit(exit_status)
+    db = BlockstackDB.get_readwrite_instance(trusted_working_dir)
+    consensus_impl = virtualchain_hooks
+    return virtualchain.state_engine_verify(trusted_consensus_hash, consensus_block_height, consensus_impl, untrusted_working_dir, db, start_block=start_block, expected_snapshots=expected_snapshots)
 
 
 def check_and_set_envars( argv ):
@@ -2823,34 +2311,47 @@ def check_and_set_envars( argv ):
     argv should be like sys.argv:  argv[0] is the binary
 
     Does not return on re-exec.
-    Return True if there was no need to re-exec
+    Returns {args} on success
     Returns False on error.
     """
     special_flags = {
-        '--working-dir': {
-            'arg': True,
-            'envar': 'VIRTUALCHAIN_WORKING_DIR',
-        },
         '--debug': {
             'arg': False,
             'envar': 'BLOCKSTACK_DEBUG',
+            'exec': True,
         },
         '--verbose': {
             'arg': False,
             'envar': 'BLOCKSTACK_DEBUG',
+            'exec': True,
         },
         '--testnet': {
             'arg': False,
-            'envar': 'BLOCKSTACK_TESTNET'
+            'envar': 'BLOCKSTACK_TESTNET',
+            'exec': True,
         },
         '--testnet3': {
             'arg': False,
-            'envar': 'BLOCKSTACK_TESTNET3'
+            'envar': 'BLOCKSTACK_TESTNET3',
+            'exec': True,
+        },
+        '--working_dir': {
+            'arg': True,
+            'argname': 'working_dir',
+            'exec': False,
+        },
+        '--working-dir': {
+            'arg': True,
+            'argname': 'working_dir',
+            'exec': False,
         },
     }
 
     cli_envs = {}
+    cli_args = {}
     new_argv = [argv[0]]
+
+    do_exec = False
 
     for i in xrange(1, len(argv)):
 
@@ -2859,7 +2360,7 @@ def check_and_set_envars( argv ):
 
         for special_flag in special_flags.keys():
 
-            if not arg.startswith( special_flag ):
+            if not arg.startswith(special_flag):
                 continue
 
             if special_flags[special_flag]['arg']:
@@ -2887,21 +2388,31 @@ def check_and_set_envars( argv ):
             break
 
         if value is not None:
-            # recognized
-            cli_envs[ special_flags[special_flag]['envar'] ] = value
+            if 'envar' in special_flags[special_flag]:
+                # recognized
+                cli_envs[ special_flags[special_flag]['envar'] ] = value
+            
+            if 'argname' in special_flags[special_flag]:
+                # recognized as special argument
+                cli_args[ special_flags[special_flag]['argname'] ] = value
+                new_argv.append(arg)
+                new_argv.append(value)
+
+            if special_flags[special_flag]['exec']:
+                do_exec = True
 
         else:
             # not recognized
             new_argv.append(arg)
 
-    if len(cli_envs.keys()) > 0:
+    if do_exec:
         # re-exec
         for cli_env, cli_env_value in cli_envs.items():
             os.environ[cli_env] = cli_env_value
 
-        os.execv( new_argv[0], new_argv )
+        os.execv(new_argv[0], new_argv)
 
-    return True
+    return cli_args
 
 
 def load_expected_snapshots( snapshots_path ):
@@ -2913,379 +2424,392 @@ def load_expected_snapshots( snapshots_path ):
     # use snapshots?
     snapshots_path = os.path.expanduser(snapshots_path)
     expected_snapshots = {}
+
+    # legacy chainstate?
     try:
         with open(snapshots_path, "r") as f:
             snapshots_json = f.read()
-
+        
         snapshots_data = json.loads(snapshots_json)
         assert 'snapshots' in snapshots_data.keys(), "Not a valid snapshots file"
 
         # extract snapshots: map int to consensus hash
         for (block_id_str, consensus_hash) in snapshots_data['snapshots'].items():
             expected_snapshots[ int(block_id_str) ] = str(consensus_hash)
-
+        
+        log.debug("Loaded expected snapshots from legacy JSON {}; {} entries".format(snapshots_path, len(expected_snapshots)))
         return expected_snapshots
+    
+    except ValueError as ve:
+        log.debug("Snapshots file {} is not JSON".format(snapshots_path))
 
-    except Exception, e:
-        log.exception(e)
-        log.error("Failed to read expected snapshots from '%s'" % snapshots_path)
+    except Exception as e:
+        if os.environ.get('BLOCKSTACK_DEBUG') == '1':
+            log.exception(e)
+
+        log.debug("Failed to read expected snapshots from '{}'".format(snapshots_path))
         return None
 
+    try:
+        # sqlite3 db?
+        db_con = virtualchain.StateEngine.db_connect(snapshots_path)
+        expected_snapshots = virtualchain.StateEngine.get_consensus_hashes(None, None, db_con=db_con, completeness_check=False)
+        log.debug("Loaded expected snapshots from chainstate DB {}, {} entries".format(snapshots_path, len(expected_snapshots)))
+        return expected_snapshots
+
+    except:
+        log.debug("{} does not appear to be a chainstate DB".format(snapshots_path))
+
+    return None
+    
 
 def run_blockstackd():
-   """
-   run blockstackd
-   """
-
-   check_and_set_envars( sys.argv )
-   argparser = setup( return_parser=True )
-   if argparser is None:
-       # fatal error
-       os.abort()
-
-   # need sqlite3
-   sqlite3_tool = sqlite3_find_tool()
-   if sqlite3_tool is None:
-       print 'Failed to find sqlite3 tool in your PATH.  Cannot continue'
-       sys.exit(1)
-
-   working_dir = virtualchain.get_working_dir()
-
-   # get RPC server options
-   subparsers = argparser.add_subparsers(
-      dest='action', help='the action to be taken')
-
-   parser = subparsers.add_parser(
-      'start',
-      help='start the blockstackd server')
-   parser.add_argument(
-      '--foreground', action='store_true',
-      help='start the blockstack server in foreground')
-   parser.add_argument(
-      '--expected-snapshots', action='store',
-      help='path to a .snapshots file with the expected consensus hashes')
-   parser.add_argument(
-      '--port', action='store',
-      help='port to bind on')
-   parser.add_argument(
-      '--no-indexer', action='store_true',
-      help='do not index the blockchain')
-
-   parser = subparsers.add_parser(
-      'stop',
-      help='stop the blockstackd server')
-
-   parser = subparsers.add_parser(
-      'configure',
-      help='reconfigure the blockstackd server')
-
-   parser = subparsers.add_parser(
-      'clean',
-      help='remove all blockstack database information')
-   parser.add_argument(
-      '--force', action='store_true',
-      help='Do not confirm the request to delete.')
-
-   parser = subparsers.add_parser(
-      'restore',
-      help="Restore the database from a backup")
-   parser.add_argument(
-      'block_number', nargs='?',
-      help="The block number to restore from (if not given, the last backup will be used)")
-
-   parser = subparsers.add_parser(
-      'rebuilddb',
-      help='Reconstruct the current database from particular block number by replaying all prior name operations')
-   parser.add_argument(
-      'db_path',
-      help='the path to the database')
-   parser.add_argument(
-      'start_block_id',
-      help='the block ID from which to start rebuilding')
-   parser.add_argument(
-      'end_block_id',
-      help='the block ID at which to stop rebuilding')
-   parser.add_argument(
-      '--resume-dir', nargs='?',
-      help='the temporary directory to store the database state as it is being rebuilt.  Blockstackd will resume working from this directory if it is interrupted.')
-
-   parser = subparsers.add_parser(
-      'verifydb',
-      help='verify an untrusted database against a known-good consensus hash')
-   parser.add_argument(
-      'block_id',
-      help='the block ID of the known-good consensus hash')
-   parser.add_argument(
-      'consensus_hash',
-      help='the known-good consensus hash')
-   parser.add_argument(
-      'db_path',
-      help='the path to the database')
-   parser.add_argument(
-      '--expected-snapshots', action='store',
-      help='path to a .snapshots file with the expected consensus hashes')
-
-   parser = subparsers.add_parser(
-      'importdb',
-      help='import an existing trusted database')
-   parser.add_argument(
-      'db_path',
-      help='the path to the database')
-
-   parser = subparsers.add_parser(
-      'version',
-      help='Print version and exit')
-
-   parser = subparsers.add_parser(
-      'fast_sync',
-      help='fetch and verify a recent known-good name database')
-   parser.add_argument(
-      'url', nargs='?',
-      help='the URL to the name database snapshot')
-   parser.add_argument(
-      'public_keys', nargs='?',
-      help='a CSV of public keys to use to verify the snapshot')
-   parser.add_argument(
-      '--num_required', action='store',
-      help='the number of required signature matches')
-
-   parser = subparsers.add_parser(
-      'fast_sync_snapshot',
-      help='make a fast-sync snapshot')
-   parser.add_argument(
-      'private_key',
-      help='a private key to use to sign the snapshot')
-   parser.add_argument(
-      'path',
-      help='the path to the resulting snapshot')
-   parser.add_argument(
-      'block_id', nargs='?',
-      help='the block ID of the backup to use to make a fast-sync snapshot')
-
-   parser = subparsers.add_parser(
-      'fast_sync_sign',
-      help='sign an existing fast-sync snapshot')
-   parser.add_argument(
-      'path', action='store',
-      help='the path to the snapshot')
-   parser.add_argument(
-      'private_key', action='store',
-      help='a private key to use to sign the snapshot')
-
-   args, _ = argparser.parse_known_args()
-
-   if args.action == 'version':
-      print "Blockstack version: %s" % VERSION
-      sys.exit(0)
-
-   if args.action == 'start':
-      global has_indexer
-      has_indexer = (not args.no_indexer)
-      expected_snapshots = {}
-
-      pid = read_pid_file(get_pidfile_path())
-      still_running = False
-      
-      if pid is not None:
-          try:
-              still_running = check_server_running(pid)
-          except:
-              log.error("Could not contact process {}".format(pid))
-              sys.exit(1)
-      
-      if still_running:
-          log.error("Blockstackd appears to be running already.  If not, please run '{} stop'".format(sys.argv[0]))
-          sys.exit(1)
-
-      if is_indexer() and pid is not None:
-          # The server didn't shut down properly.
-          # restore from back-up before running
-          log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
-
-          # move any existing db information out of the way so we can start fresh.
-          state_paths = BlockstackDB.get_state_paths()
-          need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
-          if need_backup:
-
-              # have old state.  keep it around for later inspection
-              target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
-              os.makedirs(target_dir)
-              for sp in state_paths:
-                  if os.path.exists(sp):
-                     target = os.path.join( target_dir, os.path.basename(sp) )
-                     shutil.move( sp, target )
-
-              log.warning("State from crash stored to '{}'".format(target_dir))
-
-          blockstack_backup_restore( working_dir, None )
-
-          # make sure we "stop"
-          config.set_indexing(False)
-
-      # use snapshots?
-      if args.expected_snapshots is not None:
-          expected_snapshots = load_expected_snapshots( args.expected_snapshots )
-          if expected_snapshots is None:
-              sys.exit(1)
-
-          log.debug("Load expected snapshots from {}".format(args.expected_snapshots))
-
-      # we're definitely not running, so make sure this path is clear
-      try:
-          os.unlink(get_pidfile_path())
-      except:
-          pass
-
-      if args.foreground:
-          log.info('Initializing blockstackd server in foreground (working dir = \'%s\')...' % (working_dir))
-      else:
-          log.info('Starting blockstackd server (working_dir = \'%s\') ...' % (working_dir))
-
-      if args.port is not None:
-          log.info("Binding on port %s" % int(args.port))
-          args.port = int(args.port)
-      else:
-          args.port = None
-
-      exit_status = run_server( foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port )
-      if args.foreground:
-          log.info("Service endpoint exited with status code %s" % exit_status )
-
-   elif args.action == 'stop':
-      stop_server(kill=True)
-
-   elif args.action == 'configure':
-      reconfigure()
-
-   elif args.action == 'restore':
-      block_number = args.block_number
-      if block_number is not None:
-         block_number = int(block_number)
-
-      blockstack_backup_restore( working_dir, args.block_number )
-
-   elif args.action == 'clean':
-      clean( confirm=(not args.force) )
-
-   elif args.action == 'rebuilddb':
-
-      resume_dir = None
-      if hasattr(args, 'resume_dir') and args.resume_dir is not None:
-          resume_dir = args.resume_dir
-
-      final_consensus_hash = rebuild_database( int(args.end_block_id), args.db_path, start_block=int(args.start_block_id), resume_dir=resume_dir )
-      print "Rebuilt database in '%s'" % working_dir
-      print "The final consensus hash is '%s'" % final_consensus_hash
-
-   elif args.action == 'verifydb':
-      db_path = virtualchain.get_db_filename()
-      working_db_path = os.path.join( working_dir, os.path.basename( db_path ) )
-      expected_snapshots = None
-
-      if args.expected_snapshots is not None:
-          expected_snapshots = load_expected_snapshots( args.expected_snapshots )
-          if expected_snapshots is None:
-              sys.exit(1)
-
-      rc = verify_database( args.consensus_hash, int(args.block_id), args.db_path, working_db_path=working_db_path, expected_snapshots=expected_snapshots )
-      if rc:
-          # success!
-          print "Database is consistent with %s" % args.consensus_hash
-          print "Verified files are in '%s'" % working_dir
-
-      else:
-          # failure!
-          print "Database is NOT CONSISTENT"
-
-   elif args.action == 'importdb':
-      # re-target working dir so we move the database state to the correct location
-      old_working_dir = virtualchain.get_working_dir()
-      virtualchain.setup_virtualchain( blockstack_state_engine )
-
-      db_path = virtualchain.get_db_filename()
-      old_snapshots_path = os.path.join( old_working_dir, os.path.basename( virtualchain.get_snapshots_filename() ) )
-      old_lastblock_path = os.path.join( old_working_dir, os.path.basename( virtualchain.get_lastblock_filename() ) )
-
-      if os.path.exists( db_path ):
-          print "Backing up existing database to %s.bak" % db_path
-          shutil.move( db_path, db_path + ".bak" )
-
-      print "Importing database from %s to %s" % (args.db_path, db_path)
-      shutil.copy( args.db_path, db_path )
-
-      print "Importing snapshots from %s to %s" % (old_snapshots_path, virtualchain.get_snapshots_filename() )
-      shutil.copy( old_snapshots_path, virtualchain.get_snapshots_filename() )
-
-      print "Importing lastblock from %s to %s" % (old_lastblock_path, virtualchain.get_lastblock_filename() )
-      shutil.copy( old_lastblock_path, virtualchain.get_lastblock_filename() )
-
-   elif args.action == 'fast_sync_snapshot':
-      # create a fast-sync snapshot from the last backup
-      dest_path = str(args.path)
-      private_key = str(args.private_key)
-      try:
-          keylib.ECPrivateKey(private_key)
-      except:
-          print "Invalid private key"
-          sys.exit(1)
-
-      block_id = None
-      if args.block_id is not None:
-          block_id = int(args.block_id)
-
-      rc = fast_sync_snapshot( dest_path, private_key, block_id )
-      if not rc:
-          print "Failed to create snapshot"
-          sys.exit(1)
-
-   elif args.action == 'fast_sync_sign':
-      # sign an existing fast-sync snapshot with an additional key
-      snapshot_path = str(args.path)
-      private_key = str(args.private_key)
-      try:
-          keylib.ECPrivateKey(private_key)
-      except:
-          print "Invalid private key"
-          sys.exit(1)
-
-      rc = fast_sync_sign_snapshot( snapshot_path, private_key )
-      if not rc:
-          print "Failed to sign snapshot"
-          sys.exit(1)
-
-   elif args.action == 'fast_sync':
-      # fetch the snapshot and verify it
-      if hasattr(args, 'url') and args.url:
-          url = str(args.url)
-      else:
-          url = str(config.FAST_SYNC_DEFAULT_URL)
-
-      public_keys = config.FAST_SYNC_PUBLIC_KEYS
-
-      if args.public_keys is not None:
-          public_keys = args.public_keys.split(',')
-          for pubk in public_keys:
-              try:
-                  keylib.ECPublicKey(pubk)
-              except:
-                  print "Invalid public key"
-                  sys.exit(1)
-
-      num_required = len(public_keys)
-      if args.num_required:
-          num_required = int(args.num_required)
-
-      print "Synchronizing from snapshot from {}.  This may take up to 15 minutes.".format(url)
-
-      rc = fast_sync_import(working_dir, url, public_keys=public_keys, num_required=num_required, verbose=True)
-      if not rc:
-          print 'fast_sync failed'
-          sys.exit(1)
-
-      print "Node synchronized!  Node state written to {}".format(working_dir)
-      print "Start your node with `blockstack-core start`"
-      print "Pass `--debug` for extra output."
-
-if __name__ == '__main__':
-
-   run_blockstackd()
+    """
+    run blockstackd
+    """
+    special_args = check_and_set_envars( sys.argv )
+    working_dir = special_args.get('working_dir')
+    if working_dir is None:
+        working_dir = os.path.expanduser('~/.{}'.format(virtualchain_hooks.get_virtual_chain_name()))
+        
+    argparser = setup( working_dir, return_parser=True )
+    if argparser is None:
+        # fatal error
+        os.abort()
+
+    # need sqlite3
+    sqlite3_tool = virtualchain.sqlite3_find_tool()
+    if sqlite3_tool is None:
+        print 'Failed to find sqlite3 tool in your PATH.  Cannot continue'
+        sys.exit(1)
+
+    # get RPC server options
+    subparsers = argparser.add_subparsers(
+        dest='action', help='the action to be taken')
+     
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'start',
+        help='start the blockstackd server')
+    parser.add_argument(
+        '--foreground', action='store_true',
+        help='start the blockstack server in foreground')
+    parser.add_argument(
+        '--expected-snapshots', action='store',
+        help='path to a .snapshots file with the expected consensus hashes')
+    parser.add_argument(
+        '--port', action='store',
+        help='port to bind on')
+
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'stop',
+        help='stop the blockstackd server')
+
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'configure',
+        help='reconfigure the blockstackd server')
+
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'clean',
+        help='remove all blockstack database information')
+    parser.add_argument(
+        '--force', action='store_true',
+        help='Do not confirm the request to delete.')
+
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'restore',
+        help="Restore the database from a backup")
+    parser.add_argument(
+        'block_number', nargs='?',
+        help="The block number to restore from (if not given, the last backup will be used)")
+
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'verifydb',
+        help='verify an untrusted database against a known-good consensus hash')
+    parser.add_argument(
+        'block_height',
+        help='the block height of the known-good consensus hash')
+    parser.add_argument(
+        'consensus_hash',
+        help='the known-good consensus hash')
+    parser.add_argument(
+        'chainstate_dir',
+        help='the path to the database directory to verify')
+    parser.add_argument(
+        '--expected-snapshots', action='store',
+        help='path to a .snapshots file with the expected consensus hashes')
+
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'version',
+        help='Print version and exit')
+
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'fast_sync',
+        help='fetch and verify a recent known-good name database')
+    parser.add_argument(
+        'url', nargs='?',
+        help='the URL to the name database snapshot')
+    parser.add_argument(
+        'public_keys', nargs='?',
+        help='a CSV of public keys to use to verify the snapshot')
+    parser.add_argument(
+        '--num_required', action='store',
+        help='the number of required signature matches')
+
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'fast_sync_snapshot',
+        help='make a fast-sync snapshot')
+    parser.add_argument(
+        'private_key',
+        help='a private key to use to sign the snapshot')
+    parser.add_argument(
+        'path',
+        help='the path to the resulting snapshot')
+    parser.add_argument(
+        'block_height', nargs='?',
+        help='the block ID of the backup to use to make a fast-sync snapshot')
+
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'fast_sync_sign',
+        help='sign an existing fast-sync snapshot')
+    parser.add_argument(
+        'path', action='store',
+        help='the path to the snapshot')
+    parser.add_argument(
+        'private_key', action='store',
+        help='a private key to use to sign the snapshot')
+
+    # -------------------------------------
+    subdomain_parser = subparsers.add_parser(
+        'subdomain', help='Subdomain commands')
+
+    subdomain_subparsers = subdomain_parser.add_subparsers(
+        dest='action', help='the subdomain action to be taken')
+
+    parser = subdomain_subparsers.add_parser(
+        'index', help='(Re)index subdomains over a block range')
+    parser.add_argument(
+        'start_block', action='store', type=int, help='the starting block height')
+    parser.add_argument(
+        'end_block', action='store', type=int, help='the ending block height')
+
+
+    args, _ = argparser.parse_known_args()
+
+    if args.action == 'version':
+        print "Blockstack version: %s" % VERSION
+
+    elif args.action == 'start':
+        expected_snapshots = {}
+
+        pid = read_pid_file(get_pidfile_path(working_dir))
+        still_running = False
+       
+        if pid is not None:
+           try:
+               still_running = check_server_running(pid)
+           except:
+               log.error("Could not contact process {}".format(pid))
+               sys.exit(1)
+       
+        if still_running:
+           log.error("Blockstackd appears to be running already.  If not, please run '{} stop'".format(sys.argv[0]))
+           sys.exit(1)
+
+        if pid is not None:
+           # The server didn't shut down properly.
+           # restore from back-up before running
+           log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
+
+           # move any existing db information out of the way so we can start fresh.
+           state_paths = BlockstackDB.get_state_paths()
+           need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
+           if need_backup:
+
+               # have old state.  keep it around for later inspection
+               target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
+               os.makedirs(target_dir)
+               for sp in state_paths:
+                   if os.path.exists(sp):
+                      target = os.path.join( target_dir, os.path.basename(sp) )
+                      shutil.move( sp, target )
+
+               log.warning("State from crash stored to '{}'".format(target_dir))
+
+           blockstack_backup_restore(working_dir, None)
+
+           # make sure we "stop"
+           set_indexing(working_dir, False)
+
+        # use snapshots?
+        if args.expected_snapshots is not None:
+           expected_snapshots = load_expected_snapshots( args.expected_snapshots )
+           if expected_snapshots is None:
+               sys.exit(1)
+        else:
+           log.debug("No expected snapshots given")
+
+        # we're definitely not running, so make sure this path is clear
+        try:
+           os.unlink(get_pidfile_path(working_dir))
+        except:
+           pass
+
+        if args.foreground:
+           log.info('Initializing blockstackd server in foreground (working dir = \'%s\')...' % (working_dir))
+        else:
+           log.info('Starting blockstackd server (working_dir = \'%s\') ...' % (working_dir))
+
+        if args.port is not None:
+           log.info("Binding on port %s" % int(args.port))
+           args.port = int(args.port)
+        else:
+           args.port = None
+
+        exit_status = run_server( working_dir, foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port )
+        if args.foreground:
+           log.info("Service endpoint exited with status code %s" % exit_status )
+
+    elif args.action == 'stop':
+        stop_server(working_dir, kill=True)
+
+    elif args.action == 'configure':
+        reconfigure(working_dir)
+
+    elif args.action == 'restore':
+        block_number = args.block_number
+        if block_number is not None:
+          block_number = int(block_number)
+
+        pid = read_pid_file(get_pidfile_path(working_dir))
+        still_running = False
+       
+        if pid is not None:
+           try:
+               still_running = check_server_running(pid)
+           except:
+               log.error("Could not contact process {}".format(pid))
+               sys.exit(1)
+       
+        if still_running:
+           log.error("Blockstackd appears to be running already.  If not, please run '{} stop'".format(sys.argv[0]))
+           sys.exit(1)
+
+        blockstack_backup_restore(working_dir, args.block_number)
+
+        # make sure we're "stopped"
+        set_indexing(working_dir, False)
+        if os.path.exists(get_pidfile_path(working_dir)):
+           os.unlink(get_pidfile_path(working_dir))
+
+    elif args.action == 'verifydb':
+        expected_snapshots = None
+        if args.expected_snapshots is not None:
+           expected_snapshots = load_expected_snapshots(args.expected_snapshots)
+           if expected_snapshots is None:
+               sys.exit(1)
+     
+        tmpdir = tempfile.mkdtemp('blockstack-verify-chainstate-XXXXXX')
+        rc = verify_database(args.consensus_hash, int(args.block_height), args.chainstate_dir, tmpdir, expected_snapshots=expected_snapshots)
+        if rc:
+           # success!
+           print "Database is consistent with %s" % args.consensus_hash
+           print "Verified files are in '%s'" % working_dir
+
+        else:
+           # failure!
+           print "Database is NOT CONSISTENT"
+
+    elif args.action == 'fast_sync_snapshot':
+        # create a fast-sync snapshot from the last backup
+        dest_path = str(args.path)
+        private_key = str(args.private_key)
+        try:
+           keylib.ECPrivateKey(private_key)
+        except:
+           print "Invalid private key"
+           sys.exit(1)
+
+        block_height = None
+        if args.block_height is not None:
+           block_height = int(args.block_height)
+
+        rc = fast_sync_snapshot(working_dir, dest_path, private_key, block_height)
+        if not rc:
+           print "Failed to create snapshot"
+           sys.exit(1)
+
+    elif args.action == 'fast_sync_sign':
+        # sign an existing fast-sync snapshot with an additional key
+        snapshot_path = str(args.path)
+        private_key = str(args.private_key)
+        try:
+           keylib.ECPrivateKey(private_key)
+        except:
+           print "Invalid private key"
+           sys.exit(1)
+
+        rc = fast_sync_sign_snapshot( snapshot_path, private_key )
+        if not rc:
+           print "Failed to sign snapshot"
+           sys.exit(1)
+
+    elif args.action == 'fast_sync':
+        # fetch the snapshot and verify it
+        if hasattr(args, 'url') and args.url:
+           url = str(args.url)
+        else:
+           url = str(config.FAST_SYNC_DEFAULT_URL)
+
+        public_keys = config.FAST_SYNC_PUBLIC_KEYS
+
+        if args.public_keys is not None:
+           public_keys = args.public_keys.split(',')
+           for pubk in public_keys:
+               try:
+                   keylib.ECPublicKey(pubk)
+               except:
+                   print "Invalid public key"
+                   sys.exit(1)
+
+        num_required = len(public_keys)
+        if args.num_required:
+           num_required = int(args.num_required)
+
+        print "Synchronizing from snapshot from {}.  This may take up to 15 minutes.".format(url)
+
+        rc = fast_sync_import(working_dir, url, public_keys=public_keys, num_required=num_required, verbose=True)
+        if not rc:
+           print 'fast_sync failed'
+           sys.exit(1)
+
+        print "Node synchronized!  Node state written to {}".format(working_dir)
+        print "Start your node with `blockstack-core start`"
+        print "Pass `--debug` for extra output."
+
+    elif args.action == 'index':
+        # reindex subdomains
+        start_block = args.start_block
+        end_block = args.end_block
+        
+        # get db state
+        db = get_or_instantiate_db_state(working_dir)
+         
+        # set up atlas state
+        blockstack_opts = get_blockstack_opts()
+        atlas_state = atlas_init(blockstack_opts, db)
+        db.close()
+
+        # set up subdomains state
+        subdomain_indexer = subdomains_init(blockstack_opts, working_dir, atlas_state)
+        subdomain_indexer.index(start_block, end_block)
+

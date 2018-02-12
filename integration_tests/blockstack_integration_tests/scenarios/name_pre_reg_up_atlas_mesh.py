@@ -106,10 +106,8 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-        # propagate 
-        res = testlib.blockstack_cli_sync_zonefile('foo_{}.test'.format(i), zonefile_string=empty_zonefile_str)
-        if 'error' in res:
-            print json.dumps(res)
+        res = testlib.blockstack_put_zonefile(empty_zonefile_str)
+        if not res:
             return False
 
     # start up an Atlas test network with 9 nodes: the main one doing the test, and 8 subordinate ones that treat it as a seed peer.
@@ -119,7 +117,7 @@ def scenario( wallets, **kw ):
     for node_port in atlas_nodes:
         atlas_topology[node_port] = [16264]
 
-    network_des = atlas_network.atlas_network_build( atlas_nodes, atlas_topology, {}, os.path.join( testlib.working_dir(**kw), "atlas_network" ))
+    network_des = atlas_network.atlas_network_build( testlib.working_dir(**kw), atlas_nodes, atlas_topology, {}, os.path.join( testlib.working_dir(**kw), "atlas_network" ))
     atlas_network.atlas_network_start( network_des )
 
     print "Waiting 60 seconds for the altas peers to catch up"

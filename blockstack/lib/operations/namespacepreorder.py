@@ -26,8 +26,8 @@ from ..scripts import *
 from ..hashing import *
 from ..nameset import *
 
-import blockstack_client
-from blockstack_client.operations import *
+import json
+
 from binascii import hexlify, unhexlify
 
 # consensus hash fields (ORDER MATTERS!) 
@@ -46,12 +46,6 @@ FIELDS = [
 
 # save everything
 MUTATE_FIELDS = FIELDS[:]
-
-# fields to back up when this operation is applied
-BACKUP_FIELDS = [
-    "__all__",
-    'burn_address'
-]
 
 @state_preorder("check_preorder_collision")
 def check( state_engine, nameop, block_id, checked_ops ):
@@ -94,31 +88,19 @@ def get_namespace_preorder_burn_info( outputs ):
     Return the fee and burn address on success as {'op_fee': ..., 'burn_address': ...}
     Return None if not found
     """
-    
     if len(outputs) < 3:
         # not a well-formed preorder 
         return None 
-    
-    assert outputs[0].has_key('scriptPubKey')
-    assert outputs[2].has_key('scriptPubKey')
+   
+    op_fee = outputs[2]['value']
+    burn_address = None
 
-    data_scriptpubkey = outputs[0]['scriptPubKey']
-    burn_scriptpubkey = outputs[2]['scriptPubKey']
-
-    assert data_scriptpubkey.has_key('asm')
-    assert burn_scriptpubkey.has_key('hex')
-    assert outputs[2].has_key('value')
-
-    if data_scriptpubkey['asm'][0:9] != 'OP_RETURN':
-        # not a well-formed preorder
+    try:
+        burn_address = virtualchain.script_hex_to_address(outputs[2]['script'])
+        assert burn_address
+    except:
+        log.error("Invalid burn script: {}".format(outputs[2]['script']))
         return None
-
-    if virtualchain.script_hex_to_address(burn_scriptpubkey['hex']) is None:
-        # not a well-formed preorder
-        return None
-
-    op_fee = int(outputs[2]['value'] * (10**8))
-    burn_address = virtualchain.script_hex_to_address(burn_scriptpubkey['hex'])
 
     return {'op_fee': op_fee, 'burn_address': burn_address}
 
@@ -211,29 +193,29 @@ def parse( bin_payload ):
    }
 
 
-def restore_delta( rec, block_number, history_index, working_db, untrusted_db ):
+def canonicalize(parsed_op):
     """
-    Find the fields in a name record that were changed by an instance of this operation, at the 
-    given (block_number, history_index) point in time in the past.  The history_index is the
-    index into the list of changes for this name record in the given block.
+    Get the "canonical form" of this operation, putting it into a form where it can be serialized
+    to form a consensus hash.  This method is meant to preserve compatibility across blockstackd releases.
 
-    Return the fields that were modified on success.
-    Return None on error.
+    For all namespace operations, this means:
+    * make the 'buckets' array into a string
     """
+    if 'buckets' in parsed_op:
+        parsed_op['buckets'] = str(parsed_op['buckets'])
 
-    from ..nameset import BlockstackDB 
-
-    name_rec_script = build_namespace_preorder( None, None, None, str(rec['consensus_hash']), namespace_id_hash=str(rec['preorder_hash']) )
-    name_rec_payload = unhexlify( name_rec_script )[3:]
-    ret_op = parse(name_rec_payload)
-
-    ret_op['burn_address'] = rec['burn_address']
-    return ret_op
+    return parsed_op
 
 
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
+def decanonicalize(canonical_op):
     """
-    Calculate any derived missing data that goes into the check() operation,
-    given the block number, the name record at the block number, and the db.
+    Get the "current form" of this operation, putting it into a form usable by the rest of the system.
+
+    For namespace ops, this means:
+    * make 'buckets' string into an array, if it is present
     """
-    return blockstack_client.operations.namespacepreorder.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
+    if 'buckets' in canonical_op:
+        canonical_op['buckets'] = json.loads(canonical_op['buckets'])
+
+    return canonical_op
+

@@ -25,9 +25,9 @@ from ..config import *
 from ..scripts import *
 from ..hashing import *
 from ..nameset import *
+from ..storage import get_zonefile_data_hash, get_atlas_zonefile_data
 from utilitybelt import is_hex
 
-import blockstack_client
 from binascii import hexlify, unhexlify
 
 # consensus hash fields (none for announcements)
@@ -36,26 +36,43 @@ FIELDS = []
 # fields that this operation changes (none)
 MUTATE_FIELDS = []
 
-# fields that should be backed up when applying this operation (none)
-BACKUP_FIELDS = []
-
-
-def process_announcement( op ):
+def process_announcement( sender_namerec, op, working_dir ):
     """
     If the announcement is valid, then immediately record it.
     """
+    node_config = get_blockstack_opts()
+
     # valid announcement
     announce_hash = op['message_hash']
     announcer_id = op['announcer_id']
+   
+    # verify that it came from this individual
+    name_history = sender_namerec['history']
+    allowed_value_hashes = []
+    for block_height in name_history.keys():
+        for historic_namerec in name_history[block_height]:
+            if historic_namerec.get('value_hash'):
+                allowed_value_hashes.append(historic_namerec['value_hash'])
 
-    # go get the text...
-    announcement_text = blockstack_client.storage.get_announcement( announce_hash )
-    if announcement_text is None:
-        log.critical( "\n\n(INTERNAL ERROR): Failed to fetch announcement with hash %s from '%s'\n\n" % (announce_hash, announcer_id))
+    if announce_hash not in allowed_value_hashes:
+        # this individual did not send this announcement
+        log.debug("Announce hash {} not found in name history for {}".format(announce_hash, announcer_id))
+        return 
 
-    else:
-        log.critical("ANNOUNCEMENT (from %s): %s\n------BEGIN MESSAGE------\n%s\n------END MESSAGE------\n" % (announcer_id, announce_hash, announcement_text))         
-        store_announcement( announce_hash, announcement_text )
+    # go get it from Atlas
+    zonefiles_dir = node_config.get('zonefiles', None)
+    if not zonefiles_dir:
+        log.debug("This node does not store zone files, so no announcement can be found")
+        return 
+
+    announce_text = get_atlas_zonefile_data(announce_hash, zonefiles_dir)
+    if announce_text is None:
+        log.debug("No zone file {} found".format(announce_hash))
+        return
+
+    # go append it 
+    log.critical("ANNOUNCEMENT (from %s): %s\n------BEGIN MESSAGE------\n%s\n------END MESSAGE------\n" % (announcer_id, announce_hash, announce_text))         
+    store_announcement( working_dir, announce_hash, announce_text )
 
 
 def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
@@ -148,6 +165,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     sender = nameop['sender']
     sending_blockchain_id = None
     found = False
+    blockchain_namerec = None
 
     for blockchain_id in state_engine.get_announce_ids():
         blockchain_namerec = state_engine.get_name( blockchain_id )
@@ -166,28 +184,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
         return False
 
     nameop['announcer_id'] = sending_blockchain_id
-    process_announcement( nameop )
+    process_announcement( blockchain_namerec, nameop, state_engine.working_dir )
     return True
 
-
-def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
-    """
-    Find the fields in a name record that were changed by an instance of this operation, at the 
-    given (block_number, history_index) point in time in the past.  The history_index is the
-    index into the list of changes for this name record in the given block.
-
-    Return the fields that were modified on success.
-    Return None on error.
-    """
-    return {}
-
-
-def snv_consensus_extras( new_name_rec, block_id, blockchain_name_data, db ):
-    """
-    Calculate any derived missing data that goes into the check() operation,
-    given the block number, the name record at the block number, and the db.
-    """
-    return blockstack_client.operations.announce.snv_consensus_extras( new_name_rec, block_id, blockchain_name_data )
-    '''
-    return {}
-    '''

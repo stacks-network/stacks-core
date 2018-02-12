@@ -56,18 +56,17 @@ import random
 from ConfigParser import SafeConfigParser
 import keylib
 import shutil
-import blockstack_client
 import blockstack
 from blockstack import virtualchain_hooks
 import virtualchain
-import blockstack_client.schemas as schemas
+import blockstack.lib.schemas as schemas
 
 SNAPSHOTS_CONFIG_PATH = os.path.expanduser("~/.blockstack-snapshots/blockstack-snapshots.ini")
 
 SNAPSHOT_CHECK_INTERVAL = int(os.environ.get("BLOCKSTACK_SNAPSHOT_CHECK_INTERVAL", 60))
 running = True
 
-log = blockstack_client.get_logger("blockstack-snapshots")
+log = virtualchain.get_logger("blockstack-snapshots")
 
 class BlockstackSnapshotHandler(SimpleHTTPRequestHandler):
     """
@@ -262,7 +261,7 @@ class BlockstackSnapshotHandler(SimpleHTTPRequestHandler):
         # did any of our trusted public keys sign it?
         valid = False
         for trusted_public_key in self.server.trusted_public_keys:
-            valid = blockstack_client.verify_digest( file_hash, trusted_public_key, sigb64 )
+            valid = virtualchain.ecdsalib.verify_digest( file_hash, trusted_public_key, sigb64 )
             if valid:
                 break
 
@@ -270,7 +269,7 @@ class BlockstackSnapshotHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid signature'}, status_code=403)
 
         # can sign 
-        sigb64 = blockstack_client.sign_digest( file_hash, self.server.private_key )
+        sigb64 = virtualchain.ecdsalib.sign_digest( file_hash, self.server.private_key )
         assert sigb64, "Failed to sign digest"
 
         return self._reply_json({'sigb64': sigb64})
@@ -327,7 +326,7 @@ class BlockstackSnapshotServer(SocketServer.TCPServer):
         self.server_activate()
 
 
-def make_snapshot(snapshots_dir, private_key, block_number):
+def make_snapshot(working_dir, snapshots_dir, private_key, block_number):
     """
     Make a snapshot from the given block height at {snapshots_dir}/snapshot.bsk.{block_number}
     Symlink it to {snapshots_dir}/snapshot.bsk
@@ -340,7 +339,7 @@ def make_snapshot(snapshots_dir, private_key, block_number):
     log.debug("Make snapshot for {} in {}".format(block_number, tmp_snapshot_path))
 
     try:
-        res = blockstack.fast_sync_snapshot( tmp_snapshot_path, private_key, block_number )
+        res = blockstack.fast_sync_snapshot(working_dir, tmp_snapshot_path, private_key, block_number)
         assert res
     except Exception as e:
         log.exception(e)
@@ -434,7 +433,7 @@ def find_backup_blocks(working_dir):
     """
     Find the set of block numbers for which we have backups
     """
-    backup_blocks = virtualchain.indexer.StateEngine.get_backup_blocks( virtualchain_hooks, working_dir=working_dir )
+    backup_blocks = virtualchain.indexer.StateEngine.get_backup_blocks(virtualchain_hooks, working_dir)
     return list(set(backup_blocks))
 
 
@@ -542,7 +541,7 @@ def snapshotter_thread_main(working_dir, snapshots_dir, private_key, check_runni
         # have new snapshots to make.
         # start with the oldest
         for new_block in sorted(new_block_numbers):
-            res = make_snapshot( snapshots_dir, private_key, new_block )
+            res = make_snapshot(working_dir, snapshots_dir, private_key, new_block)
             if 'error' in res:
                 log.error("Failed to make snapshot for {}: {}".format(new_block, res['error']))
 
@@ -761,8 +760,6 @@ def signal_exit(ignored_1, ignored_2):
 
 if __name__ == '__main__':
 
-    virtualchain.setup_virtualchain( virtualchain_hooks )
-    working_dir = virtualchain.get_working_dir( impl=virtualchain_hooks )
     config_path = SNAPSHOTS_CONFIG_PATH
 
     argparser = argparse.ArgumentParser(description="blockstack-snapshots version {}".format(blockstack.VERSION))
@@ -812,7 +809,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '--working_dir', action='store',
-        help='path to the blockstack server\'s working directory (defaults to {})'.format(working_dir))
+        help='path to the blockstack server\'s working directory')
    
     # ---------------------------
     parser = subparsers.add_parser(
@@ -854,7 +851,7 @@ if __name__ == '__main__':
     
     parser.add_argument(
         '--working_dir', action='store',
-        help='path to the blockstack server\'s working directory (defaults to {})'.format(working_dir))
+        help='path to the blockstack server\'s working directory')
 
     args, _ = argparser.parse_known_args()
 
@@ -876,6 +873,9 @@ if __name__ == '__main__':
 
     if hasattr(args, 'working_dir') and args.working_dir:
         working_dir = args.working_dir
+    
+    if working_dir is None:
+        working_dir = os.expanduser('~/{}'.format(virtualchain_hooks.get_virtual_chain_name()))
 
     snapshots_conf = conf['blockstack-snapshots']
 
@@ -963,7 +963,7 @@ if __name__ == '__main__':
                     sys.exit(1)
 
             # daemonize
-            res = blockstack_client.daemonize( log_file, child_wait=lambda: server_wait(snapshots_conf) )
+            res = blockstack.lib.util.daemonize( log_file, child_wait=lambda: server_wait(snapshots_conf) )
             if res < 0:
                 print >> sys.stderr, "Failed to start server"
                 sys.exit(1)

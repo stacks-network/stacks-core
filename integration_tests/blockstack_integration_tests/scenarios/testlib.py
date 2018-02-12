@@ -159,8 +159,9 @@ class TestAPIProxy(object):
         client_config = blockstack_client.get_config(client_path)
 
         log.debug("Connect to Blockstack node at {}:{}".format(client_config['server'], client_config['port']))
-        self.client = blockstack_client.BlockstackRPCClient(
+        self.client = blockstack.lib.client.BlockstackRPCClient(
             client_config['server'], client_config['port'], protocol = client_config['protocol'])
+
         self.config_path = client_path
         self.conf = {
             "start_block": blockstack.FIRST_BLOCK_MAINNET,
@@ -2297,7 +2298,6 @@ def blockstack_get_zonefile( zonefile_hash, parse=True, config_path=None ):
     MEANT FOR DIAGNOSTIC PURPOSES ONLY
     """
 
-    # TODO: sync with API
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
@@ -2311,40 +2311,66 @@ def blockstack_get_zonefile( zonefile_hash, parse=True, config_path=None ):
 
     zonefile_txt = base64.b64decode( zonefile_result['zonefiles'][zonefile_hash] )
 
+    # verify
+    if zonefile_hash != blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt):
+        return None
+
     if parse:
-        zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
-
-        # verify
-        if zonefile_hash != blockstack_client.hash_zonefile( zonefile ):
-            return None
-
+        zonefile = blockstack_zones.parse_zone_file(zonefile_txt)
         return zonefile
 
     else:
         return zonefile_txt
 
 
-def blockstack_get_profile( name, config_path=None ):
+def blockstack_put_zonefile(zonefile_txt, config_path=None):
     """
-    Get a profile from the RPC endpoint
-    Return None if not given
-    MEANT FOR DIAGNOSTIC PURPOSES ONLY
-    """
+    Store zonefile data to the RPC endpoint.
+    MEANT FOR DIAGNOSTIC PURPOSS ONLY
 
-    # TODO: sync with API
+    Return True on success
+    Return False on error
+    """
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
 
+    res = test_proxy.put_zonefiles([base64.b64encode(zonefile_txt)])
+    if 'error' in res:
+        print res['error']
+        return False
 
-    profile_result = test_proxy.get_profile( name )
-    if 'error' in profile_result:
+    return res['saved'][0] == 1
+
+
+def blockstack_make_profile( profile_data, privkey ):
+    """
+    Make a signed profile
+    """
+    privkey = virtualchain.ecdsalib.ecdsa_private_key(privkey).to_hex()
+    pubkey = get_pubkey_hex(privkey)
+
+    res = blockstack_client.storage.serialize_mutable_data(profile_data, privkey, pubkey, profile=True)
+    if res is None:
+        return {'error': 'Failed to sign and serialize profile'}
+
+    return res
+
+
+def blockstack_get_profile( name, config_path=None ):
+    """
+    Get a profile.
+    Used to be that the blockstackd node had a get_profile endpoint.
+    It no longer does.  This method is just around for compatibility.
+
+    MEANT FOR DIAGNOSTIC PURPOSES ONLY
+    """
+    
+    res = blockstack_cli_lookup(name, config_path=config_path)
+    if 'error' in res:
         return None
 
-    if 'profile' not in profile_result or 'status' not in profile_result or not profile_result['status']:
-        return None 
-
-    return profile_result['profile']
+    return res['profile']
 
 
 def blockstack_app_session( app_domain, methods, config_path=None ):
@@ -2453,14 +2479,18 @@ def blockstack_test_setenv(key, value):
     return res
 
 
-def blockstack_verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=None, start_block=None ):
-    return blockstackd.verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=working_db_path, start_block=start_block )
+def blockstack_verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, working_db_path=None, start_block=None ):
+    return blockstackd.verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, start_block=start_block)
 
 
-def blockstack_export_db( path, block_height, **kw ):
+def blockstack_export_db( snapshots_dir, block_height, **kw ):
     global state_engine
+
+    export_dir = os.path.join(snapshots_dir, 'snapshot.{}'.format(block_height))
+    os.makedirs(export_dir)
+
     try:
-        state_engine.export_db( path + (".%s" % block_height)  )
+        state_engine.export_db(export_dir)
     except IOError, ie:
         if ie.errno == errno.ENOENT:
             log.error("no such file or directory: %s" % path)
@@ -2470,9 +2500,9 @@ def blockstack_export_db( path, block_height, **kw ):
 
     # save atlasdb too 
     # TODO: this is hacky; find a generic way to find the atlas db path
-    atlas_path = os.path.join( os.path.dirname(state_engine.get_db_path()), "atlas.db" )
+    atlas_path = os.path.join(os.path.dirname(state_engine.get_db_path()), "atlas.db")
     if os.path.exists(atlas_path):
-        shutil.copy( atlas_path, os.path.join( os.path.dirname(path), "atlas.db.%s" % block_height ) )
+        shutil.copy(atlas_path, os.path.join(export_dir, 'atlas.db'))
 
 
 def make_legacy_wallet( master_private_key, password ):
@@ -2858,7 +2888,7 @@ def next_block( **kw ):
     kw['sync_virtualchain_upcall']()
     
     # snapshot the database
-    blockstack_export_db( os.path.join( snapshots_dir, "blockstack.db" ), get_current_block(**kw), **kw )
+    blockstack_export_db( snapshots_dir, get_current_block(**kw), **kw )
     log_consensus( **kw )
 
    
@@ -2920,32 +2950,31 @@ def check_history( state_engine ):
     block_ids = sorted( all_consensus_hashes.keys() )
     db_path = state_engine.get_db_path()
 
-    old_working_dir = os.environ['VIRTUALCHAIN_WORKING_DIR']
     for block_id in block_ids:
     
         state_engine.lastblock = block_ids[0]
         expected_consensus_hash = all_consensus_hashes[ block_id ]
-        untrusted_db_path = os.path.join( snapshots_dir, "blockstack.db.%s" % block_id )
-        atlasdb_path = os.path.join( snapshots_dir, "atlas.db.%s" % block_id)
+       
+        # this is the directory that contains the snapshot state
+        untrusted_working_db_dir = os.path.join(snapshots_dir, 'snapshot.{}'.format(block_id))
 
-        working_db_dir = os.path.join( snapshots_dir, "work.%s" % block_id )
-        working_atlasdb_path = os.path.join( working_db_dir, "atlas.db" )
+        # copy over atlasdb
+        atlasdb_path = os.path.join(untrusted_working_db_dir, 'atlas.db')
 
-        os.makedirs( working_db_dir )
-        shutil.copy( atlasdb_path, working_atlasdb_path )
+        # set up state to verify
+        working_db_dir = os.path.join(snapshots_dir, "work.%s" % block_id)
+        working_atlasdb_path = os.path.join(working_db_dir, "atlas.db")
 
-        os.environ["VIRTUALCHAIN_WORKING_DIR"] = working_db_dir
-        working_db_path = os.path.join( working_db_dir, "blockstack.db.%s" % block_id )
-        
-        print "\n\nverify %s - %s (%s), expect %s\n\n" % (block_ids[0], block_id+1, untrusted_db_path, expected_consensus_hash)
+        os.makedirs(working_db_dir)
+        shutil.copy(atlasdb_path, working_atlasdb_path)
 
-        valid = blockstack_verify_database( expected_consensus_hash, block_id, untrusted_db_path, working_db_path=working_db_path, start_block=block_ids[0] )
+        print "\n\nverify %s - %s (%s), expect %s\n\n" % (block_ids[0], block_id+1, untrusted_working_db_dir, expected_consensus_hash)
+
+        valid = blockstack_verify_database(expected_consensus_hash, block_id, untrusted_working_db_dir, working_db_dir, start_block=block_ids[0])
         if not valid:
             print "Invalid at block %s" % block_id 
-            os.environ["VIRTUALCHAIN_WORKING_DIR"] = old_working_dir
             return False
 
-    os.environ["VIRTUALCHAIN_WORKING_DIR"] = old_working_dir
     return True
 
 
@@ -3049,11 +3078,13 @@ def snv_all_names( state_engine ):
             txid_sequence = all_names[name][block_id]['txid_sequence']
             opcode_sequence = all_names[name][block_id]['opcode_sequence']
             error_sequence = all_names[name][block_id]['error_sequence']
-
-            log.debug("SNV verify %s (from %s)" % (name, block_id))
-            log.debug("opcodes: %s" % opcode_sequence)
-            log.debug("txids: %s" % txid_sequence)
-            log.debug("errors: %s" % error_sequence)
+            
+            print ''
+            print "SNV verify %s (from %s)" % (name, block_id)
+            print "opcodes: %s" % opcode_sequence
+            print "txids: %s" % txid_sequence
+            print "errors: %s" % error_sequence
+            print ""
 
             for j in xrange(0, len(txid_sequence)):
                 
@@ -3135,9 +3166,13 @@ def snv_all_names( state_engine ):
                         return False 
  
                     # only NAMESPACE_REVEAL doesn't have an 'op_fee' member.  It must be an int or long.
+                    elif snv_rec['opcode'] != 'NAMESPACE_REVEAL' and 'op_fee' not in snv_rec:
+                        print "QUIRK: %s: fee is missing".format(snv_rec['opcode'])
+                        return False
+                    '''
                     elif snv_rec['opcode'] != 'NAMESPACE_REVEAL' and type(snv_rec['op_fee']) not in [int,long]:
                         print "QUIRK: %s: fee isn't an int (but a %s: %s)" % (snv_rec['opcode'], type(snv_rec['op_fee']), snv_rec['op_fee'])
-
+                    '''
                     log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
 
     return True
@@ -3170,9 +3205,9 @@ def check_atlas_zonefiles( state_engine, atlasdb_path ):
             continue
 
         if "value_hash" not in api_call.result:
-            log.warn("Api call {} on name {} in block {} has no value_hash, skipping atlas check.".format(
-                api_call.method, name, block_id))
+            log.warn("Api call {} on name {} in block {} has no value_hash, skipping atlas check.".format(api_call.method, name, block_id))
             continue
+
         value_hash = api_call.result['value_hash']
 
         log.debug("Verify Atlas zonefile hash %s for %s in '%s' at %s" % (value_hash, name, api_call.method, block_id))
@@ -3253,7 +3288,11 @@ def check_historic_names_by_address( state_engine ):
         if api_call.method == 'revoke':
             revoked_names[name] = block_id
 
-        final_name_states[name] = json.loads(json.dumps(state_engine.get_name(name, include_expired=True)))
+        if name not in final_name_states:
+            final_name_states[name] = state_engine.get_name(name, include_expired=True)
+
+            # coerse string values
+            final_name_states[name] = dict(map(lambda (k, v): (k, str(v)) if isinstance(v, unicode) else (k, v), final_name_states[name].items()))
 
     log.debug('addr names: {}'.format(addr_names))
     log.debug('revoked names: {}'.format(revoked_names))
@@ -3261,7 +3300,7 @@ def check_historic_names_by_address( state_engine ):
     for address in addr_names.keys():
         for i, (name, block_id, _) in enumerate(addr_names[address]):
             did = 'did:stack:v0:{}-{}'.format(address, i)
-            name_rec = blockstack_client.proxy.get_DID_blockchain_record(did)
+            name_rec = blockstack.lib.client.get_DID_record(did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
 
             if name in revoked_names.keys() and revoked_names[name] >= block_id:
                 # name was revoked. expect failure
@@ -3279,15 +3318,82 @@ def check_historic_names_by_address( state_engine ):
                     ret = False
 
                 else:
+                    # coerse string values
+                    name_rec = dict(map(lambda (k,v): (k, str(v)) if isinstance(v, unicode) else (k,v), name_rec.items()))
                     for k in name_rec.keys():
-                        if final_name_states[name] is not None:
-                            if name_rec[k] != final_name_states[name].get(k, None):
+                        if final_name_states[name] is not None and k in final_name_states:
+                            if name_rec[k] != final_name_states[name].get(k, None) or type(name_rec[k]) != type(final_name_states[name].get(k, None)):
                                 log.error("Name rec for {} does not equal final name state from db on '{}'".format(name, k))
                                 log.error("Expected:\n{}".format(final_name_states[name].get(k, None)))
                                 log.error("Got:\n{}".format(name_rec[k]))
+                                log.error('final_name_states["{}"]:\n{}'.format(name, json.dumps(final_name_states[name], sort_keys=True, indent=4)))
+                                log.error('name_rec at {}:\n{}'.format(did, json.dumps(name_rec, sort_keys=True, indent=4)))
                                 ret = False
 
     return ret
+ 
+
+def check_subdomain_db(**kw):
+    """
+    Do sanity checks on the subdomain database.
+    * verify that we can replay the zone files in order and arrive at the same subdomain database
+    * verify that we can resolve each subdomain to its DID
+    * verify that we can resolve each DID to its subdomain
+    """
+    # reindex
+    blockstack_opts = blockstack.lib.config.get_blockstack_opts()
+    new_opts = {}
+    new_opts.update(blockstack_opts)
+
+    new_opts['subdomaindb_path'] = blockstack_opts['subdomaindb_path'] + '.reindex'
+    if os.path.exists(new_opts['subdomaindb_path']):
+        os.unlink(new_opts['subdomaindb_path'])
+
+    blockstack.lib.subdomains.SubdomainIndex.reindex(get_current_block(**kw), opts=new_opts)
+
+    # compare both databases
+    rc = os.system('sqlite3 "{}" "select * from subdomain_records order by parent_zonefile_index" > "/tmp/first.dump"; sqlite3 "{}" "select * from subdomain_records order by parent_zonefile_index" > "/tmp/second.dump"; cmp "/tmp/first.dump" "/tmp/second.dump"'.format(
+        blockstack_opts['subdomaindb_path'], new_opts['subdomaindb_path']))
+
+    if rc != 0:
+        print '{} disagress with {}'.format(blockstack_opts['subdomaindb_path'], new_opts['subdomaindb_path'])
+        return False
+
+    # get all subdomain records and their initial addresses
+    p = subprocess.Popen('sqlite3 "{}" "select fully_qualified_subdomain from subdomain_records where sequence = 0 and accepted = 1 order by parent_zonefile_index;"'.format(blockstack_opts['subdomaindb_path']), shell=True, stdout=subprocess.PIPE)
+    all_subdomains, _ = p.communicate()
+
+    all_subdomains = all_subdomains.strip().split('\n')
+
+    p = subprocess.Popen('sqlite3 "{}" "select owner from subdomain_records where sequence = 0 and accepted = 1 order by parent_zonefile_index;"'.format(blockstack_opts['subdomaindb_path']), shell=True, stdout=subprocess.PIPE)
+    all_creator_addresses, _ = p.communicate()
+    
+    all_creator_addresses = all_creator_addresses.strip().split('\n')
+
+    subrec_dids = {}
+    subrecs = {}
+
+    for (subd, addr) in zip(all_subdomains, all_creator_addresses):
+        subrec = blockstack.lib.client.get_name_record(subd, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+        assert subrec
+        assert 'error' not in subrec, subrec
+
+        subrecs[subd] = subrec
+        subrec_dids[subd] = subrec['did']
+
+        did_info = blockstack.lib.util.parse_DID(subrec['did'])
+        assert did_info['name_type'] == 'subdomain'
+        assert virtualchain.address_reencode(did_info['address']) == virtualchain.address_reencode(addr), 'address mismatch on {}: {} (expected {})\nsubrec: {}'.format(subd, did_info['address'], addr, subrec)
+
+    for subd in subrec_dids:
+        did = subrec_dids[subd]
+        subrec = blockstack.lib.client.get_DID_record(did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+        assert subrec
+        assert 'error' not in subrec, subrec
+
+        assert subrec == subrecs[subd], 'Did not resolve {} to {}, but instead to {}'.format(did, subrecs[subd], subrec)
+
+    return True
 
 
 def get_unspents( addr ):
@@ -3505,14 +3611,14 @@ def migrate_profile( name, proxy=None, wallet_keys=None, zonefile_has_data_key=T
     return result
 
 
-def peer_make_config( peer_port, dirp, seed_relations={}, blacklist_relations={}, extra_fields={} ):
+def peer_make_config( working_dir, peer_port, dirp, seed_relations={}, blacklist_relations={}, extra_fields={} ):
     """
     Make a config directory for a peer blockstack server
     """
     hostport = "localhost:%s" % peer_port
 
     # generate server config
-    blockstack_conf = blockstack.default_blockstack_opts()
+    blockstack_conf = blockstack.default_blockstack_opts(working_dir)
     virtualchain_bitcoin_conf = virtualchain.get_bitcoind_config()
 
     virtualchain_bitcoin_conf['bitcoind_port'] = 18332
@@ -3546,7 +3652,7 @@ def peer_make_config( peer_port, dirp, seed_relations={}, blacklist_relations={}
     if not os.path.exists(dirp):
         os.makedirs(dirp)
 
-    blockstack_client.config.write_config_file( conf, conf_path )
+    blockstack.lib.config.write_config_file( conf, conf_path )
 
     # copy over client config
     client_config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
@@ -3573,11 +3679,11 @@ def peer_make_config( peer_port, dirp, seed_relations={}, blacklist_relations={}
     new_conf.update(extra_fields)
 
     log.debug("Save client for localhost:%s's to %s" % (peer_port, os.path.join(dirp, 'client.ini')))
-    blockstack_client.config.write_config_file( new_conf, os.path.join(dirp, "client.ini") )
+    blockstack.lib.config.write_config_file( new_conf, os.path.join(dirp, "client.ini") )
     return True
 
 
-def peer_start( working_dir, port=None, command='start', args=['--foreground']):
+def peer_start( global_working_dir, working_dir, port=None, command='start', args=['--foreground']):
     """
     Start up a peer blockstack subprocess
     to communicate on the given network server.
@@ -3586,9 +3692,11 @@ def peer_start( working_dir, port=None, command='start', args=['--foreground']):
     args = ['blockstack-core', command] + args
     if port:
         args += ['--port', str(port)]
-
+    
+    args += ['--working_dir', working_dir]
     output = os.path.join(working_dir, "blockstack-server.out")
-
+    
+    args += ['--expected-snapshots', os.path.join(global_working_dir, 'blockstack-server.snapshots')]
     env = {}
 
     # preserve test environment variables
@@ -3597,7 +3705,6 @@ def peer_start( working_dir, port=None, command='start', args=['--foreground']):
             log.debug("Env: '%s' = '%s'" % (envar, os.environ[envar]))
             env[envar] = os.environ[envar]
 
-    env['VIRTUALCHAIN_WORKING_DIR'] = working_dir
     env['BLOCKSTACK_ATLAS_NETWORK_SIMULATION'] = "1"
     env['BLOCKSTACK_ATLAS_NETWORK_SIMULATION_PEER'] = "1"
     env['BLOCKSTACK_SERVER_CONFIG'] = os.path.join(working_dir, 'blockstack-server.ini')
@@ -3621,7 +3728,7 @@ def peer_rpc( peer_info ):
     """
     Get an RPC client to the running peer
     """
-    rpc = blockstack_client.BlockstackRPCClient( 'localhost', peer_info['port'], timeout=5 )
+    rpc = blockstack.lib.client.BlockstackRPCClient( 'localhost', peer_info['port'], timeout=5 )
     return rpc
 
 
@@ -3643,6 +3750,10 @@ def peer_has_zonefiles( peer_info, lastblock, num_zonefiles ):
     except Exception, e:
         log.exception(e)
         log.error("Peer localhost:%s is down" % (peer_info['port']))
+        return False
+
+    if 'error' in info:
+        log.error("Failed to query localhost:{}: {}".format(peer_info['port'], info['error']))
         return False
 
     if info['last_block_processed'] < lastblock:
@@ -3690,17 +3801,15 @@ def peer_join( peer_info ):
                 pass
 
 
-def peer_working_dir( index ):
+def peer_working_dir( base_working_dir, index ):
     """
     Get the working dir for a peer
     """
-    working_dir = os.environ.get("VIRTUALCHAIN_WORKING_DIR", None)
-    assert working_dir
-    peer_wd = os.path.join(working_dir, 'peer-{}'.format(index))
+    peer_wd = os.path.join(base_working_dir, 'peer-{}'.format(index))
     return peer_wd
 
 
-def peer_setup( index ):
+def peer_setup( base_working_dir, index ):
     """
     Set up the ith peer
     Return {'working_dir': ..., 'device_id': ..., 'config_path': ...} on success
@@ -3712,7 +3821,7 @@ def peer_setup( index ):
 
     config_dir = os.path.dirname(config_path)
 
-    peer_wd = peer_working_dir(index)
+    peer_wd = peer_working_dir(base_working_dir, index)
     peer_config_dir = os.path.join(peer_wd, 'client')
 
     os.makedirs(peer_wd)
@@ -3722,7 +3831,7 @@ def peer_setup( index ):
     if os.path.exists(config_path_2):
         raise Exception("Config already exists for client {}".format(index))
 
-    res = peer_make_config(16300 + index, peer_wd)
+    res = peer_make_config(peer_working_dir, 16300 + index, peer_wd)
     if 'error' in res:
         print "failed to set up {}".format(peer_wd)
         return {'error': 'failed to set up config dir'}
@@ -3730,13 +3839,10 @@ def peer_setup( index ):
     return {'working_dir': peer_wd, 'device_id': res['device_id'], 'config_path': config_path_2}
 
 
-def list_working_dirs():
+def list_working_dirs(base_working_dir):
     """
     Find all working directories
     """
-    working_dir = os.environ.get("VIRTUALCHAIN_WORKING_DIR", None)
-    assert working_dir
-
     ret = [working_dir]
 
     # account for all peers too 

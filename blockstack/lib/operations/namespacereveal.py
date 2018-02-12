@@ -28,8 +28,7 @@ from ..nameset import *
 
 from binascii import hexlify, unhexlify 
 
-import blockstack_client
-from blockstack_client.operations import *
+import json
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
@@ -63,10 +62,6 @@ FIELDS = [
 # fields this operation changes
 # everything but the block number
 MUTATE_FIELDS = filter( lambda f: f not in ["block_number"], FIELDS )
-
-# fields that must be backed up when applying this operation (all of them)
-BACKUP_FIELDS = ["__all__"]
-
 
 def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount ):
    """
@@ -213,7 +208,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
         # revealed for the first time
         log.debug("Revealing for the first time: '%s'" % namespace_id)
         namespace_block_number = namespace_preorder['block_number']
-        state_create_put_prior_history( nameop, None )
+        # state_create_put_prior_history( nameop, None )
         
     else:
         # revealed for the 2nd or later time
@@ -223,8 +218,8 @@ def check( state_engine, nameop, block_id, checked_ops ):
         namespace_block_number = old_namespace['block_number']
 
         # re-revealing
-        prior_hist = prior_history_create( nameop, old_namespace, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash'])
-        state_create_put_prior_history( nameop, prior_hist )
+        # prior_hist = prior_history_create( nameop, old_namespace, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash'])
+        # state_create_put_prior_history( nameop, prior_hist )
 
     # record preorder
     nameop['block_number'] = namespace_block_number  # namespace_preorder['block_number']
@@ -252,28 +247,12 @@ def get_reveal_recipient_from_outputs( outputs ):
     By construction, it will be the first non-OP_RETURN 
     output (i.e. the second output).
     """
-    
-    ret = None
+   
     if len(outputs) != 3:
         # invalid
         raise Exception("Outputs are not from a namespace reveal")
 
-    reveal_output = outputs[1]
-   
-    output_script = reveal_output['scriptPubKey']
-    output_asm = output_script.get('asm')
-    output_hex = output_script.get('hex')
-    output_addresses = output_script.get('addresses')
-    
-    if output_asm[0:9] != 'OP_RETURN' and output_hex is not None:
-        
-        # recipient's script hex
-        ret = output_hex
-
-    else:
-       raise Exception("No namespace reveal script found")
-
-    return ret
+    return outputs[1]['script']
 
 
 def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
@@ -405,7 +384,7 @@ def parse( bin_payload, sender_script, recipient_address ):
            raise Exception("Invalid namespace parameters")
 
    except Exception, e:
-       if os.environ.get("BLOCKSTACK_TEST") == '1':
+       if BLOCKSTACK_TEST:
            log.exception(e)
 
        log.error("Invalid namespace parameters")
@@ -425,52 +404,27 @@ def parse( bin_payload, sender_script, recipient_address ):
    }
 
 
-def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
+def canonicalize(parsed_op):
     """
-    Find the fields in a name record that were changed by an instance of this operation, at the 
-    given (block_number, history_index) point in time in the past.  The history_index is the
-    index into the list of changes for this name record in the given block.
+    Get the "canonical form" of this operation, putting it into a form where it can be serialized
+    to form a consensus hash.  This method is meant to preserve compatibility across blockstackd releases.
 
-    Return the fields that were modified on success.
-    Return None on error.
+    For NAMESPACE_REVEAL, this means:
+    * make the 'buckets' array into a string
     """
-
-    buckets = name_rec['buckets']
-
-    if type(buckets) in [str, unicode]:
-        # serialized bucket list.
-        # unserialize 
-        reg = "[" + "[ ]*[0-9]+[ ]*," * 15 + "[ ]*[0-9]+[ ]*]"
-        match = re.match( reg, buckets )
-        if match is None:
-            log.error("FATAL: bucket list '%s' is not parsable" % (buckets))
-            os.abort()
-
-        try:
-            buckets = [int(b) for b in buckets.strip("[]").split(", ")]
-        except Exception, e:
-            log.exception(e)
-            log.error("FATAL: failed to parse '%s' into a 16-elemenet list" % (buckets))
-            os.abort()
-
-    name_rec_script = build_namespace_reveal( str(name_rec['namespace_id']), name_rec['version'], str(name_rec['recipient_address']), \
-                                              name_rec['lifetime'], name_rec['coeff'], name_rec['base'], buckets, 
-                                              name_rec['nonalpha_discount'], name_rec['no_vowel_discount'] )
-
-    name_rec_payload = unhexlify( name_rec_script )[3:]
-    ret_op = parse( name_rec_payload, str(name_rec['sender']), str(name_rec['recipient_address']) )
-
-    ret_op['op'] = NAMESPACE_REVEAL
-
-    return ret_op
+    assert 'buckets' in parsed_op
+    parsed_op['buckets'] = str(parsed_op['buckets'])
+    return parsed_op
 
 
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
+def decanonicalize(canonical_op):
     """
-    Calculate any derived missing data that goes into the check() operation,
-    given the block number, the name record at the block number, and the db.
+    Get the "current form" of this operation, putting it into a form usable by the rest of the system.
+
+    For NAMESPACE_REVEAL, this means:
+    * make 'buckets' string into an array
     """
-    return blockstack_client.operations.namespacereveal.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
-    '''
-    return {}
-    '''
+    assert 'buckets' in canonical_op
+    canonical_op['buckets'] = json.loads(canonical_op['buckets'])
+    return canonical_op
+

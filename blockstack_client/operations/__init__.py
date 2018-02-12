@@ -98,6 +98,7 @@ SNV_CONSENSUS_EXTRA_METHODS = {
      "ANNOUNCE": announce_consensus_extras
 }
 
+# DEPRECATED
 def nameop_is_history_snapshot( history_snapshot ):
     """
     Given a history entry, verify that it is a history snapshot.
@@ -145,8 +146,6 @@ def nameop_history_extract( history_rows ):
     }
 
     Raise on failure to parse
-
-    TODO: move to blockstack, out of the client
     """
 
     history = {}
@@ -166,6 +165,7 @@ def nameop_history_extract( history_rows ):
     return history
 
 
+# DEPRECATED
 def nameop_restore_from_history( name_rec, name_history, block_id ):
     """
     Given a name or a namespace record (`name_rec`), replay its
@@ -277,6 +277,7 @@ def nameop_restore_from_history( name_rec, name_history, block_id ):
     return list( reversed( updates ) )
 
 
+# DEPRECATED
 def nameop_snv_consensus_extra_quirks( extras, namerec, block_id ):
     """
     Given the set of arguments to snv_consensus_extras, apply any
@@ -301,7 +302,8 @@ def nameop_snv_consensus_extra_quirks( extras, namerec, block_id ):
             last_creation_opcode = 'NAME_PREORDER'
 
     log.debug("apply SNV QURIKS on %s at %s (created with %s)" % (namerec.get('name', "UNKNOWN"), block_id, last_creation_opcode))
-
+    
+    # TODO: move to a canonicalize() method for name imports
     if namerec.has_key('name') and last_creation_opcode == 'NAME_IMPORT':
         log.debug("apply SNV QUIRK on %s: %s --> %s"  % (namerec.get('name', "UNKNOWN"), namerec['op_fee'], float(namerec['op_fee'])))
         extras['op_fee'] = float(namerec['op_fee'])
@@ -309,6 +311,7 @@ def nameop_snv_consensus_extra_quirks( extras, namerec, block_id ):
     return extras
 
 
+# DEPRECATED
 def nameop_snv_consensus_extra( op_name, prev_name_rec, prev_block_id ):
     """
     Derive any missing consensus-generating fields from the
@@ -341,6 +344,7 @@ def nameop_snv_consensus_extra( op_name, prev_name_rec, prev_block_id ):
     return extras
 
 
+# DEPRECATED
 def nameop_restore_snv_consensus_fields( name_rec, block_id ):
     """
     Given a name record at a given point in time, ensure

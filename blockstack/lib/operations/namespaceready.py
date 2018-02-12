@@ -27,10 +27,9 @@ from ..hashing import *
 from ..scripts import *
 from ..nameset import *
 
-from binascii import hexlify, unhexlify
+import json
 
-import blockstack_client
-from blockstack_client.operations import *
+from binascii import hexlify, unhexlify
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
@@ -47,9 +46,6 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'ready_block',
     'sender'
 ]
-
-# fields to back up when applying this operation 
-BACKUP_FIELDS = NAMESPACE_REVEAL_FIELDS + MUTATE_FIELDS
 
 
 @state_transition("namespace_id", "namespaces")
@@ -178,28 +174,29 @@ def parse( bin_payload ):
    }
 
 
-def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
+def canonicalize(parsed_op):
     """
-    Find the fields in a name record that were changed by an instance of this operation, at the 
-    given (block_number, history_index) point in time in the past.  The history_index is the
-    index into the list of changes for this name record in the given block.
+    Get the "canonical form" of this operation, putting it into a form where it can be serialized
+    to form a consensus hash.  This method is meant to preserve compatibility across blockstackd releases.
 
-    Return the fields that were modified on success.
-    Return None on error.
+    For all namespace operations, this means:
+    * make the 'buckets' array into a string
     """
+    if 'buckets' in parsed_op:
+        parsed_op['buckets'] = str(parsed_op['buckets'])
 
-    name_rec_script = build_namespace_ready( str(name_rec['namespace_id']) )
-    name_rec_payload = unhexlify( name_rec_script )[3:]
-    ret_op = parse( name_rec_payload )
-    return ret_op
+    return parsed_op
 
 
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
+def decanonicalize(canonical_op):
     """
-    Calculate any derived missing data that goes into the check() operation,
-    given the block number, the name record at the block number, and the db.
+    Get the "current form" of this operation, putting it into a form usable by the rest of the system.
+
+    For namespace ops, this means:
+    * make 'buckets' string into an array, if it is present
     """
-    return blockstack_client.operations.namespaceready.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
-    '''
-    return {}
-    '''
+    if 'buckets' in canonical_op:
+        canonical_op['buckets'] = json.loads(canonical_op['buckets'])
+
+    return canonical_op
+

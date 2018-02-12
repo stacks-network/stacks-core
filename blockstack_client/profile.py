@@ -33,10 +33,10 @@ from virtualchain.lib.ecdsalib import get_pubkey_hex
 import keylib
 
 from .proxy import (
-    json_is_error, get_name_blockchain_history, get_name_blockchain_record,
+    json_is_error, get_name_blockchain_history, get_name_blockchain_record, get_name_record,
     get_default_proxy)
 
-from blockstack_client import storage, subdomains
+from blockstack_client import storage
 from blockstack_client import user as user_db
 
 from .logger import get_logger
@@ -224,7 +224,8 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
 
     proxy = get_default_proxy() if proxy is None else proxy
     user_profile_pubkey = None
-
+    
+    '''
     res = subdomains.is_address_subdomain(str(name))
     if res:
         subdomain, domain = res[1]
@@ -233,7 +234,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
         except subdomains.SubdomainNotFound as e:
             log.exception(e)
             return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
-
+    '''
     raw_zonefile = None
     if user_zonefile is None:
         user_zonefile = get_name_zonefile(
@@ -290,7 +291,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
 
         # find owner address
         if name_record is None:
-            name_record = get_name_blockchain_record(name, proxy=proxy)
+            name_record = get_name_record(name, proxy=proxy)
             if name_record is None or 'error' in name_record:
                 log.error('Failed to look up name record for "{}"'.format(name))
                 return {'error': 'Failed to look up name record'}
@@ -344,7 +345,7 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
 
     if include_name_record:
         if name_record is None:
-            name_record = get_name_blockchain_record(name, proxy=proxy)
+            name_record = get_name_record(name, proxy=proxy)
 
         if name_record is None or 'error' in name_record:
             log.error('Failed to look up name record for "{}"'.format(name))

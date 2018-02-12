@@ -67,21 +67,6 @@ NAMEREC_MUTATE_FIELDS = [
     'op'
 ]
 
-# common set of fields that will need to be backed up to a name's history when applying an operation 
-NAMEREC_BACKUP_FIELDS = NAMEREC_MUTATE_FIELDS[:]
-
-NAMEREC_NAME_BACKUP_FIELDS = [
-    'transfer_send_block_id'
-]
-
-# fields that are not fed into the consensus hash, but are used to generate
-# consensus-affecting fields.  They must be present when restoring a prior
-# version of a name.
-NAMEREC_INDIRECT_CONSENSUS_FIELDS = [
-    'opcode',
-    'transfer_send_block_id',
-    'burn_address'
-]
 
 def state_create_invariant_tags():
     """
@@ -89,7 +74,7 @@ def state_create_invariant_tags():
     """
     return [
         '__preorder__',
-        '__prior_history__',
+        # '__prior_history__',
         '__table__',
         '__history_id_key__',
         '__state_create__'
@@ -151,7 +136,7 @@ def state_create(history_id_key, table_name, collision_checker, always_set=[]):
     Decorator for the check() method on state-creating operations.
     Makes sure that:
     * there is a __preorder__ field set, which contains the state-creating operation's associated preorder
-    * there is a __prior_history__ field set, which contains the state-creating operation's associated prior state history
+    # * there is a __prior_history__ field set, which contains the state-creating operation's associated prior state history
     * there is a __table__ field set, which contains the table into which to insert this state into
     * there is a __history_id_key__ field set, which identifies the table's primary key name
     * there are no unexpired, duplicate instances of this state with this history id.
@@ -165,10 +150,10 @@ def state_create(history_id_key, table_name, collision_checker, always_set=[]):
             # succeeded, and still a state-creating operation?
             if rc and op_get_opcode_name( nameop['op'] ) in OPCODE_CREATION_OPS:
 
-                # ensure that there's now a __preorder__ and a __prior_history__
+                # ensure that there's now a __preorder__ # and a __prior_history__
                 try:
                     assert '__preorder__' in nameop.keys(), "Missing __preorder__"
-                    assert '__prior_history__' in nameop.keys(), "Missing __prior_history__"
+                    # assert '__prior_history__' in nameop.keys(), "Missing __prior_history__"
                 except Exception, e:
                     log.exception(e)
                     log.error("FATAL: missing fields")
@@ -259,13 +244,6 @@ def state_create_put_preorder( nameop, preorder ):
     nameop['__preorder__'] = preorder
 
 
-def state_create_put_prior_history( nameop, prior_history_rec ):
-    """
-    Call this in a @state_create-decorated method.
-    """
-    nameop['__prior_history__'] = prior_history_rec
-
-
 def state_create_is_valid( nameop ):
     """
     Is a nameop a valid state-preorder operation?
@@ -273,7 +251,7 @@ def state_create_is_valid( nameop ):
     assert '__state_create__' in nameop, "Not tagged with @state_create"
     assert nameop['__state_create__'], "BUG: tagged False by @state_create"
     assert '__preorder__' in nameop, "No preorder"
-    assert '__prior_history__' in nameop, "No prior history"
+    # assert '__prior_history__' in nameop, "No prior history"
     assert '__table__' in nameop, "No table given"
     assert '__history_id_key__' in nameop, "No history ID key given"
     assert nameop['__history_id_key__'] in nameop, "No history ID given"
@@ -287,13 +265,6 @@ def state_create_get_preorder( nameop ):
     Get the preorder record for a state-creating operation
     """
     return nameop['__preorder__']
-
-
-def state_create_get_prior_history( nameop ):
-    """
-    Get the prior history for a state-creating operation
-    """
-    return nameop['__prior_history__']
 
 
 def state_create_get_table( nameop ):
@@ -353,67 +324,6 @@ def state_transition_get_always_set( nameop ):
     return nameop['__always_set__']
 
 
-def prior_history_create( op_data, old_rec, block_number, state_engine, extra_backup_fields=[] ):
-    """
-    Given a state-creating operation and the older version of
-    of said state (possibly expired, or previously-imported, etc.),
-    create a history for it.
-    """
-
-    from ..operations import SERIALIZE_FIELDS, op_snv_consensus_extra
-
-    opcode = op_get_opcode_name( op_data['op'] ) 
-    try:
-        serialize_fields = SERIALIZE_FIELDS.get( opcode, None )
-        assert serialize_fields is not None, "Undefined opcode '%s'" % opcode
-    except Exception, e:
-        log.exception(e)
-        log.error("FATAL: missing fields")
-        sys.exit(1)
-
-    try:
-        assert 'history' in old_rec.keys()
-    except Exception, e:
-        log.exception(e)
-        log.error("FATAL: missing prior hitsory")
-        sys.exit(1)
-
-    hist = {}
-    for field in list(set(serialize_fields + extra_backup_fields)):
-        hist[field] = old_rec.get(field, None)
-
-    hist['history'] = old_rec['history']
-    state_engine.add_all_snv_consensus_values( op_get_opcode_name(hist['op']), hist, block_number ) 
-    hist['history_snapshot'] = True
-
-    del hist['history']
-    prior_history = {
-        block_number: [hist]
-    }
-
-    return prior_history
-
-
-def prior_history_is_valid( prior_history_rec ):
-    """
-    Is the given dict a valid prior history, 
-    created by "prior_history"?
-    """
-
-    assert type(prior_history_rec) == dict, "Not a dict"
-    assert len(prior_history_rec.keys()) == 1, "Invalid number of history blocks"
-    assert len(prior_history_rec[ prior_history_rec.keys()[0] ]) == 1, "Invalid number of history snapshots"
-    return True
-
-
-def prior_history_block_number( prior_history_rec ):
-    """
-    Get the block number of a prior history.
-    """
-    assert prior_history_is_valid( prior_history_rec )
-    return prior_history_rec.keys()[0]
-
-
 import namedb 
 import virtualchain_hooks
 
@@ -421,6 +331,3 @@ from .namedb import BlockstackDB, DISPOSITION_RO, DISPOSITION_RW
 
 # this module is suitable to be a virtualchain state engine implementation 
 from .virtualchain_hooks import *
-
-from db import sqlite3_find_tool, sqlite3_backup
-

@@ -79,11 +79,13 @@ from blockstack_client import (
     get_name_zonefile, get_nameops_at, get_names_in_namespace, get_names_owned_by_address,
     get_namespace_blockchain_record, get_namespace_cost,
     is_user_zonefile, list_immutable_data_history, list_update_history,
-    list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate,
-    get_historic_names_by_address
+    list_zonefile_history, lookup_snv, put_immutable, put_mutable, zonefile_data_replicate
 )
 
-from blockstack_client import subdomains
+# from blockstack_client import subdomains
+import blockstack.lib.client as blockstackd_client
+import blockstack.lib.scripts as blockstackd_scripts
+
 from blockstack_client.profile import put_profile, delete_profile, get_profile, \
         profile_add_device_id, profile_remove_device_id, profile_list_accounts, profile_get_account, \
         profile_put_account, profile_delete_account
@@ -149,7 +151,7 @@ from .keys import privkey_to_string, get_data_privkey
 from .proxy import (
     is_zonefile_current, get_default_proxy, json_is_error,
     get_name_blockchain_history, get_all_namespaces, getinfo,
-    storage, is_zonefile_data_current, get_num_names
+    storage, is_zonefile_data_current, get_num_names, get_name_record,
 )
 from .scripts import UTXOException, is_name_valid, is_valid_hash, is_namespace_valid
 from .user import make_empty_user_profile, user_zonefile_data_pubkey
@@ -1018,7 +1020,6 @@ def cli_lookup(args, config_path=CONFIG_PATH):
 
     blockchain_record = None
     fqu = str(args.name)
-    subdomain = None
     force = getattr(args, 'force', 'False')
     if force is None:
         force = 'False'
@@ -1027,16 +1028,18 @@ def cli_lookup(args, config_path=CONFIG_PATH):
 
     error = check_valid_name(fqu)
     if error:
-        res = subdomains.is_address_subdomain(fqu)
-        if res:
-            subdomain, domain = res[1]
-            fqu = domain
-
-        else:
+        res = blockstackd_scripts.is_subdomain(fqu)
+        if not res:
             return {'error': error}
 
+    conf = config.get_config(config_path)
+    blockstackd_host = conf['server']
+    blockstackd_port = conf['port']
+    blockstackd_protocol = conf['protocol']
+    blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+
     try:
-        blockchain_record = get_name_blockchain_record(fqu)
+        blockchain_record = blockstackd_client.get_name_record(fqu, hostport=blockstackd_url)
     except socket_error:
         return {'error': 'Error connecting to server.'}
 
@@ -1054,6 +1057,7 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         msg = 'Name is expired. Use `whois` or `get_name_blockchain_record` for details. If you own this name, use `renew` to renew it.'
         return {'error': msg}
 
+    '''
     # subdomain?
     if subdomain:
         try:
@@ -1061,6 +1065,7 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         except subdomains.SubdomainNotFound as e:
             log.exception(e)
             return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
+    '''
 
     # regular domain
     try:
@@ -1095,10 +1100,14 @@ def cli_whois(args, config_path=CONFIG_PATH):
     record, fqu = None, str(args.name)
 
     error = check_valid_name(fqu)
+    is_subdomain = False
+
     if error:
-        res = subdomains.is_address_subdomain(fqu)
-        if res:
-            subdomain, domain = res[1]
+        is_subdomain = blockstackd_scripts.is_subdomain(fqu)
+        if not is_subdomain:
+            return {'error': error}
+
+        '''
             try:
                 subdomain_obj = subdomains.get_subdomain_info(subdomain, domain)
             except subdomains.SubdomainNotFound:
@@ -1114,9 +1123,17 @@ def cli_whois(args, config_path=CONFIG_PATH):
             }
             return ret
         return {'error': error}
+        '''
+
+    conf = config.get_config(config_path)
+    blockstackd_host = conf['server']
+    blockstackd_port = conf['port']
+    blockstackd_protocol = conf['protocol']
+    blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
 
     try:
-        record = get_name_blockchain_record(fqu)
+        # record = get_name_blockchain_record(fqu)
+        record = blockstackd_client.get_name_record(fqu, include_history=True, hostport=blockstackd_url)
     except socket_error:
         exit_with_error('Error connecting to server.')
 
@@ -1126,7 +1143,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
     if record.get('revoked', False):
         msg = 'Name is revoked. Use get_name_blockchain_record for details.'
         return {'error': msg}
-
+    
     history = record.get('history', {})
     update_heights = []
     try:
@@ -1136,6 +1153,18 @@ def cli_whois(args, config_path=CONFIG_PATH):
         update_heights = sorted(int(_) for _ in history)
     except (AssertionError, ValueError):
         return {'error': 'Invalid record data returned'}
+   
+    if is_subdomain:
+        zonefile_txt = base64.b64decode(record['zonefile'])
+        result = {
+            'status': 'registered_subdomain',
+            'zonefile_txt': zonefile_txt,
+            'zonefile_hash': storage.get_zonefile_data_hash(zonefile_txt),
+            'address': record['address'], 
+            'blockchain': 'bitcoind',
+            'last_txid': record['txid']
+        }
+        return result
 
     result['block_preordered_at'] = record['preorder_block_number']
     result['block_renewed_at'] = record['last_renewed']
@@ -3317,9 +3346,10 @@ def verify_namespace_preorder(namespace_id, ns_preorder_txid, payment_privkey, n
     # find OP_RETURN output
     payload_hex = None
     payload_idx = None
-    for i, out in enumerate(txinfo['vout']):
-        if out['scriptPubKey']['type'] == 'nulldata':
-            payload_hex = out['scriptPubKey']['hex']
+    for i, out in enumerate(txinfo['outs']):
+        script_type = virtualchain.btc_script_classify(out['script'])
+        if script_type == 'nulldata':
+            payload_hex = out['script']
             payload_idx = i
 
     if payload_hex is None:
@@ -3337,8 +3367,8 @@ def verify_namespace_preorder(namespace_id, ns_preorder_txid, payment_privkey, n
     bdl = virtualchain.BlockchainDownloader(bitcoind_opts, conf['bitcoind_spv_path'], 0, 0, p2p_port=int(conf['bitcoind_port']))
     sender_txids = []
     senders = {}
-    for inp in txinfo['vin']:
-        sender_txid = inp['txid']
+    for inp in txinfo['ins']:
+        sender_txid = inp['outpoint']['hash']
         sender_txids.append(sender_txid)
 
     for i in xrange(0, len(sender_txids), 20):
@@ -3353,35 +3383,35 @@ def verify_namespace_preorder(namespace_id, ns_preorder_txid, payment_privkey, n
 
         senders.update(txs)
 
-    assert len(senders) == len(txinfo['vin']), "Failed to fetch all funding transactions for {}".format(ns_preorder_txid)
+    assert len(senders) == len(txinfo['ins']), "Failed to fetch all funding transactions for {}".format(ns_preorder_txid)
 
     # senders maps sender txid to the transaction that created it.
     # instead, put senders in 1-to-1 correspondance with the NAMESPACE_PREORDER inputs
     # TODO: clean this up--this basically duplicates functionality in the blockchain downloader in virtualchain
     sender_list = [None] * len(senders)
-    for i in xrange(0, len(txinfo['vin'])):
-        if txinfo['vin'][i]['txid'] in senders.keys():
-            sender_rec = senders[txinfo['vin'][i]['txid']]
-            sender_outpoint = txinfo['vin'][i]['vout']
-            sender_output = sender_rec['vout'][sender_outpoint]
+    for i in range(0, len(txinfo['ins'])):
+        if txinfo['ins'][i]['outpoint']['hash'] in senders.keys():
+            sender_rec = senders[txinfo['ins'][i]['outpoint']['hash']]
+            sender_outpoint = txinfo['ins'][i]['outpoint']['index']
+            sender_output = sender_rec['outs'][sender_outpoint]
 
             sender_info = {
-                "amount": sender_output['value'],
-                "script_pubkey": sender_output['scriptPubKey']['hex'],
-                "script_type": sender_output['scriptPubKey']['type'],
-                "addresses": sender_output['scriptPubKey']['addresses'],
+                "value": sender_output['value'],
+                "script_pubkey": sender_output['script'],
+                "script_type": virtualchain.btc_script_classify(sender_output['script']),
+                "addresses": [virtualchain.script_hex_to_address(sender_output['script'])],
                 "nulldata_vin_outpoint": payload_idx,
-                "txid": txinfo['vin'][i]['txid']
+                "txid": txinfo['ins'][i]['outpoint']['hash']
             }
 
             sender_list[i] = sender_info
            
         else:
-            print("Failed to find funding transaction to input {} in {} (missing {})".format(i, ns_preorder_txid, txinfo['vin'][i]['txid']))
+            print("Failed to find funding transaction to input {} in {} (missing {})".format(i, ns_preorder_txid, txinfo['ins'][i]['outpoint']['hash']))
             return {'error': 'Failed to find funding transactions for {}'.format(ns_preorder_txid)}
 
     try:
-        ns_preorder_info = blockstack.lib.operations.extract_namespace_preorder(payload_hex[10:].decode('hex'), sender_list, txinfo['vin'], txinfo['vout'], 0, 0, ns_preorder_txid)
+        ns_preorder_info = blockstack.lib.operations.extract_namespace_preorder(payload_hex[10:].decode('hex'), sender_list, txinfo['ins'], txinfo['outs'], 0, 0, ns_preorder_txid)
     except Exception as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
@@ -4114,7 +4144,14 @@ def cli_get_name_blockchain_record(args, config_path=CONFIG_PATH):
     help: Get the raw blockchain record for a name
     arg: name (str) 'The name to list'
     """
-    result = get_name_blockchain_record(str(args.name))
+    conf = config.get_config(config_path)
+    blockstackd_host = conf['server']
+    blockstackd_port = conf['port']
+    blockstackd_protocol = conf['protocol']
+    blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+
+    # result = get_name_blockchain_record(str(args.name))
+    result = blockstackd_client.get_name_record(str(args.name), include_history=True, hostport=blockstackd_url)
     return result
 
 
@@ -4193,7 +4230,8 @@ def cli_lookup_snv(args, config_path=CONFIG_PATH):
     name = str(args.name)
     error = check_valid_name(name)
     if error:
-        res = subdomains.is_address_subdomain(name)
+        res = blockstackd_scripts.is_address_subdomain(name)
+        # res = subdomains.is_address_subdomain(name)
         if res:
             subdomain, domain = res[1]
             if subdomain:
@@ -4288,30 +4326,23 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH, raw=True, proxy=None):
         return result
 
 
-def cli_get_names_owned_by_address(args, config_path=CONFIG_PATH):
+def cli_get_names_owned_by_address(args, config_path=CONFIG_PATH, proxy=None):
     """
     command: get_names_owned_by_address advanced
-    help: Get the list of names owned by an address
+    help: Get the list of names and subdomains owned by an address
     arg: address (str) 'The address to query'
     """
     result = get_names_owned_by_address(str(args.address))
-    return result
+    if json_is_error(result):
+        return result
+    
+    proxy = get_default_proxy() if proxy is None else proxy
+    subdomain_result = blockstackd_client.get_subdomains_owned_by_address(str(args.address), proxy=proxy)
+    if json_is_error(result):
+        return result
 
+    return result + subdomain_result
 
-def cli_get_historic_names_by_address(args, config_path=CONFIG_PATH):
-    """
-    command: get_historic_names_by_address advanced
-    help: Get all of the names historically owned by an address
-    arg: address (str) 'The address that owns names'
-    arg: page (int) 'The page of names to fetch (groups of 100)'
-    """
-
-    offset = int(args.page) * 100
-    count = 100
-
-    result = get_historic_names_by_address(str(args.address), offset, count)
-
-    return result
 
 
 def cli_get_namespace_cost(args, config_path=CONFIG_PATH):

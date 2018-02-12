@@ -53,28 +53,32 @@ def scenario( wallets, **kw ):
 
     # make a test namespace
     resp = testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
-    if debug or 'error' in resp:
+    if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
 
     resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 10, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
-    if debug or 'error' in resp:
+    if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
 
     resp = testlib.blockstack_name_import( "foo.test", wallets[3].addr, "11" * 20, wallets[1].privkey )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
 
     import_block = testlib.get_current_block( **kw )
 
     resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
-    if debug or 'error' in resp:
+    if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
 

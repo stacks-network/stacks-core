@@ -28,9 +28,6 @@ from ..scripts import *
 from ..nameset import *
 from binascii import hexlify, unhexlify
 
-import blockstack_client
-from blockstack_client.operations import *
-
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMEREC_FIELDS[:] + [
     'name_hash128',         # hash(name)
@@ -48,11 +45,10 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'value_hash',
 ]
 
-# fields to back up when applying this operation 
-BACKUP_FIELDS = NAMEREC_NAME_BACKUP_FIELDS[:] + MUTATE_FIELDS[:] + [
-    'consensus_hash'
+# fields that will not be written to the database, but are canonical
+UNSTORED_CANONICAL_FIELDS = [
+    'keep_data',
 ]
-
 
 def get_transfer_recipient_from_outputs( outputs ):
     """
@@ -65,23 +61,10 @@ def get_transfer_recipient_from_outputs( outputs ):
     This also applies to a NAME_IMPORT.
     """
     
-    ret = None
-    for output in outputs:
-       
-        output_script = output['scriptPubKey']
-        output_asm = output_script.get('asm')
-        output_hex = output_script.get('hex')
-        output_addresses = output_script.get('addresses')
-        
-        if output_asm[0:9] != 'OP_RETURN' and output_hex:
-            
-            ret = output_hex
-            break
-            
-    if ret is None:
-       raise Exception("No recipients found")
-    
-    return ret 
+    if len(outputs) < 2:
+        raise Exception("No recipients found")
+
+    return outputs[1]['script']
 
 
 def transfer_sanity_check( name, consensus_hash ):
@@ -101,41 +84,69 @@ def transfer_sanity_check( name, consensus_hash ):
     return True
 
 
-def find_last_transfer_consensus_hash( name_rec, block_id, vtxindex ):
+def find_transfer_consensus_hash( name_rec, block_id, vtxindex, nameop_consensus_hash ):
     """
-    Given a name record, find the last non-NAME_TRANSFER consensus hash.
-    Return None if not found.
+    Given a name record, find the last consensus hash set by a non-NAME_TRANSFER operation.
+
+    @name_rec is the current name record, before this NAME_TRANSFER.
+    @block_id is the current block height.
+    @vtxindex is the relative index of this transaction in this block.
+    @nameop_consensus_hash is the consensus hash given in the NAME_TRANSFER.
+
+    This preserves compatibility from a bug prior to 0.14.x where the consensus hash from a NAME_TRANSFER
+    is ignored in favor of the last consensus hash (if any) supplied by an operation to the affected name.
+    This method finds that consensus hash (if present).
+
+    The behavior emulated comes from the fact that in the original release of this software, the fields from
+    a name operation fed into the block's consensus hash included the consensus hashes given in each of the
+    a name operations' transactions.  However, a quirk in the behavior of the NAME_TRANSFER-handling code 
+    prevented this from happening consistently for NAME_TRANSFERs.  Specifically, the only time a NAME_TRANSFER's
+    consensus hash was used to calculate the block's new consensus hash was if the name it affected had never
+    been affected by a prior state transition other than a NAME_TRANSFER.  If the name was affected by
+    a prior state transition that set a consensus hash, then that prior state transition's consensus hash
+    (not the NAME_TRANSFER's) would be used in the block consensus hash calculation.  If the name was NOT
+    affected by a prior state transition that set a consensus hash (back to the point of its last NAME_REGISTRATION),
+    then the consensus hash fed into the block would be that from the NAME_TRANSFER itself.
+
+    In practice, the only name operation that consistently sets a consensus hash is NAME_UPDATE.  As for the others:
+    * NAME_REGISTRATION sets it to None
+    * NAME_IMPORT sets it to None
+    * NAME_RENEWAL doesn't set it at all; it just takes what was already there
+    * NAME_TRANSFER only sets it if there were no prior NAME_UPDATEs between now and the last NAME_REGISTRATION or NAME_IMPORT.
+
+    Here are some example name histories, and the consensus hash that should be used to calculate this block's consensus hash:
+    NAME_PREORDER, NAME_REGISTRATION, NAME_TRANSFER:                                            nameop_consensus_hash
+    NAME_PREORDER, NAME_REGISTRATION, NAME_TRANSFER, NAME_TRANSFER:                             nameop_consensus_hash
+    NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER:                               whatever it was from the last NAME_UPDATE
+    NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAME_UPDATE, NAME_TRANSFER:   whatever it was from the last NAME_UPDATE
+    NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_RENEWAL, NAME_TRANSFER:                 whatever it was from the last NAME_UPDATE
+    NAME_PREORDER, NAME_REGISTRATION, NAME_RENEWAL, NAME_TRANSFER:                              nameop_consensus_hash
+    NAME_PREORDER, NAME_REGISTRATION, NAME_TRANSFER, NAME_RENEWAL, NAME_TRANSFER:               nameop_consensus_hash
+    NAME_IMPORT, NAME_TRANSFER:                                                                 nameop_consensus_hash
+    NAME_IMPORT, NAME_UPDATE, NAME_TRANSFER                                                     whatever it was from the last NAME_UPDATE
+    NAME_IMPORT, NAME_PREORDER, NAME_REGISTRATION, NAME_TRANSFER:                               nameop_consensus_hash
+    NAME_IMPORT, NAME_TRANSFER, NAME_PREORDER, NAME_REGISTRATION, NAME_TRANSFER:                nameop_consensus_hash
     """
-
-    from ..nameset import BlockstackDB
-
-    history_keys = name_rec['history'].keys()
-    history_keys.sort()
-    history_keys.reverse()
-
-    for hk in history_keys:
-        history_states = BlockstackDB.restore_from_history( name_rec, hk )
-
-        for history_state in reversed(history_states):
-            if history_state['block_number'] > block_id or (history_state['block_number'] == block_id and history_state['vtxindex'] > vtxindex):
+    # work backwards from the last block
+    for historic_block_number in reversed(sorted(name_rec['history'].keys())):
+        for historic_state in reversed(name_rec['history'][historic_block_number]):
+            if historic_state['block_number'] > block_id or (historic_state['block_number'] == block_id and historic_state['vtxindex'] > vtxindex):
                 # from the future
                 continue
+            
+            if historic_state['op'] in [NAME_REGISTRATION, NAME_IMPORT]:
+                # out of history without finding a NAME_UPDATE
+                return nameop_consensus_hash
 
-            if history_state['op'][0] == NAME_TRANSFER:
-                # skip NAME_TRANSFERS
-                continue
+            if historic_state['op'] == NAME_UPDATE:
+                # reuse this consensus hash 
+                assert historic_state['consensus_hash'] is not None, 'BUG: NAME_UPDATE did not set "consensus_hash": {}'.format(historic_state)
+                return historic_state['consensus_hash']
 
-            if history_state['op'][0] == NAME_PREORDER:
-                # out of history
-                return None
-
-            if name_rec['consensus_hash'] is not None:
-                return name_rec['consensus_hash']
-
-    return None
+    return nameop_consensus_hash
 
 
-@state_transition( "name", "name_records", always_set=['transfer_send_block_id', 'consensus_hash'] )
+@state_transition( "name", "name_records", always_set=['consensus_hash'] )
 def check( state_engine, nameop, block_id, checked_ops ):
     """
     Verify the validity of a name's transferrance to another private key.
@@ -156,7 +167,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
     sender = nameop['sender']
     recipient_address = nameop['recipient_address']
     recipient = nameop['recipient']
-    transfer_send_block_id = None
 
     if name is None:
        # invalid
@@ -228,14 +238,17 @@ def check( state_engine, nameop, block_id, checked_ops ):
         log.debug("Sender %s is a p2sh script, but multisig is not enabled in epoch %s" % (sender, get_epoch_number(block_id)))
         return False
 
-    # QUIRK: we use either the consensus hash from the last non-NAME_TRANSFER
-    # operation, or if none exists, we use the one from the NAME_TRANSFER itself.
-    transfer_consensus_hash = find_last_transfer_consensus_hash( name_rec, block_id, nameop['vtxindex'] )
-    transfer_send_block_id = state_engine.get_block_from_consensus( nameop['consensus_hash'] )
+    # the given consensus hash must be valid
+    nameop_consensus_hash = nameop['consensus_hash']
+    transfer_send_block_id = state_engine.get_block_from_consensus(nameop_consensus_hash)
     if transfer_send_block_id is None:
-        # wrong consensus hash 
-        log.debug("Unrecognized consensus hash '%s'" % nameop['consensus_hash'] )
-        return False 
+        # wrong/invalid consensus hash 
+        log.debug("Unrecognized consensus hash '%s'" % nameop_consensus_hash)
+        return False
+    
+    # QUIRK: we hash either the consensus hash from the last non-NAME_TRANSFER
+    # operation, or if there are no such consensus hashes, we hash on the one from the NAME_TRANSFER itself.
+    transfer_consensus_hash = find_transfer_consensus_hash(name_rec, block_id, nameop['vtxindex'], nameop['consensus_hash'])
 
     # remember the name, so we don't have to look it up later
     nameop['name'] = name
@@ -244,8 +257,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['sender'] = recipient
     nameop['address'] = recipient_address
     nameop['sender_pubkey'] = None
-    nameop['transfer_send_block_id'] = transfer_send_block_id
-    nameop['consensus_hash'] = transfer_consensus_hash
 
     if not nameop['keep_data']:
         nameop['value_hash'] = None
@@ -259,6 +270,19 @@ def check( state_engine, nameop, block_id, checked_ops ):
     del nameop['recipient_address']
     del nameop['keep_data']
     del nameop['name_hash128']
+    
+    # QUIRK examples
+    # example 1: doog.id underwent a NAME_PREORDER, NAME_REGISTRATION, and NAME_TRANSFER (>~).
+    # In the NAME_TRANSFER (>~) at 405088, it should have consensus_hash == CONSNSUS(405079) hashed when the consensus hash is calculated
+    # (i.e. there is no prior non-NAME_TRANSFER stored consensus hash, so the consensus hash comes from the one given in this NAME_TRANSFER).
+    # example 2: doog.id underwent a NAME_PREORDER, NAME_REGISTRATION, NAME_TRANSFER (>~), and NAME_TRANSFER (>~)
+    # In the NAME_TRANSFER (>~) at 405175, it should have consensus_hash == CONSNSUS(405165) hashed when the consensus hash is calculated
+    # (i.e. there is no prior non-NAME_TRANSFER stored consensus hash, so the consensus hash comes from the one given in this NAME_TRANSFER).
+    # example 3: eth3r3um.id underwent a NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, and NAME_TRANSFER (>>)
+    # in the NAME_TRANSFER (>>) at 385652, it should have consensus_hash == CONSENSUS(385610) hashed when the consensus hash is calculated
+    # (i.e. this was the prior stored consensus hash at 385610 from a non-NAME_TRANSFER---the one from the earlier NAME_UPDATE)
+    log.debug("QUIRK: Hash NAME_TRANSFER consensus hash {} instead of {}".format(transfer_consensus_hash, nameop_consensus_hash))
+    nameop['consensus_hash'] = transfer_consensus_hash
 
     return True
 
@@ -375,151 +399,23 @@ def parse(bin_payload, recipient):
     }
 
 
-def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
+def canonicalize(parsed_op):
     """
-    Find the fields in a name record that were changed by an instance of this operation, at the 
-    given (block_number, history_index) point in time in the past.  The history_index is the
-    index into the list of changes for this name record in the given block.
+    Get the "canonical form" of this operation, putting it into a form where it can be serialized
+    to form a consensus hash.  This method is meant to preserve compatibility across blockstackd releases.
 
-    Return the fields that were modified on success.
-    Return None on error.
+    For NAME_TRANSFER, this means:
+    * add 'keep_data' flag
     """
+    assert 'op' in parsed_op
+    assert len(parsed_op['op']) == 2
 
-    from ..nameset import BlockstackDB 
-
-    # reconstruct the transfer op...
-    KEEPDATA_OP = "%s%s" % (NAME_TRANSFER, TRANSFER_KEEP_DATA)
-    REMOVEDATA_OP = "%s%s" % (NAME_TRANSFER, TRANSFER_REMOVE_DATA)
-    keep_data = None 
-
-    try:
-        if name_rec['op'] == KEEPDATA_OP:
-            keep_data = True
-        elif name_rec['op'] == REMOVEDATA_OP:
-            keep_data = False
-        else:
-            raise Exception("Invalid transfer op sequence '%s'" % name_rec['op'])
-    except Exception, e:
-        log.exception(e)
-        log.error("FATAL: invalid op transfer sequence")
-        os.abort()
-
-    # what was the previous owner?
-    recipient = str(name_rec['sender'])
-    recipient_address = str(name_rec['address'])
-
-    # when was the NAME_TRANSFER sent?
-    if not name_rec.has_key('transfer_send_block_id'):
-        log.error("FATAL: Obsolete database: no 'transfer_send_block_id' defined")
-        os.abort()
-
-    transfer_send_block_id = name_rec['transfer_send_block_id']
-    if transfer_send_block_id is None:
-        log.error("FATAL: no transfer-send block ID set")
-        os.abort()
-
-    # restore history temporarily...
-    name_rec_prev = BlockstackDB.get_previous_name_version( name_rec, block_number, history_index, untrusted_db )
-
-    sender = name_rec_prev['sender']
-    address = name_rec_prev['address']
-    consensus_hash = working_db.get_consensus_at( transfer_send_block_id )
-   
-    if consensus_hash is None:
-        log.error("FATAL: no consensus hash at %s (last block is %s)" % (transfer_send_block_id, working_db.lastblock) )
-        log.error("consensus hashes:\n%s" % (json.dumps(working_db.consensus_hashes, indent=4, sort_keys=True)))
-        os.abort()
-
-    name_rec_script = build_transfer( str(name_rec['name']), keep_data, consensus_hash )
-
-    name_rec_payload = unhexlify( name_rec_script )[3:]
-    ret_op = parse( name_rec_payload, recipient )
-
-    # reconstruct recipient and sender 
-    ret_op['recipient'] = recipient 
-    ret_op['recipient_address'] = recipient_address 
-    ret_op['sender'] = sender 
-    ret_op['address'] = address
-    ret_op['keep_data'] = keep_data
-
-    if consensus_hash is not None:
-        # only set if we have it; otherwise use the one that's in the name record
-        # that this delta will be applied over
-        ret_op['consensus_hash'] = consensus_hash
-
-    return ret_op
-
-
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
-    """
-    Given a name record most recently affected by an instance of this operation, 
-    find the dict of consensus-affecting fields from the operation that are not
-    already present in the name record.
-
-    Specific to NAME_TRANSFER:
-    The consensus hash is a field that we snapshot when we discover the transfer,
-    but it is not a field that we preserve.  It will instead be present in the
-    snapshots database, indexed by the block number in `transfer_send_block_id`.
-
-    (This is an artifact of a design quirk of a previous version of the system).
-    """
-    
-    from __init__ import op_commit_consensus_override
-
-    transfer_send_block_id_consensus_hash = db.get_consensus_at( name_rec['transfer_send_block_id'] )
-    assert transfer_send_block_id_consensus_hash is not None, "No transfer send block ID"
-
-    ret_op = blockstack_client.operations.transfer.snv_consensus_extras( name_rec, block_id, blockchain_name_data, transfer_send_block_id_consensus_hash=transfer_send_block_id_consensus_hash )
-
-    # 'consensus_hash' will be different than what we recorded in the db
-    op_commit_consensus_override( ret_op, 'consensus_hash' )
-    return ret_op
-
-    '''
-    from __init__ import op_commit_consensus_override
-    from ..nameset import BlockstackDB
-
-    ret_op = {}
-    
-    # reconstruct the recipient information
-    ret_op['recipient'] = str(name_rec['sender'])
-    ret_op['recipient_address'] = str(name_rec['address'])
-
-    # reconstruct name_hash, consensus_hash, keep_data
-    keep_data = None
-    try:
-        assert len(name_rec['op']) == 2, "Invalid op sequence '%s'" % (name_rec['op'])
-        
-        if name_rec['op'][-1] == TRANSFER_KEEP_DATA:
-            keep_data = True
-        elif name_rec['op'][-1] == TRANSFER_REMOVE_DATA:
-            keep_data = False
-        else:
-            raise Exception("Invalid op sequence '%s'" % (name_rec['op']))
-
-    except Exception, e:
-        log.exception(e)
-        log.error("FATAL: invalid transfer op sequence")
-        os.abort()
-
-    ret_op['keep_data'] = keep_data
-    ret_op['name_hash128'] = hash256_trunc128( str(name_rec['name']) )
-    ret_op['sender_pubkey'] = None
-
-    if blockchain_name_data is None:
-
-       consensus_hash = find_last_transfer_consensus_hash( name_rec, block_id, name_rec['vtxindex'] )
-       ret_op['consensus_hash'] = consensus_hash
-
+    if parsed_op['op'][1] == TRANSFER_KEEP_DATA:
+        parsed_op['keep_data'] = True
+    elif parsed_op['op'][1] == TRANSFER_REMOVE_DATA:
+        parsed_op['keep_data'] = False
     else:
-       ret_op['consensus_hash'] = blockchain_name_data['consensus_hash']
-      
-    if ret_op['consensus_hash'] is None:
-       # no prior consensus hash; must be the one in the name operation itself 
-       ret_op['consensus_hash'] = db.get_consensus_at( name_rec['transfer_send_block_id'] )
-    
-    # 'consensus_hash' will be different than what we recorded in the db
-    op_commit_consensus_override( ret_op, 'consensus_hash' ) 
-    return ret_op
-    '''
-   
+        raise ValueError("Invalid op '{}'".format(parsed_op['op']))
+
+    return parsed_op
+

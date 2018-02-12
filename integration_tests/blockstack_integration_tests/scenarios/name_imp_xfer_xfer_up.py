@@ -62,6 +62,7 @@ def scenario( wallets, **kw ):
     resp = testlib.blockstack_name_import( "foo.test", wallets[3].addr, "11" * 20, wallets[1].privkey )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
 
@@ -71,23 +72,58 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    # consensus hash should be None
+    db = testlib.get_state_engine()
+    name_rec = db.get_name('foo.test')
+    if name_rec['consensus_hash'] is not None:
+        print 'wrong consensus hash: expected None'
+        print json.dumps(name_rec, indent=4, sort_keys=True)
+        return False
+
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
+
+    # consensus hash should be the one from the last NAME_TRANSFER
+    db = testlib.get_state_engine()
+    name_rec = db.get_name('foo.test')
+    if name_rec['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
+        print 'wrong consensus hash: expected {}'.format(testlib.get_consensus_at(testlib.get_current_block(**kw)-1))
+        print json.dumps(name_rec, indent=4, sort_keys=True)
+        return False
 
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[0].addr, True, wallets[4].privkey )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
+
+    # consensus hash should be the one from the last NAME_TRANSFER
+    db = testlib.get_state_engine()
+    name_rec = db.get_name('foo.test')
+    if name_rec['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
+        print 'wrong consensus hash: expected {}'.format(testlib.get_consensus_at(testlib.get_current_block(**kw)-1))
+        print json.dumps(name_rec, indent=4, sort_keys=True)
+        return False
 
     resp = testlib.blockstack_name_update( "foo.test", "22" * 20, wallets[0].privkey )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
+
+    # consensus hash should be the one from the last NAME_TRANSFER
+    db = testlib.get_state_engine()
+    name_rec = db.get_name('foo.test')
+    if name_rec['consensus_hash'] != testlib.get_consensus_at(testlib.get_current_block(**kw)-1):
+        print 'wrong consensus hash: expected {}'.format(testlib.get_consensus_at(testlib.get_current_block(**kw)-1))
+        print json.dumps(name_rec, indent=4, sort_keys=True)
+        return False
 
 
 def check( state_engine ):

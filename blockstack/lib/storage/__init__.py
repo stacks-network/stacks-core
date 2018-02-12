@@ -22,4 +22,7 @@
 """
 
 import crawl
+import auth
+
 from crawl import *
+from auth import *

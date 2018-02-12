@@ -22,10 +22,29 @@
 """
 
 import virtualchain
-from blockstack_client import get_zonefile_data_hash
+import hashlib
+
+from virtualchain.lib.hashing import hex_hash160
 
 log = virtualchain.get_logger("blockstack-server")
 
+
+def get_data_hash(data_txt):
+    """
+    Generate a hash over data for immutable storage.
+    Return the hex string.
+    """
+    h = hashlib.sha256()
+    h.update(data_txt)
+    return h.hexdigest()
+
+
+def get_zonefile_data_hash(data_txt):
+    """
+    Generate a hash over a user's zonefile.
+    Return the hex string.
+    """
+    return hex_hash160(data_txt)
 
 
 def verify_zonefile( zonefile_str, value_hash ):

@@ -35,43 +35,23 @@ import announce
 import binascii
 import copy
 
-from ..nameset import CONSENSUS_FIELDS_REQUIRED, NAMEREC_MUTATE_FIELDS, NAMEREC_BACKUP_FIELDS
+from ..nameset import CONSENSUS_FIELDS_REQUIRED, NAMEREC_MUTATE_FIELDS
 from ..config import *
 
 from .register import get_registration_recipient_from_outputs 
 from .transfer import get_transfer_recipient_from_outputs
 from .nameimport import get_import_update_hash_from_outputs
 
-from .preorder import tx_extract as extract_preorder, \
-    restore_delta as restore_preorder, \
-    check as check_preorder, snv_consensus_extras as preorder_consensus_extras
-from .register import tx_extract as extract_registration, \
-    restore_delta as restore_register, \
-    snv_consensus_extras as register_consensus_extras, check_register as check_registration, check_renewal
-from .transfer import tx_extract as extract_transfer, \
-    restore_delta as restore_transfer, \
-    snv_consensus_extras as transfer_consensus_extras, check as check_transfer
-from .update import tx_extract as extract_update, \
-    restore_delta as restore_update, \
-    snv_consensus_extras as update_consensus_extras, check as check_update
-from .revoke import tx_extract as extract_revoke, \
-    restore_delta as restore_revoke, \
-    check as check_revoke, snv_consensus_extras as revoke_consensus_extras
-from .namespacepreorder import tx_extract as extract_namespace_preorder, \
-    restore_delta as restore_namespace_preorder, \
-    check as check_namespace_preorder, snv_consensus_extras as namespace_preorder_consensus_extras
-from .nameimport import tx_extract as extract_name_import, \
-    restore_delta as restore_name_import, \
-    snv_consensus_extras as name_import_consensus_extras, check as check_name_import
-from .namespacereveal import tx_extract as extract_namespace_reveal, \
-    restore_delta as restore_namespace_reveal, \
-    check as check_namespace_reveal, snv_consensus_extras as namespace_reveal_consensus_extras
-from .namespaceready import tx_extract as extract_namespace_ready, \
-    restore_delta as restore_namespace_ready, \
-    check as check_namespace_ready, snv_consensus_extras as namespace_ready_consensus_extras
-from .announce import tx_extract as extract_announce, \
-    restore_delta as restore_announce, \
-    check as check_announce, snv_consensus_extras as announce_consensus_extras
+from .preorder import tx_extract as extract_preorder, check as check_preorder
+from .register import tx_extract as extract_registration, check_register as check_registration, check_renewal
+from .transfer import tx_extract as extract_transfer, check as check_transfer, canonicalize as canonicalize_transfer
+from .update import tx_extract as extract_update, check as check_update, canonicalize as canonicalize_update
+from .revoke import tx_extract as extract_revoke, check as check_revoke
+from .nameimport import tx_extract as extract_name_import, check as check_name_import, canonicalize as canonicalize_name_import
+from .namespacepreorder import tx_extract as extract_namespace_preorder, check as check_namespace_preorder, canonicalize as canonicalize_namespace_preorder, decanonicalize as decanonicalize_namespace_preorder
+from .namespacereveal import tx_extract as extract_namespace_reveal, check as check_namespace_reveal, canonicalize as canonicalize_namespace_reveal, decanonicalize as decanonicalize_namespace_reveal
+from .namespaceready import tx_extract as extract_namespace_ready, check as check_namespace_ready, canonicalize as canonicalize_namespace_ready, decanonicalize as decanonicalize_namespace_ready
+from .announce import tx_extract as extract_announce, check as check_announce
 
 SERIALIZE_FIELDS = {
     "NAME_PREORDER": preorder.FIELDS,
@@ -101,18 +81,19 @@ MUTATE_FIELDS = {
     "ANNOUNCE": announce.MUTATE_FIELDS
 }
 
-BACKUP_FIELDS = {
-    "NAME_PREORDER": preorder.BACKUP_FIELDS,
-    "NAME_REGISTRATION": register.REGISTER_BACKUP_FIELDS,
-    "NAME_RENEWAL": register.RENEWAL_BACKUP_FIELDS,
-    "NAME_UPDATE": update.BACKUP_FIELDS,
-    "NAME_TRANSFER": transfer.BACKUP_FIELDS,
-    "NAME_REVOKE": revoke.BACKUP_FIELDS,
-    "NAME_IMPORT": nameimport.BACKUP_FIELDS,
-    "NAMESPACE_PREORDER": namespacepreorder.BACKUP_FIELDS,
-    "NAMESPACE_REVEAL": namespacereveal.BACKUP_FIELDS,
-    "NAMESPACE_READY": namespaceready.BACKUP_FIELDS,
-    "ANNOUNCE": announce.BACKUP_FIELDS
+# fields that do not have columns in the db schema, but are part of this operation's consensus ops hash
+UNSTORED_CANONICAL_FIELDS = {
+    'NAME_PREORDER': [],
+    'NAME_REGISTRATION': [],
+    'NAME_RENEWAL': [],
+    'NAME_UPDATE': update.UNSTORED_CANONICAL_FIELDS,
+    'NAME_TRANSFER': transfer.UNSTORED_CANONICAL_FIELDS,
+    'NAME_REVOKE': [],
+    'NAME_IMPORT': [],
+    'NAMESPACE_PREORDER': [],
+    'NAMESPACE_REVEAL': [],
+    'NAMESPACE_READY': [],
+    'ANNOUNCE': []
 }
 
 # NOTE: these all have the same signatures
@@ -145,36 +126,22 @@ CHECK_METHODS = {
     "ANNOUNCE": check_announce
 }
 
-
-# NOTE: these all have the same signatures 
-RESTORE_METHODS = {
-    "NAME_PREORDER": restore_preorder,
-    "NAME_REGISTRATION": restore_register,
-    "NAME_RENEWAL": restore_register,
-    "NAME_UPDATE": restore_update,
-    "NAME_TRANSFER": restore_transfer,
-    "NAME_REVOKE": restore_revoke,
-    "NAME_IMPORT": restore_name_import,
-    "NAMESPACE_PREORDER": restore_namespace_preorder,
-    "NAMESPACE_REVEAL": restore_namespace_reveal,
-    "NAMESPACE_READY": restore_namespace_ready,
-    "ANNOUNCE": restore_announce 
+# NOTE: these all have the same signature
+CANONICALIZE_METHODS = {
+    "NAME_UPDATE": canonicalize_update,
+    "NAME_TRANSFER": canonicalize_transfer,
+    "NAME_IMPORT": canonicalize_name_import,
+    "NAMESPACE_PREORDER": canonicalize_namespace_preorder,
+    "NAMESPACE_REVEAL": canonicalize_namespace_reveal,
+    "NAMESPACE_READY": canonicalize_namespace_ready,
 }
 
 
-# NOTE: these all have the same signatures 
-SNV_CONSENSUS_EXTRA_METHODS = {
-     "NAME_PREORDER": preorder_consensus_extras,
-     "NAME_REGISTRATION": register_consensus_extras,
-     "NAME_RENEWAL": register_consensus_extras,
-     "NAME_UPDATE": update_consensus_extras,
-     "NAME_TRANSFER": transfer_consensus_extras,
-     "NAME_REVOKE": revoke_consensus_extras,
-     "NAME_IMPORT": name_import_consensus_extras,
-     "NAMESPACE_PREORDER": namespace_preorder_consensus_extras,
-     "NAMESPACE_REVEAL": namespace_reveal_consensus_extras,
-     "NAMESPACE_READY": namespace_ready_consensus_extras,
-     "ANNOUNCE": announce_consensus_extras
+# NOTE: these all have the same signature
+DECANONICALIZE_METHODS = {
+    "NAMESPACE_PREORDER": decanonicalize_namespace_preorder,
+    "NAMESPACE_REVEAL": decanonicalize_namespace_reveal,
+    "NAMESPACE_READY": decanonicalize_namespace_ready
 }
 
 
@@ -199,50 +166,18 @@ for opcode, mutate_set in MUTATE_FIELDS.items():
             # do not even allow this package to be imported 
             raise Exception("BUG: missing required mutate field '%s' of '%s' definition" % (required_mutate_field, opcode))
 
-
-# required backup fields must be present 
-for opcode, backup_set in BACKUP_FIELDS.items():
-    if len(backup_set) == 0:
-        continue
-
-    if '__all__' in backup_set:
-        # everything will be backed up
-        continue
-
-    for required_backup_field in NAMEREC_BACKUP_FIELDS:
-        if required_backup_field not in backup_set:
-            # do not even allow this package to be imported 
-            raise Exception("BUG: missing required backup field '%s' of '%s' definition" % (required_backup_field, opcode))
-
-
-# mutate fields must be a subset of backup fields 
-for opcode, mutate_set in MUTATE_FIELDS.items():
-    for mutate_field in mutate_set:
-
-        if '__all__' in BACKUP_FIELDS[opcode]:
-            # everything will be backed up
-            continue 
-
-        if mutate_field not in BACKUP_FIELDS[opcode]:
-            # do not even allow this package to be imported 
-            raise Exception("BUG: mutate field '%s' is not present in the backup fields for '%s'" % (mutate_field, opcode))
-
 del opcode
 del mutate_set
-del backup_set
 del serialize_set
-del mutate_field
-del required_backup_field
 del required_mutate_field
 del required_consensus_field
 
 
-def op_extract( op_name, data, senders, inputs, outputs, block_id, vtxindex, txid ):
+def op_extract(op_name, data, senders, inputs, outputs, block_id, vtxindex, txid):
     """
     Extract an operation from transaction data.
     Return the extracted fields as a dict.
     """
-
     global EXTRACT_METHODS
 
     if op_name not in EXTRACT_METHODS.keys():
@@ -253,48 +188,84 @@ def op_extract( op_name, data, senders, inputs, outputs, block_id, vtxindex, txi
     return op_data
 
 
-def op_check_quirks( state_engine, nameop, block_id, checked_ops ):
+def op_canonicalize(op_name, parsed_op):
     """
-    Given the set of arguments for op_check, apply any 
-    op-specific quirks that are needed to preserve backwards compatibility
+    Get the canonical representation of a parsed operation's data.
+    Meant for backwards-compatibility
     """
-    if nameop['opcode'] == 'NAME_IMPORT':
-        nameop['op_fee'] = float(nameop['op_fee'])
+    global CANONICALIZE_METHODS
+
+    if op_name not in CANONICALIZE_METHODS:
+        # no canonicalization needed
+        return parsed_op
+    else:
+        return CANONICALIZE_METHODS[op_name](parsed_op)
 
 
-def op_snv_consensus_extra_quirks( extras, namerec, block_id, commit, db ):
+def op_decanonicalize(op_name, canonical_op):
     """
-    Given the set of arguments to snv_consensus_extras, apply any
-    op-specific quirks that are needed to preserve backwards compatibility
+    Get the current representation of a parsed operation's data, given the canonical representation
+    Meant for backwards-compatibility
     """
-    return blockstack_client.operations.nameop_snv_consensus_extra_quirks( extras, namerec, block_id )
-   
+    global DECANONICALIZE_METHODS
 
-def op_make_restore_diff_quirks( diff, op_name, cur_rec, prev_block_number, history_index, untrusted_db ):
+    if op_name not in DECANONICALIZE_METHODS:
+        # no decanonicalization needed
+        return canonical_op
+    else:
+        return DECANONICALIZE_METHODS[op_name](canonical_op)
+
+
+def op_canonicalize_quirks(op_name, new_record, current_record):
     """
-    Given the set of arguments to restore_diff, apply any op-specific quirks
-    that are needed to preserve backwards compatibility
+    This method preserves backwards-compatibility quirks on canonicalized op data,
+    for snapshotting purposes.  It gets called after the nameop is committed and 
+    its history is saved, but before it gets snapshotted to form the new consensus hash.
+    
+    Backwards-compatibility quirks:
+    * if the operation was created by a NAME_IMPORT, then 'op_fee' must be a float (i.e. must end in .0)
+    * always preserve the 'last_creation_op' field if it is not set in new_record
+
+    Returns the new canonicalized op data
     """
-    last_creation_op = cur_rec.get('last_creation_op', None)
-    last_creation_opcode = None
+    ret = {}
+    ret.update(new_record)
 
-    if last_creation_op is not None:
-        last_creation_opcode = OPCODE_NAMES.get(last_creation_op, None)
+    if op_name in OPCODE_NAME_NAMEOPS and op_name in OPCODE_NAME_STATE_TRANSITIONS:
+        # nameop state transition.  Need to ensure the op_fee is in the right format.
+        # depends on what created it
+        if op_name != 'NAME_IMPORT':
+            # this is some other state transition besides an import.  A prior record must exist.
+            assert current_record
+        
+        if current_record:
+            for f in ['op_fee', 'last_creation_op']:
+                assert f in current_record, 'BUG: missing {} for existing {}'.format(f, op_name)
 
-    if last_creation_opcode is None:
-        if cur_rec['op'] == NAME_IMPORT:
-            # this is the first-ever import
-            last_creation_opcode = 'NAME_IMPORT'
+        # extract quirky values
+        quirk_values = {}
+        for f in ['op_fee', 'last_creation_op']:
+            # get the quirky field, favoring the new record's value over the current record
+            val = new_record.get(f)
+            if val is None and current_record is not None:
+                val = current_record.get(f)
+            
+            assert val, 'Neither new record nor current record has a value for "{}"'.format(f)
+            quirk_values[f] = val
 
-        elif cur_rec['op'] == NAME_PREORDER:
-            # this is the first-ever preorder
-            last_creation_opcode = 'NAME_PREORDER'
+        # QUIRK: NAME_IMPORT-created ops need a float(op_fee).  Everyone else just takes it as it is.
+        assert quirk_values['op_fee'] is not None, 'BUG: no op_fee carried over'
+        if quirk_values['last_creation_op'] == NAME_IMPORT:
+            quirk_values['op_fee'] = float(quirk_values['op_fee'])
+        else:
+            quirk_values['op_fee'] = int(quirk_values['op_fee'])
 
-    log.debug("apply RESTORE DIFF QUIRKS on %s at %s[%s] (created with %s)" % (cur_rec.get('name', "UNKNOWN"), prev_block_number, history_index, last_creation_opcode))
+        ret['op_fee'] = quirk_values['op_fee']
 
-    if cur_rec.has_key('name') and last_creation_opcode == 'NAME_IMPORT':
-        log.debug("apply RESTORE DIFF QUIRK on %s: %s --> %s"  % (cur_rec.get('name', "UNKNOWN"), cur_rec['op_fee'], float(cur_rec['op_fee'])))
-        diff['op_fee'] = float(cur_rec['op_fee'])
+        # QUIRK: preserve last_creation_op across records
+        ret['last_creation_op'] = quirk_values['last_creation_op']
+
+    return ret
 
 
 def op_check( state_engine, nameop, block_id, checked_ops ):
@@ -303,7 +274,11 @@ def op_check( state_engine, nameop, block_id, checked_ops ):
     operations processed so far, and the current operation, determine
     whether or not it should be accepted.
 
-    The operation is allowed to change once, as a result of a check
+    The operation is allowed to be "type-cast" to a new operation, but only once.
+    If this happens, the operation will be checked again.
+    Subsequent casts are considered bugs, and will cause a program abort.
+
+    TODO: remove type-cast
     """
 
     global CHECK_METHODS, MUTATE_FIELDS
@@ -343,9 +318,8 @@ def op_check( state_engine, nameop, block_id, checked_ops ):
             # rejected
             break
 
-        # did the opcode change?
-        # i.e. did the nameop get transformed into a different opcode?
-        new_opcode = nameop_clone.get( 'opcode', None )
+        # was this type-cast to a new operation?
+        new_opcode = nameop_clone.get('opcode', None)
         if new_opcode is None or new_opcode == opcode:
             # we're done
             nameop.clear()
@@ -359,34 +333,24 @@ def op_check( state_engine, nameop, block_id, checked_ops ):
             continue
 
     try:
-        assert count < 3, "opcode flipflop loop detected"
+        assert count < 3, "BUG: multiple opcode type-casts detected"
     except Exception, e:
         log.exception(e)
-        log.error("FATAL: BUG: flipflop loop")
+        log.error("FATAL: BUG: multiple opcode type-casts detected")
         sys.exit(1)
-
+    
     if rc:
-        op_check_quirks( state_engine, nameop, block_id, checked_ops )
+        nameop = op_canonicalize(nameop['opcode'], nameop)
+
+        # make sure we don't send unstored fields to the db that are otherwise canonical
+        unstored_canonical_fields = UNSTORED_CANONICAL_FIELDS.get(nameop['opcode'])
+        assert unstored_canonical_fields is not None, "BUG: no UNSTORED_CANONICAL_FIELDS entry for {}".format(nameop['opcode'])
+
+        for f in unstored_canonical_fields:
+            if f in nameop:
+                del nameop[f]
 
     return rc
-
-
-def op_make_restore_diff( op_name, cur_rec, prev_block_number, history_index, working_db, untrusted_db ):
-    """
-    Given a current name record, an operation name, and a (block number, block history index) coordinate,
-    calculate a diff that, when applied to the given name record, will restore it to the name
-    record as it was when the operation at (block number, block history index) was applied.
-    """
-
-    global RESTORE_METHODS, MUTATE_FIELDS
-
-    if op_name not in RESTORE_METHODS.keys():
-        raise Exception("No such operation '%s'" % op_name)
-
-    method = RESTORE_METHODS[op_name]
-    delta = method( cur_rec, prev_block_number, history_index, working_db, untrusted_db )
-    op_make_restore_diff_quirks( delta, op_name, cur_rec, prev_block_number, history_index, untrusted_db )
-    return delta 
 
 
 def op_get_mutate_fields( op_name ):
@@ -394,7 +358,6 @@ def op_get_mutate_fields( op_name ):
     Get the names of the fields that will change
     when this operation gets applied to a record.
     """
-
     global MUTATE_FIELDS
 
     if op_name not in MUTATE_FIELDS.keys():
@@ -404,33 +367,10 @@ def op_get_mutate_fields( op_name ):
     return fields
 
 
-def op_get_backup_fields( op_name ):
-    """
-    Get the set of fields to back up to a name's history
-    when applying this operation.
-    These fields should encompass sufficient
-    information to calculate a diff that will restore
-    a future version of a name record to the state it is in now.
-    (NOTE this is different from the mutate fields--
-    some operations need to back up fields even though
-    they wont be changed, since the consensus hash
-    is derived from them.)
-    """
-
-    global BACKUP_FIELDS 
-
-    if op_name not in BACKUP_FIELDS.keys():
-        raise Exception("No such operation '%s'" % op_name )
-
-    fields = BACKUP_FIELDS[op_name][:]
-    return fields
-
-
 def op_get_consensus_fields( op_name ):
     """
     Get the set of consensus-generating fields for an operation.
     """
-
     global SERIALIZE_FIELDS
     
     if op_name not in SERIALIZE_FIELDS.keys():
@@ -440,106 +380,17 @@ def op_get_consensus_fields( op_name ):
     return fields
 
 
-def op_snv_consensus_extra( op_name, prev_name_rec, prev_block_id, db ):
+def op_get_quirk_fields( op_name ):
     """
-    Derive any missing consensus-generating fields from the 
-    fields of a name record (since some of them
-    are dynamically generated when the operation
-    is discovered).  This method is used for
-    calculating prior operations from name records
-    for SNV.
-
-    The given name record is the name record as it was when
-    prev_block_id was processed.  The 'vtxindex' field within
-    the name record indicates which the transaction at which
-    it existed.  I.e., the given name record is in the state
-    it was in at (prev_block_id, prev_name_rec['vtxindex']).
-
-    Return the extra conesnsus fields on success.
-    Return None on error.
+    Get the set of fields in a database record that are required for compatibility quirks
     """
-    global SNV_CONSENSUS_EXTRA_METHODS 
-
-    if op_name not in SNV_CONSENSUS_EXTRA_METHODS.keys():
-        raise Exception("No such operation '%s'" % op_name)
-
-    method = SNV_CONSENSUS_EXTRA_METHODS[op_name]
-    extras = method( prev_name_rec, prev_block_id, None, db )
-    extras = blockstack_client.operations.nameop_snv_consensus_extra_quirks( extras, prev_name_rec, prev_block_id )
-    # op_snv_consensus_extra_quirks( extras, prev_name_rec, prev_block_id, False, db )
-    return extras 
-
-
-def op_commit_consensus_extra( op_name, committed_name_rec, blockchain_name_data, block_id, db ):
-    """
-    Like op_snv_consensus_extra, but will be called with the
-    current name record and block number, in order to re-calculate
-    any derived consensus-affecting fields.
-    """
-
-    global SNV_CONSENSUS_EXTRA_METHODS, SERIALIZE_FIELDS
- 
-    if op_name not in SNV_CONSENSUS_EXTRA_METHODS.keys():
-        raise Exception("No such operation '%s'" % op_name)
-
-    if op_name not in SERIALIZE_FIELDS.keys():
-        raise Exception("No such operation '%s'" % op_name)
-
-    method = SNV_CONSENSUS_EXTRA_METHODS[op_name]
-    commit_fields = SERIALIZE_FIELDS[op_name]
-
-    extras = method( committed_name_rec, block_id, blockchain_name_data, db )
-    extras = blockstack_client.operations.nameop_snv_consensus_extra_quirks( extras, committed_name_rec, block_id )
-    # extras = op_snv_consensus_extra_quirks( extras, committed_name_rec, block_id, True, db )
-
-    commit_extras = {}
-    for cf in commit_fields + ['__override__']:
-        if cf in extras:
-            commit_extras[cf] = extras[cf]
-
-    return commit_extras
-
-
-def op_commit_consensus_override( consensus_extras, field ):
-    """
-    Force a consensus field to change on commit.
-    This is used in the event that an operation encodes one value
-    for this field, but we need to mix a different value for the 
-    field into the operation we actually commit.
-
-    This is used to stay compatible with bugs in previous implementations.
-    """
-    if not consensus_extras.has_key( '__override__' ):
-        consensus_extras['__override__'] = [field]
-    else:
-        consensus_extras['__override__'].append( field )
-
-
-def op_commit_consensus_has_override( consensus_extras, field ):
-    """
-    Is a consensus field overridden?
-    """
-    if consensus_extras.has_key( '__override__' ):
-        if field in consensus_extras['__override__']:
-            return True
-
-    return False
-
-def op_commit_consensus_sanitize( consensus_extras ):
-    """
-    Remove any non-commit metadata fields
-    """
-    for k in ['__override__']:
-        if k in consensus_extras.keys():
-            del consensus_extras[k]
-
-    return consensus_extras
-
-
-def op_commit_consensus_get_overrides( consensus_extras ):
-    """
-    get overridden field names
-    """
-    return consensus_extras.get("__override__", [])
-
-
+    quirk_field_table = {
+        'NAME_REGISTRATION': ['last_creation_op'],
+        'NAME_UPDATE': ['last_creation_op'],
+        'NAME_TRANSFER': ['last_creation_op'],
+        'NAME_RENEWAL': ['last_creation_op'],
+        'NAME_REVOKE': ['last_creation_op'],
+        'NAME_IMPORT': ['last_creation_op'],
+    }
+    
+    return quirk_field_table.get(op_name, [])

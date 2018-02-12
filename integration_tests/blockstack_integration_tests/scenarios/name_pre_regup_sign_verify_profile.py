@@ -99,7 +99,7 @@ def scenario( wallets, **kw ):
     time.sleep(5)
 
     # store signed profile for each
-    working_dir = os.environ['VIRTUALCHAIN_WORKING_DIR']
+    working_dir = kw['working_dir']
 
     for name in ['foo1.test', 'foo2.test', 'foo3.test']:
         profile = blockstack_client.user.make_empty_user_profile()

@@ -162,7 +162,7 @@ def fast_sync_sign_snapshot( snapshot_path, private_key, first=False ):
         hash_hex = get_file_hash( f, hashlib.sha256, fd_len=payload_size )
         sigb64 = sign_digest( hash_hex, privkey_hex, hashfunc=hashlib.sha256 )
       
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if BLOCKSTACK_TEST:
             log.debug("Signed {} with {} to make {}".format(hash_hex, keylib.ECPrivateKey(private_key).public_key().to_hex(), sigb64))
 
         # append
@@ -240,7 +240,7 @@ def fast_sync_snapshot_decompress( snapshot_path, output_dir ):
     return {'status': True}
 
 
-def fast_sync_snapshot( export_path, private_key, block_number ):
+def fast_sync_snapshot(working_dir, export_path, private_key, block_number ):
     """
     Export all the local state for fast-sync.
     If block_number is given, then the name database
@@ -316,14 +316,13 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
             log.error("'{}' command not found".format(tool))
             return False
 
-    working_dir = virtualchain.get_working_dir() 
     if not os.path.exists(working_dir):
         log.error("No such directory {}".format(working_dir))
         return False
 
     if block_number is None:
         # last backup
-        all_blocks = BlockstackDB.get_backup_blocks( virtualchain_hooks )
+        all_blocks = BlockstackDB.get_backup_blocks(virtualchain_hooks, working_dir)
         if len(all_blocks) == 0:
             log.error("No backups available")
             return False
@@ -333,10 +332,10 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
     log.debug("Snapshot from block {}".format(block_number))
 
     # use a backup database 
-    db_paths = BlockstackDB.get_backup_paths( block_number, virtualchain_hooks )
+    db_paths = BlockstackDB.get_backup_paths(block_number, virtualchain_hooks, working_dir)
 
     # include namespace keychains 
-    db = virtualchain_hooks.get_db_state()
+    db = virtualchain_hooks.get_db_state(working_dir)
     namespace_ids = db.get_all_namespace_ids()
     all_namespace_keychain_paths = [os.path.join(working_dir, '{}.keychain'.format(nsid)) for nsid in namespace_ids]
     namespace_keychain_paths = filter(lambda nsp: os.path.exists(nsp), all_namespace_keychain_paths)
@@ -374,10 +373,20 @@ def fast_sync_snapshot( export_path, private_key, block_number ):
     atlasdb_path = os.path.join(working_dir, "atlas.db")
     dest_path = os.path.join(tmpdir, "atlas.db")
     _log_backup(atlasdb_path)
-    rc = sqlite3_backup(atlasdb_path, dest_path)
+    rc = virtualchain.sqlite3_backup(atlasdb_path, dest_path)
     if not rc:
         _cleanup(tmpdir)
         return False
+
+    # copy over subdomains, if present 
+    subdomainsdb_path = os.path.join(working_dir, 'subdomains.db')
+    if os.path.exists(subdomainsdb_path):
+        dest_path = os.path.join(tmpdir, 'subdomains.db')
+        _log_backup(subdomainsdb_path)
+        rc = virtualchain.sqlite3_backup(subdomainsdb_path, dest_path)
+        if not rc:
+            _cleanup(tmpdir)
+            return False
 
     # copy over zone files
     zonefiles_path = os.path.join(working_dir, "zonefiles")
@@ -519,7 +528,7 @@ def fast_sync_inspect_snapshot( snapshot_path ):
     return info
 
 
-def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBLIC_KEYS, num_required=len(config.FAST_SYNC_PUBLIC_KEYS), verbose=False ):
+def fast_sync_import(working_dir, import_url, public_keys=config.FAST_SYNC_PUBLIC_KEYS, num_required=len(config.FAST_SYNC_PUBLIC_KEYS), verbose=False):
     """
     Fast sync import.
     Verify the given fast-sync file from @import_path using @public_key, and then 
@@ -541,10 +550,7 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
         else:
             log.error(s)
 
-    if working_dir is None:
-        working_dir = virtualchain.get_working_dir()
-
-    if not os.path.exists(working_dir):
+    if working_dir is None or not os.path.exists(working_dir):
         logerr("No such directory {}".format(working_dir))
         return False
 
@@ -620,7 +626,7 @@ def fast_sync_import( working_dir, import_url, public_keys=config.FAST_SYNC_PUBL
     return True
 
 
-def blockstack_backup_restore( working_dir, block_number ):
+def blockstack_backup_restore(working_dir, block_number):
     """
     Restore the database from a backup in the backups/ directory.
     If block_number is None, then use the latest backup.
@@ -628,55 +634,10 @@ def blockstack_backup_restore( working_dir, block_number ):
     NOT THREAD SAFE
 
     Return True on success
-    Return False on failure
+    Raise an exception on error
     """
-
-    # TODO: this is pretty shady...
-    def _set_working_dir(wd):
-        old_working_dir = os.environ.get('VIRTUALCHAIN_WORKING_DIR', None)
-        if wd is not None:
-            os.environ['VIRTUALCHAIN_WORKING_DIR'] = wd
-
-        return old_working_dir
-
-    old_working_dir = _set_working_dir(working_dir)
-
-    if block_number is None:
-        all_blocks = BlockstackDB.get_backup_blocks( virtualchain_hooks )
-        if len(all_blocks) == 0:
-            log.error("No backups available")
-    
-            # TODO: this is pretty shady...
-            _set_working_dir(old_working_dir)
-            return False
-
-        block_number = max(all_blocks)
-
-    found = True
-    backup_paths = BlockstackDB.get_backup_paths( block_number, virtualchain_hooks )
-    for p in backup_paths:
-        if not os.path.exists(p):
-            log.error("Missing backup file: '%s'" % p)
-            found = False
-
-    if not found:
-
-        # TODO: this is pretty shady...
-        _set_working_dir(old_working_dir)
-        return False 
-
-    rc = BlockstackDB.backup_restore( block_number, virtualchain_hooks )
-    if not rc:
-        log.error("Failed to restore backup")
-
-        # TODO: this is pretty shady...
-        _set_working_dir(old_working_dir)
-        return False
-
-    log.debug("Restored backup from {}".format(block_number))
-
-    # TODO: this is pretty shady...
-    _set_working_dir(old_working_dir)
-
+    db = BlockstackDB.get_readwrite_instance(working_dir, restore=True, restore_block_height=block_number)
+    db.db_restore(block_number=block_number)
+    db.close()
     return True
 

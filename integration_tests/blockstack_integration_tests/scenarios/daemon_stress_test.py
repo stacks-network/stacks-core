@@ -53,7 +53,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 def scenario( wallets, **kw ):
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-    for i in xrange(1, 1000):
+    for i in xrange(1, 100):
         print 'stopping API daemon'
         res = testlib.stop_api(hard_stop=False)
         if 'error' in res:

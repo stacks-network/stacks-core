@@ -27,9 +27,6 @@ from ..scripts import *
 from ..nameset import *
 from binascii import hexlify, unhexlify
 
-import blockstack_client
-from blockstack_client.operations import *
-
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = NAMEREC_FIELDS[:]
 
@@ -38,12 +35,6 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'revoked',
     'value_hash'
 ]
-
-# fields to back up when applying this operation 
-BACKUP_FIELDS = NAMEREC_NAME_BACKUP_FIELDS[:] + MUTATE_FIELDS[:] + [
-    'consensus_hash'
-]
-
 
 @state_transition("name", "name_records")
 def check( state_engine, nameop, block_id, checked_ops ):
@@ -161,14 +152,6 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     }
 
     ret.update( parsed_payload )
-   
-    """
-    if sender_pubkey_hex is not None:
-        ret['sender_pubkey'] = sender_pubkey_hex
-    else:
-        ret['sender_pubkey'] = None
-    """
-
     return ret
 
 
@@ -189,34 +172,4 @@ def parse(bin_payload):
        'name': fqn
     }
 
-
-def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
-    """
-    Find the fields in a name record that were changed by an instance of this operation, at the 
-    given (block_number, history_index) point in time in the past.  The history_index is the
-    index into the list of changes for this name record in the given block.
-
-    Return the fields that were modified on success.
-    Return None on error.
-    """
-    
-    from ..nameset import BlockstackDB
-
-    name_rec_script = build_revoke( str(name_rec['name']) )
-    name_rec_payload = unhexlify( name_rec_script )[3:]
-    ret_op = parse( name_rec_payload )
-
-    return ret_op
-
-
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
-    """
-    Calculate any derived missing data that goes into the check() operation,
-    given the block number, the name record at the block number, and the db.
-    """
-    return blockstack_client.operations.revoke.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
-    '''
-    ret_op = {}
-    return ret_op
-    '''
 

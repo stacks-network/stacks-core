@@ -30,7 +30,7 @@ import virtualchain
 from virtualchain.lib.ecdsalib import ecdsa_private_key
 
 from .proxy import (
-    get_default_proxy, get_zonefiles, get_name_blockchain_record, put_zonefiles)
+    get_default_proxy, get_zonefiles, get_name_blockchain_record, put_zonefiles, get_name_record)
 import storage
 import user as user_db
 
@@ -289,7 +289,7 @@ def get_name_zonefile(name, storage_drivers=None, proxy=None,
 
     # find name record first
     if name_record is None:
-        name_record = get_name_blockchain_record(name, proxy=proxy)
+        name_record = get_name_record(name, proxy=proxy)
 
     if name_record is None or not name_record:
         # failed to look up or zero-length name

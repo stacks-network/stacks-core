@@ -43,13 +43,17 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 value_hashes = []
+namespace_ids = []
 
-def restore( snapshot_path, restore_dir, pubkeys, num_required ):
+def restore( working_dir, snapshot_path, restore_dir, pubkeys, num_required ):
     
     global value_hashes
 
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
     assert config_path
+
+    if os.path.exists(restore_dir):
+        shutil.rmtree(restore_dir)
 
     os.makedirs(restore_dir)
     shutil.copy(config_path, os.path.join(restore_dir, os.path.basename(config_path)))
@@ -60,24 +64,32 @@ def restore( snapshot_path, restore_dir, pubkeys, num_required ):
         return False
 
     # database must be identical 
-    db_filenames = ['blockstack-server.db', 'blockstack-server.snapshots', 'blockstack-server.lastblock']
-    src_paths = [os.path.join(virtualchain.get_working_dir(), fn) for fn in db_filenames]
+    db_filenames = ['blockstack-server.db', 'blockstack-server.snapshots', 'atlas.db', 'subdomains.db']
+    src_paths = [os.path.join(working_dir, fn) for fn in db_filenames]
     backup_paths = [os.path.join(restore_dir, fn) for fn in db_filenames]
 
     for src_path, backup_path in zip(src_paths, backup_paths):
-        rc = os.system("cmp '{}' '{}'".format(src_path, backup_path))
+        rc = os.system('echo ".dump" | sqlite3 "{}" > "{}/first.dump"; echo ".dump" | sqlite3 "{}" > "{}/second.dump"; cmp "{}/first.dump" "{}/second.dump"'.format(
+            src_path, restore_dir, backup_path, restore_dir, restore_dir, restore_dir))
+
         if rc != 0:
             print '{} disagress with {}'.format(src_path, backup_path)
             return False
     
     # all zone files must be present
     for vh in value_hashes:
-        zfdata = blockstack.get_cached_zonefile_data(vh, zonefile_dir=os.path.join(restore_dir, 'zonefiles'))
+        zfdata = blockstack.get_atlas_zonefile_data(vh, os.path.join(restore_dir, 'zonefiles'))
         if zfdata is None:
             print 'Missing {} in {}'.format(vh, os.path.join(restore_dir, 'zonefiles'))
             return False
+    
+    # all import keychains must be present
+    for ns in namespace_ids:
+        import_keychain_path = blockstack.lib.namedb.BlockstackDB.get_import_keychain_path(restore_dir, ns)
+        if not os.path.exists(import_keychain_path):
+            print 'Missing import keychain {}'.format(import_keychain_path)
+            return False
 
-    shutil.rmtree(restore_dir)
     return True
 
 
@@ -125,10 +137,8 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-        # propagate 
-        res = testlib.blockstack_cli_sync_zonefile('foo_{}.test'.format(i), zonefile_string=empty_zonefile_str)
-        if 'error' in res:
-            print json.dumps(res)
+        res = testlib.blockstack_put_zonefile(empty_zonefile_str)
+        if not res:
             return False
 
         value_hashes.append(value_hash)
@@ -142,7 +152,7 @@ def scenario( wallets, **kw ):
 
     # snapshot the latest backup
     snapshot_path = os.path.join( os.path.dirname(config_path), "snapshot.bsk" )
-    rc = blockstack.fast_sync_snapshot( snapshot_path, wallets[3].privkey, None )
+    rc = blockstack.fast_sync_snapshot(kw['working_dir'], snapshot_path, wallets[3].privkey, None )
     if not rc:
         print "Failed to fast_sync_snapshot"
         return False
@@ -159,48 +169,48 @@ def scenario( wallets, **kw ):
             return False
 
     # restore!
-    rc = restore( snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex, wallets[5].pubkey_hex], 3 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex, wallets[5].pubkey_hex], 3 )
     if not rc:
         print "failed to restore snapshot {}".format(snapshot_path)
         return False
 
-    rc = restore( snapshot_path, restore_dir, [wallets[5].pubkey_hex, wallets[4].pubkey_hex, wallets[3].pubkey_hex], 3 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[5].pubkey_hex, wallets[4].pubkey_hex, wallets[3].pubkey_hex], 3 )
     if not rc:
         print "failed to restore snapshot {}".format(snapshot_path)
         return False
 
-    rc = restore( snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex], 2 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex], 2 )
     if not rc:
         print "failed to restore snapshot {}".format(snapshot_path)
         return False
 
-    rc = restore( snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[5].pubkey_hex], 2 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[5].pubkey_hex], 2 )
     if not rc:
         print "failed to restore snapshot {}".format(snapshot_path)
         return False
 
-    rc = restore( snapshot_path, restore_dir, [wallets[4].pubkey_hex, wallets[5].pubkey_hex], 2 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[4].pubkey_hex, wallets[5].pubkey_hex], 2 )
     if not rc:
         print "failed to restore snapshot {}".format(snapshot_path)
         return False
 
-    rc = restore( snapshot_path, restore_dir, [wallets[3].pubkey_hex], 1 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex], 1 )
     if not rc:
         print "failed to restore snapshot {}".format(snapshot_path)
         return False
 
-    rc = restore( snapshot_path, restore_dir, [wallets[4].pubkey_hex, wallets[0].pubkey_hex], 1 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[4].pubkey_hex, wallets[0].pubkey_hex], 1 )
     if not rc:
         print "failed to restore snapshot {}".format(snapshot_path)
         return False
 
-    rc = restore( snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[1].pubkey_hex, wallets[5].pubkey_hex], 1 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[1].pubkey_hex, wallets[5].pubkey_hex], 1 )
     if not rc:
         print "failed to restore snapshot {}".format(snapshot_path)
         return False
 
     # should fail
-    rc = restore( snapshot_path, restore_dir, [wallets[3].pubkey_hex], 2 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex], 2 )
     if rc:
         print "restored insufficient signatures snapshot {}".format(snapshot_path)
         return False
@@ -208,7 +218,7 @@ def scenario( wallets, **kw ):
     shutil.rmtree(restore_dir)
 
     # should fail
-    rc = restore( snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex], 3 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex], 3 )
     if rc:
         print "restored insufficient signatures snapshot {}".format(snapshot_path)
         return False
@@ -216,7 +226,7 @@ def scenario( wallets, **kw ):
     shutil.rmtree(restore_dir)
 
     # should fail
-    rc = restore( snapshot_path, restore_dir, [wallets[0].pubkey_hex], 1 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex], 1 )
     if rc:
         print "restored wrongly-signed snapshot {}".format(snapshot_path)
         return False
@@ -224,7 +234,7 @@ def scenario( wallets, **kw ):
     shutil.rmtree(restore_dir)
 
     # should fail
-    rc = restore( snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[3].pubkey_hex], 2 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[3].pubkey_hex], 2 )
     if rc:
         print "restored wrongly-signed snapshot {}".format(snapshot_path)
         return False
@@ -232,7 +242,7 @@ def scenario( wallets, **kw ):
     shutil.rmtree(restore_dir)
 
     # should fail
-    rc = restore( snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[3].pubkey_hex, wallets[4].pubkey_hex], 3 )
+    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[3].pubkey_hex, wallets[4].pubkey_hex], 3 )
     if rc:
         print "restored wrongly-signed snapshot {}".format(snapshot_path)
         return False
