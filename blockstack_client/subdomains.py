@@ -452,8 +452,8 @@ def _build_subdomain_db(domain_fqas, zonefiles, subdomain_db = None, txids = Non
                     subdomain_db[subdomain.get_fqn()] = subdomain
                 except Exception as e:
                     log.exception(e)
-                    log.warn("Failed subdomain transition for {} on N:{}->{}".format(
-                        subdomain.get_fqn(), previous.n, subdomain.n))
+                    log.warn("Failed subdomain transition for {} on N={}".format(
+                        subdomain.get_fqn(), subdomain.n))
     return subdomain_db
 
 def issue_zonefile(domain_fqa, user_data_txt):
