@@ -1,6 +1,6 @@
 #!/bin/sh
 
-BLOCKSTACK_VERSION="0.14.2"
+BLOCKSTACK_VERSION="0.18.0"
 VENV_DIR="$(pwd)/blockstack-$BLOCKSTACK_VERSION"
 LOGPATH="/tmp/blockstack_${BLOCKSTACK_VERSION}_get_started.log"
 
@@ -94,15 +94,23 @@ find_header "python2.7/Python.h" || exit_missing_sysdep "python-dev"
 # need libffi
 find_library "libffi.so" || exit_missing_sysdep "libffi"
 
+# need libssl
+find_library "libssl.so" || exit_missing_sysdep "libssl"
+
 # need libffi-dev.
 # can be in /usr/lib/libffi-VERSION/include on some systems
 find_header "ffi.h" "/usr/lib/libffi-*/include" || exit_missing_sysdep "libffi-dev"
+
+# need libssl-dev
+find_header "ssl.h" "/usr/lib/openssl" || exit_missing_sysdep "libssl-dev"
 
 mkdir "$VENV_DIR" || exit_with_error "Failed to make directory $VENV_DIR"
 virtualenv "$VENV_DIR" 2>&1 | tee -a "$LOGPATH"
 if [ $? -ne 0 ]; then 
    exit_with_error "Failed to set up virtualenv.  Logfile in $LOGPATH"
 fi
+
+# TODO: consider installing from source
 
 source "$VENV_DIR"/bin/activate || exit_with_error "Failed to activate virtualenv.  Logfile in $LOGPATH"
 
@@ -115,7 +123,7 @@ blockstack --version 2>/dev/null | grep "$BLOCKSTACK_VERSION" >/dev/null || exit
 
 logecho "Blockstack $BLOCKSTACK_VERSION installed to $VENV_DIR."
 echo ""
-echo "Success!  Activate virtualenv with 'source $VENV_DIR/bin/activate' to run 'blockstack'"
+echo "Success!  Activate virtualenv with 'source $VENV_DIR/bin/activate' to run 'blockstack-core'"
 echo ""
 
 exit 0
