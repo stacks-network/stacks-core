@@ -104,6 +104,10 @@ def is_address_subdomain(fqa):
     If it isn't, returns False, None, None.
     If it is, returns True and a tuple (subdomain_name, domain)
     """
+    # do these checks early to avoid pathological names that make re.match take forever
+    if fqu.count(".") != 2:
+        return False, None, None
+
     grp = re.match(OP_SUBDOMAIN_NAME_PATTERN, fqa)
     if grp is None:
         return False, None, None
