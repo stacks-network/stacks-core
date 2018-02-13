@@ -61,6 +61,7 @@ from decimal import Decimal
 import string
 import jsontokens
 import keychain
+import base64
 
 requests.packages.urllib3.disable_warnings()
 
