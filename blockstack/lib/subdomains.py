@@ -1439,9 +1439,10 @@ def decode_zonefile_subdomains(domain, zonefile_txt, block_height, zonefile_inde
             # zonefiles with subdomains have TXT records and URI records
             jsonschema.validate(zonefile_json, USER_ZONEFILE_SCHEMA)
         except Exception as e:
-            if BLOCKSTACK_DEBUG:
+            if BLOCKSTACK_TEST:
                 log.exception(e)
-
+            
+            log.debug("Failed to validate zone file {}".format(zonefile_hash))
             raise ValueError("Not a user zone file")
 
         assert zonefile_json['$origin'] == domain, 'Zonefile does not contain $ORIGIN == {} (but has {} instead)'.format(domain, zonefile_json['$origin'])
@@ -1498,9 +1499,10 @@ def decode_zonefile_subdomains(domain, zonefile_txt, block_height, zonefile_inde
         return subdomain_list
 
     except Exception as e:
-        if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
+        if BLOCKSTACK_TEST:
             log.exception(e)
 
+        log.debug("Failed to parse zone file {}".format(zonefile_hash))
         return None
 
 
