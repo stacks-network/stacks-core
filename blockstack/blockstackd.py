@@ -2036,7 +2036,7 @@ def index_blockchain(server_state, expected_snapshots=GENESIS_SNAPSHOT):
         if subdomain_last_block < SUBDOMAINS_FIRST_BLOCK and start_block >= SUBDOMAINS_FIRST_BLOCK:
             # initialize subdomains db
             log.debug("Creating subdomain DB {}".format(blockstack_opts['subdomaindb_path']))
-            server_state['subdomains'].index(SUBDOMAINS_FIRST_BLOCK, current_block)
+            server_state['subdomains'].reindex(current_block)
 
     # bring the db up to the chain tip.
     # NOTE: at each block, the atlas db will be synchronized by virtualchain_hooks
