@@ -375,7 +375,7 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
                 if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1":
                     log.debug("Inbound RPC begin %s(%s) from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
                 else:
-                    log.debug("RPC %s(%s) from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
+                    log.debug("RPC %s(%s) begin from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
 
             res = self.server.funcs["rpc_" + str(method)](*params, **con_info)
 
@@ -387,6 +387,8 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
 
             if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1":
                 log.debug("Inbound RPC end %s(%s) from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
+            else:
+                log.debug("RPC %s(%s) end from %s" % ("rpc_" + str(method), params_fmt, self.client_address[0]))
 
             return ret
         except Exception, e:
@@ -630,14 +632,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return the updated name_record
         """
         name = str(name_record['name'])
-
-        # include the DID if not given
-        did_info = None
-        if did is None:
-            did_info = db.get_name_DID_info(name)
-            if did_info is None:
-                return {'error': 'Not found.'}
-
         name_record = self.sanitize_rec(name_record)
 
         namespace_id = get_namespace_from_name(name)
@@ -664,11 +658,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             name_record['expired'] = True
         else:
             name_record['expired'] = False
-
-        if did is None:
-            name_record['did'] = make_DID(did_info['name_type'], did_info['address'], did_info['index'])
-        else:
-            name_record['did'] = did
 
         # try to get the zonefile as well 
         if 'value_hash' in name_record and name_record['value_hash'] is not None:
@@ -722,7 +711,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         fqn = str(fqn)
 
         # get current record
-        subdomain_rec = get_subdomain_info(fqn, check_pending=True, include_did=True)
+        subdomain_rec = get_subdomain_info(fqn, check_pending=True)
         if subdomain_rec is None:
             return {'error': 'Failed to load subdomain'}
    
