@@ -321,7 +321,7 @@ class Subdomain(object):
             try:
                 assert is_name_valid(str(domain_name)), domain_name
                 subd_name = str(rec['name'] + '.' + domain_name)
-                assert is_address_subdomain(subd_name)[0]
+                assert is_address_subdomain(subd_name)[0], subd_name
             except AssertionError as ae:
                 if BLOCKSTACK_DEBUG:
                     log.exception(ae)
