@@ -46,6 +46,7 @@ from .client import \
         getinfo as blockstack_getinfo, \
         get_zonefile_inventory as blockstack_get_zonefile_inventory, \
         atlas_peer_exchange as blockstack_atlas_peer_exchange, \
+        get_atlas_peers as blockstack_get_atlas_peers, \
         get_zonefiles as blockstack_get_zonefiles, \
         put_zonefiles as blockstack_put_zonefiles, \
         json_is_error
@@ -56,7 +57,7 @@ log = virtualchain.get_logger("blockstack-server")
 from .config import *
 from .storage import *
 
-MIN_ATLAS_VERSION = "0.18.0"
+MIN_ATLAS_VERSION = "0.17.0"
 
 PEER_LIFETIME_INTERVAL = 3600  # 1 hour
 PEER_PING_INTERVAL = 600       # 10 minutes
@@ -2292,9 +2293,13 @@ def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=None, peer_tab
     max_neighbors = atlas_max_neighbors()
 
     assert not atlas_peer_table_is_locked_by_me()
-
+    
     try:
         peer_list = blockstack_atlas_peer_exchange( peer_hostport, my_hostport, timeout=timeout, proxy=rpc )
+        if json_is_exception(peer_list):
+            # fall back to legacy method 
+            peer_list = blockstack_get_atlas_peers(peer_hostport, timeout=timeout, proxy=rpc)
+
     except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
         atlas_log_socket_error( "atlas_peer_exchange(%s)" % peer_hostport, peer_hostport, se)
         log.error("Socket error in response from '%s'" % peer_hostport)
