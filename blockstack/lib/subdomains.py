@@ -1472,6 +1472,8 @@ def decode_zonefile_subdomains(domain, zonefile_txt, block_height, zonefile_inde
             for i, txt in enumerate(zonefile_json['txt']):
                 if is_subdomain_record(txt):
                     try:
+                        # force lowercase
+                        txt['name'] = txt['name'].lower()
                         subrec = Subdomain.parse_subdomain_record(domain, txt, block_height, zonefile_hash, zonefile_index, txid, domain_zonefiles_missing)
                     except ParseError as pe:
                         if BLOCKSTACK_DEBUG:
