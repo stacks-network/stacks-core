@@ -279,8 +279,8 @@ def daemonize(logfile):
         gc.collect(0)
 
         # wait for intermediate child.
-        # panic if we don't hear back after 1 minute
-        timeout = 60
+        # panic if we don't hear back after 5 minutes
+        timeout = 600
         if BLOCKSTACK_TEST:
             # wait around so we can attach gdb or whatever
             timeout = 60000
