@@ -1058,17 +1058,6 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         msg = 'Name is expired. Use `whois` or `get_name_blockchain_record` for details. If you own this name, use `renew` to renew it.'
         return {'error': msg}
 
-    '''
-    # subdomain?
-    if subdomain:
-        try:
-            return subdomains.resolve_subdomain(subdomain, domain)
-        except subdomains.SubdomainNotFound as e:
-            log.exception(e)
-            return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
-    '''
-
-    # regular domain
     try:
         res = get_profile(
             str(args.name), name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
@@ -1108,24 +1097,6 @@ def cli_whois(args, config_path=CONFIG_PATH):
         if not is_subdomain:
             return {'error': error}
 
-        '''
-            try:
-                subdomain_obj = subdomains.get_subdomain_info(subdomain, domain)
-            except subdomains.SubdomainNotFound:
-                return {'error': 'Not found.'}
-
-            ret = {
-                'status' : 'registered_subdomain',
-                'zonefile_txt' : subdomain_obj.zonefile_str,
-                'zonefile_hash' : storage.get_zonefile_data_hash(subdomain_obj.zonefile_str),
-                'address' : subdomain_obj.address,
-                'blockchain' : 'bitcoin',
-                'last_txid' : subdomain_obj.last_txid,
-            }
-            return ret
-        return {'error': error}
-        '''
-
     conf = config.get_config(config_path)
     blockstackd_host = conf['server']
     blockstackd_port = conf['port']
@@ -1134,7 +1105,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
 
     try:
         # record = get_name_blockchain_record(fqu)
-        record = blockstackd_client.get_name_record(fqu, include_history=True, hostport=blockstackd_url)
+        record = blockstackd_client.get_name_record(fqu, include_history=False, hostport=blockstackd_url)
     except socket_error:
         exit_with_error('Error connecting to server.')
 
@@ -1145,16 +1116,6 @@ def cli_whois(args, config_path=CONFIG_PATH):
         msg = 'Name is revoked. Use get_name_blockchain_record for details.'
         return {'error': msg}
     
-    history = record.get('history', {})
-    update_heights = []
-    try:
-        assert isinstance(history, dict)
-
-        # all items must be ints
-        update_heights = sorted(int(_) for _ in history)
-    except (AssertionError, ValueError):
-        return {'error': 'Invalid record data returned'}
-   
     if is_subdomain:
         zonefile_txt = base64.b64decode(record['zonefile'])
         result = {
@@ -1163,7 +1124,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
             'zonefile_hash': storage.get_zonefile_data_hash(zonefile_txt),
             'address': record['address'], 
             'blockchain': 'bitcoind',
-            'last_txid': record['txid']
+            'last_txid': record['txid'],
         }
         return result
 
@@ -1172,17 +1133,14 @@ def cli_whois(args, config_path=CONFIG_PATH):
     result['last_transaction_id'] = record['txid']
     result['owner_address'] = record['address']
     result['owner_script'] = record['sender']
-    
+
     value_hash = record.get('value_hash', None)
     if value_hash in [None, 'null', '']:
         result['has_zonefile'] = False
     else:
         result['has_zonefile'] = True
         result['zonefile_hash'] = value_hash
-
-    if update_heights:
-        result['last_transaction_height'] = update_heights[-1]
-
+    
     expire_block = record.get('expire_block', None)
     if expire_block is not None:
         result['expire_block'] = expire_block
