@@ -3371,7 +3371,8 @@ class AtlasZonefileCrawler( threading.Thread ):
 
             # try this zonefile's hosts in order by perceived availability
             peers = atlas_rank_peers_by_health( peer_list=peers, with_zero_requests=True )
-            log.debug("%s: zonefile %s available from %s peers (%s...)" % (self.hostport, zfhash, len(peers), ",".join(peers[:min(5, len(peers))])))
+            if len(peers) > 0:
+                log.debug("%s: zonefile %s available from %s peers (%s...)" % (self.hostport, zfhash, len(peers), ",".join(peers[:min(5, len(peers))])))
 
             for peer_hostport in peers:
 
