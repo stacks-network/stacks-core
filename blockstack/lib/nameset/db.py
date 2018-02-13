@@ -1959,7 +1959,7 @@ def namedb_get_all_names( cur, current_block, offset=None, count=None, include_e
         unexpired_query, unexpired_args = namedb_select_where_unexpired_names( current_block )
         unexpired_query = 'WHERE {}'.format(unexpired_query)
 
-    query = "SELECT name FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id " + unexpired_query
+    query = "SELECT name FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id " + unexpired_query + " ORDER BY name"
     args = unexpired_args
 
     offset_count_query, offset_count_args = namedb_offset_count_predicate( offset=offset, count=count )
