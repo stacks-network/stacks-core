@@ -49,7 +49,7 @@ from .client import \
         get_atlas_peers as blockstack_get_atlas_peers, \
         get_zonefiles as blockstack_get_zonefiles, \
         put_zonefiles as blockstack_put_zonefiles, \
-        json_is_error
+        json_is_error, json_is_exception
 
 
 log = virtualchain.get_logger("blockstack-server")
