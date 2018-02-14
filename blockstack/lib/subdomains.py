@@ -243,9 +243,6 @@ class Subdomain(object):
         if self.pending is not None:
             ret['pending'] = self.pending
 
-        if self.did_info is not None:
-            ret['did'] = make_DID(self.did_info['name_type'], self.did_info['address'], self.did_info['index'])
-
         return ret
    
 
@@ -1691,6 +1688,35 @@ def get_subdomain_info(fqn, db_path=None, atlasdb_path=None, zonefiles_dir=None,
         subrec.did_info = db.get_subdomain_DID_info(fqn)
 
     return subrec
+
+
+def get_subdomain_DID_info(fqn, db_path=None, zonefiles_dir=None):
+    """
+    Get a subdomain's DID info.
+    Return None if not found
+    """
+    opts = get_blockstack_opts()
+    if not is_subdomains_enabled(opts):
+        log.warn("Subdomain support is disabled")
+        return None
+
+    if db_path is None:
+        db_path = opts['subdomaindb_path']
+
+    if zonefiles_dir is None:
+        zonefiles_dir = opts['zonefiles']
+
+    db = SubdomainDB(db_path, zonefiles_dir)
+    try:
+        subrec = db.get_subdomain_entry(fqn)
+    except SubdomainNotFound:
+        log.warn("No such subdomain: {}".format(fqn))
+        return None
+    
+    try:
+        return db.get_subdomain_DID_info(fqn)
+    except SubdomainNotFound:
+        return None
 
 
 def get_DID_subdomain(did, db_path=None, zonefiles_dir=None, atlasdb_path=None, check_pending=False):
