@@ -35,13 +35,16 @@ import json
 import traceback
 import re
 from .util import url_to_host_port, url_protocol, parse_DID
-from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, NAME_REVOKE
+from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, BLOCKSTACK_TEST
 from .schemas import *
 from .scripts import is_name_valid, is_subdomain
 from .storage import verify_zonefile
 
 import virtualchain
 import keylib
+import jsontokens
+import blockstack_zones
+import requests
 
 log = virtualchain.get_logger('blockstackd-client')
 
@@ -700,6 +703,8 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
 def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, proxy=None):
     """
     Push one or more zonefiles to the given server.
+    Each zone file in the list must be base64-encoded
+
     Return {'status': True, 'saved': [...]} on success
     Return {'error': ...} on error
     """
@@ -731,7 +736,6 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
 
     push_info = None
     try:
-
         push_info = proxy.put_zonefiles(zonefile_data_list)
         push_info = json_validate(schema, push_info)
         if json_is_error(push_info):
@@ -1648,15 +1652,7 @@ def get_DID_record(did, proxy=None, hostport=None):
             del final_name_state[extra_field]
 
     return final_name_state
-
-
-def resolve_DID(did, hostport=None, proxy=None):
-    """
-    Resolve a DID to a public key.
-    Return the public key on success
-    Return None if the DID does not point to a valid name, or does not exist.
-    """
-    
+ 
 
 def get_consensus_at(block_height, proxy=None, hostport=None):
     """
@@ -1887,22 +1883,6 @@ def get_consensus_hashes(block_heights, hostport=None, proxy=None):
         return {'error': 'Invalid data: expected int'}
 
 
-def get_consensus_range(block_id_start, block_id_end, proxy=None):
-    """
-    Get a range of consensus hashes.  The range is inclusive.
-    """
-    ch_range = get_consensus_hashes(range(block_id_start, block_id_end + 1), proxy=proxy)
-    if 'error' in ch_range:
-        return ch_range
-
-    # verify that all blocks are included
-    for i in range(block_id_start, block_id_end + 1):
-        if i not in ch_range:
-            return {'error': 'Missing consensus hashes'}
-
-    return ch_range
-
-
 def get_block_from_consensus(consensus_hash, hostport=None, proxy=None):
     """
     Get a block height from a consensus hash
@@ -2121,4 +2101,125 @@ def get_nameops_hash_at(block_id, hostport=None, proxy=None):
 
     return resp['ops_hash']
 
+
+def get_JWT(url):
+    """
+    Given a URL, fetch and decode the JWT it points to.
+    Return None if we could not fetch it.
+
+    NOTE: the URL must be usable by the requests library
+    """
+    jwt_txt = None
+    jwt = None
+
+    try:
+        log.debug("Try {}".format(url))
+        resp = requests.get(url)
+        assert resp.status_code == 200, 'Bad status code on {}: {}'.format(url, resp.status_code)
+        jwt_txt = resp.text
+    except Exception as e:
+        if BLOCKSTACK_TEST:
+            log.exception(e)
+
+        log.warning("Unable to resolve {}".format(url))
+        return None
+
+    try:
+        # one of two things are possible:
+        # * this is a JWT string
+        # * this is a serialized JSON string whose first item is a dict that has 'token' as key,
+        # and that key is a JWT string.
+        try:
+            jwt_txt = json.loads(jwt_txt)[0]['token']
+        except:
+            pass
+
+        jwt = jsontokens.decode_token(jwt_txt)
+    except Exception as e:
+        if BLOCKSTACK_TEST:
+            log.exception(e)
+
+        log.warning("Unable to decode token at {}".format(url))
+        return None
+
+    try:
+        # must be well-formed
+        assert isinstance(jwt, dict)
+        assert 'payload' in jwt
+        assert isinstance(jwt['payload'], dict)
+        assert 'issuer' in jwt['payload']
+        assert isinstance(jwt['payload']['issuer'], dict)
+        assert 'public_key' in jwt['payload']['issuer']
+        assert virtualchain.ecdsalib.ecdsa_public_key(str(jwt['payload']['issuer']['public_key']))
+    except AssertionError as ae:
+        if BLOCKSTACK_TEST:
+            log.exception(ae)
+
+        log.warning("JWT at {} is malformed".format(url))
+        return None
+
+    return jwt
+
+
+def resolve_DID(did, hostport=None, proxy=None):
+    """
+    Resolve a DID to a public key.
+    This is a multi-step process:
+    1. get the name record
+    2. get the zone file
+    3. parse the zone file to get its URLs (if it's not well-formed, then abort)
+    4. fetch and authenticate the JWT at each URL (abort if there are none)
+    5. extract the public key from the JWT and return that.
+
+    Return {'public_key': ...} on success
+    Return {'error': ...} on error
+    """
+    assert hostport or proxy, 'Need hostport or proxy'
+
+    did_rec = get_DID_record(did, hostport=hostport, proxy=proxy)
+    if 'error' in did_rec:
+        log.error("Failed to get DID record for {}: {}".format(did, did_rec['error']))
+        return did_rec
+    
+    if 'value_hash' not in did_rec:
+        log.error("DID record for {} has no zone file hash".format(did))
+        return {'error': 'No zone file hash in name record for {}'.format(did)}
+
+    zonefile_hash = did_rec['value_hash']
+    zonefile_res = get_zonefiles(hostport, [zonefile_hash], proxy=proxy)
+    if 'error' in zonefile_res:
+        log.error("Failed to get zone file for {} for DID {}: {}".format(zonefile_hash, did, zonefile_res['error']))
+        return {'error': 'Failed to get zone file for {}'.format(did)}
+
+    zonefile_txt = zonefile_res['zonefiles'][zonefile_hash]
+    log.debug("Got {}-byte zone file {}".format(len(zonefile_txt), zonefile_hash))
+
+    try:
+        zonefile_data = blockstack_zones.parse_zone_file(zonefile_txt)
+        zonefile_data = dict(zonefile_data)
+        assert 'uri' in zonefile_data
+        if len(zonefile_data['uri']) == 0:
+            return {'error': 'No URI records in zone file {} for {}'.format(zonefile_hash, did)}
+
+    except Exception as e:
+        if BLOCKSTACK_TEST:
+            log.exception(e)
+
+        return {'error': 'Failed to parse zone file {} for {}'.format(zonefile_hash, did)}
+
+    urls = [uri['target'] for uri in zonefile_data['uri']]
+    for url in urls:
+        jwt = get_JWT(url)
+        if not jwt:
+            continue
+
+        public_key = str(jwt['payload']['issuer']['public_key'])
+        addr = virtualchain.ecdsalib.ecdsa_public_key(public_key).address()
+
+        if virtualchain.address_reencode(addr) == virtualchain.address_reencode(str(did_rec['address'])):
+            # found!
+            return {'public_key': public_key}
+
+    log.error("No zone file URLs resolved to a JWT with the public key whose address is {}".format(did_rec['address']))
+    return {'error': 'No public key found for the given DID'}
 
