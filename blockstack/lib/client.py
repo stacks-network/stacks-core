@@ -502,7 +502,7 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
 
 def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
     """
-    Get an atlas peer's neighbors.
+    Get an atlas peer's neighbors. 
     Return {'status': True, 'peers': [peers]} on success.
     Return {'error': ...} on error
     """
@@ -1513,6 +1513,56 @@ def get_subdomains_owned_by_address(address, proxy=None, hostport=None):
     return resp['subdomains']
 
 
+def get_name_DID(name, proxy=None, hostport=None):
+    """
+    Get the DID for a name or subdomain
+    Return the DID string on success
+    Return None if not found
+    """
+    assert proxy or hostport, 'Need proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    did_schema = {
+        'type': 'object',
+        'properties': {
+            'did': {
+                'type': 'string'
+            }
+        },
+        'required': [ 'did' ],
+    }
+
+    schema = json_response_schema(did_schema)
+    resp = {}
+    try:
+        resp = proxy.get_name_DID(name)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+        # DID must be well-formed
+        assert parse_DID(resp['did'])
+
+    except (ValidationError, AssertionError) as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['did']
+
+
 def get_DID_record(did, proxy=None, hostport=None):
     """
     Resolve a Blockstack decentralized identifier (DID) to its blockchain record.
@@ -1598,7 +1648,15 @@ def get_DID_record(did, proxy=None, hostport=None):
             del final_name_state[extra_field]
 
     return final_name_state
-  
+
+
+def resolve_DID(did, hostport=None, proxy=None):
+    """
+    Resolve a DID to a public key.
+    Return the public key on success
+    Return None if the DID does not point to a valid name, or does not exist.
+    """
+    
 
 def get_consensus_at(block_height, proxy=None, hostport=None):
     """
