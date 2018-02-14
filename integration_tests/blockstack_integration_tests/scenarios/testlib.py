@@ -3305,7 +3305,13 @@ def check_historic_names_by_address( state_engine ):
     
     for address in addr_names.keys():
         for i, (name, block_id, _) in enumerate(addr_names[address]):
-            did = 'did:stack:v0:{}-{}'.format(address, i)
+            # make sure this DID corresponds to this name
+            did = blockstack.lib.client.get_name_DID(name, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+            expected_did = 'did:stack:v0:{}-{}'.format(address, i)
+            if did != expected_did:
+                log.error("DID mismatch on {}: expected {}, got {}".format(name, expected_did, did))
+                return False
+
             name_rec = blockstack.lib.client.get_DID_record(did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
 
             if name in revoked_names.keys() and revoked_names[name] >= block_id:
@@ -3387,10 +3393,12 @@ def check_subdomain_db(firstblock=None, **kw):
         assert subrec
         assert 'error' not in subrec, subrec
 
-        subrecs[subd] = subrec
-        subrec_dids[subd] = subrec['did']
+        subd_did = blockstack.lib.client.get_name_DID(subd, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
 
-        did_info = blockstack.lib.util.parse_DID(subrec['did'])
+        subrecs[subd] = subrec
+        subrec_dids[subd] = subd_did
+
+        did_info = blockstack.lib.util.parse_DID(subd_did)
         assert did_info['name_type'] == 'subdomain'
         assert virtualchain.address_reencode(did_info['address']) == virtualchain.address_reencode(addr), 'address mismatch on {}: {} (expected {})\nsubrec: {}'.format(subd, did_info['address'], addr, subrec)
 
