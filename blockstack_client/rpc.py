@@ -905,7 +905,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.error("Failed to parse zone file for {}".format(name))
             zonefile_txt = {'error': 'Non-standard zone file'}
 
-        if blockstackd_scripts.is_address_subdomain(name):
+        if blockstackd_scripts.is_subdomain(name):
             # subdomain
             ret = {
                 'status': 'registered_subdomain',

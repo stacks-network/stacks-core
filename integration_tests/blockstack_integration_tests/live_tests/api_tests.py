@@ -245,7 +245,6 @@ class LookupUsersTest(APITestCase):
 
         url = base_url.format('muneeb')
         data = self.get_request(url, headers = {}, status_code=500)
-        self.assertTrue(data['error'] == 'Failed to lookup name')
 
     def test_get_all_names(self):
         data = self.get_request("/v1/names?page=0",
@@ -375,7 +374,6 @@ class BlockChains(APITestCase):
                     "block_number" : 0,
                     "consensus_hash": schemas.OP_CONSENSUS_HASH_PATTERN,
                     "first_registered": 0,
-                    "history" : True,
                     "op" : True,
                     "txid": schemas.OP_HEX_PATTERN,
                     "value_hash": schemas.OP_HEX_PATTERN}
