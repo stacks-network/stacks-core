@@ -59,6 +59,7 @@ Ping the blockstack node to see if it's alive.
 ## Get the node's config [GET /v1/node/config]
 Returns the current configuation settings of the blockstack node.
 
++ Requires root authorization
 + Response 200 (application/json)
   + Body
 
@@ -127,6 +128,7 @@ Returns the current configuation settings of the blockstack node.
 ## Set config field [POST /v1/node/config/{section}?{key}={value}]
 Set one or more config fields in a config section.
 
++ Requires root authorization
 + Parameters
   + section: blockstack-client (string) - configuration section
   + key: server (string) - configuration variable to set
@@ -162,6 +164,8 @@ Set one or more config fields in a config section.
 
 ## Delete a config field [DELETE /v1/node/config/{section}/{key}]
 Delete a single field from the configuration.
+
++ Requires root authorization
 + Parameters
   + section: blockstack-client (string) - configuration section
   + key: advanced_mode (string) - configuration variable to set
@@ -197,6 +201,8 @@ Delete a single field from the configuration.
 
 ## Delete a config section [DELETE /v1/node/config/{section}]
 Deletes a whole section from the node's configuration.
+
++ Requires root authorization
 + Parameters
     + section: blockstack-client (string) - configuration section
 
@@ -1680,6 +1686,7 @@ Fetch a list of all names known to the node.
 ## Name history [GET /v1/names/{name}/history]
 Get a history of all blockchain records of a registered name.
 + Public Endpoint
++ Subdomain aware
 + Parameters
   + name: muneeb.id (string) - name to query
 + Response 200 (application/json)
@@ -1902,6 +1909,7 @@ Get a history of all blockchain records of a registered name.
 ## Get historical zone file [GET /v1/names/{name}/zonefile/{zoneFileHash}]
 Fetches the historical zonefile specified by the username and zone hash.
 + Public Endpoint
++ Subdomain aware
 + Parameters
   + name: muneeb.id (string) username to fetch
   + zoneFileHash: b100a68235244b012854a95f9114695679002af9
@@ -2380,58 +2388,6 @@ Get the current transactions that the node has issued and are still pending.
                    ]
                }
 
-## Get raw name history [GET /v1/blockchains/{blockchainName}/names/{nameID}/history]
-Not implemented
-
-+ Response 405 (application/json)
-  + Body
-
-             { 'error' : 'Unimplemented' }
-
-# Group Gaia Endpoints
-The Gaia endpoints interface with `blockstack-storage.js` to provide
-storage to blockstack applications.
-
-## Create "store" for this session [POST /v1/stores]
-## Get "store" metadata [GET /v1/stores/{storeID}]
-+ Parameters
-  + storeID : (string)
-## Delete "store" [DELETE /v1/stores/{storeID}]
-+ Parameters
-  + storeID : (string)
-## Get inode info [GET /v1/stores/{storeID}/inodes?path={path}]
-+ Parameters
-  + storeID : (string)
-  + path : (string) - path of inode
-## Get directory files [GET /v1/stores/{storeID}/directories?path={path}]
-+ Parameters
-  + storeID : (string)
-  + path : (string) - path of inode
-## Create directory [POST /v1/stores/{storeID}/directories?path={path}]
-+ Parameters
-  + storeID : (string)
-  + path : (string) - path of inode
-## Delete directory [DELETE /v1/stores/{storeID}/directories?path={path}]
-+ Parameters
-  + storeID : (string)
-  + path : (string) - path of inode
-## Get file data [GET /v1/stores/{storeID}/files?path={path}]
-+ Parameters
-  + storeID : (string)
-  + path : (string) - path of inode
-## Create file [POST /v1/stores/{storeID}/files?path={path}]
-+ Parameters
-  + storeID : (string)
-  + path : (string) - path of inode
-## Update file [PUT /v1/stores/{storeID}/files?path={path}]
-+ Parameters
-  + storeID : (string)
-  + path : (string) - path of inode
-## Delete file [DELETE /v1/stores/{storeID}/files?path={path}]
-+ Parameters
-  + storeID : (string)
-  + path : (string) - path of inode
-
 # Group Namespace Operations
 ## Get all namespaces [GET /v1/namespaces]
 + Public Endpoint
@@ -2459,23 +2415,31 @@ Fetch a list of names from the namespace.
                  "aldi.id", "aldighieri.id", ... ]
 
 ## Create namespace [POST /v1/namespaces]
-Not implemented.
+Not implemented as a RESTful API call yet.  Use the
+[CLI](https://github.com/blockstack/blockstack-core/blob/master/docs/namespace_creation.md).
+
 ## Pre-register a name [POST /v1/namespaces/{tld}/names]
-Not implemented.
+Not implemented as a RESTful API call yet.  Use the
+[CLI](https://github.com/blockstack/blockstack-core/blob/master/docs/namespace_creation.md).
 + Parameters
   + tld: id (string) - the namespace to fetch names from
 ## Update pre-registered name [POST /v1/namespaces/{tld}/names/{name}]
-Not implemented.
+Not implemented as a RESTful API call yet.  Use the
+[CLI](https://github.com/blockstack/blockstack-core/blob/master/docs/namespace_creation.md).
 + Parameters
   + tld: id (string) - the namespace to fetch names from
   + name: muneeb (string) - the name to update
 ## Launch namespace [PUT /v1/namespaces/{tld}]
-Not implemented.
+Not implemented as a RESTful API call yet.  Use the
+[CLI](https://github.com/blockstack/blockstack-core/blob/master/docs/namespace_creation.md).
 + Parameters
   + tld: id (string) - the namespace to fetch names from
 # Group Resolver Endpoints
 ## Lookup User [GET /v1/users/{username}]
 Lookup and resolver a user's profile. Defaults to the `id` namespace.
+Note that [blockstack.js](https://github.com/blockstack/blockstack.js) does
+*not* rely on this endpoint.
+
 + Public Only Endpoint
 + Subdomain Aware
 + Legacy Endpoint
