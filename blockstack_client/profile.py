@@ -225,16 +225,6 @@ def get_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=Non
     proxy = get_default_proxy() if proxy is None else proxy
     user_profile_pubkey = None
     
-    '''
-    res = subdomains.is_address_subdomain(str(name))
-    if res:
-        subdomain, domain = res[1]
-        try:
-            return subdomains.resolve_subdomain(subdomain, domain)
-        except subdomains.SubdomainNotFound as e:
-            log.exception(e)
-            return {'error' : "Failed to find name {}.{}".format(subdomain, domain)}
-    '''
     raw_zonefile = None
     if user_zonefile is None:
         user_zonefile = get_name_zonefile(
