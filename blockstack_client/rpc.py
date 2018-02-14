@@ -904,9 +904,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if res is None:
             log.error("Failed to parse zone file for {}".format(name))
             zonefile_txt = {'error': 'Non-standard zone file'}
+        
+        ret = {}
 
-        if blockstackd_scripts.is_address_subdomain(name):
+        if blockstackd_scripts.is_subdomain(name):
             # subdomain
+            log.debug("{} is registered_subdomain".format(name))
             ret = {
                 'status': 'registered_subdomain',
                 'zonefile_txt': zonefile_txt,
@@ -915,88 +918,25 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'blockchain': 'bitcoin',
                 'last_txid': name_rec['txid']
             }
-            return self._reply_json(ret)
 
-        '''
-        if res:
-            subdomain, domain = res[1]
-            try:
-                subdomain_obj = subdomains.get_subdomain_info(subdomain, domain)
-            except subdomains.SubdomainNotFound:
-                self._reply_json({"status" : "available"}, status_code=404)
-                return
+        else:
+            status = 'revoked' if name_rec['revoked'] else 'registered'
+            address = name_rec['address']
+            if address:
+                address = virtualchain.address_reencode(str(address), network='mainnet')
 
+            log.debug("{} is {}".format(name, status))
             ret = {
-                'status' : 'registered_subdomain',
-                'zonefile_txt' : subdomain_obj.zonefile_str,
-                'zonefile_hash' : storage.get_zonefile_data_hash(subdomain_obj.zonefile_str),
-                'address' : subdomain_obj.address,
-                'blockchain' : 'bitcoin',
-                'last_txid' : subdomain_obj.last_txid,
+                'status': status,
+                'zonefile': zonefile_txt,
+                'zonefile_hash': name_rec['value_hash'],
+                'address': address,
+                'last_txid': name_rec['txid'],
+                'blockchain': 'bitcoin',
+                'expire_block': name_rec['expire_block'],
             }
 
-            self._reply_json(ret)
-            return
-
-        name_rec = proxy.get_name_record(name)
-        if json_is_error(name_rec):
-            # does it exist?
-            if name_rec['error'] == 'Not found.':
-                ret = {
-                    'status': 'available'
-                }
-                self._reply_json(ret, status_code=404)
-                return
-
-            else:
-                # some other error
-                log.error("Failed to look up {}: {}".format(name, name_rec['error']))
-                self._reply_json({'error': 'Failed to lookup name'}, status_code=500)
-                return
-
-        if 'zonefile' not in name_rec:
-            # older blockstackd does not return a zonefile
-            zonefile_res = zonefile.get_name_zonefile(name, raw_zonefile=True, name_record=name_rec)
-        else:
-            zonefile_res = {'zonefile': base64.b64decode(name_rec['zonefile'])}
-        
-        zonefile_txt = None
-        if 'error' in zonefile_res:
-            error = "No zonefile for name"
-            if zonefile_res is not None:
-                error = zonefile_res['error']
-
-            log.error("Failed to get name zonefile for {}: {}".format(name, error))
-            zonefile_txt = {'error': 'No zone file loaded'}
-
-        else:
-            zonefile_txt = zonefile_res.pop("zonefile")
-        
-            # make sure it's well-formed
-            res = zonefile.decode_name_zonefile(name, zonefile_txt, allow_legacy=True)
-            if res is None:
-                log.error("Failed to parse zone file for {}".format(name))
-                zonefile_txt = {'error': 'Non-standard zone file'}
-        '''
-        status = 'revoked' if name_rec['revoked'] else 'registered'
-
-        address = name_rec['address']
-        if address:
-            address = virtualchain.address_reencode(str(address), network='mainnet')
-
-        log.debug("{} is {}".format(name, status))
-        ret = {
-            'status': status,
-            'zonefile': zonefile_txt,
-            'zonefile_hash': name_rec['value_hash'],
-            'address': address,
-            'last_txid': name_rec['txid'],
-            'blockchain': 'bitcoin',
-            'expire_block': name_rec['expire_block'],
-        }
-
-        self._reply_json(ret)
-        return
+        return self._reply_json(ret)
 
 
     def GET_name_history(self, ses, path_info, name ):
