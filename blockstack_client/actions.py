@@ -1123,7 +1123,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
             'zonefile_txt': zonefile_txt,
             'zonefile_hash': storage.get_zonefile_data_hash(zonefile_txt),
             'address': record['address'], 
-            'blockchain': 'bitcoind',
+            'blockchain': 'bitcoin',
             'last_txid': record['txid'],
         }
         return result
@@ -4189,15 +4189,9 @@ def cli_lookup_snv(args, config_path=CONFIG_PATH):
     name = str(args.name)
     error = check_valid_name(name)
     if error:
-        res = blockstackd_scripts.is_address_subdomain(name)
-        # res = subdomains.is_address_subdomain(name)
+        res = blockstackd_scripts.is_subdomain(name)
         if res:
-            subdomain, domain = res[1]
-            if subdomain:
-                return {'error': 'SNV lookup on subdomains is not yet supported'}
-
-            name = domain
-
+            return {'error': 'SNV lookup on subdomains is not yet supported'}
         else:
             return {'error': error}
 
