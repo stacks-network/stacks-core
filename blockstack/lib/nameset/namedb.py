@@ -733,6 +733,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         Given a name, find its DID (decentralized identifier) information.
         Returns {'address': ..., 'index': ...}
+        Returns None if there is no such name
         """
         if lastblock is None:
             lastblock = self.lastblock
@@ -823,24 +824,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         update_points = namedb_get_blocks_with_ops( cur, name, FIRST_BLOCK_MAINNET, self.lastblock )
         return update_points
        
-
-    def get_op_history_rows( self, history_id, offset, count ):
-        """
-        Get the list of history rows for a name or namespace, with the given
-        offset and count.
-        Returns the list of history rows
-        """
-        cur = self.db.cursor()
-        return namedb_get_history_rows( cur, history_id, offset=offset, count=count )
-
-
-    def get_num_op_history_rows( self, history_id ):
-        """
-        How many history rows are there for this name or namespace?
-        """
-        cur = self.db.cursor()
-        return namedb_get_num_history_rows( cur, history_id )
-
 
     def get_all_ops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
         """
