@@ -61,7 +61,7 @@ To start a test in interactive mode, pass the `--interactive` switch.
 For example, with the docker file already pulled, you can execute:
 
 ```bash
-IMAGE=$(docker run -dt -p 6270:6270 -v /tmp:/tmp -e BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 -e BLOCKSTACK_TEST_CLIENT_BIND=0.0.0.0 quay.io/blockstack/integrationtests:develop blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.portal_test_env)
+IMAGE=$(docker run -dt -p 16268:16268 -p 16269:16269 -p 18332:18332 -e BLOCKSTACK_TEST_CLIENT_RPC_PORT=16268 -e BLOCKSTACK_TEST_CLIENT_BIND=0.0.0.0 -e BLOCKSTACK_TEST_BITCOIND_ALLOWIP=172.17.0.0/16 quay.io/blockstack/integrationtests:develop blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.browser_env)
 ```
 
 You know the setup has finished when it has displayed in the log:
