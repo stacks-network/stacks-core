@@ -22,18 +22,28 @@ RUN curl -sL https://deb.nodesource.com/setup_6.x | bash -
 RUN apt-get install -y nodejs
 
 # Install requirements for the blockstack.js integration tests
-RUN apt-get install -y git babel
-RUN npm i -g browserify
-RUN git clone https://git@github.com/blockstack/blockstack.js.git /tmp/blockstack.js
-RUN git clone https://github.com/blockstack/blockstack-storage-js.git /tmp/blockstack-storage-js
-RUN cd /tmp/blockstack.js && npm ln
-RUN cd /tmp/blockstack-storage-js && npm ln
+WORKDIR /src/
+RUN apt-get install -y git
+RUN npm i -g browserify babel-cli
+ADD https://api.github.com/repos/blockstack/blockstack.js/git/refs/heads/feature/blockstack-operation blockstack-js-version.json
+RUN git clone https://git@github.com/blockstack/blockstack.js.git
+RUN cd blockstack.js && git checkout feature/blockstack-operations
+RUN cd blockstack.js && npm i && npm run build && npm ln
+
+# Install requirements for running the transaction broadcaster service
+ADD https://api.github.com/repos/kantai/transaction-broadcaster/git/refs/heads/master broadcaster-version.json
+RUN git clone https://git@github.com/kantai/transaction-broadcaster.git
+RUN cd transaction-broadcaster && npm i && npm ln blockstack && npm run build
 
 # Install pyparsing
 RUN pip install --upgrade pip && pip install pyparsing
 
 # Build blockstack first
 WORKDIR /src/blockstack
+
+# We need virtualchain 18!
+ADD https://api.github.com/repos/blockstack/virtualchain/git/refs/heads/develop virtualchain-version.json
+RUN pip install git+https://github.com/blockstack/virtualchain@develop
 
 # Copy all files from the repo into the container
 COPY . .

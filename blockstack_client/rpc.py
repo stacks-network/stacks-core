@@ -2156,7 +2156,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
 
         # namespace_rec = proxy.get_namespace_blockchain_record(namespace_id)
-        namespace_rec = blockstackd_client.get_namespace_record(namespace, hostport=blockstackd_url)
+        namespace_rec = blockstackd_client.get_namespace_record(namespace_id, hostport=blockstackd_url)
         if json_is_error(namespace_rec):
             # error
             status_code = None
