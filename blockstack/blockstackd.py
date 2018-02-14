@@ -65,7 +65,7 @@ from lib import *
 from lib.storage import *
 from lib.atlas import *
 from lib.fast_sync import *
-from lib.subdomains import subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history, get_DID_subdomain, get_subdomains_owned_by_address
+from lib.subdomains import subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history, get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
@@ -626,7 +626,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return reply
     
 
-    def load_name_info(self, db, name_record, did=None):
+    def load_name_info(self, db, name_record):
         """
         Get some extra name information, given a db-loaded name record.
         Return the updated name_record
@@ -741,6 +741,44 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return res
 
         return self.success_response({'record': res['record']})
+
+
+    def get_name_DID_info(self, name):
+        """
+        Get a name's DID info
+        Returns None if not found
+        """
+        db = get_db_state(self.working_dir)
+        did_info = db.get_name_DID_info(name)
+        if did_info is None:
+            return {'error': 'No such name'}
+
+        return did_info
+
+
+    def get_subdomain_DID_info(self, fqn):
+        """
+        Get a subdomain's DID info
+        Returns None if not found
+        """
+        did_info = get_subdomain_DID_info(fqn)
+        return did_info
+
+
+    def rpc_get_name_DID(self, name, **con_info):
+        """
+        Given a name or subdomain, return its DID.
+        """
+        did_info = None
+        if self.check_name(name):
+            did_info = self.get_name_DID_info(name)
+        elif self.check_subdomain(name):
+            did_info = self.get_subdomain_DID_info(name)
+        else:
+            return {'error': 'No such name'}
+
+        did = make_DID(did_info['name_type'], did_info['address'], did_info['index'])
+        return self.success_response({'did': did})
 
 
     def get_name_DID_record(self, did):
