@@ -29,7 +29,7 @@ namespace creator assign the name a zone file and an owner in one step.
 
 ## Before Trying This in Production...
 
-Creating namespaces is expensive (hundreds to millions of USD)
+Creating namespaces is expensive.
 Be sure to test your namespace in our [integration test
 framework](https://github.com/blockstack/blockstack-core/tree/master/integration_tests)
 first!  It will let you simulate any valid namespace configuration
