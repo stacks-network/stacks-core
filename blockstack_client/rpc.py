@@ -1242,13 +1242,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Get the name's current zonefile data.
         With `raw=1` on the query string, return the raw zone file.
+        Otherwise, return the (raw) zone file only if it
+        is well-formed (and return it in a JSON dict).
 
         Reply the {'zonefile': zonefile} on success
         Reply 500 on failure to fetch or parse data
         """
         raw = path_info['qs_values'].get('raw', '')
         raw = (raw.lower() in ['1', 'true'])
-        
         '''
         internal = self.server.get_internal_proxy()
         resp = internal.cli_get_name_zonefile(name, "true" if not raw else "false", raw=False)
@@ -1264,25 +1265,24 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'No zone file for name'}, status_code=404)
 
         try:
-            zonefile = base64.b64decode(resp['zonefile'])
+            zonefile_txt = base64.b64decode(resp['zonefile'])
         except:
             log.error("Zone file data is not serialized properly")
             return self._reply_json({'error': 'Zone file is not serialized properly'}, status_code=401)
 
         if raw:
             self._send_headers(status_code=200, content_type='application/octet-stream')
-            self.wfile.write(zonefile)
+            self.wfile.write(zonefile_txt)
             return
 
         else:
-            # try to decode it first
-            try:
-                zonefile = blockstack_zones.parse_zone_file(zonefile)
-                zonefile = dict(zonefile)
-            except:
-                return self._reply_json({'error': 'Failed to pares zone file for name'}, status_code=401)
+            res = zonefile.decode_name_zonefile(name, zonefile_txt, allow_legacy=True)
+            if res is None:
+                log.error("Failed to parse zone file for {}".format(name))
+                return self._reply_json({'error': 'Non-standard zone file.  Try passing raw=1 to get the raw zone file.'}) 
 
-            return self._reply_json({'zonefile': zonefile})
+            # successfully decodes.  Safe to return as a JSON object.
+            return self._reply_json({'zonefile': zonefile_txt})
 
 
     def get_name_zonefile_hashes(self, name):
