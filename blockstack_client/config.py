@@ -1422,3 +1422,15 @@ def configure_zonefile(name, zonefile, data_pubkey ):
         log.debug("zonefile is now:\n{}".format(json.dumps(zonefile, indent=4, sort_keys=True)))
 
     return zonefile
+
+
+def get_blockstackd_url(config_path=CONFIG_PATH):
+    """
+    Get the URL to the blockstackd instance
+    """
+    conf = get_config(config_path)
+    blockstack_server = conf['server']
+    blockstack_port = conf['port']
+    protocol = conf['protocol']
+    blockstack_hostport = '{}://{}:{}'.format(protocol, blockstack_server, blockstack_port)
+    return blockstack_hostport
