@@ -25,7 +25,7 @@ RUN apt-get install -y nodejs
 WORKDIR /src/
 RUN apt-get install -y git
 RUN npm i -g browserify babel-cli
-ADD https://api.github.com/repos/blockstack/blockstack.js/git/refs/heads/feature/blockstack-operation blockstack-js-version.json
+ADD https://api.github.com/repos/blockstack/blockstack.js/git/refs/heads/feature/blockstack-operations blockstack-js-version.json
 RUN git clone https://git@github.com/blockstack/blockstack.js.git
 RUN cd blockstack.js && git checkout feature/blockstack-operations
 RUN cd blockstack.js && npm i && npm run build && npm ln
@@ -34,6 +34,11 @@ RUN cd blockstack.js && npm i && npm run build && npm ln
 ADD https://api.github.com/repos/kantai/transaction-broadcaster/git/refs/heads/master broadcaster-version.json
 RUN git clone https://git@github.com/kantai/transaction-broadcaster.git
 RUN cd transaction-broadcaster && npm i && npm ln blockstack && npm run build
+
+# And requirements for running the subdomain registrar service
+ADD https://api.github.com/repos/blockstack/subdomain-registrar/git/refs/heads/master subdomain-version.json
+RUN git clone https://git@github.com/blockstack/subdomain-registrar.git
+RUN cd subdomain-registrar && npm i && npm ln blockstack && npm run build
 
 # Install pyparsing
 RUN pip install --upgrade pip && pip install pyparsing

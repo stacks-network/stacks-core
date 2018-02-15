@@ -50,13 +50,21 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 TRANSACTION_BROADCAST_LOCATION = os.environ.get('BSK_TRANSACTION_BROADCAST_LOCATION',
                                                 '/src/transaction-broadcaster')
 
+SUBDOMAIN_REGISTRAR_LOCATION = os.environ.get('BSK_SUBDOMAIN_REGISTRAR_LOCATION',
+                                              '/src/subdomain-registrar')
+
 def start_transaction_broadcaster():
     Popen(['node', TRANSACTION_BROADCAST_LOCATION + '/lib/index.js'],
           env={'BSK_TRANSACTION_BROADCAST_DEVELOP' : '1'})
 
+def start_subdomain_registrar():
+    Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION + '/lib/index.js'],
+          env={'BSK_SUBDOMAIN_REGTEST' : '1'})
+
 def scenario( wallets, **kw ):
 
     start_transaction_broadcaster()
+    start_subdomain_registrar()
 
     testlib.blockstack_namespace_preorder( "id", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
