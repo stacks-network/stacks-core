@@ -71,20 +71,12 @@ regtest = True
 spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockstack]
-server_version = 0.17.0.9
+server_version = 0.18.0
 rpc_port = %s
 backup_frequency = 1
 backup_max_age = 30
 serve_zonefiles = True
-serve_profiles = True
-serve_data = @SERVE_DATA@
-redirect_data = @REDIRECT_DATA@
-data_servers = @DATA_SERVERS@
 zonefiles = @ZONEFILES@
-analytics_key = abcdef0123456789
-zonefile_storage_drivers = disk
-profile_storage_drivers = disk
-data_storage_drivers = disk
 atlas = True
 atlas_seeds =
 atlas_blacklist =
