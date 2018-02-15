@@ -81,6 +81,7 @@ import proxy
 from proxy import json_is_error, json_is_exception
 
 # import subdomains
+from config import get_blockstackd_url
 
 DEFAULT_UI_PORT = 8888
 DEVELOPMENT_UI_PORT = 3000
@@ -106,7 +107,7 @@ from utils import daemonize, streq_constant
 import virtualchain
 from virtualchain.lib.ecdsalib import get_pubkey_hex, verify_raw_data, ecdsa_private_key
 
-import blockstack_profiles
+import blockstack_zones
 
 import blockstack.lib.client as blockstackd_client
 import blockstack.lib.scripts as blockstackd_scripts
@@ -604,12 +605,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if blockchain != 'bitcoin':
             return self._reply_json({'error': 'Invalid blockchain'}, status_code=401)
 
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
-
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
         address = str(address)
 
         # subdomain_names = subdomains.get_subdomains_owned_by_address(address)
@@ -665,11 +661,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         offset = page * 100
         count = 100
 
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         # res = proxy.get_all_names(offset, count, include_expired=include_expired)
         res = blockstackd_client.get_all_names(offset, count, include_expired=include_expired, hostport=blockstackd_url)
@@ -733,11 +725,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             'additionalProperties': False,
         }
 
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         qs_values = path_info['qs_values']
         internal = self.server.get_internal_proxy()
@@ -881,11 +869,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     self._reply_json(ret)
                     return
 
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         name_rec = None
         try:
@@ -966,11 +950,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': 'Invalid start_block or end_block'}, status_code=401)
             return
 
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         # res = proxy.get_name_blockchain_history(name, start_block, end_block)
         res = blockstackd_client.get_name_record(name, include_history=True, hostport=blockstackd_url)
@@ -1057,7 +1037,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self._reply_json(resp, status_code=202)
         return
 
-
+    
+    # DEPRECATED
     def POST_raw_zonefile( self, ses, path_info ):
         """
         Publish a zonefile which has *already* been announced.
@@ -1104,6 +1085,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json(resp, status_code=status_code)
         return
+
 
     def PUT_name_zonefile( self, ses, path_info, name ):
         """
@@ -1231,6 +1213,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    # DEPRECATED
     def GET_name_public_key( self, ses, path_info, name ):
         """
         Get a name's current zone file public key
@@ -1266,21 +1249,73 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         raw = path_info['qs_values'].get('raw', '')
         raw = (raw.lower() in ['1', 'true'])
         
+        '''
         internal = self.server.get_internal_proxy()
         resp = internal.cli_get_name_zonefile(name, "true" if not raw else "false", raw=False)
+        '''
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
+        resp = blockstackd_client.get_name_record(name, include_history=False, hostport=blockstackd_url)
         if json_is_error(resp):
             log.error("Failed to load zone file for {}: {}".format(name, resp['error']))
-            self._reply_json({"error": resp['error']}, status_code=500)
-            return
+            return self._reply_json({"error": resp['error']}, status_code=500)
+
+        if 'zonefile' not in resp or resp['zonefile'] is None:
+            log.error("No zone file for {}".format(name))
+            return self._reply_json({'error': 'No zone file for name'}, status_code=404)
+
+        try:
+            zonefile = base64.b64decode(resp['zonefile'])
+        except:
+            log.error("Zone file data is not serialized properly")
+            return self._reply_json({'error': 'Zone file is not serialized properly'}, status_code=401)
 
         if raw:
             self._send_headers(status_code=200, content_type='application/octet-stream')
-            self.wfile.write(resp['zonefile'])
+            self.wfile.write(zonefile)
+            return
 
         else:
-            self._reply_json({'zonefile': resp['zonefile']})
+            # try to decode it first
+            try:
+                zonefile = blockstack_zones.parse_zone_file(zonefile)
+                zonefile = dict(zonefile)
+            except:
+                return self._reply_json({'error': 'Failed to pares zone file for name'}, status_code=401)
 
-        return
+            return self._reply_json({'zonefile': zonefile})
+
+
+    def get_name_zonefile_hashes(self, name):
+        """
+        List all zonefile hashes of a name, in historic order.
+        Return a list of hashes on success.
+        Return {'error': ...} on failure
+        """
+        blockstack_hostport = get_blockstackd_url(self.server.config_path)
+        name_rec = blockstackd_client.get_name_record(name, include_history=True, hostport=blockstack_hostport)
+        if 'error' in name_rec:
+            log.error("Failed to get name record for {}: {}".format(name, name_rec['error']))
+            return {'error': 'Failed to get name record for {}: {}'.format(name, name_rec['error'])}
+
+        name_history = name_rec['history']
+        all_update_hashes = []
+
+        block_ids = name_history.keys()
+        block_ids.sort()
+        for block_id in block_ids:
+            history_items = name_history[block_id]
+            for history_item in history_items:
+                value_hash = history_item.get('value_hash', None)
+                if value_hash is None:
+                    continue
+
+                if len(all_update_hashes) > 0 and all_update_hashes[-1] == value_hash:
+                    continue
+
+                # changed
+                all_update_hashes.append(value_hash)
+
+        return all_update_hashes
 
 
     def GET_name_zonefile_by_hash( self, ses, path_info, name, zonefile_hash ):
@@ -1296,14 +1331,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         raw = path_info['qs_values'].get('raw', '')
         raw = (raw.lower() in ['1', 'true'])
 
-        conf = blockstack_config.get_config(self.server.config_path)
+        blockstack_hostport = get_blockstackd_url(self.server.config_path)
 
-        blockstack_server = conf['server']
-        blockstack_port = conf['port']
-        protocol = conf['protocol']
-        blockstack_hostport = '{}://{}:{}'.format(protocol, blockstack_server, blockstack_port)
-
-        historic_zonefiles = data.list_update_history(name)
+        # historic_zonefiles = data.list_update_history(name)
+        historic_zonefiles = self.get_name_zonefile_hashes(name)
         if json_is_error(historic_zonefiles):
             self._reply_json({'error': historic_zonefiles['error']}, status_code=500)
             return
@@ -1384,6 +1415,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    # DEPRECATED
     def GET_store( self, ses, path_info, datastore_id ):
         """
         Get the specific data store for this app user account or app domain
@@ -1420,6 +1452,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(ret)
 
 
+    # DEPRECATED
     def _store_signed_datastore( self, ses, path_info, datastore_sigs_info ):
         """
         Upload signed datastore information, if it is well-formed
@@ -1454,7 +1487,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         return self._reply_json({'status': True})
 
-
+    
+    # DEPRECATED
     def POST_store( self, ses, path_info ):
         """
         Make a data store for the application identified by the session
@@ -1478,6 +1512,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
 
 
+    # DEPERCATED
     def PUT_store( self, ses, path_info, app_user_id ):
         """
         Update a data store for the application identified by the session.
@@ -1485,6 +1520,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'error': 'Not implemented'}, status_code=501)
 
 
+    # DEPRECATED
     def _delete_signed_datastore( self, ses, path_info, tombstone_info, device_ids ):
         """
         Given a set of sigend tombstones, go delete the datastore.
@@ -1516,6 +1552,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True})
 
 
+    # DEPRECATED
     def DELETE_store( self, ses, path_info ):
         """
         Delete the data store identified by the given session
@@ -1545,6 +1582,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Missing signed datastore info', 'errno': errno.EINVAL}, status_code=401)
 
 
+    # DEPRECATED
     def _get_request_range(self):
         """
         Get the request's HTTP Range: header values
@@ -1571,6 +1609,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return (start, end)
 
 
+    # DEPRECATED
     def GET_store_item( self, ses, path_info, datastore_id, inode_type ):
         """
         Get a store item.
@@ -1731,6 +1770,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    # DEPRECATED
     def POST_store_item( self, ses, path_info, store_id, inode_type ):
         """
         Create a store item.
@@ -1745,6 +1785,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._create_or_update_store_item( ses, path_info, store_id, inode_type, create=True )
 
 
+    # DEPRECATED
     def PUT_store_item(self, ses, path_info, store_id, inode_type ):
         """
         Update a store item.
@@ -1758,6 +1799,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._create_or_update_store_item( ses, path_info, store_id, inode_type, create=False )
 
 
+    # DEPRECATED
     def _patch_from_signed_inodes( self, ses, path_info, operation, data_path, inode_info, create=False, exist=False ):
         """
         Given signed inode information, store it and act on it.
@@ -1873,6 +1915,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True})
 
 
+    # DEPRECATED
     def _create_or_update_store_item( self, ses, path_info, datastore_id, inode_type, create=False ):
         """
         Create or update a file, or create a directory.
@@ -1918,6 +1961,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Missing signed inode data'}, status_code=401)
 
 
+    # DEPRECATED
     def DELETE_store_item( self, ses, path_info, datastore_id, inode_type ):
         """
         Delete a store item.
@@ -1966,6 +2010,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Missing signed inode data'}, status_code=401)
 
 
+    # DEPERCATED
     def GET_app_resource( self, ses, path_info, blockchain_id, app_domain ):
         """
         Get a signed application resource
@@ -2007,6 +2052,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    # DEPRECATED
     def GET_collections( self, ses, path_info, user_id ):
         """
         Get the list of collections
@@ -2015,6 +2061,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'error': 'Not implemented'}, status_code=501)
 
 
+    # DEPRECATED
     def POST_collections( self, ses, path_info, user_id ):
         """
         Create a new collection
@@ -2022,6 +2069,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'error': 'Not implemented'}, status_code=501)
 
 
+    # DEPRECATED
     def GET_collection_info( self, ses, path_info, user_id, collection_id ):
         """
         Get metadata on a user's collection (including the list of items)
@@ -2031,6 +2079,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'error': 'Not implemented'}, status_code=501)
 
 
+    # DEPRECATED
     def GET_collection_item( self, ses, path_info, user_id, collection_id, item_id ):
         """
         Get a particular item from a particular collection
@@ -2041,6 +2090,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'error': 'Not implemented'}, status_code=501)
 
 
+    # DEPRECATED
     def POST_collection_item( self, ses, path_info, user_id, collection_id ):
         """
         Add an item to a collection
@@ -2054,12 +2104,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the price for the namespace as {'satoshis': price in satoshis}
         Reply 500 if we can't reach the namespace for whatever reason
         """
-
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         # price_info = proxy.get_namespace_cost(namespace_id)
         price_info = blockstackd_client.get_namespace_cost(namespace_id, hostport=blockstackd_url)
@@ -2119,11 +2164,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         offset = qs_values.get('offset', None)
         count = qs_values.get('count', None)
 
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
         
         # namespaces = proxy.get_all_namespaces(offset=offset, count=count)
         namespaces = blockstackd_client.get_all_namespaces(offset=offset, count=count, hostport=blockstackd_url)
@@ -2148,12 +2189,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the namespace doesn't exist
         Reply 500 for any error in talking to the blocksatck server
         """
-
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         # namespace_rec = proxy.get_namespace_blockchain_record(namespace_id)
         namespace_rec = blockstackd_client.get_namespace_record(namespace_id, hostport=blockstackd_url)
@@ -2195,11 +2231,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         offset = page * 100
         count = 100
 
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         # namespace_names = proxy.get_names_in_namespace(namespace_id, offset=offset, count=count)
         namespace_names = blockstackd_client.get_names_in_namespace(namespace_id, offset=offset, count=count, hostport=blockstackd_url)
@@ -2263,7 +2295,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': 'Failed to read wallet file'}, status_code=500)
             return
 
-
+    
+    # DEPRECATED
     def GET_wallet_data_pubkey( self, ses, path_info ):
         """
         Get the data public key
@@ -2298,11 +2331,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         else:
             return self._reply_json(res)
 
+
     def _get_confirmed_balance( self, get_address ):
         satoshis_confirmed = backend_blockchain.get_balance(
             get_address, config_path = self.server.config_path,
             min_confirmations = 1)
         return satoshis_confirmed
+
 
     def GET_confirmed_balance_insight( self, ses, path_info, address ):
         """
@@ -2317,7 +2352,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                                      status_code = 400 )
         if get_address != address:
             log.debug("Re-encode {} to {}".format(address, get_address))
+
         return self._reply_json( self._get_confirmed_balance(get_address) )
+
 
     def GET_unconfirmed_balance_insight( self, ses, path_info, address ):
         """
@@ -2341,6 +2378,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         # step 3 -> unconfirmed balance = total - confirmed.
         #   this is replication of kind of silly insight-api behavior
         return self._reply_json( satoshis_total - satoshis_confirmed )
+
 
     def GET_wallet_balance( self, ses, path_info, min_confs = None ):
         """
@@ -2667,7 +2705,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True})
 
 
-
     def DELETE_node_config_section( self, ses, path_info, section ):
         """
         Remove a config file section
@@ -2911,11 +2948,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
         
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         # nameops = proxy.get_nameops_at(int(blockheight))
         nameops = blockstackd_client.get_blockstack_transactions_at(int(blockheight), hostport=blockstackd_url)
@@ -2946,11 +2979,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
 
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         # name_rec = proxy.get_name_blockchain_record(name)
         name_rec = blockstackd_client.get_name_record(name, include_history=True, hostport=blockstackd_url)
@@ -2985,11 +3014,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if qs_values.get('all', '').lower() in ['1', 'true']:
             include_expired = True
 
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
         
         # num_names = proxy.get_num_names(include_expired=include_expired)
         num_names = blockstackd_client.get_num_names(include_expired=include_expired, hostport=blockstackd_url)
@@ -3019,11 +3044,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
             return
 
-        conf = blockstack_config.get_config(self.server.config_path)
-        blockstackd_host = conf['server']
-        blockstackd_port = conf['port']
-        blockstackd_protocol = conf['protocol']
-        blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         # info = proxy.getinfo()
         info = blockstackd_client.getinfo(hostport=blockstackd_url)
