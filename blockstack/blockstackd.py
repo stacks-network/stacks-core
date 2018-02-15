@@ -2060,10 +2060,11 @@ def index_blockchain(server_state, expected_snapshots=GENESIS_SNAPSHOT):
     # sanity check: does the subdomain db exist yet, and are we at the point where we can start indexing them?
     if is_subdomains_enabled(blockstack_opts):
         subdomain_last_block = server_state['subdomains'].get_db().get_last_block()
-        if subdomain_last_block < SUBDOMAINS_FIRST_BLOCK and start_block >= SUBDOMAINS_FIRST_BLOCK:
+        if subdomain_last_block < SUBDOMAINS_FIRST_BLOCK and start_block >= SUBDOMAINS_FIRST_BLOCK and not server_state['subdomains_initialized']:
             # initialize subdomains db
             log.debug("Creating subdomain DB {}".format(blockstack_opts['subdomaindb_path']))
             server_state['subdomains'].reindex(current_block)
+            server_state['subdomains_initialized'] = True
 
     # bring the db up to the chain tip.
     # NOTE: at each block, the atlas db will be synchronized by virtualchain_hooks
@@ -2151,6 +2152,7 @@ def server_setup(working_dir, port=None):
         'working_dir': working_dir,
         'atlas': atlas_state,
         'subdomains': subdomain_state,
+        'subdomains_initialized': False,
         'rpc': rpc_srv,
         'pid_file': pid_file,
         'port': port,
