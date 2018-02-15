@@ -883,12 +883,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             else:
                 return self._reply_json({'error': 'Blockstack daemon error: {}'.format(name_rec['error'])}, status_code=500)
 
-        zonefile_txt = base64.b64decode(name_rec['zonefile'])
-        res = zonefile.decode_name_zonefile(name, zonefile_txt, allow_legacy=True)
-        if res is None:
-            log.error("Failed to parse zone file for {}".format(name))
-            zonefile_txt = {'error': 'Non-standard zone file'}
-        
+        zonefile_txt = None
+
+        if 'zonefile' in name_rec:
+            zonefile_txt = base64.b64decode(name_rec['zonefile'])
+            res = zonefile.decode_name_zonefile(name, zonefile_txt, allow_legacy=True)
+            if res is None:
+                log.error("Failed to parse zone file for {}".format(name))
+                zonefile_txt = {'error': 'Non-standard zone file'}
+
         ret = {}
 
         if blockstackd_scripts.is_subdomain(name):
