@@ -54,12 +54,25 @@ SUBDOMAIN_REGISTRAR_LOCATION = os.environ.get('BSK_SUBDOMAIN_REGISTRAR_LOCATION'
                                               '/src/subdomain-registrar')
 
 def start_transaction_broadcaster():
+    try:
+        os.rename('/tmp/transaction_broadcaster.db', '/tmp/transaction_broadcaster.db.last')
+    except OSError:
+        pass
+    env = {'BSK_TRANSACTION_BROADCAST_DEVELOP' : '1'}
+    if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
+        env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
     Popen(['node', TRANSACTION_BROADCAST_LOCATION + '/lib/index.js'],
-          env={'BSK_TRANSACTION_BROADCAST_DEVELOP' : '1'})
+          env = env)
 
 def start_subdomain_registrar():
-    Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION + '/lib/index.js'],
-          env={'BSK_SUBDOMAIN_REGTEST' : '1'})
+    try:
+        os.rename('/tmp/subdomain_registrar.db', '/tmp/subdomain_registrar.last')
+    except OSError:
+        pass
+    env = {'BSK_SUBDOMAIN_REGTEST' : '1'}
+    if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
+        env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
+    Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION + '/lib/index.js'], env = env)
 
 def scenario( wallets, **kw ):
 
