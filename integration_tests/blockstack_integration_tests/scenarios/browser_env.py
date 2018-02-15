@@ -54,10 +54,18 @@ SUBDOMAIN_REGISTRAR_LOCATION = os.environ.get('BSK_SUBDOMAIN_REGISTRAR_LOCATION'
                                               '/src/subdomain-registrar')
 
 def start_transaction_broadcaster():
+    try:
+        os.rename('/tmp/transaction_broadcaster.db', '/tmp/transaction_broadcaster.db.last')
+    except OSError:
+        pass
     Popen(['node', TRANSACTION_BROADCAST_LOCATION + '/lib/index.js'],
           env={'BSK_TRANSACTION_BROADCAST_DEVELOP' : '1'})
 
 def start_subdomain_registrar():
+    try:
+        os.rename('/tmp/subdomain_registrar.db', '/tmp/subdomain_registrar.last')
+    except OSError:
+        pass
     Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION + '/lib/index.js'],
           env={'BSK_SUBDOMAIN_REGTEST' : '1'})
 
