@@ -31,8 +31,8 @@ RUN cd blockstack.js && git checkout feature/blockstack-operations
 RUN cd blockstack.js && npm i && npm run build && npm ln
 
 # Install requirements for running the transaction broadcaster service
-ADD https://api.github.com/repos/kantai/transaction-broadcaster/git/refs/heads/master broadcaster-version.json
-RUN git clone https://git@github.com/kantai/transaction-broadcaster.git
+ADD https://api.github.com/repos/blockstack/transaction-broadcaster/git/refs/heads/master broadcaster-version.json
+RUN git clone https://git@github.com/blockstack/transaction-broadcaster.git
 RUN cd transaction-broadcaster && npm i && npm ln blockstack && npm run build
 
 # And requirements for running the subdomain registrar service
