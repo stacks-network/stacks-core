@@ -34,6 +34,7 @@ import random
 import json
 import traceback
 import re
+import urllib2
 from .util import url_to_host_port, url_protocol, parse_DID
 from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, BLOCKSTACK_TEST
 from .schemas import *
@@ -857,6 +858,8 @@ def get_name_record(name, include_history=False, include_expired=True, include_g
             # only care if the name is beyond the grace period
             if lastblock > int(resp['record']['renewal_deadline']) and int(resp['record']['renewal_deadline']) > 0:
                 return {'error': 'Name expired'}
+            elif int(resp['record']['renewal_deadline']) > 0:
+                resp['record']['grace_period'] = True
 
         else:
             # only care about expired, even if it's in the grace period
@@ -2102,27 +2105,47 @@ def get_nameops_hash_at(block_id, hostport=None, proxy=None):
     return resp['ops_hash']
 
 
-def get_JWT(url):
+def get_JWT(url, address=None):
     """
     Given a URL, fetch and decode the JWT it points to.
-    Return None if we could not fetch it.
+    If address is given, then authenticate the JWT with the address.
+
+    Return None if we could not fetch it, or unable to authenticate it.
 
     NOTE: the URL must be usable by the requests library
     """
     jwt_txt = None
     jwt = None
 
-    try:
-        log.debug("Try {}".format(url))
-        resp = requests.get(url)
-        assert resp.status_code == 200, 'Bad status code on {}: {}'.format(url, resp.status_code)
-        jwt_txt = resp.text
-    except Exception as e:
-        if BLOCKSTACK_TEST:
-            log.exception(e)
+    log.debug("Try {}".format(url))
 
-        log.warning("Unable to resolve {}".format(url))
-        return None
+    # special case: handle file://
+    urlinfo = urllib2.urlparse.urlparse(url)
+    if urlinfo.scheme == 'file':
+        # points to a path on disk
+        try:
+            with open(urlinfo.path, 'r') as f:
+                jwt_txt = f.read()
+
+        except Exception as e:
+            if BLOCKSTACK_TEST:
+                log.exception(e)
+
+            log.warning("Failed to read {}".format(url))
+            return None
+
+    else:
+        # http(s) URL or similar
+        try:
+            resp = requests.get(url)
+            assert resp.status_code == 200, 'Bad status code on {}: {}'.format(url, resp.status_code)
+            jwt_txt = resp.text
+        except Exception as e:
+            if BLOCKSTACK_TEST:
+                log.exception(e)
+
+            log.warning("Unable to resolve {}".format(url))
+            return None
 
     try:
         # one of two things are possible:
@@ -2145,20 +2168,112 @@ def get_JWT(url):
     try:
         # must be well-formed
         assert isinstance(jwt, dict)
-        assert 'payload' in jwt
+        assert 'payload' in jwt, jwt
         assert isinstance(jwt['payload'], dict)
-        assert 'issuer' in jwt['payload']
+        assert 'issuer' in jwt['payload'], jwt
         assert isinstance(jwt['payload']['issuer'], dict)
-        assert 'public_key' in jwt['payload']['issuer']
-        assert virtualchain.ecdsalib.ecdsa_public_key(str(jwt['payload']['issuer']['public_key']))
+        assert 'publicKey' in jwt['payload']['issuer'], jwt
+        assert virtualchain.ecdsalib.ecdsa_public_key(str(jwt['payload']['issuer']['publicKey']))
     except AssertionError as ae:
-        if BLOCKSTACK_TEST:
+        if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
             log.exception(ae)
 
         log.warning("JWT at {} is malformed".format(url))
         return None
 
+    if address is not None:
+        public_key = str(jwt['payload']['issuer']['publicKey'])
+        addrs = [virtualchain.address_reencode(virtualchain.ecdsalib.ecdsa_public_key(keylib.key_formatting.decompress(public_key)).address()),
+                 virtualchain.address_reencode(virtualchain.ecdsalib.ecdsa_public_key(keylib.key_formatting.compress(public_key)).address())]
+
+        if virtualchain.address_reencode(address) not in addrs:
+            # got a JWT, but it doesn't match the address
+            log.warning("Found JWT at {}, but its public key has addresses {} and {} (expected {})".format(url, addrs[0], addrs[1], address))
+            return None
+
+        verifier = jsontokens.TokenVerifier()
+        if not verifier.verify(jwt_txt, public_key):
+            # got a JWT, and the address matches, but the signature does not
+            log.warning("Found JWT at {}, but it was not signed by {} ({})".format(url, public_key, address))
+            return None
+
     return jwt
+
+
+def resolve_profile(name, hostport=None, proxy=None):
+    """
+    Resolve a name to its profile.
+    This is a multi-step process:
+    1. get the name record
+    2. get the zone file
+    3. parse the zone file to get its URLs (if it's not well-formed, then abort)
+    4. fetch and authenticate the JWT at each URL (abort if there are none)
+    5. extract the profile JSON and return that, along with the zone file and public key
+
+    Return {'profile': ..., 'zonefile': ..., 'public_key': ...} on success
+    Return {'error': ...} on error
+    """
+    assert hostport or proxy, 'Need hostport or proxy'
+    
+    name_rec = get_name_record(name, include_history=False, include_expired=False, include_grace=False, proxy=proxy, hostport=hostport)
+    if 'error' in name_rec:
+        log.error("Failed to get name record for {}: {}".format(name, name_rec['error']))
+        return {'error': 'Failed to get name record: {}'.format(name_rec['error'])}
+   
+    if 'grace_period' in name_rec and name_rec['grace_period']:
+        log.error("Name {} is in the grace period".format(name))
+        return {'error': 'Name {} is not yet expired, but is in the renewal grace period.'.format(name)}
+        
+    if 'value_hash' not in name_rec:
+        log.error("Name record for {} has no zone file hash".format(name))
+        return {'error': 'No zone file hash in name record for {}'.format(name)}
+
+    zonefile_hash = name_rec['value_hash']
+    zonefile_res = get_zonefiles(hostport, [zonefile_hash], proxy=proxy)
+    if 'error' in zonefile_res:
+        log.error("Failed to get zone file for {} for name {}: {}".format(zonefile_hash, name, zonefile_res['error']))
+        return {'error': 'Failed to get zone file for {}'.format(name)}
+
+    zonefile_txt = zonefile_res['zonefiles'][zonefile_hash]
+    log.debug("Got {}-byte zone file {}".format(len(zonefile_txt), zonefile_hash))
+
+    try:
+        zonefile_data = blockstack_zones.parse_zone_file(zonefile_txt)
+        zonefile_data = dict(zonefile_data)
+        assert 'uri' in zonefile_data
+        if len(zonefile_data['uri']) == 0:
+            return {'error': 'No URI records in zone file {} for {}'.format(zonefile_hash, name)}
+
+    except Exception as e:
+        if BLOCKSTACK_TEST:
+            log.exception(e)
+
+        return {'error': 'Failed to parse zone file {} for {}'.format(zonefile_hash, name)}
+
+    urls = [uri['target'] for uri in zonefile_data['uri']]
+    for url in urls:
+        jwt = get_JWT(url, address=str(name_rec['address']))
+        if not jwt:
+            continue
+
+        if 'claim' not in jwt['payload']:
+            # not something we produced
+            log.warning("No 'claim' field in payload for {}".format(url))
+            continue
+
+        # success!
+        profile_data = jwt['payload']['claim']
+        public_key = str(jwt['payload']['issuer']['publicKey'])
+
+        ret = {
+            'profile': profile_data,
+            'zonefile': zonefile_txt,
+            'public_key': public_key,
+        }
+        return ret
+
+    log.error("No zone file URLs resolved to a JWT with the public key whose address is {}".format(name_rec['address']))
+    return {'error': 'No profile found for this name'}
 
 
 def resolve_DID(did, hostport=None, proxy=None):
@@ -2179,7 +2294,7 @@ def resolve_DID(did, hostport=None, proxy=None):
     did_rec = get_DID_record(did, hostport=hostport, proxy=proxy)
     if 'error' in did_rec:
         log.error("Failed to get DID record for {}: {}".format(did, did_rec['error']))
-        return did_rec
+        return {'error': 'Failed to get DID record: {}'.format(did_rec['error'])}
     
     if 'value_hash' not in did_rec:
         log.error("DID record for {} has no zone file hash".format(did))
@@ -2209,16 +2324,13 @@ def resolve_DID(did, hostport=None, proxy=None):
 
     urls = [uri['target'] for uri in zonefile_data['uri']]
     for url in urls:
-        jwt = get_JWT(url)
+        jwt = get_JWT(url, address=str(did_rec['address']))
         if not jwt:
             continue
 
-        public_key = str(jwt['payload']['issuer']['public_key'])
-        addr = virtualchain.ecdsalib.ecdsa_public_key(public_key).address()
-
-        if virtualchain.address_reencode(addr) == virtualchain.address_reencode(str(did_rec['address'])):
-            # found!
-            return {'public_key': public_key}
+        # found!
+        public_key = str(jwt['payload']['issuer']['publicKey'])
+        return {'public_key': public_key}
 
     log.error("No zone file URLs resolved to a JWT with the public key whose address is {}".format(did_rec['address']))
     return {'error': 'No public key found for the given DID'}
