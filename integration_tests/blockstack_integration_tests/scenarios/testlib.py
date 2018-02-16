@@ -3293,6 +3293,10 @@ def check_historic_names_by_address( state_engine ):
             
                 addr_names[address].append((name, block_id, api_call.method))
 
+                # no longer revoked if we reregistered
+                if name in revoked_names:
+                    del revoked_names[name]
+
         if api_call.method == 'revoke':
             revoked_names[name] = block_id
 
@@ -3317,12 +3321,12 @@ def check_historic_names_by_address( state_engine ):
                     log.error("invalid DID {}: expected index > {}".format(did, i))
                     return False
             
-                # older DID must still resolve
+                # older DID must still resolve, unless the name was revoked
                 old_name_rec = blockstack.lib.client.get_DID_record(expected_did, hostport='http://localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
-                if 'error' in old_name_rec:
+                if 'error' in old_name_rec and 'revoked' not in old_name_rec['error']:
                     log.error("Failed to resolve {}".format(expected_did))
                     print old_name_rec
-                    ret = False
+                    return False
 
             name_rec = blockstack.lib.client.get_DID_record(did, hostport='http://localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
 
@@ -3330,16 +3334,16 @@ def check_historic_names_by_address( state_engine ):
                 # name was revoked. expect failure
                 if 'error' not in name_rec:
                     log.error("Accidentally resolved {} on revoked name".format(did))
-                    ret = False 
+                    return False 
 
             else:
                 if name_rec is None:
                     log.error("No such name {} at {}".format(name, did))
-                    ret = False
+                    return False
 
                 elif 'error' in name_rec:
                     log.error("Failed to resolve {}: {}".format(did, name_rec['error']))
-                    ret = False
+                    return False
 
                 else:
                     # coerse string values
@@ -3352,7 +3356,7 @@ def check_historic_names_by_address( state_engine ):
                                 log.error("Got:\n{}".format(name_rec[k]))
                                 log.error('final_name_states["{}"]:\n{}'.format(name, json.dumps(final_name_states[name], sort_keys=True, indent=4)))
                                 log.error('name_rec at {}:\n{}'.format(did, json.dumps(name_rec, sort_keys=True, indent=4)))
-                                ret = False
+                                return False
 
     return ret
  
