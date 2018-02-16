@@ -623,6 +623,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
 
     # Start server
     server_state = blockstackd.server_setup(working_dir)
+    testlib.set_server_state(server_state)
 
     # start pinging bitcoind so it pushes out p2p messages
     pinger = Pinger(virtualchain_working_dir)
