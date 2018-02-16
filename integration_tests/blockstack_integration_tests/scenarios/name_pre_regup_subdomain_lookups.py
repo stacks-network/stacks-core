@@ -70,6 +70,7 @@ def scenario( wallets, **kw ):
 
     zf_template = '$ORIGIN {}\n$TTL 3600\n_http._tcp URI 10 1 "http://www.foo.com"\n{}'
     zf_default_url = '_file URI 10 1 "file://' + working_dir + '/{}"'
+    zf_default_url_2 = '_file URI 20 1 "file://' + working_dir + '/{}"'
 
     subdomain_zonefiles = {
         'bar.foo1.test': zf_template.format('bar.foo1.test', zf_default_url.format('bar.foo1.test')),
@@ -119,6 +120,28 @@ def scenario( wallets, **kw ):
         # upload zonefile
         assert testlib.blockstack_put_zonefile(zonefiles[name])
     
+    subdomain_zonefiles_2 = {
+        'bar.foo1.test': zf_template.format('bar.foo1.test', zf_default_url_2.format('bar.foo1.test')),
+        'bar.foo2.test': zf_template.format('bar.foo2.test', zf_default_url_2.format('bar.foo2.test')),
+        'bar.foo3.test': zf_template.format('bar.foo3.test', zf_default_url_2.format('bar.foo3.test')),
+    }
+
+    zonefiles = {
+        'foo1.test': zf_template.format('foo1.test', subdomains.make_subdomain_txt('bar.foo1.test', 'foo1.test', wallets[4].addr, 1, subdomain_zonefiles['bar.foo1.test'], wallets[4].privkey)),
+        'foo2.test': zf_template.format('foo2.test', subdomains.make_subdomain_txt('bar.foo2.test', 'foo2.test', wallets[4].addr, 1, subdomain_zonefiles['bar.foo2.test'], wallets[4].privkey)),
+        'foo3.test': zf_template.format('foo3.test', subdomains.make_subdomain_txt('bar.foo3.test', 'foo3.test', wallets[4].addr, 1, subdomain_zonefiles['bar.foo3.test'], wallets[4].privkey)),
+    }
+
+    # update zone files
+    testlib.blockstack_name_update('foo1.test', storage.get_zonefile_data_hash(zonefiles['foo1.test']), wallets[3].privkey)
+    testlib.blockstack_name_update('foo2.test', storage.get_zonefile_data_hash(zonefiles['foo2.test']), wallets[3].privkey)
+    testlib.blockstack_name_update('foo3.test', storage.get_zonefile_data_hash(zonefiles['foo3.test']), wallets[3].privkey)
+    testlib.next_block(**kw)
+
+    assert testlib.blockstack_put_zonefile(zonefiles['foo1.test'])
+    assert testlib.blockstack_put_zonefile(zonefiles['foo2.test'])
+    assert testlib.blockstack_put_zonefile(zonefiles['foo3.test'])
+
     # kick off subdomain indexing
     testlib.next_block(**kw)
    
@@ -237,7 +260,20 @@ def scenario( wallets, **kw ):
             return False
 
         blocks = res['response']
-        print blocks
+        if len(blocks.keys()) != 2:
+            print 'expected two updates'
+            print blocks
+            return False
+
+        # get each historic zone file
+        for block_height in blocks:
+            for prev_state in blocks[block_height]:
+                value_hash = prev_state['value_hash']
+                res = testlib.blockstack_REST_call('GET', '/v1/names/{}/zonefile/{}'.format(fqn, value_hash), ses)
+                if 'error' in res:
+                    print 'failed to query zone file {} for {}'.format(value_hash, fqn)
+                    print json.dumps(res)
+                    return False
 
     # reindex
     assert testlib.check_subdomain_db(**kw)
