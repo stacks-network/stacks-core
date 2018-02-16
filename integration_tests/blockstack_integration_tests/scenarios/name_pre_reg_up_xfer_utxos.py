@@ -86,7 +86,7 @@ def check_utxo_consumption( name_or_ns, payment_wallet, owner_wallet, data_walle
     # all our operations should have similar fees, regardless of the UTXO set
     for tx_fee_key in ['{}_tx_fee'.format(op) for op in operations]:
         fee_diff = abs(fees[tx_fee_key]['satoshis'] - fees_utxos[tx_fee_key]['satoshis'])
-        if fee_diff > 5500:
+        if fee_diff > 9000:
             print 'tx fees for {} disagree by {}'.format(tx_fee_key, fee_diff)
             return {'error': 'No appreciable fee change'}
 
