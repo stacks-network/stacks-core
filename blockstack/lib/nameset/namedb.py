@@ -803,7 +803,6 @@ class BlockstackDB( virtualchain.StateEngine ):
                     log.debug("No historic name record for {} at {} for DID {}".format(name, block_height, did))
                     return None
 
-        print name_rec
         if name_rec['revoked']:
             # revoked
             return None
