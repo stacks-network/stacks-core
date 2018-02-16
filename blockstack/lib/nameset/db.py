@@ -1563,44 +1563,42 @@ def namedb_get_name(cur, name, current_block, include_expired=False, include_his
     return name_rec
 
 
-def namedb_get_name_DID_info(cur, name):
+def namedb_get_name_DID_info(cur, name, block_height):
     """
-    Given a name and a DB cursor, find out its DID info.
+    Given a name and a DB cursor, find out its DID info at the given block.
     Returns {'name_type': ..., 'address': ..., 'index': ...} on success
     Return None if there is no such name
     """
-    # get the first creator address
-    sql = "SELECT name_records.name,history.creator_address FROM name_records JOIN history ON name_records.name = history.history_id WHERE name = ? AND creator_address IS NOT NULL ORDER BY history.block_id,history.vtxindex LIMIT 1;"
-    args = (name,)
+    # get the latest creator addresses for this name, as well as where this name was created in the blockchain
+    sql = "SELECT name_records.name,history.creator_address,history.block_id,history.vtxindex FROM name_records JOIN history ON name_records.name = history.history_id " + \
+          "WHERE name = ? AND creator_address IS NOT NULL AND history.block_id <= ? ORDER BY history.block_id DESC, history.vtxindex DESC LIMIT 1;"
+    args = (name,block_height)
 
+    log.debug(namedb_format_query(sql, args))
     rows = namedb_query_execute(cur, sql, args)
     row = rows.fetchone()
     if row is None:
         return None
-
+    
     creator_address = row['creator_address']
-    num_rows = namedb_get_num_historic_names_by_address(cur, creator_address)
-    if num_rows == 0:
+    latest_block_height = row['block_id']
+    latest_vtxindex = row['vtxindex']
+
+    # how many names has this address created up to this name?
+    query = "SELECT COUNT(*) FROM name_records JOIN history ON name_records.name = history.history_id " + \
+            "WHERE history.creator_address = ? AND (history.block_id < ? OR (history.block_id = ? AND history.vtxindex <= ?));"
+
+    args = (creator_address,latest_block_height,latest_block_height,latest_vtxindex)
+
+    log.debug(namedb_format_query(query, args))
+    count_rows = namedb_query_execute(cur, query, args)
+    count_row = count_rows.fetchone()
+    if count_row is None:
         return None
 
-    offset = 0
-    addr_index = 0
-    while True:
-        rows = namedb_get_historic_names_by_address(cur, creator_address, offset=offset, count=100)
-        offset += 100
+    count = count_row['COUNT(*)'] - 1
 
-        if len(rows) == 0:
-            # done searching
-            return None
-
-        for row in rows:
-            if row['name'] == name:
-                # found!
-                return {'name_type': 'name', 'address': str(creator_address), 'index': addr_index}
-
-            addr_index += 1
-
-    return None
+    return {'name_type': 'name', 'address': str(creator_address), 'index': count}
 
 
 def namedb_get_record_states_at(cur, history_id, block_number):
