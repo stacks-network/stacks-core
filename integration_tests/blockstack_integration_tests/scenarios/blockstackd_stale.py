@@ -49,7 +49,7 @@ def scenario( wallets, **kw ):
     assert 'stale' not in res and 'error' not in res
 
     # force the rpc server to think we're stale
-    blockstack.blockstackd.rpc_chain_sync(testlib.get_current_block(**kw), time.time() - blockstack.lib.config.RPC_MAX_INDEXING_DELAY - 1)
+    blockstack.blockstackd.rpc_chain_sync(testlib.get_server_state(), testlib.get_current_block(**kw), time.time() - blockstack.lib.config.RPC_MAX_INDEXING_DELAY - 1)
 
     res = rpcclient.getinfo()
     if 'stale' not in res or not res['stale']:
