@@ -1802,7 +1802,7 @@ def rpc_start( working_dir, port, subdomain_index=None ):
     return rpc_srv
 
 
-def rpc_chain_sync(server_state, ew_block_height, finish_time):
+def rpc_chain_sync(server_state, new_block_height, finish_time):
     """
     Flush the global RPC server cache, and tell the rpc server that we've
     reached the given block height at the given time.
