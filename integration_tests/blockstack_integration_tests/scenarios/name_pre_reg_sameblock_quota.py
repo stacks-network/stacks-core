@@ -30,7 +30,11 @@ wallets = [
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
     testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
-    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 )
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 ),
+    testlib.Wallet( "5JBqjuDb4dDY4cXUp4R5iXMAzqbfUQwHVUEvGT4UDSSLrr8eb7u", 100000000000 ),
+    testlib.Wallet( "5Hy8Rxvu2kUhGhvEumqwzchbFchBUNg72pUNAYQPVPqFuz26Vjz", 100000000000 ),
+    testlib.Wallet( "5JeJEnD2sf6JFwXKqCcyTuwxD3jX42KwgvJ1zg5C5jHe447hoPx", 100000000000 ),
+    testlib.Wallet( "5JKspSDXEU41hu1B3phmJP4carESgqMHkUwr8eyaNCGSH13cyLh", 100000000000 ),
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
@@ -47,13 +51,12 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # try to exceed quota (currently 25)
-    for i in xrange(0, 26):
-        resp = testlib.blockstack_name_preorder( "foo%s.test" % i, wallets[2 + (i%2)].privkey, wallets[3].addr )
+    for i in xrange(0, 25):
+        resp = testlib.blockstack_name_preorder( "foo%s.test" % i, wallets[2 + (i%4)].privkey, wallets[3].addr )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
-    for i in xrange(0, 26):
-        resp = testlib.blockstack_name_register( "foo%s.test" % i, wallets[2 + (i%2)].privkey, wallets[3].addr )
+        resp = testlib.blockstack_name_register( "foo%s.test" % i, wallets[2 + (i%4)].privkey, wallets[3].addr )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
