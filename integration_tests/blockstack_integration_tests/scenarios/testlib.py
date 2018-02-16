@@ -241,6 +241,8 @@ default_payment_wallet = None
 # all scenario wallets
 wallets = None
 
+# server state 
+server_state = None
 
 class CLIArgs(object):
     pass
@@ -3306,13 +3308,23 @@ def check_historic_names_by_address( state_engine ):
     for address in addr_names.keys():
         for i, (name, block_id, _) in enumerate(addr_names[address]):
             # make sure this DID corresponds to this name
-            did = blockstack.lib.client.get_name_DID(name, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+            did = blockstack.lib.client.get_name_DID(name, hostport='http://localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
             expected_did = 'did:stack:v0:{}-{}'.format(address, i)
             if did != expected_did:
-                log.error("DID mismatch on {}: expected {}, got {}".format(name, expected_did, did))
-                return False
+                # returned DID must be later in time if the address is the same
+                did_parts = blockstack.lib.util.parse_DID(did)
+                if did_parts['address'] == address and did_parts['index'] <= i:
+                    log.error("invalid DID {}: expected index > {}".format(did, i))
+                    return False
+            
+                # older DID must still resolve
+                old_name_rec = blockstack.lib.client.get_DID_record(expected_did, hostport='http://localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+                if 'error' in old_name_rec:
+                    log.error("Failed to resolve {}".format(expected_did))
+                    print old_name_rec
+                    ret = False
 
-            name_rec = blockstack.lib.client.get_DID_record(did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+            name_rec = blockstack.lib.client.get_DID_record(did, hostport='http://localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
 
             if name in revoked_names.keys() and revoked_names[name] >= block_id:
                 # name was revoked. expect failure
@@ -3449,6 +3461,10 @@ def set_state_engine( s ):
     global state_engine
     state_engine = s
 
+def set_server_state( state ):
+    global server_state
+    server_state = state
+
 def set_default_payment_wallet( w ):
     global default_payment_wallet
     default_payment_wallet = w
@@ -3470,6 +3486,10 @@ def connect_bitcoind():
 def get_state_engine():
     global state_engine
     return state_engine
+
+def get_server_state():
+    global server_state
+    return server_state
 
 def get_default_payment_wallet():
     global default_payment_wallet
