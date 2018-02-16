@@ -143,6 +143,8 @@ def scenario( wallets, **kw ):
 
         value_hashes.append(value_hash)
 
+    testlib.next_block( **kw )
+
     print 'waiting for all zone files to replicate'
     time.sleep(10)
 
