@@ -1574,7 +1574,7 @@ def namedb_get_name_DID_info(cur, name, block_height):
           "WHERE name = ? AND creator_address IS NOT NULL AND history.block_id <= ? ORDER BY history.block_id DESC, history.vtxindex DESC LIMIT 1;"
     args = (name,block_height)
 
-    log.debug(namedb_format_query(sql, args))
+    # log.debug(namedb_format_query(sql, args))
     rows = namedb_query_execute(cur, sql, args)
     row = rows.fetchone()
     if row is None:
@@ -1590,7 +1590,7 @@ def namedb_get_name_DID_info(cur, name, block_height):
 
     args = (creator_address,latest_block_height,latest_block_height,latest_vtxindex)
 
-    log.debug(namedb_format_query(query, args))
+    # log.debug(namedb_format_query(query, args))
     count_rows = namedb_query_execute(cur, query, args)
     count_row = count_rows.fetchone()
     if count_row is None:
