@@ -3315,12 +3315,6 @@ def check_historic_names_by_address( state_engine ):
             did = blockstack.lib.client.get_name_DID(name, hostport='http://localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
             expected_did = 'did:stack:v0:{}-{}'.format(address, i)
             if did != expected_did:
-                # returned DID must be later in time if the address is the same
-                did_parts = blockstack.lib.util.parse_DID(did)
-                if did_parts['address'] == address and did_parts['index'] <= i:
-                    log.error("invalid DID {}: expected index > {}".format(did, i))
-                    return False
-            
                 # older DID must still resolve, unless the name was revoked
                 old_name_rec = blockstack.lib.client.get_DID_record(expected_did, hostport='http://localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
                 if 'error' in old_name_rec and 'revoked' not in old_name_rec['error']:
