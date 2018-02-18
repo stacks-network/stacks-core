@@ -47,6 +47,10 @@ log = virtualchain.get_logger('blockstack-subdomains')
 
 # special case zone file TXT RR names
 SUBDOMAIN_TXT_RR_MISSING = "_missing"
+SUBDOMAIN_TXT_RR_RESOLVER = "_resolver"
+SUBDOMAIN_TXT_RR_REGISTRAR = "_registrar"
+
+SUBDOMAIN_TXT_RR_RESERVED = [SUBDOMAIN_TXT_RR_MISSING, SUBDOMAIN_TXT_RR_RESOLVER, SUBDOMAIN_TXT_RR_REGISTRAR]
 
 # names of subdomain record fields
 SUBDOMAIN_ZF_PARTS = "parts"
@@ -1471,6 +1475,9 @@ def decode_zonefile_subdomains(domain, zonefile_txt, block_height, zonefile_inde
                     try:
                         # force lowercase
                         txt['name'] = txt['name'].lower()
+                        if txt['name'] in SUBDOMAIN_TXT_RR_RESERVED:
+                            continue
+
                         subrec = Subdomain.parse_subdomain_record(domain, txt, block_height, zonefile_hash, zonefile_index, txid, domain_zonefiles_missing)
                     except ParseError as pe:
                         if BLOCKSTACK_DEBUG:
