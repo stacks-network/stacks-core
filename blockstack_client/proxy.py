@@ -284,7 +284,7 @@ def get_num_names(proxy=None, include_expired=False):
     Return {'error': ...} on failure
     """
     proxy = get_default_proxy() if proxy is None else proxy
-    return blockstackd_client.get_num_names(proxy=proxy)
+    return blockstackd_client.get_num_names(include_expired=include_expired, proxy=proxy)
 
 
 def get_all_names(offset=None, count=None, include_expired=False, proxy=None):
