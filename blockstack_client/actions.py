@@ -1105,7 +1105,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
 
     try:
         # record = get_name_blockchain_record(fqu)
-        record = blockstackd_client.get_name_record(fqu, include_history=False, hostport=blockstackd_url)
+        record = blockstackd_client.get_name_record(fqu, include_history=True, hostport=blockstackd_url)
     except socket_error:
         exit_with_error('Error connecting to server.')
 
@@ -1131,6 +1131,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
     result['block_preordered_at'] = record['preorder_block_number']
     result['block_renewed_at'] = record['last_renewed']
     result['last_transaction_id'] = record['txid']
+    result['last_transaction_height'] = max(record['history'].keys())
     result['owner_address'] = record['address']
     result['owner_script'] = record['sender']
 
