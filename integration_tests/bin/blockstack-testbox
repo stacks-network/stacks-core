@@ -69,7 +69,7 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack-core',
         'git': 'https://github.com/blockstack/blockstack-core',
-        'branch': 'feature/clean-chainstate',
+        'branch': 'develop',
         'type': 'python',
         'subpackages': ['integration_tests'],
     },
