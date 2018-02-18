@@ -31,6 +31,7 @@ import keylib
 import requests
 from blockstack_integration_tests.scenarios import testlib
 import atexit
+import blockstack
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -154,7 +155,8 @@ core_auth_token = False
 def check( state_engine ):
     subdomain = "bar"
     domain = "foo.id"
-    user_profile = blockstack_client.subdomains.resolve_subdomain(subdomain, domain)['profile']
+    # user_profile = blockstack_client.subdomains.resolve_subdomain(subdomain, domain)['profile']
+    user_profile = blockstack.lib.client.resolve_profile('bar.foo.id', hostport='http://localhost:{}'.format(blockstack.lib.client.RPC_SERVER_PORT))['profile']
     assert subdomain in user_profile
     print "Resolved profile : {}".format(user_profile)
 
