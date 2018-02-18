@@ -136,10 +136,10 @@ else:
     RPC_SERVER_PORT = 6264
 
 RPC_DEFAULT_TIMEOUT = 30  # in secs
-RPC_MAX_ZONEFILE_LEN = 40960     # 40KB       # TODO: make configurable
+RPC_MAX_ZONEFILE_LEN = 40960     # 40KB
 RPC_MAX_INDEXING_DELAY = 2 * 3600   # 2 hours; maximum amount of time before the absence of new blocks causes the node to stop responding
 
-MAX_RPC_LEN = RPC_MAX_ZONEFILE_LEN * 110    # maximum blockstackd RPC length--100 zonefiles with overhead
+MAX_RPC_LEN = RPC_MAX_ZONEFILE_LEN * 10    # maximum blockstackd RPC length
 if os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"):
     MAX_RPC_LEN = int(os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"))
     print("Overriding MAX_RPC_LEN to {}".format(MAX_RPC_LEN))
