@@ -772,43 +772,43 @@ class BlockstackDB( virtualchain.StateEngine ):
         name = historic_name_info[0]['name']
         block_height = historic_name_info[0]['block_id']
         vtxindex = historic_name_info[0]['vtxindex']
+                    
+        log.debug("DID {} refers to {}-{}-{}".format(did, name, block_height, vtxindex))
 
         name_rec = self.get_name(name, include_history=True, include_expired=True)
         if name_rec is None:
             # dead
             return None
 
-        if name_rec['preorder_block_number'] >= block_height:
-            if name_rec['preorder_block_number'] == block_height and name_rec['last_renewed'] == block_height:
-                # special case: was registered and preordered in the same block
-                name_rec = name_rec['history'][block_height][-1]
+        name_rec_latest = None
+        found = False
 
-            else:
-                # name was re-registered by a different key.
-                # return the last state of this name record before it was reregistered.
-                log.debug("Name {} was re-preordered at {}, but DID {} refers to the name created at {}".format(name, name_rec['preorder_block_number'], did, block_height))
+        for height in sorted(name_rec['history'].keys()):
+            if found:
+                break
 
-                tmp = None
-                for height in sorted(name_rec['history'].keys()):
-                    for historic_state in name_rec['history'][height]:
-                        if historic_state['opcode'] == 'NAME_PREORDER':
-                            continue
+            if height < block_height:
+                continue
 
-                        if historic_state['preorder_block_number'] < block_height or (historic_state['preorder_block_number'] == block_height and historic_state['vtxindex'] <= vtxindex):
-                            # a candidate!
-                            tmp = historic_state
+            for state in name_rec['history'][height]:
+                if height == block_height and state['vtxindex'] < vtxindex:
+                    # too soon
+                    continue
 
-                name_rec = tmp
-                if name_rec is None:
-                    log.debug("No historic name record for {} at {} for DID {}".format(name, block_height, did))
+                if state['op'] == NAME_PREORDER:
+                    # looped to the next iteration of this name
+                    found = True
+                    break
+
+                if state['revoked']:
+                    # revoked
+                    log.debug("DID {} refers to {}-{}-{}, which is revoked at {}-{}".format(did, name, block_height, vtxindex, height, state['vtxindex']))
                     return None
 
-        if name_rec['revoked']:
-            # revoked
-            return None
+                name_rec_latest = state
 
-        return name_rec
-
+        return name_rec_latest
+       
 
     def get_name_at( self, name, block_number, include_expired=False ):
         """
