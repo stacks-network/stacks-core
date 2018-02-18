@@ -76,7 +76,8 @@ integrate into existing Web apps.
 
 ## What is Blockstack Core?
 
-Blockstack Core implements BNS and the routing system for Gaia.  Blockstack Core
+Blockstack Core implements BNS and the storage routing system for Gaia (called
+**Atlas**).  Blockstack Core
 nodes form the backbone of the Blockstack network.  Each node indexes the
 Bitcoin blockchain and maintains a full replica of all names,
 public keys, and storage routing information.  This makes the Blockstack network
@@ -93,7 +94,7 @@ if upstream nodes are unreachable or go offline.
 ## Installing Blockstack Core
 
 There are two parts to Blockstack Core:  a background network daemon that talks
-with the rest of the network and builds up the local BNS and Gaia routing state
+with the rest of the network and builds up the local BNS and storage routing state
 (`blockstack-core`), and
 an API shim that provides a stable, RESTful API that facilitates name and
 storage routing lookups and registrations (`blockstack api`).  Both are
