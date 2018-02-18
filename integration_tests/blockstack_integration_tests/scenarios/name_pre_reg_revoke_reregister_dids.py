@@ -24,8 +24,7 @@
 import testlib
 import virtualchain
 import json
-import blockstack as blockstack_server
-import blockstack_client
+import blockstack
 import sys
 
 # in epoch 3 immediately
@@ -47,7 +46,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 fail_blocks = []
 
-NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1, "test" )
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack.get_epoch_namespace_lifetime_multiplier( blockstack.EPOCH_1_END_BLOCK + 1, "test" )
 
 def scenario( wallets, **kw ):
 
@@ -78,7 +77,7 @@ def scenario( wallets, **kw ):
     baz_did = 'did:stack:v0:{}-2'.format(wallets[3].addr)
 
     for did in [foo_did, bar_did, baz_did]:
-        res = blockstack_client.proxy.get_DID_blockchain_record(did)
+        res = blockstack.lib.client.get_DID_record(did, hostport='http://localhost:{}'.format(blockstack.lib.client.RPC_SERVER_PORT))
         if 'error' in res:
             print res
             return False
@@ -109,7 +108,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # foo's DID should no longer resolve, since foo was revoked
-    res = blockstack_client.proxy.get_DID_blockchain_record(foo_did)
+    res = blockstack.lib.client.get_DID_record(foo_did, hostport='http://localhost:{}'.format(blockstack.lib.client.RPC_SERVER_PORT))
     if 'error' not in res:
         print 'accidentally resolved {}'.format(foo_did)
         print res
@@ -117,7 +116,7 @@ def scenario( wallets, **kw ):
 
     # non-revoked DIDs should resolve to the new addresses
     for did, addr in zip([bar_did, baz_did], [wallets[1].addr, wallets[2].addr]):
-        res = blockstack_client.proxy.get_DID_blockchain_record(did)
+        res = blockstack.lib.client.get_DID_record(did, hostport='http://localhost:{}'.format(blockstack.lib.client.RPC_SERVER_PORT))
         if 'error' in res:
             print res
             return False
@@ -134,7 +133,7 @@ def scenario( wallets, **kw ):
 
     # new DIDs should all resolve to new addresses
     for did, addr in zip([foo2_did, bar2_did, baz2_did], [wallets[0].addr, wallets[1].addr, wallets[2].addr]):
-        res = blockstack_client.proxy.get_DID_blockchain_record(did)
+        res = blockstack.lib.client.get_DID_record(did, hostport='http://localhost:{}'.format(blockstack.lib.client.RPC_SERVER_PORT))
         if 'error' in res:
             print res
             return False
@@ -152,7 +151,7 @@ def scenario( wallets, **kw ):
 
     # all DIDs except for the original DID for foo.test should now resolve to wallets[3].addr
     for did in [bar_did, baz_did, foo2_did, bar2_did, baz2_did]:
-        res = blockstack_client.proxy.get_DID_blockchain_record(did)
+        res = blockstack.lib.client.get_DID_record(did, hostport='http://localhost:{}'.format(blockstack.lib.client.RPC_SERVER_PORT))
         if 'error' in res:
             print res
             return False
@@ -163,7 +162,7 @@ def scenario( wallets, **kw ):
             return False
 
     # foo's original DID should not resolve
-    res = blockstack_client.proxy.get_DID_blockchain_record(foo_did)
+    res = blockstack.lib.client.get_DID_record(foo_did, hostport='http://localhost:{}'.format(blockstack.lib.client.RPC_SERVER_PORT))
     if 'error' not in res:
         print 'accidentally resolved {}'.format(foo_did)
         print res
