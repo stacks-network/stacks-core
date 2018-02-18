@@ -134,6 +134,22 @@ On Mac:
 # Install blockstack
 $ pip install blockstack --upgrade
 ```
+On CentOS 7 & RHEL:
+
+```
+# Disable SELinux
+$ setenforce 0
+$ sed -i --follow-symlinks 's/^SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/selinux && cat /etc/sysconfig/selinux
+
+# Install dependencies
+$ yum install epel-release
+$ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-devel zlib-devel 
+
+# Install blockstack
+$ sudo pip install blockstack --upgrade
+
+$ systemctl stop firewalld && systemctl disable firewalld
+```
 
 On Debian & Ubuntu:
 
