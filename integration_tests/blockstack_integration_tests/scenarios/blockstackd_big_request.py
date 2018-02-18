@@ -21,7 +21,7 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
 """
-TEST ENV BLOCKSTACK_TEST_MAX_RPC_LEN 8192
+TEST ENV BLOCKSTACK_TEST_MAX_RPC_LEN 81920
 """
 
 import testlib 
@@ -150,9 +150,9 @@ def scenario( wallets, **kw ):
         print buf
         return False
 
-    big_zonefile = '0' * 4096
-    big_zonefile_2 = '1' * 4096
-    big_zonefile_nack = '2' * 4097
+    big_zonefile = '0' * 40960
+    big_zonefile_2 = '1' * 40960
+    big_zonefile_nack = '2' * 40961
 
     # make some zonefiles
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
