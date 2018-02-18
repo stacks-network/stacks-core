@@ -3315,19 +3315,71 @@ def check_historic_names_by_address( state_engine ):
             did = blockstack.lib.client.get_name_DID(name, hostport='http://localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
             expected_did = 'did:stack:v0:{}-{}'.format(address, i)
             if did != expected_did:
-                # older DID must still resolve, unless the name was revoked
+                # this would happen if the expected DID pointed to an old version of the name.
+                # DID must still resolve, unless the name was revoked
                 old_name_rec = blockstack.lib.client.get_DID_record(expected_did, hostport='http://localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
                 if 'error' in old_name_rec and 'revoked' not in old_name_rec['error']:
                     log.error("Failed to resolve {}".format(expected_did))
                     print old_name_rec
                     return False
 
+                if 'error' not in old_name_rec:
+                    try:
+                        # make sure this is strictly an older DID
+                        assert old_name_rec['name'] == name
+                        name_with_history = blockstack.lib.client.get_name_record(name, include_history=True, hostport='http://localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+                        assert 'error' not in name_with_history, name_with_history['error']
+
+                        found = False
+                        found_height = None
+                        found_vtxindex = None
+                        found_preorder = False
+                        for height in sorted(name_with_history['history'].keys()):
+                            if found:
+                                break
+
+                            for state in name_with_history['history'][height]:
+                                if reduce(lambda present_1, present_2: present_1 and present_2, \
+                                          map(lambda key: state.has_key(key) and old_name_rec[key] == state[key], old_name_rec.keys()), \
+                                          True):
+
+                                    # found out where this DID pointed
+                                    found_height = height
+                                    found_vtxindex = state['vtxindex']
+                                    found = True
+                                    break
+
+                        assert found, 'Name state {} is not in history\n{}'.format(old_name_rec,name_with_history)
+                        
+                        # this name must have been preordered at a later point in time 
+                        for height in sorted(name_with_history['history'].keys()):
+                            if height < found_height:
+                                continue
+
+                            if found_preorder:
+                                break
+
+                            for state in name_with_history['history'][height]:
+                                if height == found_height and state['vtxindex'] < found_vtxindex:
+                                    continue
+
+                                if state['op'] == blockstack.NAME_PREORDER:
+                                    found_preorder = True
+                                    break
+
+                        assert found_preorder, 'historic DID {} points to {}-{}-{}, which is not the last DID for this name'.format(expected_did, name, found_height, found_vtxindex)
+
+                    except Exception as e:
+                        traceback.print_exc()
+                        return False
+
             name_rec = blockstack.lib.client.get_DID_record(did, hostport='http://localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
 
             if name in revoked_names.keys() and revoked_names[name] >= block_id:
                 # name was revoked. expect failure
                 if 'error' not in name_rec:
-                    log.error("Accidentally resolved {} on revoked name".format(did))
+                    log.error("Accidentally resolved {} on revoked name {}".format(did,name))
+                    print name_rec
                     return False 
 
             else:
