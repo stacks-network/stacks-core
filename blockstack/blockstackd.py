@@ -639,6 +639,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if namespace_record is None:
             namespace_record = db.get_namespace_reveal(namespace_id, include_history=False)
 
+        if namespace_record is None:
+            # name can't exist (this can be arrived at if we're resolving a DID)
+            return None
+
         # when does this name expire (if it expires)?
         if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
             deadlines = BlockstackDB.get_name_deadlines(name_record, namespace_record, db.lastblock)
@@ -671,7 +675,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return name_record
 
 
-    def get_name_record(self, name, include_history=False):
+    def get_name_record(self, name, include_expired=False, include_history=False):
         """
         Get the whois-related info for a name (not a subdomain).
         Optionally include the history.
@@ -684,7 +688,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         name = str(name)
 
         db = get_db_state(self.working_dir)
-        name_record = db.get_name(str(name), include_history=include_history)
+        name_record = db.get_name(str(name), include_expired=include_expired, include_history=include_history)
 
         if name_record is None:
             db.close()
@@ -731,7 +735,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         res = None
         if self.check_name(name):
-            res = self.get_name_record(name, include_history=False)
+            res = self.get_name_record(name, include_expired=True, include_history=False)
         elif self.check_subdomain(name):
             res = self.get_subdomain_record(name, include_history=False)
         else:
@@ -804,6 +808,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         name_record = self.load_name_info(db, rec)
         db.close()
+
+        if name_record is None:
+            return {'error': 'DID does not resolve to an existing name'}
+
         return {'record': name_record}
 
 
@@ -858,7 +866,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         res = None
         if self.check_name(name):
-            res = self.get_name_record(name, include_history=True)
+            res = self.get_name_record(name, include_expired=True, include_history=True)
         elif self.check_subdomain(name):
             res = self.get_subdomain_record(name, include_history=True)
         else:
