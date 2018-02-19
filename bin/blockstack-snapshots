@@ -871,9 +871,10 @@ if __name__ == '__main__':
     conf = read_config(config_path=config_path)
     conf = merge_config_args(conf, args)
 
+    working_dir = None
     if hasattr(args, 'working_dir') and args.working_dir:
         working_dir = args.working_dir
-    
+   
     if working_dir is None:
         working_dir = os.expanduser('~/{}'.format(virtualchain_hooks.get_virtual_chain_name()))
 
