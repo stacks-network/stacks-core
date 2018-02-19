@@ -114,8 +114,8 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    # non-revoked DIDs should resolve to the new addresses
-    for did, addr in zip([bar_did, baz_did], [wallets[1].addr, wallets[2].addr]):
+    # non-revoked DIDs should resolve to the old addresses, just before the reregister
+    for did, addr in zip([bar_did, baz_did], [wallets[3].addr, wallets[3].addr]):
         res = blockstack.lib.client.get_DID_record(did, hostport='http://localhost:{}'.format(blockstack.lib.client.RPC_SERVER_PORT))
         if 'error' in res:
             print res
@@ -157,7 +157,7 @@ def scenario( wallets, **kw ):
             return False
 
         if res['address'] != wallets[3].addr:
-            print 'wrong address post-reregister: expected {}'.format(wallets[3].addr)
+            print 'wrong address post-transfer: expected {}'.format(wallets[3].addr)
             print json.dumps(res, indent=4, sort_keys=True)
             return False
 
