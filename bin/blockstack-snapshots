@@ -667,9 +667,10 @@ def server_wait(snapshots_conf):
     """
     delay = 1.0
     up = False
+    url = 'http://localhost:{}/v1/ping'.format(snapshots_conf['port'])
+
     for i in xrange(0, 5):
         try:
-            url = 'http://localhost:{}/v1/ping'.format(snapshots_conf['port'])
             req = requests.get(url)
             assert req.status_code == 200
             
@@ -677,11 +678,11 @@ def server_wait(snapshots_conf):
             break
 
         except Exception, e:
-            log.exception(e)
             log.debug("Failed to ping {}. Try again in {}".format(url, delay))
             time.sleep(delay)
             delay = delay * 2 + random.random() * delay
 
+    log.debug("Server is up! {}".format(url))
     return up
 
 
