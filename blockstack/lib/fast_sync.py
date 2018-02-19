@@ -369,25 +369,6 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number ):
         _cleanup(tmpdir)
         return False
 
-    # copy over atlasdb
-    atlasdb_path = os.path.join(working_dir, "atlas.db")
-    dest_path = os.path.join(tmpdir, "atlas.db")
-    _log_backup(atlasdb_path)
-    rc = virtualchain.sqlite3_backup(atlasdb_path, dest_path)
-    if not rc:
-        _cleanup(tmpdir)
-        return False
-
-    # copy over subdomains, if present 
-    subdomainsdb_path = os.path.join(working_dir, 'subdomains.db')
-    if os.path.exists(subdomainsdb_path):
-        dest_path = os.path.join(tmpdir, 'subdomains.db')
-        _log_backup(subdomainsdb_path)
-        rc = virtualchain.sqlite3_backup(subdomainsdb_path, dest_path)
-        if not rc:
-            _cleanup(tmpdir)
-            return False
-
     # copy over zone files
     zonefiles_path = os.path.join(working_dir, "zonefiles")
     dest_path = os.path.join(tmpdir, "zonefiles")
