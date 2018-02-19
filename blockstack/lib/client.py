@@ -35,6 +35,7 @@ import json
 import traceback
 import re
 import urllib2
+import socket
 from .util import url_to_host_port, url_protocol, parse_DID
 from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, BLOCKSTACK_TEST
 from .schemas import *
@@ -355,6 +356,11 @@ def ping(proxy=None, hostport=None):
 
         resp = json_traceback(resp.get('error'))
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.'}
+        return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
@@ -437,6 +443,11 @@ def getinfo(proxy=None, hostport=None):
 
         resp = json_traceback(resp.get('error'))
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.'}
+        return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
@@ -492,6 +503,11 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
             log.exception(e)
 
         zf_inv = {'error': 'Failed to fetch and parse zonefile inventory'}
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.'}
+        return resp
 
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
@@ -554,6 +570,11 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
 
         peers = json_traceback()
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.'}
+        return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
@@ -614,6 +635,11 @@ def atlas_peer_exchange(hostport, my_hostport, timeout=30, proxy=None):
             log.exception(e)
 
         peers = json_traceback()
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.'}
+        return resp
 
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
