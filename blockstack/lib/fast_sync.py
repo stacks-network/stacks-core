@@ -201,7 +201,7 @@ def fast_sync_snapshot_compress( snapshot_dir, export_path ):
     def print_progress(tarinfo):
         count_ref[0] += 1
         if count_ref[0] % 100 == 0:
-            log.debug("{} files...".format(count_ref[0]))
+            log.debug("{} files compressed...".format(count_ref[0]))
 
         return tarinfo
 
