@@ -1131,7 +1131,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
     result['block_preordered_at'] = record['preorder_block_number']
     result['block_renewed_at'] = record['last_renewed']
     result['last_transaction_id'] = record['txid']
-    result['last_transaction_height'] = max(record['history'].keys())
+    result['last_transaction_height'] = max([int(h) for h in record['history'].keys()])
     result['owner_address'] = record['address']
     result['owner_script'] = record['sender']
 
