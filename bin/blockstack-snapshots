@@ -963,14 +963,22 @@ if __name__ == '__main__':
                     sys.exit(1)
 
             # daemonize
-            res = blockstack.lib.util.daemonize( log_file, child_wait=lambda: server_wait(snapshots_conf) )
+            res = blockstack.lib.util.daemonize( log_file )
             if res < 0:
                 print >> sys.stderr, "Failed to start server"
                 sys.exit(1)
 
             if res > 0:
                 log.debug("Parent {} forked intermediate child {}".format(os.getpid(), res))
-                sys.exit(0)
+                log.debug("Wait for child {} to come online...".format(res))
+                child_pid = res
+                res = server_wait(snapshots_conf)
+
+                if res:
+                    sys.exit(0)
+                else:
+                    log.error("Failed to wait on child {}.  It is not up".format(child_pid))
+                    sys.exit(1)
 
             # daemon child
             # put PID file 
