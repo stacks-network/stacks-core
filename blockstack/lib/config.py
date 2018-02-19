@@ -1045,6 +1045,8 @@ def default_blockstack_opts( working_dir, config_file=None ):
    or from sane defaults.
    """
 
+   global RPC_SERVER_IP
+
    from .util import url_to_host_port
    from .scripts import is_name_valid
 
@@ -1164,9 +1166,11 @@ def default_blockstack_opts( working_dir, config_file=None ):
            pass
 
    if atlas_hostname is None:
-       log.debug("Using STUN servers to discover my public IP (set 'atlas_hostname' to skip this step)")
+       log.debug("Using STUN servers to discover my public IP (set 'atlas_hostname' in the config file to skip this step)")
        _, atlas_hostname, _ = stun.get_ip_info()
        log.debug("Atlas host IP is {}".format(atlas_hostname))
+
+   RPC_SERVER_IP = atlas_hostname
 
    blockstack_opts = {
        'rpc_port': rpc_port,
