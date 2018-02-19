@@ -361,6 +361,11 @@ def ping(proxy=None, hostport=None):
         resp = {'error': 'Connection to remote host timed out.'}
         return resp
 
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.'}
+        return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
@@ -448,6 +453,11 @@ def getinfo(proxy=None, hostport=None):
         resp = {'error': 'Connection to remote host timed out.'}
         return resp
 
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.'}
+        return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
@@ -507,6 +517,11 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
     except socket.timeout:
         log.error("Connection timed out")
         resp = {'error': 'Connection to remote host timed out.'}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.'}
         return resp
 
     except Exception as ee:
@@ -575,6 +590,11 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
         resp = {'error': 'Connection to remote host timed out.'}
         return resp
 
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.'}
+        return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
@@ -639,6 +659,11 @@ def atlas_peer_exchange(hostport, my_hostport, timeout=30, proxy=None):
     except socket.timeout:
         log.error("Connection timed out")
         resp = {'error': 'Connection to remote host timed out.'}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.'}
         return resp
 
     except Exception as ee:
