@@ -54,13 +54,13 @@ your Web browser or via `curl`, as will be explained below.  Also, you'll be abl
 
 The test setup command is as follows.  This will launch the `namespace_check`
 test scenario, and open a web server on port 3001.
-```
+```bash
     $ blockstack-test-scenario --interactive-web 3001 blockstack_integration_tests.scenarios.namespace_check
 ```
 
 When the test is ready for us to experiment, you should see the following:
 
-```
+```bash
     An empty namespace called 'test' has been created
     Feel free to experiment with other namespaces
 
@@ -76,11 +76,16 @@ When the test is ready for us to experiment, you should see the following:
     *  2,3,836dc3ac46fbe2bcd379d36b977969e5b6ef4127e111f2d3e2e7fb6f0ff1612e01,1528cb864588a6a5d77eda548fe81efc44180982e180ecf4c812c6be9788c76a01,9955cfdac199b8451ccd63ec5377a93df852dc97ea01afc47db7f870a402ff0501
 ```
 
+You can determine that the test framework is live by going to
+`http://localhost:3001` in your Web browser.  From there, you can generate
+blocks in the test framework's `bitcoind` node and you can fund any address in
+the test framework.
+
 Finally, you can use the `blockstack-test-env` command to set up your shell
 environment variables so `blockstack` will interact with this test (instead of
 mainnet).  To do so, run the following in your shell:
 
-```
+```bash
     $ . $(which blockstack-test-env) namespace_check
     |blockstack-test namespace_check| $
 ```
@@ -89,7 +94,7 @@ You can verify that the environment variables by verifying that your `$PS1`
 variable includes the name of your test (as shown above), and that some other
 `BLOCKSTACK_`-prefixed variables are set:
 
-```
+```bash
     |blockstack-test namespace_check| $ env | grep BLOCKSTACK
     BLOCKSTACK_OLD_PS1=\u@\h:\w$
     BLOCKSTACK_TESTNET=1
@@ -113,7 +118,7 @@ the namespace's lifetime.
 
 In this example, we will set these keys as environment variables:
 
-```
+```bash
     |blockstack-test namespace_check| $ export PAYMENT_PKEY="6e50431b955fe73f079469b24f06480aee44e4519282686433195b3c4b5336ef01"
     |blockstack-test namespace_check| $ export CREATOR_PKEY="c244642ce0b4eb68da8e098facfcad889e3063c36a68b7951fb4c085de49df1b01"
 ```
@@ -130,7 +135,7 @@ are the private keys.
 For example, you can use the following as your `PAYMENT_PKEY` to have a 2-of-3
 multisig script pay for your namespace and collect name registration fees:
 
-```
+```bash
     |blockstack-test namespace_check| $ export PAYMENT_PKEY="2,3,6f432642c087c2d12749284d841b02421259c4e8178f25b91542c026ae6ced6d01,65268e6267b14eb52dc1ccc500dc2624a6e37d0a98280f3275413eacb1d2915d01,cdabc10f1ff3410082448b708c0f860a948197d55fb612cb328d7a5cc07a6c8a01"
 ```
 
@@ -138,7 +143,7 @@ multisig script pay for your namespace and collect name registration fees:
 
 The command to preorder the namespace would be:
 
-```
+```bash
     |blockstack-test namespace_check| $ blockstack namespace_preorder hello "$PAYMENT_PKEY" "$CREATOR_PKEY"
 ```
 
@@ -147,17 +152,13 @@ launch the namespace.  _READ THEM CAREFULLY_.  You will be prompted to
 explicitly acknowledge that you understand the main points of the instructions,
 and that you understand the risks.
 
-If all goes well, you will get back a transaction hash.  You should wait for the
-transaction to be confirmed (~10 confirmations) before sending the `reveal`
-transaction.
-
 The command outputs some necessary information at the very end of its execution.
 In particular, you will need to remember the transaction ID of the namespace
 preorder.  The command will help you do so.
 
 Here is a sample output:
 
-```
+```bash
     |blockstack-test namespace_check| $ blockstack namespace_preorder hello "$PAYMENT_PKEY" "$CREATOR_PKEY"
 
     <...snip...>
@@ -176,6 +177,16 @@ Here is a sample output:
     }
 ```
 
+If all goes well, you will get back a transaction hash (in this case, `b40dd1375ef63e5a40ee60d790ec6dccd06efcbac99d0cd5f3b07502a4ab05ac`).
+To get Blockstack to process it, you will need to mine some blocks in the test framework (by default,
+Blockstack will only accept a transaction that has 6 confirmations).  To do
+this, simply go to `http://localhost:3001` and generate at least 6 blocks.  If you
+observe the test log, you will see the Blockstack node process and accept it.
+
+Note that when you do this live, you should wait for 
+at least 10 confirmations before sending the `reveal` transaction, just to be
+safe.
+
 ### Namespace reveal
 
 The command to reveal a preordered namespace is more complicated, since it
@@ -183,7 +194,7 @@ describes the price curve.
 
 This command is **interactive**.  The command to invoke it is as follows:
 
-```
+```bash
     |blockstack-test namespace_check| $ blockstack namespace_reveal hello "$PAYMENT_PKEY" "$CREATOR_PKEY" "b40dd1375ef63e5a40ee60d790ec6dccd06efcbac99d0cd5f3b07502a4ab05ac"
 ```
 
@@ -258,7 +269,13 @@ As the formula describes, the name's price is a function of:
 You can use options 1 through 8 to play with the pricing function and examine
 the name costs in the price table.  Enter 9 to send the transaction itself.
 
-Once you're happy, you can begin to populate your namespace with some initial names.
+Once you're happy, you can issue the namespace-reveal transaction.  As with the 
+namespace-preorder transaction, you will get back a transaction hash, and your transaction will be
+unconfirmed.  Simply go to `http://localhost:3001` to generate some more blocks
+to confirm your namespace-reveal.
+
+Once you have confirmed your namespace-reveal transaction, you can
+begin to populate your namespace with some initial names.
 
 **Collecting Name Fees**
 
@@ -278,7 +295,7 @@ namespace squatters.
 
 **Warnings**
 
-* You must issue this command **within 144 blocks** of the `NAMESPACE_PREORDER` transaction.  Otherwise, the preorder will expire and you will need to start over from scratch.
+* You must issue this command **within 144 blocks** of the namespace-preorder transaction.  Otherwise, the preorder will expire and you will need to start over from scratch.
 
 ### Importing names
 
@@ -291,16 +308,20 @@ that you wanted to give `example.hello` an initial zone file stored at
 `/var/blockstack/zone_files/example.hello`.  To do so, you would issue the
 following command:
 
-```
+```bash
     |blockstack-test namespace_check| $ blockstack name_import example.hello ms6Y32bcL5zhA57e8tf7awgVZuPxV8Xg8N /var/blockstack/zone_files/example.hello "$CREATOR_PKEY"
 ```
 
 By default, you **must** use the private key you used to reveal the namespace
 to import names (this is `$CREATOR_PKEY` in this example).
 
+As with namespace-preorder and namespace-reveal, the transaction this command
+generates will be unconfirmed.  Simply go to `http://localhost:3001` to generate
+some blocks to confirm it.
+
 You can check the progress of the transaction with `blockstack info`, as follows:
 
-```
+```bash
     |blockstack-test namespace_check| $ blockstack info
     {
         "cli_version": "0.17.0.8",
@@ -323,6 +344,10 @@ You can check the progress of the transaction with `blockstack info`, as follows
     }
 ```
 
+The `confirmation` field indicates how deep in the blockchain the transaction is
+at the time.  Generating more blocks will increase its number of confirmations.
+
+When you do this live, 
 **YOU SHOULD LEAVE YOUR COMPUTER RUNNING UNTIL THE `name_import` QUEUE IS EMPTY**.
 Blockstack's background API daemon will monitor the transactions and upload the
 name's zone file to the Blockstack Atlas network once it is confirmed.
@@ -357,7 +382,7 @@ namespace can use one of the 300 BIP32 keys.
 
 To get the list of keys you can use, you can use the `make_import_keys` command:
 
-```
+```bash
     |blockstack-test namespace_check| $ blockstack make_import_keys example hello "$CREATOR_PKEY"
     aeda50305ada40aaf53f2d8921aa717f1ec71a0a3b9b4c6397b3877f6d45c46501 (n4DVTuLLv5J1Yc17AoRYY1GtxDAuLGAESr)
     92ff179901819a1ec7d32997ce3bb0d9a913895d5850cc05146722847128549201 (mib2KNBGR4az8GiUmusBZexVBqb9YB2gm5)
@@ -379,7 +404,7 @@ Here's an example walkthrough of how to try this out in the test framework:
 
 1. Import the first name, creating a zone file in the process:
 
-```
+```bash
     |blockstack-test namespace_check| $ cat > /var/blockstack/zone_files/example.hello <<EOF
     > $ORIGIN example.hello
     > $TTL 3600
@@ -408,15 +433,16 @@ Here's an example walkthrough of how to try this out in the test framework:
     }
 ```
 
-2. Advance the testnet blockchain, so the indexer knows which import keys to expect:
+2. Advance the test framework blockchain, so the indexer knows which import keys to expect:
 
-```
+```bash
+    # NOTE: you can also do this by going to http://localhost:3001 in your Web browser
     |blockstack-test namespace_check| $ curl -X POST http://localhost:3001/nextblock
 ```
 
 3. Make import keys:
 
-```
+```bash
     |blockstack-test namespace_check| $ blocksatck make_import_keys hello "$CREATOR_PKEY"
     aeda50305ada40aaf53f2d8921aa717f1ec71a0a3b9b4c6397b3877f6d45c46501 (n4DVTuLLv5J1Yc17AoRYY1GtxDAuLGAESr)
     92ff179901819a1ec7d32997ce3bb0d9a913895d5850cc05146722847128549201 (mib2KNBGR4az8GiUmusBZexVBqb9YB2gm5)
@@ -430,13 +456,14 @@ Here's an example walkthrough of how to try this out in the test framework:
 
 4. Fill up one of the addresses in the test framework, so we can fund `NAME_IMPORT` transactions with it:
 
-```
+```bash
+    # NOTE: you can also do this by going to http://localhost:3001 in your Web browser
     |blockstack-test namespace_check| $ curl -X POST -F 'addr=n4DVTuLLv5J1Yc17AoRYY1GtxDAuLGAESr' -F 'value=100000000' 'http://localhost:3001/sendfunds'
 ```
 
 5. Import another name, with the child private key we just funded:
 
-```
+```bash
     |blockstack-test namespace_check| $ cat > /tmp/example.hello.zonefile <<EOF
     > $ORIGIN example2.hello
     > $TTL 3600
@@ -467,13 +494,14 @@ Here's an example walkthrough of how to try this out in the test framework:
 
 6. Advance the blockchain again:
 
-```
+```bash
+    # NOTE: you can also do this by going to http://localhost:3001 in your Web browser
     |blockstack-test namespace_check| $ curl -X POST http://localhost:3001/nextblock
 ```
 
 7. See that the names are processing:
 
-```
+```bash
     |blockstack-test namespace_check| $ blockstack info
     {
         "cli_version": "0.17.0.8",
@@ -503,13 +531,14 @@ Here's an example walkthrough of how to try this out in the test framework:
 
 8. Confirm all the transactions:
 
-```
+```bash
+    # NOTE: you can also do this by going to http://localhost:3001 in your Web browser
     |blockstack-test namespace_check| $ for i in $(seq 1 10); do curl -X POST http://localhost:3001/nextblock
 ```
 
 9. Look up name zone files to confirm they were replicated to the test framework's Atlas network:
 
-```
+```bash
     |blockstack-test namespace_check| $ blockstack info
     {
         "cli_version": "0.17.0.8",
@@ -551,7 +580,7 @@ names will disappear, and someone else will be able to register it.
 
 To make a namespace `ready`, you use the creator private key as follows:
 
-```
+```bash
      |blockstack-test namespace_check| $ blockstack namespace_ready hello "$CREATOR_PKEY"
 ```
 
