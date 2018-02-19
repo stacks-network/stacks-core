@@ -1880,11 +1880,12 @@ def atlas_init(blockstack_opts, db, port=None):
         atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
         zonefile_dir = blockstack_opts['zonefiles']
         my_hostname = blockstack_opts['atlas_hostname']
+        my_port = blockstack_opts['atlas_port']
 
         initial_peer_table = atlasdb_init(blockstack_opts['atlasdb_path'], zonefile_dir, db, atlas_seed_peers, atlas_blacklist, validate=True)
         atlas_peer_table_init(initial_peer_table)
 
-        atlas_state = atlas_node_init(my_hostname, port, blockstack_opts['atlasdb_path'], zonefile_dir, db.working_dir)
+        atlas_state = atlas_node_init(my_hostname, my_port, blockstack_opts['atlasdb_path'], zonefile_dir, db.working_dir)
 
     return atlas_state
 

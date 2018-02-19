@@ -25,6 +25,7 @@ import os
 import sys
 import copy
 import socket
+import stun
 from ConfigParser import SafeConfigParser
 
 from ..version import __version__
@@ -130,6 +131,7 @@ if os.environ.get("BLOCKSTACK_CORE_NUM_CONFS", None) is not None:
 """
 RPC_SERVER_TEST_PORT = 16264
 RPC_SERVER_PORT = None      # non-HTTPS port
+RPC_SERVER_IP = None        # looked up via STUN
 if BLOCKSTACK_TEST is not None:
     RPC_SERVER_PORT = RPC_SERVER_TEST_PORT
 else:
@@ -1066,7 +1068,8 @@ def default_blockstack_opts( working_dir, config_file=None ):
    atlas_seed_peers = "node.blockstack.org:%s" % RPC_SERVER_PORT
    atlasdb_path = os.path.join( os.path.dirname(config_file), "atlas.db" )
    atlas_blacklist = ""
-   atlas_hostname = socket.gethostname()
+   atlas_hostname = RPC_SERVER_IP
+   atlas_port = RPC_SERVER_PORT
    subdomaindb_path = os.path.join( os.path.dirname(config_file), "subdomains.db" )
 
    if parser.has_section('blockstack'):
@@ -1131,7 +1134,10 @@ def default_blockstack_opts( working_dir, config_file=None ):
 
       if parser.has_option('blockstack', 'atlas_hostname'):
          atlas_hostname = parser.get('blockstack', 'atlas_hostname')
-        
+    
+      if parser.has_option('blockstack', 'atlas_port'):
+         atlas_port = int(parser.get('blockstack', 'atlas_port'))
+
       if parser.has_option('blockstack', 'subdomaindb_path'):
          subdomaindb_path = parser.get('blockstack', 'subdomaindb_path')
 
@@ -1157,6 +1163,11 @@ def default_blockstack_opts( working_dir, config_file=None ):
        except:
            pass
 
+   if atlas_hostname is None:
+       log.debug("Using STUN servers to discover my public IP (set 'atlas_hostname' to skip this step)")
+       _, atlas_hostname, _ = stun.get_ip_info()
+       log.debug("Atlas host IP is {}".format(atlas_hostname))
+
    blockstack_opts = {
        'rpc_port': rpc_port,
        'announcers': announcers,
@@ -1169,6 +1180,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
        'atlasdb_path': atlasdb_path,
        'atlas_blacklist': atlas_blacklist,
        'atlas_hostname': atlas_hostname,
+       'atlas_port': atlas_port,
        'zonefiles': zonefile_dir,
        'subdomaindb_path': subdomaindb_path,
    }
