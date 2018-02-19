@@ -963,7 +963,8 @@ if __name__ == '__main__':
                     sys.exit(1)
 
             # daemonize
-            res = blockstack.lib.util.daemonize( log_file )
+            log_file_handle = open(log_file, 'a+')
+            res = blockstack.lib.util.daemonize(log_file_handle)
             if res < 0:
                 print >> sys.stderr, "Failed to start server"
                 sys.exit(1)
