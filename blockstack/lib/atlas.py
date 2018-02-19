@@ -3358,22 +3358,7 @@ class AtlasZonefileCrawler( threading.Thread ):
             zfnames = zonefile_names[zfhash]
             zftxid = zonefile_txids[zfhash]
             peers = missing_zfinfo[zfhash]['peers']
-            
-            '''
-            zfinfo = atlasdb_get_zonefile_by_txid( zftxid, path=path )
-            if zfinfo is None:
-                # not known to us
-                log.warn("%s: unknown zonefile %s" % (self.hostport, zfhash))
-
-            zfname = zfinfo['name']
-            if len(peers) == 0:
-                # unavailable
-                if not missing_zfinfo[zfhash]['tried_storage']:
-                    log.debug("%s: zonefile %s is unavailable" % (self.hostport, zfhash))
-                zonefile_hashes.pop(0)
-                continue
-            '''
-
+           
             # try this zonefile's hosts in order by perceived availability
             peers = atlas_rank_peers_by_health( peer_list=peers, with_zero_requests=True )
             if len(peers) > 0:
