@@ -329,7 +329,7 @@ class BlockstackSnapshotServer(SocketServer.TCPServer):
 def make_snapshot(working_dir, snapshots_dir, private_key, block_number):
     """
     Make a snapshot from the given block height at {snapshots_dir}/snapshot.bsk.{block_number}
-    Symlink it to {snapshots_dir}/snapshot.bsk
+    Also copy it to {snapshots_dir}/snapshot.bsk
 
     Return {'status': True} on success
     Return {'error': ...} on failure
@@ -354,18 +354,17 @@ def make_snapshot(working_dir, snapshots_dir, private_key, block_number):
     snapshot_path = os.path.join(snapshots_dir, 'snapshot.bsk.{}'.format(block_number))
     shutil.move( tmp_snapshot_path, snapshot_path )
 
-    # symlink 'snapshot.bsk' to it 
     old_dir = os.getcwd()
     try:
         os.chdir(snapshots_dir)
         if os.path.exists('snapshot.bsk'):
             os.unlink('snapshot.bsk')
 
-        # symlink it in
-        os.symlink('snapshot.bsk.{}'.format(block_number), 'snapshot.bsk')
+        # copy it in
+        shutil.copy('snapshot.bsk.{}'.format(block_number), 'snapshot.bsk')
     except Exception as e:
         log.exception(e)
-        return {'error': 'Failed to symlink {} to {}'.format('snapshot.bsk.{}'.format(block_number), 'snapshot.bsk')}
+        return {'error': 'Failed to copy {} to {}'.format('snapshot.bsk.{}'.format(block_number), 'snapshot.bsk')}
     finally:
         os.chdir(old_dir)
 
@@ -876,7 +875,7 @@ if __name__ == '__main__':
         working_dir = args.working_dir
    
     if working_dir is None:
-        working_dir = os.path.expanduser('~/{}'.format(virtualchain_hooks.get_virtual_chain_name()))
+        working_dir = os.path.expanduser('~/.{}'.format(virtualchain_hooks.get_virtual_chain_name()))
 
     snapshots_conf = conf['blockstack-snapshots']
 
