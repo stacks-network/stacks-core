@@ -759,7 +759,7 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
     return push_info
 
 
-def get_name_record(name, include_history=False, include_expired=True, include_grace=True, proxy=None, hostport=None):
+def get_name_record(name, include_history=False, include_expired=False, include_grace=True, proxy=None, hostport=None):
     """
     Get the record for a name or a subdomain.  Optionally include its history, and optionally return an expired name or a name in its grace period.
     Return the blockchain-extracted information on success.
