@@ -58,11 +58,19 @@ Notes:
 
 Op: `:`
 
-`OP_RETURN` wire format:
+`OP_RETURN` wire format (2 variations allowed):
+Variation 1:
 ```
     0    2  3                             39
     |----|--|-----------------------------|
     magic op   name.ns_id (37 bytes)
+```
+
+Variation 2:
+```
+    0    2  3                                  39                  59
+    |----|--|----------------------------------|-------------------|
+    magic op   name.ns_id (37 bytes, 0-padded)       value
 ```
 
 Inputs:
@@ -73,15 +81,31 @@ Outputs:
 * `scriptPubkey` for the owner's address
 * `scriptPubkey` for the payer's change
 
+Notes:
+
+* Variation 1 simply registers the name.  Variation 2 will register the name and
+set a name value simultaneously.  This is used in practice to set a zone file
+hash for a name without the extra `NAME_UPDATE` transaction.
+* Both variations are supported.  Variation 1 was designed for the time when
+  Bitcoin only supported 40-byte `OP_RETURN` outputs.
+
 ### NAME_RENEWAL
 
 Op: `:`
 
-`OP_RETURN` wire format:
+`OP_RETURN` wire format (2 variations allowed):
+Variation 1:
 ```
     0    2  3                             39
     |----|--|-----------------------------|
     magic op   name.ns_id (37 bytes)
+```
+
+Variation 2:
+```
+    0    2  3                                  39                  59
+    |----|--|----------------------------------|-------------------|
+    magic op   name.ns_id (37 bytes, 0-padded)       value
 ```
 
 Inputs:
@@ -91,13 +115,21 @@ Inputs:
 Outputs:
 
 * `OP_RETURN` payload
-* `scriptPubkey` for the owner's address
+* `scriptPubkey` for the owner's addess.  This can be a different address than
+  the current name owner (in which case, the name is renewed and transferred).
 * `scriptPubkey` for the payer's change
 * `scriptPubkey` for the burn address (to pay the name cost)
 
 Notes:
 
 * This transaction is identical to a `NAME_REGISTRATION`, except for the presence of the fourth output that pays for the name cost (to the burn address).
+* Variation 1 simply renews the name.  Variation 2 will both renew the name and
+  set a new name value (in practice, the hash of a new zone file).
+* Both variations are supported.  Variation 1 was designed for the time when
+  Bitcoin only supported 40-byte `OP_RETURN` outputs.
+* This operation can be used to transfer a name to a new address by setting the
+  second output (the first `scriptPubkey`) to be the `scriptPubkey` of the new
+  owner key.
 
 ### NAME_UPDATE
 
@@ -107,10 +139,12 @@ Op: `+`
 ```
     0     2  3                                   19                      39
     |-----|--|-----------------------------------|-----------------------|
-    magic op  hash128(name.ns_id,consensus hash)  hash160(data)
+    magic op  hash128(name.ns_id,consensus hash)        value
 ```
 
-Note that `hash128(name.ns_id, consensus hash)` is a hash over the name concatenated to the hexadecimal string of the consensus hash (not the bytes corresponding to that hex string).
+Note that `hash128(name.ns_id, consensus hash)` is the first 16 bytes of a SHA256 hash over the name concatenated to the hexadecimal string of the consensus hash (not the bytes corresponding to that hex string).
+
+Example: `hash128("jude.id" + "8d8762c37d82360b84cf4d87f32f7754") == "d1062edb9ec9c85ad1aca6d37f2f5793"`.
 
 Inputs:
 * owner `scriptSig`
@@ -147,7 +181,7 @@ Outputs:
 
 Notes: 
 
-* The `keep data?` byte controls whether or not the zone file hash for the name is preserved.  This value is either `>` to preserve it, or `~` to delete it.
+* The `keep data?` byte controls whether or not the name's 20-byte value is preserved.  This value is either `>` to preserve it, or `~` to delete it.
 
 ### NAME_REVOKE
 
@@ -180,7 +214,7 @@ Op: `#`
 ```
     0    2  3                             23
     |----|--|-----------------------------|
-    magic op   hash160(message)
+    magic op   ripemd160(sha256(message))
 ```
 
 Inputs:
@@ -215,7 +249,7 @@ Outputs:
 
 * `OP_RETURN` payload
 * Namespace payer `scriptPubkey` change address
-* `p2pkh` script to the burn address (0x00000000000000000000000000000000)
+* `p2pkh` script to the burn address `1111111111111111111114oLvT2`, whose public key hash is 0x00000000000000000000000000000000
 
 Notes:
 
@@ -380,7 +414,8 @@ def hash_name(name, script_pubkey, register_addr=None):
 
 def hash128(data):
     """
-    Hash a string of data by taking its 256-bit sha256 and truncating it to 128 bits.
+    Hash a string of data by taking its 256-bit sha256 and truncating it to the
+    first 16 bytes
     """
     return hexlify(bin_sha256(data)[0:16])
 ```
