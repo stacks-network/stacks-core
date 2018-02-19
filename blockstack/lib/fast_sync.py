@@ -296,7 +296,7 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number ):
         def inner(src, names):
             # ugly hack to work around the lack of a `nonlocal` keyword in Python 2.x
             for name in names:
-                if name == 'zonefile.txt':
+                if name.endswith('.txt'):
                     inner.zonefile_count += 1
                     if inner.zonefile_count % 100 == 0:
                         log.debug("{} zone files copied".format(inner.zonefile_count))
