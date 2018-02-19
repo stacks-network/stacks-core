@@ -876,7 +876,7 @@ if __name__ == '__main__':
         working_dir = args.working_dir
    
     if working_dir is None:
-        working_dir = os.expanduser('~/{}'.format(virtualchain_hooks.get_virtual_chain_name()))
+        working_dir = os.path.expanduser('~/{}'.format(virtualchain_hooks.get_virtual_chain_name()))
 
     snapshots_conf = conf['blockstack-snapshots']
 
