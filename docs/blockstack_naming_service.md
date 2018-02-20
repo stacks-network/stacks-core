@@ -873,14 +873,14 @@ describes how BNS differs from other naming systems
 | Strongly-owned names       |  X  |  X  |     |    X     |
 | Names are enumerable       |  X  |     |     |    X     |
 | Registration times         | 1-2 hours | ~1 week | ~1 day | ~1 hour |
-| Subdomain registration times | 1 hour (instant with [#750](https://namecoin.org/)) | varies | instant | ~1 hour |
+| Subdomain registration times | 1 hour (instant with [#750](https://github.com/blockstack/blockstack-core/issues/750)) | varies | instant | ~1 hour |
 | Anyone can make a TLD/namespace | X  |     |     |      |
 | TLD/Namespace owners get registration fees | X |   |   X  |   |
 | Portable across blockchains | X  |     | N/A |   N/A    |
 | Off-chain names            | X   |     | N/A  |         |
 | Name provenance            | X   | X   |      |   X     |
 | [DID](https://identity.foundation) support | X   |     |     |          |
-| Turing-complete namespace rules |  | X  |    |          |
+| Turing-complete namespace rules |  | X  | X  |          |
 | Miners are rewarded for participating  | [1] |    | N/A  |  X |
 
 [1] Blockstack Core destroys the underlying blockchain token to pay for
