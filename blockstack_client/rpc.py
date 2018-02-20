@@ -880,6 +880,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if 'error' in name_rec:
             if 'not found' in name_rec['error'].lower():
                 return self._reply_json({'status': 'available'}, status_code=404)
+            elif 'failed to load subdomain' in name_rec['error'].lower():
+                return self._reply_json({'status': 'available'}, status_code=404)
             else:
                 return self._reply_json({'error': 'Blockstack daemon error: {}'.format(name_rec['error'])}, status_code=500)
 
