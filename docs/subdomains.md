@@ -245,23 +245,26 @@ when a new zonefile for a particularly domain is seen by the resolver
 You can run a subdomain registrar and resolver with blockstack-core in
 regtest mode as follows:
 
-```
-BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.subdomain_registrar 2>&1 | tee /tmp/stdout | grep "inished"
+```bash
+IMAGE=$(docker run -dt -p 3000:3000 -p 6270:6270 -p 16269:16269 -p 18332:18332 -e BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 -e BLOCKSTACK_TEST_CLIENT_BIND=0.0.0.0 -e BLOCKSTACK_TEST_BITCOIND_ALLOWIP=172.17.0.0/16 quay.io/blockstack/integrationtests:master blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.browser_env)
 ```
 
-Once you see `Test finished; doing checks` on the command line, the
-registrar has started and is ready to accept requests.
+Once you see `Test finished; doing checks` in that container's logs, the
+registrar has started and is ready to accept requests. (We recommend 
+following the docker instructions below for running this test in
+Docker, as it will fetch the source code for the registrar and set the
+correct environment variables for it to run).
 
-You can issue a registration request from curl:
+Once this environment has started, you can issue a registration request from curl:
 
 ```
-curl -X POST --data '{"zonefile": "$ORIGIN baz\n$TTL 3600\n_file URI 10 1 \"file:///tmp/baz.profile.json\"\n", "name": "baz", "owner_address": "14x2EMRz1gf16UzGbxZh2c6sJg4A8wcHLD"}' http://localhost:7103/register/
+curl -X POST --data '{"zonefile": "$ORIGIN baz\n$TTL 3600\n_file URI 10 1 \"file:///tmp/baz.profile.json\"\n", "name": "baz", "owner_address": "14x2EMRz1gf16UzGbxZh2c6sJg4A8wcHLD"}' http://localhost:3000/register/
 ```
 
 This registers `baz.foo.id` -- you can check the registrar's status with
 
 ```
-curl http://localhost:7103/status/baz
+curl http://localhost:3000/status/baz
 ```
 
 The API endpoints `/v1/users/<foo.bar.tld>`,
@@ -292,12 +295,11 @@ The integration test registers `bar.foo.id` during the setup (so remember that f
 
 Follow the [instructions here](../integration_tests/README.md) to download the regtesting Docker image.
 
-Since the subdomain registrar service runs on port 7103, we need to do two things to expose this endpoint to interact with it from the browser:
-- Open port 7103 with `-p 7103:7103`
-- Set an env variable with `-e BSK_SUBDOMAIN_REGTEST_BIND=0.0.0.0`
+Since the subdomain registrar service runs on port 3000, we need to do two things to expose this endpoint to interact with it from the browser:
+- Open port 3000 with `-p 3000:3000`
 
 Here's the full command you'd run to start the interactive testing scenario:
 
 ```bash
-IMAGE=$(docker run -dt -p 6270:6270 -p 7103:7103 -v /tmp:/tmp -e BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 -e BLOCKSTACK_TEST_CLIENT_BIND=0.0.0.0 -e BSK_SUBDOMAIN_REGTEST_BIND=0.0.0.0 quay.io/blockstack/integrationtests:develop blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.subdomain_registrar)
+IMAGE=$(docker run -dt -p 3000:3000 -p 6270:6270 -p 16269:16269 -p 18332:18332 -e BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 -e BLOCKSTACK_TEST_CLIENT_BIND=0.0.0.0 -e BLOCKSTACK_TEST_BITCOIND_ALLOWIP=172.17.0.0/16 quay.io/blockstack/integrationtests:master blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.browser_env)
 ```
