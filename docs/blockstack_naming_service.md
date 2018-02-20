@@ -636,16 +636,16 @@ The lifecycle of a subdomain and its operations is shown in Figure 2.
    creation                   update                     transfer
 +----------------+         +----------------+         +----------------+
 | cicero         |         | cicero         |         | cicero         |
-| addr="1Et..."  | signed  | addr="1Et..."  | signed  | addr="1cJ..."  |
-| state="7e4..." |<--------| state="111..." |<--------| state="111..." |<---- ...
-| sequence=0     |         | sequence=1     |         | sequence=2     |
+| owner="1Et..." | signed  | owner="1Et..." | signed  | owner="1cJ..." |
+| zf0="7e4..."   |<--------| zf0="111..."   |<--------| zf0="111..."   |<---- ...
+| seqn=0         |         | seqn=1         |         | seqn=2         |
 |                |         | sig="xxxx"     |         | sig="xxxx"     |
 +----------------+         +----------------+         +----------------+
         |                          |                          |
         |        off-chain         |                          |
 ~ ~ ~ ~ | ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~|~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ | ~ ~ ~ ~ ~ ~ ~ ...
         |         on-chain         |                          |
-        V                          V                          V
+        V                          V (hash as name state)     V
 +----------------+         +----------------+         +----------------+
 | res_publica.id |         |    jude.id     |         | res_publica.id |
 |  NAME_UPDATE   |<--------|  NAME_UPDATE   |<--------|  NAME_UPDATE   |<---- ...
