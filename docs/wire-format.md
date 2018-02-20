@@ -59,6 +59,7 @@ Notes:
 Op: `:`
 
 `OP_RETURN` wire format (2 variations allowed):
+
 Variation 1:
 ```
     0    2  3                             39
@@ -94,6 +95,7 @@ hash for a name without the extra `NAME_UPDATE` transaction.
 Op: `:`
 
 `OP_RETURN` wire format (2 variations allowed):
+
 Variation 1:
 ```
     0    2  3                             39
