@@ -256,9 +256,70 @@ degree(neighbor)/degree(N))` like it is in the vanilla MH algorithm.  Instead,
 the transition probability discourages backtracking to the previous neighbor *N_prev*, 
 but in a way that still guarantees that the sampling will remain unbiased.
 
+* A peer does not report its entire neighbor set when queried,
+but only reports a random subset of peers that have met a minimium health threshold.
+
 The algorithm was adapted from the work from [Lee, Xu, and
 Eun](https://arxiv.org/pdf/1204.4140.pdf) in the proceedings of 
 ACM SIGMETRICS 2012.
+
+### Comparison to DHTs
+
+The reason Atlas uses an unstructured random peer network
+instead of a [distributed hash table](https://en.wikipedia.org/wiki/Distributed_hash_table)
+(DHT) is that DHTs are susceptbile to Sybil attacks.  An adaptive adversary can
+insert malicious nodes into the DHT in order to stop victims from
+resolving chunks or finding honest neighbors.
+
+#### Chunk Censorship
+
+In a DHT, an attacker can censor a chunk by inserting nodes into the peers' routing tables
+such that the attacker takes control over all of the chunk's hash buckets.
+It can do so at any point in time after the chunk was first stored,
+because only the peers who maintain the chunk's hash bucket have to store it.
+This is a *fundamental* problem with structured overlay networks
+that perform request routing based on content hash---they give the attacker
+insight as to the path(s) the queries take through the peer graph, and thus
+reduce the number of paths the attacker must disrupt in order to censor the
+chunk.
+
+Atlas uses an unstructured overlay network combined with a 100% chunk 
+replication strategy in order to maximize
+the amount of work an adversary has to do to censor a chunk.  
+In Atlas, all peers replicate a chunk, and the paths the chunk take through the
+network are *independent* of the content and *randomized* by the software
+(so the paths cannot be predicted in advance).   The attacker's only
+recourse is to quickly identify the nodes that can serve the chunk and partition them from
+the rest of the network in order to carry out a censorship attack.
+This requires them to have visibility into the vast majority of network links in
+the Atlas network (which is extremely difficult to do, because in practice Atlas
+peers maintain knowledge of up to 65536 neighbors and only report 10 random peers
+when asked).
+
+#### Neighbor Censorship
+
+Another problem with DHTs is that their overlay
+network structure is determined by preferential attachment.  Not every peer that
+contacts a given DHT node has an equal chance of becoming its neighbor.
+The node will instead rank a set of peers as being more or less ideal
+for being neighbors.  In DHTs, the degree of preference a node exhibits to
+another node is usually a function of the node's self-given node identifier
+(e.g. a node might want to select neighbors based on proximity in the key
+space).
+
+The preferential attachment property means that an adaptive adversary can game the node's
+neighbor selection algorithm by inserting malicious nodes that do not
+forward routing or lookup requests.  The attacker does not even have to eclipse
+the victim node---the victim node will simply prefer to talk to the attacker's unhelpful nodes
+instead of helpful honest nodes.  In doing so, the attacker can prevent honest peers from discovering each
+other and each other's chunks.
+
+Atlas's neighbor selection strategy does not exhibit preferential attachment
+based on any self-reported node properties.  A
+node is selected as a neighbor only if it is reached through an unbiased random graph
+walk, and if it responds to queries correctly.
+In doing so, an attacker is forced to completely eclipse a set of nodes
+in order to cut them off from the rest of the network.
 
 ## Chunk Propagation
 
