@@ -259,6 +259,10 @@ but in a way that still guarantees that the sampling will remain unbiased.
 * A peer does not report its entire neighbor set when queried,
 but only reports a random subset of peers that have met a minimium health threshold.
 
+* A new neighbor is only selected if it belongs to the same [BNS
+  fork-set](blockstack_naming_service.md#bns-forks) (i.e. it reports
+as having a recent valid consensus hash).
+
 The algorithm was adapted from the work from [Lee, Xu, and
 Eun](https://arxiv.org/pdf/1204.4140.pdf) in the proceedings of 
 ACM SIGMETRICS 2012.
