@@ -91,7 +91,7 @@ Atlas is ideal for tasks like:
 # Motivation
 
 Atlas was designed to augment BNS.  BNS allows each name to store a small
-amount of state--on the order of 20 bytes.  The size is so small because the
+amount of state---on the order of 20 bytes.  The size is so small because the
 state must be recorded to a public blockchain, where the cost per byte is
 high and the blockchain protocol limits the size of transactions.
 
@@ -112,7 +112,7 @@ While the Blockstack software stack expects that Atlas-hosted data is made up of
 DNS zone files, Atlas itself does not enforce this (nor does it care about the
 format of its chunks).  It is designed as a general-purpose chunk store.
 Nevertheless, the ubiquitous use of Atlas to store data as DNS zone files has
-had an influence on its API design--fields and method names frequently allude
+had an influence on its API design---fields and method names frequently allude
 to zone files and zone file hashes.  This is intentional.
 
 The [public BNS API endpoint](https://core.blockstack.org) does not support
@@ -282,7 +282,7 @@ such that the attacker takes control over all of the chunk's hash buckets.
 It can do so at any point in time after the chunk was first stored,
 because only the peers who maintain the chunk's hash bucket have to store it.
 This is a *fundamental* problem with structured overlay networks
-that perform request routing based on content hash--they give the attacker
+that perform request routing based on content hash---they give the attacker
 insight as to the path(s) the queries take through the peer graph, and thus
 reduce the number of paths the attacker must disrupt in order to censor the
 chunk.
@@ -314,7 +314,7 @@ space).
 The preferential attachment property means that an adaptive adversary can game the node's
 neighbor selection algorithm by inserting malicious nodes that do not
 forward routing or lookup requests.  The attacker does not even have to eclipse
-the victim node--the victim node will simply prefer to talk to the attacker's unhelpful nodes
+the victim node---the victim node will simply prefer to talk to the attacker's unhelpful nodes
 instead of helpful honest nodes.  In doing so, the attacker can prevent honest peers from discovering each
 other and each other's chunks.
 
