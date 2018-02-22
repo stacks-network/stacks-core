@@ -213,7 +213,7 @@ registration) would be set by the developer and sent to a developer-controlled
 blockchain address.
 
 Developers wanting to create their own namespaces should read the [namespace
-creation](namespace-creation.md) document.
+creation](namespace_creation.md) document.
 
 Developers can query individual namespaces and look up names within them using
 the BNS API.  The API offers routes to do the following: 
@@ -294,7 +294,7 @@ uses  the `Name State` field to store the hash of a
 [DNS zone file](https://en.wikipedia.org/wiki/Zone_file), which contains
 URLs that point to the name owner's Blockstack application data.
 BNS nodes eagerly replicate zone files they discover to one another via the
-[Atlas Network](atlas-network.md), so BNS name lookups will often resolve both
+[Atlas Network](atlas_network.md), so BNS name lookups will often resolve both
 to their on-chain state and their off-chain zone file data.
 
 Developers can query this table via the BNS API.  The API offers routes
@@ -486,7 +486,8 @@ $ curl https://core.blockstack.org/v1/addresses/bitcoin/16EMaNw3pkn3v6f2BgnSSs53
 }
 ```
 
-Note that this API endpoint includes names and [subdomains](subdomains).
+Note that this API endpoint includes names and
+[subdomains](#bns-subdomains).
 
 ## Registering BNS Names
 
@@ -516,9 +517,11 @@ minutes or hours, depending on how fast the underlying blockchain is able to
 confirm transactions.
 
 Names are registered on a first-come first-serve basis, thereby ensuring that they are
-globally unique.  Any unclaimed, well-formed name can be registered.  See the
-[Implementation Notes](implementation-notes) for specific rules about what characters and lengths
-are permitted.
+globally unique.  Any unclaimed, well-formed name can be registered.  Due to
+space constraints on the blockchain, the reference implementation limits
+names to 37 characters (including their namespace).  To prevent [homoglyph
+attacks](https://en.wikipedia.org/wiki/IDN_homograph_attack),
+a name's characters are limited to `a-z`, `0-9`, `+`, `-`, and `_`.
 
 Registration happens through a BNS client, such as the [Blockstack
 Browser](https://github.com/blockstack/blockstack-browser) or
@@ -549,9 +552,13 @@ Each of these operations can be thought of as executing `UPDATE/SET/WHERE`
 SQL commands on the BNS node's name table.
 Each name operation is implemented as a single blockchain transaction.
 
-Performing a name operation happens through a BNS client, such as the
+BNS name operations are encoded as transactions in the underlying blockchain.
+BNS clients carry out these operations by generating a well-formed transaction
+that encodes the operation, and broadcasting it to the blockchain's peer
+network.  See the documentation for 
 [Blockstack Browser](https://github.com/blockstack/blockstack-browser) or
-[blockstack.js](https://github.com/blockstack/blockstack.js).
+[blockstack.js](https://github.com/blockstack/blockstack.js) for information on
+how to carry out a name operation.
 
 ## BNS Subdomains
 
@@ -565,7 +572,7 @@ BNS overcomes this with subdomains.  A **BNS subdomain** is a type of BNS name w
 and owner are stored outside of the blockchain, but whose existence and
 operation history are anchored to the
 blockchain.  In the example table in the [Resolving BNS
-Names](resolving-bns-names) section, the names `cicero.res_publica.id` and
+Names](#resolving-bns-names) section, the names `cicero.res_publica.id` and
 `podsaveamerica.verified.podcast` are subdomains.
 
 Like their on-chain counterparts, subdomains are globally
@@ -577,7 +584,7 @@ cheaply, because they are broadcast to the
 BNS network in batches.  A single blockchain transaction can send up to 120
 subdomain operations.
 
-This is achieved by storing subdomain records in the [Atlas Network](atlas-network.md).
+This is achieved by storing subdomain records in the [Atlas Network](atlas_network.md).
 An on-chain name owner broadcasts subdomain operations by encoding them as
 `TXT` records within a DNS zone file.
 To broadcast the zone file, the owner sets the name's state value to be 
@@ -787,7 +794,9 @@ requiring them to spend any Bitcoin.
 
 We supply a reference
 implementation of a [BNS Subdomain Registrar](https://github.com/blockstack/subdomain-registrar)
-to help developers register and manage subdomains.
+to help developers broadcast subdomain operations.  Users would still own their
+subdomain names; the registrar simply gives developers a convenient way for them
+to register and manage them in the context of a particular application.
 
 ## BNS Forks
 
@@ -799,7 +808,8 @@ every other (honest) BNS peer that has the same view of the blockchain.
 Crucially, BNS is built on top of a public blockchain that is *unaware* of BNS's existence.
 This means that the blockchain peers do not validate BNS transactions.  Instead,
 the BNS peer needs to do so, and must know how to *reject* both invalid transactions
-as well as well-formed transactions from dishonest peers.
+as well as well-formed transactions from dishonest peers (i.e. peers that do not
+follow the same consensus rules).
 
 BNS nodes do not directly communicate with one another---by design, the set of
 BNS peers is not enumerable.  The only shared communication medium between BNS
@@ -914,7 +924,7 @@ Work is currently underway to automate this process.
 ## Decentralized Identifiers (DIDs)
 
 BNS nodes are compliant with the emerging
-[Decentralized Identity Foundation](https://identity.foundation) protocol
+[Decentralized Identity Foundation](http://identity.foundation) protocol
 specification for decentralized identifiers (DIDs).
 
 Each name in BNS has an associated DID.  The DID format for BNS is:
@@ -946,14 +956,15 @@ name:
 
 * The name must exist
 * The name's state value must be the hash of a DNS zone file
-* The DNS zone file must be present in the BNS [Atlas Network](atlas-network.md)
+* The DNS zone file must be present in the BNS [Atlas Network](atlas_network.md)
 * The DNS zone file must contain a `URI` resource record that points to a signed
   JSON Web Token
 * The public key that signed the JSON Web Token (and is included with it) must
   hash to the address that owns the name
 
-Not all names will have DIDs.  However, names created by the [Blockstack
-Browser](https://github.com/blockstack/blockstack-browser) will all have DIDs.
+Not all names will have DIDs that resolve to public keys.  However, names created by the [Blockstack
+Browser](https://github.com/blockstack/blockstack-browser) will have DIDs that
+do.
 
 Developers can programmatically resolve DIDs via the Python API:
 
@@ -964,6 +975,46 @@ Developers can programmatically resolve DIDs via the Python API:
 ```
 
 A RESTful API is under development.
+
+### DID Encoding for Subdomains
+
+Every name and subdomain in BNS has a DID.  The encoding is slightly different
+for subdomains, so the software can determine which code-path to take.
+
+* For on-chain BNS names, the `{address}` is the same as the Bitcoin address
+  that owns the name.  Currently, both version byte 0 and version byte 5
+addresses are supported (i.e. addresses starting with `1` or `3`, meaning `p2pkh` and
+`p2sh` addresses).
+
+* For off-chain BNS subdomains, the `{address}` has version byte 63 for
+  subdomains owned by a single private key, and version byte 50 for subdomains
+owned by a m-of-n set of private keys.  That is, subdomain DID addresses start
+with `S` or `M`, respectively.
+
+The `{index}` field for a subdomain's DID is distinct from the `{index}` field
+for a BNS name's DID, even if the same created both names and subdomains.
+For example, the name `abcdefgh123456.id` has the DID `did:stack:v0:16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg-0`,
+because it was the first name created by `16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg`.
+However, `16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg` *also* created `jude.statism.id`
+as its first subdomain name.  The DID for `jude.statism.id` is
+`did:stack:v0:SSXMcDiCZ7yFSQSUj7mWzmDcdwYhq97p2i-0`.  Note that the address
+`SSXMcDiCZ7yFSQSUj7mWzmDcdwYhq97p2i` encodes the same public key hash as the address
+`16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg` (the only difference between these two
+strings is that the first is base58check-encoded with version byte 0, and the
+second is encoded with version byte 63).
+
+You can see this play out in practice with the following code snippit:
+
+```python
+>>> import blockstack
+>>> blockstack.lib.client.get_name_record('jude.statism.id', hostport='https://node.blockstack.org:6263')['address']
+u'16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg'
+>>> import virtualchain
+>>> virtualchain.address_reencode('16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg', version_byte=63)
+'SSXMcDiCZ7yFSQSUj7mWzmDcdwYhq97p2i'
+>>> blockstack.lib.client.resolve_DID('did:stack:v0:SSXMcDiCZ7yFSQSUj7mWzmDcdwYhq97p2i-0', hostport='https://node.blockstack.org:6263')
+{'public_key': '020fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc8'}
+```
 
 ## Summary
 
