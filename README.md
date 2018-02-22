@@ -178,6 +178,7 @@ docker run -d \
   -v './data/core/api/:/root/.blockstack' \ 
   -p '6264:6264' \ 
   --restart 'always' \
+  --name 'blockstack-core' \
   quay.io/blockstack/blockstack-core:master \ 
   blockstack-core start --foreground --debug
 
@@ -187,6 +188,7 @@ docker run -d \
   -v './data/api/tmp:/tmp' \ 
   -e 'BLOCKSTACK_CLIENT_INTERACTIVE_YES=0' \ 
   -p '6270:6270' \ 
+  --name 'blockstack-api' \
   --restart 'always' \ 
   quay.io/blockstack/blockstack-core:master \ 
   blockstack api start-foreground -y --debug --password dummywalletpassword
