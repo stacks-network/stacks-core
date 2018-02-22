@@ -189,7 +189,7 @@ At the time of this writing, by far the largest BNS namespace is the `.id`
 namespace.  Names in the `.id` namespace are meant for resolving user
 identities.  Short names in `.id` are more expensive than long names, and have
 to be renewed by their owners every two years.  Name registration fees are not
-paid to anyone in particular---they are instead sent to a "black hole" where they are
+paid to anyone in particular--they are instead sent to a "black hole" where they are
 rendered unspendable (the intention is to discourage ID sqautters).
 
 Unlike DNS, *anyone* can create a namespace and set its properties.
@@ -503,7 +503,7 @@ thing, since it prevents spammers from both filling up the blockchain with
 garbage data and in turn prevents spammers from filling up BNS name databases with junk.
 
 In addition to the transaction fee, BNS imposes a *registration fee*.  Not all
-names are created equal---some names are more desirable than others.  BNS
+names are created equal--some names are more desirable than others.  BNS
 uses the registration fee to ensure that more desirable names cost more, so they
 are less likely to be squatted.  In addition, the registration fee is an
 incentive mechanism for developers to create and curate namespaces
@@ -811,7 +811,7 @@ the BNS peer needs to do so, and must know how to *reject* both invalid transact
 as well as well-formed transactions from dishonest peers (i.e. peers that do not
 follow the same consensus rules).
 
-BNS nodes do not directly communicate with one another---by design, the set of
+BNS nodes do not directly communicate with one another--by design, the set of
 BNS peers is not enumerable.  The only shared communication medium between BNS
 peers is the blockchain.
 
