@@ -289,7 +289,7 @@ chunk.
 
 Atlas uses an unstructured overlay network combined with a 100% chunk 
 replication strategy in order to maximize
-the amount of work an adversary has to do to censor a chunk.  
+the amount of work an adversary has to do to censor a chunk.
 In Atlas, all peers replicate a chunk, and the paths the chunk take through the
 network are *independent* of the content and *randomized* by the software
 (so the paths cannot be predicted in advance).   The attacker's only
