@@ -206,7 +206,7 @@ Notes:
 - You will need `sudo` access to run the above scripts
 - You can run more than one instance of this setup per host. Allow at least 1 CPU core for each container
 - To configure a different `bitcoind` node, or `utxo_provider` for both containers you must change those settings in both `blockstack-server.ini` and `client.ini` before running the `./docker-tools.sh init-*` commands. After `init-*` has been run you must edit the `data/core/server/blockstack-server.ini` and `data/api/client.ini` to change those settings. 
-Â
+
 ## Running a Blockstack Core Node
 
 There are two parts to this:
