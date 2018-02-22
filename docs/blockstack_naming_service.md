@@ -1054,7 +1054,7 @@ describes how BNS differs from other naming systems
 | Portable across blockchains | X  |     | N/A |   N/A    |
 | Off-chain names            | X   |     | N/A  |         |
 | Name provenance            | X   | X   |      |   X     |
-| [DID](https://identity.foundation) support | X   |     |     |          |
+| [DID](http://identity.foundation) support | X   |     |     |          |
 | Turing-complete namespace rules |  | X  | X  |          |
 | Miners are rewarded for participating  | [1] |    | N/A  |  X |
 
