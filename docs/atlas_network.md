@@ -34,7 +34,7 @@ interact with it directly.  BNS clients like the
 [Blockstack Browser](https://github.com/blockstack/blockstack-browser)
 automatically generate zone files for the names they register, and automatically
 propagate them to the Atlas network.  BNS API endpoints, including our
-[public](https://core.blockstack.org) endpoint and the
+[public endpoint](https://core.blockstack.org) and the
 [blockstack.js](https://github.com/blockstack/blockstack.js) library,
 will automatically fetch zone files from Atlas when they need to look
 up data in Gaia (such as profiles and app data).
