@@ -34,9 +34,10 @@ immediately transferrable to Blockstack.
 
 Blockstack applications look and feel like traditional Web applications.
 Under the hood they use Blockstack APIs for user authentication and storage.
-Blockstack handles user authentication using the **Blockstack Naming Service**
+Blockstack handles user authentication using the [Blockstack Naming
+Service](docs/blockstack_naming_service)
 (BNS), a decentralized DNS/PKI system for user names built on top of the Bitcoin
-blockchain.  It handles storage using **Gaia**, a scalable decentralized
+blockchain.  It handles storage using [Gaia](https://github.com/blockstack/gaia), a scalable decentralized
 key/value storage system that looks and feels like `localStorage`,
 but lets users securely store and share application data
 via existing storage systems like Dropbox or S3.
@@ -76,8 +77,8 @@ integrate into existing Web apps.
 
 ## What is Blockstack Core?
 
-Blockstack Core implements BNS and the storage routing system for Gaia (called
-**Atlas**).  Blockstack Core
+Blockstack Core implements BNS and [Atlas](docs/atlas_network.md), the storage
+routing system for Gaia.  Blockstack Core
 nodes form the backbone of the Blockstack network.  Each node indexes the
 Bitcoin blockchain and maintains a full replica of all names,
 public keys, and storage routing information.  This makes the Blockstack network
