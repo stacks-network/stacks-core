@@ -521,7 +521,8 @@ globally unique.  Any unclaimed, well-formed name can be registered.  See the
 are permitted.
 
 Registration happens through a BNS client, such as the [Blockstack
-Browser](https://github.com/blockstack/blockstack-browser). 
+Browser](https://github.com/blockstack/blockstack-browser) or
+[blockstack.js](https://github.com/blockstack/blockstack.js). 
 
 ## Managing BNS Names
 
@@ -549,7 +550,8 @@ SQL commands on the BNS node's name table.
 Each name operation is implemented as a single blockchain transaction.
 
 Performing a name operation happens through a BNS client, such as the
-[Blockstack Browser](https://github.com/blockstack/blockstack-browser).
+[Blockstack Browser](https://github.com/blockstack/blockstack-browser) or
+[blockstack.js](https://github.com/blockstack/blockstack.js).
 
 ## BNS Subdomains
 
