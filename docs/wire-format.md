@@ -24,6 +24,7 @@ The general transaction layout is as follows:
 (3) The owner `scriptPubKey` is *always* the second output.
 (4) The payer can use as many payment inputs as (s)he likes.
 (5) At most one output will be the "change" `scriptPubKey` for the payer.
+Different operations require different outputs.
 
 ## Payload Format
 
@@ -34,6 +35,9 @@ Each `OP_RETURN` payload *always* starts with `id` (called the "magic" bytes in 
 ### NAME_PREORDER
 
 Op: `?`
+
+Description:  This transaction commits to the *hash* of a name.  It is the first
+transaction of two transactions that must be sent to register a name in BNS.
 
 `OP_RETURN` wire format:
 ```
@@ -57,6 +61,10 @@ Notes:
 ### NAME_REGISTRATION
 
 Op: `:`
+
+Description:  This transaction reveals the name whose hash was announced by a
+previous `NAME_PREORDER`.  It is the second of two transactions that must be
+sent to register a name in BNS.
 
 `OP_RETURN` wire format (2 variations allowed):
 
@@ -93,6 +101,9 @@ hash for a name without the extra `NAME_UPDATE` transaction.
 ### NAME_RENEWAL
 
 Op: `:`
+
+Description:  This transaction renews a name in BNS.  The name must still be
+registered and not expired, and owned by the transaction sender.
 
 `OP_RETURN` wire format (2 variations allowed):
 
@@ -137,6 +148,10 @@ Notes:
 
 Op: `+`
 
+Description:  This transaction sets the name state for a name to the given
+`value`.  In practice, this is used to announce new DNS zone file hashes to the [Atlas
+network](atlas_network.md).
+
 `OP_RETURN` wire format:
 ```
     0     2  3                                   19                      39
@@ -160,6 +175,9 @@ Outputs:
 ### NAME_TRANSFER
 
 Op: `>`
+
+Description:  This transaction changes the public key hash that owns the name in
+BNS.
 
 `OP_RETURN` wire format:
 ```
@@ -189,6 +207,10 @@ Notes:
 
 Op: `~`
 
+Description:  This transaction destroys a registered name.  Its name state value
+in BNS will be cleared, and no further transactions will be able to affect the
+name until it expires (if its namespace allows it to expire at all).
+
 `OP_RETURN` wire format:
 ```
     0    2  3                             39
@@ -210,6 +232,16 @@ Outputs:
 ### ANNOUNCE
 
 Op: `#`
+
+Description:  This transaction does not affect any names in BNS, but it allows a
+user to send a message to other BNS nodes.  In order for the message to be
+received, the following must be true:
+
+* The sender must have a BNS name
+* The BNS nodes must list the sender's BNS name as being a "trusted message
+  sender"
+* The message must have already been propagated through the [Atlas
+  network](atlas_network.md).  This transaction references it by content hash.
 
 `OP_RETURN` wire format:
 
@@ -236,6 +268,9 @@ Notes:
 
 Op: `*`
 
+Description:  This transaction announces the *hash* of a new namespace.  It is the
+first of three transactions that must be sent to create a namespace.
+
 `OP_RETURN` wire format:
 ```
    0     2   3                                         23               39
@@ -260,6 +295,9 @@ Notes:
 ### NAMESPACE_REVEAL
 
 Op: `&`
+
+Description:  This transaction reveals the namespace ID and namespace rules
+for a previously-anounced namespace hash (sent by a previous `NAMESPACE_PREORDER`).
 
 `OP_RETURN` wire format:
 ```
@@ -316,6 +354,11 @@ With the above example configuration, the following are true:
 
 Op: `;`
 
+Description:  This transaction registers a name and some name state into a
+namespace that has been revealed, but not been launched.  Only the namespace
+creator can import names.  See the [namespace creation
+tutorial](namespace_creation.md) for details.
+
 `OP_RETURN` wire format:
 ```
     0    2  3                             39
@@ -344,6 +387,10 @@ Notes:
 ### NAMESPACE_READY
 
 Op: `!`
+
+Description:  This transaction launches a namesapce.  Only the namespace creator
+can send this transaction.  Once sent, anyone can register names in the
+namespace.
 
 `OP_RETURN` wire format:
 ```
