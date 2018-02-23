@@ -231,7 +231,7 @@ wallet will be used to *pay for* names.
 
 **Hints**
 
-Most of the default config options are sounds.  However, there are a few to be
+Most of the default config options are sound.  However, there are a few to be
 aware of:
 
 * When prompted for a `server` and `port`, fill in the host and port
