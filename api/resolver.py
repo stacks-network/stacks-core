@@ -46,6 +46,7 @@ from api.utils import cache_control
 from .config import DEBUG
 from .config import DEFAULT_HOST, DEFAULT_CACHE_TIMEOUT
 from .config import NAMES_FILE
+from blockstack.lib.scripts import is_name_valid, is_subdomain
 
 import requests
 requests.packages.urllib3.disable_warnings()
@@ -166,17 +167,6 @@ def format_profile(profile, fqa, zone_file, address, public_key):
 
     return data
 
-NAME_PATTERN = re.compile(OP_NAME_PATTERN)
-NS_PATTERN = re.compile(OP_NAMESPACE_PATTERN)
-def is_valid_fqa(fqa):
-    if (NAME_PATTERN.match(fqa) is None):
-        return False
-    try:
-        username, ns = fqa.split(".")
-    except:
-        return False
-    return (NS_PATTERN.match(ns) is not None)
-
 def get_profile(fqa):
     """ Given a fully-qualified username (username.namespace)
         get the data associated with that fqu.
@@ -186,24 +176,8 @@ def get_profile(fqa):
     profile_expired_grace = False
 
     fqa = fqa.lower()
-    if not is_valid_fqa(fqa):
-        fqa = str(fqa)
-        res = blockstack_client.subdomains.is_address_subdomain(fqa)
-        if res:
-            subdomain, domain = res[1]
-            try:
-                resp = blockstack_client.subdomains.resolve_subdomain(subdomain, domain)
-                data = { 'profile' : resp['profile'],
-                         'zone_file': resp['zonefile'],
-                         'public_key': resp.get('public_key', None),
-                         'verifications' : [] }
-                return data
-            except blockstack_client.subdomains.SubdomainNotFound as e:
-                log.exception(e)
-                abort(404, json.dumps({'error' : 'Name {} not found'.format(fqa)}))
-
-        return {'error' : 'Malformed name {}'.format(fqa)}
-
+    if (not is_name_valid(fqa)) and (not is_subdomain(fqa)):
+        return {'error': 'Malformed name {}'.format(fqa)
 
     try:
         res = blockstack_client.profile.get_profile(
