@@ -46,7 +46,6 @@ from api.utils import cache_control
 from .config import DEBUG
 from .config import DEFAULT_HOST, DEFAULT_CACHE_TIMEOUT
 from .config import NAMES_FILE
-from blockstack.lib.scripts import is_name_valid, is_subdomain
 
 import requests
 requests.packages.urllib3.disable_warnings()
@@ -176,8 +175,6 @@ def get_profile(fqa):
     profile_expired_grace = False
 
     fqa = fqa.lower()
-    if (not is_name_valid(fqa)) and (not is_subdomain(fqa)):
-        return {'error': 'Malformed name {}'.format(fqa)
 
     try:
         res = blockstack_client.profile.get_profile(
