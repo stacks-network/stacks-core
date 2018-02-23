@@ -558,7 +558,8 @@ that encodes the operation, and broadcasting it to the blockchain's peer
 network.  See the documentation for 
 [Blockstack Browser](https://github.com/blockstack/blockstack-browser) or
 [blockstack.js](https://github.com/blockstack/blockstack.js) for information on
-how to carry out a name operation.
+how to carry out a name operation.  Also, see the [transaction wire
+format](wire-format.md) document for details on transaction encoding.
 
 ## BNS Subdomains
 
@@ -797,6 +798,8 @@ implementation of a [BNS Subdomain Registrar](https://github.com/blockstack/subd
 to help developers broadcast subdomain operations.  Users would still own their
 subdomain names; the registrar simply gives developers a convenient way for them
 to register and manage them in the context of a particular application.
+Please see the [tutorial on running a subdomain registrar](subdomains.md) for
+details on how to use it.
 
 ## BNS Forks
 
