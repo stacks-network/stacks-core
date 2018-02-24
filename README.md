@@ -150,7 +150,65 @@ $ sudo pip install blockstack --upgrade
 
 ### Install with `docker`
 
-TODO
+Another way to run `blockstack-core` is through docker. We provide per-commit image builds of this repository that are [available on quay.io](https://quay.io/repository/blockstack/blockstack-core?tab=tags).
+
+The common workflow for running in docker is to `--fast_sync` a `blockstack-core` node's data to a location on the host and then start up a container on top of that data. You will need at least ~5GB of disk to run each instance. There is a sample implementation of running the `blockstack-core` and `blockstack api` components in the [`tools/docker`](/tools/docker) folder. The instructions below show how to use that implementation:
+
+```shell
+# Clone the repo and navigate to the tools/docker dir:
+git clone git@github.com:blockstack/blockstack-core.git
+cd blockstack-core/tools/docker
+
+# Initialize the core node and api wallet
+./docker-tools.sh init-core
+./docker-tools.sh init-api
+
+# Wait for the core node to initialize (~15-20 min)
+# Check if job is still running:
+docker ps -f name=blockstack-core-init
+
+# Once job finishes start the containers with docker-compose
+docker-compose up -d
+
+# OR
+
+# Once the job finishes start the containers
+# blockstack-core
+docker run -d \
+  -v './data/core/server/:/root/.blockstack-server' \ 
+  -v './data/core/api/:/root/.blockstack' \ 
+  -p '6264:6264' \ 
+  --restart 'always' \
+  --name 'blockstack-core' \
+  quay.io/blockstack/blockstack-core:master \ 
+  blockstack-core start --foreground --debug
+
+# blockstack api
+docker run -d \ 
+  -v './data/api:/root/.blockstack' \ 
+  -v './data/api/tmp:/tmp' \ 
+  -e 'BLOCKSTACK_CLIENT_INTERACTIVE_YES=0' \ 
+  -p '6270:6270' \ 
+  --name 'blockstack-api' \
+  --restart 'always' \ 
+  quay.io/blockstack/blockstack-core:master \ 
+  blockstack api start-foreground -y --debug --password dummywalletpassword
+
+# Test connectivity for the blockstack-core container
+# NOTE: It can take some time (~1-5 min) before the RPC 
+# interface becomes available
+./docker-tools.sh test-core localhost 6264
+
+# Test connectivity for the blockstack api container
+./docker-tools.sh test-api localhost 6270
+```
+
+Notes:
+- This method is currently only fully supported on Linux.
+- The `blockstack-core` instance runs in docker on MacOS with no problems. To enable this comment out the `blockstack api` section in the `docker-compose.yaml` file and don't run the `./docker-tools.sh init-api` command.
+- You will need `sudo` access to run the above scripts
+- You can run more than one instance of this setup per host. Allow at least 1 CPU core for each container
+- To configure a different `bitcoind` node, or `utxo_provider` for both containers you must change those settings in both `blockstack-server.ini` and `client.ini` before running the `./docker-tools.sh init-*` commands. After `init-*` has been run you must edit the `data/core/server/blockstack-server.ini` and `data/api/client.ini` to change those settings. 
 
 ## Running a Blockstack Core Node
 
