@@ -38,7 +38,7 @@ IDs to a small amount of on-chain data (usually a hash of off-chain data).
 names in BNS.  It operates under similar design principles to BitTorrent, and
 has no single points of failure.  The network is self-healing---if a node
 crashes, it quickly recovers all of its state from its peers.
-* The [Gaia](https://github.com/blockstack/gaia) storage system lets users
+* The [Gaia storage system](https://github.com/blockstack/gaia) lets users
   choose where their application data gets hosted.  Gaia reduces all storage
 systems---from cloud storage to peer-to-peer networks---to dumb, interchangeable
 hard drives.  Users have maximum flexibility and control over their data in a
@@ -122,7 +122,14 @@ documentation for a full description.
 
 This is also a Blockstack ID, and can be used for all the things a Blockstack ID
 can be used for.  The only difference is that they have the format `foo.bar.baz`
-instead of `bar.baz`.
+instead of `bar.baz`.  For example,
+[jude.personal.id](https://core.blockstack.org/v1/users/jude.personal.id) is a 
+Blockstack ID, and is a subdomain of `personal.id`.
+
+Subdomains are first-class Blockstack IDs---they can be used for all the same
+things that an on-chain Blockstack ID can be used for, and they have all of
+the same safety properties.  They are globally unique, they are strongly owned
+by a private key, and they are human-readable.
 
 Subdomains are considerably cheaper than Blockstack IDs, since hundreds of them
 can be registered with a single transaction.  The [BNS
@@ -147,7 +154,7 @@ Yes!  Blockstack is geared primarily towards Web developers.  All of your
 existing knowledge is immediately applicable to Blockstack.  Anything you can do
 in a Web browser, you can do in a Blockstack app.
 
-## I'm a developer, but not for the Web.  Can I build on Blockstack?
+## I'm a non-Web developer.  Can I build on Blockstack?
 
 Yes!  Blockstack implements a [RESTful API](https://core.blockstack.org) which
 lets you interact with Blockstack from any language and any runtime.  In fact,
@@ -156,11 +163,29 @@ the reference client
 wrapper around these RESTful API calls, so you won't be missing much by using a
 language other than Javascript.
 
+## What's the difference between a Web app and a Blockstack app?
+
+Blockstack apps are built like [single-page Web
+apps](https://en.wikipedia.org/wiki/Single-page_application)---they are, in
+fact, a type of Web application.
+
+Blockstack apps are a subset of Web applications that use Blockstack's
+technology to preserve the user's control over their identities and data.
+As such, they tend to be simpler
+in design and operation, since in many cases they don't have to host anything
+besides the application's assets.
+
+## Do I need to learn any new languages or frameworks?
+
+No.  Blockstack applications are built using existing Web frameworks and programming
+The only new thing you need to learn is either [blockstack.js](https://github.com/blockstack/blockstack.js) or
+the [Blockstack RESTful API](https://core.blockstack.org).
+
 ## How does my Web app interact with Blockstack?
 
 The [blockstack.js](https://github.com/blockstack/blockstack.js) library gives
 any Web application the ability to interact with Blockstack's authentication and
-storage services.
+storage services.  In addition, we supply a [public RESTful API](https://core.blockstack.org).
 
 ## What does `blockstack.js` do?
 
@@ -205,7 +230,8 @@ You should use the [Blockstack Browser](https://github.com/blockstack/blockstack
 
 ## How do I register Blockstack Subdomains?
 
-You should deploy and use a [Blockstack Subdomain Registrar](subdomains.md).
+You can deploy and use a [Blockstack Subdomain Registrar](subdomains.md), or
+use an existing one.
 
 ## Can I programmatically register Blockstack IDs?
 
@@ -236,6 +262,26 @@ private Blockstack testnet.  It uses `bitcoin -regtest` to create a private
 blockchain that you can interact with, without having to spend any Bitcoin or
 having to wait for blocks to confirm.  Please see the
 [README](../integration-tests/README.md) for details.
+
+## Does Blockstack have a smart contract system?
+
+No, not yet.  This is because
+Blockstack's design philosophy focuses on keeping system complexity at the 
+"edges" of the network (e.g. clients), instead of the "core" of the network (e.g. 
+the blockchain), in accordance with the [end-to-end
+principle](https://en.wikipedia.org/wiki/End-to-end_principle).
+Generally speaking, this can be interpreted as "if you can do X without 
+a smart contract, you should do X without a smart contract."  This organizing
+principle applies to a lot of useful decentralized applications.
+
+## Can Blockstack applications interact with Bitcoin? Ethereum? Smart contracts? Other blockchains?
+
+Yes!  Since Blockstack applications are built like Web applications, all you need to do is include the
+relevant Javascript library into your application.
+
+## Do you have a Blockstack app development tutorial?
+
+Yes!  See [here](https://blockstack.org/tutorials).
 
 # Comparisons to Other Systems
 
@@ -313,3 +359,27 @@ paper](https://blockstack.org/virtualchain_dccl2016.pdf) for details).
 
 A feature comparison can be found at the end of the [Blockstack Naming
 Service](blockstack_naming_service.md) document.
+
+## Blockstack vs Ethereum
+
+Blockstack and Ethereum both strive to provide a decentralized application
+platform.  Blockstack's design philosophy differs from Ethereum's design
+philosophy in that Blockstack emphasizes treating the blockchain as a "dumb
+ledger" with no special functionality or properties beyond a few bare minimum
+requirements.  Instead, it strives to do everything off-chain---an application of the [end-to-end principle](https://en.wikipedia.org/wiki/End-to-end_principle).
+Most Blockstack applications do *not*
+interact with the blockchain, and instead interact with Blockstack
+infrastructure through client libraries and RESTful endpoints.
+This is evidenced by Blockstack's decision to implement its naming system (BNS), discovery and routing system
+(Atlas), and storage system (Gaia) as blockchain-agnostic components that can be
+ported from one blockchain to another.
+
+Ethereum takes the opposite approach.  Ethereum dapps are expected to interface
+directly with on-chain smart contract logic, and are expected to host a
+non-trivial amount of state in the blockchain itself.  This is necessary for
+them, because many Ethereum dapps' business logic is centered around the
+mechanics of an ERC20 token.
+
+Blockstack does not implement a smart contract system (yet), but it will soon
+implement a [native token](https://blockstack.com/distribution.pdf) that will be
+accessible to Blockstack applications.
