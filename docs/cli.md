@@ -166,55 +166,7 @@ $ blockstack configure
 
 ```bash
 $ blockstack  configure
----------------------------------------------------------
-Your client does not have enough information to connect
-to a Blockstack server.  Please supply the following
-parameters, or press [ENTER] to select the default value.
----------------------------------------------------------
-blockchain_headers (default: '/home/jude/.blockstack/blockchain-headers.dat'):
-blockchain_writer (default: 'blockcypher'):
-api_endpoint_port (default: '6270'):
-poll_interval (default: '300'):
-metadata (default: '/home/jude/.blockstack/metadata'):
-server (default: 'node.blockstack.org'):
-advanced_mode (default: 'False'):
-blockchain_reader (default: 'blockcypher'):
-email (default: ''):
-rpc_token (default: '2dbf700c6c0d546be23ad7ae4e5e1bbb6cdaa10a3ae4deca8e598bf9ec58fc6a'):
-storage_drivers_required_write (default: 'disk,blockstack_server'):
-queue_path (default: '/home/jude/.blockstack/queues.db'):
-storage_drivers (default: 'disk,blockstack_resolver,blockstack_server,http,dht'):
-path (default: '/home/jude/.blockstack/client.ini'):
-client_version (default: '0.0.13.4'):
-rpc_detach (default: 'True'):
-port (default: '6264'):
-dir (default: '/home/jude/.blockstack/client.ini'):
-anonymous_statistics (default: 'True'):
---------------------------------------------------------
-Blockstack does not have enough information to connect
-to bitcoind.  Please supply the following parameters, or
-press [ENTER] to select the default value.
---------------------------------------------------------
-mock (default: 'False'):
-passwd (default: 'blockstacksystem'):
-server (default: 'bitcoin.blockstack.com'):
-user (default: 'blockstack'):
-timeout (default: '300.0'):
-port (default: '8332'):
-use_https (default: 'False'):
--------------------------------
-Blockchain reader configuration
-----------------------------------------
-Please enter your Blockcypher API token.
-----------------------------------------
-api_token (default: ''):
--------------------------------
-Blockchain writer configuration
-----------------------------------------
-Please enter your Blockcypher API token.
-----------------------------------------
-api_token (default: ''):
-Saving configuration to /home/jude/.blockstack/client.ini
+# ... interactive prompts ...
 {
     "path": "/home/jude/.blockstack/client.ini"
 }
