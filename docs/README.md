@@ -26,7 +26,7 @@ from this file.
 * [blockstack.js](https://github.com/blockstack/blockstack.js)
 * [Blockstack Browser](https://github.com/blockstack/blockstack-browser)
 * [Blockstack Core API](https://core.blockstack.org)
-* [Integration Test Framework](../integration-tests/README.md)
+* [Integration Test Framework](../integration_tests/README.md)
 
 ## Advanced Topics
 

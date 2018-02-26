@@ -257,11 +257,11 @@ create a program that drives subdomain registration on your Blockstack ID.
 
 ## Do you have a testnet or sandbox to experiment with Blockstack?
 
-We have an [integration test framework](../integration-tests) that provides a
+We have an [integration test framework](../integration_tests) that provides a
 private Blockstack testnet.  It uses `bitcoin -regtest` to create a private
 blockchain that you can interact with, without having to spend any Bitcoin or
 having to wait for blocks to confirm.  Please see the
-[README](../integration-tests/README.md) for details.
+[README](../integration_tests/README.md) for details.
 
 ## Does Blockstack have a smart contract system?
 
