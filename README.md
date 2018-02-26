@@ -14,10 +14,11 @@ If you are looking to get started with Blockstack applications, we recommend you
 - [What is Blockstack Core?](#what-is-blockstack-core)
 - [Installing Blockstack Core](#installing-blockstack-core)
 - [Running a Blockstack Core Node](#running-a-blockstack-core-node)
-- [Development Status](#development-status)
-- [Blockstack Docs](#blockstack-docs)
+- [Using Blockstack Core](#using-blockstack-core)
+- [Troubleshooting](#troubleshooting)
+- [Developer Resources](#blockstack-docs)
 - [Contributing](#contributing)
-- [Further Information](#further-information)
+- [Further Information](#further-reading)
 - [Copyright and License](#copyright-and-license)
 
 ## What is Blockstack?
