@@ -1050,18 +1050,22 @@ describes how BNS differs from other naming systems
 | Human-readable names       |  X  |  X  |  X  |    X     |
 | Strongly-owned names       |  X  |  X  |     |    X     |
 | Names are enumerable       |  X  |     |     |    X     |
-| Registration times         | 1-2 hours | ~1 week | ~1 day | ~1 hour |
+| Registration times         | 1-2 hours | ~1 week | ~1 day | 1-2 hours |
 | Subdomain registration times | 1 hour (instant with [#750](https://github.com/blockstack/blockstack-core/issues/750)) | varies | instant | ~1 hour |
-| Anyone can make a TLD/namespace | X  |     |     |      |
+| Anyone can make a TLD/namespace | X  |  [1]   |     |    [1]  |
 | TLD/Namespace owners get registration fees | X |   |   X  |   |
-| Portable across blockchains | X  |     | N/A |   N/A    |
+| TLD/Namespace can be seeded with initial names | X |  |  X |  |
+| Portable across blockchains | X  |     | N/A |    |
 | Off-chain names            | X   |     | N/A  |         |
+| Off-chain name state       | X   | X   | N/A  |         |
 | Name provenance            | X   | X   |      |   X     |
 | [DID](http://identity.foundation) support | X   |     |     |          |
 | Turing-complete namespace rules |  | X  | X  |          |
 | Miners are rewarded for participating  | [1] |    | N/A  |  X |
 
-[1] Blockstack Core destroys the underlying blockchain token to pay for
+[1] Requires support in higher-level applications.  These systems are not aware
+of the existence of namespaces/TLDs at the protocol level.
+[2] Blockstack Core destroys the underlying blockchain token to pay for
 registration fees when there is no pay-to-namespace-creator address set in the
 name's namespace.  This has the effect of making the blockchain miners' holdings
 slightly more valuable.
