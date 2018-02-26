@@ -16,8 +16,8 @@ If you are looking to get started with Blockstack applications, we recommend you
 - [Running a Blockstack Core Node](#running-a-blockstack-core-node)
 - [Using Blockstack Core](#using-blockstack-core)
 - [Troubleshooting](#troubleshooting)
-- [Developer Resources](#blockstack-docs)
-- [Contributing](#contributing)
+- [Developer Resources](#developer-resources)
+- [Community](#community)
 - [Further Information](#further-reading)
 - [Copyright and License](#copyright-and-license)
 
