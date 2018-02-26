@@ -1065,6 +1065,7 @@ describes how BNS differs from other naming systems
 
 [1] Requires support in higher-level applications.  These systems are not aware
 of the existence of namespaces/TLDs at the protocol level.
+
 [2] Blockstack Core destroys the underlying blockchain token to pay for
 registration fees when there is no pay-to-namespace-creator address set in the
 name's namespace.  This has the effect of making the blockchain miners' holdings
