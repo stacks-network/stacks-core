@@ -2,22 +2,29 @@
 
 ## Auth Request View [GET /auth?authRequest={authRequestToken}]
 
-When the user clicks “login” in an application, the app should
-redirect the user to this endpoint. If the user already has an
+This endpoint is accessed internally by
+[blockstack.js](https://github.com/blockstack/blockstack.js) to process user
+sign-in requests.  Applications use `blockstack.js` to direct users to sign in
+or sign up.  Please see the [blockstack.js
+documentation](http://blockstack.github.io/blockstack.js/#authentication) on
+authentication for details.
+
+When the user clicks the Blockstack login button in an application, the app should
+redirect the user to this endpoint (via `blockstack.js`).  If the user already has an
 account, they will be redirected along with requested data. If the
 user doesn’t have an account, the user will be presented with each of
 the app’s requested permissions, then will satisfy or deny them. The
-dashboard will then redirect the user back with a JWT. The response
-JWT contains a signature and an API token that the app can use for
-future authorization of endpoints.
+sign-in dashboard will then redirect the user back to the application
+with a signed JWT.  This JWT contains a signature and an API
+token that the app can use for future authorization of endpoints.
 
 Each application specifies in advance which family of API calls it
 will need to make to function properly.  This list is passed along to
-the dashboard endpoint when creating an application account.  The
+this endpoint when creating an application account.  The
 account-creation page shows this list of API endpoints and what they
 do, and allows the user to line-item approve or deny them.  The list
-is stored by the API server in the local account structure, and the
-list is given to the application as part of the session JWT.  The API
+is stored to the user's profile, and returned to the application
+application as part of the session JWT.  The API
 server will NACK requests to endpoints in API families absent from the
 session JWT.
 
@@ -32,8 +39,15 @@ session JWT.
              }
 
 # Group Core Node Administration
+
+Blockstack Core's API module provides a set of API calls for interacting with
+the node's configuration.  However, most of this section is **DEPRECATED** in favor
+of moving configuration state to the [Blockstack
+Browser](https://github.com/blockstack/blockstack-browser).  Client-side state
+is managed by [blockstack.js](https://github.com/blockstack/blockstack.js).
+
 ## Ping the node [GET /v1/node/ping]
-Ping the blockstack node to see if it's alive.
+Ping the Blockstack node to see if it's alive.
 + Public Endpoint
 + Response 200 (application/json)
   + Body
@@ -57,9 +71,13 @@ Ping the blockstack node to see if it's alive.
              }
 
 ## Get the node's config [GET /v1/node/config]
-Returns the current configuation settings of the blockstack node.
+Returns the current configuation settings of the Blockstack node.
 
++ DEPRECATED.  Blockstack clients should use
+  [blockstack.js](https://github.com/blockstack/blockstack.js) for querying
+client-side configuration state.
 + Requires root authorization
++ Legacy Endpoint
 + Response 200 (application/json)
   + Body
 
@@ -92,25 +110,19 @@ Returns the current configuation settings of the blockstack node.
                      "version_byte": "0"
                  },
                  "blockstack-client": {
-                     "accounts": "/tmp/.../client/app_accounts",
                      "advanced_mode": "true",
-                     "anonymous_statistics": false,
-                     "api_endpoint_port": "16268",
-                     "api_password": "blockstack_integration_test_api_password",
+                     "api_endpoint_port": "6270",
+                     "api_password": "...",
                      "blockchain_reader": "bitcoind_utxo",
                      "blockchain_writer": "bitcoind_utxo",
-                     "client_version": "0.14.3.0",
-                     "datastores": "/tmp/.../client/datastores",
-                     "email": "",
-                     "metadata": "/tmp/.../client/metadata",
-                     "poll_interval": "1",
+                     "client_version": "0.18.0.0",
+                     "poll_interval": "300",
                      "port": "16264",
                      "queue_path": "/tmp/.../client/queues.db",
                      "rpc_detach": "True",
                      "server": "localhost",
                      "storage_drivers": "disk",
                      "storage_drivers_required_write": "disk",
-                     "users": "/tmp/.../client/users"
                  }
              }
     
@@ -128,7 +140,11 @@ Returns the current configuation settings of the blockstack node.
 ## Set config field [POST /v1/node/config/{section}?{key}={value}]
 Set one or more config fields in a config section.
 
++ DEPRECATED.  Blockstack clients should use
+  [blockstack.js](https://github.com/blockstack/blockstack.js) for client-side
+configuration management.
 + Requires root authorization
++ Legacy Endpoint
 + Parameters
   + section: blockstack-client (string) - configuration section
   + key: server (string) - configuration variable to set
@@ -165,7 +181,11 @@ Set one or more config fields in a config section.
 ## Delete a config field [DELETE /v1/node/config/{section}/{key}]
 Delete a single field from the configuration.
 
++ DEPRECATED.  Blockstack clients should use
+  [blockstack.js](https://github.com/blockstack/blockstack.js) for client-side
+configuration management.
 + Requires root authorization
++ Legacy Endpoint
 + Parameters
   + section: blockstack-client (string) - configuration section
   + key: advanced_mode (string) - configuration variable to set
@@ -202,7 +222,11 @@ Delete a single field from the configuration.
 ## Delete a config section [DELETE /v1/node/config/{section}]
 Deletes a whole section from the node's configuration.
 
++ DEPRECATED.  Blockstack clients should use
+  [blockstack.js](https://github.com/blockstack/blockstack.js) for client-side
+configuration management.
 + Requires root authorization
++ Legacy Endpoint
 + Parameters
     + section: blockstack-client (string) - configuration section
 
@@ -235,10 +259,15 @@ Deletes a whole section from the node's configuration.
              }
 
 ## Get registrar state [GET /v1/node/registrar/state]
-Gets the current state of the registrar. That is, the blockstack operations 
-that have been submitted that are still waiting on confirmations.
+Gets the current state of the registrar. That is, the Blockstack operations 
+that have been submitted to the blockchain but are still waiting for
+enough confirmations.
 
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to query
+the status of pending transactions.
 + Requires root authorization
++ Legacy Endpoint
 + Response 200 (application/json)
   + Body
 
@@ -464,14 +493,24 @@ that have been submitted that are still waiting on confirmations.
 
 
 # Group Core Wallet Management
-The blockstack core node manages its own wallet -- this has three keys
+
+This entire section is **DEPRECATED** in favor of the wallet software in
+[blockstack.js](https://github.com/blockstack/blockstack.js).  Names registered
+with this API will need to be transferred to the Blockstack Browser.
+
+The Blockstack Core node manages its own wallet -- this has three keys
 for payment, name ownership, and signing data (e.g., user profiles). This
 wallet can be managed through these endpoints.
 
 ## Get balance via mock-insight API [GET /insight-api/addr/{address}/balance]
 Returns the integer satoshi balance of the given address, with mininum
 of 1 confirmation.
+
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to query
+balances.
 + Authorization: `wallet_read`
++ Legacy Endpoint
 + Response 200 (application/json)
   + Body
 
@@ -488,7 +527,12 @@ address, you want *unconfirmedBalance* + *balance*. The unconfirmed
 balance may be negative (if there is an unconfirmed spend). This
 specification is strange, I know, but it replicates the interface of
 insight-api.
+
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to query
+balances.
 + Authorization: `wallet_read`
++ Legacy Endpoint
 + Response 200 (application/json)
   + Body
 
@@ -499,8 +543,14 @@ insight-api.
              { 'type' : 'integer' }
 
 ## Get wallet payment address [GET /v1/wallet/payment_address]
+
 Returns core node's payment address.
+
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to manage keys
+and query UTXOs.
 + Authorization: `wallet_read`
++ Legacy Endpoint
 + Response 200 (application/json)
   + Body
 
@@ -535,7 +585,10 @@ will instruct the core node to write the changed key to
 `~/.blockstack/wallet.json`. In this mode, the node will backup the
 previous wallet to `~/.blockstack/wallet.json.prior.<timestamp>`
 
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to manage keys.
 + Requires root authorization
++ Legacy Endpoint
 + Parameters
     + keyname: owner (string) - which key to set (one of 'owner', 'data', 'payment')
 
@@ -690,7 +743,11 @@ previous wallet to `~/.blockstack/wallet.json.prior.<timestamp>`
 Fetches wallet balance, including UTXOs from transactions with at
 least a specified number of confirmations.
 
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to manage keys
+and query UTXOs.
 + Authorization: `wallet_read`
++ Legacy Endpoint
 + Parameters
   + minconfs: 0 (number, optional) - the minimum confs of transactions to include in balance
 + Response 200 (application/json)
@@ -727,7 +784,12 @@ least a specified number of confirmations.
 ## Withdraw payment wallet funds [POST /v1/wallet/balance]
 Withdraw an amount (given in satoshis) from the core payment
 wallet, to a particular address.
+
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to manage keys,
+generate transactions, and send transactions.
 + Authorization: `wallet_write`
++ Legacy Endpoint
 + Request (application/json)
   + Body
 
@@ -851,7 +913,11 @@ wallet, to a particular address.
 
 ## Get wallet owner address [GET /v1/wallet/owner_address]
 Returns core node's owner address.
+
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to manage keys.
 + Authorization: `wallet_read`
++ Legacy Endpoint
 + Response 200 (application/json)
   + Body
 
@@ -885,7 +951,11 @@ Returns core node's owner address.
 
 ## Get wallet data public key [GET /v1/wallet/data_pubkey]
 Returns the public key the core node uses for signing user data
+
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to manage keys.
 + Authorization: `wallet_read`
++ Legacy Endpoint
 + Response 200 (application/json)
   + Body
 
@@ -918,7 +988,11 @@ Returns the public key the core node uses for signing user data
 
 ## Change wallet password [PUT /v1/wallet/password]
 This will change the password for core's wallet. Currently not working endpoint.
+
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to encrypt keys.
 + Authorization: `wallet_write`
++ Legacy Endpoint
 + Request (application/json)
   + Body
   
@@ -951,22 +1025,77 @@ This will change the password for core's wallet. Currently not working endpoint.
             }
 
 ## Set all wallet keys [PUT /v1/wallet/keys]
+
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to manage keys
+in a client wallet.
++ Legacy Endpoint
 + Requires root authorization
+
 ## Get all wallet keys [GET /v1/wallet/keys]
+
++ DEPRECATED.  Blockstack clients should use 
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to interact with
+a client wallet.
++ Legacy Endpoint
 + Requires root authorization
 
 # Group Managing Names
 
+All POST, PUT, and DELETE routes in this section are **DEPRECATED** in favor of using either the [Blockstack
+Browser](https://github.com/blockstack/blockstack-browser) or 
+[blockstack.js](https://github.com/blockstack/blockstack.js) to register and
+manage names.
+
+All GET routes are still valid.
+
 ## Register a name [POST /v1/names]
-Registers a name. If no `owner_address` is supplied in the POSTed JSON
-object, core will register a name for the current owner address in core's
-wallet. If an `owner_address` is supplied, a `TRANSFER` operation will be
-called to send the name to appropriate owner.
+Registers a name, optionally to a given owner key and optionally using
+a given payment key to pay for the name and transaction fees.
+
+This method takes a JSON blob with the following fields:
+
+* `name`: (required) the fully-qualified name to register.
+* `zonefile`: (optional) the zone file to associate with this name.  If one is
+  not given, a default one will be generated.
+* `owner_address`: (optional) the recipient of this name.  See below.
+* `min_confs`: (optional) this is the minimum number of confirmations for UTXOs
+  that will be used for payments for this name registration.  Lower values speed
+up the name registration time, at the risk of blockchain reorgs or frontrunners
+invalidating your name's registration.
+* `tx_fee`: (optional) use this transaction fee (in satoshis) instead of
+  estimating one.
+* `cost_satoshis`: (optional) how much to pay for this name.  This value will be
+  sent to the name's namespace's designated burn address.  If not given, the
+precise value will be looked up automatically.
+* `unsafe`: (optional) ignore internal safety checks when generating and sending
+  transactions.  See below.
+* `owner_key`: (optional) if given, this is the *private key* of the owner
+that will receive the name.  Useful for when you want to use your *personal*
+node to register names to a different key, without having to bother with the
+extra `NAME_TRANSFER` transaction required by passing `owner_address`.
+DO NOT USE IN PUBLIC SETTINGS.
+* `payment_key`: (optional) if given, this is the *private key* used to pay for
+  the name registration fee and transaction fees.  Useful for when you want to
+use your *personal* node to register names with a different payment key.  DO NOT
+USE IN PUBLIC SETTINGS.
+
+If no `owner_address` is supplied in the POSTed JSON
+object, the node will register a name for the `owner_key` given in the
+JSON blob.  If no `owner_key` is given, then the node's current owner address
+in its wallet will be used.
+
+If an `owner_address` is supplied, a `TRANSFER` transaction will be
+broadcasted to send the name to appropriate owner.  If you intend to register
+many names to different addresses, it is recommended that you use one of the
+wallet endpoints to set the node's owner keys to save yourself the extra
+`TRANSFER` transactions (or pass `owner_key`).  However, you should *ONLY* do
+this if you trust the node (i.e. only do this for personal nodes).
 
 The `min_confs` keyword controls the minimum number of confirmations for
 UTXOs used as payments for name registration.
 
-The `unsafe` keyword instructs core's registrar to ignore certain
+The `unsafe` keyword instructs the node's registrar to ignore certain
 safety checks while registering the name (in particular, the registrar
 will not verify that the user own's the name before issuing a
 `REGISTER` and `UPDATE`). This allows the registrar to submit
@@ -976,7 +1105,11 @@ a `PREORDER`, 1 confirmation on a `REGISTER` and 1 confirmation on an
 `UPDATE`. `node.blockstack.org` will correctly detect the registration
 after the `UPDATE` has 6 confirmations.
 
++ DEPRECATED.  Registering names is now performed by [Blockstack
+  Browser](https://github.com/blockstack/blocktack-browser) and
+[blockstack.js](https://github.com/blockstack/blockstack.js).
 + Authorization: `register`
++ Legacy Endpoint
 + Request (application/json)
   + Body
 
@@ -1157,8 +1290,15 @@ after the `UPDATE` has 6 confirmations.
 
 
 ## Revoke name [DELETE /v1/names/{name}]
-Revokes the name from blockstack.
+Revokes the name from Blockstack.  This renders
+the name unusable until it expires.  Use this method if your private keys 
+are compromised.
+
++ DEPRECATED.  Blockstack clients should use
+  [blockstack.js](https://github.com/blockstack/blockstack.js) for generating
+transactions.
 + Authorization: `revoke`
++ Legacy Endpoint
 + Parameters
   + name: bar.test (string) - fully-qualified name
 + Response 200 (application/json)
@@ -1200,7 +1340,12 @@ Revokes the name from blockstack.
 
 ## Transfer name [PUT /v1/names/{name}/owner]
 Transfers a name to a different owner.
+
++ DEPRECATED.  Blockstack clients should use
+  [blockstack.js](https://github.com/blockstack/blockstack.js) for generating
+transactions.
 + Authorization: `transfer`
++ Legacy Endpoint
 + Parameters
   + name: bar.test (string) - name to transfer
 + Request (application/json)
@@ -1363,6 +1508,8 @@ Transfers a name to a different owner.
 Publish the zonefile which has _already_ been announced.
 Submit either as a string with the 'zonefile' property, or
 as a base64 encoded blob with the 'zonefile_b64' property.
+We recommend base64-encoding your zone files in order to guarantee that they
+will be JSON-encodable. 
 
 + Request (application/json)
   + Schema
@@ -1396,7 +1543,15 @@ The value for `zonefile_b64` is a base64-encoded string.
 New clients _should_ use the `zonefile_b64` field when specifying a zone file.
 The `zonefile` field is preserved for legacy compatibility.
 
+This API call issues a `NAME_UPDATE` transaction for a name that is owned by
+this node's wallet.  That is, you can only call this API method if your node
+owns the name you're updating.
+
++ DEPRECATED.  Blockstack clients should use
+  [blockstack.js](https://github.com/blockstack/blockstack.js) for generating
+transactions.
 + Authorization: `update`
++ Legacy Endpoint
 + Parameters
   + name: bar.test (string) - fully-qualified name
 + Request (application/json)
@@ -1972,6 +2127,11 @@ Retrieves a list of names owned by the address provided.
 
 # Group Price Checks
 ## Get namespace price [GET /v1/prices/namespaces/{tld}]
+
+This endpoint is used to get the price of a namespace.  Anyone can create a
+namespace by following [this
+tutorial](https://github.com/blockstack/blockstack-core/blob/master/docs/namespace_creation.md).
+
 + Public Endpoint
 + Parameters
   + tld: id (string) - namespace to query price for
@@ -1995,6 +2155,14 @@ Retrieves a list of names owned by the address provided.
             }
 
 ## Get name price [GET /v1/prices/names/{name}]
+
+This endpoint is used to get the price of a name.  If you are using
+a public endpoint, you should *only* rely on the `name_price` field in the
+returned JSON blob.  Other fields are **DEPRECATED**, since they are relevant
+only for estimating the cost of registering a name (which should be done via
+[blockstack.js](https://github.com/blockstack/blockstack.js) or the [Blockstack
+Browser](https://github.com/blockstack/blockstack-browser)).
+
 + Public Endpoint
 + Parameters
     + name: muneeb.id (string) - name to query price information for
@@ -2136,74 +2304,329 @@ Get the Blockstack operations in a given block
 
             [
               {
-                "address": "19dPuSXMLWFPZviKZvCFYwJnbDVT6iRNc",
-                "block_number": 374094,
-                "consensus_hash": "e00c59ec1340e4400237cc2b4a557eae",
-                "first_registered": 374094,
-                "history": {
-                  "374094": [
-                    {
-                      "address": "19dPuSXMLWFPZviKZvCFYwJnbDVT6iRNc",
-                      "block_number": 374094,
-                      "consensus_hash": null,
-                      "first_registered": 374094,
-                      "importer": "76a914911a799e024b57d6ed17e86ee4a0ed9398c181be88ac",
-                      "importer_address": "1EEEhLT4hwE8PS5QT21kd4v2JTwkJUvu2y",
-                      "last_creation_op": ";",
-                      "last_renewed": 374094,
-                      "namespace_block_number": 373601,
-                      "op": ";",
-                      "op_fee": 25000.0,
-                      "opcode": "NAME_IMPORT",
-                      "preorder_block_number": 374094,
-                      "preorder_hash": "1140784cce1c750b1ac0335e06711b2f01cea93f",
-                      "revoked": false,
-                      "sender": "76a91401a1b568832935dcd4825992c42437748a11b9f888ac",
-                      "sender_pubkey": "035ef035c6420846a30d17471f4baba51a1b624be6be0ba9e805614074dbbbbeb5",
-                      "transfer_send_block_id": null,
-                      "txid": "fb383120a199705e525aa8d63bf3107d82695ae6c521ad5d9aee3053cb2c15ca",
-                      "value_hash": "9def9c1ee06777a4ee347af35a858f5e2da40ff2",
-                      "vtxindex": 434
-                    }
-                  ],
-                  "462593": [
-                    {
-                      "consensus_hash": null,
-                      "op": ";",
-                      "opcode": "NAME_IMPORT",
-                      "transfer_send_block_id": null,
-                      "txid": "fb383120a199705e525aa8d63bf3107d82695ae6c521ad5d9aee3053cb2c15ca",
-                      "value_hash": "9def9c1ee06777a4ee347af35a858f5e2da40ff2",
-                      "vtxindex": 434
-                    }
-                  ]
-                },
-                "importer": "76a914911a799e024b57d6ed17e86ee4a0ed9398c181be88ac",
-                "importer_address": "1EEEhLT4hwE8PS5QT21kd4v2JTwkJUvu2y",
-                "last_creation_op": ";",
-                "last_renewed": 374094,
-                "name": "jfperez.id",
-                "name_consensus_hash": "913db22e6c4ddffff580515858a1e0ba",
-                "name_hash128": "18667519acc4ccce5d263716ae292922",
+                "address": "1GS1eHthSK2gqnU9MW9Nis1pUyHP3bJnFK",
+                "block_number": 462592,
+                "burn_address": "1111111111111111111114oLvT2",
+                "consensus_hash": "d206b2f615de00803402cade4d0d51d4",
+                "op": "?",
+                "op_fee": 6250,
+                "opcode": "NAME_PREORDER",
+                "preorder_hash": "ba22cdf24b05b9a7972e13ada69f96a7850b471e",
+                "sender": "76a914a944d29012f83c00105778e0bc717c46ea2accfc88ac",
+                "sender_pubkey": "0343b263f7adc6ae59e8d8310f4a6a87799f6b10cec608f3236cd6a802ffc71728",
+                "txid": "b3f4f7a43d60666d1a9b42131f9117ad7deac34a478b6ca152344da3d734691f",
+                "vtxindex": 173
+              },
+              {
+                "address": "1gijbF8NkbgwzcoZR1nXMa76NbdcD7GQW",
+                "block_number": 462592,
+                "burn_address": "1111111111111111111114oLvT2",
+                "consensus_hash": "d206b2f615de00803402cade4d0d51d4",
+                "op": "?",
+                "op_fee": 6250,
+                "opcode": "NAME_PREORDER",
+                "preorder_hash": "386e2de88a908ad056361e586faa95852be454ca",
+                "sender": "76a91407830f81167f6a2aa253c0f176b7ff2e1c04c61a88ac",
+                "sender_pubkey": "03b7795d33b362338179e5b2a579431b285f6c303d07ddd83c897277be4e5eb916",
+                "txid": "4dd315ad1d1b318614a19e15e767efb7ef327bd5cd4ebaf8f80ede58fd1da107",
+                "vtxindex": 174
+              },
+              {
+                "address": "17QEd6rrhNZp4xoyWu6BpA8NQ4axyNKaZy",
+                "block_number": 462592,
+                "burn_address": "1111111111111111111114oLvT2",
+                "consensus_hash": "d206b2f615de00803402cade4d0d51d4",
+                "op": "?",
+                "op_fee": 6250,
+                "opcode": "NAME_PREORDER",
+                "preorder_hash": "a7a388a2bbe0e7741c6cfdc54d7b5a67811cd582",
+                "sender": "76a9144635b1794a22bfbe6c5c5eba17b693f4aaf0e34888ac",
+                "sender_pubkey": "020d6e50b2660af27933c42bc1395fe93df90ffac5e2a989f6a134919fb8cf8075",
+                "txid": "51d6bd117da5889e710c62967d03233a84fc27f7fad10ca4359111928818f017",
+                "vtxindex": 332
+              },
+              {
+                "address": "15YMyvqz6v9ATSbmqJnudwrdm7RiVfkU3s",
+                "block_number": 462453,
+                "consensus_hash": "f6491e1d2b9817fa58512fc9bf8cd3df",
+                "first_registered": 462575,
+                "importer": null,
+                "importer_address": null,
+                "keep_data": true,
+                "last_renewed": 462575,
+                "name": "ablankstein.id",
+                "name_hash128": "943b8e0613d975c05a05ccd5472e2a72",
                 "namespace_block_number": 373601,
                 "namespace_id": "id",
-                "op": "+",
-                "op_fee": 25000.0,
-                "opcode": "NAME_UPDATE",
-                "preorder_block_number": 374094,
-                "preorder_hash": "1140784cce1c750b1ac0335e06711b2f01cea93f",
+                "op": ">>",
+                "op_fee": 25000,
+                "opcode": "NAME_TRANSFER",
+                "preorder_block_number": 462453,
+                "preorder_hash": "822d5cb6f2e3f0f901d6af8c1111ee466b6c07bd",
                 "revoked": false,
-                "sender": "76a91401a1b568832935dcd4825992c42437748a11b9f888ac",
-                "sender_pubkey": "035ef035c6420846a30d17471f4baba51a1b624be6be0ba9e805614074dbbbbeb5",
-                "transfer_send_block_id": null,
-                "txid": "7d73b5dfc1e0c1d39071e8db53a9a3fe543e707981d8e60f4665db873da52f96",
-                "value_hash": "9840e46e553be76d68aa42a78bc93c41f7670358",
-                "vtxindex": 110
+                "sender": "76a91431cee995f242f0f66518080a291714cd7e8d2f5e88ac",
+                "sender_pubkey": null,
+                "txid": "121540e81223c45d139fbe03a9713ddd292372f2f88fe2b10b6a7c5e6738e87f",
+                "value_hash": "96ec93cbc57d17b16a347c11ddfa7ea88d2cf93b",
+                "vtxindex": 633
+              },
+              {
+                "address": "1Dwq9oA5BNz7DAR1LtDncEa647ZxgmkoVV",
+                "block_number": 462325,
+                "consensus_hash": "1288cef43f52bf97e2f458a4afe40b61",
+                "first_registered": 462359,
+                "importer": null,
+                "importer_address": null,
+                "keep_data": true,
+                "last_renewed": 462359,
+                "name": "fpenrose.id",
+                "name_hash128": "7af28a9834934a0af81a19ee14a45f8e",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": ">>",
+                "op_fee": 25000,
+                "opcode": "NAME_TRANSFER",
+                "preorder_block_number": 462325,
+                "preorder_hash": "59c25d7cddf433b5122cabcbf2ebcc1bc1519e4d",
+                "revoked": false,
+                "sender": "76a9148e002a93b9b1936b5d320967194eaff3deaa979088ac",
+                "sender_pubkey": null,
+                "txid": "6461bb4bbf517e9c80ffcac4c349836972656572e113aba736b356119655064e",
+                "value_hash": "ac73155702ca7aea1161d0f0c7877ac81d48d8fc",
+                "vtxindex": 637
+              },
+              {
+                "address": "1Q44Md5KFr6gxQ6TdUSFaCRm3MaUyXMF6t",
+                "block_number": 462316,
+                "consensus_hash": "1288cef43f52bf97e2f458a4afe40b61",
+                "first_registered": 462353,
+                "importer": null,
+                "importer_address": null,
+                "keep_data": true,
+                "last_renewed": 462353,
+                "name": "rahulpradhan.id",
+                "name_hash128": "c55ff9e14c72b2950b14ff10067d7e27",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": ">>",
+                "op_fee": 25000,
+                "opcode": "NAME_TRANSFER",
+                "preorder_block_number": 462316,
+                "preorder_hash": "fcb3389ca4d2ab8003ce8b6b3baa0a5ae1600cce",
+                "revoked": false,
+                "sender": "76a914fcdef125f40f984fafad4b58e30e3b1761a953f388ac",
+                "sender_pubkey": null,
+                "txid": "be58e02642c457fec2835a354fbc2de45e8c838aa5b7fd18ed831f67d08269e6",
+                "value_hash": "e213e58ca1446875b79d866720130cc90cbca681",
+                "vtxindex": 638
+              },
+              {
+                "address": "1D8pL725X9HWvoTVgzqDNbTPayHGG7tkY6",
+                "block_number": 462345,
+                "consensus_hash": "919df884f14f34fd15a791af2fddb569",
+                "first_registered": 462380,
+                "importer": null,
+                "importer_address": null,
+                "keep_data": true,
+                "last_renewed": 462380,
+                "name": "sajithskurup.id",
+                "name_hash128": "3fda1c60620c42e1ede385bb246bd5f0",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": ">>",
+                "op_fee": 25000,
+                "opcode": "NAME_TRANSFER",
+                "preorder_block_number": 462345,
+                "preorder_hash": "540daefe1f3b520253f7ab954dbc8bf131471133",
+                "revoked": false,
+                "sender": "76a914851bee0185dd799755234fb20710a26ec40354d288ac",
+                "sender_pubkey": null,
+                "txid": "e7d35196ca3eec697274d848136f5267b1c935055a917020f93e8ecaf821ba99",
+                "value_hash": "92534954e934019718478bb52150765dfad79171",
+                "vtxindex": 644
+              },
+              {
+                "address": "1EbjXtYv9QCVBp8iWiDH6xQ1B74oFW696X",
+                "block_number": 462345,
+                "consensus_hash": "e0c31e03125f2feefd4090e5c635ee45",
+                "first_registered": 462380,
+                "importer": null,
+                "importer_address": null,
+                "keep_data": true,
+                "last_renewed": 462380,
+                "name": "hubject.id",
+                "name_hash128": "03e8bf92dd3cbde65cac012350efb79d",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": ">>",
+                "op_fee": 25000,
+                "opcode": "NAME_TRANSFER",
+                "preorder_block_number": 462345,
+                "preorder_hash": "ded4d097614cf5321388bbe56b24d3d592b2ef76",
+                "revoked": false,
+                "sender": "76a914952b4844005dd98a1f7fc99813db2a649109b45988ac",
+                "sender_pubkey": null,
+                "txid": "7b7a2a2963f7454b93003031cfce64ac609f902b4c2cababfbbfad2c01bbeb9b",
+                "value_hash": "be968a1f17ac828179e5b2fbc70d238056af7482",
+                "vtxindex": 645
+              },
+              {
+                "address": "14YsDo5qgAP7kmnq33tw9JdHVBywpg9pge",
+                "block_number": 462326,
+                "consensus_hash": "e0c31e03125f2feefd4090e5c635ee45",
+                "first_registered": 462354,
+                "importer": null,
+                "importer_address": null,
+                "keep_data": true,
+                "last_renewed": 462354,
+                "name": "ramimassoud.id",
+                "name_hash128": "61a48b6f8aeb027883ecd1f8d808c8ac",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": ">>",
+                "op_fee": 25000,
+                "opcode": "NAME_TRANSFER",
+                "preorder_block_number": 462326,
+                "preorder_hash": "23aa275e42d7d6d7e538584a799252939687c457",
+                "revoked": false,
+                "sender": "76a91426ef31b7aac60eff23cbbab51d453b84700e330388ac",
+                "sender_pubkey": null,
+                "txid": "85babcf66caf41cb7beb2e637cbed4e728ab8030337fb5df8461d0e14dd2be75",
+                "value_hash": "e27c9c3dcce8a8445d84fb8b4d81fbd30fac9749",
+                "vtxindex": 646
+              },
+              {
+                "address": "1H934mT7AVVZmHwjddUZ9EiostLwm655oF",
+                "block_number": 462345,
+                "consensus_hash": "919df884f14f34fd15a791af2fddb569",
+                "first_registered": 462391,
+                "importer": null,
+                "importer_address": null,
+                "keep_data": true,
+                "last_renewed": 462391,
+                "name": "was2bme.id",
+                "name_hash128": "f2b5688682fd47b8f3fbf709bb35ef33",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": ">>",
+                "op_fee": 6250,
+                "opcode": "NAME_TRANSFER",
+                "preorder_block_number": 462345,
+                "preorder_hash": "3dfdcee2b0e64697c4bb0b0dd791518bcb078dc7",
+                "revoked": false,
+                "sender": "76a914b107105f8ae57e7bb5bad58caba666faa679c70f88ac",
+                "sender_pubkey": null,
+                "txid": "16171e4e20778354a94c5353b0c6ed0b29a3e73c1b59b9bfbcbe6d26c570fd0c",
+                "value_hash": "ac73155702ca7aea1161d0f0c7877ac81d48d8fc",
+                "vtxindex": 649
+              },
+              {
+                "address": "1B4zxvVMPm1PBGarc8PrYQjQY2ezwniyG6",
+                "block_number": 462345,
+                "consensus_hash": "e0c31e03125f2feefd4090e5c635ee45",
+                "first_registered": 462391,
+                "importer": null,
+                "importer_address": null,
+                "keep_data": true,
+                "last_renewed": 462391,
+                "name": "tadas_serbenta.id",
+                "name_hash128": "6d800932daf830925ab47dee5ceb8661",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": ">>",
+                "op_fee": 6250,
+                "opcode": "NAME_TRANSFER",
+                "preorder_block_number": 462345,
+                "preorder_hash": "07a85eac4dbf20000a66a14a4a89a01134b70fab",
+                "revoked": false,
+                "sender": "76a9146e72e44bbe4c1706ea5830096a4bb4449dcc948f88ac",
+                "sender_pubkey": null,
+                "txid": "e3f0b019550417a7acfe27addfbd34ec7ec5fc1dd9616ed8c6bc86a0ad148290",
+                "value_hash": "fbac107ba5d9bbfc30ecdeae3e10ca3db72b3431",
+                "vtxindex": 855
+              },
+              {
+                "address": "16BF35VputeLEmbsk7gDnUcwKXcjwPDUvf",
+                "block_number": 462345,
+                "consensus_hash": "919df884f14f34fd15a791af2fddb569",
+                "first_registered": 462359,
+                "importer": null,
+                "importer_address": null,
+                "keep_data": true,
+                "last_renewed": 462359,
+                "name": "alexucf.id",
+                "name_hash128": "d9bc88b0fdc536e7ac5467609faed518",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": ">>",
+                "op_fee": 25000,
+                "opcode": "NAME_TRANSFER",
+                "preorder_block_number": 462345,
+                "preorder_hash": "30f841114af6ada90ba720d563672113c4f74439",
+                "revoked": false,
+                "sender": "76a91438c8814ae2a9035e85bbf2b7976919c2e3387ac588ac",
+                "sender_pubkey": null,
+                "txid": "f8e9eebd48b9182b82b22e5ce10f805d3db38786bb2aaf56f9badf83aa3cc0ee",
+                "value_hash": "8ae0f51263f540be175230d6b46f5d9609de799d",
+                "vtxindex": 856
+              },
+              {
+                "address": "1EmXTRHC6f9bnLJkVZRavv7HLG1owLgNir",
+                "block_number": 462326,
+                "consensus_hash": "31a304b682e3291811441a12f19d14e5",
+                "first_registered": 462391,
+                "importer": null,
+                "importer_address": null,
+                "keep_data": true,
+                "last_renewed": 462391,
+                "name": "seamur.id",
+                "name_hash128": "09f3b9d2da3d0aa1999824f7884f0d18",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": ">>",
+                "op_fee": 100000,
+                "opcode": "NAME_TRANSFER",
+                "preorder_block_number": 462326,
+                "preorder_hash": "678991fd4d3833babe27f732206a40d1f15dd3ca",
+                "revoked": false,
+                "sender": "76a91497055c47fa0ab396fb321e9d37f6bce1796e3d5688ac",
+                "sender_pubkey": null,
+                "txid": "e32124770c359eaf57709e5a666894f2954aa687820c41c6911f214e9006b58e",
+                "value_hash": "4bcdd931185537902ef1af9975198c6404d4c73e",
+                "vtxindex": 857
+              },
+              {
+                "address": "13pGtMcHsNdq3EeLMa1yVVKppP1WjSKgFG",
+                "block_number": 462345,
+                "consensus_hash": "e0c31e03125f2feefd4090e5c635ee45",
+                "first_registered": 462354,
+                "importer": null,
+                "importer_address": null,
+                "keep_data": true,
+                "last_renewed": 462354,
+                "name": "innergame.id",
+                "name_hash128": "a3e4e010d82369ee19b64fccc2b97f69",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": ">>",
+                "op_fee": 25000,
+                "opcode": "NAME_TRANSFER",
+                "preorder_block_number": 462345,
+                "preorder_hash": "f54850caf10c3041cb2a4d9186bbb234dd7d9f85",
+                "revoked": false,
+                "sender": "76a9141ee10ff0ae9969e2dc39d94a959e3160b26b6adf88ac",
+                "sender_pubkey": null,
+                "txid": "28de7193e28e1b0c950a32af393284578669c15dc98bad68f382f8b920d94509",
+                "value_hash": "bab40c2b10f676288edea119edade67ff5e853ba",
+                "vtxindex": 869
               }
             ]
 
 ## Get pending transactions [GET /v1/blockchains/{blockchainName}/pending]
 Get the current transactions that the node has issued and are still pending.
++ DEPRECATED.  Blockstack clients should use
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to query the
+blockchain.
 + Public Endpoint
 + Parameters
   + blockchainName : bitcoin (string) - the given blockchain
@@ -2300,6 +2723,9 @@ Get the current transactions that the node has issued and are still pending.
             }
 
 ## Get unspent outputs [GET /v1/blockchains/{blockchainName}/{address}/unspent]
++ DEPRECATED.  Blockstack clients should use
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to query the
+blockchain.
 + Authorization: `blockchain`
 + Parameters
   + blockchainName : bitcoin (string) - the given blockchain
@@ -2343,6 +2769,9 @@ Get the current transactions that the node has issued and are still pending.
                }
 
 ## Broadcast transaction [POST /v1/blockchains/{blockchainName}/txs]
++ DEPRECATED.  Blockstack clients should use
+  [blockstack.js](https://github.com/blockstack/blockstack.js) to broadcast
+transactions.
 + Authorization: `blockchain`
 + Parameters
   + blockchainName : bitcoin (string) - the blockchain to broadcast on
@@ -2414,26 +2843,6 @@ Fetch a list of names from the namespace.
                  "alderete.id", "aldert.id", 
                  "aldi.id", "aldighieri.id", ... ]
 
-## Create namespace [POST /v1/namespaces]
-Not implemented as a RESTful API call yet.  Use the
-[CLI](https://github.com/blockstack/blockstack-core/blob/master/docs/namespace_creation.md).
-
-## Pre-register a name [POST /v1/namespaces/{tld}/names]
-Not implemented as a RESTful API call yet.  Use the
-[CLI](https://github.com/blockstack/blockstack-core/blob/master/docs/namespace_creation.md).
-+ Parameters
-  + tld: id (string) - the namespace to fetch names from
-## Update pre-registered name [POST /v1/namespaces/{tld}/names/{name}]
-Not implemented as a RESTful API call yet.  Use the
-[CLI](https://github.com/blockstack/blockstack-core/blob/master/docs/namespace_creation.md).
-+ Parameters
-  + tld: id (string) - the namespace to fetch names from
-  + name: muneeb (string) - the name to update
-## Launch namespace [PUT /v1/namespaces/{tld}]
-Not implemented as a RESTful API call yet.  Use the
-[CLI](https://github.com/blockstack/blockstack-core/blob/master/docs/namespace_creation.md).
-+ Parameters
-  + tld: id (string) - the namespace to fetch names from
 # Group Resolver Endpoints
 ## Lookup User [GET /v1/users/{username}]
 Lookup and resolver a user's profile. Defaults to the `id` namespace.
