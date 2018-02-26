@@ -8,35 +8,58 @@ A field in a profile that links the name to an existing service, like Twitter or
 
 Some accounts serve as social proofs, but they can contain any data the user wants.
 
+## Atlas
+
+A peer-to-peer network maintained by Blockstack Core nodes that stores each
+name's zone files and immutable data.  See [this document](atlas_network.md) for
+details.
+
 ## Blockstack ID
 
 (Also called a "name").
 
 A human-readable name in Blockstack.  It is comprised only of upper and lower-case ASCII characters, numbers, as well as `-`, `_`, and `.`.  It must end with a `.`, followed by a namespace ID.  It has at least 3 characters, and at most 37 (including the `.` and the namespace ID).
 
-Anyone can register a Blockstack ID, either via [Onename](https://onename.com) or via the Blockstack CLI.  The former is free for most names (subject to spam and squatter filtering), but latter costs Bitcoin.
+Anyone can register a Blockstack ID, such as through the [Blockstack Browser](https://github.com/blockstack/blockstack-browser) 
 
-## Blockstack Server
+## Blockstack Core
 
-A server that reads a blockchain with [virtualchain](https://github.com/blockstack/blockstack-virtualchain), filters out transactions that represent name operations, and builds up a database of (name, public key, zonefile hash) triples.
+A server that reads a blockchain with [virtualchain](https://github.com/blockstack/blockstack-virtualchain), filters out transactions that represent name operations, and builds up a database of (name, public key, state value) triples.
+
+## Blockstack Naming Service (BNS)
+
+This is the naming protocol that Blockstack Core implements.  See [this
+document](blockstack_naming_service.md) for details.
 
 ## Consensus Hash
 
-A cryptographic hash that represents a proof-of-computation by a Blockstack Server.  Two Blockstack Servers have seen and processed the same name operations up to block `n` if and only if they each calculate the same consensus hash at height `n`.
+A cryptographic hash that represents a proof-of-computation by a Blockstack Core node.  Two Blockstack Core nodes have seen and processed the same name operations up to block `n` if and only if they each calculate the same consensus hash at height `n`.
 
-A Blockstack Server only accepts a name operation if it has a previously-calculated but recent consensus hash.  The Blockstack CLI obtains a consensus hash from a Blockstack Server in order to construct a name operation.
+A Blockstack Core node only accepts a name operation if it has a previously-calculated but recent consensus hash.  Blockstack clients obtain a consensus hash from a Blockstack Core node in order to construct a name operation.
+
+## Gaia
+
+This is Blockstack's storage system.  Gaia hosts all of your app-specific data.
+
+## Gaia Hub
+
+This is a publicly-routable server that serves as an entry point for Gaia data.
+Anyone can stand up and run a Gaia hub by following [these
+instructions](https://github.com/blockstack/gaia).
+Blockstack provides a [default Gaia hub](https://gaia.blockstack.org).
 
 ## Immutable Data
 
-This is data stored in your storage providers, but linked to by your *zonefile*.  It is called "immutable" since its hash is linked to by the blockchain directly.  While this is an extremely secure way of sharing data, the downside is that it's slow--each time you change a piece of immutable data, you have to send a new transaction and wait for it to confirm.
-
-Storing data as immutable data is useful when the data is read-only, or changes very rarely.
+This is the general term for chunks of data whose hash is cryptographically
+bound to a blockchain transaction.  This includes all data stored in the Atlas
+network (such as your Blockstack ID's zone file),
+as well as any data whose hash is stored in the Atlas network.
 
 ## Mutable Data
 
-This is data stored in your storage providers, but linked to by your *profile*.  It is called "mutable" since it can be changed without touching the blockchain.  Mutable data is signed by your wallet's data key, so anyone who reads it can verify that it came from you (i.e. the storage providers aren't trusted with authenticity).
-
-Storing data as mutable data is useful when the data has to change quickly, and you don't really care if other readers won't see some of the changes.  This is the recommended way to associating external data with your Blockstack ID.  The only downside is that someone who's never read your new data can be tricked into reading old data by a malicious storage provider.  If this is a concern, you should use immutable data.
+This is the general term for data that is (1) signed by your Blockstack ID, and
+(2) can be looked up using your Blockstack ID.  This includes all your Gaia
+data, as well as your profile.
 
 ## Name
 
@@ -44,19 +67,22 @@ See Blockstack ID.
 
 ## Name Database
 
-The set of (name, public key, zonefile hash) triples that the Blockstack Server generates by reading the blockchain.
+The set of (name, public key, name state) triples that the Blockstack Core node generates by reading the blockchain.  The name state is usually the hash of a DNS zone file stored in Atlas.
 
 ## Name Operation
 
-A specially-crafted transaction in the underlying blockchain that, when processed, will change each Blockstack Server's name database.  Examples include `NAME_PREORDER` (preorders a name), `NAME_REGISTER` (registers a name), `NAME_UPDATE` (changes a name's zonefile hash), `NAME_TRANSFER` (changes a name's public key), and `NAME_REVOKE` (locks everyone out of a name until it expires).
+A specially-crafted transaction in the underlying blockchain that, when processed, will change each Blockstack Core's name database.  Examples include `NAME_PREORDER` (preorders a name), `NAME_REGISTRATION` (registers a name), `NAME_UPDATE` (changes a name's zonefile hash), `NAME_TRANSFER` (changes a name's public key), and `NAME_REVOKE` (locks everyone out of a name until it expires).
 
 Name operations are encoded on Bitcoin as `OP_RETURN` outputs that start with `id`, followed by a 1-byte character that identifies the particular operation.
+
+See the [wire format](wire-format.md) document for details.
 
 ## Namespace
 
 Analogous to a DNS TLD, it represents a grouping of names.  All names under the same namespace have the same pricing and lifetime rules.
 
-Anyone can create a namespace, but doing so is expensive by design.
+Anyone can create a namespace, but doing so is expensive by design.  See the
+[namespace creation](namespace_creation.md) tutorial for details.
 
 ## Preorder
 
@@ -66,7 +92,7 @@ The first of two steps to acquire a name.  This operation writes the hash of bot
 
 A signed JSON web token that describes a [Person](https://schema.org/Person), which describes the name's owner.  You can put anything you want into your profile.
 
-Additionally, profiles hold lists of accounts, and pointers to mutable data.
+Additionally, profiles hold lists of social verifications and pointers to your Gaia data.
 
 ## Register
 
@@ -76,44 +102,47 @@ Additionally, profiles hold lists of accounts, and pointers to mutable data.
 
 ## Registrar
 
-An online service that lets you sign up for and manage the profiles of Blockstack IDs.  [Onename](https://onename.com) offers a registrar.
+An online service that lets you sign up for and manage the profiles of Blockstack IDs.
 
 ## Resolver
 
-An online service that displays zonefile and profile data for a Blockstack ID.  [Onename](https://onename.com) offers a resolver.
+An online service that displays zonefile and profile data for a Blockstack ID.  [The Blockstack Explorer](https://explorer.blockstack.org) is a resolver.
 
 ## Social proof
 
 A post in an account on an existing Web service like Twitter, Facebook, or GitHub that points back to a Blockstack ID.  Used to provide some evidence that the person who owns the Blockstack ID is also the person who owns the Web service account.
 
-Social proofs are listed as profile accounts.
+Social proofs are listed in your profile.
 
 ## Storage Provider
 
-This is any service that can serve your zonefile, profile, or data.  In all cases, the data is signed by one of your wallet's keys, so you can use any provider without having to worry about it trying to change the data.
+This is any service that can serve your zone file, profile, or data.  In all cases, the data is signed by one of your wallet's keys, so you can use any provider without having to worry about it trying to change the data.
+
+Storage providers are accessed through a Gaia hub.  Gaia hubs ship with drivers
+that allow them to treat storage providers as dumb hard drives, which store
+signed encrypted data on the hub's behalf.
 
 Not all storage providers support writes--some of them are read-only.
 
 Supported storage providers today include:
 * Amazon S3
+* Dropbox
 * Your harddrive
-* Onename's Kademila DHT
 * Any HTTP/HTTPS/FTP server (read-only)
-* Onename's profile resolver (read-only)
-* Any Blockstack Server
+* Any public-use Gaia hub
+* IPFS
 
 Support is being added for:
-* Dropbox
 * Google Drive
 * Microsoft OneDrive
 * Box.com
 * BitTorrent
-* IPFS
 
 If you have a preferred storage provider, and you're a developer, please consider sending us a pull request to add support for it!
 
-## Zonefile
+## Zone file
 
-A type of file usually used by DNS servers, but used by Blockstack to point the CLI to various storage providers that hold copies of a user's profile information.  Its hash is written to the blockchain, and Blockstack Servers constantly try to replicate each zonefile to each other server, so each one has a full replica of all zonefiles in existence.
-
-In addition, zonefiles store your data public key, as well as any pointers to immutable data.
+A specially-formatted file that stores routing information for a Blockstack ID.
+Blockstack clients use your zone file to find out where your preferred Gaia
+hub(s) are.  Ever Blockstack Core node stores a copy of every zone file for
+every Blockstack ID by participating in the Atlas network.
