@@ -841,6 +841,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Given a DID, return the name or subdomain it corresponds to
         """
+        if not isinstance(did, (str,unicode)):
+            return {'error': 'Invalid DID: not a string'}
+
         try:
             did_info = parse_DID(did)
         except:
