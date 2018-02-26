@@ -186,11 +186,81 @@ If all is well, the test will run for a 5-10 minutes and print:
 
 ## Interactive Testing
 
+There are two ways to set up interactive testing:
+
+* Generate blocks automatically every *n* seconds.
+* Present a Web-facing control panel for generating blocks and funding
+  addresses.
+
+To do the former, pass `--interactive <blocktime>` to
+`blockstack-test-scenario`, where `<blocktime>` is the amount of seconds between
+blocks.
+
+To do the latter, pass `--interactive-web <portnum>` to
+`blockstack-test-scenario`, where `<portnum>` is the port number on which the
+test framework will serve a control Web page.
+
+### Interactive Web Testing
+
+If you start the test with `--interactive-web 3001` and let it run to
+completion, you will be able to load `http://localhost:3001` in your Web browser
+and see a screen like this:
+
+![Blockstack integration test control
+panel](https://github.com/blockstack/blockstack-core/blob/master/docs/figures/test-screen.png)
+
+* The **`Blockchain height`** field indicates how many blocks have been
+  generated.  This is 693 in this figure.
+
+* The **`API password`** field indicates the Blockstack API password to use in
+  your `client.ini` file (or as the value for `--api-password` on the CLI).  In
+this example, it is `blockstack_integration_test_api_password`.
+
+* The **`Number of blocks`** form field is the number of blocks to generate.
+  Simply type in a number and click "Generate blocks" to generate that many
+blocks on the test framework's blockchain.
+
+* The **`Fund address`** and **`value (satoshis)`** form field lets you fund an
+  arbitrary address with the given number of satoshis.
+
+* The **`Done testing`** button ends the test.
+
+When you register a name with the Browser or CLI, and you are using interactive
+Web testing, you should do the following to make sure the transaction confirms:
+
+1. Generate 12 blocks via the Web panel
+2. Check the test output and make sure your `NAME_PREORDER` transaction went
+   through.  You should see a line that looks like `ACCEPT NAME_PREORDER`.
+3. Generate 12 more blocks via the Web panel
+4. Check that test output and make sure your `NAME_REGISTRATION` transaction
+   went through.  You should see a line that looks like `ACCEPT
+NAME_REGISTRATION`.
+
+When you fund an address, you should generate 6 blocks via the Web panel in
+order to "confirm" it.
+
+### Testing the Blockstack Browser
+
 This example will set up an interactive regtest node that you can connect to via Blockstack Browser
 
 ```bash
  $ BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.portal_test_env
 ```
+
+In this example, a block will be generated once every 2 seconds.
+
+You can also do this:
+
+```bash
+ $ BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 blockstack-test-scenario --interactive-web 3001 blockstack_integration_tests.scenarios.portal_test_env
+```
+
+In this example, you will need to manually generate blocks in order to confirm
+name registrations.  However, you can
+also fund arbitrary addresses in this mode, which makes it easier to do more
+advanced things (like test a subdomain registrar, create a namespace, or test
+the Blockstack wallet).
+
 
 ### Using the CLI
 
@@ -275,7 +345,7 @@ Relevant Files, Ports, Tips, and Tricks
 
 * The Sqlite3 name database is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/blockstack-server.db`.
 
-* The consensus hash history for the Core node is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/blockstack-server.snapshots`.
+* The history of accepted transactions and consensus hashes for the Core node is located in the Sqlite3 database at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/blockstack-server.snapshots`.
 
 Troubleshooting
 ---------------
