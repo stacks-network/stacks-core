@@ -36,7 +36,7 @@ Blockstack applications look and feel like traditional Web applications.
 Under the hood they use Blockstack APIs for user authentication and storage.
 Blockstack handles user authentication using the [Blockstack Naming
 Service](docs/blockstack_naming_service)
-(BNS), a decentralized DNS/PKI system for user names built on top of the Bitcoin
+(BNS), a decentralized naming and public key infrastructure built on top of the Bitcoin
 blockchain.  It handles storage using [Gaia](https://github.com/blockstack/gaia), a scalable decentralized
 key/value storage system that looks and feels like `localStorage`,
 but lets users securely store and share application data
@@ -462,15 +462,15 @@ design.
 
 You can learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the in-depth articles and documentation:
 
-- [How Blockstack Works](https://blockstack.org/docs/how-blockstack-works)
-- [Blockstack vs. DNS](https://blockstack.org/docs/blockstack-vs-dns)
-- [Blockstack vs. Namecoin](https://blockstack.org/docs/blockstack-vs-namecoin)
-- [Blockstack Namespaces](https://blockstack.org/docs/namespaces)
-- [Blockstack Light Clients](https://blockstack.org/docs/light-clients)
+- [How Blockstack Works (white paper)](https://blockstack.org/docs/how-blockstack-works)
+- [Blockstack General FAQ](https://blockstack.org/faq)
+- [Blockstack Technical FAQ](docs/faq_technical.md)
+- [Blockstack In-depth Documentation Repository](docs/README.md)
 
-You can also read the Blockstack paper:
+You can also read peer-reviewed Blockstack papers:
 
-- ["Blockstack: A Global Naming and Storage System Secured by Blockchains"](https://blockstack.org/blockstack.pdf), Proc. USENIX Annual Technical Conference (ATC ’16), June 2016
+- ["Blockstack: A Global Naming and Storage System Secured by Blockchains"](https://blockstack.org/blockstack.pdf), Proc. USENIX Annual Technical Conference ([ATC '16](https://www.usenix.org/conference/atc16), June 2016
+- ["Extending Existing Blockchains with Virtualchain"](https://blockstack.org/virtualchain_dccl2016.pdf), Distributed Cryptocurrencies and Consensus Ledgers ([DCCL '16](https://www.zurich.ibm.com/dccl/) workshop, at [ACM PODC 2016](https://www.podc.org/podc2016/)), July 2016
 
 If you have high-level questions about Blockstack, try [searching our forum](https://forum.blockstack.org) and start a new question if your question is not answered there.
 
