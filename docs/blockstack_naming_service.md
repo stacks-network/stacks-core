@@ -14,12 +14,14 @@ understand the following concepts:
 * How the Blockstack Naming Service is different from other offerings in this
   space.
 
+This project repository---[Blockstack Core](https://github.com/blockstack/blockstack-core)---
+is the reference implementation of the Blockstack Naming Service.
+
 # Introduction
 
 The Blockstack Naming Service (BNS) is a network system that binds names
-to a (small) amount of state without relying on any central points of control.
+to off-chain state without relying on any central points of control.
 It does so by embedding a log of its control-plane messages within a public blockchain, like Bitcoin.
-
 
 Each BNS peer determines the state of each name by indexing these specially-crafted
 transactions.  In doing so, each peer independently calculates the same global
@@ -31,10 +33,26 @@ Names in BNS have three properties:
   well-behaved nodes resolve a given name to the same state.
 * **Names are human-meaningful.**  Each name is chosen by its creator.
 * **Names are strongly-owned.**  Only the name's owner can change the state it
-  resolves to.
+  resolves to.  Specifically, a name is owned by one or more ECDSA private keys.
 
-[Blockstack Core](https://github.com/blockstack/blockstack-core) is the reference
-implementation of the Blockstack Naming Service.
+Internally, a BNS node implements a replicated name database.  Each BNS node keeps itself
+synchronized to all of the other ones in the world, so queries on one BNS node
+will be the same on other nodes.  BNS nodes allow a name's owner to bind 
+up to 40Kb of off-chain state to their name, which will be replicated to all 
+BNS nodes via the [Atlas network](atlas_network.md).
+
+BNS nodes extract the name database log from an underlying blockchain (Blockstack
+Core currently uses Bitcoin, and had used Namecoin in the past).
+BNS uses the blockchain to establish a shared "ground truth" for the system:  as long as
+two nodes have the same view of the blockchain, then they will build up the same
+database.
+
+The biggest consequence for developers is that in BNS, reading name state is
+fast and cheap but writing name state is slow and expensive.  This is because
+registering and modifying names requires one or more transactions to be sent to
+the underlying blockchain, and BNS nodes will not process them until they are
+sufficiently confirmed.  Users and developers need to acquire and spend
+the requisite cryptocurrency (i.e. Bitcoin) to send BNS transactions.
 
 # Motivation
 
@@ -83,35 +101,70 @@ can do the following and more:
 * Build public-key infrastructure where it's easy for users to discover and
   remember each other's keys.
 
-# How to Use BNS
+# BNS Architecture
 
-A BNS node implements a replicated name database.  Each BNS node keeps itself
-synchronized to all of the other ones in the world, so queries on one BNS node
-will be the same on other nodes.
+The BNS node is the heart of the system.  It is responsible for building up 
+and replicating global name state.
 
-BNS nodes extract name information from an underlying blockchain (Blockstack
-Core currently uses Bitcoin, and had used Namecoin in the past).
-BNS uses the blockchain to establish a shared "ground truth" for the system:  as long as
-two nodes have the same view of the blockchain, then they will build up the same
-database.
+There are three parts to BNS that developers should be aware of.  They are:
 
-The biggest consequence for developers is that in BNS, reading name state is
-fast and cheap but writing name state is slow and expensive.  This is because
-registering and updating names requires one or more transactions to be sent to
-the underlying blockchain, and BNS nodes will not process them until they are
-sufficiently confirmed.  Users and developers need to acquire and spend
-the requisite cryptocurrency (i.e. Bitcoin) to send BNS transactions.
+* **The BNS indexer**.  This module crawls the blockchain and builds
+  up its name database.  BNS indexers do not contain any private or sensitive
+state, and can be deployed publicly.  We maintain a fleet of them at
+`https://node.blockstack.org:6263` for developers to use to get started.
 
-## BNS Clients
+* **The BNS API**.  This module gives
+  developers a *stable RESTful API* for interacting with the BNS network.
+We provide one for developers to experiment with at `https://core.blockstack.org`.
 
-Developers interact with BNS by resolving names, registering names, and managing
-names.  Resolving names is done with a RESTful API call, and can be done with 
-vanilla `curl` or `wget`.  Registering and
-managing names require generating and sending blockchain transactions, which
-requires specialized software.
+* **BNS clients**.  These communicate with the BNS API module in order to
+  resolve names.  Internally, they generate and send transactions to register
+and modify names.
 
-To register and manage names, you will need a BNS client.  We provide two
-options:
+The BNS indexer and BNS API comprise the **BNS node**.  An architectural schematic appears below.
+
+```
+                      +-------------------------------------------------------+
+            RESTful   | +----------------+             +--------------------+ |
++--------+   API      | |                | private API |                    | |
+| client |<------------>| BNS API module |<----------->| BNS indexer module | |
++--------+            | |                |             |                    | |
+    |                 | +----------------+             | +----------------+ | |
+    |                 |                                | | name database  | | |
+    |                 |                                | +----------------+ | |
+    |                 |                                +--------------------+ |
+    |                 | BNS node                                 ^            |
+    |                 +------------------------------------------|------------+
+    |                                                            |
+    |                                                            v
+    |       blockchain transactions                    +--------------------+
+    +------------------------------------------------->|   blockchain peer  |
+                                                       +--------------------+
+
+Figure 1: BNS architecture overview.  Clients talk to the BNS API module to
+resolve names, and generate and send blockchain transactions to register and
+modify names.   The API module talks to the indexer module and gives clients
+a stable, Web-accessible interface for resolving names.  The indexer module reads
+the blochchain via a blockchain peer, over the blockchain's peer network. 
+
+Blockstack Core currently implements the API module and indexer module as separate
+daemons (`blockstack api` and `blockstack-core`, respectively).  However, this
+is an implementation detail, and may change in the future.
+```
+
+The BNS indexer implements the blockchain consensus rules and network protocols.
+Its main responsibility is to build up and replicate all of the name state.  It does 
+not have any public APIs of its own.
+
+The BNS API modules allows users and developers to resolve names via a RESTful
+interface.  Resolution can be done with vanilla `curl` or `wget`.
+BNS applications should use the BNS API module for name resolution.
+They should not attempt to talk to a BNS indexer directly, because its API is not stable and is not meant
+for consumption by any other process except for the API module.
+
+Registering and managing names require generating and sending blockchain
+transactions, which requires running a BNS client.  We provide two reference
+BNS clients:
 
 * The [Blockstack Browser](https://github.com/blockstack/blockstack-browser) gives users
 and developers a graphical UI to resolve, register and manage names.  This is the recommended
@@ -132,54 +185,51 @@ sending their own transactions.
 The examples in this document focus on resolving names using `curl`.  We refer
 the reader to client-specific documentation for registering and managing names.
 
-## BNS Node Architecture
+# How to Use BNS
 
-There are two parts to a BNS node that developers should be aware of.  They are:
+BNS names are organized into a global name hierarchy.  There are three different
+layers in this hierarchy related to naming:
 
-* **The BNS indexer**.  This module crawls the blockchain and builds
-  up its name database.  BNS indexers do not contain any private or sensitive
-state, and can be deployed publicly.  We maintain a fleet of them at
-`https://node.blockstack.org:6263` for developers to use to get started.
+* **Namespaces**.  These are the top-level names in the hierarchy.  An analogy
+  to BNS namespaces are DNS top-level domains.  Existing BNS namespaces include
+`.id`, `.podcast`, and `.helloworld`.  All other names belong to exactly one
+namespace.  Anyone can create a namespace, but in order for the namespace
+to be persisted, it must be *launched* so that anyone can register names in it.
+Namespaces are not owned by their creators.
 
-* **The BNS API**  This module gives
-  developers a *stable RESTful API* for interacting with the BNS network.
-We provide one for developers to experiment with at `https://core.blockstack.org`.
+* **BNS names**.  These are names whose records are stored directly on the
+  blockchain.  The ownership and state of these names are controlled by sending
+blockchain transactions.  Example names include `verified.podcast` and
+`muneeb.id`.  Anyone can create a BNS name, as long as the namespace that
+contains it exists already.  The state for BNS names is usually stored in the [Atlas
+network](atlas_network.md).
 
-An architectural schematic appears below.
+* **BNS subdomains**.  These are names whose records are stored off-chain, 
+but are collectively anchored to the blockchain.  The ownership and state for
+these names lives within the [Atlas network](atlas_network.md).  While BNS
+subdomains are owned by separate private keys, a BNS name owner must
+broadcast their subdomain state.  Example subdomains include `jude.personal.id`
+and `podsaveamerica.verified.podcast`.  Unlike BNS namespaces and names, the
+state of BNS subdomains is *not* part of the blockchain consensus rules.
 
-```
-                        +----------------+             +--------------------+
-+--------+  RESTful API |                | private API |                    |
-| client |<------------>| BNS API module |<----------->| BNS indexer module |
-+--------+              |                |             |                    |
-                        +----------------+             | +----------------+ |
-                                                       | | name database  | |
-                                                       | +----------------+ |
-                                                       +--------------------+
-                                                                 ^
- Figure 1: BNS node architecture overview.                       |
- Clients talk to the BNS API module.  The                        |
- API module talks to the indexer module.                         v
- The indexer module reads the blochchain via           +--------------------+
- a blockchain peer, over the blockchain's              |   blockchain peer  |
- peer network.                                         +--------------------+
-```
+A feature comparison matrix summarizing the similarities and differences
+between these name objects is presented below:
 
-BNS clients and applications should use the BNS API module.  They should not attempt
-to talk to a BNS indexer directly, because its API is not stable and is not meant
-for consumption by any other process except for the API daemon.
-
-Blockstack Core currently implements the API module and indexer module as separate daemons
-(`blockstack api` and `blockstack-core`, respectively).  However, this is an
-implementation detail, and may change in the future.
+| Feature | **Namespaces** | **BNS names** | **BNS Subdomains** |
+|---------|----------------|---------------|--------------------|
+| Globally unique | X | X | X |
+| Human-meaningful | X | X | X |
+| Owned by a private key |  | X | X |
+| Anyone can create with a blockchain transaction | X | X |     |
+| State hosted on-chain | X | X |  |
+| State hosted off-chain |  | X | X |
+| Behavior controlled by consensus rules | X | X |  |
+| Has an expiration date |  | X  |  |
 
 ## BNS Namespaces
 
-BNS names are organized hierarchically.  Names are grouped
-in **namespaces**, which function like top-level domains in DNS.  All BNS names
-belong to exactly one namespace.
-
-Namespaces control a few properties about the names within them:
+Namespaces are the top-level naming objects in BNS.
+They control a few properties about the names within them:
 * How expensive they are to register
 * How long they last before they have to be renewed
 * Who (if anyone) receives the name registration fees
@@ -195,6 +245,71 @@ rendered unspendable (the intention is to discourage ID sqautters).
 Unlike DNS, *anyone* can create a namespace and set its properties.
 Namespaces are created on a first-come first-serve basis, and once created, they
 last forever.
+
+However, creating a namespace is not free.  The namespace creator must *burn*
+cryptocurrency to do so.  The shorter the namespace, the more cryptocurrency
+must be burned (i.e. short namespaces are more valuable than long namespaces).
+For example, it cost Blockstack PBC 40 BTC to create the `.id` namespace in
+2015 (in transaction `5f00b8e609821edd6f3369ee4ee86e03ea34b890e242236cdb66ef6c9c6a1b281`).
+
+Namespaces can be between 1 and 19 characters long, and are composed of the
+characters `a-z`, `0-9`, `-`, and `_`.
+
+### Creating a Namespace
+
+There are four steps to creating a namespace:
+
+1. **Send a `NAMESPACE_PREORDER` transaction** ([live example](https://www.blocktrail.com/BTC/tx/5f00b8e609821edd6f3369ee4ee86e03ea34b890e242236cdb66ef6c9c6a1b28)).
+This is the first step.  This registers the *salted hash* of the namespace with BNS nodes, and burns the
+requisite amount of cryptocurrency.  In addition, it proves to the
+BNS nodes that user has honored the BNS consensus rules by including
+a recent *consensus hash* in the transaction
+(see the section on [BNS forks](#bns-forks) for details).
+
+2. **Send a `NAMESPACE_REVEAL` transaction** ([live example](https://www.blocktrail.com/BTC/tx/ab54b1c1dd5332dc86b24ca2f88b8ca0068485edf0c322416d104c5b84133a32)).
+This is the second step.  This reveals the salt and the namespace ID (pairing it with its
+`NAMESPACE_PREORDER`), it reveals how long names last in this namespace before
+they expire or must be renewed, and it sets a *price function* for the namespace
+that determines how cheap or expensive names its will be.  The price function takes
+a name in this namespace as input, and outputs the amount of cryptocurrency the
+name will cost (i.e. by examining how long the name is, and whether or not it
+has any vowels or non-alphabet characters).  The namespace creator 
+has the option to collect name registration fees for the first year of the
+namespace's existence by setting a *namespace creator address*.
+
+3. **Seed the namespace with `NAME_IMPORT` transactions** ([live example](https://www.blocktrail.com/BTC/tx/c698ac4b4a61c90b2c93dababde867dea359f971e2efcf415c37c9a4d9c4f312)).
+Once the namespace has been revealed, the user has the option to populate it with a set of
+names.  Each imported name is given both an owner and some off-chain state.
+This step is optional---namespace creators are not required to import names.
+
+4. **Send a `NAMESPACE_READY` transaction** ([live example](https://www.blocktrail.com/BTC/tx/2bf9a97e3081886f96c4def36d99a677059fafdbd6bdb6d626c0608a1e286032)).
+This is the final step of the process.  It *launches* the namespace, which makes it available to the
+public.  Once a namespace is ready, anyone can register a name in it if they 
+pay the appropriate amount of cryptocurrency (according to the price funtion
+revealed in step 2).
+
+The reason for the `NAMESPACE_PREORDER/NAMESPACE_REVEAL` pairing is to prevent
+frontrunning.  The BNS consensus rules require a `NAMESPACE_REVEAL` to be
+paired with a previous `NAMESPACE_PREORDER` sent within the past 24 hours.
+If it did not do this, then a malicious actor could watch the blockchain network
+and race a victim to claim a namespace.
+
+Namespaces are created on a first-come first-serve basis.  If two people try to
+create the same namespace, the one that successfully confirms both the
+`NAMESPACE_PREORDER` and `NAMESPACE_REVEAL` wins.  The fee burned in the
+`NAMESPACE_PREORDER` is spent either way.
+
+Once the user issues the `NAMESPACE_PREORDER` and `NAMESPACE_REVEAL`, they have
+1 year before they must send the `NAMESPACE_READY` transaction.  If they do not
+do this, then the namespace they created disappears (along with all the names
+they imported).
+
+Developers wanting to create their own namespaces should read the [namespace
+creation](namespace_creation.md) document.  It is highly recommended that
+developers follow this tutorial closely, given the large amount of
+cryptocurrency at stake.
+
+### Using Namespaces
 
 The intention is that each application can create its own BNS
 namespace for its own purposes.  Applications can use namespaces for things like:
@@ -212,8 +327,10 @@ can be sold and traded independently.  The licensing fee (paid as a name
 registration) would be set by the developer and sent to a developer-controlled
 blockchain address.
 
-Developers wanting to create their own namespaces should read the [namespace
-creation](namespace_creation.md) document.
+Names within a namespace can serve any purpose the developer wants.  The ability
+to collect registration fees for 1 year after creating the namespace not only
+gives developers the incentive to get users to participate in the app, but also
+gives them a way to measure economic activity.
 
 Developers can query individual namespaces and look up names within them using
 the BNS API.  The API offers routes to do the following: 
@@ -260,17 +377,51 @@ $ curl https://core.blockstack.org/v1/namespaces/id/names?page=0
 
 Each page returns a batch of 100 names.
 
+#### Get the Cost to Register a Namespace ([reference](https://core.blockstack.org/#price-checks-get-namespace-price))
+
+```bash
+$ curl https://core.blockstack.org/v1/prices/namespaces/test
+{
+  "satoshis": 40000000
+}
+```
+
+If you want to register a namespace, please see the [namespace creation tutorial](namespace_creation.md).
+
+#### Getting the Current Consensus Hash ([reference](https://core.blockstack.org/#blockchain-operations-get-consensus-hash))
+
+```bash
+$ curl -sL https://core.blockstack.org/v1/blockchains/bitcoin/consensus
+{
+  "consensus_hash": "98adf31989bd937576aa190cc9f5fa3a"
+}
+```
+
+A recent consensus hash is required to create a `NAMESPACE_PREORDER` transaction.  The reference
+BNS clients do this automatically.  See the [transaction format](wire-format.md)
+document for details on how the consensus hash is used to construct the
+transaction.
+
 ## Resolving BNS Names
 
-Each BNS node maintains a name database table with three columns:
-all the names that have been registered, each name's public key hash,
-and each name's small amount of state.  In addition, each BNS node maintains the *transaction
-history* for each name.  A developer can not only resolve a name to its
-*current* state, but also to *any previous state at a given point in time.*
+BNS names are bound to both public keys and to about 40Kb of off-chain state.
+The off-chain state is encoded as a [DNS zone file](https://en.wikipedia.org/wiki/Zone_file),
+which contains routing information for discovering the user's Blockstack data
+(such as their profile and app data, which are hosted in the [Gaia storage
+system](https://github.com/blockstack/gaia)).
+
+The blockchain is not used to store this information directly.  Instead, the
+blockchain stores the *public key hash* and the *zone file hash*.  When
+indexing the blockchain, each BNS node builds a database with
+three columns:  all the on-chain BNS names that have been registered, each
+name's public key hash, and each name's zone file's hash.
+In addition, each BNS node maintains the *transaction history* of each name.
+A developer can resolve a name to any configuration it was in at any prior
+point in time.
 
 Below is an example name table pulled from a live BNS node:
 
-| Name | Public key hash | Name State |
+| Name | Public key hash | Zone File Hash |
 |------|-----------------|--------------|
 | `ryan.id` | `15BcxePn59Y6mYD2fRLCLCaaHScefqW2No` | `a455954b3e38685e487efa41480beeb315f4ec65` |
 | `muneeb.id` | `1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs` | `37aecf837c6ae9bdc9dbd98a268f263dacd00361` |
@@ -279,28 +430,30 @@ Below is an example name table pulled from a live BNS node:
 | `cicero.res_publica.id` | `1EtE77Aa5AA8etzF2irk56vvkS4v7rZ7PE` | `7e4ac75f9d79ba9d5d284fac19617497433b832d` |
 | `podsaveamerica.verified.podcast` | `1MwPD6dH4fE3gQ9mCov81L1DEQWT7E85qH` | `0d6f090db8945aa0e60759f9c866b17645893a95` |
 
-The value of the `Name State` column is written to the blockchain, and its
-contents can be arbitrary.  However, the exact amount of state that can be written
-is constrained by the underlying blockchain.  For example, the reference implementation
-limits it to 20 bytes.
+In practice, the zone file hash is the `RIPEMD160` hash of the `SHA256` hash of
+the zone file, and the public key is the `base58check`-encoded `RIPEMD160` hash
+of the double-`SHA256` hash of the ECDSA public key (i.e. a Bitcoin address).
 
-Since the `Name State` field size is so constrained, in practice it gets used to
-store the cryptographic hash of some off-chain data.
-This allows the off-chain data can be hosted anywhere, since its authenticity
-and integrity are determined using the hash in the (trusted) BNS node.
+The BNS consensus rules ensure that
+a BNS name can only be registered if it is not already taken, and that only the 
+user who owns the name's private key can change its public key hash or zone file
+hash.  This means that a name's public key and zone file can be stored anywhere,
+since they can be authenticated using the hashes discovered by indexing the
+blockchain under the BNS consensus rules.
 
-This use-case is so common that the reference implementation explicitly
-uses  the `Name State` field to store the hash of a
-[DNS zone file](https://en.wikipedia.org/wiki/Zone_file), which contains
-URLs that point to the name owner's Blockstack application data.
-BNS nodes eagerly replicate zone files they discover to one another via the
-[Atlas Network](atlas_network.md), so BNS name lookups will often resolve both
-to their on-chain state and their off-chain zone file data.
+BNS nodes implement a decentralized storage system for zone files called the
+[Atlas network](atlas_network.md).  In this system, BNS nodes eagerly replicate
+all the zone files they know about to one another, so that eventually every BNS
+node has a full replica of all zone files.
+
+The public keys for names are stored off-chain in [Gaia](https://github.com/blockstack/gaia).
+The user controls where their public keys are hosted using the zone file
+contents (if they are hosted online anywhere at all).
 
 Developers can query this table via the BNS API.  The API offers routes
 to do the following:
 
-#### Look up a name's public key and name state ([reference](https://core.blockstack.org/#name-querying-get-name-info))
+#### Look up a name's public key and zone file ([reference](https://core.blockstack.org/#name-querying-get-name-info))
 
 ```bash
 $ curl https://core.blockstack.org/v1/names/muneeb.id
@@ -315,8 +468,7 @@ $ curl https://core.blockstack.org/v1/names/muneeb.id
 }
 ```
 
-Note that the API uses the `zonefile_hash` field to serve the `Name State` data.
-Also note that the `zonefile` field is given with the off-chain data that hashes
+Note that the `zonefile` field is given with the off-chain data that hashes
 to the `zonefile_hash` field.
 
 #### List all names the node knows about ([reference](https://core.blockstack.org/#name-querying-get-all-names))
@@ -342,7 +494,9 @@ $ curl https://core.blockstack.org/v1/names?page=0
 ]
 ```
 
-Each page returns 100 names.
+Each page returns 100 names.  While no specific ordering is mandated by the
+protocol, the reference implementation orders names by their order of creation
+in the blockchain.
 
 #### Look up the history of states a name was in ([reference](https://core.blockstack.org/#name-querying-name-history))
 
@@ -454,8 +608,8 @@ $ curl https://core.blockstack.org/v1/names/patrickstanley.id/history
 
 All of the above information is extracted from the blockchain.  Each top-level
 field encodes the states the name transitioned to at the given block height (e.g.
-445838, 445851, 445873, adn 445884).  At each block height, the name's states
-are returned in the order they were discovered in the blockchain.
+445838, 445851, 445873, adn 445884).  At each block height, the name's zone file
+hashes are returned in the order they were discovered in the blockchain.
 
 Each name state contains a lot of ancillary data that is used internally by
 other API calls and client libraries.  The relevant fields for this document's
@@ -463,11 +617,12 @@ scope are:
 
 * `address`: This is the base58check-encoded public key hash.
 * `name`:  This is the name queried.
-* `value_hash`:  This is the `Name State` value.  The term `value_hash` is used
-  as an allusion to the overwhelmingly-common use-case of using this field to
-store the hash of some off-chain data.
+* `value_hash`:  This is the zone file hash.
 * `opcode`:  This is the type of transaction that was processed.
 * `txid`:  This is the transaction ID in the underlying blockchain.
+
+The name's *entire* history is returned.  This includes the history of the name
+under its previous owner, if the name expired and was reregistered.
 
 #### Look up the list of names owned by a given public key hash ([reference](https://core.blockstack.org/#name-querying-get-names-owned-by-address))
 
@@ -491,80 +646,195 @@ Note that this API endpoint includes names and
 
 ## Registering BNS Names
 
-Anyone can register a name in BNS, but only the name's owner can change its
-public key hash or its name state.  Internally, BNS does this by encoding
-these operations as transactions in its underlying blockchain.
+Registering a BNS name costs cryptocurrency.  This cost comes from two sources:
 
-Because BNS is implemented on top of a blockchain, registering names costs money
-in the form of transaction fees and registration fees.  All blockchains require
-a transaction fee in order to process and store a transaction, so no matter
-what we do, name registration cannot be free of charge.  However, this is a good
-thing, since it prevents spammers from both filling up the blockchain with
-garbage data and in turn prevents spammers from filling up BNS name databases with junk.
+* **Transaction fees:** These are the fees imposed by the cost of storing the
+  transaction data to the blockchain itself.  They are independent of BNS, since
+all of the blockchain's users are competing to have their transactions included
+in the next block.  The blockchain's miners receive the transaction fee.
 
-In addition to the transaction fee, BNS imposes a *registration fee*.  Not all
-names are created equal---some names are more desirable than others.  BNS
-uses the registration fee to ensure that more desirable names cost more, so they
-are less likely to be squatted.  In addition, the registration fee is an
-incentive mechanism for developers to create and curate namespaces
-for their apps.
+* **Registration fees:** Each BNS namespace imposes an *additional* fee on how
+  much a name costs.  The registration fee is sent to the namespace creator
+during the first year that a namespace exists, and is sent to a burn address
+afterwards.  The registration fee is different for each name and is
+determined by the namespace itself, but can be queried in advance by the user.
 
-The act of registering a name will insert a new row into each BNS node's name
-table.  This ensures that every BNS node in the world will discover and add
-the new name to their databases when they processes the name's
-transactions.  However, this also means that registering a name can take
-minutes or hours, depending on how fast the underlying blockchain is able to
-confirm transactions.
+Registering a name takes two transactions.  They are:
 
-Names are registered on a first-come first-serve basis, thereby ensuring that they are
-globally unique.  Any unclaimed, well-formed name can be registered.  Due to
-space constraints on the blockchain, the reference implementation limits
-names to 37 characters (including their namespace).  To prevent [homoglyph
-attacks](https://en.wikipedia.org/wiki/IDN_homograph_attack),
-a name's characters are limited to `a-z`, `0-9`, `+`, `-`, and `_`.
+* **`NAME_PREORDER` transaction**:  This is the first transaction to be sent.
+  It tells all BNS nodes the *salted hash* of the BNS name, and it pays the
+registration fee to the namespace owner's designated address (or the burn
+address).  In addition, it proves to the BNS nodes that the client knows about
+the current state of the system by including a recent *consensus hash*
+in the transaction (see the section on [BNS forks](#bns-forks) for details).
+
+* **`NAME_REGISTRATION` transaction**:  This is the second transaction to be
+  sent.  It reveals the salt and the name to all BNS nodes, and assigns the name
+an initial public key hash and zone file hash
+
+The reason this process takes two transactions is to prevent front-running.
+The BNS consensus rules stipulate that a name can only be registered if its
+matching preorder transaction was sent in the last 24 hours.  Because a name
+must be preordered before it is registered, someone watching the blockchain's
+peer network cannot race a victim to claim the name they were trying to
+register (i.e. the attacker would have needed to send a `NAME_PREORDER`
+transaction first, and would have had to have sent it no more than 24 hours
+ago).
+
+Registering a name on top of the Bitcoin blockchain takes 1-2 hours.  This is
+because you need to wait for the `NAME_PREORDER` transaction to be sufficiently
+confirmed before sending the `NAME_REGISTRATION` transaction.  The BNS nodes
+only register the name once both transactions have at least 6 confirmations
+(which itself usually takes about an hour).
+
+Names are registered on a first-come first-serve basis.
+If two different people try to register the same name at the same time, the
+person who completes the two-step process *earliest* will receive the name.  The
+other person's `NAME_REGISTRATION` transaction will be ignored, since it will
+not be considered valid at this point.  The registration fee paid by the
+`NAME_PREORDER` will be lost.  However, this situation is rare in practice---
+as of early 2018, we only know of one confirmed instance in the system's 3+ years
+of operation.
+
+Fully-qualified names can be between 3 and 37 characters long, and consist of
+the characters `a-z`, `0-9`, `+`, `-`, `_`, and `.`.  This is to prevent
+[homograph attacks](https://en.wikipedia.org/wiki/IDN_homograph_attack).
+`NAME_REGISTRATION` transactions that do not conform to this requirement will be
+ignored.
+
+#### Getting a Name's Registration Fee ([reference](https://core.blockstack.org/#price-checks-get-name-price))
+
+```bash
+$ curl -sL https://core.blockstack.org/v1/prices/names/helloworld.id | jq -r ".name_price"
+{
+  "btc": 2.5e-05,
+  "satoshis": 2500
+}
+```
+
+Note the use of `jq -r` to select the `"name_price"` field.  This API
+endpoint may return other ancilliary data regarding transaction fee estimation,
+but this is the only field guaranteed by this specification to be present.
+
+#### Getting the Current Consensus Hash ([reference](https://core.blockstack.org/#blockchain-operations-get-consensus-hash))
+
+```bash
+$ curl -sL https://core.blockstack.org/v1/blockchains/bitcoin/consensus
+{
+  "consensus_hash": "98adf31989bd937576aa190cc9f5fa3a"
+}
+```
+
+The consensus hash must be included in the `NAME_PREORDER` transaction.  The BNS
+clients do this automatically.  See the [transaction format
+document](wire-format.md) for details as to how to include this in the
+transaction.
+
+#### Registering a Name
 
 Registration happens through a BNS client, such as the [Blockstack
 Browser](https://github.com/blockstack/blockstack-browser) or
-[blockstack.js](https://github.com/blockstack/blockstack.js). 
+[blockstack.js](https://github.com/blockstack/blockstack.js).
+The reference BNS clients manage a local Bitcoin wallet, calculate transaction fees
+dynamically and automatically, and broadcast both the `NAME_PREORDER` and
+`NAME_REGISTRATION` transactions at the right times.
+
+If you want to make your own registration client, you should see the
+[transaction format](wire-format.md) document.
 
 ## Managing BNS Names
 
-Only a name's owner can update a name's public key hash and name state.
-This is enforced by ensuring that each name operation is signed by the name's
-private key.
+Once you register a BNS name, you have the power to change its zone file hash,
+change its public key hash, destroy it (i.e. render it unresolvable),
+or renew it.  The BNS consensus rules ensure that *only* you, as the owner of
+the name's private key, have the ability to carry out these operations.
 
-BNS supports several operations for managing names:
+Each of these operations are executed by sending a specially-formatted
+blockchain transaction to the blockchain, which BNS nodes read and process.
+The operations are listed below:
 
-* **Updating a name.**  A name owner can change the name state's value to any
-  20-byte string they want.
-* **Transferring a name.**  A name owner can change the name's public key hash,
-  thereby giving it a new owner.  The current owner has the option of atomically
-clearing its name state value in the act of transferring it.
-* **Renewing a name.**  Not all names last forever, depending on which
-  namespace it lives in.  If a name does not last for ever, it
-must be periodically renewed.  When renewing a name, the owner has the option to
-atomically update and transfer it as well.
-* **Revoking a name.**  A name owner can kill a name, such that it will no
-  longer resolve and can no longer be updated, transferred, or renewed.  If the
-name can expire, it will eventually be available again to be registered.
+| Transaction Type | Description |
+|------------------|-------------|
+| `NAME_UPDATE`    | This changes the name's zone file hash.  Any 20-byte string is allowed. |
+| `NAME_TRANSFER`  | This changes the name's public key hash.  In addition, the current owner has the option to atomically clear the name's zone file hash (so the new owner won't "receive" the zone file). |
+| `NAME_REVOKE`    | This renders a name unresolvable.  You should do this if your private key is compromised. |
+| `NAME_RENEWAL`   | This pushes back the name's expiration date (if it has one), and optionally both sets a new zone file hash and a new public key hash. |
 
-Each of these operations can be thought of as executing `UPDATE/SET/WHERE`
-SQL commands on the BNS node's name table.
-Each name operation is implemented as a single blockchain transaction.
+The reference BNS clients---
+[blockstack.js](https://github.com/blockstack/blockstack.js) and the [Blockstack
+Browser](https://github.com/blockstack/blockstack-browser)---can handle creating
+and sending all of these transactions for you.
 
-BNS name operations are encoded as transactions in the underlying blockchain.
-BNS clients carry out these operations by generating a well-formed transaction
-that encodes the operation, and broadcasting it to the blockchain's peer
-network.  See the documentation for 
-[Blockstack Browser](https://github.com/blockstack/blockstack-browser) or
-[blockstack.js](https://github.com/blockstack/blockstack.js) for information on
-how to carry out a name operation.  Also, see the [transaction wire
-format](wire-format.md) document for details on transaction encoding.
+### `NAME_UPDATE` ([live example](https://www.blocktrail.com/BTC/tx/e2029990fa75e9fc642f149dad196ac6b64b9c4a6db254f23a580b7508fc34d7))
+
+A `NAME_UPDATE` transaction changes the name's zone file hash.  You would send
+one of these transactions if you wanted to change the name's zone file contents.
+For example, you would do this if you want to deploy your own [Gaia
+hub](https://github.com/blockstack/gaia) and want other people to read from it.
+
+A `NAME_UPDATE` transaction is generated from the name, a recent [consensus
+hash](#bns-forks), and the new zone file hash.  The reference clients gather
+this information automatically.  See the [transaction format](wire-format.md)
+document for details on how to construct this transaction.
+
+### `NAME_TRANSFER` ([live example](https://www.blocktrail.com/BTC/tx/7a0a3bb7d39b89c3638abc369c85b5c028d0a55d7804ba1953ff19b0125f3c24))
+
+A `NAME_TRANSFER` transaction changes the name's public key hash.  You would
+send one of these transactions if you wanted to:
+
+* Change your private key
+* Send the name to someone else
+
+When transferring a name, you have the option to also clear the name's zone
+file hash (i.e. set it to `null`).
+This is useful for when you send the name to someone else, so the
+recipient's name does not resolve to your zone file.
+
+The `NAME_TRANSFER` transaction is generated from the name, a recent [consensus
+hash](#bns-forks), and the new public key hash.  The reference clients gather
+this information automatically.  See the [transaction format](wire-format.md)
+document for details on how to construct this transaction.
+
+### `NAME_REVOKE` ([live example](https://www.blocktrail.com/BTC/tx/eb2e84a45cf411e528185a98cd5fb45ed349843a83d39fd4dff2de47adad8c8f))
+
+A `NAME_REVOKE` transaction makes a name unresolvable.  The BNS consensus rules
+stipulate that once a name is revoked, no one can change its public key hash or
+its zone file hash.  The name's zone file hash is set to `null` to prevent it
+from resolving.
+
+You should only do this if your private key is compromised, or if you want to
+render your name unusable for whatever reason.  It is rarely used in practice.
+
+The `NAME_REVOKE` operation is generated using only the name.  See the
+[transaction format](wire-format.md) document for details on how to construct
+it.
+
+### `NAME_RENEWAL` ([live example](https://www.blocktrail.com/BTC/tx/e543211b18e5d29fd3de7c0242cb017115f6a22ad5c6d51cf39e2b87447b7e65))
+
+Depending in the namespace rules, a name can expire.  For example, names in the
+`.id` namespace expire after 2 years.  You need to send a `NAME_RENEWAL` every
+so often to keep your name.
+
+A `NAME_RENEWAL` costs both transaction fees and registration fees.  You will
+pay the registration cost of your name to the namespace's designated burn address when you
+renew it.  You can find this fee using the `/v1/prices/names/{name}` endpoint.
+
+When a name expires, it enters a month-long "grace period" (5000 blocks).  It
+will stop resolving in the grace period, and all of the above operations will
+cease to be honored by the BNS consensus rules.  You may, however, send a
+`NAME_RENEWAL` during this grace period to preserve your name.
+
+If your name is in a namespace where names do not expire, then you never need to
+use this transaction.
+
+When you send a `NAME_RENEWAL`, you have the option of also setting a new public
+key hash and a new zone file hash.  See the [transaction format](wire-format.md)
+document for details on how to construct this transaction.
 
 ## BNS Subdomains
 
 BNS names are strongly-owned because the owner of its private key can generate
-valid transactions that update its state and owner.  However, this comes at the
+valid transactions that update its zone file hash and owner.  However, this comes at the
 cost of requiring a name owner to pay for the underlying transaction in the
 blockchain.  Moreover, this approach limits the rate of BNS name registrations
 and operations to the underlying blockchain's transaction bandwidth.
@@ -587,14 +857,15 @@ subdomain operations.
 
 This is achieved by storing subdomain records in the [Atlas Network](atlas_network.md).
 An on-chain name owner broadcasts subdomain operations by encoding them as
-`TXT` records within a DNS zone file.
-To broadcast the zone file, the owner sets the name's state value to be 
-the hash of a zone file.  It then uses Atlas to replicate the zone file,
-and thus all of the subdomain operations.  This anchors the set of operations to
-an on-chain transaction, so other nodes who receive and process the zone file
-and its subdomain operations can prove that the zone file is legitimate.
+`TXT` records within a DNS zone file.  To broadcast the zone file,
+the name owner sets the new zone file hash with a `NAME_UPDATE` transaction and
+replicates the zone file via Atlas.  This, in turn, replicates all subdomain
+operations it contains, and anchors the set of subdomain operations to
+an on-chain transaction.  The BNS node's consensus rules ensure that only
+valid subdomain operations from *valid* `NAME_UPDATE` transactions will ever be
+stored.
 
-For example, the name `verified.podcast` once wrote the name state value `247121450ca0e9af45e85a82e61cd525cd7ba023`,
+For example, the name `verified.podcast` once wrote the zone file hash `247121450ca0e9af45e85a82e61cd525cd7ba023`,
 which is the hash of the following zone file:
 
 ```bash
@@ -655,7 +926,7 @@ The lifecycle of a subdomain and its operations is shown in Figure 2.
         |        off-chain         |                          |
 ~ ~ ~ ~ | ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~|~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ | ~ ~ ~ ~ ~ ~ ~ ...
         |         on-chain         |                          |
-        V                          V (hash as name state)     V
+        V                          V (zone file hash    )     V
 +----------------+         +----------------+         +----------------+
 | res_publica.id |         |    jude.id     |         | res_publica.id |
 |  NAME_UPDATE   |<--------|  NAME_UPDATE   |<--------|  NAME_UPDATE   |<---- ...
@@ -690,7 +961,7 @@ blockchain's history is accepted.  Invalid subdomain operations are ignored.
 
 Combined, this ensures that a BNS node with all of the zone files with a given
 subdomain's operations will be able to determine the valid sequence of
-state-transitions it has undergone, and determine the current state and public
+state-transitions it has undergone, and determine the current zone file and public
 key hash for the subdomain.
 
 ### Resolving Subdomains
@@ -698,7 +969,7 @@ key hash for the subdomain.
 Developers interact with subdomains the same way they interact with names.
 Using the BNS API, a developer can:
 
-#### Look up a subdomain's public key and name state ([reference](https://core.blockstack.org/#name-querying-get-name-info))
+#### Look up a subdomain's public key and zone file ([reference](https://core.blockstack.org/#name-querying-get-name-info))
 
 ```bash
 $ curl https://core.blockstack.org/v1/names/aaron.personal.id
@@ -711,10 +982,6 @@ $ curl https://core.blockstack.org/v1/names/aaron.personal.id
   "zonefile_txt": "$ORIGIN aaron.personal.id\n$TTL 3600\n_https._tcp URI 10 1 \"https://gaia.blockstack.org/hub/1PwztPFd1s2STMv4Ntq6UPBdYgHSBr5pdF/profile.json\"\n"
 }
 ```
-
-Note that `zonefile_hash` refers to the 20-byte name state that each name in BNS
-gets.  The API endpoint helpfully returns an associated zone file, if one exists
-that hashes to the value of `zonefile_hash`.
 
 #### Look up a subdomain's transaction history ([reference](https://core.blockstack.org/#name-querying-name-history))
 
@@ -760,9 +1027,8 @@ on-chain name that created it.  For example, the owner of
 `cicero.res_publica.id` needs the owner of `res_publica.id` to broadcast a
 subdomain-transfer transaction to change `cicero.res_publica.id`'s public key.
 * In order to send a subdomain-creation or subdomain-transfer, all
-  of an on-chain name owner's name state values must be zone file hashes,
-  and all zone files must be available in the Atlas network.  This lets the BNS
-node prove the *absence* of any conflicting subdomain-creation and
+  of an on-chain name owner's zone files must be present in the Atlas network.
+  This lets the BNS node prove the *absence* of any conflicting subdomain-creation and
 subdomain-transfer operations when processing new zone files.
 * A subdomain update transaction can be broadcast by *any* on-chain name owner,
   but the subdomain owner needs to find one who will cooperate.  For example,
@@ -958,7 +1224,7 @@ In order for a DID to be resolvable, all of the following must be true for a
 name:
 
 * The name must exist
-* The name's state value must be the hash of a DNS zone file
+* The name's zone file hash must be the hash of a well-formed DNS zone file
 * The DNS zone file must be present in the BNS [Atlas Network](atlas_network.md)
 * The DNS zone file must contain a `URI` resource record that points to a signed
   JSON Web Token
