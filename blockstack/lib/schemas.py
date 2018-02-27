@@ -384,7 +384,7 @@ NAMEOP_SCHEMA_PROPERTIES = {
     'last_renewed': OP_HISTORY_SCHEMA['properties']['last_renewed'],
     'name': {
         'type': 'string',
-        'pattern': OP_NAME_PATTERN,
+        'pattern': OP_NAME_OR_SUBDOMAIN_PATTERN,
     },
     'op': OP_HISTORY_SCHEMA['properties']['op'],
     'op_fee': OP_HISTORY_SCHEMA['properties']['op_fee'],
