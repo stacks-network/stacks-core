@@ -1,5 +1,7 @@
 # Blockstack Naming Service
 
+> aaron: adding comments
+
 This document is written for Blockstack developers and technically-inclined
 users.  Its purpose is twofold: to give a brief overview of how the 
 Blockstack Naming Service works, and describe how developers can use it
@@ -32,29 +34,6 @@ Names in BNS have three properties:
 * **Names are human-meaningful.**  Each name is chosen by its creator.
 * **Names are strongly-owned.**  Only the name's owner can change the state it
   resolves to.
-
-> aaron: 
-> I like that this document provides a high-level overview of what BNS is, how it is used,
->   and why. I'm left with a couple questions after reading the document though:
->
-> Who owns a name, is it a public-key? is that an RSA key? 
-> How much name data can I store? What about off-chain (I understand that's a topic for the Atlas doc,
->    but I think we should clarify that it's more than just the 'common use-case' to store a hash
->    and link that hash to data in Atlas -- we should just say that _only_ the hash is part of the
->    consensus code, however, BNS _does_ rely on Atlas).
->
-> I think those two questions should be answerable by someone after _just_ reading the intro.
->
-> These questions are more detailed, and surround what I can do with a name, and probably belong
->  in their own section.
->
-> What are the operations I can make on my name, and why do I want to make them?
-> What are the semantics of those operations?
->  (i.e., what does a RENEW do? what is the relationship between the PREORDER address
->    and the REGISTER operation? Can any address broadcast a REGISTER,
->    or does it have to be the payer of the PREORDER?)
->
-
 
 [Blockstack Core](https://github.com/blockstack/blockstack-core) is the reference
 implementation of the Blockstack Naming Service.
