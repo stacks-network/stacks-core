@@ -30,7 +30,7 @@ Different operations require different outputs.
 
 Each Blockstack transaction in Bitcoin describes the name operation within an `OP_RETURN` output.  It encodes name ownership, name fees, and payments as `scriptPubKey` outputs.  The specific operations are described below.
 
-Each `OP_RETURN` payload *always* starts with `id` (called the "magic" bytes in this document), followed by a one-byte `op` that describes the operation.
+Each `OP_RETURN` payload *always* starts with the two-byte string `id` (called the "magic" bytes in this document), followed by a one-byte `op` that describes the operation.
 
 ### NAME_PREORDER
 
@@ -38,6 +38,8 @@ Op: `?`
 
 Description:  This transaction commits to the *hash* of a name.  It is the first
 transaction of two transactions that must be sent to register a name in BNS.
+
+Example: [6730ae09574d5935ffabe3dd63a9341ea54fafae62fde36c27738e9ee9c4e889](https://www.blocktrail.com/BTC/tx/6730ae09574d5935ffabe3dd63a9341ea54fafae62fde36c27738e9ee9c4e889)
 
 `OP_RETURN` wire format:
 ```
@@ -65,6 +67,8 @@ Op: `:`
 Description:  This transaction reveals the name whose hash was announced by a
 previous `NAME_PREORDER`.  It is the second of two transactions that must be
 sent to register a name in BNS.
+
+Example: [55b8b42fc3e3d23cbc0f07d38edae6a451dfc512b770fd7903725f9e465b2925](https://www.blocktrail.com/BTC/tx/55b8b42fc3e3d23cbc0f07d38edae6a451dfc512b770fd7903725f9e465b2925)
 
 `OP_RETURN` wire format (2 variations allowed):
 
@@ -104,6 +108,8 @@ Op: `:`
 
 Description:  This transaction renews a name in BNS.  The name must still be
 registered and not expired, and owned by the transaction sender.
+
+Example: [e543211b18e5d29fd3de7c0242cb017115f6a22ad5c6d51cf39e2b87447b7e65](https://www.blocktrail.com/BTC/tx/e543211b18e5d29fd3de7c0242cb017115f6a22ad5c6d51cf39e2b87447b7e65)
 
 `OP_RETURN` wire format (2 variations allowed):
 
@@ -152,14 +158,17 @@ Description:  This transaction sets the name state for a name to the given
 `value`.  In practice, this is used to announce new DNS zone file hashes to the [Atlas
 network](atlas_network.md).
 
+Example: [e2029990fa75e9fc642f149dad196ac6b64b9c4a6db254f23a580b7508fc34d7](https://www.blocktrail.com/BTC/tx/e2029990fa75e9fc642f149dad196ac6b64b9c4a6db254f23a580b7508fc34d7)
+
 `OP_RETURN` wire format:
 ```
     0     2  3                                   19                      39
     |-----|--|-----------------------------------|-----------------------|
-    magic op  hash128(name.ns_id,consensus hash)        value
+    magic op  hash128(name.ns_id,consensus hash)      zone file hash
 ```
 
 Note that `hash128(name.ns_id, consensus hash)` is the first 16 bytes of a SHA256 hash over the name concatenated to the hexadecimal string of the consensus hash (not the bytes corresponding to that hex string).
+See the [Method Glossary](#method-glossary) below.
 
 Example: `hash128("jude.id" + "8d8762c37d82360b84cf4d87f32f7754") == "d1062edb9ec9c85ad1aca6d37f2f5793"`.
 
@@ -178,6 +187,8 @@ Op: `>`
 
 Description:  This transaction changes the public key hash that owns the name in
 BNS.
+
+Example: [7a0a3bb7d39b89c3638abc369c85b5c028d0a55d7804ba1953ff19b0125f3c24](https://www.blocktrail.com/BTC/tx/7a0a3bb7d39b89c3638abc369c85b5c028d0a55d7804ba1953ff19b0125f3c24)
 
 `OP_RETURN` wire format:
 ```
@@ -210,6 +221,8 @@ Op: `~`
 Description:  This transaction destroys a registered name.  Its name state value
 in BNS will be cleared, and no further transactions will be able to affect the
 name until it expires (if its namespace allows it to expire at all).
+
+Example: [eb2e84a45cf411e528185a98cd5fb45ed349843a83d39fd4dff2de47adad8c8f](https://www.blocktrail.com/BTC/tx/eb2e84a45cf411e528185a98cd5fb45ed349843a83d39fd4dff2de47adad8c8f)
 
 `OP_RETURN` wire format:
 ```
@@ -271,6 +284,8 @@ Op: `*`
 Description:  This transaction announces the *hash* of a new namespace.  It is the
 first of three transactions that must be sent to create a namespace.
 
+Example: [5f00b8e609821edd6f3369ee4ee86e03ea34b890e242236cdb66ef6c9c6a1b28](https://www.blocktrail.com/BTC/tx/5f00b8e609821edd6f3369ee4ee86e03ea34b890e242236cdb66ef6c9c6a1b28)
+
 `OP_RETURN` wire format:
 ```
    0     2   3                                         23               39
@@ -298,6 +313,8 @@ Op: `&`
 
 Description:  This transaction reveals the namespace ID and namespace rules
 for a previously-anounced namespace hash (sent by a previous `NAMESPACE_PREORDER`).
+
+Example: [ab54b1c1dd5332dc86b24ca2f88b8ca0068485edf0c322416d104c5b84133a32](https://www.blocktrail.com/BTC/tx/ab54b1c1dd5332dc86b24ca2f88b8ca0068485edf0c322416d104c5b84133a32)
 
 `OP_RETURN` wire format:
 ```
@@ -359,6 +376,8 @@ namespace that has been revealed, but not been launched.  Only the namespace
 creator can import names.  See the [namespace creation
 tutorial](namespace_creation.md) for details.
 
+Example: [c698ac4b4a61c90b2c93dababde867dea359f971e2efcf415c37c9a4d9c4f312](https://www.blocktrail.com/BTC/tx/c698ac4b4a61c90b2c93dababde867dea359f971e2efcf415c37c9a4d9c4f312)
+
 `OP_RETURN` wire format:
 ```
     0    2  3                             39
@@ -391,6 +410,8 @@ Op: `!`
 Description:  This transaction launches a namesapce.  Only the namespace creator
 can send this transaction.  Once sent, anyone can register names in the
 namespace.
+
+Example: [2bf9a97e3081886f96c4def36d99a677059fafdbd6bdb6d626c0608a1e286032](https://www.blocktrail.com/BTC/tx/2bf9a97e3081886f96c4def36d99a677059fafdbd6bdb6d626c0608a1e286032)
 
 `OP_RETURN` wire format:
 ```
