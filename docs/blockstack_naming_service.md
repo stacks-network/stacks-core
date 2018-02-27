@@ -1,5 +1,7 @@
 # Blockstack Naming Service
 
+> aaron: adding comments
+
 This document is written for Blockstack developers and technically-inclined
 users.  Its purpose is twofold: to give a brief overview of how the 
 Blockstack Naming Service works, and describe how developers can use it
@@ -85,6 +87,10 @@ can do the following and more:
 
 # How to Use BNS
 
+> aaron: I think the next three paragraphs should be content in the intro.
+>   they aren't really about how to use BNS, but instead a very high-level overview
+>   of how BNS is implemented.
+
 A BNS node implements a replicated name database.  Each BNS node keeps itself
 synchronized to all of the other ones in the world, so queries on one BNS node
 will be the same on other nodes.
@@ -103,6 +109,8 @@ sufficiently confirmed.  Users and developers need to acquire and spend
 the requisite cryptocurrency (i.e. Bitcoin) to send BNS transactions.
 
 ## BNS Clients
+
+> aaron: I think this subsection can go below the Node architecture.
 
 Developers interact with BNS by resolving names, registering names, and managing
 names.  Resolving names is done with a RESTful API call, and can be done with 
@@ -133,6 +141,12 @@ The examples in this document focus on resolving names using `curl`.  We refer
 the reader to client-specific documentation for registering and managing names.
 
 ## BNS Node Architecture
+
+> aaron: this really deserves I think a little more of an introduction -- the BNS node 
+>   is the heart of the system.
+> Something like "The blockstack node is responsible for replicating the global name state,
+> and the implementation of this node defines the consensus rules of BNS. There are two parts
+> to a BNS node that developers should be aware..."
 
 There are two parts to a BNS node that developers should be aware of.  They are:
 
@@ -174,6 +188,18 @@ Blockstack Core currently implements the API module and indexer module as separa
 implementation detail, and may change in the future.
 
 ## BNS Namespaces
+
+> aaron: it would be great to have a brief overview of the different "name-types" in
+>   BNS: namespaces, domains, subdomains, before going into detail about them. For example:
+>
+> namespaces: all domains must be registered within a namespace. Namespaces control certain
+>   properties of domains registered within their namespace, and may receive registration fees
+>   for domains registered within the namespace
+> domains:    first-class names, capable of broadcasting operations on the BNS network, and
+>   the ownership and state of these names comprise network consensus
+> subdomains: registration _must_ be announced by a domain provider, but provides
+>   strong ownership _after_ registration. the ownership and state of these names does _not_
+>   directly affect network consensus.
 
 BNS names are organized hierarchically.  Names are grouped
 in **namespaces**, which function like top-level domains in DNS.  All BNS names
@@ -262,6 +288,10 @@ Each page returns a batch of 100 names.
 
 ## Resolving BNS Names
 
+> aaron: rather than start with a description of the table, you can start by saying 
+>  a name resolves to an owner (address) and a data hash --- then the following section
+>  will make a lot more sense.
+
 Each BNS node maintains a name database table with three columns:
 all the names that have been registered, each name's public key hash,
 and each name's small amount of state.  In addition, each BNS node maintains the *transaction
@@ -288,6 +318,11 @@ Since the `Name State` field size is so constrained, in practice it gets used to
 store the cryptographic hash of some off-chain data.
 This allows the off-chain data can be hosted anywhere, since its authenticity
 and integrity are determined using the hash in the (trusted) BNS node.
+
+> aaron: the discussion of Atlas here is a little misleading,
+>   because you'd come away with the impression that Atlas and BNS are very separable
+>   pieces, which I don't think they are in practice --- especially as there's a lot
+>   of discussion in this document about subdomains.
 
 This use-case is so common that the reference implementation explicitly
 uses  the `Name State` field to store the hash of a
@@ -495,6 +530,24 @@ Anyone can register a name in BNS, but only the name's owner can change its
 public key hash or its name state.  Internally, BNS does this by encoding
 these operations as transactions in its underlying blockchain.
 
+
+> aaron: Right now, this section reads like a paper, when I think it should read more
+>   like a protocol documentation:
+>
+> Registrations cost cryptocurrency, there are two kinds of fees paid during registration:
+>
+> 1. Transaction fees: All operations on a blockchain require a transaction fee to process
+>    the operation. Currently, our operations have a 1-to-1 correspondence with bitcoin
+>    transactions, so a BNS operation _must_ pay a bitcoin transaction fee.
+>
+> 2. Registration fees: In order to prevent spam and reflect the differing value of names,
+>    users must additionally pay a _registration_ fee on registering a new domain name.
+>    Depending on the rules of the namespace, this fee is either sent to a burn address,
+>    or paid to the namespace creator.
+>
+> And then you would follow with a discussion of registration mechanics and semantics (i.e., the name
+>  character requirement, the processing time for a registration, the two-step process)
+
 Because BNS is implemented on top of a blockchain, registering names costs money
 in the form of transaction fees and registration fees.  All blockchains require
 a transaction fee in order to process and store a transaction, so no matter
@@ -525,7 +578,7 @@ a name's characters are limited to `a-z`, `0-9`, `+`, `-`, and `_`.
 
 Registration happens through a BNS client, such as the [Blockstack
 Browser](https://github.com/blockstack/blockstack-browser) or
-[blockstack.js](https://github.com/blockstack/blockstack.js). 
+[blockstack.js](https://github.com/blockstack/blockstack.js).
 
 ## Managing BNS Names
 
@@ -560,6 +613,9 @@ network.  See the documentation for
 [blockstack.js](https://github.com/blockstack/blockstack.js) for information on
 how to carry out a name operation.  Also, see the [transaction wire
 format](wire-format.md) document for details on transaction encoding.
+
+> aaron: Here is where it'd be great to see more details about operation semantics. 
+> Currently, a lot of that knowledge is basically only documented in code.
 
 ## BNS Subdomains
 
