@@ -166,8 +166,6 @@ class AuthInternal(APITestCase):
         data = self.get_request('/v1/wallet/payment_address',
                                 headers = auth_header, status_code=200)
 
-        data = self.get_request('/v1/users/ablankstein.id',
-                                headers = auth_header, status_code=200)
         # self.assertIn('error', data)
 
     def test_get_and_use_session_token_url(self):
@@ -199,9 +197,6 @@ class AuthInternal(APITestCase):
         # test correct origin
         auth_header['Origin'] = 'http://test.com'
         data = self.get_request('/v1/wallet/payment_address',
-                                headers = auth_header, status_code=200)
-
-        data = self.get_request('/v1/users/ablankstein.id',
                                 headers = auth_header, status_code=200)
 
     def test_auth_token_no_username(self):
