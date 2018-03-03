@@ -903,7 +903,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("{} is registered_subdomain".format(name))
             ret = {
                 'status': 'registered_subdomain',
-                'zonefile_txt': zonefile_txt,
+                'zonefile': zonefile_txt,
                 'zonefile_hash': storage.get_zonefile_data_hash(zonefile_txt),
                 'address': name_rec['address'],
                 'blockchain': 'bitcoin',
