@@ -36,7 +36,7 @@ immediately transferrable to Blockstack.
 Blockstack applications look and feel like traditional Web applications.
 Under the hood they use Blockstack APIs for user authentication and storage.
 Blockstack handles user authentication using the [Blockstack Naming
-Service](docs/blockstack_naming_service)
+Service](docs/blockstack_naming_service.md)
 (BNS), a decentralized naming and public key infrastructure built on top of the Bitcoin
 blockchain.  It handles storage using [Gaia](https://github.com/blockstack/gaia), a scalable decentralized
 key/value storage system that looks and feels like `localStorage`,
