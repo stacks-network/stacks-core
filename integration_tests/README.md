@@ -32,7 +32,7 @@ example, the following command runs the test that will create a
 zonefile hash, and create an empty profile for it:
 
 ```bash
-IMAGE=$(docker run -dt -v /tmp:/tmp quay.io/blockstack/integrationtests:develop blockstack-test-scenario blockstack_integration_tests.scenarios.portal_test_env)
+IMAGE=$(docker run -dt -v /tmp:/tmp quay.io/blockstack/integrationtests:develop blockstack-test-scenario blockstack_integration_tests.scenarios.browser_env)
 ```
 
 You can check the status of the test:
@@ -94,15 +94,15 @@ And from the container, set the test environment variables:
      $ export BLOCKSTACK_TEST=1    # tells Blockstack CLI that it's running with the test environment
      $ export BLOCKSTACK_TESTNET=1 # tells Blockstack CLI to use testnet addresses
      $ export BLOCKSTACK_DEBUG=1   # print debug-level output in the CLI; great for troubleshooting
-     $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.portal_test_env/client/client.ini
+     $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.browser_env/client/client.ini
 ```
 
 You can also set these variables with an automated script included in the test
 framework:
 
 ```bash
-    $ . $(which blockstack-test-env) portal_env_test
-    |blockstack-test portal_env_test| $
+    $ . $(which blockstack-test-env) browser_env
+    |blockstack-test browser_env| $
 ```
 
 Your `$PS1` variable will be updated to show the name of the test if you take
@@ -244,7 +244,7 @@ order to "confirm" it.
 This example will set up an interactive regtest node that you can connect to via Blockstack Browser
 
 ```bash
- $ BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.portal_test_env
+ $ BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 blockstack-test-scenario --interactive 2 blockstack_integration_tests.scenarios.browser_env
 ```
 
 In this example, a block will be generated once every 2 seconds.
@@ -252,7 +252,7 @@ In this example, a block will be generated once every 2 seconds.
 You can also do this:
 
 ```bash
- $ BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 blockstack-test-scenario --interactive-web 3001 blockstack_integration_tests.scenarios.portal_test_env
+ $ BLOCKSTACK_TEST_CLIENT_RPC_PORT=6270 blockstack-test-scenario --interactive-web 3001 blockstack_integration_tests.scenarios.browser_env
 ```
 
 In this example, you will need to manually generate blocks in order to confirm
