@@ -258,7 +258,7 @@ correct environment variables for it to run).
 Once this environment has started, you can issue a registration request from curl:
 
 ```
-curl -X POST --data '{"zonefile": "$ORIGIN baz\n$TTL 3600\n_file URI 10 1 \"file:///tmp/baz.profile.json\"\n", "name": "baz", "owner_address": "14x2EMRz1gf16UzGbxZh2c6sJg4A8wcHLD"}' http://localhost:3000/register/
+curl -X POST -H 'Content-Type: application/json' --data '{"zonefile": "$ORIGIN baz\n$TTL 3600\n_file URI 10 1 \"file:///tmp/baz.profile.json\"\n", "name": "baz", "owner_address": "14x2EMRz1gf16UzGbxZh2c6sJg4A8wcHLD"}' http://localhost:3000/register/
 ```
 
 This registers `baz.foo.id` -- you can check the registrar's status with
