@@ -3481,10 +3481,8 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
 
         return bucket_exponents
 
-    def print_namespace_configuration(params):
+    def print_namespace_configuration(params, namespace_lifetime_multiplier):
         
-        namespace_lifetime_multiplier = blockstack.get_epoch_namespace_lifetime_multiplier(block_height, '*')
-
         print("Namespace ID:            {}".format(namespace_id))
         print("Name lifetimes (blocks): {}".format(params['lifetime'] * namespace_lifetime_multiplier if params['lifetime'] != infinite_lifetime else "infinite"))
         print("Price coefficient:       {}".format(params['coeff']))
@@ -3531,7 +3529,10 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         namespace_params['receive_fees'] = True if (version & blockstack.NAMESPACE_VERSION_PAY_TO_BURN) else False
 
     block_height = get_block_height(config_path=config_path)
+    namespace_lifetime_multiplier = blockstack.get_epoch_namespace_lifetime_multiplier(block_height, '*')
+
     log.debug("Block height is {}".format(block_height))
+    log.debug("Namespace lifetime multiplier is {}".format(namespace_lifetime_multiplier))
 
     options = {
         '0': {
@@ -3578,7 +3579,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
         },
         '8': {
             'msg': 'Show price table',
-            'callback': lambda: print(print_namespace_configuration(namespace_params)),
+            'callback': lambda: print(print_namespace_configuration(namespace_params, namespace_lifetime_multiplier)),
         },
         '9': {
             'msg': 'Done',
@@ -3588,7 +3589,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
     option_order = options.keys()
     option_order.sort()
     
-    print_namespace_configuration(namespace_params)
+    print_namespace_configuration(namespace_params, namespace_lifetime_multiplier)
 
     while interactive:
 
@@ -3628,7 +3629,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
                 print("Invalid value for '{}'".format(options[selection]['var']))
                 namespace_params[ options[selection]['var'] ] = old_value
 
-            print_namespace_configuration(namespace_params)
+            print_namespace_configuration(namespace_params, namespace_lifetime_multiplier)
             continue
 
         elif options[selection].has_key('input'):
@@ -3671,7 +3672,7 @@ def cli_namespace_reveal(args, interactive=True, config_path=CONFIG_PATH, proxy=
 
     # got the params we wanted
     print("This is the final configuration for your namespace:") 
-    print_namespace_configuration(namespace_params)
+    print_namespace_configuration(namespace_params, namespace_lifetime_multiplier)
     print("You will NOT be able to change this once it is set.")
     print("Reveal address:            {}".format(virtualchain.address_reencode(reveal_addr)))
     print("Payment address:           {}".format(virtualchain.address_reencode(ns_addr)))
