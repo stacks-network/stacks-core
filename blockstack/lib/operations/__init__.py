@@ -280,7 +280,56 @@ def op_check( state_engine, nameop, block_id, checked_ops ):
 
     TODO: remove type-cast
     """
+    global CHECK_METHODS, MUTATE_FIELDS
 
+    nameop_clone = copy.deepcopy( nameop )
+    opcode = None
+
+    if 'opcode' not in nameop_clone.keys():
+        op = nameop_clone.get('op', None)
+        try:
+            assert op is not None, "BUG: no op defined"
+            opcode = op_get_opcode_name( op )
+            assert opcode is not None, "BUG: op '%s' undefined" % op
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: BUG: no 'op' defined")
+            sys.exit(1)
+
+    else:
+        opcode = nameop_clone['opcode']
+
+    check_method = CHECK_METHODS.get( opcode, None )
+    try:
+        assert check_method is not None, "BUG: no check-method for '%s'" % opcode
+    except Exception, e:
+        log.exception(e)
+        log.error("FATAL: BUG: no check-method for '%s'" % opcode )
+        sys.exit(1)
+
+    rc = check_method( state_engine, nameop_clone, block_id, checked_ops )
+    if not rc:
+        # rejected
+        return False
+
+    # accepted! clean up and canonicalize
+    nameop.clear()
+    nameop.update(nameop_clone)
+
+    # nameop = op_canonicalize(nameop['opcode'], nameop)
+    op_canonicalize(nameop['opcode'], nameop)
+
+    # make sure we don't send unstored fields to the db that are otherwise canonical
+    unstored_canonical_fields = UNSTORED_CANONICAL_FIELDS.get(nameop['opcode'])
+    assert unstored_canonical_fields is not None, "BUG: no UNSTORED_CANONICAL_FIELDS entry for {}".format(nameop['opcode'])
+
+    for f in unstored_canonical_fields:
+        if f in nameop:
+            del nameop[f]
+
+    return rc
+
+    '''
     global CHECK_METHODS, MUTATE_FIELDS
 
     count = 0
@@ -351,6 +400,7 @@ def op_check( state_engine, nameop, block_id, checked_ops ):
                 del nameop[f]
 
     return rc
+    '''
 
 
 def op_get_mutate_fields( op_name ):
