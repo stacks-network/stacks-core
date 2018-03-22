@@ -451,14 +451,6 @@ def db_commit( block_id, op, op_data, txid, vtxindex, db_state=None ):
         return consensus_ops
 
     else:
-        # final commit for this block 
-        try:
-            db_state.commit_finished( block_id )
-        except Exception, e:
-            log.exception(e)
-            log.error("FATAL: failed to commit at block %s" % block_id )
-            os.abort()
-
         return None
 
 
@@ -482,6 +474,14 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
 
         blockstack_opts = get_blockstack_opts()
         new_zonefile_infos = None
+
+        # vest any tokens
+        try:
+            db_state.commit_account_vesting(block_height)
+        except Exception as e:
+            log.exception(e)
+            log.fatal("Failed to vest accounts at {}".format(block_height))
+            os.abort()
 
         try:
             # flush the database
