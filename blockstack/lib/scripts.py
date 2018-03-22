@@ -123,14 +123,25 @@ def is_subdomain(fqn):
     return is_address_subdomain(fqn)[0]
 
 
-def price_name( name, namespace, block_height ):
+def price_name(name, namespace, block_height):
     """
     Calculate the price of a name (without its namespace ID), given the
     namespace parameters.
 
-    The minimum price is NAME_COST_UNIT
-    """
+    If units == 'BTC', the returned value is in satoshis
+    If units == 'STACKS', the returned value is in microSTACKs
 
+    The minimum price is NAME_COST_UNIT (or NAME_COST_UNIT_STACKS)
+    """
+    units = None
+    cost_unit = None
+    if namespace['version'] == NAMESPACE_VERSION_PAY_WITH_STACKS:
+        units = 'STACKS'
+        cost_unit = NAME_COST_UNIT_STACKS
+    else:
+        units = 'BTC'
+        cost_unit = NAME_COST_UNIT
+    
     base = namespace['base']
     coeff = namespace['coeff']
     buckets = namespace['buckets']
@@ -153,21 +164,26 @@ def price_name( name, namespace, block_height ):
         # non-alpha!
         discount = max( discount, namespace['nonalpha_discount'] )
 
-    price = (float(coeff * (base ** bucket_exponent)) / float(discount)) * NAME_COST_UNIT
-    if price < NAME_COST_UNIT:
-        price = NAME_COST_UNIT
+    price = (float(coeff * (base ** bucket_exponent)) / float(discount)) * cost_unit
+    if price < cost_unit:
+        price = cost_unit
 
-    price_multiplier = get_epoch_price_multiplier( block_height, namespace['namespace_id'] )
+    price_multiplier = get_epoch_price_multiplier(block_height, namespace['namespace_id'], units)
     return price * price_multiplier
 
 
-def price_namespace( namespace_id, block_height ):
+def price_namespace( namespace_id, block_height, units ):
     """
     Calculate the cost of a namespace.
+    Returns the price on success
+    Returns None if the namespace is invalid or if the units are invalid
     """
-    price_table = get_epoch_namespace_prices( block_height )
-    if len(namespace_id) >= len(price_table):
-        return price_table[0]
+    price_table = get_epoch_namespace_prices( block_height, units )
+    if price_table is None:
+        return None
+
+    if len(namespace_id) >= len(price_table) or len(namespace_id) == 0:
+        return None
 
     return price_table[len(namespace_id)]
 
