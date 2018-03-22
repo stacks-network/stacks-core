@@ -66,14 +66,14 @@ from lib.storage import *
 from lib.atlas import *
 from lib.fast_sync import *
 from lib.subdomains import subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history, get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info
-
+from lib.rpc import BlockstackAPIEndpoint
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
 
 # global variables, for use with the RPC server
 bitcoind = None
 rpc_server = None
-storage_pusher = None
+api_server = None
 gc_thread = None
 
 GC_EVENT_THRESHOLD = 15
@@ -193,6 +193,8 @@ def get_name_cost( db, name ):
     """
     Get the cost of a name, given the fully-qualified name.
     Do so by finding the namespace it belongs to (even if the namespace is being imported).
+
+    Return {'amount': ..., 'units': ...} on success
     Return None if the namespace has not been declared
     """
     lastblock = db.lastblock
@@ -213,21 +215,33 @@ def get_name_cost( db, name ):
         return None
 
     name_fee = price_name( get_name_from_fq_name( name ), namespace, lastblock )
-    log.debug("Cost of '%s' at %s is %s" % (name, lastblock, int(name_fee)))
+    name_fee_units = None
 
-    return name_fee
+    if namespace['version'] == NAMESPACE_VERSION_PAY_WITH_STACKS:
+        name_fee_units = TOKEN_TYPE_STACKS
+    else:
+        name_fee_units = 'BTC'
+
+    name_fee = int(math.ceil(name_fee))
+    log.debug("Cost of '%s' at %s is %s %s" % (name, lastblock, name_fee, name_fee_units))
+
+    return {'amount': name_fee, 'units': name_fee_units}
 
 
 def get_namespace_cost( db, namespace_id ):
     """
     Get the cost of a namespace.
-    Returns (cost, ns) (where ns is None if there is no such namespace)
+    Returns {'amount': ..., 'units': ..., 'namespace': ...}
     """
     lastblock = db.lastblock
+    namespace_units = get_epoch_namespace_price_units(lastblock)
+    namespace_fee = price_namespace( namespace_id, lastblock, namespace_units )
+    
+    # namespace might exist
     namespace = db.get_namespace( namespace_id )
-    namespace_fee = price_namespace( namespace_id, lastblock )
-    return (namespace_fee, namespace)
+    namespace_fee = int(math.ceil(namespace_fee))
 
+    return {'amount': namespace_fee, 'units': namespace_units, 'namespace': namespace}
 
 
 class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
@@ -896,6 +910,33 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return self.success_response( {'history_blocks': history_blocks} )
 
 
+    def rpc_get_account_history_blocks(self, address, block_start, block_end, **con_info):
+        """
+        Get teh list of blocks at which a given account was affected.
+        Return {'status': True, 'history_blocks': [...]} on success
+        Return {'error': ...} on error
+        """
+        if not self.check_address(address):
+            return {'error': 'invalid address'}
+
+        if not self.check_block(block_start):
+            return {'error': 'invalid start block'}
+
+        if not self.check_block(block_end):
+            return {'error': 'invalid end block'}
+
+        if end_block <= start_block:
+            return {'error': 'invalid block range'}
+
+        if start_block + 100 < end_block:
+            return {'error': 'invalid block range (too big)'}
+
+        db = get_db_state(self.working_dir)
+        history_blocks = db.get_account_history_blocks(address, block_start, block_end)
+        db.close()
+        return self.success_response({'history_blocks': history_blocks})
+
+
     def rpc_get_name_at( self, name, block_height, **con_info ):
         """
         Get all the states the name was in at a particular block height.
@@ -920,6 +961,23 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             ret.append(self.sanitize_rec(name_rec))
 
         return self.success_response( {'records': ret} )
+
+
+    def rpc_get_account_at(self, address, block_height, **con_info):
+        """
+        Get all the states an account was in at a given block height.
+        """
+        if not self.check_address(address):
+            return {'error': 'Invalid name'}
+
+        if not self.check_block(block_height):
+            return self.success_response({'records': None})
+
+        db = get_db_state(self.working_dir)
+        accounts_at = db.get_account_at(address, block_height)
+        db.close()
+
+        return self.success_response({'records': accounts_at})
 
 
     def rpc_get_historic_name_at( self, name, block_height, **con_info ):
@@ -1180,8 +1238,8 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
     def rpc_get_name_cost( self, name, **con_info ):
         """
-        Return the cost of a given name, including fees
-        Return value is in satoshis (as 'satoshis')
+        Return the cost of a given name.
+        Returns {'amount': ..., 'units': ...}
         """
         if not self.check_name(name):
             return {'error': 'Invalid name or namespace'}
@@ -1193,29 +1251,77 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if ret is None:
             return {"error": "Unknown/invalid namespace"}
 
-        return self.success_response( {"satoshis": int(math.ceil(ret))} )
+        return self.success_response(ret)
 
 
     def rpc_get_namespace_cost( self, namespace_id, **con_info ):
         """
         Return the cost of a given namespace, including fees.
-        Return value is in satoshis
+        Returns {'amount': ..., 'units': ...}
         """
         if not self.check_namespace(namespace_id):
-            return {'error': 'Invalid name or namespace'}
+            return {'error': 'Invalid namespace'}
 
         db = get_db_state(self.working_dir)
-        cost, ns = get_namespace_cost( db, namespace_id )
+        res = get_namespace_cost( db, namespace_id )
         db.close()
 
+        units = res['units']
+        amount = res['amount']
+        ns = res['namespace']
+
+        if amount is None:
+            # invalid 
+            return {'error': 'Invalid namespace'}
+
         ret = {
-            'satoshis': int(math.ceil(cost))
+            'units': units,
+            'amount': amount,
         }
 
         if ns is not None:
             ret['warning'] = 'Namespace already exists'
 
         return self.success_response( ret )
+
+
+    def rpc_get_account_tokens(self, address, **con_info):
+        """
+        Get the types of tokens that an account owns
+        Returns the list on success
+        """
+        if not self.check_address(address):
+            return {'error': 'Invalid address'}
+
+        db = get_db_state(self.working_dir)
+        token_list = db.get_account_tokens(address)
+        db.close()
+        return self.success_response({'token_types': token_list})
+
+
+    def rpc_get_account_balance(self, address, token_type, **con_info):
+        """
+        Get the balance of an address for a particular token type
+        Returns the value on success
+        Returns 0 if the balance is 0, or if there is no address
+        """
+        if not self.check_address(address):
+            return {'error': 'Invalid address'}
+
+        if not self.check_string(token_type, min_length=1, max_length=LENGTHS['namespace_id'], pattern='^{}$|{}'.format(TOKEN_TYPE_STACKS, OP_NAMESPACE_PATTERN)):
+            return {'error': 'Invalid token type'}
+
+        db = get_db_state(self.working_dir)
+        account = db.get_account(address, token_type)
+        if account is None:
+            return self.success_response({'balance': 0})
+
+        balance = db.get_account_balance(account)
+        if balance is None:
+            balance = 0
+
+        db.close()
+        return self.success_response({'balance': balance})
 
 
     def rpc_get_namespace_blockchain_record( self, namespace_id, **con_info ):
@@ -1573,40 +1679,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return self.success_response( {'saved': saved} )
 
 
-    def rpc_get_zonefiles_by_block( self, from_block, to_block, offset, count, **con_info ):
-        """
-        Get information about zonefiles announced in blocks [@from_block, @to_block]
-        @offset - offset into result set
-        @count - max records to return, must be <= 100
-
-        Returns {'status': True, 'lastblock' : blockNumber,
-                 'zonefile_info' : [ { 'block_height' : 470000,
-                                       'txid' : '0000000',
-                                       'zonefile_hash' : '0000000' } ] }
-        """
-        conf = get_blockstack_opts()
-        if not is_atlas_enabled(conf):
-            return {'error': 'Not an atlas node'}
-
-        if not self.check_block(from_block):
-            return {'error': 'Invalid from_block height'}
-
-        if not self.check_block(to_block):
-            return {'error': 'Invalid to_block height'}
-
-        if not self.check_offset(offset):
-            return {'error': 'invalid offset'}
-
-        if not self.check_count(count, 100):
-            return {'error': 'invalid count'}
-
-        zonefile_info = atlasdb_get_zonefiles_by_block(from_block, to_block, offset, count, path=conf['atlasdb_path'])
-        if 'error' in zonefile_info:
-           return zonefile_info
-
-        return self.success_response( {'zonefile_info': zonefile_info } )
-
-
     def peer_exchange(self, peer_host, peer_port):
         """
         Exchange peers.
@@ -1774,6 +1846,40 @@ class BlockstackdRPCServer( threading.Thread, object ):
         self.rpc_server.set_last_index_time(timestamp)
 
 
+class BlockstackdAPIServer( threading.Thread, object ):
+    """
+    API server thread
+    """
+    def __init__(self, working_dir, host, port):
+        super(BlockstackdAPIServer, self).__init__()
+        self.host = host
+        self.port = port
+        self.working_dir = working_dir
+        self.api_server = BlockstackAPIEndpoint(host=host, port=port)
+
+
+    def run(self):
+        """
+        Serve until asked to stop
+        """
+        self.api_server.bind()
+        self.api_server.timeout = 0.5
+        self.api_server.serve_forever()
+
+    
+    def stop_server(self):
+        """
+        Stop serving
+        """
+        if self.api_server is not None:
+            try:
+                self.api_server.socket.shutdown(socket.SHUT_RDWR)
+            except:
+                log.warning("Failed to shut down API server socket")
+
+            self.api_server.shutdown()
+
+
 class GCThread( threading.Thread ):
     """
     Optimistic GC thread
@@ -1831,13 +1937,13 @@ def rpc_stop(server_state):
     rpc_srv = server_state['rpc']
 
     if rpc_srv is not None:
-        log.debug("Shutting down RPC")
+        log.info("Shutting down RPC")
         rpc_srv.stop_server()
         rpc_srv.join()
-        log.debug("RPC joined")
+        log.info("RPC joined")
 
     else:
-        log.debug("RPC already joined")
+        log.info("RPC already joined")
 
     server_state['rpc'] = None
 
@@ -1849,7 +1955,7 @@ def gc_start():
     global gc_thread
 
     gc_thread = GCThread()
-    log.debug("Optimistic GC thread start")
+    log.info("Optimistic GC thread start")
     gc_thread.start()
 
 
@@ -1860,13 +1966,41 @@ def gc_stop():
     global gc_thread
     
     if gc_thread:
-        log.debug("Shutting down GC thread")
+        log.info("Shutting down GC thread")
         gc_thread.signal_stop()
         gc_thread.join()
-        log.debug("GC thread joined")
+        log.info("GC thread joined")
         gc_thread = None
     else:
-        log.debug("GC thread already joined")
+        log.info("GC thread already joined")
+
+
+def api_start(working_dir, host, port):
+    """
+    Start the global API server
+    Returns the API server thread
+    """
+    api_srv = BlockstackdAPIServer( working_dir, host, port )
+    log.info("Starting API server on port {}".format(port))
+    api_srv.start()
+    return api_srv
+
+
+def api_stop(server_state):
+    """
+    Stop the global API server thread
+    """
+    api_srv = server_state['api']
+
+    if api_srv is not None:
+        log.info("Shutting down API")
+        api_srv.stop_server()
+        api_srv.join()
+        log.info("API server joined")
+    else:
+        log.info("API already joined")
+
+    server_state['api'] = None
 
 
 def atlas_init(blockstack_opts, db, port=None):
@@ -2120,6 +2254,7 @@ def server_setup(working_dir, port=None):
     Returns a server instance.
     """
     blockstack_opts = get_blockstack_opts()
+    blockstack_api_opts = get_blockstack_api_opts()
     pid_file = get_pidfile_path(working_dir)
 
     if port is None:
@@ -2153,8 +2288,15 @@ def server_setup(working_dir, port=None):
     if atlas_state:
         atlas_node_start(atlas_state)
 
-    # start API server
-    rpc_srv = rpc_start(working_dir, port, subdomain_index=subdomain_state)
+    # start API servers
+    rpc_srv = None
+    api_srv = None
+    if blockstack_opts['enabled']:
+        rpc_srv = rpc_start(working_dir, port, subdomain_index=subdomain_state)
+
+    if blockstack_api_opts['enabled']:
+        api_srv = api_start(working_dir, blockstack_api_opts['api_host'], blockstack_api_opts['api_port'])
+
     set_running(True)
 
     # clear any stale indexing state
@@ -2166,6 +2308,7 @@ def server_setup(working_dir, port=None):
         'subdomains': subdomain_state,
         'subdomains_initialized': False,
         'rpc': rpc_srv,
+        'api': api_srv,
         'pid_file': pid_file,
         'port': port,
     }
@@ -2192,8 +2335,9 @@ def server_shutdown(server_state):
     """
     set_running( False )
 
-    # stop API server
+    # stop API servers
     rpc_stop(server_state)
+    api_stop(server_state)
 
     # stop atlas node
     server_atlas_shutdown(server_state)
@@ -2218,6 +2362,7 @@ def run_server( working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSH
     Return negative on error
     """
     global rpc_server
+    global api_server
 
     indexer_log_path = get_logfile_path(working_dir)
     
@@ -2291,7 +2436,8 @@ def setup(working_dir):
 
     # acquire configuration, and store it globally
     opts = configure( working_dir, interactive=True )
-    blockstack_opts = opts['blockstack']
+    blockstack_opts = opts.get('blockstack', None)
+    blockstack_api_opts = opts.get('blockstack-api', None)
     bitcoin_opts = opts['bitcoind']
 
     # config file version check
@@ -2309,7 +2455,7 @@ def setup(working_dir):
     # store options
     set_bitcoin_opts( bitcoin_opts )
     set_blockstack_opts( blockstack_opts )
-
+    set_blockstack_api_opts( blockstack_api_opts )
 
 
 def reconfigure(working_dir):
@@ -2321,14 +2467,14 @@ def reconfigure(working_dir):
     sys.exit(0)
 
 
-def verify_database(trusted_consensus_hash, consensus_block_height, untrusted_working_dir, trusted_working_dir, start_block=None, expected_snapshots={}):
+def verify_database(trusted_consensus_hash, consensus_block_height, untrusted_working_dir, trusted_working_dir, genesis_block=GENESIS_BLOCK, start_block=None, expected_snapshots={}):
     """
     Verify that a database is consistent with a
     known-good consensus hash.
     Return True if valid.
     Return False if not
     """
-    db = BlockstackDB.get_readwrite_instance(trusted_working_dir)
+    db = BlockstackDB.get_readwrite_instance(trusted_working_dir, genesis_block=genesis_block)
     consensus_impl = virtualchain_hooks
     return virtualchain.state_engine_verify(trusted_consensus_hash, consensus_block_height, consensus_impl, untrusted_working_dir, db, start_block=start_block, expected_snapshots=expected_snapshots)
 
