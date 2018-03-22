@@ -59,6 +59,8 @@ SCENARIO_PID = os.getpid()
 
 NET_LOG_PATH = "/tmp/blockstack-test-netlog.log"
 
+TEST_GENESIS_BLOCK = []
+
 DEFAULT_SERVER_INI_TEMPLATE = """
 [bitcoind]
 passwd = blockstacksystem
@@ -71,7 +73,8 @@ regtest = True
 spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockstack]
-server_version = 0.18.0
+enabled = true
+server_version = 0.19.0
 rpc_port = %s
 backup_frequency = 1
 backup_max_age = 30
@@ -81,7 +84,15 @@ atlas = True
 atlas_seeds =
 atlas_blacklist =
 atlas_hostname = localhost
-""" % TEST_RPC_PORT
+
+[blockstack-api]
+enabled = true
+server_version = 0.19.0
+api_port = %s
+api_host = localhost
+api_protocol = http
+indexer_url = http://localhost:%s
+""" % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_RPC_PORT)
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
 [blockstack-client]
@@ -357,7 +368,7 @@ def get_blockstack_db(working_dir, disposition=None):
     if disposition == blockstackd.DISPOSITION_RO:
         db_inst = BlockstackDB.get_readonly_instance(working_dir)
     elif disposition == blockstackd.DISPOSITION_RW:
-        db_inst = BlockstackDB.get_readwrite_instance(working_dir)
+        db_inst = BlockstackDB.get_readwrite_instance(working_dir, genesis_block=TEST_GENESIS_BLOCK)
     else:
         raise ValueError("Invalid disposition")
 
@@ -575,6 +586,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     # set up blockstack
     server_opts = blockstack.lib.config.configure(virtualchain_working_dir, config_file=config_file, interactive=False)
     blockstack_opts = server_opts['blockstack']
+    blockstack_api_opts = server_opts['blockstack-api']
     bitcoin_opts = server_opts['bitcoind']
 
     client_opts = blockstack_client.config.configure(config_file=client_config_file, interactive=False)
@@ -589,7 +601,11 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
 
     print ""
     print "blockstack opts"
-    print json.dumps( blockstack_opts, indent=4 )
+    print json.dumps( blockstack_opts, indent=4, sort_keys=True)
+
+    print ""
+    print "blockstack API opts"
+    print json.dumps(blockstack_api_opts, indent=4, sort_keys=True)
 
     print ""
     print "blockchain opts"
@@ -602,6 +618,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     print "blockchain headers: %s" % spv_headers_path
 
     blockstackd.set_blockstack_opts( blockstack_opts )
+    blockstackd.set_blockstack_api_opts( blockstack_api_opts )
     blockstackd.set_bitcoin_opts( bitcoin_opts )
 
     print ""
@@ -805,7 +822,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     log.info("\n\nScenario checks passed; verifying history\n\n")
 
     # run database integrity check at each block
-    db = get_blockstack_db(working_dir, disposition=blockstackd.DISPOSITION_RO)
+    db = get_blockstack_db(working_dir, disposition=blockstackd.DISPOSITION_RW)
     rc = False
     try:
         rc = testlib.check_history( db )
@@ -943,6 +960,24 @@ def bitcoin_regtest_reset(working_dir):
     return True
 
 
+def fill_genesis_block(address, token_grant, vesting_schedule):
+    """
+    Add an entry to the genesis block for the given address, with an initial amount and a vesting schedule
+    """
+    global TEST_GENESIS_BLOCK
+    
+    TOKEN_TYPE_STACKS = "STACKS"
+
+    log.debug("Grant {} {} {}-tokens".format(address, token_grant, TOKEN_TYPE_STACKS))
+
+    TEST_GENESIS_BLOCK.append({
+        'address': address,
+        'type': TOKEN_TYPE_STACKS,
+        'value': token_grant,
+        'vesting': vesting_schedule,
+    })
+
+
 def fill_wallet( bitcoind, wallet, value ):
     """
     Fill a test wallet on a regtest bitcoind.
@@ -951,6 +986,8 @@ def fill_wallet( bitcoind, wallet, value ):
     Return True on success
     Raise on error
     """
+    global TEST_GENESIS_BLOCK
+
     if type(wallet.privkey) in [str, unicode]:
         # single private key
         testnet_wif = virtualchain.BitcoinPrivateKey(virtualchain.get_singlesig_privkey(wallet.privkey)).to_wif()
@@ -961,6 +998,8 @@ def fill_wallet( bitcoind, wallet, value ):
         bitcoind.importprivkey(testnet_wif, "")
         bitcoind.sendtoaddress( addr, value )
 
+        # also do the token grant
+        fill_genesis_block(addr, wallet._token_grant, wallet._vesting_schedule)
 
     elif wallet.segwit and len(wallet.privkey['private_keys']) == 1:
         # single private key, p2sh-p2wpkh
@@ -975,6 +1014,9 @@ def fill_wallet( bitcoind, wallet, value ):
 
         log.debug("Fill p2sh-p2wpkh %s (%s) with %s" % (segwit_wallet['address'], testnet_wif, value ))
         bitcoind.sendtoaddress( segwit_wallet['address'], value )
+        
+        # also do the token grant
+        fill_genesis_block(segwit_wallet['address'], wallet._token_grant, wallet._vesting_schedule)
 
     elif wallet.segwit and len(wallet.privkey['private_keys']) > 1:
         # multisig p2sh-p2wsh
@@ -999,6 +1041,9 @@ def fill_wallet( bitcoind, wallet, value ):
         log.debug("Fill p2sh-p2wsh %s with %s" % (segwit_wallet['address'], value ))
         bitcoind.sendtoaddress( segwit_wallet['address'], value )
 
+        # also do the token grant
+        fill_genesis_block(segwit_wallet['address'], wallet._token_grant, wallet._vesting_schedule)
+
     else:
         # multisig address
         testnet_wifs = []
@@ -1016,6 +1061,9 @@ def fill_wallet( bitcoind, wallet, value ):
 
         log.debug("Fill %s with %s" % (multisig_info['address'], value ))
         bitcoind.sendtoaddress( multisig_info['address'], value )
+        
+        # also do the token grant
+        fill_genesis_block(multisig_info['address'], wallet._token_grant, wallet._vesting_schedule)
 
     return True
 
