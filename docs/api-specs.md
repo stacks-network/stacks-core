@@ -2156,12 +2156,13 @@ tutorial](https://github.com/blockstack/blockstack-core/blob/master/docs/namespa
 
 ## Get name price [GET /v1/prices/names/{name}]
 
-This endpoint is used to get the price of a name.  If you are using
-a public endpoint, you should *only* rely on the `name_price` field in the
-returned JSON blob.  Other fields are **DEPRECATED**, since they are relevant
-only for estimating the cost of registering a name (which should be done via
-[blockstack.js](https://github.com/blockstack/blockstack.js) or the [Blockstack
-Browser](https://github.com/blockstack/blockstack-browser)).
+This endpoint is used to get the price of a name.  The name's price may be 
+denominated in units of either STACKs or BTC, depending on the name's
+namespace rules.
+
+If the price is given in BTC, the amount is in satoshis.
+
+If the price is given in STACKs, the amount is in microSTACKs.
 
 + Public Endpoint
 + Parameters
@@ -2174,26 +2175,6 @@ Browser](https://github.com/blockstack/blockstack-browser)).
                           "satoshis": 100000, 
                           "btc": 0.001
                         }, 
-                        "total_tx_fees": 519209, 
-                        "register_tx_fee": {
-                          "satoshis": 159110, 
-                          "btc": 0.0015911
-                        }, 
-                        "preorder_tx_fee": {
-                          "satoshis": 163703, 
-                          "btc": 0.00163703
-                        }, 
-                        "warnings": [
-                          "Insufficient funds; fees are rough estimates."
-                        ], 
-                        "total_estimated_cost": {
-                          "satoshis": 619209, 
-                          "btc": 0.00619209
-                        }, 
-                        "update_tx_fee": {
-                          "satoshis": 196396, 
-                          "btc": 0.00196396
-                        }
                }
 
     + Schema
@@ -2207,51 +2188,6 @@ Browser](https://github.com/blockstack/blockstack-browser)).
                                'btc': { 'type': 'number', 'minimum': 0 },
                                'satoshis': { 'type': 'integer', 'minimum': 0 }
                            }
-                       },
-                       'preorder_tx_fee': {
-                           'type': 'object',
-                           'properties': {
-                               'btc': { 'type': 'number', 'minimum': 0 },
-                               'satoshis': { 'type': 'integer', 'minimum': 0 }
-                           }
-                       },
-                       'register_tx_fee': {
-                           'type': 'object',
-                           'properties': {
-                               'btc': { 'type': 'number', 'minimum': 0 },
-                               'satoshis': { 'type': 'integer', 'minimum': 0 }
-                           }
-                       },
-                       'update_tx_fee': {
-                           'type': 'object',
-                           'properties': {
-                               'btc': { 'type': 'number', 'minimum': 0 },
-                               'satoshis': { 'type': 'integer', 'minimum': 0 }
-                           }
-                       },
-                       'total_estimated_cost': {
-                           'type': 'object',
-                           'properties': {
-                               'btc': { 'type': 'number', 'minimum': 0 },
-                               'satoshis': { 'type': 'integer', 'minimum': 0 }
-                           }
-                       },
-                       'total_tx_fees': {
-                           'type': 'integer',
-                           'minimum': 0,
-                       }
-                       'name_price': {
-                           'type': 'object',
-                           'properties': {
-                               'btc': { 'type': 'number', 'minimum': 0 },
-                               'satoshis': { 'type': 'integer', 'minimum': 0 }
-                           }
-                       },
-                       'warnings': {
-                           'type': 'array',
-                           'items': {
-                               'type': 'string',
-                           },
                        },
                    },
                }
