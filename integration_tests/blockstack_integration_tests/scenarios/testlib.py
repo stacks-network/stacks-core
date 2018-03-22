@@ -58,11 +58,13 @@ import virtualchain
 log = virtualchain.get_logger("testlib")
 
 class Wallet(object):
-    def __init__(self, pk_wif, ignored ):
+    def __init__(self, pk_wif, tokens_granted, vesting_schedule={} ):
 
         pk = virtualchain.BitcoinPrivateKey( pk_wif )
 
         self._pk = pk
+        self._token_grant = tokens_granted
+        self._vesting_schedule = vesting_schedule
 
         if pk_wif.startswith("c"):
             # already a private key 
@@ -90,13 +92,15 @@ class Wallet(object):
 
 
 class MultisigWallet(object):
-    def __init__(self, m, *pks ):
+    def __init__(self, m, *pks, **kwargs ):
 
         self.privkey = virtualchain.make_multisig_info( m, pks )
         self.m = m
         self.n = len(pks)
         self.pks = pks
         self.segwit = False
+        self._token_grant = kwargs.get('tokens_granted', 0)
+        self._vesting_schedule = kwargs.get('vesting_schedule', {})
 
         self.addr = self.privkey['address']
 
@@ -110,13 +114,15 @@ class MultisigWallet(object):
 
 
 class SegwitWallet(object):
-    def __init__(self, pk_wif ):
+    def __init__(self, pk_wif, tokens_granted=0, vesting_schedule={} ):
 
         self.privkey = virtualchain.make_segwit_info( pk_wif )
         pk = virtualchain.BitcoinPrivateKey( pk_wif )
 
         self._pk = pk
         self.segwit = True
+        self._token_grant = tokens_granted
+        self._vesting_schedule = vesting_schedule
 
         self.pubkey_hex = pk.public_key().to_hex()
         self.addr = self.privkey['address']
@@ -139,14 +145,41 @@ class MultisigSegwitWallet(object):
        
 
 class APICallRecord(object):
-    def __init__(self, method, name, address, result ):
+    def __init__(self, method, name, address, result, token_record=None):
         self.block_id = max(all_consensus_hashes.keys()) + 1
         self.name = name
         self.method = method
         self.result = result
         self.address = address
-
+        self.token_record = token_record
+        self.success = True
         assert 'transaction_hash' in result.keys() or 'error' in result.keys()
+
+
+# for auditing expenditures
+class TokenOperation(object):
+    def __init__(self, opcode, token_type, token_cost, account_addr):
+        self.opcode = opcode
+        self.token_type = token_type
+        self.token_cost = token_cost
+        self.account_addr = account_addr
+
+class TokenNamespacePreorder(TokenOperation):
+    def __init__(self, namespace_id, payment_addr, test_proxy):
+        namespace_cost_info = test_proxy.get_namespace_cost(namespace_id)
+        super(TokenNamespacePreorder, self).__init__("NAMESPACE_PREORDER", namespace_cost_info['units'], namespace_cost_info['amount'], payment_addr)
+
+
+class TokenNamePreorder(TokenOperation):
+    def __init__(self, name, preorder_addr, test_proxy):
+        name_cost_info = test_proxy.get_name_cost(name)
+        super(TokenNamePreorder, self).__init__('NAME_PREORDER', name_cost_info['units'], name_cost_info['amount'], preorder_addr)
+
+
+class TokenNameRenewal(TokenOperation):
+    def __init__(self, name, owner_addr, test_proxy):
+        name_cost_info = test_proxy.get_name_cost(name)
+        super(TokenNameRenewal, self).__init__('NAME_RENEWAL', name_cost_info['units'], name_cost_info['amount'], owner_addr)
 
 
 class TestAPIProxy(object):
@@ -337,7 +370,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     test_proxy = make_proxy(config_path=config_path)
     blockstack_client.set_default_proxy( test_proxy )
     config_path = test_proxy.config_path if config_path is None else config_path
-    
+   
     owner_privkey_info = None
     try:
         owner_privkey_info = find_wallet(register_addr).privkey
@@ -345,17 +378,22 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
         if safety_checks:
             raise
 
+    payment_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
     register_addr = virtualchain.address_reencode(register_addr)
+    
+    name_cost_info = test_proxy.get_name_cost(name)
+    assert 'amount' in name_cost_info, 'error getting cost of {}: {}'.format(name,name_cost_info)
 
-    name_cost_info = test_proxy.get_name_cost( name )
-    assert 'satoshis' in name_cost_info, "error getting cost of %s: %s" % (name, name_cost_info)
+    cost = name_cost_info['amount']
+    units = name_cost_info['units']
 
-    log.debug("Preorder '%s' for %s satoshis" % (name, name_cost_info['satoshis']))
+    log.debug("Name {} cost {} units of {}".format(name, units, cost))
 
-    resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, name_cost_info['satoshis'], test_proxy, test_proxy, tx_fee=tx_fee,
+    resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, units, cost, test_proxy, test_proxy, tx_fee=tx_fee,
             burn_address=burn_addr, owner_address=register_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "preorder", name, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
+    token_record = TokenNamePreorder(name, payment_addr, test_proxy)
+    api_call_history.append( APICallRecord( "preorder", name, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp, token_record=token_record ) )
     return resp
 
 
@@ -374,6 +412,7 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
         if safety_checks:
             raise
 
+    payment_addr = virtualchain.lib.ecdsalib.ecdsa_private_key(privatekey).public_key().address()
     register_addr = virtualchain.address_reencode(register_addr)
 
     kwargs = {}
@@ -435,12 +474,14 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
     name_cost_info = test_proxy.get_name_cost( name )
 
     payment_key = get_default_payment_wallet().privkey
+    owner_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
 
-    log.debug("Renew %s for %s satoshis" % (name, name_cost_info['satoshis']))
-    resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, tx_fee=tx_fee, tx_fee_per_byte=tx_fee_per_byte,
+    log.debug("Renew %s for %s units of %s" % (name, name_cost_info['amount'], name_cost_info['units']))
+    resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['units'], name_cost_info['amount'], test_proxy, test_proxy, tx_fee=tx_fee, tx_fee_per_byte=tx_fee_per_byte,
             burn_address=burn_addr, zonefile_hash=zonefile_hash, recipient_addr=recipient_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp ) )
+    token_record = TokenNameRenewal(name, owner_addr, test_proxy)
+    api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp, token_record=token_record) )
     return resp
 
 
@@ -481,14 +522,18 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
     config_path = test_proxy.config_path if config_path is None else config_path
 
     register_addr = virtualchain.address_reencode(register_addr)
+    payment_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
 
     namespace_cost = test_proxy.get_namespace_cost( namespace_id )
     if 'error' in namespace_cost:
         log.error("Failed to get namespace cost for '%s': %s" % (namespace_id, namespace_cost['error']))
         return {'error': 'Failed to get namespace costs'}
+    
+    resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['units'], namespace_cost['amount'], privatekey, register_addr, test_proxy, test_proxy,
+            consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['satoshis'], privatekey, register_addr, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
-    api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
+    token_record = TokenNamespacePreorder(namespace_id, payment_addr, test_proxy)
+    api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp, token_record=token_record) )
     return resp
 
 
@@ -533,6 +578,17 @@ def blockstack_announce( message, privatekey, safety_checks=True, config_path=No
     resp = blockstack_client.do_announce( message, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "announce", message, None, resp ) )
     return resp
+
+
+def expect_api_call_failure():
+    """
+    Expect the last API call to fail
+    """
+    global api_call_history
+    if len(api_call_history) == 0:
+        return
+
+    api_call_history[-1].success = False
 
 
 def blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey, exception=True, start_rpc=True, config_path=None ):
@@ -2481,8 +2537,8 @@ def blockstack_test_setenv(key, value):
     return res
 
 
-def blockstack_verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, working_db_path=None, start_block=None ):
-    return blockstackd.verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, start_block=start_block)
+def blockstack_verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, working_db_path=None, start_block=None, genesis_block={} ):
+    return blockstackd.verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, start_block=start_block, genesis_block=genesis_block)
 
 
 def blockstack_export_db( snapshots_dir, block_height, **kw ):
@@ -2875,6 +2931,39 @@ def getbalance( addr, **kw ):
     return bitcoind.getbalance( addr )
 
 
+def check_account_debits(state_engine, api_call_history):
+    """
+    Verify that each account has been debited the appropriate amount.
+    """
+    addrs = list(set([api_call.token_record.account_addr for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)]))
+    token_types = filter(lambda tt: tt != 'BTC',
+                         list(set([api_call.token_record.token_type for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)])))
+
+    expected_expenditures = dict([
+        (addr, dict([
+            (token_type, sum([api_call.token_record.token_cost for api_call in
+                filter(lambda ac: ac.token_record is not None and ac.success and ac.token_record.account_addr == addr and ac.token_record.token_type == token_type, api_call_history)]))
+            for token_type in token_types]))
+        for addr in addrs])
+
+    accounts = dict([
+        (addr, dict([
+            (token_type, 0 if state_engine.get_account(addr, token_type) is None else state_engine.get_account(addr, token_type)['debit_value'])
+            for token_type in token_types]))
+        for addr in addrs])
+
+    log.debug("account debits = \n{}".format(json.dumps(accounts, indent=4, sort_keys=True)))
+    log.debug("expected expenditures =\n{}".format(json.dumps(expected_expenditures, indent=4, sort_keys=True)))
+
+    for addr in addrs:
+        for token_type in token_types:
+            if accounts[addr][token_type] != expected_expenditures[addr][token_type]:
+                log.error("mismatch: {}'s {}: {} != {}".format(addr, token_type, accounts[addr][token_type], expected_expenditures[addr][token_type]))
+                return False
+
+    return True
+
+
 def next_block( **kw ):
     """
     Advance the mock blockchain by one block.
@@ -2889,8 +2978,6 @@ def next_block( **kw ):
     if snapshots_dir is None:
         snapshots_dir = tempfile.mkdtemp( prefix='blockstack-test-databases-' )
 
-    del state_engine
-
     # flush all transactions, and re-set state engine
     kw['next_block_upcall']()
     kw['sync_virtualchain_upcall']()
@@ -2898,6 +2985,9 @@ def next_block( **kw ):
     # snapshot the database
     blockstack_export_db( snapshots_dir, get_current_block(**kw), **kw )
     log_consensus( **kw )
+
+    # check all account balances against the database
+    assert check_account_debits(state_engine, api_call_history), "Account debit mismatch"
 
    
 def get_consensus_at( block_id, **kw ):
@@ -2978,7 +3068,7 @@ def check_history( state_engine ):
 
         print "\n\nverify %s - %s (%s), expect %s\n\n" % (block_ids[0], block_id+1, untrusted_working_db_dir, expected_consensus_hash)
 
-        valid = blockstack_verify_database(expected_consensus_hash, block_id, untrusted_working_db_dir, working_db_dir, start_block=block_ids[0])
+        valid = blockstack_verify_database(expected_consensus_hash, block_id, untrusted_working_db_dir, working_db_dir, start_block=block_ids[0], genesis_block=state_engine.genesis_block)
         if not valid:
             print "Invalid at block %s" % block_id 
             return False
