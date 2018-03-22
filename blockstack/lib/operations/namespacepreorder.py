@@ -45,7 +45,9 @@ FIELDS = [
 ]
 
 # save everything
-MUTATE_FIELDS = FIELDS[:]
+MUTATE_FIELDS = FIELDS[:] + [
+    'token_fee'
+]
 
 @state_preorder("check_preorder_collision")
 def check( state_engine, nameop, block_id, checked_ops ):
@@ -59,6 +61,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     namespace_id_hash = nameop['preorder_hash']
     consensus_hash = nameop['consensus_hash']
+    token_fee = nameop['token_fee']
 
     # cannot be preordered already
     if not state_engine.is_new_namespace_preorder( namespace_id_hash ):
@@ -76,6 +79,46 @@ def check( state_engine, nameop, block_id, checked_ops ):
     if not 'op_fee' in nameop:
         log.debug("Missing namespace preorder fee")
         return False
+
+    # token burn fee must be present, if we're in the right epoch for it
+    epoch_features = get_epoch_features(block_id)
+    if EPOCH_FEATURE_STACKS_BUY_NAMESPACES in epoch_features:
+        if 'token_fee' not in nameop:
+            log.debug("Missing token fee")
+            return False
+
+        token_fee = nameop['token_fee']
+        token_address = nameop['address']
+        token_type = TOKEN_TYPE_STACKS
+
+        # does this account have enough balance?
+        account_info = state_engine.get_account(token_address, token_type)
+        if account_info is None:
+            log.debug("No account for {} ({})".format(token_address, token_type))
+            return False
+
+        account_balance = state_engine.get_account_balance(account_info)
+
+        assert isinstance(account_balance, int)
+        assert isinstance(token_fee, int)
+
+        if account_balance < token_fee:
+            # can't afford 
+            log.debug("Account {} has balance {} {}, but needs to pay {} {}".format(token_address, account_balance, token_type, token_fee, token_type))
+            return False
+
+        # debit this account when we commit
+        state_preorder_put_account_payment_info(nameop, token_address, token_type, token_fee)
+        
+        # NOTE: must be a string, to avoid overflow
+        nameop['token_fee'] = '{}'.format(token_fee)
+        nameop['token_units'] = TOKEN_TYPE_STACKS
+
+    else:
+        # not paying in tokens, but say so!
+        state_preorder_put_account_payment_info(nameop, None, None, None)
+        nameop['token_fee'] = '0'
+        nameop['token_units'] = 'BTC'
 
     return True
 
@@ -147,7 +190,7 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
        log.exception(e)
        raise Exception("Failed to extract")
 
-    parsed_payload = parse( payload )
+    parsed_payload = parse( payload, block_id )
     assert parsed_payload is not None 
 
     ret = {
@@ -171,26 +214,56 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     return ret
 
 
-def parse( bin_payload ):
-   """
-   NOTE: the first three bytes will be missing
-   """
-   
-   if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
-       log.error("Invalid namespace preorder payload length %s" % len(bin_payload))
-       return None
+def parse( bin_payload, block_height ):
+    """
+    NOTE: the first three bytes will be missing
 
-   namespace_id_hash = bin_payload[ :LENGTHS['preorder_name_hash'] ]
-   consensus_hash = bin_payload[ LENGTHS['preorder_name_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] ]
+
+    wire format (Pre-STACKs Phase 1)
+
+    0     2   3                                      23               39
+    |-----|---|--------------------------------------|----------------|
+    magic op  hash(ns_id,script_pubkey,reveal_addr)   consensus hash
+
+    wire format (Post-STACKs phase 1)
+
+    0     2   3                                      23               39                         47
+    |-----|---|--------------------------------------|----------------|--------------------------|
+    magic op  hash(ns_id,script_pubkey,reveal_addr)   consensus hash    token fee (little-endian)
+    """
    
-   namespace_id_hash = hexlify( namespace_id_hash )
-   consensus_hash = hexlify( consensus_hash )
+    if len(bin_payload) < LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
+        log.error("Invalid namespace preorder payload length %s" % len(bin_payload))
+        return None
+
+    namespace_id_hash = bin_payload[ :LENGTHS['preorder_name_hash'] ]
+    consensus_hash = bin_payload[ LENGTHS['preorder_name_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] ]
+    tokens_burned = None
+
+    if len(bin_payload) > LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
+        epoch_features = get_epoch_features(block_height)
+        if EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features or EPOCH_FEATURE_STACKS_BUY_NAMESPACES not in epoch_features:
+            # not allowed--we can't use tokens in this epoch
+            log.debug("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']))
+            return None
+
+        if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']:
+            # not allowed--invalid length
+            log.debug("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']))
+            return None
+        
+        bin_tokens_burned = bin_payload[LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']]
+        tokens_burned = int(bin_tokens_burned.encode('hex'), 16)
    
-   return {
-      'opcode': 'NAMESPACE_PREORDER',
-      'preorder_hash': namespace_id_hash,
-      'consensus_hash': consensus_hash
-   }
+    namespace_id_hash = hexlify( namespace_id_hash )
+    consensus_hash = hexlify( consensus_hash )
+   
+    return {
+       'opcode': 'NAMESPACE_PREORDER',
+       'preorder_hash': namespace_id_hash,
+       'consensus_hash': consensus_hash,
+       'token_fee': tokens_burned
+    }
 
 
 def canonicalize(parsed_op):
