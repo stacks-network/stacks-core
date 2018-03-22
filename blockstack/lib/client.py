@@ -37,7 +37,7 @@ import re
 import urllib2
 import socket
 from .util import url_to_host_port, url_protocol, parse_DID
-from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, BLOCKSTACK_TEST
+from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, BLOCKSTACK_TEST, get_blockstack_api_opts
 from .schemas import *
 from .scripts import is_name_valid, is_subdomain
 from .storage import verify_zonefile
@@ -185,7 +185,7 @@ def json_is_error(resp):
     if not isinstance(resp, dict):
         return False
 
-    return 'error' in resp
+    return 'error' in resp or 'traceback' in resp
 
 
 def json_is_exception(resp):
@@ -295,6 +295,20 @@ def json_response_schema( expected_object_schema ):
     schema['required'] = list(set( schema['required'] + expected_object_schema['required'] ))
 
     return schema
+
+
+def get_blockstackd_url():
+    """
+    Get the URL to the blockstackd RPC server instance
+    """
+    conf = get_blockstack_api_opts()
+    if conf is None:
+        return None
+    
+    if not conf['enabled']:
+        return None
+
+    return conf['indexer_url']
 
 
 def connect_hostport(hostport, timeout=RPC_DEFAULT_TIMEOUT, my_hostport=None):
@@ -981,33 +995,36 @@ def get_name_cost(name, proxy=None, hostport=None):
     """
     name_cost
     Returns the name cost info on success
+    For BTC-pricing, returns {'satoshis': ...}
+    For STACKS-pricing, returns {'amount': ..., 'units': ...}
     Returns {'error': ...} on error
     """
     assert proxy or hostport, 'Need proxy or hostport'
     if proxy is None:
         proxy = connect_hostport(hostport)
 
-    schema = {
+    cost_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
+            'units': {
+                'type': 'string',
             },
-            'satoshis': {
+            'amount': {
                 'type': 'integer',
                 'minimum': 0,
             },
         },
         'required': [
-            'status',
-            'satoshis'
+            'units',
+            'amount',
         ]
     }
 
+    resp_schema = json_response_schema(cost_schema)
     resp = {}
     try:
         resp = proxy.get_name_cost(name)
-        resp = json_validate( schema, resp )
+        resp = json_validate(resp_schema, resp)
         if json_is_error(resp):
             return resp
 
@@ -1022,13 +1039,18 @@ def get_name_cost(name, proxy=None, hostport=None):
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
+    # legacy compatibility: if this is BTC, then return 'satoshis'
+    if resp['units'] == 'BTC':
+        resp['satoshis'] = resp['amount']
+
     return resp
 
 
 def get_namespace_cost(namespace_id, proxy=None, hostport=None):
     """
     namespace_cost
-    Returns the namespace cost info on success
+    Returns the namespace cost info on success.
+    Returns {'amount': ..., 'units': ...} on success (optionally with 'satoshis': ... if the namespace is priced in BTC)
     Returns {'error': ...} on error
     """
     assert proxy or hostport, 'Need proxy or hostport'
@@ -1038,18 +1060,22 @@ def get_namespace_cost(namespace_id, proxy=None, hostport=None):
     cost_schema = {
         'type': 'object',
         'properties': {
-            'satoshis': {
+            'units': {
+                'type': 'string',
+                'pattern': '^BTC$|^STACKS$',
+            },
+            'amount': {
                 'type': 'integer',
                 'minimum': 0,
-            }
+            },
         },
         'required': [
-            'satoshis'
-        ]
+            'units',
+            'amount',
+        ],
     }
 
     schema = json_response_schema(cost_schema)
-
     resp = {}
     try:
         resp = proxy.get_namespace_cost(namespace_id)
@@ -1068,7 +1094,106 @@ def get_namespace_cost(namespace_id, proxy=None, hostport=None):
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
 
+    # legacy compatibility: if this is BTC, then return 'satoshis'
+    if resp['units'] == 'BTC':
+        resp['satoshis'] = resp['amount']
+
     return resp
+
+
+def get_account_tokens(address, hostport=None, proxy=None):
+    """
+    Get the types of tokens that an address owns
+    Returns a list of token types
+    """
+    assert proxy or hostport, 'Need proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    tokens_schema = {
+        'type': 'object',
+        'properties': {
+            'token_types': {
+                'type': 'array',
+                'pattern': '^(.+){1,19}',
+            },
+        },
+        'required': [
+            'token_types',
+        ]
+    }
+
+    schema = json_response_schema(tokens_schema)
+
+    try:
+        resp = proxy.get_account_tokens(address)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+    except (ValidationError, AssertionError) as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['token_types']
+
+
+def get_account_balance(address, token_type, hostport=None, proxy=None):
+    """
+    Get the balance of an account for a particular token
+    Returns an int
+    """
+    assert proxy or hostport, 'Need proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    balance_schema = {
+        'type': 'object',
+        'properties': {
+            'balance': {
+                'type': 'integer',
+            },
+        },
+        'required': [
+            'balance',
+        ],
+    }
+
+    schema = json_response_schema(balance_schema)
+
+    try:
+        resp = proxy.get_account_balance(address, token_type)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+    except (ValidationError, AssertionError) as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['balance']
 
 
 def get_all_names_page(offset, count, include_expired=False, hostport=None, proxy=None):
@@ -2251,7 +2376,7 @@ def get_JWT(url, address=None):
     return jwt
 
 
-def resolve_profile(name, hostport=None, proxy=None):
+def resolve_profile(name, include_expired=False, hostport=None, proxy=None):
     """
     Resolve a name to its profile.
     This is a multi-step process:
@@ -2266,7 +2391,7 @@ def resolve_profile(name, hostport=None, proxy=None):
     """
     assert hostport or proxy, 'Need hostport or proxy'
     
-    name_rec = get_name_record(name, include_history=False, include_expired=False, include_grace=False, proxy=proxy, hostport=hostport)
+    name_rec = get_name_record(name, include_history=False, include_expired=include_expired, include_grace=False, proxy=proxy, hostport=hostport)
     if 'error' in name_rec:
         log.error("Failed to get name record for {}: {}".format(name, name_rec['error']))
         return {'error': 'Failed to get name record: {}'.format(name_rec['error'])}
