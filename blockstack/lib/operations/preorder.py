@@ -4,7 +4,7 @@
     Blockstack
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
-    copyright: (c) 2016 by Blockstack.org
+    copyright: (c) 2016-2018 by Blockstack.org
 
     This file is part of Blockstack
 
@@ -43,7 +43,10 @@ FIELDS = [
 ]
 
 # fields this operation changes
-MUTATE_FIELDS = FIELDS[:]
+MUTATE_FIELDS = FIELDS[:] + [
+    'token_fee',
+    'token_units',
+]
 
 
 @state_preorder("check_preorder_collision")
@@ -93,6 +96,49 @@ def check( state_engine, nameop, block_id, checked_ops ):
         log.debug("Missing preorder fee")
         return False
 
+    # token burn fee must be present, if we're in the right epoch for it
+    epoch_features = get_epoch_features(block_id)
+    if EPOCH_FEATURE_NAMEOPS_COST_TOKENS in epoch_features:
+        if 'token_fee' not in nameop:
+            log.debug("Missing token fee")
+            return False
+
+        if 'token_units' not in nameop:
+            log.debug("Missing token units")
+            return False
+
+        token_fee = nameop['token_fee']
+        token_type = nameop['token_units']
+        token_address = nameop['address']
+
+        # does this account have enough balance?
+        account_info = state_engine.get_account(token_address, token_type)
+        if account_info is None:
+            log.debug("No account for {} ({})".format(token_address, token_type))
+            return False
+
+        account_balance = state_engine.get_account_balance(account_info)
+
+        assert isinstance(account_balance, int)
+        assert isinstance(token_fee, int)
+
+        if account_balance < token_fee:
+            # can't afford 
+            log.debug("Account {} has balance {} {}, but needs to pay {} {}".format(token_address, account_balance, token_type, token_fee, token_type))
+            return False
+
+        # debit this account when we commit
+        state_preorder_put_account_payment_info(nameop, token_address, token_type, token_fee)
+        
+        # NOTE: must be a string, to avoid overflow
+        nameop['token_fee'] = '{}'.format(token_fee)
+
+    else:
+        # not paying in tokens, but say so!
+        state_preorder_put_account_payment_info(nameop, None, None, None)
+        nameop['token_fee'] = '0'
+        nameop['token_units'] = 'BTC'
+
     return True
 
 
@@ -140,7 +186,7 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     try:
 
        # by construction, the first input comes from the principal
-       # who sent the registration transaction...
+       # who sent the preorder transaction...
        assert len(senders) > 0
        assert 'script_pubkey' in senders[0].keys()
        assert 'addresses' in senders[0].keys()
@@ -158,7 +204,7 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
        log.exception(e)
        raise Exception("Failed to extract")
 
-    parsed_payload = parse( payload )
+    parsed_payload = parse( payload, block_id )
     assert parsed_payload is not None 
 
     burn_info = get_preorder_burn_info(outputs)
@@ -186,21 +232,60 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     return ret
 
 
-def parse(bin_payload):
+def parse(bin_payload, block_height):
     """
     Parse a name preorder.
     NOTE: bin_payload *excludes* the leading 3 bytes (magic + op) returned by build.
+
+    Record format:
+    
+    0     2  3                                              23             39
+    |-----|--|----------------------------------------------|--------------|
+    magic op  hash(name.ns_id,script_pubkey,register_addr)   consensus hash
+    
+    Record format when burning STACKs (STACKS Phase 1):
+    0     2  3                                              23                 39                            47                      66
+    |-----|--|----------------------------------------------|------------------|-----------------------------|-----------------------|
+    magic op  hash(name.ns_id,script_pubkey,register_addr)   consensus hash     tokens to burn (little-endian)  token units (0-padded)
     """
     
-    if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
+    epoch_features = get_epoch_features(block_height)
+
+    if len(bin_payload) < LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
+        log.debug("Invalid payload {}: expected at least {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']))
         return None 
 
     name_hash = hexlify( bin_payload[0:LENGTHS['preorder_name_hash']] )
-    consensus_hash = hexlify( bin_payload[LENGTHS['preorder_name_hash']:] )
-    
+    consensus_hash = hexlify( bin_payload[LENGTHS['preorder_name_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']] )
+    tokens_burned = 0
+    token_units = None
+
+    if len(bin_payload) > LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
+        # only acceptable if there's a token burn
+        if EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features:
+            # not enabled yet
+            log.debug("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']))
+            return None
+
+        if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt'] + LENGTHS['namespace_id']:
+            # invalid
+            log.debug("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']))
+            return None
+
+        at_tokens_burnt = LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']
+        at_token_units = LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']
+
+        bin_tokens_burnt = bin_payload[at_tokens_burnt: at_tokens_burnt + LENGTHS['tokens_burnt']]
+        bin_token_units = bin_payload[at_token_units: at_token_units + LENGTHS['namespace_id']]
+
+        tokens_burned = int(bin_tokens_burnt.encode('hex'), 16)
+        token_units = bin_token_units.strip('\x00')
+
     return {
         'opcode': 'NAME_PREORDER',
         'preorder_hash': name_hash,
-        'consensus_hash': consensus_hash
+        'consensus_hash': consensus_hash,
+        'token_fee': tokens_burned,
+        'token_units': token_units,
     }
 
