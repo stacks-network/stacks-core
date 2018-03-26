@@ -386,8 +386,9 @@ def remove_snapshot(snapshots_dir, block_number):
     if not os.path.exists(snapshot_path) or not os.path.isfile(snapshot_path):
         return {'error': 'No such file or directory: {}'.format(snapshot_path)}
 
-    snapshot_link = os.readlink(os.path.join(snapshots_dir, 'snapshot.bsk'))
-    if os.path.basename(snapshot_link) == 'snapshot.bsk.{}'.format(block_number):
+    cur_sb = os.stat(os.path.join(snapshots_dir, 'snapshot.bsk'))
+    sb = os.stat(snapshot_path)
+    if sb.st_ino == cur_sb.st_ino:
         return {'error': 'Snapshot for {} is the current snapshot'.format(block_number)}
 
     log.debug("Remove old snapshot {}".format(snapshot_path))
