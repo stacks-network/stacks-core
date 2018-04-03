@@ -1,24 +1,24 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
-    Blockstack-client
+    Blockstack
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
     copyright: (c) 2016 by Blockstack.org
 
-    This file is part of Blockstack-client.
+    This file is part of Blockstack.
 
-    Blockstack-client is free software: you can redistribute it and/or modify
+    Blockstack is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstack-client is distributed in the hope that it will be useful,
+    Blockstack is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import sys
@@ -330,6 +330,17 @@ def connect_hostport(hostport, timeout=RPC_DEFAULT_TIMEOUT, my_hostport=None):
 
     proxy = BlockstackRPCClient(host, port, timeout=timeout, src=my_hostport, protocol=protocol)
     return proxy
+
+
+def create_bitcoind_service_proxy(rpc_username, rpc_password, server='127.0.0.1', port=8332, use_https=False):
+    """
+    create a bitcoind service proxy
+    """
+    assert BLOCKSTACK_TEST, 'create_bitcoind_service_proxy can only be used in test mode!'
+
+    protocol = 'https' if use_https else 'http'
+    uri = '%s://%s:%s@%s:%s' % (protocol, rpc_username, rpc_password, server, port)
+    return AuthServiceProxy(uri)
 
 
 def ping(proxy=None, hostport=None):
@@ -2511,3 +2522,43 @@ def resolve_DID(did, hostport=None, proxy=None):
     log.error("No zone file URLs resolved to a JWT with the public key whose address is {}".format(did_rec['address']))
     return {'error': 'No public key found for the given DID'}
 
+
+def decode_name_zonefile(name, zonefile_txt):
+    """
+    Decode a zone file for a name.
+    Must be either a well-formed DNS zone file, or a legacy Onename profile.
+    Return None on error
+    """
+
+    user_zonefile = None
+    try:
+        # by default, it's a zonefile-formatted text file
+        user_zonefile_defaultdict = blockstack_zones.parse_zone_file(zonefile_txt)
+
+        # force dict
+        user_zonefile = dict(user_zonefile_defaultdict)
+
+    except (IndexError, ValueError, blockstack_zones.InvalidLineException):
+        # might be legacy profile
+        log.debug('WARN: failed to parse user zonefile; trying to import as legacy')
+        try:
+            user_zonefile = json.loads(zonefile_txt)
+            if not isinstance(user_zonefile, dict):
+                log.debug('Not a legacy user zonefile')
+                return None
+
+        except Exception as e:
+            log.error('Failed to parse non-standard zonefile')
+            return None
+
+    except Exception as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        log.error('Failed to parse zonefile')
+        return None
+
+    if user_zonefile is None:
+        return None 
+
+    return user_zonefile
