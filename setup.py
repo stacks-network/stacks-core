@@ -24,7 +24,7 @@
 from setuptools import setup, find_packages
 import os
 
-exec(open("blockstack_client/version.py").read())
+exec(open("blockstack/version.py").read())
 
 setup(
     name='blockstack',
@@ -37,7 +37,7 @@ setup(
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
     scripts=['bin/blockstack-server', 'bin/blockstack-core', 'bin/blockstack-snapshots',
-             'bin/blockstack', 'bin/blockstack-subdomain-registrar'],
+             'bin/blockstack-subdomain-registrar'],
     download_url='https://github.com/blockstack/blockstore/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
@@ -45,22 +45,14 @@ setup(
         'virtualchain>=0.18.0.0',
         'keychain>=0.14.2.0',
         'protocoin>=0.2',
-        'blockstack-profiles>=0.14.1',
-        'blockstack-zones>=0.14.3',
+        'blockstack-zones>=0.19.0',
         'defusedxml>=0.4.1',
         'pystun>=0.1.0',
         'keylib>=0.1.1',
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1',
         'jsontokens>=0.0.4',
-        'scrypt>=0.8.0',
-        'jsonpointer>=1.14',
         'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly
-        'basicrpc>=0.0.2',      # DHT storage driver
-        'boto>=2.38.0',         # S3 storage driver
-        'dropbox>=7.1.1',       # Dropbox driver
-        'pydrive>=1.3.1',       # Google Drive driver
-        'onedrivesdk>=1.1.8',   # Microsoft OneDrive driver
     ],
     classifiers=[
         'Intended Audience :: Developers',
