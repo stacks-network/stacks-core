@@ -24,8 +24,7 @@
 import testlib
 import virtualchain
 import json
-import blockstack_client
-import blockstack_profiles
+import blockstack
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -106,10 +105,7 @@ def check( state_engine ):
         print "name has wrong owner"
         return False 
 
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-
-    update_history = blockstack_client.list_update_history( name )
+    update_history = blockstack.lib.client.list_update_history(name, hostport='http://localhost:16268')
     if update_history != update_hashes:
         print "update history: %s" % ",".join(update_history)
         print "update hashes:  %s" % ",".join(update_hashes)

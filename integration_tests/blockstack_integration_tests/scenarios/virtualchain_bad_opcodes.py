@@ -23,7 +23,6 @@
 
 import testlib 
 import json
-import blockstack_client
 import virtualchain
 import binascii
 
@@ -60,10 +59,10 @@ def mktx( amt, tx_fee, recipient_addr, privkey, message=None ):
             {"script": virtualchain.make_data_script(binascii.hexlify(message)),
              "value": 0} ] + outputs
 
-    serialized_tx = blockstack_client.tx.serialize_tx(inputs, outputs)
+    serialized_tx = testlib.serialize_tx(inputs, outputs)
     prev_outputs = [{'out_script': inp['out_script'], 'value': inp['value']} for inp in inputs]
 
-    signed_tx = blockstack_client.tx.sign_tx(serialized_tx, prev_outputs, privkey)
+    signed_tx = virtualchain.tx_sign_all_unsigned_inputs(privkey, prev_outputs, serialized_tx)
     return signed_tx
 
 
@@ -74,7 +73,7 @@ def scenario( wallets, **kw ):
         print tx
         return False
 
-    res = blockstack_client.tx.broadcast_tx(tx)
+    res = testlib.broadcast_transaction(tx)
     if 'error' in res:
         print res
         return False
@@ -87,7 +86,7 @@ def scenario( wallets, **kw ):
         print tx
         return False
 
-    res = blockstack_client.tx.broadcast_tx(tx)
+    res = testlib.broadcast_transaction(tx)
     if 'error' in res:
         print res
         return False
@@ -100,7 +99,7 @@ def scenario( wallets, **kw ):
         print tx
         return False
 
-    res = blockstack_client.tx.broadcast_tx(tx)
+    res = testlib.broadcast_transaction(tx)
     if 'error' in res:
         print res
         return False

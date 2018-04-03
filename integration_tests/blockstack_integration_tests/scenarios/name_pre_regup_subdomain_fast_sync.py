@@ -34,7 +34,6 @@ import shutil
 import testlib
 import virtualchain
 import blockstack
-import blockstack_client
 import blockstack_zones
 import virtualchain
 import json

@@ -34,7 +34,7 @@ TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD 17
 
 import testlib
 import virtualchain
-import blockstack_client
+import blockstack
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -63,7 +63,7 @@ def scenario( wallets, **kw ):
         return False
 
     namespace_balance = testlib.get_balance(namespace_rec['address'])
-    burn_balance = testlib.get_balance(blockstack_client.constants.BLOCKSTACK_BURN_ADDRESS)
+    burn_balance = testlib.get_balance(blockstack.lib.config.BLOCKSTACK_BURN_ADDRESS)
 
     res = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
     if 'error' in res:
@@ -177,7 +177,7 @@ def scenario( wallets, **kw ):
         print whois
         return False
 
-    new_burn_balance = testlib.get_balance(blockstack_client.constants.BLOCKSTACK_BURN_ADDRESS)
+    new_burn_balance = testlib.get_balance(blockstack.lib.config.BLOCKSTACK_BURN_ADDRESS)
     new_namespace_balance = testlib.get_balance(namespace_rec['address'])
     name_rec_2 = testlib.get_name_blockchain_record('foo2.test')
     name_cost_2 = name_rec_2['op_fee']

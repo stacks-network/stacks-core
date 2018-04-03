@@ -23,7 +23,7 @@
 
 import testlib
 import virtualchain
-import blockstack_client
+import blockstack
 import blockstack_zones
 import os
 import sys
@@ -143,10 +143,9 @@ logfile = {}
     
     assert take_snapshot(config_file, virtualchain_dir, snapshot_dir, 3)
 
-    zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo.test", wallets[0].pubkey_hex )
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile )
-    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
-    
+    zonefile_txt = testlib.make_empty_zonefile( "foo.test".format(i), wallets[3].addr)
+    value_hash = blockstack.lib.storage.get_zonefile_data_hash(empty_zonefile_str)
+
     value_hashes.append(zonefile_hash)
 
     namespace_ids.append('test')
@@ -179,10 +178,8 @@ logfile = {}
 
     assert take_snapshot(config_file, virtualchain_dir, snapshot_dir, 3)
 
-    zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo.test", wallets[0].pubkey_hex )
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile )
-    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
- 
+    zonefile_txt = testlib.make_empty_zonefile( "foo.test".format(i), wallets[3].addr)
+    value_hash = blockstack.lib.storage.get_zonefile_data_hash(empty_zonefile_str)
     value_hashes.append(zonefile_hash)
     
     testlib.blockstack_name_update('foo.test', zonefile_hash, wallets[3].privkey)

@@ -26,7 +26,6 @@ import shutil
 import testlib
 import virtualchain
 import blockstack
-import blockstack_client
 import blockstack_zones
 import virtualchain
 import json
@@ -125,10 +124,8 @@ def scenario( wallets, **kw ):
  
     # make 10 empty zonefiles and propagate them 
     for i in xrange(0, 10):
-        data_pubkey = wallets[4].pubkey_hex
-        empty_zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo_{}.test".format(i), data_pubkey, urls=["file:///tmp/foo_{}.test".format(i)] )
-        empty_zonefile_str = blockstack_zones.make_zone_file( empty_zonefile )
-        value_hash = blockstack_client.hash_zonefile( empty_zonefile )
+        empty_zonefile_str = testlib.make_empty_zonefile( "foo_{}.test".format(i), wallets[3].addr)
+        value_hash = blockstack.lib.storage.get_zonefile_data_hash(empty_zonefile_str)
 
         res = testlib.blockstack_name_update( "foo_{}.test".format(i), value_hash, wallets[3].privkey )
         if 'error' in res:

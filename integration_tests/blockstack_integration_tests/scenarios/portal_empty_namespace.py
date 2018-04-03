@@ -36,8 +36,8 @@ import virtualchain
 import time
 import json
 import sys
-import blockstack_client
 import re
+import blockstack
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -76,7 +76,7 @@ def make_zonefile_hash(name, address, index=0):
     Make the appropriate zone file hash
     """
     zonefile_data = make_zonefile(name, address, index=index)
-    zonefile_hash = blockstack_client.get_zonefile_data_hash(zonefile_data)
+    zonefile_hash = blockstack.lib.client.get_zonefile_data_hash(zonefile_data)
     return zonefile_hash
 
 def scenario( wallets, **kw ):
@@ -132,8 +132,6 @@ def scenario( wallets, **kw ):
             testlib.blockstack_name_register(name_info['name'], wallets[(i%8)+2].privkey, owner_addr, zonefile_hash=zonefile_hash, safety_checks=False, tx_fee=300*1000)
             
         testlib.next_block(**kw)
-
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
 
     print >> sys.stderr, "We're a go!"
 

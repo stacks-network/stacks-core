@@ -31,7 +31,7 @@ TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 1
 
 import testlib
 import virtualchain
-import blockstack_client
+import blockstack
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -44,8 +44,6 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
-
-    test_proxy = testlib.make_proxy()
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -99,7 +97,7 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
-    nameops = blockstack_client.get_nameops_at(testlib.get_current_block(**kw), proxy=test_proxy)
+    nameops = blockstack.lib.client.get_nameops_at(testlib.get_current_block(**kw), hostport='http://localhost:16268')
     if 'error' in nameops:
         print nameops
         return False

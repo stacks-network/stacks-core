@@ -23,7 +23,7 @@
 
 import testlib
 import virtualchain
-import blockstack_client
+import blockstack
 import json
 
 wallets = [
@@ -95,10 +95,7 @@ def check( state_engine ):
         return False 
 
     # snv lookup works
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-
-    snv_rec = blockstack_client.snv_lookup( "foo.test", snv_block_id, snv_consensus, proxy=test_proxy ) 
+    snv_rec = blockstack.lib.snv.snv_lookup("foo.test", snv_block_id, snv_consensus) 
     if 'error' in snv_rec:
         print json.dumps(snv_rec, indent=4 )
         return False

@@ -24,7 +24,7 @@
 import testlib
 import virtualchain
 import json
-import blockstack_client
+import blockstack
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -143,7 +143,7 @@ def check( state_engine ):
         return False
 
     # get history...
-    name_history = blockstack_client.get_name_blockchain_history( "foo.test", name_rec['first_registered'], state_engine.get_current_block()+1 )
+    name_history = blockstack.lib.client.get_name_blockchain_history('foo.test', name_rec['first_registered'], state_engine.get_current_block()+1, hostport='http://localhost:16268')
 
     # did 10 updates, 1 register
     if len(name_history) != 11:

@@ -34,7 +34,6 @@ import testlib
 import virtualchain
 import keychain
 import json
-import blockstack_client
 import binascii
 
 wallets = [

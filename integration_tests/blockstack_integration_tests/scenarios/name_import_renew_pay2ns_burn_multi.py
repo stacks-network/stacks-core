@@ -33,7 +33,6 @@ TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD 4
 
 import testlib
 import virtualchain
-import blockstack_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -68,7 +67,7 @@ def scenario( wallets, **kw ):
         return False
 
     namespace_balance = testlib.get_balance(namespace_rec['address'])
-    burn_balance = testlib.get_balance(blockstack_client.constants.BLOCKSTACK_BURN_ADDRESS)
+    burn_balance = testlib.get_balance(blockstack.lib.config.BLOCKSTACK_BURN_ADDRESS)
 
     # should send to namespace burn address
     res = testlib.blockstack_name_renew('foo.test', wallets[3].privkey)
@@ -128,7 +127,7 @@ def scenario( wallets, **kw ):
         return False
 
     # must have burned
-    new_burn_balance = testlib.get_balance(blockstack_client.constants.BLOCKSTACK_BURN_ADDRESS)
+    new_burn_balance = testlib.get_balance(blockstack.lib.config.BLOCKSTACK_BURN_ADDRESS)
     if new_burn_balance - name_cost != burn_balance:
         print 'did not burn fee'
         print '{} != {} + {}'.format(new_burn_balance, burn_balance, name_cost)

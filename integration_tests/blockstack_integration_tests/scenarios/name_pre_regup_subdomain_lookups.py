@@ -145,27 +145,12 @@ def scenario( wallets, **kw ):
     # kick off subdomain indexing
     testlib.next_block(**kw)
    
-    # start API daemon 
-    print 'starting API daemon'
-    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[0].privkey, wallets[1].privkey, wallets[2].privkey )
-
-    # authenticate
-    pk = keylib.ECPrivateKey(wallets[-1].privkey).to_hex()
-    res = testlib.blockstack_cli_app_signin("foo.test", pk, 'register.app', ['names', 'register', 'prices', 'zonefiles', 'blockchain', 'node_read', 'user_read'])
-    if 'error' in res:
-        print json.dumps(res, indent=4, sort_keys=True)
-        error = True
-        return 
-
-    ses = res['token']
-
     # query each subdomain
-    proxy = testlib.make_proxy()
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
 
         # test REST whois
-        res = testlib.blockstack_REST_call('GET', '/v1/names/{}'.format(fqn), ses)
+        res = testlib.blockstack_REST_call('GET', '/v1/names/{}'.format(fqn))
         if 'error' in res:
             res['test'] = 'Failed to query name'
             print json.dumps(res)
@@ -201,7 +186,7 @@ def scenario( wallets, **kw ):
             return False
 
         # test REST lookup
-        res = testlib.blockstack_REST_call("GET", "/v1/users/{}".format(fqn), ses)
+        res = testlib.blockstack_REST_call("GET", "/v1/users/{}".format(fqn))
         if 'error' in res:
             res['test'] = 'Failed to query name profile'
             print json.dumps(res)
@@ -231,7 +216,7 @@ def scenario( wallets, **kw ):
             return False
 
         # test REST lookup by address
-        res = testlib.blockstack_REST_call('GET', '/v1/addresses/bitcoin/{}'.format(wallets[4].addr), ses)
+        res = testlib.blockstack_REST_call('GET', '/v1/addresses/bitcoin/{}'.format(wallets[4].addr))
         if 'error' in res:
             res['test'] = 'Failed to query names owned by address'
             print json.dumps(res)
@@ -248,7 +233,7 @@ def scenario( wallets, **kw ):
             return False
      
         # test REST get name history
-        res = testlib.blockstack_REST_call('GET', '/v1/names/{}/history'.format(fqn), ses)
+        res = testlib.blockstack_REST_call('GET', '/v1/names/{}/history'.format(fqn))
         if 'error' in res:
             res['test'] = 'Failed to query subdomain history'
             print json.dumps(res)
@@ -269,7 +254,7 @@ def scenario( wallets, **kw ):
         for block_height in blocks:
             for prev_state in blocks[block_height]:
                 value_hash = prev_state['value_hash']
-                res = testlib.blockstack_REST_call('GET', '/v1/names/{}/zonefile/{}'.format(fqn, value_hash), ses)
+                res = testlib.blockstack_REST_call('GET', '/v1/names/{}/zonefile/{}'.format(fqn, value_hash))
                 if 'error' in res:
                     print 'failed to query zone file {} for {}'.format(value_hash, fqn)
                     print json.dumps(res)

@@ -25,8 +25,17 @@ import testlib
 import virtualchain
 import json
 import time
-import blockstack_client
 import sys
+
+# activate STACKS Phase 1
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 682
+TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 683
+TEST ENV BLOCKSTACK_EPOCH_3_END_BLOCK 684
+TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 1
+TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER 1
+TEST ENV BLOCKSTACK_EPOCH_4_NAMESPACE_LIFETIME_MULTIPLIER 1
+"""
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -49,37 +58,11 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-    resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
-    if 'error' in resp:
-        print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
-        return False
+    testlib.blockstack_register_user('foo.test', wallets[2].privkey, wallets[3].addr, **kw)
    
-    # wait for the preorder to get confirmed
-    for i in xrange(0, 12):
-        testlib.next_block( **kw )
-
-    # wait for the poller to pick it up
-    print >> sys.stderr, "Waiting 10 seconds for the backend to submit the register"
-    time.sleep(10)
-
-    # wait for the register to get confirmed 
-    for i in xrange(0, 12):
-        testlib.next_block( **kw )
-
-    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
-    time.sleep(10)
-
-    # wait for update to get confirmed 
-    for i in xrange(0, 12):
-        testlib.next_block( **kw )
-
-    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
-    time.sleep(10)
-
     # let's make sure the zonefile propagates...
 
-    res = testlib.blockstack_REST_call("GET", "/v1/names/foo.test", None)
+    res = testlib.blockstack_REST_call("GET", "/v1/names/foo.test")
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name bar.test'
         print json.dumps(res)

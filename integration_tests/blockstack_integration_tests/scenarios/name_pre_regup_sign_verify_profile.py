@@ -33,7 +33,7 @@ import virtualchain
 import json
 import base64
 import blockstack
-import blockstack_client
+import blockstack
 import blockstack_zones
 import os
 import time
@@ -50,8 +50,6 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey)
-
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
@@ -63,37 +61,22 @@ def scenario( wallets, **kw ):
 
     testlib.blockstack_name_preorder( "foo1.test", wallets[2].privkey, wallets[3].addr )
     testlib.blockstack_name_preorder( "foo2.test", wallets[2].privkey, wallets[3].addr )
-    testlib.blockstack_name_preorder( "foo3.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
     
     # make zonefiles:
-    # one with a data key
-    # one without a data key
+    # one normal one
     # one with a nonstandard zonefile
-    zf1 = blockstack_client.zonefile.make_empty_zonefile('foo1.test', wallets[4].pubkey_hex)
-    zf1_txt = blockstack_zones.make_zone_file(zf1)
+    zf1_txt = testlib.make_empty_zonefile('foo1.test', wallets[3].addr)
+    zf2_txt = '\x00\x01\x02\x03\x04\x05'
 
-    zf2 = blockstack_client.zonefile.make_empty_zonefile('foo2.test', None)
-    zf2_txt = blockstack_zones.make_zone_file(zf2)
-
-    zf3_txt = '\x00\x01\x02\x03\x04\x05'
-
-    testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=blockstack_client.get_zonefile_data_hash(zf1_txt))
-    testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=blockstack_client.get_zonefile_data_hash(zf2_txt))
-    testlib.blockstack_name_register( "foo3.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=blockstack_client.get_zonefile_data_hash(zf3_txt))
+    testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=blockstack.lib.client.get_zonefile_data_hash(zf1_txt))
+    testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=blockstack.lib.client.get_zonefile_data_hash(zf2_txt))
     testlib.next_block( **kw )
 
     # replicate zonefiles 
-    proxy = testlib.make_proxy()
-    res = blockstack_client.proxy.put_zonefiles("localhost:{}".format(blockstack.RPC_SERVER_PORT), [base64.b64encode(zf1_txt), base64.b64encode(zf2_txt), base64.b64encode(zf3_txt)], proxy=proxy)
-    if 'error' in res:
-        print res
-        return False
-
-    for s in res['saved']:
-        if s != 1:
-            print res
-            return False
+    for zf in [zf1_txt, zf2_txt]:
+        res = testilb.blockstack_put_zonefile(zf1_txt)
+        assert res
     
     print 'waiting for zonefiles to be saved...'
     time.sleep(5)
@@ -101,17 +84,11 @@ def scenario( wallets, **kw ):
     # store signed profile for each
     working_dir = kw['working_dir']
 
-    for name in ['foo1.test', 'foo2.test', 'foo3.test']:
-        profile = blockstack_client.user.make_empty_user_profile()
-        profile['name'] = name
-
-        profile_path = os.path.join(working_dir, '{}.profile'.format(name))
-        with open(profile_path, 'w') as f:
-            f.write(json.dumps(profile))
-
+    for name in ['foo1.test', 'foo2.test']:
+        profile = {'name': name, 'type': '@Person', 'account': []}
         print 'sign profile for {}'.format(name)
 
-        jwt = testlib.blockstack_cli_sign_profile(name, profile_path)
+        jwt = testlib.blockstack_cli_sign_profile(profile_path, wallets[3].privkey)
         if 'error' in jwt:
             print jwt
             return False
@@ -122,7 +99,7 @@ def scenario( wallets, **kw ):
 
         print 'verify profile for {}'.format(name)
 
-        res = testlib.blockstack_cli_verify_profile(name, jwt_path)
+        res = testlib.blockstack_cli_verify_profile(jwt_path, wallets[3].addr)
         if 'error' in res:
             print res
             return False
@@ -130,16 +107,14 @@ def scenario( wallets, **kw ):
         print 'store profile for {}'.format(name)
 
         # store the jwt to the right place
-        res = blockstack_client.storage.put_mutable_data(name, jwt, sign=False, profile=True, raw=True)
-        if not res:
-            print res
-            return False
+        res = testlib.blockstack_cli_put_profile(name, json.dumps(jwt), wallets[3].privkey)
+        assert res
 
         print 'lookup profile for {}'.format(name)
 
         # lookup 
         res = testlib.blockstack_cli_lookup(name)
-        if name != 'foo3.test':
+        if name != 'foo2.test':
             if 'error' in res:
                 print res
                 return False
