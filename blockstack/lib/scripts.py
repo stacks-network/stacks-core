@@ -128,9 +128,6 @@ def price_name(name, namespace, block_height):
     Calculate the price of a name (without its namespace ID), given the
     namespace parameters.
 
-    If units == 'BTC', the returned value is in satoshis
-    If units == 'STACKS', the returned value is in microSTACKs
-
     The minimum price is NAME_COST_UNIT (or NAME_COST_UNIT_STACKS)
     """
     units = None
