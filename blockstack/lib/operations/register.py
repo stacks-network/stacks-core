@@ -851,13 +851,12 @@ def parse(bin_payload, block_height):
                     tokens_burned = int(bin_tokens.encode('hex'), 16)    # NOTE: little-endian
 
                 else:
-                    # no token count
-                    log.debug("Legacy register/renew payload: no tokens listed in {}".format(bin_payload.encode('hex')))
+                    # no token count (might be a register)
                     tokens_burned = None
 
             else:
                 # payload must be *exactly* name + value hash
-                if len(payload) != name_value_len:
+                if len(bin_payload) != name_value_len:
                     log.info("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), name_value_len))
                     return None
 
