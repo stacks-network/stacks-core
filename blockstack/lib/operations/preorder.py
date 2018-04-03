@@ -72,6 +72,10 @@ def check( state_engine, nameop, block_id, checked_ops ):
     consensus_hash = nameop['consensus_hash']
     sender = nameop['sender']
 
+    token_fee = nameop['token_fee']
+    token_type = nameop['token_units']
+    token_address = nameop['address']
+
     # must be unique in this block
     # NOTE: now checked externally in the @state_preorder decorator
 
@@ -96,20 +100,9 @@ def check( state_engine, nameop, block_id, checked_ops ):
         log.debug("Missing preorder fee")
         return False
 
-    # token burn fee must be present, if we're in the right epoch for it
+    # did we burn tokens?
     epoch_features = get_epoch_features(block_id)
-    if EPOCH_FEATURE_NAMEOPS_COST_TOKENS in epoch_features:
-        if 'token_fee' not in nameop:
-            log.debug("Missing token fee")
-            return False
-
-        if 'token_units' not in nameop:
-            log.debug("Missing token units")
-            return False
-
-        token_fee = nameop['token_fee']
-        token_type = nameop['token_units']
-        token_address = nameop['address']
+    if EPOCH_FEATURE_NAMEOPS_COST_TOKENS in epoch_features and token_type is not None and token_fee is not None:
 
         # does this account have enough balance?
         account_info = state_engine.get_account(token_address, token_type)
@@ -247,6 +240,14 @@ def parse(bin_payload, block_height):
     0     2  3                                              23                 39                            47                      66
     |-----|--|----------------------------------------------|------------------|-----------------------------|-----------------------|
     magic op  hash(name.ns_id,script_pubkey,register_addr)   consensus hash     tokens to burn (little-endian)  token units (0-padded)
+
+    Returns {
+        opcode: NAME_PREORDER,
+        preorder_hash: the hash of the name, scriptPubKey, and register address
+        consensus_hash: the consensus hash
+        token_fee: the amount of tokens to burn (will be None if not given)
+        token_units: the type of tokens to burn (will be None if not given)
+    }
     """
     
     epoch_features = get_epoch_features(block_height)
@@ -257,7 +258,7 @@ def parse(bin_payload, block_height):
 
     name_hash = hexlify( bin_payload[0:LENGTHS['preorder_name_hash']] )
     consensus_hash = hexlify( bin_payload[LENGTHS['preorder_name_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']] )
-    tokens_burned = 0
+    tokens_burned = None
     token_units = None
 
     if len(bin_payload) > LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
