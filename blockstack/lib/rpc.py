@@ -1122,11 +1122,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_blockchain_name_record,
                 },
             },
-            r'^/v1/blockchains/({})/names/({})/history$'.format(URLENCODING_CLASS, NAME_CLASS): {
-                'routes': {
-                    'GET': self.GET_blockchain_name_history
-                },
-            },
             r'^/v1/blockchains/({})/consensus$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_consensus,
