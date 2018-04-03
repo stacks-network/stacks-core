@@ -340,7 +340,7 @@ def create_bitcoind_service_proxy(rpc_username, rpc_password, server='127.0.0.1'
 
     protocol = 'https' if use_https else 'http'
     uri = '%s://%s:%s@%s:%s' % (protocol, rpc_username, rpc_password, server, port)
-    return AuthServiceProxy(uri)
+    return virtualchain.AuthServiceProxy(uri)
 
 
 def ping(proxy=None, hostport=None):
