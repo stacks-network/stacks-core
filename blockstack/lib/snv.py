@@ -65,7 +65,7 @@ def get_bitcoind_client():
     bitcoind_user = bitcoind_opts['bitcoind_user']
     bitcoind_passwd = bitcoind_opts['bitcoind_passwd']
     
-    return create_bitcoind_service_proxy(bitcoind_user, bitcoind_password, server=bitcoind_host, port=bitcoind_port)
+    return create_bitcoind_service_proxy(bitcoind_user, bitcoind_passwd, server=bitcoind_host, port=bitcoind_port)
 
 
 def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
