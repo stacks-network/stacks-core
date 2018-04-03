@@ -40,7 +40,8 @@ import urlparse
 import subprocess
 import signal
 import atexit
-
+import re
+from decimal import Decimal
 import blockstack.blockstackd as blockstackd
 import blockstack.lib.client as blockstackd_client
 import blockstack.lib.snv as snv_client
@@ -53,6 +54,8 @@ import virtualchain
 log = virtualchain.get_logger("testlib")
 
 import blockstack_client
+
+SATOSHIS_PER_COIN = 10**8
 
 TX_MIN_CONFIRMATIONS = 6
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
@@ -723,7 +726,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
         resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['units'], namespace_cost['amount'], privatekey, register_addr, test_proxy, test_proxy,
                 consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    token_record = TokenNamespacePreorder(namespace_id, payment_addr, test_proxy)
+    token_record = TokenNamespacePreorder(namespace_id, payment_addr)
     api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp, token_record=token_record) )
     return resp
 
@@ -1452,7 +1455,7 @@ def get_unspents(address, bitcoind):
     max_confirmation = 2000000000  # just a very large number for max
     unspents = bitcoind.listunspent(min_confirmations, max_confirmation, addresses)
 
-    if BLOCKSTACK_TEST and len(unspents) == 0:
+    if len(unspents) == 0:
         try:
             bitcoind.importaddress(str(address))
             unspents = bitcoind.listunspent(min_confirmations, max_confirmation, addresses)
