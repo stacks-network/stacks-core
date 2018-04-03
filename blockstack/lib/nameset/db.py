@@ -246,10 +246,10 @@ def namedb_create_token_genesis(con, initial_account_balances):
         address = virtualchain.address_reencode(account_info['address'])
         if 'name' in account_info and account_info['name'] is not None:
             name = account_info['name']
-            log.debug('Grant {} to {} ({})'.format(address, account_info['value'], name))
+            log.debug('Grant {} to {} ({})'.format(account_info['value'], address, name))
 
         else:
-            log.debug('Grant {} to {}'.format(address, account_info['value']))
+            log.debug('Grant {} to {}'.format(account_info['value'], address))
 
         # set up initial account balances
         sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?);'
