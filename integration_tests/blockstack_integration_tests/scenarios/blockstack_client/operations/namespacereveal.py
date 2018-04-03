@@ -38,7 +38,7 @@ from ..scripts import (
 from ..constants import (
     DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
     NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR,
-    LENGTH_MAX_NAMESPACE_ID)
+    LENGTH_MAX_NAMESPACE_ID, NAMESPACE_VERSION_PAY_WITH_STACKS)
 
 import virtualchain
 log = get_logger("blockstack-log")
@@ -100,7 +100,7 @@ def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, 
    if len(namespace_id) > LENGTH_MAX_NAMESPACE_ID:
       raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTH_MAX_NAMESPACE_ID))
    
-   if version not in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]:
+   if version not in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR, NAMESPACE_VERSION_PAY_WITH_STACKS]:
       raise Exception("Invalid namespace version bits {:x}".format(version))
 
    if lifetime < 0 or lifetime > (2**32 - 1):
@@ -292,11 +292,3 @@ def get_fees( inputs, outputs ):
     dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     return (dust_fee, op_fee)
 
-
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
-    """
-    Calculate any derived missing data that goes into the check() operation,
-    given the block number, the name record at the block number, and the db.
-    """
-    
-    return {}

@@ -95,7 +95,7 @@ from rpc import local_api_connect, local_api_status
 import rpc as local_rpc
 import config
 
-from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id
+from .config import configure_zonefile, configure, get_utxo_provider_client, get_tx_broadcaster, get_local_device_id, get_blockstackd_url
 from .constants import (
     CONFIG_PATH, CONFIG_DIR, WALLET_FILENAME,
     FIRST_BLOCK_MAINNET, NAME_UPDATE, NAME_IMPORT, NAME_REGISTRATION, NAME_RENEWAL,
@@ -1033,50 +1033,9 @@ def cli_lookup(args, config_path=CONFIG_PATH):
         if not res:
             return {'error': error}
 
-    conf = config.get_config(config_path)
-    blockstackd_host = conf['server']
-    blockstackd_port = conf['port']
-    blockstackd_protocol = conf['protocol']
-    blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
-
-    try:
-        blockchain_record = blockstackd_client.get_name_record(fqu, hostport=blockstackd_url)
-    except socket_error:
-        return {'error': 'Error connecting to server.'}
-
-    if 'error' in blockchain_record:
-        return blockchain_record
-
-    if 'value_hash' not in blockchain_record:
-        return {'error': '{} has no profile'.format(fqu)}
-
-    if not force and blockchain_record.get('revoked', False):
-        msg = 'Name is revoked. Use `whois` or `get_name_blockchain_record` for details.'
-        return {'error': msg}
-
-    if not force and blockchain_record.get('expired', False):
-        msg = 'Name is expired. Use `whois` or `get_name_blockchain_record` for details. If you own this name, use `renew` to renew it.'
-        return {'error': msg}
-
-    try:
-        res = get_profile(
-            str(args.name), name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
-        )
-
-        if 'error' in res:
-            return res
-
-        data['profile'] = res['profile']
-        data['zonefile'] = res['raw_zonefile']
-        data['public_key'] = res['public_key']
-    except Exception as e:
-        log.exception(e)
-        msg = 'Failed to look up name\n{}'
-        return {'error': msg.format(traceback.format_exc())}
-
-    result = data
-
-    return result
+    blockstackd_url = get_blockstackd_url(config_path)
+    res = blockstackd_client.resolve_profile(fqu, include_expired=force, hostport=blockstackd_url)
+    return res
 
 
 def cli_whois(args, config_path=CONFIG_PATH):
@@ -1097,14 +1056,8 @@ def cli_whois(args, config_path=CONFIG_PATH):
         if not is_subdomain:
             return {'error': error}
 
-    conf = config.get_config(config_path)
-    blockstackd_host = conf['server']
-    blockstackd_port = conf['port']
-    blockstackd_protocol = conf['protocol']
-    blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
-
+    blockstackd_url = get_blockstackd_url(config_path)
     try:
-        # record = get_name_blockchain_record(fqu)
         record = blockstackd_client.get_name_record(fqu, include_history=True, hostport=blockstackd_url)
     except socket_error:
         exit_with_error('Error connecting to server.')
@@ -2993,7 +2946,7 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "\n",
         "IMPORTANT:  PLEASE READ THESE INSTRUCTIONS CAREFULLY\n",
         "\n",
-        "You are about to preorder the namespace '{}'.  It will cost about {} BTC ({} satoshi).\n".format(nsid, fees['total_estimated_cost']['btc'], fees['total_estimated_cost']['satoshis']),
+        "You are about to preorder the namespace '{}'.  It will cost about {} BTC ({} satoshi) and {} STACKS.\n".format(nsid, fees['total_estimated_cost']['btc'], fees['total_estimated_cost']['satoshis'], fees['namespace_price_tokens']['amount']),
         'The address {} will be used to pay the fee, and will capture name fees (if created to do so).\n'.format(virtualchain.address_reencode(virtualchain.get_privkey_address(ns_privkey))),
         'The address {} will be used to reveal the namespace.\n'.format(virtualchain.address_reencode(reveal_addr)),
         'MAKE SURE YOU KEEP THE PRIVATE KEYS FOR BOTH ADDRESSES\n',
@@ -3055,6 +3008,8 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
         "I acknowledge that I have read and understood the above instructions (yes/no) ",
         "I acknowledge that this will cost {} BTC or more (yes/no) ".format(fees['total_estimated_cost']['btc']),
         "I acknowledge that by not following these instructions, I may lose {} BTC (yes/no) ".format(fees['total_estimated_cost']['btc']),
+        "I acknowledge that this will cost {} STACKs (yes/no) ".format(fees['namespace_price_tokens']['amount']),
+        "I acknowledge that by not following these instructions, I may lose {} STACKs (yes/no) ".format(fees['namespace_price_tokens']['amount']),
         "I acknowledge that I have tested my namespace in Blockstack's test mode (yes/no) ",
         "I acknowledge that the addresses {} and {} have never been used before (yes/no) ".format(
             virtualchain.address_reencode(reveal_addr),
@@ -3086,7 +3041,7 @@ def cli_namespace_preorder(args, config_path=CONFIG_PATH, interactive=True, prox
     # proceed!
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
-    res = do_namespace_preorder(nsid, int(fees['namespace_price']), ns_privkey, reveal_addr, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
+    res = do_namespace_preorder(nsid, fees['namespace_price_tokens']['units'], int(fees['namespace_price_tokens']['amount']), ns_privkey, reveal_addr, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy, safety_checks=True)
     if 'error' in res:
         return res
 
@@ -4104,13 +4059,7 @@ def cli_get_name_blockchain_record(args, config_path=CONFIG_PATH):
     help: Get the raw blockchain record for a name
     arg: name (str) 'The name to list'
     """
-    conf = config.get_config(config_path)
-    blockstackd_host = conf['server']
-    blockstackd_port = conf['port']
-    blockstackd_protocol = conf['protocol']
-    blockstackd_url = '{}://{}:{}'.format(blockstackd_protocol, blockstackd_host, blockstackd_port)
-
-    # result = get_name_blockchain_record(str(args.name))
+    blockstackd_url = get_blockstackd_url(config_path)
     result = blockstackd_client.get_name_record(str(args.name), include_history=True, hostport=blockstackd_url)
     return result
 
@@ -4138,8 +4087,17 @@ def cli_get_name_blockchain_history(args, config_path=CONFIG_PATH):
     else:
         end_block = int(args.end_block)
 
-    result = get_name_blockchain_history(str(args.name), start_block, end_block)
-    return result
+    blockstackd_url = get_blockstackd_url(config_path)
+    result = blockstackd_client.get_name_record(str(args.name), include_history=True, hostport=blockstackd_url)
+    if 'error' in result:
+        return result
+
+    history = {}
+    for block_height in res['history'].keys():
+        if int(block_height) >= start_block and int(block_height) <= end_block:
+            history[block_height] = res['history'][block_height]
+
+    return history
 
 
 def cli_get_namespace_blockchain_record(args, config_path=CONFIG_PATH):

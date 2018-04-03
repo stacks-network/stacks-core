@@ -43,7 +43,7 @@ import virtualchain
 log = get_logger("blockstack-server")
 
 
-def build(name, value_hash=None):
+def build(name, value_hash, token_fee=None):
     """
     Takes in the name that was preordered, including the namespace ID (but not the id: scheme)
     Returns a hex string representing up to the maximum-length name's bytes.
@@ -59,8 +59,15 @@ def build(name, value_hash=None):
     
     0    2  3                                  39                  59
     |----|--|----------------------------------|-------------------|
-    magic op   name.ns_id (37 bytes, 0-padded)       value hash
+    magic op   name.ns_id (37 bytes, 0-padded)     zone file hash
 
+    Record format (STACKs phase 1):
+    (for register, tokens burned is not included)
+    (for renew, tokens burned is the number of tokens to burn)
+    
+    0    2  3                                  39                  59                             67
+    |----|--|----------------------------------|-------------------|------------------------------|
+    magic op   name.ns_id (37 bytes, 0-padded)     zone file hash    tokens burned (little-endian)
 
     """
     
@@ -71,21 +78,25 @@ def build(name, value_hash=None):
         if len(value_hash) != LENGTH_VALUE_HASH * 2:
             raise Exception("Invalid value hash '%s' (%s)" % (value_hash, type(value_hash)))
 
+    if token_fee is not None:
+        if value_hash is None:
+            raise Exception("Need value hash if token fee is given")
+
     data = name.encode('hex')
     payload = None
 
-    if value_hash:
-        # pad name with 0's until it's 37 bytes (so id:${name} will be 40 bytes)
-        name_data = '{}{}'.format(data, '00' * (LENGTH_MAX_NAME - len(data)/2))
-        assert len(name_data) == LENGTH_MAX_NAME * 2, 'BUG: invalid name data {}'.format(name_data)
-
-        payload = '{}{}'.format(name_data, value_hash)
-        assert len(payload) == (LENGTH_MAX_NAME + LENGTH_VALUE_HASH) * 2, 'BUG: invalid payload {}'.format(payload)
+    readable_script = None
+    if value_hash is not None:
+        padded_name = '{}{}'.format(data, '00' * (LENGTH_MAX_NAME - len(data)/2))
+        
+        if token_fee is not None:
+            hex_token_fee = '{:016x}'.format(token_fee)
+            readable_script = 'NAME_REGISTRATION 0x{} 0x{} 0x{}'.format(padded_name, value_hash, hex_token_fee)
+        else:
+            readable_script = 'NAME_REGISTRATION 0x{} 0x{}'.format(padded_name, value_hash)
 
     else:
-        payload = data
-
-    readable_script = "NAME_REGISTRATION 0x%s" % (payload)
+        readable_script = 'NAME_REGISTRATION 0x{}'.format(data)
 
     hex_script = blockstack_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script)
@@ -162,9 +173,11 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee,
 
     return outputs
 
-def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, blockchain_client,
-                     tx_fee=0, burn_address=BLOCKSTACK_BURN_ADDRESS, renewal_fee=None,
-                     zonefile_hash=None, subsidize=False, safety=True, dust_included=False):
+
+def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, zonefile_hash, blockchain_client,
+                     tx_fee=0, burn_address=BLOCKSTACK_BURN_ADDRESS, renewal_fee=None, renewal_fee_units=None,
+                     subsidize=False, safety=True, dust_included=False):
+
     # register_or_new_owner_addr is the address of the recipient in NAME_PREORDER
     # register_or_new_owner_addr is the address of the current name owner in standard NAME_RENEWAL (pre F-day 2017)
     # register_or_new_owner_addr is the address of the current or new name owner, in the post-F-day 2017 NAME_RENEWAL
@@ -187,18 +200,26 @@ def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, b
     if safety:
         assert len(change_inputs) > 0, "No UTXOs for {}".format(preorder_or_owner_addr)
 
+    btc_renewal_fee = None
+    token_renewal_fee = None
+
     if renewal_fee is not None:
         # this is a NAME_RENEWAL
         # will be subsidizing with a separate payment key
-        # assert preorder_addr == register_addr, "%s != %s" % (preorder_addr, register_addr)
         pay_fee = False
-
+        if renewal_fee_units == 'BTC':
+            token_renewal_fee = 0
+            btc_renewal_fee = renewal_fee
+        else:
+            token_renewal_fee = renewal_fee
+            btc_renewal_fee = DEFAULT_DUST_FEE
+    
     if subsidize:
         pay_fee = False
 
-    nulldata = build(name, value_hash=zonefile_hash)
+    nulldata = build(name, zonefile_hash, token_fee=token_renewal_fee)
     outputs = make_outputs(nulldata, change_inputs, register_or_new_owner_addr, preorder_or_owner_addr, tx_fee,
-                           burn_address=burn_address, renewal_fee=renewal_fee, pay_fee=pay_fee,
+                           burn_address=burn_address, renewal_fee=btc_renewal_fee, pay_fee=pay_fee,
                            dust_included = dust_included)
 
     return (change_inputs, outputs)
@@ -257,20 +278,3 @@ def get_fees( inputs, outputs ):
         dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     
     return (dust_fee, op_fee)
-   
-
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
-    """
-    Given a name record most recently affected by an instance of this operation, 
-    find the dict of consensus-affecting fields from the operation that are not
-    already present in the name record.
-    """
-  
-    ret_op = {}
-    
-    # reconstruct the recipient information
-    ret_op['recipient'] = str(name_rec['sender'])
-    ret_op['recipient_address'] = str(name_rec['address'])
-
-    return ret_op
-

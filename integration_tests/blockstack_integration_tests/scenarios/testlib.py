@@ -57,11 +57,11 @@ TX_MIN_CONFIRMATIONS = 6
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
     # test environment
     TX_MIN_CONFIRMATIONS = 0
-    print('TEST ACTIVE: TX_MIN_CONFIRMATIONS = {}'.format(TX_MIN_CONFIRMATIONS))
+    print 'TEST ACTIVE: TX_MIN_CONFIRMATIONS = {}'.format(TX_MIN_CONFIRMATIONS)
 
 if os.environ.get("BLOCKSTACK_MIN_CONFIRMATIONS", None) is not None:
     TX_MIN_CONFIRMATIONS = int(os.environ['BLOCKSTACK_MIN_CONFIRMATIONS'])
-    print("Set TX_MIN_CONFIRMATIONS to {}".format(TX_MIN_CONFIRMATIONS), file=sys.stderr)
+    print >> sys.stderr, "Set TX_MIN_CONFIRMATIONS to {}".format(TX_MIN_CONFIRMATIONS)
 
 
 class Wallet(object):
@@ -437,7 +437,7 @@ def nodejs_cli(*args, **kw):
         ret = None
         if full_output:
             ret = out
-        else;
+        else:
             ret = out.strip().split('\n')[-1]
 
         saved_out[0] = out
@@ -901,7 +901,7 @@ def blockstack_cli_verify_profile(path, pubkey_or_addr, config_path=None):
     return json.loads(s)
 
 
-def blockstack_cli_get_name_blockchain_record( name, config_path=CONFIG_PATH):
+def blockstack_cli_get_name_blockchain_record( name, config_path=None):
     """
     get name blockchain record
     """
@@ -912,7 +912,7 @@ def blockstack_cli_get_name_blockchain_record( name, config_path=CONFIG_PATH):
     return json.loads(resp)
 
 
-def blockstack_cli_get_name_blockchain_history( name, start_block=None, end_block=None, config_path=CONFIG_PATH):
+def blockstack_cli_get_name_blockchain_history( name, start_block=None, end_block=None, config_path=None):
     """
     get name blockchain history
     """
@@ -930,7 +930,7 @@ def blockstack_cli_get_name_blockchain_history( name, start_block=None, end_bloc
     return json.loads(resp)
 
 
-def blockstack_cli_get_namespace_blockchain_record( namespace_id, config_path=CONFIG_PATH):
+def blockstack_cli_get_namespace_blockchain_record( namespace_id, config_path=None):
     """
     get namespace blockchain record
     """
@@ -942,7 +942,7 @@ def blockstack_cli_get_namespace_blockchain_record( namespace_id, config_path=CO
 
 
 
-def blockstack_cli_get_name_zonefile( name, config_path=CONFIG_PATH, json=False, raw=True):
+def blockstack_cli_get_name_zonefile( name, config_path=None, json=False, raw=True):
     """
     get name zonefile
     """
@@ -956,7 +956,7 @@ def blockstack_cli_get_name_zonefile( name, config_path=CONFIG_PATH, json=False,
     return resp
 
 
-def blockstack_cli_get_names_owned_by_address( address, config_path=CONFIG_PATH):
+def blockstack_cli_get_names_owned_by_address( address, config_path=None):
     """
     get names owned by address
     """
@@ -1023,7 +1023,7 @@ def make_empty_zonefile(username, address, urls=None):
 
     # make a URI record for every mutable storage provider
     if urls is None:
-        urls = ['http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(addr, network='mainnet')]
+        urls = ['http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(addr, network='mainnet'))]
 
     user = {
         'txt': [],
@@ -1307,7 +1307,7 @@ def blockstack_export_db( snapshots_dir, block_height, **kw ):
     if os.path.exists(subdomain_path):
         virtualchain.sqlite3_backup(subdomain_path, os.path.join(export_dir, 'subdomains.db'))
 
-
+'''
 def make_legacy_wallet( master_private_key, password ):
     """
     make a legacy pre-0.13 wallet with a single master private key
@@ -1320,7 +1320,6 @@ def make_legacy_wallet( master_private_key, password ):
     }
 
     return legacy_wallet
-
 
 
 def encrypt_multisig_info(multisig_info, password):
@@ -1421,7 +1420,7 @@ def make_legacy_014_wallet( owner_privkey, payment_privkey, data_privkey, passwo
         'version': '0.14.0'
     }
     return encrypted_legacy_wallet
-
+'''
 
 def format_unspents(unspents):
     return [{

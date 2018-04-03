@@ -410,24 +410,16 @@ def get_name_blockchain_history(name, start_block, end_block, proxy=None):
     Returns {'error': ...} on error
     """
     proxy = get_default_proxy() if proxy is None else proxy
+    return blockstackd_client.get_name_blockchain_history(name, start_block, end_block, proxy=proxy)
 
-    history_blocks = get_name_history_blocks(name, proxy=proxy)
-    if json_is_error(history_blocks):
-        # error
-        return history_blocks
 
-    query_blocks = sorted(b for b in history_blocks if b >= start_block and b <= end_block)
-
-    ret = {}
-    for qb in query_blocks:
-        name_at = get_name_at(name, qb, include_expired=True, proxy=proxy)
-        if json_is_error(name_at):
-            # error
-            return name_at
-
-        ret[qb] = name_at
-
-    return ret
+def get_account_balance(address, token_type, proxy=None):
+    """
+    Get the account balance
+    Returns {'amount': ..., 'units': ...}
+    """
+    proxy = get_default_proxy() if proxy is None else proxy
+    return blockstackd_client.get_account_balance(address, token_type, proxy=proxy)
 
 
 # DEPRECATED
@@ -547,55 +539,6 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
     
     proxy = get_default_proxy() if proxy is None else proxy
     return blockstackd_client.get_namespace_record(namespace_id, proxy=proxy)
-
-    '''
-    namespace_schema = {
-        'type': 'object',
-        'properties': NAMESPACE_SCHEMA_PROPERTIES,
-        'required': NAMESPACE_SCHEMA_REQUIRED
-    }
-
-    rec_schema = {
-        'type': 'object',
-        'properties': {
-            'record': namespace_schema,
-        },
-        'required': [
-            'record',
-        ],
-    }
-
-    resp_schema = json_response_schema( rec_schema )
-            
-    proxy = get_default_proxy() if proxy is None else proxy
-
-    ret = {}
-    try:
-        ret = proxy.get_namespace_blockchain_record(namespace_id)
-        ret = json_validate(resp_schema, ret)
-        if json_is_error(ret):
-            return ret
-
-        ret = ret['record']
-
-        # this isn't needed
-        ret.pop('opcode', None)
-    except ValidationError as e:
-        if BLOCKSTACK_DEBUG:
-            log.exception(e)
-
-        ret = json_traceback(ret.get('error'))
-        return ret
-    except Exception as ee:
-        if BLOCKSTACK_DEBUG:
-            log.exception(ee)
-
-        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
-        return resp
-
-    return ret
-    '''
 
 
 def is_name_registered(fqu, config_path=CONFIG_PATH, proxy=None, include_grace=True):

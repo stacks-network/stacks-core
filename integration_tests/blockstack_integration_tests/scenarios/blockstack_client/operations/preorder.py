@@ -26,7 +26,7 @@ from ..b40 import is_b40
 from ..constants import (
     DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
     TX_MIN_CONFIRMATIONS, NAME_SCHEME,
-    LENGTH_CONSENSUS_HASH, LENGTH_MAX_NAME)
+    LENGTH_CONSENSUS_HASH, LENGTH_MAX_NAME, TOKEN_TYPE_STACKS)
 from ..logger import get_logger
 
 from ..scripts import (
@@ -43,7 +43,7 @@ import virtualchain
 log = get_logger("blockstack-client")
 
 
-def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
+def build(name, script_pubkey, register_addr, consensus_hash, token_fee_units, token_fee, name_hash=None):
     """
     Takes a name, including the namespace ID (but not the id: scheme), a script_publickey to prove ownership
     of the subsequent NAME_REGISTER operation, and the current consensus hash for this block (to prove that the 
@@ -57,6 +57,10 @@ def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
     |-----|--|----------------------------------------------|--------------|
     magic op  hash(name.ns_id,script_pubkey,register_addr)   consensus hash
     
+    With STACKS phase 1:
+    0     2  3                                              23                 39                            47                      66
+    |-----|--|----------------------------------------------|------------------|-----------------------------|-----------------------|
+    magic op  hash(name.ns_id,script_pubkey,register_addr)   consensus hash     tokens to burn (little-endian)  token units (0-padded)
     """
     
     if name_hash is None:
@@ -65,17 +69,22 @@ def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
         if not is_b40( name ) or "+" in name or name.count(".") > 1:
            raise Exception("Name '%s' has non-base-38 characters" % name)
        
-        '''
-        # name itself cannot exceed maximum name length
-        if len(NAME_SCHEME) + len(name) > LENGTH_MAX_NAME:
-           raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTH_MAX_NAME - len(NAME_SCHEME)))
-        '''
         if not is_name_valid(name):
             raise Exception("Name {} is not valid".format(name))
     
         name_hash = hash_name(name, script_pubkey, register_addr=register_addr)
 
-    script = 'NAME_PREORDER 0x%s 0x%s' % (name_hash, consensus_hash)
+    script = None
+    if token_fee is not None and token_fee_units is not None:
+        # paying in a token
+        hex_token_fee = '{:016x}'.format(token_fee)
+        hex_token_unit = '{0:0>38}'.format(str(token_fee_units).encode('hex'))
+        script = 'NAME_PREORDER 0x%s 0x%s 0x%s 0x%s' % (name_hash, consensus_hash, hex_token_fee, hex_token_unit)
+    
+    else:
+        # paying in bitcoin
+        script = 'NAME_PREORDER 0x%s 0x%s' % (name_hash, consensus_hash)
+
     hex_script = blockstack_script_to_hex(script)
     packaged_script = add_magic_bytes(hex_script)
     
@@ -121,7 +130,7 @@ def make_outputs( data, inputs, sender_addr, burn_addr, fee, tx_fee, pay_fee=Tru
     ]
 
 
-def make_transaction(name, preorder_addr, register_addr, burn_addr, fee, consensus_hash,
+def make_transaction(name, preorder_addr, register_addr, burn_addr, fee_token_units, fee, consensus_hash,
                      blockchain_client, tx_fee=0, subsidize=False, safety=True,
                      dust_included=False):
     """
@@ -152,12 +161,21 @@ def make_transaction(name, preorder_addr, register_addr, burn_addr, fee, consens
         assert len(inputs) > 0, "No UTXOs for {}".format(preorder_addr)
 
     script_pubkey = virtualchain.make_payment_script( preorder_addr )
+    
+    nulldata = None
+    btc_fee = 0
+    if fee_token_units == 'BTC':
+        # paying with BTC.  Use the appropriate OP_RETURN format
+        nulldata = build(name, script_pubkey, register_addr, consensus_hash, None, None)
+        btc_fee = fee
+    else:
+        # paying with tokens.  Pass the exact fee on the OP_RETURN, and only send the dust value to the BTC burn output.
+        nulldata = build(name, script_pubkey, register_addr, consensus_hash, fee_token_units, fee)
+        btc_fee = DEFAULT_DUST_FEE
 
-    nulldata = build( name, script_pubkey, register_addr, consensus_hash)
-    outputs = make_outputs(nulldata, inputs, preorder_addr, burn_addr, fee, tx_fee, pay_fee=pay_fee,
-                           dust_included = dust_included)
-
+    outputs = make_outputs(nulldata, inputs, preorder_addr, burn_addr, fee, tx_fee, pay_fee=pay_fee, dust_included=dust_included)
     return (inputs, outputs)
+
 
 def get_fees( inputs, outputs ):
     """
@@ -200,11 +218,3 @@ def get_fees( inputs, outputs ):
     
     return (dust_fee, op_fee)
 
-
-
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
-    """
-    Calculate any derived missing data that goes into the check() operation,
-    given the block number, the name record at the block number, and the db.
-    """
-    return {}

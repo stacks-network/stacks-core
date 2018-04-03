@@ -42,11 +42,12 @@ from ..constants import (
     BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, TX_MIN_CONFIRMATIONS, BLOCKSTACK_DRY_RUN,
     PREORDER_CONFIRMATIONS, RPC_MAX_ZONEFILE_LEN, APPROX_TX_IN_P2SH_LEN, APPROX_TX_OUT_P2SH_LEN,
     APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN, NAMESPACE_VERSION_PAY_TO_CREATOR,
-    BLOCKSTACK_BURN_ADDRESS
+    BLOCKSTACK_BURN_ADDRESS, LENGTH_VALUE_HASH
 )
 
 from ..proxy import get_default_proxy
 from ..proxy import getinfo as blockstack_getinfo
+from ..proxy import get_name_record as blockstack_get_name_record
 from ..proxy import get_name_cost as blockstack_get_name_cost
 from ..proxy import get_namespace_blockchain_record as blockstack_get_namespace_blockchain_record
 
@@ -189,14 +190,14 @@ def make_cheapest_nameop( opcode, utxo_client, payment_address, payment_utxos, *
     return unsigned_tx, i
 
 
-def make_cheapest_namespace_preorder( namespace_id, payment_address, reveal_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0):
+def make_cheapest_namespace_preorder( namespace_id, payment_address, reveal_address, cost_token_type, cost_tokens, consensus_hash, utxo_client, payment_utxos, tx_fee=0):
     """
     Given namespace preorder info, make the cheapest possible namespace preorder transaction.
     @payment_utxos should be sorted by decreasing value
     Return the unsigned tx on success.
     Return None on error
     """
-    return make_cheapest_nameop('NAMESPACE_PREORDER', utxo_client, payment_address, payment_utxos, namespace_id, reveal_address, cost, consensus_hash, payment_address, utxo_client, tx_fee=tx_fee )
+    return make_cheapest_nameop('NAMESPACE_PREORDER', utxo_client, payment_address, payment_utxos, namespace_id, reveal_address, cost_token_type, cost_tokens, consensus_hash, payment_address, utxo_client, tx_fee=tx_fee )
 
 
 def make_cheapest_namespace_reveal( namespace_id, version_bits, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, utxo_client, payment_utxos, tx_fee=0):
@@ -231,7 +232,7 @@ def make_cheapest_name_import( name, recipient_address, zonefile_hash, reveal_ad
 
 
 def make_cheapest_name_preorder( name, payment_address, owner_address, burn_address,
-                                 cost, consensus_hash, utxo_client, payment_utxos, tx_fee=0,
+                                 cost_token_type, cost_tokens, consensus_hash, utxo_client, payment_utxos, tx_fee=0,
                                  dust_included = False ):
     """
     Given name preorder info, make the cheapest possible name preorder transaction.
@@ -240,12 +241,12 @@ def make_cheapest_name_preorder( name, payment_address, owner_address, burn_addr
     Return None on error
     """
     return make_cheapest_nameop('NAME_PREORDER', utxo_client, payment_address, payment_utxos,
-                                name, payment_address, owner_address, burn_address, cost,
+                                name, payment_address, owner_address, burn_address, cost_token_type, cost_tokens,
                                 consensus_hash, utxo_client, tx_fee=tx_fee, dust_included = dust_included )
 
 
-def make_cheapest_name_registration( name, payment_address, owner_address, utxo_client,
-                                     payment_utxos, zonefile_hash=None, tx_fee=0,
+def make_cheapest_name_registration( name, payment_address, owner_address, zonefile_hash, utxo_client,
+                                     payment_utxos, tx_fee=0,
                                      subsidize=False, dust_included = False ):
     """
     Given name registration info, make the cheapest possible name register transaction
@@ -254,14 +255,14 @@ def make_cheapest_name_registration( name, payment_address, owner_address, utxo_
     Return None on error
     """
     return make_cheapest_nameop('NAME_REGISTRATION', utxo_client, payment_address,
-                                payment_utxos, name, payment_address, owner_address, utxo_client,
-                                zonefile_hash=zonefile_hash, subsidize=subsidize, tx_fee=tx_fee,
+                                payment_utxos, name, payment_address, owner_address, zonefile_hash, utxo_client,
+                                subsidize=subsidize, tx_fee=tx_fee,
                                 dust_included = dust_included)
 
 
-def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, payment_address,
+def make_cheapest_name_renewal( name, owner_address, renewal_fee_units, renewal_fee, utxo_client, payment_address, zonefile_hash,
                                 payment_utxos, burn_address=None, recipient_addr=None,
-                                zonefile_hash=None, tx_fee=0, subsidize=False, dust_included = False ):
+                                tx_fee=0, subsidize=False, dust_included = False ):
     """
     Given name renewal info, make the cheapest possible name renewal transaction
     @payment_utxos should be sorted by decreasing value
@@ -274,8 +275,8 @@ def make_cheapest_name_renewal( name, owner_address, renewal_fee, utxo_client, p
         recipient_addr = owner_address
 
     return make_cheapest_nameop('NAME_RENEWAL', utxo_client, payment_address, payment_utxos,
-                                name, owner_address, recipient_addr, utxo_client, burn_address=burn_address,
-                                renewal_fee=renewal_fee, zonefile_hash=zonefile_hash, subsidize=subsidize,
+                                name, owner_address, recipient_addr, zonefile_hash, utxo_client, burn_address=burn_address,
+                                renewal_fee=renewal_fee, renewal_fee_units=renewal_fee_units, subsidize=subsidize,
                                 tx_fee=tx_fee, dust_included = dust_included)
 
 
@@ -368,7 +369,7 @@ def get_estimated_signed_subsidized(unsigned_tx, op_fees, max_fee, payment_privk
     raise Exception("Failed to cover the tx_fee in getting estimated subsidized tx")
 
 
-def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, 
+def estimate_preorder_tx_fee( name, name_token_type, name_cost, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, 
         owner_address=None, payment_utxos=None, payment_privkey_params=(None, None), config_path=CONFIG_PATH, include_dust=False ):
 
     """
@@ -402,7 +403,7 @@ def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privk
     try:
         try:
             unsigned_tx, n_inputs = make_cheapest_name_preorder(
-                name, payment_addr, owner_address, BLOCKSTACK_BURN_ADDRESS, name_cost, fake_consensus_hash,
+                name, payment_addr, owner_address, BLOCKSTACK_BURN_ADDRESS, name_token_type, name_cost, fake_consensus_hash,
                 utxo_client, payment_utxos)
 
             assert unsigned_tx
@@ -415,7 +416,7 @@ def estimate_preorder_tx_fee( name, name_cost, payment_privkey_info, owner_privk
         except AssertionError as e:
             # unfunded payment addr
             log.warning("Insufficient funds in {} for NAME_PREORDER; estimating instead".format(payment_addr))
-            unsigned_tx = preorder_tx( name, payment_addr, owner_address, BLOCKSTACK_BURN_ADDRESS, name_cost, fake_consensus_hash, utxo_client, safety=False, subsidize=True )
+            unsigned_tx = preorder_tx( name, payment_addr, owner_address, BLOCKSTACK_BURN_ADDRESS, name_token_type, name_cost, fake_consensus_hash, utxo_client, safety=False, subsidize=True )
             assert unsigned_tx
 
             pad_len = estimate_input_length(payment_privkey_info)
@@ -461,6 +462,10 @@ def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx
         owner_addr = virtualchain.get_privkey_address(owner_privkey_info)
 
     payment_addr = virtualchain.get_privkey_address(payment_privkey_info)
+    fake_zonefile_hash = '20b512149140494c0f7d565023973226908f6940'
+
+    if zonefile_hash is None:
+        zonefile_hash = fake_zonefile_hash
 
     utxo_client = build_utxo_client(utxo_client, address=payment_addr, utxos=payment_utxos)
 
@@ -477,8 +482,8 @@ def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx
     try:
         try:
             unsigned_tx, n_inputs = make_cheapest_name_registration(
-                name, payment_addr, owner_addr, utxo_client,
-                payment_utxos, zonefile_hash=zonefile_hash)
+                name, payment_addr, owner_addr, zonefile_hash, utxo_client,
+                payment_utxos)
 
             log.debug("Unsigned tx: {}".format(unsigned_tx))
             assert unsigned_tx
@@ -522,7 +527,7 @@ def estimate_register_tx_fee( name, payment_privkey_info, owner_privkey_info, tx
     return tx_fee
 
 
-def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, 
+def estimate_renewal_tx_fee( name, renewal_fee_units, renewal_fee, payment_privkey_info, owner_privkey_info, tx_fee_per_byte, utxo_client, 
                              zonefile_hash=None, owner_utxos=None, payment_utxos=None, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a renewal.
@@ -548,10 +553,15 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_priv
         return None
 
     signed_subsidized_tx = None
+    fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
+    fake_zonefile_hash = '20b512149140494c0f7d565023973226908f6940'
+
+    if zonefile_hash is None:
+        zonefile_hash = fake_zonefile_hash
 
     try:
         try:
-            unsigned_tx, num_utxos = make_cheapest_name_renewal(name, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos, burn_address=BLOCKSTACK_BURN_ADDRESS, zonefile_hash=zonefile_hash)
+            unsigned_tx, num_utxos = make_cheapest_name_renewal(name, owner_address, renewal_fee_units, renewal_fee, utxo_client, payment_address, fake_zonefile_hash, payment_utxos, burn_address=BLOCKSTACK_BURN_ADDRESS)
             assert unsigned_tx
 
             signed_subsidized_tx = get_estimated_signed_subsidized(unsigned_tx, fees_registration, 21 * 10**14,
@@ -909,7 +919,7 @@ def estimate_name_import_tx_fee( fqu, reveal_privkey_info, recipient_address, tx
     return tx_fee
 
 
-def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_privkey_info, tx_fee_per_byte, utxo_client, 
+def estimate_namespace_preorder_tx_fee( namespace_id, cost, cost_tokens, payment_privkey_info, tx_fee_per_byte, utxo_client, 
                                         payment_utxos=None, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a namespace preorder
@@ -938,7 +948,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_privkey_info
 
     try:
         try:
-            unsigned_tx, num_utxos = make_cheapest_namespace_preorder( namespace_id, payment_address, fake_reveal_address, cost, fake_consensus_hash, utxo_client, payment_utxos)
+            unsigned_tx, num_utxos = make_cheapest_namespace_preorder( namespace_id, payment_address, fake_reveal_address, cost, cost_tokens, fake_consensus_hash, utxo_client, payment_utxos)
             assert unsigned_tx
 
             signed_tx = sign_tx( unsigned_tx, payment_utxos[:num_utxos], payment_privkey_info )
@@ -947,7 +957,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_privkey_info
         except AssertionError as ae:
             log.exception(ae)
             log.warning("Insufficient funds in {} for NAMESPACE_PREORDER; estimating instead".format(payment_address))
-            unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, fake_consensus_hash, payment_address, utxo_client, safety=False )
+            unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, cost_tokens, fake_consensus_hash, payment_address, utxo_client, safety=False )
             assert unsigned_tx
             
             # fake payer input
@@ -1319,7 +1329,7 @@ def get_namespace_burn_address(fqu, proxy):
         return namespace_info
 
     # does this namespace support burn-to-namespace-creator?
-    if (namespace_info['version'] & NAMESPACE_VERSION_PAY_TO_CREATOR) != 0:
+    if namespace_info['version'] == NAMESPACE_VERSION_PAY_TO_CREATOR:
         # are we still in its fee capture period?
         receive_fees_period = blockstack.get_epoch_namespace_receive_fees_period(block_height, namespace_id)
         if namespace_info['reveal_block'] + receive_fees_period >= block_height:
@@ -1335,7 +1345,7 @@ def get_namespace_burn_address(fqu, proxy):
     return burn_address
 
 
-def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, utxo_client, tx_broadcaster, owner_address=None, burn_address=None, tx_fee=None,
+def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_token_type, cost_tokens, utxo_client, tx_broadcaster, owner_address=None, burn_address=None, tx_fee=None,
                  config_path=CONFIG_PATH, proxy=None, consensus_hash=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Preorder a name.
@@ -1355,7 +1365,8 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
 
     if dry_run:
         assert tx_fee, "invalid argument: tx_fee is required on dry-run"
-        assert cost_satoshis, 'invalid argument: cost_satoshis is required on dry-run'
+        assert cost_token_type, 'invalid argument: cost_token_type is required on dry-run'
+        assert cost_tokens, 'invalid argument: cost_tokens is required on dry-run'
         safety_checks = False
 
     fqu = str(fqu)
@@ -1378,10 +1389,10 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     else:
         burn_address = virtualchain.address_reencode(str(burn_address))
 
-    if not dry_run and (safety_checks or (cost_satoshis is None or tx_fee is None)):
+    if not dry_run and (safety_checks or (cost_tokens is None or tx_fee is None)):
         tx_fee = 0
         # find tx fee, and do sanity checks
-        res = check_preorder(fqu, cost_satoshis, owner_privkey_info, payment_privkey_info, config_path=config_path,
+        res = check_preorder(fqu, cost_token_type, cost_tokens, owner_privkey_info, payment_privkey_info, config_path=config_path,
                              proxy=proxy, min_payment_confs=min_confirmations, burn_address=burn_address)
 
         if 'error' in res and safety_checks:
@@ -1389,12 +1400,15 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
             return res
 
         tx_fee = res.get('tx_fee')
-
-        if cost_satoshis is None:
-            cost_satoshis = res['name_price']
+        
+        if cost_tokens is None:
+            if cost_token_type == 'BTC':
+                cost_tokens = res['opchecks']['name_price']
+            else:
+                cost_tokens = res['opchecks']['name_price_tokens']
 
     assert tx_fee, 'Missing tx fee'
-    assert cost_satoshis, "Missing name cost"
+    assert cost_tokens is not None, "Missing name cost"
 
     if consensus_hash is None:
         consensus_hash_res = get_consensus_hash( proxy, config_path=config_path )
@@ -1419,11 +1433,11 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
     utxo_client = build_utxo_client( utxo_client, address=payment_address, utxos=payment_utxos )
     assert utxo_client, "Unable to build UTXO client"
 
-    log.debug("Preordering (%s, %s, %s), for %s, tx_fee = %s, burn address = %s" % (fqu, payment_address, owner_address, cost_satoshis, tx_fee, burn_address))
+    log.debug("Preordering (%s, %s, %s), for %s (units of %s), tx_fee = %s, burn address = %s" % (fqu, payment_address, owner_address, cost_tokens, cost_token_type, tx_fee, burn_address))
 
     try:
         unsigned_tx, num_utxos = make_cheapest_name_preorder(
-            fqu, payment_address, owner_address, burn_address, cost_satoshis, consensus_hash,
+            fqu, payment_address, owner_address, burn_address, cost_token_type, cost_tokens, consensus_hash,
             utxo_client, payment_utxos, tx_fee=tx_fee, dust_included = True)
 
         assert unsigned_tx
@@ -1439,7 +1453,7 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_satoshis, u
 
 
 def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_broadcaster, zonefile_hash=None, tx_fee=None, 
-                 config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True,
+                 config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True, consensus_hash=None,
                  force_register = False, owner_address=None ):
 
     """
@@ -1455,7 +1469,7 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     """
     if proxy is None:
         proxy = get_default_proxy(config_path)
-
+    
     fqu = str(fqu)
     resp = {}
 
@@ -1511,8 +1525,8 @@ def do_register( fqu, payment_privkey_info, owner_privkey_info, utxo_client, tx_
     # make tx
     try:
         unsigned_tx, num_utxos = make_cheapest_name_registration(
-            fqu, payment_address, owner_address, utxo_client, payment_utxos,
-            zonefile_hash=zonefile_hash, tx_fee=tx_fee, dust_included = True)
+            fqu, payment_address, owner_address, zonefile_hash, utxo_client, payment_utxos,
+            tx_fee=tx_fee, dust_included = True)
         assert unsigned_tx
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_TEST:
@@ -1730,7 +1744,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     return resp
 
 
-def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo_client, tx_broadcaster, burn_address=None, zonefile_hash=None, recipient_addr=None, tx_fee_per_byte=None, 
+def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee_units, renewal_fee_cost, utxo_client, tx_broadcaster, burn_address=None, zonefile_hash=None, recipient_addr=None, tx_fee_per_byte=None, 
                 tx_fee=None, config_path=CONFIG_PATH, proxy=None, dry_run=BLOCKSTACK_DRY_RUN, safety_checks=True ):
     """
     Renew a name
@@ -1740,9 +1754,11 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    assert renewal_fee_units, 'Need renewal fee units'
+
     if dry_run:
         assert tx_fee_per_byte, 'Need tx fee for dry run'
-        assert renewal_fee, 'Need renewal fee for dry run'
+        assert renewal_fee_cost, 'Need renewal fee for dry run'
         safety_checks = False
 
     # wrap UTXO client so we remember UTXOs 
@@ -1758,14 +1774,25 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     else:
         burn_address = virtualchain.address_reencode(str(burn_address))
 
+    if renewal_fee_units != 'BTC':
+        # we're paying tokens.
+        # we need a zonefile hash
+        name_info = blockstack_get_name_record(fqu, proxy=proxy)
+        if 'error' in name_info:
+            return name_info
+
+        zonefile_hash = name_info['value_hash']
+        if zonefile_hash is None:
+            zonefile_hash = '00' * LENGTH_VALUE_HASH
+
     if zonefile_hash is not None:
         zonefile_hash = str(zonefile_hash)
    
     min_confirmations = utxo_client.min_confirmations 
 
-    if not dry_run and (safety_checks or (renewal_fee is None or tx_fee is None)):
+    if not dry_run and (safety_checks or (renewal_fee_cost is None or tx_fee is None)):
         # find tx fee, and do sanity checks
-        res = check_renewal(fqu, renewal_fee, owner_privkey_info, payment_privkey_info, new_owner_address=recipient_addr, zonefile_hash=zonefile_hash, burn_address=burn_address,
+        res = check_renewal(fqu, renewal_fee_units, renewal_fee_cost, owner_privkey_info, payment_privkey_info, new_owner_address=recipient_addr, zonefile_hash=zonefile_hash, burn_address=burn_address,
                             config_path=config_path, proxy=proxy, min_payment_confs=min_confirmations)
 
         if 'error' in res and safety_checks:
@@ -1775,8 +1802,11 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
         if not tx_fee_per_byte:
             tx_fee_per_byte = res['tx_fee_per_byte']
 
-        if not renewal_fee:
-            renewal_fee = res['name_price']
+        if renewal_fee_cost is None:
+            if renewal_fee_units == 'BTC':
+                renewal_fee_cost = res['opchecks']['name_price']
+            else:
+                renewal_fee_cost = res['opchecks']['name_price_tokens']
 
         if not tx_fee:
             tx_fee = res['tx_fee']
@@ -1784,7 +1814,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
         assert tx_fee_per_byte, "Missing tx-per-byte fee"
     
     assert tx_fee, 'Missing tx fee'
-    assert renewal_fee, "Missing renewal fee"
+    assert renewal_fee_cost is not None, "Missing renewal fee"
 
     # get inputs
     try:
@@ -1806,14 +1836,14 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     utxo_client = build_utxo_client( utxo_client, address=owner_address, utxos=owner_utxos )
     assert utxo_client, "Unable to build UTXO client"
 
-    log.debug("Renewing (%s, %s, %s), tx_fee_per_byte = %s, renewal_fee = %s, zonefile_hash = %s, recipient_addr = %s, burn_address = %s" % 
-            (fqu, payment_address, owner_address, tx_fee_per_byte, renewal_fee, zonefile_hash, recipient_addr, burn_address))
+    log.debug("Renewing (%s, %s, %s), tx_fee_per_byte = %s, renewal_fee = %s units of %s, zonefile_hash = %s, recipient_addr = %s, burn_address = %s" % 
+            (fqu, payment_address, owner_address, tx_fee_per_byte, renewal_fee_cost, renewal_fee_units, zonefile_hash, recipient_addr, burn_address))
 
     # now send it
     subsidized_tx = None
     try:
-        unsigned_tx, num_utxos = make_cheapest_name_renewal(fqu, owner_address, renewal_fee, utxo_client, payment_address, payment_utxos,
-                burn_address=burn_address, recipient_addr=recipient_addr, zonefile_hash=zonefile_hash, subsidize=True )
+        unsigned_tx, num_utxos = make_cheapest_name_renewal(fqu, owner_address, renewal_fee_units, renewal_fee_cost, utxo_client, payment_address, zonefile_hash, payment_utxos,
+                burn_address=burn_address, recipient_addr=recipient_addr, subsidize=True )
 
         assert unsigned_tx
 
@@ -1979,7 +2009,7 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
     return resp
 
 
-def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_address, utxo_client, tx_broadcaster,
+def do_namespace_preorder( namespace_id, cost_token_type, cost_tokens, payment_privkey_info, reveal_address, utxo_client, tx_broadcaster,
                            consensus_hash=None, config_path=CONFIG_PATH, tx_fee=None, proxy=None, safety_checks=True, dry_run=BLOCKSTACK_DRY_RUN ):
     """
     Preorder a namespace
@@ -2038,7 +2068,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
     unsigned_tx = None
     num_utxos = None
     try:
-        unsigned_tx, num_utxos = make_cheapest_namespace_preorder(namespace_id, payment_address, reveal_address, cost, consensus_hash, utxo_client, payment_utxos, tx_fee=tx_fee)
+        unsigned_tx, num_utxos = make_cheapest_namespace_preorder(namespace_id, payment_address, reveal_address, cost_token_type, cost_tokens, consensus_hash, utxo_client, payment_utxos, tx_fee=tx_fee)
         assert unsigned_tx
     except (AssertionError, ValueError) as ve:
         if BLOCKSTACK_DEBUG:

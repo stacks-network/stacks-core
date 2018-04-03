@@ -28,7 +28,7 @@ from ..logger import get_logger
 from ..constants import (
    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
    BLOCKSTACK_BURN_ADDRESS, LENGTH_MAX_NAMESPACE_ID,
-   LENGTH_CONSENSUS_HASH)
+   LENGTH_CONSENSUS_HASH, TOKEN_TYPE_STACKS)
 from ..scripts import (
    hash256_trunc128,
    hash_name,
@@ -43,7 +43,7 @@ import virtualchain
 log = get_logger("blockstack-client")
 
 
-def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace_id_hash=None):
+def build( namespace_id, script_pubkey, register_addr, consensus_hash, token_fee, namespace_id_hash=None):
    """
    Preorder a namespace with the given consensus hash.  This records that someone has begun to create 
    a namespace, while blinding all other peers to its ID.  This operation additionally records the 
@@ -59,6 +59,13 @@ def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace
    0     2   3                                      23               39
    |-----|---|--------------------------------------|----------------|
    magic op  hash(ns_id,script_pubkey,reveal_addr)   consensus hash
+
+
+    with STACKs phase 1:
+
+    0     2   3                                      23               39                         47
+    |-----|---|--------------------------------------|----------------|--------------------------|
+    magic op  hash(ns_id,script_pubkey,reveal_addr)   consensus hash    token fee (little-endian)
    """
    
    # sanity check 
@@ -76,8 +83,15 @@ def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace
           raise Exception("Invalid namespace ID")
 
        namespace_id_hash = hash_name(namespace_id, script_pubkey, register_addr=register_addr)
-   
-   readable_script = "NAMESPACE_PREORDER 0x%s 0x%s" % (namespace_id_hash, consensus_hash)
+  
+   readable_script = None
+   if token_fee is not None:
+       log.debug('Paying {} units of STACKs for {}'.format(token_fee, namespace_id))
+       hex_token_fee = '{:016x}'.format(token_fee)
+       readable_script = "NAMESPACE_PREORDER 0x%s 0x%s 0x%s" % (namespace_id_hash, consensus_hash, hex_token_fee)
+   else:
+       readable_script = "NAMESPACE_PREORDER 0x%s 0x%s" % (namespace_id_hash, consensus_hash)
+
    hex_script = blockstack_script_to_hex(readable_script)
    packaged_script = add_magic_bytes(hex_script)
    
@@ -119,7 +133,7 @@ def make_outputs( data, inputs, change_addr, fee, tx_fee, pay_fee=True ):
     ]
     
 
-def make_transaction( namespace_id, register_addr, fee, consensus_hash, preorder_addr, blockchain_client, tx_fee=0, safety=True ):
+def make_transaction( namespace_id, register_addr, fee_token_type, fee, consensus_hash, preorder_addr, blockchain_client, tx_fee=0, safety=True ):
    """
    Propagate a namespace.
    
@@ -139,16 +153,28 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, preorder
    assert is_namespace_valid(namespace_id)
    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
 
+   '''
+   # do not activate until the fork date
+   if safety:
+       assert fee_token_type == TOKEN_TYPE_STACKS, 'Namespaces can only be bought in STACKs'
+   '''
    script_pubkey = virtualchain.make_payment_script( preorder_addr )
-   nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash )
-   
+
+   btc_fee = None
+   if fee_token_type == TOKEN_TYPE_STACKS:
+       nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash, fee )
+       btc_fee = DEFAULT_DUST_FEE       # only pay the minimum required
+   else:
+       nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash, None )
+       btc_fee = fee
+        
    # get inputs and from address
    inputs = tx_get_unspents( preorder_addr, blockchain_client )
    if safety:
        assert len(inputs) > 0
 
    # build custom outputs here
-   outputs = make_outputs(nulldata, inputs, preorder_addr, fee, tx_fee )
+   outputs = make_outputs(nulldata, inputs, preorder_addr, btc_fee, tx_fee )
    
    return (inputs, outputs)
 
@@ -193,11 +219,4 @@ def get_fees( inputs, outputs ):
     
     return (dust_fee, op_fee)
 
-
-def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
-    """
-    Calculate any derived missing data that goes into the check() operation,
-    given the block number, the name record at the block number, and the db.
-    """
-    return {}
 

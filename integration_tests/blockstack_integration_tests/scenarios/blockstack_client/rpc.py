@@ -608,7 +608,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockstackd_url = get_blockstackd_url(self.server.config_path)
         address = str(address)
 
-        # subdomain_names = subdomains.get_subdomains_owned_by_address(address)
         subdomain_names = blockstackd_client.get_subdomains_owned_by_address(address, hostport=blockstackd_url)
         if json_is_error(subdomain_names):
             log.error("Failed to fetch subdomains owned by address")
@@ -620,8 +619,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if new_addr != address:
             log.debug("Re-encode {} to {}".format(new_addr, address))
             address = new_addr
-
-        # res = proxy.get_names_owned_by_address(address)
+        
         res = blockstackd_client.get_names_owned_by_address(address, hostport=blockstackd_url)
         if json_is_error(res):
             log.error("Failed to get names owned by address")
@@ -662,8 +660,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         count = 100
 
         blockstackd_url = get_blockstackd_url(self.server.config_path)
-
-        # res = proxy.get_all_names(offset, count, include_expired=include_expired)
         res = blockstackd_client.get_all_names(offset, count, include_expired=include_expired, hostport=blockstackd_url)
         if json_is_error(res):
             log.error("Failed to list all names (offset={}, count={}): {}".format(offset, count, res['error']))
@@ -674,6 +670,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    # DEPRECATED
     def POST_names( self, ses, path_info ):
         """
         Register or renew a name.
@@ -764,7 +761,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 recipient_address = new_addr
 
         # who owns this name now?
-        # name_info = proxy.get_name_record(name)
         name_info = blockstackd_client.get_name_record(name, hostport=blockstackd_url)
         cur_owner_addr = None
 
@@ -840,6 +836,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(resp, status_code=202)
 
 
+    # DEPRECATED
+    # * no longer return the state of the internal registrar.
     def GET_name_info( self, ses, path_info, name ):
         """
         Look up a name's zonefile, address, and last TXID
@@ -956,9 +954,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         blockstackd_url = get_blockstackd_url(self.server.config_path)
-
-        # res = proxy.get_name_blockchain_history(name, start_block, end_block)
-        res = blockstackd_client.get_name_record(name, include_history=True, hostport=blockstackd_url)
+        res = blockstackd_client.get_name_record(name, include_expired=True, include_history=True, hostport=blockstackd_url)
         if json_is_error(res):
             self._reply_json({'error': res['error']}, status_code=500)
             return
@@ -972,6 +968,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    # DEPRECATED
     def PUT_name_transfer( self, ses, path_info, name ):
         """
         Transfer a name to a new owner
@@ -1092,6 +1089,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    # DEPRECATED
     def PUT_name_zonefile( self, ses, path_info, name ):
         """
         Set a new name zonefile
@@ -1191,6 +1189,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    # DEPRECATED
     def DELETE_name( self, ses, path_info, name ):
         """
         Revoke a name.
@@ -1255,10 +1254,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         raw = path_info['qs_values'].get('raw', '')
         raw = (raw.lower() in ['1', 'true'])
-        '''
-        internal = self.server.get_internal_proxy()
-        resp = internal.cli_get_name_zonefile(name, "true" if not raw else "false", raw=False)
-        '''
+        
         blockstackd_url = get_blockstackd_url(self.server.config_path)
         resp = blockstackd_client.get_name_record(name, include_history=False, hostport=blockstackd_url)
         if json_is_error(resp):
@@ -1348,7 +1344,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': 'No such zonefile'}, status_code=404)
             return
 
-        # resp = proxy.get_zonefiles( blockstack_hostport, [str(zonefile_hash)] )
         resp = blockstackd_client.get_zonefiles(blockstack_hostport, [str(zonefile_hash)])
         if json_is_error(resp):
             self._reply_json({'error': resp['error']}, status_code=500)
@@ -1376,7 +1371,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         return
 
-
+    
+    # DEPRECATED
     def PUT_name_zonefile_hash( self, ses, path_info, name, zonefile_hash ):
         """
         Set a name's zonefile hash directly.
@@ -1410,8 +1406,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return 404 on failure to load
         """
 
-        internal = self.server.get_internal_proxy()
-        resp = internal.cli_lookup( user_id )
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
+        resp = blockstackd_client.resolve_profile(user_id, hostport=blockstackd_url)
         if json_is_error(resp):
             self._reply_json({'error': resp['error']}, status_code=404)
             return
@@ -2110,8 +2106,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 500 if we can't reach the namespace for whatever reason
         """
         blockstackd_url = get_blockstackd_url(self.server.config_path)
-
-        # price_info = proxy.get_namespace_cost(namespace_id)
         price_info = blockstackd_client.get_namespace_cost(namespace_id, hostport=blockstackd_url)
         if json_is_error(price_info):
             # error
@@ -2124,11 +2118,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': price_info['error']}, status_code=status_code)
             return
 
-        ret = {
-            'satoshis': price_info['satoshis']
-        }
-        self._reply_json(ret)
-        return
+        return self._reply_json(price_info)
 
 
     def GET_prices_name( self, ses, path_info, name ):
@@ -2138,24 +2128,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the namespace doesn't exist
         Reply 500 if we can't reach the server for whatever reason
         """
-
-        internal = self.server.get_internal_proxy()
-
-        use_single_sig = path_info['qs_values'].get('single_sig', '0')
-
-        res = internal.cli_price(name, None, None, use_single_sig)
-        if json_is_error(res):
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
+        price_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
+        if json_is_error(price_info):
             # error
             status_code = None
-            if json_is_exception(res):
+            if json_is_exception(price_info):
                 status_code = 500
             else:
                 status_code = 404
 
-            return self._reply_json({'error': res['error']}, status_code=status_code)
+            self._reply_json({'error': price_info['error']}, status_code=status_code)
+            return
 
-        self._reply_json(res)
-        return
+        return self._reply_json(price_info)
 
 
     def GET_namespaces( self, ses, path_info ):
@@ -2170,8 +2156,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         count = qs_values.get('count', None)
 
         blockstackd_url = get_blockstackd_url(self.server.config_path)
-        
-        # namespaces = proxy.get_all_namespaces(offset=offset, count=count)
         namespaces = blockstackd_client.get_all_namespaces(offset=offset, count=count, hostport=blockstackd_url)
         if json_is_error(namespaces):
             # error
@@ -2195,8 +2179,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 500 for any error in talking to the blocksatck server
         """
         blockstackd_url = get_blockstackd_url(self.server.config_path)
-
-        # namespace_rec = proxy.get_namespace_blockchain_record(namespace_id)
         namespace_rec = blockstackd_client.get_namespace_record(namespace_id, hostport=blockstackd_url)
         if json_is_error(namespace_rec):
             # error
@@ -2237,8 +2219,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         count = 100
 
         blockstackd_url = get_blockstackd_url(self.server.config_path)
-
-        # namespace_names = proxy.get_names_in_namespace(namespace_id, offset=offset, count=count)
         namespace_names = blockstackd_client.get_names_in_namespace(namespace_id, offset=offset, count=count, hostport=blockstackd_url)
         if json_is_error(namespace_names):
             # error
@@ -2384,7 +2364,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         #   this is replication of kind of silly insight-api behavior
         return self._reply_json( satoshis_total - satoshis_confirmed )
 
-
+    
+    # DEPRECATED
     def GET_wallet_balance( self, ses, path_info, min_confs = None ):
         """
         Get the wallet balance
@@ -2408,7 +2389,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         return self._reply_json({'balance': res['total_balance']})
 
-
+    
+    # DEPRECATED
     def POST_wallet_balance( self, ses, path_info ):
         """
         Transfer wallet balance.  Takes 'address' 'amount', 'min_confs', 'tx_only', 'message'
@@ -2496,6 +2478,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(res)
 
 
+    # DEPRECATED
     def PUT_wallet_keys( self, ses, path_info ):
         """
         Set wallet keys
@@ -2516,7 +2499,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self.server.wallet_keys = wallet
         return self._reply_json({'status': True})
 
-
+    
+    # DEPRECATED
     def PUT_wallet_key( self, ses, path_info, key_id ):
         """
         Set an individual wallet key ('owner', 'payment', 'data')
@@ -2608,6 +2592,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True})
 
 
+    # DEPRECATED
     def PUT_wallet_password( self, ses, path_info ):
         """
         Change the wallet password.
@@ -2649,6 +2634,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True})
 
 
+    # DEPRECATED
+    # * need a way to ask the tx broadcaster
     def GET_registrar_state( self, ses, path_info ):
         """
         Handle GET /v1/node/registrar/state
@@ -2659,6 +2646,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(res)
 
 
+    # DEPRECATED
     def POST_reboot( self, ses, path_info ):
         """
         Reboot the node.
@@ -2669,6 +2657,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'error': 'Not implemented'}, status_code=501)
 
 
+    # DEPRECATED
     def GET_node_config( self, ses, path_info ):
         """
         Get node configuration
@@ -2690,6 +2679,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(conf)
 
 
+    # DEPRECATED
     def POST_node_config( self, ses, path_info, section ):
         """
         Set node configuration items (as {name}={value} in the query string)
@@ -2710,6 +2700,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True})
 
 
+    # DEPRECATED
     def DELETE_node_config_section( self, ses, path_info, section ):
         """
         Remove a config file section
@@ -2724,6 +2715,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'status': True})
 
 
+    # DEPRECATED
     def DELETE_node_config_field( self, ses, path_info, section, field ):
         """
         Delete a specific config item
@@ -2738,6 +2730,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'status': True})
 
 
+    # DEPRECATED
     def GET_node_logfile(self, ses, path_info):
         """
         Get the node's log file.
@@ -2752,6 +2745,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self.wfile.write(logdata)
 
 
+    # DEPRECATED
     def POST_node_logmsg(self, ses, path_info):
         """
         Write a line to the node's logfile
@@ -2797,6 +2791,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    # DEPRECATED
     def GET_node_storage_driver_config( self, ses, path_info, driver_name ):
         """
         Get the system-wide storage driver config and routing information (i.e. index URLs) for one or more drivers.
@@ -2816,6 +2811,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(ret)
 
 
+    # DEPRECATED
     def POST_node_storage_driver_config(self, ses, path_info, driver_name):
         """
         DANGEROUS
@@ -2954,8 +2950,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
         
         blockstackd_url = get_blockstackd_url(self.server.config_path)
-
-        # nameops = proxy.get_nameops_at(int(blockheight))
         nameops = blockstackd_client.get_blockstack_transactions_at(int(blockheight), hostport=blockstackd_url)
         if json_is_error(nameops):
             # error
@@ -2985,8 +2979,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         blockstackd_url = get_blockstackd_url(self.server.config_path)
-
-        # name_rec = proxy.get_name_blockchain_record(name)
         name_rec = blockstackd_client.get_name_record(name, include_history=True, hostport=blockstackd_url)
         if json_is_error(name_rec):
             # error
@@ -3020,8 +3012,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             include_expired = True
 
         blockstackd_url = get_blockstackd_url(self.server.config_path)
-        
-        # num_names = proxy.get_num_names(include_expired=include_expired)
         num_names = blockstackd_client.get_num_names(include_expired=include_expired, hostport=blockstackd_url)
         if json_is_error(num_names):
             if json_is_exception(info):
@@ -3050,8 +3040,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         blockstackd_url = get_blockstackd_url(self.server.config_path)
-
-        # info = proxy.getinfo()
         info = blockstackd_client.getinfo(hostport=blockstackd_url)
         if json_is_error(info):
             # error
@@ -3068,6 +3056,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    # DEPRECATED
+    # * need to ask tx broadcaster
     def GET_blockchain_pending( self, ses, path_info, blockchain_name ):
         """
         Handle GET /blockchain/:blockchainID/pending
@@ -3129,6 +3119,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(res)
 
 
+    # DEPRECATED
     def POST_broadcast_tx( self, ses, path_info, blockchain_name ):
         """
         Handle POST /blockchains/:blockchain_name/tx

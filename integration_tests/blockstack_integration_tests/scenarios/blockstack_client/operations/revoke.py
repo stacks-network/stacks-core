@@ -21,13 +21,13 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from utilitybelt import is_hex
+from binascii import hexlify
 
+from ..logger import get_logger
 from ..constants import (
-    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE,
-    BLOCKSTACK_BURN_ADDRESS)
-
+    DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE)
 from ..scripts import (
+    hash_name,
     hash256_trunc128,
     blockstack_script_to_hex,
     add_magic_bytes,
@@ -36,48 +36,54 @@ from ..scripts import (
     hash256_trunc128
 )
 
-from ..logger import get_logger
-
 import virtualchain
 log = get_logger("blockstack-client")
 
-def build(message_hash):
-    """
 
+def build(name):
+    """
+    Takes in the name, including the namespace ID (but not the id: scheme)
+    Returns a hex string representing up to the maximum name length bytes.
+    
     Record format:
-
-    0    2  3                             23
+    
+    0    2  3                             39
     |----|--|-----------------------------|
-    magic op   message hash (160-bit)
-
+    magic op   name.ns_id (37 bytes)
+    
     """
+    
+    if not is_name_valid( name ):
+       raise Exception("Invalid name '%s'" % name)
 
-    if len(message_hash) != 40:
-        raise Exception("Invalid hash: not 20 bytes")
-
-    if not is_hex(message_hash):
-        raise Exception("Invalid hash: not hex")
-
-    readable_script = "ANNOUNCE 0x%s" % (message_hash)
+    readable_script = "NAME_REVOKE 0x%s" % (hexlify(name))
     hex_script = blockstack_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script)
-
-    return packaged_script
+    
+    return packaged_script 
 
 
 def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
     """
-    Make outputs for an announcement.
+    Make outputs for a revoke.
     Raise ValueError if there are not enough inputs to make the transaction
     """
 
-    dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
-    op_fee = DEFAULT_DUST_FEE
-
-    if not pay_fee:
-        op_fee = 0
-        dust_fee = 0
+    dust_fee = None
+    op_fee = None
+    dust_value = None 
     
+    if pay_fee:
+        dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
+        op_fee = DEFAULT_DUST_FEE
+        dust_value = DEFAULT_DUST_FEE
+    
+    else:
+        # will be subsidized
+        dust_fee = 0
+        op_fee = 0
+        dust_value = 0
+   
     return [
         # main output
         {"script": virtualchain.make_data_script(str(data)),
@@ -89,28 +95,25 @@ def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
     ]
 
 
-def make_transaction(message_hash, payment_addr, blockchain_client, tx_fee=0, subsidize=False, safety=True):
+def make_transaction(name, owner_addr, blockchain_client, tx_fee=0, subsidize=False, safety=True ):
     
-    message_hash = str(message_hash)
-    payment_addr = str(payment_addr)
+    name = str(name)
+    owner_addr = str(owner_addr)
     tx_fee = int(tx_fee)
 
+    assert is_name_valid(name)
+    
     # sanity check 
-    if len(message_hash) != 40:
-        raise Exception("Invalid message hash: not 20 bytes")
+    pay_fee = True
+    if subsidize:
+        pay_fee = False
 
-    if not is_hex( message_hash ):
-        raise Exception("Invalid message hash: not hex")
-    
-    inputs = None
-    private_key_obj = None
-    
-    inputs = tx_get_unspents( payment_addr, blockchain_client )
+    inputs = tx_get_unspents( owner_addr, blockchain_client )
     if safety:
-        assert len(inputs) > 0
+        assert len(inputs) > 0, "No UTXOs for {}".format(owner_addr)
 
-    nulldata = build(message_hash)
-    outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee, pay_fee=(not subsidize) )
+    nulldata = build(name)
+    outputs = make_outputs( nulldata, inputs, owner_addr, tx_fee, pay_fee=pay_fee )
    
     return (inputs, outputs)
 
@@ -137,15 +140,10 @@ def get_fees( inputs, outputs ):
     if virtualchain.script_hex_to_address( outputs[1]["script"] ) is None:
         return (None, None)
     
+    # should match make_outputs().
+    # the +1 comes from one new output
     dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     op_fee = 0
     
     return (dust_fee, op_fee)
 
-
-def snv_consensus_extras( new_name_rec, block_id, blockchain_name_data ):
-    """
-    Calculate any derived missing data that goes into the check() operation,
-    given the block number, the name record at the block number, and the db.
-    """
-    return {}
