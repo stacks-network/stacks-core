@@ -26,6 +26,8 @@ from .b40 import *
 from .config import *
 from .scripts import *
 from .hashing import *
+from .snv import *
+from .rpc import BlockstackAPIEndpoint
 
 from .nameset import *
 from .operations import *
@@ -37,3 +39,5 @@ import nameset
 import storage
 import config
 import fast_sync
+import snv
+import rpc
