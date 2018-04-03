@@ -28,6 +28,9 @@ import argparse
 import BaseHTTPServer
 import cgi
 import random
+import urlparse
+import requests
+import posixpath
 from datetime import datetime
 from influxdb import InfluxDBClient
 
@@ -56,6 +59,9 @@ if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
 
 BITCOIN_DIR = None      # set at runtime
 SCENARIO_PID = os.getpid()
+
+GAIA_SUBPROCESS = None
+GAIA_HTTP_THREAD = None
 
 NET_LOG_PATH = "/tmp/blockstack-test-netlog.log"
 
@@ -149,6 +155,28 @@ spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 resolving_subdomains = True
 """ % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_CLIENT_BIND, TEST_CLIENT_BIND)
 
+DEFAULT_GAIA_HUB_CONFIG_TEMPLATE = """
+{
+  "servername": "localhost",
+  "port": 4001,
+  "driver": "disk",
+  "readURL": "http://localhost:4000/hub",
+  "proofsConfig": {
+    "proofsRequired" : 0
+  },
+  "diskSettings": {
+     "storageRootDirectory": "@WORKING_DIR@/gaia-hub"
+  },
+  "argsTransport": {
+    "level": "debug",
+    "handleExceptions": true,
+    "stringify": true,
+    "timestamp": true,
+    "colorize": false,
+    "json": true
+  }
+}
+"""
 
 class Pinger(threading.Thread):
     """
@@ -330,6 +358,109 @@ class WebTestServer(BaseHTTPServer.HTTPServer):
         testlib.next_block(**self.test_env)
 
 
+class GaiaServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+    """
+    HTTP proxy to the Gaia hub
+    * sends all POSTs to the upstream Gaia hub
+    * reads out of the Gaia hub's storage directory on GET
+    """
+    def do_GET(self):
+        """
+        Handles GET /hub/XXX
+        Handles GET /hub_info
+        """
+        if self.path == '/hub_info':
+            # forward 
+            res = requests.get(self.server.upstream_gaia_url + '/hub_info')
+
+            self.send_response(res.status_code)
+            for h in res.headers:
+                if h.lower() == 'transfer-encoding':
+                    continue
+
+                self.send_header(h, res.headers[h])
+
+            self.send_header('Content-Length', '{}'.format(len(res.text)))
+            self.end_headers()
+            self.wfile.write(res.text)
+            return
+
+        if not self.path.startswith('/hub/'):
+            log.error("Invalid request path '{}'".format(self.path))
+            self.send_response(401, 'Invalid request path')
+            self.end_headers()
+            return 
+
+        path = posixpath.normpath(self.path).strip('/')
+        path = path[len('hub/'):]
+
+        file_path = os.path.join(self.server.storage_root, path.strip('/'))
+        if not os.path.exists(file_path):
+            log.error("No such file or directory: '{}'".format(file_path))
+            self.send_response(404, 'No such file or directory')
+            self.end_headers()
+            return 
+
+        sb = os.stat(file_path)
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/octet-stream')
+        self.send_header('Content-Length', '{}'.format(sb.st_size))
+        self.end_headers()
+
+        with open(file_path, 'r') as f:
+            while True:
+                buf = f.read(65536)
+                if len(buf) == 0:
+                    break
+
+                self.wfile.write(buf)
+
+        return
+
+
+    def do_POST(self):
+        """
+        Send to upstream Gaia hub
+        """
+        length = int(self.headers['content-length'])
+        data = self.rfile.read(length)
+        res = requests.post(self.server.upstream_gaia_url + self.path, data=data, headers=self.headers)
+        self.send_response(res.status_code)
+        for h in res.headers:
+            if h.lower() == 'transfer-encoding':
+                continue
+
+            self.send_header(h, res.headers[h])
+
+        self.end_headers()
+        self.wfile.write(res.text)
+        return
+
+
+class GaiaServer(BaseHTTPServer.HTTPServer):
+    def __init__(self, storage_root, port, upstream_gaia_url):
+        BaseHTTPServer.HTTPServer.__init__(self, ('localhost', port), GaiaServerRequestHandler)
+        self.storage_root = storage_root
+        self.done = False
+        self.upstream_gaia_url = upstream_gaia_url
+
+
+class GaiaServerThread(threading.Thread):
+    def __init__(self, gaia_http_server):
+        threading.Thread.__init__(self)
+        self.running = False
+        self.gaia_http_server = gaia_http_server
+
+    def run(self):
+        self.running = True
+        while self.running:
+            self.gaia_http_server.handle_request()
+
+    def ask_join(self):
+        self.running = False
+        self.gaia_http_server.socket.shutdown(socket.SHUT_RDWR)
+
+
 def parse_test_pragma( line ):
     """
     Parse a test pragma line from a scenario
@@ -475,6 +606,7 @@ def generate_config_file( working_dir, scenario, path, template, extra_fields):
     redirect_data = extra_fields.get("REDIRECT_DATA", "False")
     data_servers = extra_fields.get("DATA_SERVERS", "True")
     subdomains_db = extra_fields.get("SUBDOMAINS_DB", os.path.join(os.path.dirname(path), 'subdomains.db'))
+    working_dir = extra_fields.get('WORKING_DIR', working_dir)
 
     if zonefiles_dir is None:
         zonefiles_dir = "/tmp/blockstack-test-zonefiles"
@@ -501,6 +633,7 @@ def generate_config_file( working_dir, scenario, path, template, extra_fields):
     config_txt = config_txt.replace( "@REDIRECT_DATA@", redirect_data )
     config_txt = config_txt.replace( "@DATA_SERVERS@", data_servers )
     config_txt = config_txt.replace( "@CLIENT_SUBDOMAINS_DB@", subdomains_db)
+    config_txt = config_txt.replace( "@WORKING_DIR@", working_dir)
 
     with open( path, "w" ) as f:
         f.write( config_txt )
@@ -520,6 +653,65 @@ def bitcoin_stop():
     assert rc == 0, "Failed to stop bitcoind"
 
 
+def gaia_hub_start(gaia_config_path):
+    """
+    Start the gaia hub
+    """
+    print 'Starting Gaia hub'
+    global GAIA_SUBPROCESS, GAIA_HTTP_THREAD
+
+    GAIA_SUBPROCESS = None
+    GAIA_HTTP_THREAD = None
+
+    rc = os.system("which blockstack-gaia-hub")
+    if rc != 0:
+        print 'blockstack-gaia-hub is not installed'
+        return
+    
+    print 'Starting Gaia HTTP reader'
+    gaia_config = json.loads(open(gaia_config_path, 'r').read())
+
+    # start read gateway 
+    gaia_http = GaiaServer(gaia_config['diskSettings']['storageRootDirectory'], urlparse.urlparse(gaia_config['readURL']).port, 'http://{}:{}'.format(gaia_config['servername'], gaia_config['port']))
+    gaia_thread = GaiaServerThread(gaia_http)
+    gaia_thread.start()
+
+    GAIA_HTTP_THREAD = gaia_thread
+
+    gaia_logfile_path = os.path.join(os.path.dirname(gaia_config_path), 'gaia.log')
+    gaia_stdout = open(gaia_logfile_path, 'w')
+    gaia_stderr = open(gaia_logfile_path, 'w')
+
+    print 'Starting Gaia hub'
+    p = subprocess.Popen("blockstack-gaia-hub '{}'".format(gaia_config_path), shell=True, stdout=gaia_stdout, stderr=gaia_stderr)
+
+    GAIA_SUBPROCESS = p
+    return
+    
+
+def gaia_hub_stop():
+    """
+    Stop the gaia hub and related processes
+    """
+    print 'Stopping Gaia hub'
+    global GAIA_SUBPROCESS, GAIA_HTTP_THREAD
+    try:
+        if GAIA_SUBPROCESS is not None:
+            GAIA_SUBPROCESS.kill()
+
+        GAIA_SUBPROCESS = None
+    except:
+        print 'failed to stop Gaia process'
+
+    try:
+        if GAIA_HTTP_THREAD is not None:
+            GAIA_HTTP_THREAD.ask_join()
+
+        GAIA_HTTP_THREAD = None
+    except:
+        print 'failed to stop Gaia HTTP process'
+
+
 def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
     """
     Clean up a scenario
@@ -535,6 +727,8 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
         os.unlink(spv_headers_path)
     except:
         pass
+
+    gaia_hub_stop()
 
     if client_config_path is not None:
         client_config_dir = os.path.dirname(client_config_path)
@@ -566,7 +760,7 @@ def sync_virtualchain_upcall(server_state):
     testlib.set_state_engine(db)
 
 
-def run_scenario( virtualchain_working_dir, scenario, config_file, client_config_file, interactive=False, blocktime=10, webtest_port=None ):
+def run_scenario( virtualchain_working_dir, scenario, config_file, client_config_file, gaia_config_file, interactive=False, blocktime=10, webtest_port=None ):
     """
     Run a test scenario:
     * set up the virtualchain to use our mock UTXO provider and mock bitcoin blockchain
@@ -638,6 +832,9 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     testlib.set_bitcoind( bitcoind )
     testlib.set_state_engine( db )
 
+    # start Gaia hub 
+    gaia_hub_start(gaia_config_file)
+
     # Start server
     server_state = blockstackd.server_setup(working_dir)
     testlib.set_server_state(server_state)
@@ -675,6 +872,8 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
             log.info("Shutting down timeout watchdog")
             timeout_watchdog.ask_join()
             timeout_watchdog.join()
+
+        atexit_cleanup( spv_headers_path, None, True )
         
     def signal_shutdown_procedure(*args, **kw):
         shutdown_procedure()
@@ -728,10 +927,8 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
         "blockstack_opts": blockstack_opts
     }
 
-    '''
     # we're running
-    blockstackd.set_running(True)
-    '''
+    testlib.set_test_running(True)
 
     # sync initial utxos
     testlib.next_block( **test_env )
@@ -773,6 +970,8 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
         shutdown_procedure()
         return rc
 
+    testlib.set_test_running(False)
+
     # do any more interactive tests
     if interactive:
 
@@ -813,6 +1012,8 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     pinger.join()
     pinger = None
     
+    gaia_hub_stop()
+
     blockstackd.server_atlas_shutdown(server_state)
 
     if interactive:
@@ -1253,6 +1454,13 @@ if __name__ == "__main__":
         print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [--force-segwit] [--output PATH] [scenario.import.path] [OPTIONAL: working dir]"
         sys.exit(1)
 
+    # basic sanity checks---need some tools to exist 
+    for tool in ['sqlite3', 'blockstack-cli', 'blockstack-gaia-hub']:
+        rc = os.system('which {}'.format(tool))
+        if rc != 0:
+            print >> sys.stderr, '\n\nERROR! Missing {}.\n'.format(tool)
+            sys.exit(1)
+
     args = parse_args(sys.argv)
 
     interactive = False
@@ -1356,6 +1564,7 @@ if __name__ == "__main__":
     client_queue_path = os.path.join( client_working_dir, "queues.db" )
     config_file = os.path.join( working_dir, "blockstack-server.ini" )
     client_config_file = os.path.join( client_working_dir, "client.ini" )
+    gaia_config_file = os.path.join(working_dir, 'gaia.conf')
     client_datastores_path = os.path.join( client_working_dir, "datastores" )
 
     os.makedirs(client_working_dir)
@@ -1366,6 +1575,7 @@ if __name__ == "__main__":
     # export to test
     os.environ["BLOCKSTACK_CLIENT_CONFIG"] = client_config_file
     os.environ["BLOCKSTACK_SERVER_CONFIG"] = config_file
+    os.environ['BLOCKSTACK_GAIA_CONFIG'] = gaia_config_file
     os.environ['BLOCKSTACK_SEGWIT_TEST'] = '1'
     os.environ['BLOCKSTACK_TEST_NAME'] = scenario_module
     
@@ -1419,7 +1629,8 @@ if __name__ == "__main__":
         os.unlink("/tmp/blockstack-test-scenario-spv.dat")
 
     # set up default payment wallet
-    default_payment_wallet = testlib.MultisigWallet( 2, '5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', '5Kfg4xkZ1gGN5ozgDZ37Mn3EH9pXSuWZnQt1pzax4cLax8PetNs', '5JXB7rNxZa8yQtpuKtwy1nWUUTgdDEYTDmaEqQvKKC8HCWs64bL' )
+    # default_payment_wallet = testlib.MultisigWallet( 2, '5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', '5Kfg4xkZ1gGN5ozgDZ37Mn3EH9pXSuWZnQt1pzax4cLax8PetNs', '5JXB7rNxZa8yQtpuKtwy1nWUUTgdDEYTDmaEqQvKKC8HCWs64bL' )
+    default_payment_wallet = testlib.Wallet('5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', 1000000000)
 
     # load wallets
     bitcoin_regtest_fill_wallets( working_dir, scenario.wallets, default_payment_wallet=default_payment_wallet )
@@ -1476,9 +1687,19 @@ if __name__ == "__main__":
         log.error("failed to write config file: exit %s" % rc)
         sys.exit(1)
 
+    # generate gaia config file
+    rc = generate_config_file( working_dir, scenario, gaia_config_file, DEFAULT_GAIA_HUB_CONFIG_TEMPLATE, \
+                            {"WORKING_DIR": working_dir})
+    if rc != 0:
+        log.error("failed to write gaia config file: exit %s" % rc)
+
+        if args.influx:
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
+
+        sys.exit(1)
 
     # run the test
-    rc = run_scenario( working_dir, scenario, config_file, client_config_file, interactive=interactive, blocktime=blocktime, webtest_port=webtest_port )
+    rc = run_scenario( working_dir, scenario, config_file, client_config_file, gaia_config_file, interactive=interactive, blocktime=blocktime, webtest_port=webtest_port )
 
     if rc:
         # time the test
