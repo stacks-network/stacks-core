@@ -24,8 +24,6 @@ import simplejson
 import random
 import time
 
-from .backend.blockchain import get_bitcoind_client
-
 from client import (
     connect_hostport, get_blockstackd_url, create_bitcoind_service_proxy,
     get_nameops_hash_at, get_consensus_hashes, get_blockstack_transactions_at,
@@ -39,7 +37,7 @@ from config import (
     FIRST_BLOCK_MAINNET, NAME_OPCODES,
     MAGIC_BYTES, NAME_PREORDER,
     NAME_TRANSFER, NAMESPACE_PREORDER,
-    get_bitcoind_opts
+    get_bitcoin_opts
 )
 
 import json
