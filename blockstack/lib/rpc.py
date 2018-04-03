@@ -1,24 +1,24 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
-    Blockstack-client
+    Blockstack
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
     copyright: (c) 2016-2018 by Blockstack.org
 
-    This file is part of Blockstack-client.
+    This file is part of Blockstack.
 
-    Blockstack-client is free software: you can redistribute it and/or modify
+    Blockstack is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstack-client is distributed in the hope that it will be useful,
+    Blockstack is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
@@ -38,6 +38,7 @@ import urlparse
 from jsonschema import ValidationError
 import signal
 import json
+from decimal import Decimal
 
 import client as blockstackd_client
 from client import get_blockstackd_url
@@ -46,7 +47,7 @@ import scripts as blockstackd_scripts
 import storage
 
 from config import BLOCKSTACK_TEST, get_bitcoin_opts, get_blockstack_opts, get_blockstack_api_opts, LENGTHS, VERSION, RPC_MAX_ZONEFILE_LEN
-from client import json_is_error, json_is_exception
+from client import json_is_error, json_is_exception, decode_name_zonefile, create_bitcoind_service_proxy
 
 import virtualchain
 from virtualchain.lib.ecdsalib import get_pubkey_hex, verify_raw_data, ecdsa_private_key
@@ -59,20 +60,6 @@ log = virtualchain.get_logger()
 JSONRPC_MAX_SIZE = 1024 * 1024
 
 SATOSHIS_PER_COIN = 10**8
-
-
-def create_bitcoind_service_proxy(rpc_username, rpc_password, server='127.0.0.1', port=18332, use_https=False):
-    """
-    Used for testing only!
-
-    create a bitcoind service proxy
-    """
-    assert BLOCKSTACK_TEST, 'create_bitcoind_service_proxy can only be used in test mode!'
-
-    protocol = 'https' if use_https else 'http'
-    uri = '%s://%s:%s@%s:%s' % (protocol, rpc_username, rpc_password, server, port)
-    return AuthServiceProxy(uri)
-
 
 def format_unspents(unspents):
     """
@@ -436,7 +423,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if 'zonefile' in name_rec:
             zonefile_txt = base64.b64decode(name_rec['zonefile'])
-            res = zonefile.decode_name_zonefile(name, zonefile_txt, allow_legacy=True)
+            res = decode_name_zonefile(name, zonefile_txt)
             if res is None:
                 log.error("Failed to parse zone file for {}".format(name))
                 zonefile_txt = {'error': 'Non-standard zone file'}
@@ -448,7 +435,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("{} is registered_subdomain".format(name))
             ret = {
                 'status': 'registered_subdomain',
-                'zonefile_txt': zonefile_txt,
+                'zonefile': zonefile_txt,
                 'zonefile_hash': storage.get_zonefile_data_hash(zonefile_txt),
                 'address': name_rec['address'],
                 'blockchain': 'bitcoin',
@@ -552,7 +539,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         else:
-            res = zonefile.decode_name_zonefile(name, zonefile_txt, allow_legacy=True)
+            res = decode_name_zonefile(name, zonefile_txt)
             if res is None:
                 log.error("Failed to parse zone file for {}".format(name))
                 return self._reply_json({'error': 'Non-standard zone file.  Try passing raw=1 to get the raw zone file.'}) 
@@ -586,10 +573,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Put a zonefile
         Reply 200 on success
         Reply 202 if the upstream node already has the zonefile
+        Reply 400 if the node refused to save this zonefile
         Reply 404 if the zonefile hash is not found
         Reply 500 if the upstream node didn't accept it
         """
-        blocksatckd_url = get_blockstackd_url()
+        blockstackd_url = get_blockstackd_url()
         zonefile_data = self._read_payload(maxlen=RPC_MAX_ZONEFILE_LEN)
         if zonefile_data is None:
             # too long
@@ -604,7 +592,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if len(resp['saved']) != 1:
             log.error("Did not save {} saved is {}".format(zonefile_hash, resp['saved']))
-            return self._reply_json({'error': 'Blockstack node did not save this zonefile'}, status_code=500)
+            return self._reply_json({'error': 'Blockstack node did not save zonefile {}'}, status_code=400)
 
         if resp['saved'][0] == 0:
             # accepted but not processed
@@ -693,7 +681,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 return self._reply_json({'error': 'No such zonefile'}, status_code=404)
 
             zonefile_txt = resp['zonefiles'][str(zonefile_hash)]
-            res = zonefile.decode_name_zonefile(name, zonefile_txt, allow_legacy=True)
+            res = decode_name_zonefile(name, zonefile_txt)
             if res is None:
                 log.error("Failed to parse zone file for {}".format(name))
                 self._reply_json({'error': 'Non-standard zone file for {}'.format(name)}, status_code=204)
@@ -915,10 +903,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_blockchain_name_history( self, path_info, blockchain_name, name ):
+    def GET_blockchain_name_record( self, path_info, blockchain_name, name ):
         """
-        Get the name's blockchain history
-        Reply the raw history record on success
+        Get the name's blockchain record in full
+        Reply the raw blockchain record on success
         Reply 404 if the name is not found
         Reply 500 if we have an error talking to the server
         """
@@ -928,7 +916,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         blockstackd_url = get_blockstackd_url()
-        name_rec = blockstackd_client.get_name_record(name, include_history=True, hostport=blockstackd_url)
+        name_rec = blockstackd_client.get_name_record(name, include_history=False, hostport=blockstackd_url)
         if json_is_error(name_rec):
             # error
             status_code = None
@@ -940,7 +928,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'error': name_rec['error']}, status_code=status_code)
             return
 
-        self._reply_json({'error' : 'Unimplemented'}, status_code = 405)
+        return self._reply_json(name_rec)
 
 
     def GET_blockchain_num_names( self, path_info, blockchain_name ):
@@ -1011,10 +999,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get the confirmed balance for an address
         """
         bitcoind_opts = get_bitcoin_opts()
-        bitcoind_host = bitcoind_opts['server']
-        bitcoind_port = bitcoind_opts['port']
-        bitcoind_user = bitcoind_opts['user']
-        bitcoind_passwd = bitcoind_opts['passwd']
+        bitcoind_host = bitcoind_opts['bitcoind_server']
+        bitcoind_port = bitcoind_opts['bitcoind_port']
+        bitcoind_user = bitcoind_opts['bitcoind_user']
+        bitcoind_passwd = bitcoind_opts['bitcoind_passwd']
 
         bitcoind = create_bitcoind_service_proxy(bitcoind_user, bitcoind_passwd, server=bitcoind_host, port=bitcoind_port)
         address = virtualchain.address_reencode(get_address)
@@ -1023,7 +1011,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             unspents = get_unspents(address, bitcoind)
         except Exception as e:
             log.exception(e)
-            return {'error': 'Failed to get unspents for {}'.foramt(get_address)}
+            return {'error': 'Failed to get unspents for {}'.format(get_address)}
 
         satoshis_confirmed = sum(confirmed_utxo['value'] for confirmed_utxo in 
                                  filter(lambda utxo: utxo['confirmations'] >= min_confs, unspents))
@@ -1058,6 +1046,26 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json(res, status_code=500)
 
         return self._reply_json(res['balance'])
+
+
+    def GET_utxos_insight( self, path_info, address ):
+        """
+        Handle GET /insight-api/addr/:address/utxo
+        NOTE: this is not compatible with the Bitcore Insight API method of the same name
+        """
+        if not BLOCKSTACK_TEST:
+            return self._send_headers(status_code=404, content_type='text/plain')
+
+        bitcoind_opts = get_bitcoin_opts()
+        bitcoind_host = bitcoind_opts['bitcoind_server']
+        bitcoind_port = bitcoind_opts['bitcoind_port']
+        bitcoind_user = bitcoind_opts['bitcoind_user']
+        bitcoind_passwd = bitcoind_opts['bitcoind_passwd']
+
+        bitcoind = create_bitcoind_service_proxy(bitcoind_user, bitcoind_passwd, server=bitcoind_host, port=bitcoind_port)
+        address = virtualchain.address_reencode(get_address)
+        utxos = get_unspents(address, bitcoind)
+        return self._reply_json(utxos)
 
 
     def GET_ping(self, path_info):
@@ -1107,6 +1115,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             r'^/v1/blockchains/({})/operations/([0-9]+)$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_ops
+                },
+            },
+            r'^/v1/blockchains/({})/names/({})$'.format(URLENCODING_CLASS, NAME_CLASS): {
+                'routes': {
+                    'GET': self.GET_blockchain_name_record,
                 },
             },
             r'^/v1/blockchains/({})/names/({})/history$'.format(URLENCODING_CLASS, NAME_CLASS): {
@@ -1194,12 +1207,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_unconfirmed_balance_insight,
                 },
             },
-            r'^/v1/zonefiles/([0-9a-fA-F]){{{}}}$'.format(LENGTHS['value_hash']): {
+            r'^/insight-api/addr/({})/utxo$'.format(BASE58CHECK_CLASS): {
+                'routes': {
+                    'GET': self.GET_utxos_insight,
+                },
+            },
+            r'^/v1/zonefiles/([0-9a-fA-F]{{{}}})$'.format(LENGTHS['value_hash']*2): {
                 'routes': {
                     'GET': self.GET_zonefile,
                 },
             },
-            r'/v1/zonefiles$': {
+            r'^/v1/zonefiles$': {
                 'routes': {
                     'PUT': self.PUT_zonefile,
                 },
