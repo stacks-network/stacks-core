@@ -52,6 +52,7 @@ import virtualchain
 
 log = virtualchain.get_logger("testlib")
 
+import blockstack_client
 
 TX_MIN_CONFIRMATIONS = 6
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
