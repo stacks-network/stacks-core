@@ -99,18 +99,7 @@ def get_prev_imported( state_engine, checked_ops, name ):
     """
     See if a name has been imported previously--either in 
     this block, or in the last operation on this name.
-    Check the DB *and* current ops.
-    Make sure the returned record has the name history
     """
-    '''
-    imported = find_by_opcode( checked_ops, "NAME_IMPORT" )
-    for opdata in reversed(imported):
-        if opdata['name'] == name:
-            hist = state_engine.get_name_history(name)
-            ret = copy.deepcopy(opdata)
-            ret['history'] = hist
-            return ret
-    '''
     name_rec = state_engine.get_name( name )
     return name_rec
 
@@ -220,11 +209,29 @@ def check( state_engine, nameop, block_id, checked_ops ):
     del nameop['recipient']
     del nameop['recipient_address']
 
+    # set op_fee for BTC
+    # set token_fee otherwise
+    bitcoin_price = 0
+    stacks_price = 0
+
+    if namespace['version'] == NAMESPACE_VERSION_PAY_WITH_STACKS:
+        # make sure we're in the right epoch 
+        epoch_features = get_epoch_features(block_id)
+        if EPOCH_FEATURE_STACKS_BUY_NAMESPACES not in epoch_features or EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features:
+            log.fatal('Have a namespace with STACKs enabled, but we\'re in the wrong epoch!')
+            os.abort()
+
+        stacks_price = price_name(name_without_namespace, namespace, block_id)
+
+    else:
+        bitcoin_price = price_name(name_without_namespace, namespace, block_id)
+
     nameop['sender'] = recipient
     nameop['address'] = recipient_address
     nameop['importer'] = sender
     nameop['importer_address'] = sender_address
-    nameop['op_fee'] = price_name( name_without_namespace, namespace, block_id )
+    nameop['op_fee'] = bitcoin_price
+    nameop['token_fee'] = '{}'.format(stacks_price)
     nameop['namespace_block_number'] = namespace['block_number']
     nameop['consensus_hash'] = None 
     nameop['preorder_hash'] = preorder_hash
@@ -236,7 +243,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # not required for consensus, but for SNV
     nameop['last_creation_op'] = NAME_IMPORT
-
+    
     # good!
     return True
 
