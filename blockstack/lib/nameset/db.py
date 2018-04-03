@@ -122,7 +122,7 @@ CREATE TABLE namespaces( namespace_id TEXT NOT NULL,
                          no_vowel_discount INT NOT NULL,
                          ready_block INT NOT NULL,
 
-                         token_fee TEXT NOT NULL,       -- use TExT so we don't overflow (unit value)
+                         token_fee TEXT NOT NULL,       -- use TEXT so we don't overflow (unit value)
 
                          -- primary key includes block number, so an expired revealed namespace can be re-revealed
                          PRIMARY KEY(namespace_id,block_number)
