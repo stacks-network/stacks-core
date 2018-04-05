@@ -28,6 +28,7 @@ from .scripts import *
 from .hashing import *
 from .snv import *
 from .rpc import BlockstackAPIEndpoint
+from .subdomains import *
 
 from .nameset import *
 from .operations import *
@@ -41,3 +42,4 @@ import config
 import fast_sync
 import snv
 import rpc
+import subdomains
