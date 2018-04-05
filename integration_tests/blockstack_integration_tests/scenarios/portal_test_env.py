@@ -58,7 +58,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "id", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstack_register_user('foo.id', wallets[2].privkey, wallets[3].addr, **kw)
+    testlib.blockstack_register_user('foo.id', wallets[2].privkey, wallets[3].privkey, **kw)
 
 
 def check( state_engine ):
