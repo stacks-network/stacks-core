@@ -24,7 +24,7 @@ WORKDIR /src/blockstack/api
 
 # Add crontab file in the cron directory
 COPY api/deployment/crontab /var/spool/cron/crontabs/root
-COPY api/deployment/client.ini /root/.blockstack/client.ini
+# COPY api/deployment/client.ini /root/.blockstack/client.ini
 
 # Give execution rights on the cron job
 RUN chmod 0600 /var/spool/cron/crontabs/root
