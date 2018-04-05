@@ -37,17 +37,12 @@ import api.config
 
 from api.tests.resolver_tests import ResolverTestCase
 from api.tests.search_tests import SearchTestCase
-from blockstack_client import schemas
-import blockstack_client.storage
-import blockstack_client.config as blockstack_config
-import blockstack_client.config as blockstack_constants
-import blockstack_client.keys
+
+import blockstack
+from blockstack.lib import schemas
 
 BASE_URL = 'http://localhost:5000'
 API_VERSION = '1'
-
-API_PASSWORD = blockstack_config.get_config(
-    blockstack_constants.CONFIG_PATH).get('api_password', None)
 
 APP = None
 
@@ -128,11 +123,6 @@ class InternalAPITestCase(APITestCase):
     def setUp(self):
         self.app = ForwardingClient("http://localhost:6270")
 
-def get_auth_header(key = None):
-    if key is None:
-        key = API_PASSWORD
-    return {'Authorization' : 'bearer {}'.format(key)}
-
 def check_data(cls, data, required_keys={}):
     for k in required_keys:
         cls.assertIn(k, data)
@@ -150,37 +140,11 @@ class PingTest(APITestCase):
 
         self.assertTrue(data['status'] == 'alive')
 
-class AuthInternal(InternalAPITestCase):
-    def test_get_and_use_session_token(self):
-        privkey = ("a28ea1a6f11fb1c755b1d102990d64d6" +
-                   "b4468c10705bbcbdfca8bc4497cf8da8")
-
-        auth_header = get_auth_header()
-        request = {
-            'app_domain': 'test.com',
-            'app_public_key': blockstack_client.keys.get_pubkey_hex(privkey),
-            'methods': ['wallet_read'],
-        }
-
-        signer = jsontokens.TokenSigner()
-        package = signer.sign(request, privkey)
-
-        url = "/v1/auth?authRequest={}".format(package)
-        data = self.get_request(url, headers = auth_header, status_code=200)
-        self.assertIn('token', data)
-        session = data['token']
-
-        auth_header = get_auth_header(session)
-        data = self.get_request('/v1/wallet/payment_address',
-                                headers = auth_header, status_code=200)
-        data = self.get_request('/v1/users/muneeb.id',
-                                headers = auth_header, status_code=403)
 
 class UsersInternal(InternalAPITestCase):
     def test_get_users(self):
         user = "muneeb.id"
-        data = self.get_request('/v1/users/{}'.format(user),
-                                headers = get_auth_header(), status_code=200)
+        data = self.get_request('/v1/users/{}'.format(user), status_code=200)
         to_check = {
             "@type": True,
         }
@@ -222,7 +186,7 @@ class Zonefiles(APITestCase):
                                    headers = {}, status_code = 200)
         self.assertIn('zonefile', zf_data)
 
-        zf_hash = blockstack_client.storage.get_zonefile_data_hash(zf_data['zonefile'])
+        zf_hash = blockstack.lib.storage.get_zonefile_data_hash(zf_data['zonefile'])
         zf_data_historic_lookup = self.get_request(zf_hash_url.format(user, zf_hash),
                                                    headers = {}, status_code = 200)
         self.assertEqual(zf_data_historic_lookup['zonefile'],
@@ -370,69 +334,6 @@ class BlockChains(APITestCase):
                     "value_hash": schemas.OP_HEX_PATTERN}
         check_data(self, data[0], to_check)
 
-class BlockChainsInternal(InternalAPITestCase):
-    def test_unspents(self):
-        url = "/v1/blockchains/bitcoin/{}/unspent".format(DEFAULT_WALLET_ADDRESS)
-        self.get_request(url, headers = {}, status_code = 403)
-        data = self.get_request(url, headers = get_auth_header(), status_code = 200)
-
-        self.assertTrue(len(data) >= 1)
-        data = data[0]
-
-        self.assertTrue(data['confirmations'] >= 0)
-        self.assertRegexpMatches(data['out_script'], schemas.OP_HEX_PATTERN)
-        self.assertRegexpMatches(data['outpoint']['hash'], schemas.OP_HEX_PATTERN)
-        self.assertRegexpMatches(data['transaction_hash'], schemas.OP_HEX_PATTERN)
-        self.assertTrue(data['value'] >= 0)
-    def test_txs(self):
-        url = "/v1/blockchains/bitcoin/txs".format(DEFAULT_WALLET_ADDRESS)
-        self.post_request(url, payload = {}, headers = {}, status_code = 403)
-        self.post_request(url, payload = {}, headers = get_auth_header(), status_code = 401)
-
-class WalletInternal(InternalAPITestCase):
-    def test_addresses(self):
-        for endpoint in ['payment_address', 'owner_address']:
-            data = self.get_request("/v1/wallet/{}".format(endpoint),
-                                    headers = get_auth_header(), status_code = 200)
-            self.assertRegexpMatches(data['address'], schemas.OP_ADDRESS_PATTERN)
-        data = self.get_request("/v1/wallet/data_pubkey",
-                                headers = get_auth_header(), status_code = 200)
-        self.assertRegexpMatches(data['public_key'], schemas.OP_PUBKEY_PATTERN)
-    def test_balance(self):
-        data = self.get_request("/v1/wallet/balance",
-                                headers = get_auth_header(), status_code = 200)
-        to_check = {'balance' : { 'bitcoin' : 0, 'satoshis' : 0 } }
-        check_data(self, data, to_check)
-    def test_keys(self):
-        data = self.get_request("/v1/wallet/keys",
-                                headers = get_auth_header(), status_code = 200)
-        to_check = {
-            "data_privkey": schemas.OP_HEX_PATTERN,
-            "data_pubkey": schemas.OP_PUBKEY_PATTERN,
-            "owner_address": schemas.OP_ADDRESS_PATTERN,
-            "owner_privkey": True,
-            "payment_address": schemas.OP_ADDRESS_PATTERN,
-            "payment_privkey": True,
-        }
-
-        check_data(self, data, to_check)
-
-class NodeInternal(InternalAPITestCase):
-    def test_registrar(self):
-        self.get_request("/v1/node/registrar/state", headers = get_auth_header(),
-                         status_code = 200)
-    def test_get_log(self):
-        self.get_request("/v1/node/log", headers = get_auth_header(),
-                         status_code = 200, no_json = True)
-    def test_config(self):
-        data = self.get_request("/v1/node/config", headers = get_auth_header(),
-                                status_code = 200)
-        to_check = { "bitcoind": True,
-                     "blockchain-reader": True,
-                     "blockchain-writer": True,
-                     "blockstack-client": True }
-
-        check_data(self, data, to_check)
 
 def test_main(args = []):
     test_classes = [PingTest, LookupUsersTest, NamespaceTest, BlockChains, TestAPILandingPageExamples,
@@ -496,13 +397,6 @@ def test_main(args = []):
         test_runner = XMLTestRunner(output=args[ainx]).run
         del args[ainx]
 #        test_runner = lambda *tests: [runner.run(t) for t in tests]
-
-    if "--api_password" in args:
-        ainx = args.index("--api_password")
-        del args[ainx]
-        global API_PASSWORD
-        API_PASSWORD = args[ainx]
-        del args[ainx]
 
     if len(args) == 0 or args[0] == "--all":
         args = [ testname for testname in test_map.keys() ]
