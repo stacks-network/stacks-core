@@ -49,11 +49,8 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
-TRANSACTION_BROADCAST_LOCATION = os.environ.get('BSK_TRANSACTION_BROADCAST_LOCATION',
-                                                '/src/transaction-broadcaster')
-
-SUBDOMAIN_REGISTRAR_LOCATION = os.environ.get('BSK_SUBDOMAIN_REGISTRAR_LOCATION',
-                                              '/src/subdomain-registrar')
+TRANSACTION_BROADCAST_LOCATION = os.environ.get('BSK_TRANSACTION_BROADCAST_LOCATION')
+SUBDOMAIN_REGISTRAR_LOCATION = os.environ.get('BSK_SUBDOMAIN_REGISTRAR_LOCATION')
 
 def start_transaction_broadcaster():
     try:
@@ -63,8 +60,15 @@ def start_transaction_broadcaster():
     env = {'BSK_TRANSACTION_BROADCAST_DEVELOP' : '1'}
     if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
         env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
-    Popen(['node', TRANSACTION_BROADCAST_LOCATION + '/lib/index.js'],
-          env = env)
+
+    if TRANSACTION_BROADCAST_LOCATION:
+        Popen(['node', TRANSACTION_BROADCAST_LOCATION + '/lib/index.js'],
+              env = env)
+
+    else:
+        assert os.system('which blockstack-transaction-broadcaster') == 0, 'Missing blockstack-transaction-broadcaster'
+        Popen('blockstack-transaction-broadcaster', shell=True, env=env)
+
 
 def start_subdomain_registrar():
     try:
@@ -74,7 +78,14 @@ def start_subdomain_registrar():
     env = {'BSK_SUBDOMAIN_REGTEST' : '1'}
     if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
         env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
-    Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION + '/lib/index.js'], env = env)
+
+    if SUBDOMAIN_REGISTRAR_LOCATION:
+        Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION + '/lib/index.js'], env = env)
+
+    else:
+        assert os.system('which blockstack-subdomain-registrar') == 0, 'Missing blockstack-subdomain-registrar'
+        Popen('blockstack-subdomain-registrar', shell=True, env=env)
+
 
 def scenario( wallets, **kw ):
 
@@ -90,7 +101,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "id", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstack_register_user('foo.id', wallets[2].privkey, wallets[3].addr, **kw)
+    testlib.blockstack_register_user('foo.id', wallets[2].privkey, wallets[3].privkey, **kw)
 
 
 def check( state_engine ):
