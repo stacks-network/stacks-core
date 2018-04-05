@@ -5,17 +5,6 @@ ops () {
   local image=quay.io/blockstack/blockstack-core
   local tag=master
 
-  init-api () {
-    local apiData=data/blockstack-api
-    echo "Initializing Blockstack Core API server with dummy wallet..."
-    mkdir -p $apiData
-    docker run -it --rm \
-      -v $(pwd)/$apiData:/root/.blockstack \
-      $image:$tag \
-      blockstack setup -y --password dummywalletpassword
-    sudo cp deployment/client.ini $apiData/client.ini
-  }
-
   init-indexer () {
     local idxData=data/search-api
     echo "Initializing Blockstack Indexer with dummy data..."
@@ -41,7 +30,6 @@ ops () {
   commands () {
     cat <<-EOF
 ops commands:
-  init-api     -> Set up the dummy wallet for the core api
   init-indexer -> Set up the bootstrapping data for the indexer
   init-core    -> Set up blockstack-core instance for this API
 EOF
