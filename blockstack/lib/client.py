@@ -835,6 +835,64 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
     return push_info
 
 
+def get_zonefiles_by_block(from_block, to_block, hostport=None, proxy=None):
+    """
+    Get zonefile information for zonefiles announced in [@from_block, @to_block]
+    Returns { 'last_block' : server's last seen block,
+              'zonefile_info' : [ { 'zonefile_hash' : '...',
+                                    'txid' : '...',
+                                    'block_height' : '...' } ] }
+    """
+    assert hostport or proxy, 'need either hostport or proxy'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    zonefile_info_schema = {
+        'type' : 'array',
+        'items' : {
+            'type' : 'object',
+            'properties' : {
+                'name' : {'type' : 'string'},
+                'zonefile_hash' : { 'type' : 'string',
+                                    'pattern' : OP_ZONEFILE_HASH_PATTERN },
+                'txid' : {'type' : 'string',
+                          'pattern' : OP_TXID_PATTERN},
+                'block_height' : {'type' : 'integer'}
+            },
+            'required' : [ 'zonefile_hash', 'txid', 'block_height' ]
+        }
+    }
+    response_schema = {
+        'type' : 'object',
+        'properties' : {
+            'lastblock' : {'type' : 'integer'},
+            'zonefile_info' : zonefile_info_schema
+        },
+        'required' : ['lastblock', 'zonefile_info']
+    }
+
+    offset = 0
+    output_zonefiles = []
+    last_server_block = 0
+
+    while offset == 0 or len(resp['zonefile_info']) > 0:
+
+        resp = proxy.get_zonefiles_by_block(from_block, to_block, offset, 100)
+        if 'error' in resp:
+            return resp
+
+        resp = json_validate(response_schema, resp)
+        if json_is_error(resp):
+            return resp
+
+        output_zonefiles += resp['zonefile_info']
+        offset += 100
+        last_server_block = max(resp['lastblock'], last_server_block)
+
+    return { 'last_block' : last_server_block,
+             'zonefile_info' : output_zonefiles }
+
+
 def get_name_record(name, include_history=False, include_expired=False, include_grace=True, proxy=None, hostport=None):
     """
     Get the record for a name or a subdomain.  Optionally include its history, and optionally return an expired name or a name in its grace period.
@@ -934,8 +992,10 @@ def get_name_record(name, include_history=False, include_expired=False, include_
             # only care if the name is beyond the grace period
             if lastblock > int(resp['record']['renewal_deadline']) and int(resp['record']['renewal_deadline']) > 0:
                 return {'error': 'Name expired'}
-            elif int(resp['record']['renewal_deadline']) > 0:
+            elif int(resp['record']['renewal_deadline']) > 0 and lastblock >= int(resp['record']['expire_block']) and lastblock < int(resp['record']['renewal_deadline']):
                 resp['record']['grace_period'] = True
+            else:
+                resp['record']['grace_period'] = False
 
         else:
             # only care about expired, even if it's in the grace period
@@ -2387,7 +2447,7 @@ def get_JWT(url, address=None):
     return jwt
 
 
-def resolve_profile(name, include_expired=False, hostport=None, proxy=None):
+def resolve_profile(name, include_expired=False, include_name_record=False, hostport=None, proxy=None):
     """
     Resolve a name to its profile.
     This is a multi-step process:
@@ -2397,7 +2457,7 @@ def resolve_profile(name, include_expired=False, hostport=None, proxy=None):
     4. fetch and authenticate the JWT at each URL (abort if there are none)
     5. extract the profile JSON and return that, along with the zone file and public key
 
-    Return {'profile': ..., 'zonefile': ..., 'public_key': ...} on success
+    Return {'profile': ..., 'zonefile': ..., 'public_key': ...['name_rec': ...]} on success
     Return {'error': ...} on error
     """
     assert hostport or proxy, 'Need hostport or proxy'
@@ -2457,6 +2517,10 @@ def resolve_profile(name, include_expired=False, hostport=None, proxy=None):
             'zonefile': zonefile_txt,
             'public_key': public_key,
         }
+
+        if include_name_record:
+            ret['name_record'] = name_rec
+
         return ret
 
     log.error("No zone file URLs resolved to a JWT with the public key whose address is {}".format(name_rec['address']))
