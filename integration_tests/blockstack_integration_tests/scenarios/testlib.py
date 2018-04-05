@@ -41,6 +41,7 @@ import subprocess
 import signal
 import atexit
 import re
+import socket
 from decimal import Decimal
 import blockstack.blockstackd as blockstackd
 import blockstack.lib.client as blockstackd_client
@@ -477,7 +478,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
      
     resp = None
     if has_nodejs_cli() and wallet is None and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('preorder', name, register_addr, privatekey, burn_addr=burn_addr, consensus_hash=consensus_hash, tx_fee=tx_fee, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
+        txid = nodejs_cli('tx_preorder', name, register_addr, privatekey, burn_addr=burn_addr, consensus_hash=consensus_hash, tx_fee=tx_fee, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
         resp = {
             'status': True,
             'transaction_hash': txid
@@ -521,9 +522,9 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
     if has_nodejs_cli() and wallet is None and virtualchain.is_singlesig(privatekey):
         txid = None
         if zonefile_hash is not None:
-            txid = nodejs_cli('register', name, register_addr, privatekey, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+            txid = nodejs_cli('tx_register', name, register_addr, privatekey, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
         else:
-            txid = nodejs_cli('register', name, register_addr, privatekey, safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+            txid = nodejs_cli('tx_register', name, register_addr, privatekey, safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
 
         resp = {
             'status': True,
@@ -912,7 +913,7 @@ def blockstack_cli_get_name_blockchain_record( name, config_path=None):
     if not has_nodejs_cli():
         raise Exception("Missing blockstack-cli")
 
-    resp = nodejs_cli('get_name_blockchain_record', name)
+    resp = nodejs_cli('get_blockchain_record', name)
     return json.loads(resp)
 
 
@@ -925,11 +926,11 @@ def blockstack_cli_get_name_blockchain_history( name, start_block=None, end_bloc
 
     resp = None
     if start_block is not None and end_block is not None:
-        resp = nodejs_cli('get_name_blockchain_history', name, start_block, end_block)
+        resp = nodejs_cli('get_blockchain_history', name, start_block, end_block)
     elif start_block is not None:
-        resp = nodejs_cli('get_name_blockchain_history', name, start_block)
+        resp = nodejs_cli('get_blockchain_history', name, start_block)
     else:
-        resp = nodejs_cli('get_name_blockchain_history', name)
+        resp = nodejs_cli('get_blockchain_history', name)
 
     return json.loads(resp)
 
@@ -953,7 +954,7 @@ def blockstack_cli_get_name_zonefile( name, config_path=None, json=False, raw=Tr
     if not has_nodejs_cli():
         raise Exception("Missing blockstack-cli")
 
-    resp = nodejs_cli('get_name_zonefile', name, full_output=True)
+    resp = nodejs_cli('get_zonefile', name, full_output=True)
     if json or not raw:
         return json.loads(resp.strip().split('\n')[-1])
     
@@ -1027,7 +1028,7 @@ def make_empty_zonefile(username, address, urls=None):
 
     # make a URI record for every mutable storage provider
     if urls is None:
-        urls = ['http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(addr, network='mainnet'))]
+        urls = ['http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(address, network='mainnet'))]
 
     user = {
         'txt': [],
@@ -1043,7 +1044,7 @@ def make_empty_zonefile(username, address, urls=None):
     return blockstack_zones.make_zone_file(user)
 
 
-def blockstack_register_user(name, privkey, addr, **kw):
+def blockstack_register_user(name, privkey, owner_privkey, **kw):
     """
     Register a user in the test framework
     Give the user an empty profile and zone file.
@@ -1053,23 +1054,26 @@ def blockstack_register_user(name, privkey, addr, **kw):
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
 
     profile = kw.get('profile', DEFAULT_PROFILE)
+    
+    addr = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()   # make it match the wallet
+    owner_privkey = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
 
     blockstack_name_preorder(name, privkey, addr)
     next_block(**kw)
 
-    zonefile_txt = make_emtpy_zonefile(name, addr)
+    zonefile_txt = make_empty_zonefile(name, addr)
     zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
 
     blockstack_name_register(name, privkey, addr, zonefile_hash=zonefile_hash)
     next_block(**kw)
 
     blockstack_put_zonefile(zonefile_txt)
-    profile_data = blockstack_make_profile(profile, privkey)
-    blockstack_put_profile(name, profile_data, privkey)
+    profile_data = blockstack_make_profile(profile, owner_privkey)
+    blockstack_put_profile(name, profile_data, owner_privkey)
     return True
 
 
-def blockstack_import_user(name, privkey, addr, **kw):
+def blockstack_import_user(name, privkey, owner_privkey, **kw):
     """
     Import a user in the test framework
     Give the user an empty profile and zone file.
@@ -1078,6 +1082,9 @@ def blockstack_import_user(name, privkey, addr, **kw):
     """
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
     
+    addr = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()   # make it match the wallet
+    owner_privkey = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
+
     profile = kw.get('profile', DEFAULT_PROFILE)
     profile_url = 'http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(addr, network='mainnet'))
     zonefile_txt = "$ORIGIN {}\n$TTL 3600\n_http URI 10 1 {}".format(name, profile_url)
@@ -1088,12 +1095,12 @@ def blockstack_import_user(name, privkey, addr, **kw):
     next_block(**kw)
 
     blockstack_put_zonefile(zonefile_txt)
-    profile_data = blockstack_make_profile(profile, privkey)
-    blockstack_put_profile(name, profile_data, privkey)
+    profile_data = blockstack_make_profile(profile, owner_privkey)
+    blockstack_put_profile(name, profile_data, owner_privkey)
     return True
 
 
-def blockstack_renew_user(name, privkey, new_addr, **kw):
+def blockstack_renew_user(name, privkey, owner_privkey, **kw):
     """
     Renew a user in the test framework
     Give the user an empty profile and zone file.
@@ -1102,6 +1109,9 @@ def blockstack_renew_user(name, privkey, new_addr, **kw):
     """
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
     
+    addr = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()   # make it match the wallet
+    owner_privkey = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
+
     profile = kw.get('profile', DEFAULT_PROFILE)
     profile_url = 'http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(new_addr, network='mainnet'))
     zonefile_txt = "$ORIGIN {}\n$TTL 3600\n_http URI 10 1 {}".format(name, profile_url)
@@ -2352,34 +2362,6 @@ def peer_make_config( working_dir, peer_port, dirp, seed_relations={}, blacklist
 
     blockstack.lib.config.write_config_file( conf, conf_path )
 
-    '''
-    # copy over client config
-    client_config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
-    client_conf = blockstack_client.config.configure( config_file=client_config_path, force=False, interactive=False )
-
-    for f in ['path', 'dir']:
-        if f in client_conf['blockstack-client']:
-            del client_conf['blockstack-client'][f]
-
-    # update...
-    client_conf['blockstack-client']['queue_path'] = os.path.join(dirp, 'queues.db')
-    client_conf['blockstack-client']['metadata'] = os.path.join(dirp, 'metadata')
-    client_conf['blockstack-client']['blockchain_headers'] = virtualchain_bitcoin_conf['bitcoind_spv_path']
-    client_conf['blockstack-client']['api_endpoint_port'] = peer_port + 10000
-    client_conf['blockstack-client']['port'] = peer_port
-
-    new_conf = {
-        'blockstack-client': client_conf['blockstack-client'],
-        'bitcoind': client_conf['bitcoind'],
-        'blockchain-reader': client_conf['blockchain-reader'],
-        'blockchain-writer': client_conf['blockchain-writer']
-    }
-
-    new_conf.update(extra_fields)
-
-    log.debug("Save client for localhost:%s's to %s" % (peer_port, os.path.join(dirp, 'client.ini')))
-    blockstack.lib.config.write_config_file( new_conf, os.path.join(dirp, "client.ini") )
-    '''
     return True
 
 
@@ -2462,7 +2444,7 @@ def peer_has_zonefiles( peer_info, lastblock, num_zonefiles ):
 
     try:
         peer_inv_info = rpc.get_zonefile_inventory( 0, num_zonefiles )
-        peer_inv = atlas_inventory_to_string( base64.b64decode(peer_inv_info['inv']) )
+        peer_inv = blockstack.lib.util.atlas_inventory_to_string( base64.b64decode(peer_inv_info['inv']) )
     except Exception, e:
         log.exception(e)
         log.error("Peer localhost:%s is down" % (peer_info['port']))
@@ -2551,146 +2533,5 @@ def list_working_dirs(base_working_dir):
             ret.append(os.path.join(working_dir, name))
 
     return ret
-
-
-def nodejs_cleanup(dirp):
-    """
-    Clean up nodejs test
-    """
-    if not os.path.exists(dirp):
-        return True
-
-    print "Clean up Node install at {}".format(dirp)
-    shutil.rmtree(dirp)
-    return True
-
-
-def nodejs_setup():
-    """
-    Set up a working directory for testing Blockstack node.js packages
-    """
-    for prog in ['npm', 'node', 'babel', 'browserify']:
-        rc = os.system('which {}'.format(prog))
-        if rc != 0:
-            raise Exception("Could not find program {}".format(prog))
-
-    tmpdir = tempfile.mkdtemp()
-    atexit.register(nodejs_cleanup, tmpdir)
-   
-    cwd = os.getcwd()
-
-    try:
-        os.chdir(tmpdir)
-        p = subprocess.Popen(["/usr/bin/npm", "install", "babel-cli", "babel-preset-es2015"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
-        out, err = p.communicate()
-        retval = p.returncode
-        os.chdir(cwd)
-    except:
-        os.chdir(cwd)
-        raise
-
-    if retval != 0:
-        print >> sys.stderr, err
-        raise Exception("Failed to set up npm: exit code {}".format(retval))
-
-    print "Node install at {}".format(tmpdir)
-    return tmpdir
-
-
-def nodejs_copy_package( testdir, package_name ):
-    """
-    Copy the contents of a package into the test directory
-    """
-    prefixes = filter(lambda x: len(x) > 0, os.environ.get("NODE_PATH", "/usr/lib/node_modules:/usr/local/lib/node_modules").split(":"))
-    node_package_path = None
-    for prefix in prefixes:
-        node_package_path = '{}/{}'.format(prefix, package_name)
-        if os.path.exists(node_package_path):
-            break
-        else:
-            node_package_path = None
-
-    if node_package_path is None:
-        raise Exception("Missing node package {}: no directories in NODE_PATH {}".format(package_name, ':'.join(prefixes)))
-    
-    for name in os.listdir(node_package_path):
-        src_path = os.path.join(node_package_path, name)
-        dest_path = os.path.join(testdir, name)
-
-        if os.path.isdir(src_path):
-            shutil.copytree(src_path, dest_path, symlinks=True)
-        else:
-            shutil.copy(src_path, dest_path)
-
-    return True
-
-
-def nodejs_link_package( testdir, package_name ):
-    """
-    Link a dependency to a package
-    """
-
-    cwd = os.getcwd()
-
-    try:
-        os.chdir(testdir)
-        p = subprocess.Popen(["/usr/bin/npm", "link", package_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
-        out, err = p.communicate()
-        retval = p.returncode
-        os.chdir(cwd)
-    except:
-        os.chdir(cwd)
-        raise
-
-    if retval != 0:
-        print >> sys.stderr, err
-        raise Exception("Failed to npm link: exit code {}".format(retval))
-
-    return True
-
-
-def nodejs_run_test( testdir, test_name="core-test" ):
-    """
-    Run a nodejs test
-    """
-    cwd = os.getcwd()
-
-    try:
-        os.chdir(testdir)
-        p = subprocess.Popen(["/usr/bin/npm", "install"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
-        out, err = p.communicate()
-        retval = p.returncode
-    except:
-        os.chdir(cwd)
-        raise
-
-    if retval != 0:
-        print >> sys.stderr, err
-        raise Exception("Failed to npm link: exit code {}".format(retval))
-
-    try:
-        p = subprocess.Popen(["/usr/bin/npm", "run", test_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False, close_fds=True)
-        out, err = p.communicate()
-        retval = p.returncode
-        os.chdir(cwd)
-    except:
-        os.chdir(cwd)
-        raise
-    
-    print ''
-    print 'output'
-    print out
-    print ''
-
-    print 'stderr'
-    print err
-    print ''
-
-    lines = out.split('\n') + err.split('\n')
-    for line in lines:
-        if line.startswith('npm ERR'):
-            raise Exception("Test {} failed".format(test_name))
-
-    return True
 
 
