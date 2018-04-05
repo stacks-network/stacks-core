@@ -1047,6 +1047,41 @@ class SubdomainDB(object):
         return Subdomain(str(name), str(domain), str(encoded_pubkey), int(n), str(zonefile_str), sig, block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing=missing, accepted=accepted)
 
 
+    def get_all_subdomains(self, offset=None, count=None, min_sequence=None, cur=None):
+        """
+        Get and all subdomain names, optionally over a range
+        """
+        get_cmd = 'SELECT UNIQUE fully_qualified_subdomain FROM {}'.format(self.subdomain_table)
+        args = ()
+
+        if min_sequence is not None:
+            get_cmd += ' WHERE sequence >= ?'
+            args += (min_sequence,)
+
+        if limit is not None:
+            get_cmd += ' LIMIT {}'
+            args += (count,)
+
+        if offset is not None:
+            get_cmd += ' OFFSET {}'
+            args += (offset,)
+
+        get_cmd += ';'
+
+        cursor = None
+        if cur is None:
+            cur = self.conn.cursor()
+        else:
+            cursor = con
+
+        rows = db_query_execute(cursor, get_cmd, args)
+        subdomains = []
+        for row in rows:
+            subdomains.append(row['fully_qualified_subdomain'])
+
+        return subdomains
+
+
     def get_subdomain_entry(self, fqn, accepted=True, cur=None):
         """
         Given a fully-qualified subdomain, get its (latest) subdomain record.
@@ -1364,6 +1399,27 @@ class SubdomainDB(object):
             height = 0
 
         return height
+
+
+    def get_last_sequence(self, cur=None):
+        """
+        Get the highest sequence number in this db
+        """
+        sql = 'SELECT sequence FROM {} ORDER BY sequence DESC LIMIT 1;'.format(self.subdomain_table)
+        cursor = None
+        if cur is None:
+            cursor = self.conn.cursor()
+        else:
+            cursor = cur
+
+        db_query_execute(cursor, sql, ())
+        last_seq = None
+        try:
+            last_seq = cursor.fetchone()[0]
+        except:
+            last_seq = 0
+        
+        return int(last_seq)
 
 
     def _drop_tables(self):
@@ -1797,6 +1853,24 @@ def get_subdomain_history(fqn, db_path=None, zonefiles_dir=None, json=False):
         return recs
 
 
+def get_all_subdomains(offset=None, count=None, min_sequence=None, db_path=None, zonefiles_dir=None):
+    """
+    Static method for getting the list of all subdomains
+    """
+    opts = get_blockstack_opts()
+    if not is_subdomains_enabled(opts):
+        return []
+
+    if db_path is None:
+        db_path = opts['subdomaindb_path']
+
+    if zonefiles_dir is None:
+        zonefiles_dir = opts['zonefiles']
+
+    db = SubdomainDB(db_path, zonefiles_dir)
+    return db.get_all_subdomains(offset=offset, count=count, min_sequence=None)
+
+
 def get_subdomains_owned_by_address(address, db_path=None, zonefiles_dir=None):
     """
     Static method for getting the list of subdomains for a given address
@@ -1813,6 +1887,24 @@ def get_subdomains_owned_by_address(address, db_path=None, zonefiles_dir=None):
 
     db = SubdomainDB(db_path, zonefiles_dir)
     return db.get_subdomains_owned_by_address(address)
+
+
+def get_subdomain_last_sequence(db_path=None, zonefiles_dir=None):
+    """
+    Static method for getting the last sequence number in the database
+    """
+    opts = get_blockstack_opts()
+    if not is_subdomains_enabled(opts):
+        return []
+
+    if db_path is None:
+        db_path = opts['subdomaindb_path']
+
+    if zonefiles_dir is None:
+        zonefiles_dir = opts['zonefiles']
+
+    db = SubdomainDB(db_path, zonefiles_dir)
+    return db.get_last_sequence()
 
 
 def make_subdomain_txt(name_or_fqn, domain, address, n, zonefile_str, privkey_bundle):
