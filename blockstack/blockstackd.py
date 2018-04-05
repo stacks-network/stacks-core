@@ -1595,7 +1595,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         log.debug("Serve back %s zonefiles" % len(ret.keys()))
         return self.success_response( {'zonefiles': ret} )
 
-
+    
     def rpc_put_zonefiles( self, zonefile_datas, **con_info ):
         """
         Replicate one or more zonefiles, given as serialized strings.
@@ -1677,6 +1677,39 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         log.debug("Saved {} zonefile(s)".format(sum(saved)))
         log.debug("Reply: {}".format({'saved': saved}))
         return self.success_response( {'saved': saved} )
+
+
+    def rpc_get_zonefiles_by_block( self, from_block, to_block, offset, count, **con_info ):
+        """
+        Get information about zonefiles announced in blocks [@from_block, @to_block]
+        @offset - offset into result set
+        @count - max records to return, must be <= 100
+        Returns {'status': True, 'lastblock' : blockNumber,
+                 'zonefile_info' : [ { 'block_height' : 470000,
+                                       'txid' : '0000000',
+                                       'zonefile_hash' : '0000000' } ] }
+        """
+        conf = get_blockstack_opts()
+        if not is_atlas_enabled(conf):
+            return {'error': 'Not an atlas node'}
+
+        if not self.check_block(from_block):
+            return {'error': 'Invalid from_block height'}
+
+        if not self.check_block(to_block):
+            return {'error': 'Invalid to_block height'}
+
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(count, 100):
+            return {'error': 'invalid count'}
+
+        zonefile_info = atlasdb_get_zonefiles_by_block(from_block, to_block, offset, count, path=conf['atlasdb_path'])
+        if 'error' in zonefile_info:
+           return zonefile_info
+
+        return self.success_response( {'zonefile_info': zonefile_info } )
 
 
     def peer_exchange(self, peer_host, peer_port):
@@ -2247,7 +2280,7 @@ def blockstack_signal_handler( sig, frame ):
     set_running(False)
 
 
-def server_setup(working_dir, port=None):
+def server_setup(working_dir, port=None, indexer_enabled=None, indexer_url=None, api_enabled=None):
     """
     Set up the server.
     Start all subsystems, write pid file, set up signal handlers, set up DB.
@@ -2256,6 +2289,15 @@ def server_setup(working_dir, port=None):
     blockstack_opts = get_blockstack_opts()
     blockstack_api_opts = get_blockstack_api_opts()
     pid_file = get_pidfile_path(working_dir)
+
+    indexer_enabled = indexer_enabled if indexer_enabled is not None else blockstack_opts['enabled']
+    api_enabled = api_enabled if api_enabled is not None else blockstack_api_opts['enabled']
+    indexer_url = indexer_url if indexer_url is not None else blockstack_api_opts.get('indexer_url', None)
+
+    # sanity check 
+    if api_enabled and not indexer_url:
+        print("FATAL: no 'indexer_url' in the config file, and no --indexer_url given in the arguments")
+        sys.exit(1)
 
     if port is None:
         port = blockstack_opts['rpc_port']
@@ -2274,33 +2316,56 @@ def server_setup(working_dir, port=None):
     # clear indexing state
     set_indexing(working_dir, False)
 
-    # get db state
-    db = get_or_instantiate_db_state(working_dir)
-    
-    # set up atlas state
-    atlas_state = atlas_init(blockstack_opts, db, port=port)
-    db.close()
+    # process overrides
+    if blockstack_opts['enabled'] != indexer_enabled:
+        log.debug("Override blockstack.enabled to {}".format(indexer_enabled))
+        blockstack_opts['enabled'] = indexer_enabled
+        set_blockstack_opts(blockstack_opts)
 
-    # set up subdomains state
-    subdomain_state = subdomains_init(blockstack_opts, working_dir, atlas_state)
-    
-    # start atlas node
-    if atlas_state:
-        atlas_node_start(atlas_state)
+    if blockstack_api_opts['enabled'] != api_enabled:
+        log.debug("Override blockstack-api.enabled to {}".format(indexer_enabled))
+        blockstack_api_opts['enabled'] = api_enabled
+        set_blockstack_api_opts(blockstack_api_opts)
+
+    if blockstack_api_opts['indexer_url'] != indexer_url:
+        log.debug("Override blockstack-api.indexer_url to {}".format(indexer_url))
+        blockstack_api_opts['indexer_url'] = indexer_url
+        set_blockstack_api_opts(blockstack_api_opts)
 
     # start API servers
     rpc_srv = None
     api_srv = None
+    atlas_state = None
+    subdomain_state = None
+
     if blockstack_opts['enabled']:
+        # get db state
+        db = get_or_instantiate_db_state(working_dir)
+    
+        # set up atlas state, if we're an indexer
+        atlas_state = atlas_init(blockstack_opts, db, port=port)
+        db.close()
+
+        # set up subdomains state
+        subdomain_state = subdomains_init(blockstack_opts, working_dir, atlas_state)
+    
+        # start atlas node
+        if atlas_state:
+            atlas_node_start(atlas_state)
+        
+        # start back-plane API server
         rpc_srv = rpc_start(working_dir, port, subdomain_index=subdomain_state)
 
     if blockstack_api_opts['enabled']:
+        # start public RESTful API server
         api_srv = api_start(working_dir, blockstack_api_opts['api_host'], blockstack_api_opts['api_port'])
 
     set_running(True)
 
     # clear any stale indexing state
     set_indexing(working_dir, False)
+
+    log.debug("Server setup: API = {}, Indexer = {}, Indexer URL = {}".format(blockstack_api_opts['enabled'], blockstack_opts['enabled'], blockstack_api_opts['indexer_url']))
 
     ret = {
         'working_dir': working_dir,
@@ -2355,7 +2420,7 @@ def server_shutdown(server_state):
     return True
 
 
-def run_server( working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None ):
+def run_server(working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None, use_api=None, use_indexer=None, indexer_url=None):
     """
     Run blockstackd.  Optionally daemonize.
     Return 0 on success
@@ -2383,36 +2448,46 @@ def run_server( working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSH
             log.debug("Running in the background as PID {}".format(child_pid))
             sys.exit(0)
     
-    server_state = server_setup(working_dir, port)
+    server_state = server_setup(working_dir, port, indexer_enabled=use_indexer, indexer_url=indexer_url, api_enabled=use_api)
     atexit.register(server_shutdown, server_state)
 
     rpc_server = server_state['rpc']
+    
+    blockstack_opts = get_blockstack_opts()
+    blockstack_api_opts = get_blockstack_api_opts()
 
-    log.debug("Begin Indexing")
+    if blockstack_opts['enabled']:
+        log.debug("Begin Indexing")
+        while is_running():
+            try:
+               running = index_blockchain(server_state, expected_snapshots=expected_snapshots)
+            except Exception, e:
+               log.exception(e)
+               log.error("FATAL: caught exception while indexing")
+               os.abort()
 
-    running = True
-    while is_running():
+            # wait for the next block
+            deadline = time.time() + REINDEX_FREQUENCY
+            while time.time() < deadline and is_running():
+                try:
+                    time.sleep(1.0)
+                except:
+                    # interrupt
+                    break
 
-        try:
-           running = index_blockchain(server_state, expected_snapshots=expected_snapshots)
-        except Exception, e:
-           log.exception(e)
-           log.error("FATAL: caught exception while indexing")
-           os.abort()
+        log.debug("End Indexing")
 
-        if not running:
-            break
-
-        # wait for the next block
-        deadline = time.time() + REINDEX_FREQUENCY
-        while time.time() < deadline and is_running():
+    elif blockstack_api_opts['enabled']:
+        log.debug("Begin serving REST requests")
+        while is_running():
             try:
                 time.sleep(1.0)
             except:
                 # interrupt
                 break
 
-    log.debug("End Indexing")
+        log.debug("End serving REST requests")
+
     server_shutdown(server_state)
     
     # close logfile
@@ -2423,46 +2498,29 @@ def run_server( working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSH
     return 0
 
 
-def setup(working_dir):
+def setup(working_dir, interactive=False):
     """
     Do one-time initialization.
-    Call this to set up global state and set signal handlers.
+    Call this to set up global state.
     """
-
     # set up our implementation
     log.debug("Working dir: {}".format(working_dir))
     if not os.path.exists( working_dir ):
         os.makedirs( working_dir, 0700 )
 
-    # acquire configuration, and store it globally
-    opts = configure( working_dir, interactive=True )
-    blockstack_opts = opts.get('blockstack', None)
-    blockstack_api_opts = opts.get('blockstack-api', None)
-    bitcoin_opts = opts['bitcoind']
+    node_config = load_configuration(working_dir)
+    if node_config is None:
+        sys.exit(1)
 
-    # config file version check
-    config_server_version = blockstack_opts.get('server_version', None)
-    if (config_server_version is None or config.versions_need_upgrade(config_server_version, VERSION)):
-       print >> sys.stderr, "Obsolete or unrecognizable config file ({}): '{}' != '{}'".format(virtualchain.get_config_filename(virtualchain_hooks, working_dir), config_server_version, VERSION)
-       print >> sys.stderr, 'Please see the release notes for version {} for instructions to upgrade (in the release-notes/ folder).'.format(VERSION)
-       return None
-
-    log.debug("config:\n%s" % json.dumps(opts, sort_keys=True, indent=4))
-
-    # merge in command-line bitcoind options
-    config_file = virtualchain.get_config_filename(virtualchain_hooks, working_dir)
-
-    # store options
-    set_bitcoin_opts( bitcoin_opts )
-    set_blockstack_opts( blockstack_opts )
-    set_blockstack_api_opts( blockstack_api_opts )
+    log.debug("config\n{}".format(json.dumps(node_config, indent=4, sort_keys=True)))
+    return node_config
 
 
 def reconfigure(working_dir):
     """
     Reconfigure blockstackd.
     """
-    configure( working_dir, force=True )
+    configure(working_dir, force=True, interactive=True)
     print "Blockstack successfully reconfigured."
     sys.exit(0)
 
@@ -2673,10 +2731,10 @@ def run_blockstackd():
     # -------------------------------------
     parser = subparsers.add_parser(
         'start',
-        help='start the blockstackd server')
+        help='start blockstackd')
     parser.add_argument(
         '--foreground', action='store_true',
-        help='start the blockstack server in foreground')
+        help='start blockstackd in foreground')
     parser.add_argument(
         '--expected-snapshots', action='store',
         help='path to a .snapshots file with the expected consensus hashes')
@@ -2686,6 +2744,15 @@ def run_blockstackd():
     parser.add_argument(
         '--working-dir', action='store',
         help='Directory with the chain state to use')
+    parser.add_argument(
+        '--no-indexer', action='store_true',
+        help='Do not start the indexer component')
+    parser.add_argument(
+        '--indexer_url', action='store',
+        help='URL to the indexer-enabled blockstackd instance to use')
+    parser.add_argument(
+        '--no-api', action='store_true',
+        help='Do not start the RESTful API component')
 
     # -------------------------------------
     parser = subparsers.add_parser(
@@ -2809,6 +2876,14 @@ def run_blockstackd():
         pid = read_pid_file(get_pidfile_path(working_dir))
         still_running = False
        
+        use_api = None
+        use_indexer = None
+        if args.no_api:
+            use_api = False
+
+        if args.no_indexer:
+            use_indexer = False
+
         if pid is not None:
            try:
                still_running = check_server_running(pid)
@@ -2820,10 +2895,10 @@ def run_blockstackd():
            log.error("Blockstackd appears to be running already.  If not, please run '{} stop'".format(sys.argv[0]))
            sys.exit(1)
 
-        if pid is not None:
+        if pid is not None and use_indexer is not False:
            # The server didn't shut down properly.
            # restore from back-up before running
-           log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
+           log.warning("Server did not shut down properly (stale PID {}).  Restoring state from last known-good backup.".format(pid))
 
            # move any existing db information out of the way so we can start fresh.
            state_paths = BlockstackDB.get_state_paths(virtualchain_hooks, working_dir)
@@ -2870,7 +2945,7 @@ def run_blockstackd():
         else:
            args.port = None
 
-        exit_status = run_server( working_dir, foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port )
+        exit_status = run_server(working_dir, foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port, use_api=use_api, use_indexer=use_indexer, indexer_url=args.indexer_url)
         if args.foreground:
            log.info("Service endpoint exited with status code %s" % exit_status )
 
