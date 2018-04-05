@@ -596,11 +596,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if resp['saved'][0] == 0:
             # accepted but not processed
-            return self._send_headers(status_code=202, content_type='application/octet-stream')
+            return self._reply_json({'status': True}, status_code=202)
 
         else:
             # accepted and saved
-            return self._send_headers(status_code=200, content_type='application/octet-stream')
+            return self._reply_json({'status': True}, status_code=200)
 
 
     def get_name_zonefile_hashes(self, name):
@@ -827,12 +827,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 500 on failure to talk to the blockstack server
         """
         blockstackd_url = get_blockstackd_url()
-        name_count = get_num_names_in_namespace(namespace_id, hostport=blockstackd_url)
+        name_count = blockstackd_client.get_num_names_in_namespace(namespace_id, hostport=blockstackd_url)
         if json_is_error(name_count):
             log.error("Failed to load namespace count for {}: {}".format(namespace_id, name_count['error']))
             return self._reply_json({'error': 'Failed to load namespace count: {}'.format(name_count['error'])}, status_code=404)
 
-        return self._reply_json(name_count)
+        self._reply_json({'names_count': name_count})
 
 
     def GET_namespace_names( self, path_info, namespace_id ):
@@ -1102,7 +1102,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_account_tokens,
                 },
             },
-            r'^/v1/accounts/({})/(.+){{1,19}}/balance$'.format(BASE58CHECK_CLASS): {
+            r'^/v1/accounts/({})/(.+){{1,{}}}/balance$'.format(BASE58CHECK_CLASS, LENGTHS['namespace_id']): {
                 'routes': {
                     'GET': self.GET_account_balance,
                 },
