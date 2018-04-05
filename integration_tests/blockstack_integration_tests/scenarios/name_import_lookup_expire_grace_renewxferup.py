@@ -78,7 +78,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw ) # 690
 
     # make a zonefile and a profile 
-    resp = testlib.blockstack_import_user('foo.test', wallets[1].privkey, wallets[3].addr, **kw)    # 691
+    resp = testlib.blockstack_import_user('foo.test', wallets[1].privkey, wallets[3].privkey, **kw)    # 691
 
     # try lookup 
     res = testlib.blockstack_cli_lookup('foo.test')
@@ -243,7 +243,7 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    testlib.blockstack_renew_user('foo.test', wallets[3].privkey, wallets[0].addr)   # end of 701 (end of grace period)
+    testlib.blockstack_renew_user('foo.test', wallets[3].privkey, wallets[0].privkey)   # end of 701 (end of grace period)
 
     # try lookup (should succeed again)
     res = testlib.blockstack_cli_lookup('foo.test')
