@@ -47,14 +47,14 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-import blockstack_client.config as blockstack_config
-import blockstack_client.config as blockstack_constants
+import blockstack
+import virtualchain
 
-from blockstack_client.rpc import local_api_connect, local_api_start, local_api_action
-from blockstack_client.wallet import make_wallet
-from blockstack_client.proxy import getinfo
+blockstack_working_dir = blockstack.lib.config.default_working_dir()
+blockstack_config = blockstack.lib.load_configuration(blockstack_working_dir)
+blockstack_indexer_url = blockstack_config['blockstack-api']['indexer_url']
 
-log = blockstack_config.get_logger()
+log = virtualchain.get_logger()
 
 """
 # starting internal API logic should go somewhere else
@@ -162,7 +162,7 @@ def catch_all_post(path):
 @cache_control(DEFAULT_CACHE_TIMEOUT)
 def index():
     current_dir = os.path.abspath(os.path.dirname(__file__))
-    server_info = getinfo()
+    server_info = blockstack.lib.client.getinfo(hostport=blockstack_indexer_url)
 
     return render_template('index.html',
                            server_info=server_info,
