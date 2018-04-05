@@ -1229,7 +1229,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
    backup_max_age = 1008    # one week
    rpc_port = RPC_SERVER_PORT 
    zonefile_dir = os.path.join( os.path.dirname(config_file), "zonefiles")
-   server_version = None
+   server_version = VERSION
    atlas_enabled = True
    atlas_seed_peers = "node.blockstack.org:%s" % RPC_SERVER_PORT
    atlasdb_path = os.path.join( os.path.dirname(config_file), "atlas.db" )
@@ -1537,7 +1537,15 @@ def default_bitcoind_opts(config_file=None, prefix=False):
     return default_bitcoin_opts
 
 
-def configure( working_dir, config_file=None, force=False, interactive=True ):
+def default_working_dir():
+    """
+    Get the default configuration directory for blockstackd
+    """
+    import nameset.virtualchain_hooks as virtualchain_hooks
+    return os.path.expanduser('~/.{}'.format(virtualchain_hooks.get_virtual_chain_name()))
+
+
+def configure(working_dir, config_file=None, force=False, interactive=False):
    """
    Configure blockstack:  find and store configuration parameters to the config file.
 
@@ -1550,11 +1558,8 @@ def configure( working_dir, config_file=None, force=False, interactive=True ):
    """
 
    if config_file is None:
-      try:
-         # get input for everything
-         config_file = virtualchain.get_config_filename(get_default_virtualchain_impl(), working_dir)
-      except:
-         raise
+      # get input for everything
+      config_file = virtualchain.get_config_filename(get_default_virtualchain_impl(), working_dir)
 
    if not os.path.exists( config_file ):
        # definitely ask for everything
@@ -1564,38 +1569,36 @@ def configure( working_dir, config_file=None, force=False, interactive=True ):
 
    # get blockstack opts
    blockstack_opts = {}
-   blockstack_opts_defaults = default_blockstack_opts(working_dir, config_file=config_file )
+   blockstack_opts_defaults = default_blockstack_opts(working_dir, config_file=config_file)
    blockstack_params = blockstack_opts_defaults.keys()
 
-   if not force:
+   if not force or not interactive:
        # default blockstack options
        blockstack_opts = default_blockstack_opts(working_dir, config_file=config_file )
 
-   blockstack_msg = "ADVANCED USERS ONLY.\nPlease enter blockstack configuration hints."
+   blockstack_msg = "Please enter blockstack configuration hints."
 
-   # NOTE: interactive prompt disabled
    blockstack_opts, missing_blockstack_opts, num_blockstack_opts_prompted = find_missing( blockstack_msg, \
                                                                                           blockstack_params, \
                                                                                           blockstack_opts, \
                                                                                           blockstack_opts_defaults, \
-                                                                                          prompt_missing=False )
+                                                                                          prompt_missing=interactive )
 
    blockstack_api_opts = {}
    blockstack_api_defaults = default_blockstack_api_opts(working_dir, config_file=config_file)
    blockstack_api_params = blockstack_api_defaults.keys()
    
-   if not force:
+   if not force or not interactive:
        # default blockstack API options
        blockstack_api_opts = default_blockstack_api_opts(working_dir, config_file=config_file)
 
-   blockstack_api_msg = "ADVANCED USERS ONLY.\nPlease enter blockstack RESTful API configuration hints."
+   blockstack_api_msg = "Please enter blockstack RESTful API configuration hints."
 
-   # NOTE: interactive prompt disabled
    blockstack_api_opts, missing_blockstack_api_opts, num_blockstack_api_opts_prompted = find_missing( blockstack_api_msg, \
                                                                                                       blockstack_api_params, \
                                                                                                       blockstack_api_opts, \
                                                                                                       blockstack_api_defaults, \
-                                                                                                      prompt_missing=False )
+                                                                                                      prompt_missing=interactive )
 
    bitcoind_message  = "Blockstack does not have enough information to connect\n"
    bitcoind_message += "to bitcoind.  Please supply the following parameters, or\n"
@@ -1605,8 +1608,7 @@ def configure( working_dir, config_file=None, force=False, interactive=True ):
    bitcoind_opts_defaults = default_bitcoind_opts( config_file=config_file )
    bitcoind_params = bitcoind_opts_defaults.keys()
 
-   if not force:
-
+   if not force or not interactive:
       # get default set of bitcoind opts
       bitcoind_opts = default_bitcoind_opts( config_file=config_file )
 
@@ -1629,7 +1631,8 @@ def configure( working_dir, config_file=None, force=False, interactive=True ):
    }
 
    # if we prompted, then save
-   if num_bitcoind_prompted > 0 or num_blockstack_opts_prompted > 0 or num_blockstack_api_opts_prompted:
+   if num_bitcoind_prompted > 0 or num_blockstack_opts_prompted > 0 or num_blockstack_api_opts_prompted > 0 or \
+      (not os.path.exists(config_file) and not interactive):
        print >> sys.stderr, "Saving configuration to %s" % config_file
    
        # always set version when writing
@@ -1733,4 +1736,38 @@ def versions_need_upgrade(v_from, v_to):
         if version_needs_upgrade_check(v1):
             return True
     return False
+
+
+def load_configuration(working_dir):
+    """
+    Load the system configuration and set global variables
+    Return the configuration of the node on success.
+    Return None on failure
+    """
+
+    import nameset.virtualchain_hooks as virtualchain_hooks
+
+    # acquire configuration, and store it globally
+    opts = configure(working_dir)
+    blockstack_opts = opts.get('blockstack', None)
+    blockstack_api_opts = opts.get('blockstack-api', None)
+    bitcoin_opts = opts['bitcoind']
+
+    # config file version check
+    config_server_version = blockstack_opts.get('server_version', None)
+    if (config_server_version is None or versions_need_upgrade(config_server_version, VERSION)):
+       print >> sys.stderr, "Obsolete or unrecognizable config file ({}): '{}' != '{}'".format(virtualchain.get_config_filename(virtualchain_hooks, working_dir), config_server_version, VERSION)
+       print >> sys.stderr, 'Please see the release notes for version {} for instructions to upgrade (in the release-notes/ folder).'.format(VERSION)
+       return None
+
+    # store options
+    set_bitcoin_opts( bitcoin_opts )
+    set_blockstack_opts( blockstack_opts )
+    set_blockstack_api_opts( blockstack_api_opts )
+
+    return {
+        'bitcoind': bitcoin_opts,
+        'blockstack': blockstack_opts,
+        'blockstack-api': blockstack_api_opts
+    }
 
