@@ -86,7 +86,6 @@ def scenario( wallets, **kw ):
     
     # make 10 empty zonefiles and propagate them 
     for i in xrange(0, 10):
-        data_pubkey = virtualchain.BitcoinPrivateKey(wallet_keys['data_privkey']).public_key().to_hex()
         empty_zonefile_str = testlib.make_empty_zonefile( "foo_{}.test".format(i), wallets[3].addr)
         value_hash = blockstack.lib.storage.get_zonefile_data_hash(empty_zonefile_str)
 
