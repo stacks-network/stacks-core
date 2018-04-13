@@ -3407,7 +3407,7 @@ class AtlasZonefileCrawler( threading.Thread ):
                 with AtlasPeerTableLocked() as ptbl:
                     # if the node didn't actually have these zonefiles, then 
                     # update their inventories so we don't ask for them again.
-                    # TODO: ban nodes that repeatedly lie to us
+                    # TODO: do NOT ban nodes that repeatedly lie to us, since the "node" could be a load-balancer for a set of nodes that may or may not have the zonefile
                     for zfh in peer_zonefile_hashes:
                         log.debug("%s: %s did not have %s" % (self.hostport, peer_hostport, zfh))
                         atlas_peer_set_zonefile_status( peer_hostport, zfh, False, zonefile_bits=missing_zfinfo[zfh]['indexes'], peer_table=ptbl )
