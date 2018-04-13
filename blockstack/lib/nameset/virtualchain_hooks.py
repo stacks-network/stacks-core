@@ -422,7 +422,7 @@ def db_commit( block_id, op, op_data, txid, vtxindex, db_state=None ):
             assert op_data['vtxindex'] == vtxindex, "BUG: vtxindex mismatch"
             
             opcode = op_data.get('opcode', None)
-            assert opcode in OPCODE_PREORDER_OPS + OPCODE_CREATION_OPS + OPCODE_TRANSITION_OPS + OPCODE_STATELESS_OPS, \
+            assert opcode in OPCODE_PREORDER_OPS + OPCODE_CREATION_OPS + OPCODE_TRANSITION_OPS + OPCODE_STATELESS_OPS + OPCODE_TOKEN_OPS, \
                             "BUG: uncategorized opcode '%s'" % opcode
 
         except Exception, e:
@@ -475,17 +475,17 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
         blockstack_opts = get_blockstack_opts()
         new_zonefile_infos = None
 
-        # vest any tokens
+        # vest any tokens for the next block (so they'll be immediately usable in the next block)
         try:
-            db_state.commit_account_vesting(block_height)
+            db_state.commit_account_vesting(block_height+1)
         except Exception as e:
             log.exception(e)
-            log.fatal("Failed to vest accounts at {}".format(block_height))
+            log.fatal("Failed to vest accounts at {}+1".format(block_height))
             os.abort()
 
         try:
             # flush the database
-            db_state.commit_finished( block_height )
+            db_state.commit_finished(block_height)
         except Exception as e:
             log.exception(e)
             log.error("FATAL: failed to commit at block %s" % block_height )
