@@ -37,7 +37,7 @@ import re
 import urllib2
 import socket
 from .util import url_to_host_port, url_protocol, parse_DID
-from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, BLOCKSTACK_TEST, get_blockstack_api_opts
+from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, BLOCKSTACK_TEST, get_blockstack_api_opts, TOKEN_TYPE_STACKS
 from .schemas import *
 from .scripts import is_name_valid, is_subdomain
 from .storage import verify_zonefile
@@ -219,11 +219,15 @@ def json_validate(schema, resp):
         'type': 'object',
         'properties': {
             'error': {
-                'type': 'string'
-            }
+                'type': 'string',
+            },
+            'http_status': {
+                'type': 'integer',
+            },
         },
         'required': [
-            'error'
+            'error',
+            'http_status'
         ]
     }
 
@@ -246,7 +250,7 @@ def json_traceback(error_msg=None):
 
     exception_data = traceback.format_exc().splitlines()
     if error_msg is None:
-        error_msg = exception_data[-1]
+        error_msg = '\n'.join(exception_data)
     else:
         error_msg = 'Remote RPC error: {}'.format(error_msg)
 
@@ -379,7 +383,8 @@ def ping(proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
 
     except socket.timeout:
         log.error("Connection timed out")
@@ -465,13 +470,15 @@ def getinfo(proxy=None, hostport=None):
         if json_is_error(resp):
             if BLOCKSTACK_TEST:
                 log.debug("invalid response: {}".format(old_resp))
+
             return resp
 
     except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
 
     except socket.timeout:
         log.error("Connection timed out")
@@ -533,11 +540,20 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
 
         # make sure it corresponds to this range
         assert len(zf_inv['inv']) <= (bit_count / 8) + (bit_count % 8), 'Zonefile inventory in is too long (got {} bytes)'.format(len(zf_inv['inv']))
-    except (ValidationError, AssertionError) as e:
-        if BLOCKSTACK_DEBUG:
-            log.exception(e)
 
-        zf_inv = {'error': 'Failed to fetch and parse zonefile inventory'}
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
+
+    except AssertionError as ae:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ae)
+
+        zf_inv = {'error': 'Server replied an invalid zone file inventory vector'}
+        return resp
 
     except socket.timeout:
         log.error("Connection timed out")
@@ -604,11 +620,12 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
 
         peers = peer_list_resp
 
-    except (ValidationError, AssertionError) as e:
+    except ValidationError as ve:
         if BLOCKSTACK_DEBUG:
-            log.exception(e)
+            log.exception(ve)
 
-        peers = json_traceback()
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
 
     except socket.timeout:
         log.error("Connection timed out")
@@ -675,11 +692,12 @@ def atlas_peer_exchange(hostport, my_hostport, timeout=30, proxy=None):
 
         peers = peer_list_resp
 
-    except (ValidationError, AssertionError) as e:
+    except ValidationError as ve:
         if BLOCKSTACK_DEBUG:
-            log.exception(e)
+            log.exception(ve)
 
-        peers = json_traceback()
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
 
     except socket.timeout:
         log.error("Connection timed out")
@@ -759,12 +777,14 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
             log.exception(ae)
 
         zonefiles = {'error': 'Zonefile data mismatch'}
+        return zonefiles
 
     except ValidationError as ve:
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        zonefiles = json_traceback()
+        zonefiles = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return zonefiles
 
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
@@ -822,7 +842,8 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        push_info = json_traceback()
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
 
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
@@ -972,7 +993,7 @@ def get_name_record(name, include_history=False, include_expired=False, include_
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
     
     except Exception as ee:
@@ -1045,12 +1066,14 @@ def get_namespace_record(namespace_id, proxy=None, hostport=None):
 
         # this isn't needed
         ret.pop('opcode', None)
+
     except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        ret = json_traceback(ret.get('error'))
-        return ret
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
@@ -1066,15 +1089,27 @@ def get_name_cost(name, proxy=None, hostport=None):
     """
     name_cost
     Returns the name cost info on success
-    For BTC-pricing, returns {'satoshis': ...}
-    For STACKS-pricing, returns {'amount': ..., 'units': ...}
+    Returns {'amount': ..., 'units': ...} on success
     Returns {'error': ...} on error
     """
     assert proxy or hostport, 'Need proxy or hostport'
     if proxy is None:
         proxy = connect_hostport(hostport)
 
-    cost_schema = {
+    cost_schema_v1 = {
+        'type': 'object',
+        'properties': {
+            'satoshis': {
+                'type': 'integer',
+                'minimum': 0,
+            },
+        },
+        'required': [
+            'satoshis'
+        ]
+    }
+
+    cost_schema_v2 = {
         'type': 'object',
         'properties': {
             'units': {
@@ -1091,16 +1126,29 @@ def get_name_cost(name, proxy=None, hostport=None):
         ]
     }
 
-    resp_schema = json_response_schema(cost_schema)
+    resp_version = None
+    resp_schema_v1 = json_response_schema(cost_schema_v1)
+    resp_schema_v2 = json_response_schema(cost_schema_v2)
+
     resp = {}
     try:
         resp = proxy.get_name_cost(name)
-        resp = json_validate(resp_schema, resp)
+        try:
+            resp = json_validate(resp_schema_v2, resp)
+        except:
+            resp = json_validate(resp_schema_v1, resp)
+            if not json_is_error(resp):
+                resp = {'units': 'BTC', 'amount': resp['satoshis']}
+
         if json_is_error(resp):
             return resp
 
     except ValidationError as e:
-        resp = json_traceback(resp.get('error'))
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
 
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
@@ -1109,10 +1157,6 @@ def get_name_cost(name, proxy=None, hostport=None):
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
-
-    # legacy compatibility: if this is BTC, then return 'satoshis'
-    if resp['units'] == 'BTC':
-        resp['satoshis'] = resp['amount']
 
     return resp
 
@@ -1128,12 +1172,25 @@ def get_namespace_cost(namespace_id, proxy=None, hostport=None):
     if proxy is None:
         proxy = connect_hostport(hostport)
 
-    cost_schema = {
+    cost_schema_v1 = {
+        'type': 'object',
+        'properties': {
+            'satoshis': {
+                'type': 'integer',
+                'minimum': 0,
+            },
+        },
+        'required': [
+            'satoshis'
+        ],
+    }
+
+    cost_schema_v2 = {
         'type': 'object',
         'properties': {
             'units': {
                 'type': 'string',
-                'pattern': '^BTC$|^STACKS$',
+                'pattern': '^BTC$|^{}$'.format(TOKEN_TYPE_STACKS),
             },
             'amount': {
                 'type': 'integer',
@@ -1146,16 +1203,28 @@ def get_namespace_cost(namespace_id, proxy=None, hostport=None):
         ],
     }
 
-    schema = json_response_schema(cost_schema)
+    schema_v1 = json_response_schema(cost_schema_v1)
+    schema_v2 = json_response_schema(cost_schema_v2)
+
     resp = {}
     try:
         resp = proxy.get_namespace_cost(namespace_id)
-        resp = json_validate( cost_schema, resp )
+        try:
+            resp = json_validate(cost_schema_v2, resp)
+        except:
+            resp = json_validate(cost_schema_v1, resp)
+            if not json_is_error(resp):
+                resp = {'units': 'BTC', 'amount': resp['satoshis']}
+
         if json_is_error(resp):
             return resp
 
     except ValidationError as e:
-        resp = json_traceback(resp.get('error'))
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
 
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
@@ -1164,10 +1233,6 @@ def get_namespace_cost(namespace_id, proxy=None, hostport=None):
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
         return resp
-
-    # legacy compatibility: if this is BTC, then return 'satoshis'
-    if resp['units'] == 'BTC':
-        resp['satoshis'] = resp['amount']
 
     return resp
 
@@ -1202,9 +1267,16 @@ def get_account_tokens(address, hostport=None, proxy=None):
         if json_is_error(resp):
             return resp
 
-    except (ValidationError, AssertionError) as e:
+    except ValidationError as ve:
         if BLOCKSTACK_DEBUG:
-            log.exception(e)
+            log.exception(ve)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
+
+    except AssertionError as ae:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ae)
 
         resp = json_traceback(resp.get('error'))
         return resp
@@ -1218,6 +1290,56 @@ def get_account_tokens(address, hostport=None, proxy=None):
         return resp
 
     return resp['token_types']
+
+
+def get_account_record(address, token_type, hostport=None, proxy=None):
+    """
+    Get the current state of the account
+    Returns the account record on success
+    """
+    assert proxy or hostport, 'Need proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    account_schema = {
+        'type': 'object',
+        'properties': {
+            'account': {
+                'type': 'object',
+                'properties': ACCOUNT_SCHEMA_PROPERTIES,
+                'required': ACCOUNT_SCHEMA_REQUIRED,
+            },
+        },
+        'required': [
+            'account'
+        ],
+    }
+
+    schema = json_response_schema(account_schema)
+
+    try:
+        resp = proxy.get_account_record(address, token_type)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+   
+    return resp['account']
 
 
 def get_account_balance(address, token_type, hostport=None, proxy=None):
@@ -1249,11 +1371,11 @@ def get_account_balance(address, token_type, hostport=None, proxy=None):
         if json_is_error(resp):
             return resp
 
-    except (ValidationError, AssertionError) as e:
+    except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
 
     except Exception as ee:
@@ -1265,6 +1387,112 @@ def get_account_balance(address, token_type, hostport=None, proxy=None):
         return resp
 
     return resp['balance']
+
+
+def get_account_at(address, block_height, hostport=None, proxy=None):
+    """
+    Get the state(s) that an account was in at a given block
+    Returns the list of account operations on success
+    Returns {'error': ...} on error
+    """
+    assert proxy or hostport, 'Need proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    page_schema = {
+        'type': 'object',
+        'properties': {
+            'history': {
+                'type': 'array',
+                'items': {
+                    'type': 'object',
+                    'properties': ACCOUNT_SCHEMA_PROPERTIES,
+                    'required': ACCOUNT_SCHEMA_REQUIRED,
+                },
+            },
+        },
+        'required': [
+            'history'
+        ],
+    }
+
+    schema = json_response_schema(page_schema)
+
+    try:
+        resp = proxy.get_account_at(address, block_height)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['history']
+
+
+def get_account_history_page(address, block_start, block_end, page, hostport=None, proxy=None):
+    """
+    Get a page of the account's history
+    Returns the list of account operations on success
+    Returns {'error': ...} on error
+    """
+    assert proxy or hostport, 'Need proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    page_schema = {
+        'type': 'object',
+        'properties': {
+            'history': {
+                'type': 'array',
+                'items': {
+                    'type': 'object',
+                    'properties': ACCOUNT_SCHEMA_PROPERTIES,
+                    'required': ACCOUNT_SCHEMA_REQUIRED,
+                },
+            },
+        },
+        'required': [
+            'history'
+        ],
+    }
+
+    schema = json_response_schema(page_schema)
+
+    try:
+        resp = proxy.get_account_history(address, block_start, block_end, page)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        return resp
+
+    return resp['history']
 
 
 def get_all_names_page(offset, count, include_expired=False, hostport=None, proxy=None):
@@ -1321,12 +1549,14 @@ def get_all_names_page(offset, count, include_expired=False, hostport=None, prox
                 log.error('Invalid name "{}"'.format(str(n)))
             else:
                 valid_names.append(n)
-        resp['names'] = valid_names
-    except (ValidationError, AssertionError) as e:
-        if BLOCKSTACK_DEBUG:
-            log.exception(e)
 
-        resp = json_traceback(resp.get('error'))
+        resp['names'] = valid_names
+
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+        
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
 
     except Exception as ee:
@@ -1374,12 +1604,12 @@ def get_num_names(include_expired=False, proxy=None, hostport=None):
         resp = json_validate(count_schema, resp)
         if json_is_error(resp):
             return resp
+
     except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
 
     except Exception as ee:
@@ -1477,12 +1707,12 @@ def get_all_namespaces(offset=None, count=None, proxy=None, hostport=None):
         resp = json_validate(namespaces_schema, resp)
         if json_is_error(resp):
             return resp
+
     except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
 
     except Exception as ee:
@@ -1540,13 +1770,14 @@ def get_names_in_namespace_page(namespace_id, offset, count, proxy=None, hostpor
                 log.error('Invalid name "{}"'.format(str(n)))
             else:
                 valid_names.append(n)
+
         return valid_names
-    except (ValidationError, AssertionError) as e:
+
+    except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
 
     except Exception as ee:
@@ -1593,8 +1824,7 @@ def get_num_names_in_namespace(namespace_id, proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
 
     except Exception as ee:
@@ -1690,12 +1920,19 @@ def get_names_owned_by_address(address, proxy=None, hostport=None):
         # names must be valid
         for n in resp['names']:
             assert is_name_valid(str(n)), ('Invalid name "{}"'.format(str(n)))
-    except (ValidationError, AssertionError) as e:
+
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
+
+    except AssertionError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Got an invalid name from the server'}
         return resp
 
     except Exception as ee:
@@ -1748,12 +1985,18 @@ def get_subdomains_owned_by_address(address, proxy=None, hostport=None):
         for n in resp['subdomains']:
             assert is_subdomain(str(n)), ('Invalid subdomain "{}"'.format(str(n)))
 
-    except (ValidationError, AssertionError) as e:
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
+
+    except AssertionError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response included an invalid subdomain'}
         return resp
 
     except Exception as ee:
@@ -1798,12 +2041,18 @@ def get_name_DID(name, proxy=None, hostport=None):
         # DID must be well-formed
         assert parse_DID(resp['did'])
 
-    except (ValidationError, AssertionError) as e:
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
+    
+    except AssertionError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server replied an unparseable DID'}
         return resp
 
     except Exception as ee:
@@ -1878,12 +2127,11 @@ def get_DID_record(did, proxy=None, hostport=None):
         if json_is_error(resp):
             return resp
 
-    except (ValidationError, AssertionError) as e:
+    except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        log.error("Caught exception while connecting to Blockstack node: {}".format(e))
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
 
     except Exception as ee:
@@ -1941,8 +2189,12 @@ def get_consensus_at(block_height, proxy=None, hostport=None):
         resp = json_validate(resp_schema, resp)
         if json_is_error(resp):
             return resp
-    except (ValidationError, AssertionError) as e:
-        resp = json_traceback(resp.get('error'))
+
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
 
     except Exception as ee:
@@ -2020,8 +2272,11 @@ def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
             return num_nameops
 
     except ValidationError as e:
-        num_nameops = json_traceback()
-        return num_nameops
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        return resp
 
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
@@ -2053,8 +2308,9 @@ def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
             if BLOCKSTACK_DEBUG:
                 log.exception(e)
 
-            resp = json_traceback(resp.get('error'))
+            resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
             return resp
+
         except Exception as ee:
             if BLOCKSTACK_DEBUG:
                 log.exception(ee)
@@ -2103,12 +2359,12 @@ def get_consensus_hashes(block_heights, hostport=None, proxy=None):
         if json_is_error(resp):
             log.error('Failed to get consensus hashes for {}: {}'.format(block_heights, resp['error']))
             return resp
+
     except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
 
     except Exception as ee:
@@ -2176,7 +2432,7 @@ def get_block_from_consensus(consensus_hash, hostport=None, proxy=None):
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
     
     except Exception as ee:
@@ -2188,56 +2444,6 @@ def get_block_from_consensus(consensus_hash, hostport=None, proxy=None):
         return resp
 
     return resp['block_id']
-
-
-def get_name_history_blocks(name, hostport=None, proxy=None):
-    """
-    Get the list of blocks at which this name was affected.
-    Returns the list of blocks on success, including if the name doesn't exist (in which case the list will be empty)
-    Returns {'error': ...} on error
-    """
-    assert hostport or proxy, 'Need hostport or proxy'
-    if proxy is None:
-        proxy = connect_hostport(hostport)
-
-    hist_schema = {
-        'type': 'array',
-        'items': {
-            'type': 'integer',
-            'minimum': 0,
-        },
-    }
-
-    hist_list_schema = {
-        'type': 'object',
-        'properties': {
-            'history_blocks': hist_schema
-        },
-        'required': [
-            'history_blocks'
-        ],
-    }
-
-    resp_schema = json_response_schema( hist_list_schema )
-    resp = {}
-    try:
-        resp = proxy.get_name_history_blocks(name)
-        resp = json_validate(resp_schema, resp)
-        if json_is_error(resp):
-            return resp
-    except ValidationError as e:
-        resp = json_traceback(resp.get('error'))
-        return resp
-
-    except Exception as ee:
-        if BLOCKSTACK_DEBUG:
-            log.exception(ee)
-
-        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
-        return resp
-
-    return resp['history_blocks']
 
 
 def get_name_at(name, block_id, include_expired=False, hostport=None, proxy=None):
@@ -2294,7 +2500,7 @@ def get_name_at(name, block_id, include_expired=False, hostport=None, proxy=None
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = json_traceback(resp.get('error'))
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
 
     except Exception as ee:
@@ -2338,9 +2544,14 @@ def get_nameops_hash_at(block_id, hostport=None, proxy=None):
         resp = json_validate(schema, resp)
         if json_is_error(resp):
             return resp
+
     except ValidationError as e:
-        resp = json_traceback(resp.get('error'))
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
         return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
@@ -2387,6 +2598,7 @@ def get_JWT(url, address=None):
             resp = requests.get(url)
             assert resp.status_code == 200, 'Bad status code on {}: {}'.format(url, resp.status_code)
             jwt_txt = resp.text
+
         except Exception as e:
             if BLOCKSTACK_TEST:
                 log.exception(e)
@@ -2421,6 +2633,7 @@ def get_JWT(url, address=None):
         assert isinstance(jwt['payload']['issuer'], dict)
         assert 'publicKey' in jwt['payload']['issuer'], jwt
         assert virtualchain.ecdsalib.ecdsa_public_key(str(jwt['payload']['issuer']['publicKey']))
+
     except AssertionError as ae:
         if BLOCKSTACK_TEST or BLOCKSTACK_DEBUG:
             log.exception(ae)
