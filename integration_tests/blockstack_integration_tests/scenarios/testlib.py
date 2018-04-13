@@ -57,6 +57,7 @@ log = virtualchain.get_logger("testlib")
 import blockstack_client
 
 SATOSHIS_PER_COIN = 10**8
+TOKEN_TYPE_STACKS = 'STACKS'
 
 TX_MIN_CONFIRMATIONS = 6
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
@@ -70,13 +71,13 @@ if os.environ.get("BLOCKSTACK_MIN_CONFIRMATIONS", None) is not None:
 
 
 class Wallet(object):
-    def __init__(self, pk_wif, tokens_granted, vesting_schedule={} ):
+    def __init__(self, pk_wif, tokens_granted, vesting={} ):
 
         pk = virtualchain.BitcoinPrivateKey( pk_wif )
 
         self._pk = pk
         self._token_grant = tokens_granted
-        self._vesting_schedule = vesting_schedule
+        self._vesting_schedule = vesting
 
         if pk_wif.startswith("c"):
             # already a private key 
@@ -112,7 +113,7 @@ class MultisigWallet(object):
         self.pks = pks
         self.segwit = False
         self._token_grant = kwargs.get('tokens_granted', 0)
-        self._vesting_schedule = kwargs.get('vesting_schedule', {})
+        self._vesting_schedule = kwargs.get('vesting', {})
 
         self.addr = self.privkey['address']
 
@@ -126,7 +127,7 @@ class MultisigWallet(object):
 
 
 class SegwitWallet(object):
-    def __init__(self, pk_wif, tokens_granted=0, vesting_schedule={} ):
+    def __init__(self, pk_wif, tokens_granted=0, vesting={} ):
 
         self.privkey = virtualchain.make_segwit_info( pk_wif )
         pk = virtualchain.BitcoinPrivateKey( pk_wif )
@@ -134,7 +135,7 @@ class SegwitWallet(object):
         self._pk = pk
         self.segwit = True
         self._token_grant = tokens_granted
-        self._vesting_schedule = vesting_schedule
+        self._vesting_schedule = vesting
 
         self.pubkey_hex = pk.public_key().to_hex()
         self.addr = self.privkey['address']
@@ -177,23 +178,35 @@ class TokenOperation(object):
         self.account_addr = account_addr
 
 class TokenNamespacePreorder(TokenOperation):
-    def __init__(self, namespace_id, payment_addr):
+    def __init__(self, namespace_id, payment_addr, price=None):
         blockstackd_url = 'http://localhost:16264'
-        namespace_cost_info = blockstackd_client.get_namespace_cost(namespace_id, hostport=blockstackd_url)
+        
+        namespace_cost_info = price
+        if not namespace_cost_info:
+            namespace_cost_info = blockstackd_client.get_namespace_cost(namespace_id, hostport=blockstackd_url)
+
         super(TokenNamespacePreorder, self).__init__("NAMESPACE_PREORDER", namespace_cost_info['units'], namespace_cost_info['amount'], payment_addr)
 
 
 class TokenNamePreorder(TokenOperation):
-    def __init__(self, name, preorder_addr):
+    def __init__(self, name, preorder_addr, price=None):
         blockstackd_url = 'http://localhost:16264'
-        name_cost_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
+
+        name_cost_info = price
+        if not name_cost_info:
+            name_cost_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
+
         super(TokenNamePreorder, self).__init__('NAME_PREORDER', name_cost_info['units'], name_cost_info['amount'], preorder_addr)
 
 
 class TokenNameRenewal(TokenOperation):
-    def __init__(self, name, owner_addr):
+    def __init__(self, name, owner_addr, price=None):
         blockstackd_url = 'http://localhost:16264'
-        name_cost_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
+
+        name_cost_info = price
+        if not name_cost_info:
+            name_cost_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
+
         super(TokenNameRenewal, self).__init__('NAME_RENEWAL', name_cost_info['units'], name_cost_info['amount'], owner_addr)
 
 
@@ -399,9 +412,11 @@ def nodejs_cli(*args, **kw):
     safety_checks = kw.get('safety_checks', True)
     consensus_hash = kw.get('consensus_hash', None)
     tx_fee = kw.get('tx_fee', None)
+    tx_only = kw.get('tx_only', False)
     burn_address = kw.get('burn_addr', None)
     pattern = kw.get('pattern', None)
     full_output = kw.get('full_output', False)
+    price = kw.get('price', None)
 
     if NODEJS_CLI_PATH is None:
         if not has_nodejs_cli():
@@ -416,6 +431,13 @@ def nodejs_cli(*args, **kw):
 
     if burn_address:
         base_cmd += ['-B', burn_address]
+
+    if tx_only:
+        pattern = '^[0-9a-f]+$'
+        base_cmd += ['-x']
+
+    if price:
+        base_cmd += ['-P', '{}'.format(price['amount']), '-D', price['units']]
 
     base_cmd_save = base_cmd[:]
 
@@ -435,8 +457,8 @@ def nodejs_cli(*args, **kw):
         if res != 0:
             print err
 
-            print 'Sleeping for 10 minutes so you can experiment with what went wrong'
-            time.sleep(600)
+            print 'Sleeping for 30 minutes so you can experiment with what went wrong'
+            time.sleep(1800)
             raise Exception("Exit code {}: {}".format(res, cmd))
 
         ret = None
@@ -450,7 +472,7 @@ def nodejs_cli(*args, **kw):
         return ret
 
     ret = run(base_cmd, list(args))
-    if not tx_fee:
+    if not tx_fee or tx_only:
         if pattern:
             assert re.match(pattern, ret), 'Output does not match {}: {}\nfull output:\n{}\nerror:\n{}'.format(pattern, ret, saved_out[0], saved_err[0])
 
@@ -469,7 +491,7 @@ def nodejs_cli(*args, **kw):
     return ret
 
 
-def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn_addr=None, consensus_hash=None, tx_fee=None, safety_checks=True, config_path=None ):
+def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn_addr=None, consensus_hash=None, tx_fee=None, tx_only=False, safety_checks=True, price=None, expect_fail=False, config_path=None ):
 
     global api_call_history 
 
@@ -478,11 +500,17 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
      
     resp = None
     if has_nodejs_cli() and wallet is None and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('tx_preorder', name, register_addr, privatekey, burn_addr=burn_addr, consensus_hash=consensus_hash, tx_fee=tx_fee, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
-        resp = {
-            'status': True,
-            'transaction_hash': txid
-        }
+        txid = nodejs_cli('tx_preorder', name, register_addr, privatekey, burn_addr=burn_addr, consensus_hash=consensus_hash, tx_fee=tx_fee, tx_only=tx_only, price=price, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
+        if tx_only:
+            resp = {
+                'status': True,
+                'transaction': txid
+            }
+        else:
+            resp = {
+                'status': True,
+                'transaction_hash': txid
+            }
 
     else:
         test_proxy = make_proxy(config_path=config_path)
@@ -508,12 +536,17 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
         resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, units, cost, test_proxy, test_proxy, tx_fee=tx_fee,
                 burn_address=burn_addr, owner_address=register_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    token_record = TokenNamePreorder(name, payment_addr)
-    api_call_history.append( APICallRecord( "preorder", name, payment_addr, resp, token_record=token_record ) )
+    if not tx_only:
+        token_record = None
+        if not expect_fail:
+            token_record = TokenNamePreorder(name, payment_addr, price=price)
+
+        api_call_history.append( APICallRecord( "preorder", name, payment_addr, resp, token_record=token_record ) )
+
     return resp
 
 
-def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=None, wallet=None, safety_checks=True, config_path=None, tx_fee=None ):
+def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=None, wallet=None, safety_checks=True, tx_only=False, config_path=None, tx_fee=None ):
     
     global api_call_history
     resp = None
@@ -522,14 +555,20 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
     if has_nodejs_cli() and wallet is None and virtualchain.is_singlesig(privatekey):
         txid = None
         if zonefile_hash is not None:
-            txid = nodejs_cli('tx_register', name, register_addr, privatekey, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+            txid = nodejs_cli('tx_register', name, register_addr, privatekey, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
         else:
             txid = nodejs_cli('tx_register', name, register_addr, privatekey, safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
 
-        resp = {
-            'status': True,
-            'transaction_hash': txid
-        }
+        if tx_only:
+            resp = {
+                'status': True,
+                'transaction': txid
+            }
+        else:
+            resp = {
+                'status': True,
+                'transaction_hash': txid
+            }
 
     else:
         test_proxy = make_proxy(config_path=config_path)
@@ -555,11 +594,13 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
         resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, 
                 zonefile_hash=zonefile_hash, owner_address=register_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
 
-    api_call_history.append( APICallRecord( "register", name, register_addr, resp ) )
+    if not tx_only:
+        api_call_history.append( APICallRecord( "register", name, register_addr, resp ) )
+
     return resp
 
 
-def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, test_api_proxy=True, safety_checks=True, config_path=None, tx_fee=None ):
+def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, test_api_proxy=True, safety_checks=True, tx_only=False, config_path=None, tx_fee=None ):
     
     global api_call_history
     
@@ -567,11 +608,17 @@ def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, te
     resp = None
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key):
-        txid = nodejs_cli('update', name, 'ignored', privatekey, payment_key, data_hash, safety_checks=safety_checks, consensus_hash=consensus_hash, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
-        resp = {
-            'status': True,
-            'transaction_hash': txid
-        }
+        txid = nodejs_cli('update', name, 'ignored', privatekey, payment_key, data_hash, safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+        if tx_only:
+            resp = {
+                'status': True,
+                'transaction': txid
+            }
+        else:
+            resp = {
+                'status': True,
+                'transaction_hash': txid
+            }
 
     else:
         test_proxy = make_proxy(config_path=config_path)
@@ -581,11 +628,13 @@ def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, te
         resp = blockstack_client.do_update( name, data_hash, privatekey, payment_key, test_proxy, test_proxy,
                 consensus_hash=consensus_hash, tx_fee=tx_fee, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "update", name, None, resp ) )
+    if not tx_only:
+        api_call_history.append( APICallRecord( "update", name, None, resp ) )
+
     return resp
 
 
-def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_fee=None ):
+def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_hash=None, safety_checks=True, tx_only=False, config_path=None, tx_fee=None ):
      
     global api_call_history
 
@@ -593,11 +642,17 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
     resp = None
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key):
-        txid = nodejs_cli('transfer', name, address, '{}'.format(keepdata).lower(), privatekey, payment_key, safety_checks=safety_checks, consensus_hash=consensus_hash, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
-        resp = {
-            'status': True,
-            'transaction_hash': txid
-        }
+        txid = nodejs_cli('transfer', name, address, '{}'.format(keepdata).lower(), privatekey, payment_key, safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+        if tx_only:
+            resp = {
+                'status': True,
+                'transaction': txid
+            }
+        else:
+            resp = {
+                'status': True,
+                'transaction_hash': txid
+            }
 
     else:
         test_proxy = make_proxy(config_path=config_path)
@@ -607,11 +662,13 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
         resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy,
                 tx_fee=tx_fee, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "transfer", name, address, resp ) )
+    if not tx_only:
+        api_call_history.append( APICallRecord( "transfer", name, address, resp ) )
+
     return resp
 
 
-def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, zonefile_hash=None, tx_fee=0, tx_fee_per_byte=None ):
+def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, zonefile_hash=None, tx_fee=None, tx_only=False, price=None, expect_fail=False, tx_fee_per_byte=None ):
     
     global api_call_history
     
@@ -623,16 +680,25 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
         txid = None
         if recipient_addr is not None:
             if zonefile_hash is not None:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, recipient_addr, 'ignored', zonefile_hash, safety_checks=safety_checks, burn_address=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+                txid = nodejs_cli('renew', name, privatekey, payment_key, recipient_addr, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_only=tx_only, price=price, burn_address=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
             else:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, recipient_addr, safety_checks=safety_checks, burn_address=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+                txid = nodejs_cli('renew', name, privatekey, payment_key, recipient_addr, safety_checks=safety_checks, burn_address=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
         else:
-            txid = nodejs_cli('renew', name, privatekey, payment_key, safety_checks=safety_checks, burn_address=burn_addr, tx_fee=tx_fee)
+            if zonefile_hash is not None:
+                raise Exception("Cannot set a zone file hash without a destination address")
+            else:
+                txid = nodejs_cli('renew', name, privatekey, payment_key, safety_checks=safety_checks, burn_address=burn_addr, price=price, tx_fee=tx_fee)
 
-        resp = {
-            'status': True,
-            'transaction_hash': txid
-        }
+        if tx_only:
+            resp = {
+                'status': True,
+                'transaction': txid,
+            }
+        else:
+            resp = {
+                'status': True,
+                'transaction_hash': txid,
+            }
 
     else:
         test_proxy = make_proxy(config_path=config_path)
@@ -646,12 +712,17 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
         resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['units'], name_cost_info['amount'], test_proxy, test_proxy, tx_fee=tx_fee, tx_fee_per_byte=tx_fee_per_byte,
                 burn_address=burn_addr, zonefile_hash=zonefile_hash, recipient_addr=recipient_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    token_record = TokenNameRenewal(name, owner_addr)
-    api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp, token_record=token_record) )
+    if not tx_only:
+        token_record = None
+        if not expect_fail:
+            token_record = TokenNameRenewal(name, owner_addr, price=price)
+
+        api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp, token_record=token_record) )
+
     return resp
 
 
-def blockstack_name_revoke( name, privatekey, safety_checks=True, config_path=None, tx_fee=None ):
+def blockstack_name_revoke( name, privatekey, safety_checks=True, config_path=None, tx_fee=None, tx_only=False ):
     
     global api_call_history
 
@@ -659,11 +730,17 @@ def blockstack_name_revoke( name, privatekey, safety_checks=True, config_path=No
     resp = None
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key):
-        txid = nodejs_cli('revoke', name, privatekey, payment_key, safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
-        resp = {
-            'status': True,
-            'transaction_hash': txid
-        }
+        txid = nodejs_cli('revoke', name, privatekey, payment_key, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+        if tx_only:
+            resp = {
+                'status': True,
+                'transaction': txid
+            }
+        else:
+            resp = {
+                'status': True,
+                'transaction_hash': txid
+            }
 
     else:
         test_proxy = make_proxy(config_path=config_path)
@@ -672,21 +749,29 @@ def blockstack_name_revoke( name, privatekey, safety_checks=True, config_path=No
 
         resp = blockstack_client.do_revoke( name, privatekey, payment_key, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, tx_fee=tx_fee )
 
-    api_call_history.append( APICallRecord( "revoke", name, None, resp ) )
+    if not tx_only:
+        api_call_history.append( APICallRecord( "revoke", name, None, resp ) )
+
     return resp
 
 
-def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=True, config_path=None ):
+def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=True, tx_only=False, config_path=None ):
     
     global api_call_history
     
     resp = None
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('name_import', name, recipient_address, update_hash, privatekey)
-        resp = {
-            'status': True,
-            'transaction_hash': txid
-        }
+        txid = nodejs_cli('name_import', name, recipient_address, update_hash, privatekey, tx_only=tx_only, safety_checks=safety_checks)
+        if tx_only:
+            resp = {
+                'status': True,
+                'transaction': txid
+            }
+        else:
+            resp = {
+                'status': True,
+                'transaction_hash': txid
+            }
 
     else:
         test_proxy = make_proxy(config_path=config_path)
@@ -695,22 +780,31 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     
         resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "name_import", name, virtualchain.address_reencode(recipient_address), resp ) )
+    if not tx_only:
+        api_call_history.append( APICallRecord( "name_import", name, virtualchain.address_reencode(recipient_address), resp ) )
+
     return resp
 
 
-def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None ):
+def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_only=False, price=None, expect_fail=False):
     
     global api_call_history
     resp = None
     payment_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('namespace_preorder', namespace_id, register_addr, privatekey, consensus_hash=consensus_hash, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
-        resp = {
-            'status': True,
-            'transaction_hash': txid
-        }
+        txid = nodejs_cli('namespace_preorder', namespace_id, register_addr, privatekey, consensus_hash=consensus_hash, safety_checks=safety_checks, price=price, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+
+        if tx_only:
+            resp = {
+                'status': True,
+                'transaction': txid
+            }
+        else:
+            resp = {
+                'status': True,
+                'transaction_hash': txid
+            }
         
     else:
         test_proxy = make_proxy(config_path=config_path)
@@ -727,12 +821,17 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
         resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['units'], namespace_cost['amount'], privatekey, register_addr, test_proxy, test_proxy,
                 consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    token_record = TokenNamespacePreorder(namespace_id, payment_addr)
-    api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp, token_record=token_record) )
+    if not tx_only:
+        token_record = None
+        if not expect_fail:
+            token_record = TokenNamespacePreorder(namespace_id, payment_addr, price=price)
+
+        api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp, token_record=token_record) )
+
     return resp
 
 
-def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, config_path=None ):
+def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, tx_only=False, config_path=None):
     
     global api_call_history
     resp = None
@@ -740,11 +839,17 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
         txid = nodejs_cli('namespace_reveal', namespace_id, register_addr, '{}'.format(version_bits), '{}'.format(lifetime), '{}'.format(coeff), '{}'.format(base), 
-                ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), privatekey, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
-        resp = {
-            'status': True,
-            'transaction_hash': txid
-        }
+                ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), privatekey, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only)
+        if tx_only:
+            resp = {
+                'status': True,
+                'transaction': txid
+            }
+        else:
+            resp = {
+                'status': True,
+                'transaction_hash': txid
+            }
 
     else:
         test_proxy = make_proxy(config_path=config_path)
@@ -754,17 +859,19 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
         resp = blockstack_client.do_namespace_reveal( namespace_id, version_bits, register_addr, lifetime, coeff, base, bucket_exponents,
                 nonalpha_discount, no_vowel_discount, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy)
 
-    api_call_history.append( APICallRecord( "namespace_reveal", namespace_id, virtualchain.address_reencode(register_addr), resp ) )
+    if not tx_only:
+        api_call_history.append( APICallRecord( "namespace_reveal", namespace_id, virtualchain.address_reencode(register_addr), resp ) )
+
     return resp
 
 
-def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, config_path=None ):
+def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, tx_only=False, config_path=None ):
     
     global api_call_history
     resp = None
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('namespace_ready', namespace_id, privatekey, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
+        txid = nodejs_cli('namespace_ready', namespace_id, privatekey, safety_checks=safety_checks, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
         resp = {
             'status': True,
             'transaction_hash': txid
@@ -777,11 +884,13 @@ def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, co
         
         resp = blockstack_client.do_namespace_ready( namespace_id, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks ) 
 
-    api_call_history.append( APICallRecord( "namespace_ready", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
+    if not tx_only:
+        api_call_history.append( APICallRecord( "namespace_ready", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
+
     return resp
 
 
-def blockstack_announce( message, privatekey, safety_checks=True, config_path=None ):
+def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False, config_path=None ):
     
     global api_call_history
 
@@ -789,11 +898,17 @@ def blockstack_announce( message, privatekey, safety_checks=True, config_path=No
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
         message_hash = blockstack.lib.storage.get_zonefile_data_hash(message)
-        txid = nodejs_cli('announce',  message_hash, privatekey)
-        resp = {
-            'status': True,
-            'transaction_hash': txid
-        }
+        txid = nodejs_cli('announce',  message_hash, privatekey, tx_only=tx_only)
+        if tx_only:
+            resp = {
+                'status': True,
+                'transaction': txid
+            }
+        else:
+            resp = {
+                'status': True,
+                'transaction_hash': txid
+            }
 
     else:
         test_proxy = make_proxy(config_path=config_path)
@@ -802,7 +917,9 @@ def blockstack_announce( message, privatekey, safety_checks=True, config_path=No
 
         resp = blockstack_client.do_announce( message, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    api_call_history.append( APICallRecord( "announce", message, None, resp ) )
+    if not tx_only:
+        api_call_history.append( APICallRecord( "announce", message, None, resp ) )
+
     return resp
 
 
@@ -1623,6 +1740,72 @@ def check_account_debits(state_engine, api_call_history):
     return True
 
 
+def check_account_vesting(state_engine):
+    """
+    Verify that each account has been credited the appropriate amount
+    according to its vesting schedule
+    """
+    global wallets
+
+    # don't do this if we're running in interactive mode, and the test is over
+    if not is_test_running():
+        return True
+     
+    vesting_schedules = dict([(wallet.addr, wallet._vesting_schedule) for wallet in wallets])
+    account_states = dict([(wallet.addr, state_engine.get_account_at(wallet.addr, state_engine.lastblock+1)) for wallet in wallets])
+    account_states_prior = dict([(wallet.addr, state_engine.get_account_at(wallet.addr, state_engine.lastblock)) for wallet in wallets])
+    
+    for addr in account_states:
+        account_states[addr].sort(cmp=lambda a1, a2: -1 if a1['vtxindex'] < a2['vtxindex'] else 0 if a1['vtxindex'] == a2['vtxindex'] else 1)
+
+    for addr in account_states_prior:
+        account_states_prior[addr].sort(cmp=lambda a1, a2: -1 if a1['vtxindex'] < a2['vtxindex'] else 0 if a1['vtxindex'] == a2['vtxindex'] else 1)
+
+    all_vestings = []
+    for addr in [wallet.addr for wallet in wallets]:
+        present = {}
+        for token_type in vesting_schedules[addr]:
+            if state_engine.lastblock+1 not in vesting_schedules[addr][token_type]:
+                continue
+
+            present[addr] = {token_type: vesting_schedules[addr][token_type]}
+
+        if len(present) > 0:
+            all_vestings.append(present)
+
+    if len(all_vestings) > 0:
+        log.debug("Expected vestings at {}:\n{}".format(state_engine.lastblock+1, json.dumps(all_vestings, indent=4, sort_keys=True)))
+
+    for addr in [wallet.addr for wallet in wallets]:
+        for token_type in vesting_schedules[addr]:
+            if state_engine.lastblock+1 not in vesting_schedules[addr][token_type]:
+                continue
+
+            expected_vesting = vesting_schedules[addr][token_type][state_engine.lastblock+1]
+           
+            # select account states by token type
+            account_token_states = filter(lambda a: a['type'] == token_type, account_states[addr])
+            account_token_states_prior = filter(lambda a: a['type'] == token_type, account_states_prior[addr])
+
+            # the state-transition at vtxindex == 0 on the account should have bumped the 'credit_value' by the vesting amount 
+            if len(account_token_states) == 0:
+                log.error("No account states for {} on token type {} at {}".format(addr, token_type, state_engine.lastblock+1))
+                return False
+
+            if len(account_token_states_prior) == 0:
+                raise Exception("BUG: could not query account state of {}".format(addr))
+
+            if account_token_states[0]['vtxindex'] != 0:
+                raise Exception("BUG: first account state of {} at {} is not at vtxindex 0".format(addr, state_engine.lastblock+1))
+
+            if account_token_states_prior[-1]['credit_value'] + expected_vesting != account_token_states[0]['credit_value']:
+                log.error("Account {} changed from {} to {} at {}: expected {}".format(addr, account_token_states_prior[-1]['credit_value'], account_token_states[0]['credit_value'], state_engine.lastblock+1, expected_vesting))
+                return False
+
+    return True
+
+    
+
 def next_block( **kw ):
     """
     Advance the mock blockchain by one block.
@@ -1647,6 +1830,7 @@ def next_block( **kw ):
 
     # check all account balances against the database
     assert check_account_debits(state_engine, api_call_history), "Account debit mismatch"
+    assert check_account_vesting(state_engine), 'Account vesting error'
 
    
 def get_consensus_at( block_id, **kw ):
