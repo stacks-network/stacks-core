@@ -21,7 +21,7 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from .config import LENGTHS, NAME_OPCODES, NAME_TRANSFER, TRANSFER_KEEP_DATA, TRANSFER_REMOVE_DATA, NAME_REGISTRATION
+from .config import LENGTHS, NAME_OPCODES, NAME_TRANSFER, TRANSFER_KEEP_DATA, TRANSFER_REMOVE_DATA, NAME_REGISTRATION, TOKEN_TYPE_STACKS
 
 # schema constants
 OP_HEX_PATTERN = r'^([0-9a-fA-F]+)$'
@@ -467,6 +467,40 @@ NAMESPACE_SCHEMA_PROPERTIES = {
     'vtxindex': OP_HISTORY_SCHEMA['properties']['vtxindex'],
 }
 
+ACCOUNT_SCHEMA_PROPERTIES = {
+    'address': {
+        'type': 'string',
+        'pattern': OP_ADDRESS_PATTERN,
+     },
+    'type': {
+        'type': 'string',
+        'pattern': '^BTC$|^{}$|{}'.format(TOKEN_TYPE_STACKS, OP_NAMESPACE_PATTERN),
+    },
+    'credit_value': {
+        'type': 'string',
+        'pattern': '^[0-9]+',
+    },
+    'debit_value': {
+        'type': 'string',
+        'pattern': '^[0-9]+',
+    },
+    'lock_transfer_block_id': {
+        'type': 'integer',
+        'minimum': 0,
+    },
+    'block_id': {
+        'type': 'integer',
+        'minimum': 0,
+    },
+    'txid': {
+        'type': 'string',
+    },
+    'vtxindex': {
+        'type': 'integer',
+        'minimum': 0
+    }
+}
+
 NAMEOP_SCHEMA_REQUIRED = [
     'address',
     'block_number',
@@ -509,4 +543,14 @@ SUBDOMAIN_SCHEMA_REQUIRED = [
     'txid',
     'value_hash',
 ]
- 
+
+ACCOUNT_SCHEMA_REQUIRED = [
+    'address',
+    'type',
+    'credit_value',
+    'debit_value',
+    'lock_transfer_block_id',
+    'block_id',
+    'txid',
+    'vtxindex',
+]
