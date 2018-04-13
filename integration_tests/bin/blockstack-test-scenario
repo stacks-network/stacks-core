@@ -1166,17 +1166,26 @@ def fill_genesis_block(address, token_grant, vesting_schedule):
     Add an entry to the genesis block for the given address, with an initial amount and a vesting schedule
     """
     global TEST_GENESIS_BLOCK
-    
-    TOKEN_TYPE_STACKS = "STACKS"
-
-    log.debug("Grant {} {} {}-tokens".format(address, token_grant, TOKEN_TYPE_STACKS))
+   
+    log.debug("Grant {} {} {}-tokens".format(address, token_grant, testlib.TOKEN_TYPE_STACKS))
 
     TEST_GENESIS_BLOCK.append({
         'address': address,
-        'type': TOKEN_TYPE_STACKS,
+        'type': testlib.TOKEN_TYPE_STACKS,
         'value': token_grant,
-        'vesting': vesting_schedule,
+        'vesting': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}),
     })
+
+    for token_type in vesting_schedule:
+        if token_type == testlib.TOKEN_TYPE_STACKS:
+            continue
+
+        TEST_GENESIS_BLOCK.append({
+            'address': address,
+            'type': token_type,
+            'value': 0,
+            'vesting': vesting_schedule[token_type]
+        })
 
 
 def fill_wallet( bitcoind, wallet, value ):
