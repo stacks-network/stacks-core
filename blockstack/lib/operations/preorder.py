@@ -81,43 +81,41 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # must be unique across all pending preorders
     if not state_engine.is_new_preorder( preorder_name_hash ):
-        log.debug("Name hash '%s' is already preordered" % preorder_name_hash )
+        log.warning("Name hash '%s' is already preordered" % preorder_name_hash )
         return False
 
     # must have a valid consensus hash
     if not state_engine.is_consensus_hash_valid( block_id, consensus_hash ):
-        log.debug("Invalid consensus hash '%s'" % consensus_hash )
+        log.warning("Invalid consensus hash '%s'" % consensus_hash )
         return False
 
     # sender must be beneath quota
     num_names = get_num_names_owned( state_engine, checked_ops, sender ) 
     if num_names >= MAX_NAMES_PER_SENDER:
-        log.debug("Sender '%s' exceeded name quota of %s" % (sender, MAX_NAMES_PER_SENDER ))
+        log.warning("Sender '%s' exceeded name quota of %s" % (sender, MAX_NAMES_PER_SENDER ))
         return False 
 
     # burn fee must be present
     if not 'op_fee' in nameop:
-        log.debug("Missing preorder fee")
+        log.warning("Missing preorder fee")
         return False
 
-    # did we burn tokens?
     epoch_features = get_epoch_features(block_id)
     if EPOCH_FEATURE_NAMEOPS_COST_TOKENS in epoch_features and token_type is not None and token_fee is not None:
-
         # does this account have enough balance?
         account_info = state_engine.get_account(token_address, token_type)
         if account_info is None:
-            log.debug("No account for {} ({})".format(token_address, token_type))
+            log.warning("No account for {} ({})".format(token_address, token_type))
             return False
 
         account_balance = state_engine.get_account_balance(account_info)
 
-        assert isinstance(account_balance, int)
-        assert isinstance(token_fee, int)
+        assert isinstance(account_balance, (int,long)), 'BUG: account_balance of {} is {} (type {})'.format(token_address, account_balance, type(account_balance))
+        assert isinstance(token_fee, (int,long)), 'BUG: token_fee is {} (type {})'.format(token_fee, type(token_fee))
 
         if account_balance < token_fee:
             # can't afford 
-            log.debug("Account {} has balance {} {}, but needs to pay {} {}".format(token_address, account_balance, token_type, token_fee, token_type))
+            log.warning("Account {} has balance {} {}, but needs to pay {} {}".format(token_address, account_balance, token_type, token_fee, token_type))
             return False
 
         # debit this account when we commit
@@ -253,7 +251,7 @@ def parse(bin_payload, block_height):
     epoch_features = get_epoch_features(block_height)
 
     if len(bin_payload) < LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
-        log.debug("Invalid payload {}: expected at least {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']))
+        log.warning("Invalid payload {}: expected at least {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']))
         return None 
 
     name_hash = hexlify( bin_payload[0:LENGTHS['preorder_name_hash']] )
@@ -265,12 +263,12 @@ def parse(bin_payload, block_height):
         # only acceptable if there's a token burn
         if EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features:
             # not enabled yet
-            log.debug("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']))
+            log.warning("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']))
             return None
 
         if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt'] + LENGTHS['namespace_id']:
             # invalid
-            log.debug("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']))
+            log.warning("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']))
             return None
 
         at_tokens_burnt = LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']

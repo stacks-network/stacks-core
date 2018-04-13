@@ -65,46 +65,51 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # cannot be preordered already
     if not state_engine.is_new_namespace_preorder( namespace_id_hash ):
-        log.debug("Namespace preorder '%s' already in use" % namespace_id_hash)
+        log.warning("Namespace preorder '%s' already in use" % namespace_id_hash)
         return False
 
     # has to have a reasonable consensus hash
     if not state_engine.is_consensus_hash_valid( block_id, consensus_hash ):
-
         valid_consensus_hashes = state_engine.get_valid_consensus_hashes( block_id )
-        log.debug("Invalid consensus hash '%s': expected any of %s" % (consensus_hash, ",".join( valid_consensus_hashes )) )
+        log.warning("Invalid consensus hash '%s': expected any of %s" % (consensus_hash, ",".join( valid_consensus_hashes )) )
         return False
 
     # has to have paid a fee
     if not 'op_fee' in nameop:
-        log.debug("Missing namespace preorder fee")
+        log.warning("Missing namespace preorder fee")
         return False
 
     # token burn fee must be present, if we're in the right epoch for it
     epoch_features = get_epoch_features(block_id)
     if EPOCH_FEATURE_STACKS_BUY_NAMESPACES in epoch_features:
+        # must pay in STACKs
         if 'token_fee' not in nameop:
-            log.debug("Missing token fee")
+            log.warning("Missing token fee")
             return False
 
         token_fee = nameop['token_fee']
         token_address = nameop['address']
         token_type = TOKEN_TYPE_STACKS
 
+        # was a token fee paid?
+        if token_fee is None:
+            log.warning("No tokens paid by this NAMESPACE_PREORDER")
+            return False
+
         # does this account have enough balance?
         account_info = state_engine.get_account(token_address, token_type)
         if account_info is None:
-            log.debug("No account for {} ({})".format(token_address, token_type))
+            log.warning("No account for {} ({})".format(token_address, token_type))
             return False
 
         account_balance = state_engine.get_account_balance(account_info)
 
-        assert isinstance(account_balance, int)
-        assert isinstance(token_fee, int)
+        assert isinstance(account_balance, (int,long)), 'BUG: account_balance of {} is {} (type {})'.format(token_address, account_balance, type(account_balance))
+        assert isinstance(token_fee, (int,long)), 'BUG: token_fee is {} (type {})'.format(token_fee, type(token_fee))
 
         if account_balance < token_fee:
             # can't afford 
-            log.debug("Account {} has balance {} {}, but needs to pay {} {}".format(token_address, account_balance, token_type, token_fee, token_type))
+            log.warning("Account {} has balance {} {}, but needs to pay {} {}".format(token_address, account_balance, token_type, token_fee, token_type))
             return False
 
         # debit this account when we commit
@@ -115,6 +120,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
         nameop['token_units'] = TOKEN_TYPE_STACKS
 
     else:
+        # must pay in BTC
         # not paying in tokens, but say so!
         state_preorder_put_account_payment_info(nameop, None, None, None)
         nameop['token_fee'] = '0'
@@ -142,7 +148,7 @@ def get_namespace_preorder_burn_info( outputs ):
         burn_address = virtualchain.script_hex_to_address(outputs[2]['script'])
         assert burn_address
     except:
-        log.error("Invalid burn script: {}".format(outputs[2]['script']))
+        log.warning("Invalid burn script: {}".format(outputs[2]['script']))
         return None
 
     return {'op_fee': op_fee, 'burn_address': burn_address}
@@ -233,7 +239,7 @@ def parse( bin_payload, block_height ):
     """
    
     if len(bin_payload) < LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
-        log.error("Invalid namespace preorder payload length %s" % len(bin_payload))
+        log.warning("Invalid namespace preorder payload length %s" % len(bin_payload))
         return None
 
     namespace_id_hash = bin_payload[ :LENGTHS['preorder_name_hash'] ]
@@ -244,12 +250,12 @@ def parse( bin_payload, block_height ):
         epoch_features = get_epoch_features(block_height)
         if EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features or EPOCH_FEATURE_STACKS_BUY_NAMESPACES not in epoch_features:
             # not allowed--we can't use tokens in this epoch
-            log.debug("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']))
+            log.warning("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']))
             return None
 
         if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']:
             # not allowed--invalid length
-            log.debug("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']))
+            log.warning("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']))
             return None
         
         bin_tokens_burned = bin_payload[LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']]

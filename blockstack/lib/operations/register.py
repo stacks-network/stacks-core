@@ -152,7 +152,7 @@ def check_burn_address(namespace, burn_address, block_id):
         expected_burn_address = BLOCKSTACK_BURN_ADDRESS
 
     if expected_burn_address != burn_address:
-        log.info("Register/renew sends fee to {}, but namespace expects {}".format(burn_address, expected_burn_address))
+        log.warning("Register/renew sends fee to {}, but namespace expects {}".format(burn_address, expected_burn_address))
         return False
     else:
         log.debug("Sending register/renewal fee to {}".format(burn_address))
@@ -187,7 +187,7 @@ def check_payment(state_engine, state_op_type, nameop, namespace, name_fee, toke
         # fee must be high enough (either the preorder paid the right fee at the preorder block height,
         # or the renewal paid the right fee at the renewal height)
         if name_fee < price_name( name_without_namespace, namespace, fee_block_id ):
-            log.info("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace, block_id ), name_fee ))
+            log.warning("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace, block_id ), name_fee ))
             return {'status': False}
 
         # we are *not* paying with STACKs
@@ -197,11 +197,15 @@ def check_payment(state_engine, state_op_type, nameop, namespace, name_fee, toke
     else:
         # need to be in the right epoch--i.e. need STACKs to exist
         if EPOCH_FEATURE_NAMESPACE_PAY_WITH_STACKS not in epoch_features:
-            log.info("Name '{}' was created in namespace '{}', with version bits 0x{:x}, which is not supported in this epoch".format(name, namespace['namespace_id'], namespace['version']))
+            log.warning("Name '{}' was created in namespace '{}', with version bits 0x{:x}, which is not supported in this epoch".format(name, namespace['namespace_id'], namespace['version']))
             return {'status': False}
 
         if namespace['version'] in [NAMESPACE_VERSION_PAY_WITH_STACKS]:
             # priced in STACKs
+            # how much is this name in STACKs?
+            token_name_fee = price_name(name_without_namespace, namespace, block_id)
+            token_name_fee = int(token_name_fee)
+
             # find out how many STACKs (if any) were paid
             if state_op_type == 'NAME_REGISTRATION':
                 # STACKs were already paid by a preorder.
@@ -214,61 +218,64 @@ def check_payment(state_engine, state_op_type, nameop, namespace, name_fee, toke
                 tokens_paid = preorder['token_fee']
 
                 if token_units != TOKEN_TYPE_STACKS:
-                    log.info("Account paid in {}, but this namespace expects {}".format(token_units, TOKEN_TYPE_STACKS))
-                    return False
+                    log.warning("Account paid in {}, but this namespace expects {}".format(token_units, TOKEN_TYPE_STACKS))
+                    return {'status': False}
 
             elif state_op_type == 'NAME_RENEWAL':
+                # what are this namespace's token units?
+                # since this is a pay-with-STACKs namespace, we had to have paid in STACKs
+                token_units = TOKEN_TYPE_STACKS
+
                 if token_fee is None:
                     # no tokens paid
-                    log.info("No tokens paid by {} for {}".format(token_address, nameop['name']))
+                    log.warning("No tokens paid by {} for {}".format(token_address, nameop['name']))
                     return {'status': False}
 
                 # paying in STACKs right now
                 account_info = state_engine.get_account(token_address, TOKEN_TYPE_STACKS)
                 if account_info is None:
                     # no account!
-                    log.info("Name buyer {} does not have an account".format(token_address))
+                    log.warning("Name buyer {} does not have an account".format(token_address))
+                    return {'status': False}
+
+                # can this account afford it?
+                account_balance = state_engine.get_account_balance(account_info)
+                if account_balance < token_fee:
+                    # not enough balance
+                    log.warning("Address {} does not have enough {} tokens for {} (need at least {}, but only have {})".format(token_address, TOKEN_TYPE_STACKS, name, token_fee, account_balance))
                     return {'status': False}
 
                 # how much was paid?
                 tokens_paid = token_fee
-
-                # what are this namespace's token units?
-                # since this is a pay-with-STACKs namespace, we had to have paid in STACKs
-                token_units = TOKEN_TYPE_STACKS
-                
+               
             # did the preorder/renewer pay the *right* tokens?
             # TODO: alter this conditional once we support per-namespace tokens
             if token_units != TOKEN_TYPE_STACKS:
-                log.info('Account {} paid in {}, but this namespace only accepts {}'.format(token_address, token_units, TOKEN_TYPE_STACKS))
-                return False
+                log.warning('Account {} paid in {}, but this namespace only accepts {}'.format(token_address, token_units, TOKEN_TYPE_STACKS))
+                return {'status': False}
 
             log.debug("Account {} paid {} {}s for {} at ({},{})".format(token_address, tokens_paid, TOKEN_TYPE_STACKS, nameop['name'], fee_block_id, fee_vtxindex))
-
-            # how much is this name in STACKs?
-            token_name_fee = price_name(name_without_namespace, namespace, block_id)
-            token_name_fee = int(token_name_fee)
 
             tokens_paid = int(tokens_paid)
             if tokens_paid < token_name_fee:
                 # not enough!
-                log.info("Name buyer {} paid {} {}s, but '{}' costs {} {}s".format(token_address, tokens_paid, TOKEN_TYPE_STACKs, token_name_fee, TOKEN_TYPE_STACKS))
+                log.warning("Name buyer {} paid {} {}s, but '{}' costs {} {}s".format(token_address, tokens_paid, TOKEN_TYPE_STACKS, name, token_name_fee, TOKEN_TYPE_STACKS))
                 return {'status': False}
 
             # charge the price of this name when we commit this state-transition
             if state_op_type == 'NAME_RENEWAL':
-                state_transition_put_account_payment_info(nameop, token_address, TOKEN_TYPE_STACKS, token_name_fee)
+                state_transition_put_account_payment_info(nameop, token_address, TOKEN_TYPE_STACKS, tokens_paid)
 
         else:
             # unrecognized namespace rules
-            log.info("Namespace {} has version bits 0x{:x}, which has unknown registration rules".format(namespace['namespace_id'], namespace['version']))
+            log.warning("Namespace {} has version bits 0x{:x}, which has unknown registration rules".format(namespace['namespace_id'], namespace['version']))
             return {'status': False}
 
     # fee must be paid to the right address, at the right time.
     # pre F-day 2017: this *must* be the burn address, and the namespace *must* be version 1
     # post F-day 2017: this *may* be the namespace creator's address
     if not check_burn_address(namespace, burn_address, fee_block_id):
-        log.info("Invalid burn address {}".format(burn_address))
+        log.warning("Invalid burn address {}".format(burn_address))
         return {'status': False}
 
     return {'status': True, 'tokens_paid': tokens_paid, 'units': token_units}
@@ -300,12 +307,12 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     # address mixed into the preorder
     register_addr = nameop.get('recipient_address', None)
     if register_addr is None:
-        log.info("No registration address given")
+        log.warning("No registration address given")
         return False
 
     recipient = nameop.get('recipient', None)
     if recipient is None:
-        log.info("No recipient script given")
+        log.warning("No recipient script given")
         return False
 
     epoch_features = get_epoch_features(block_id)
@@ -325,19 +332,19 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
 
     # name must be well-formed
     if not is_b40( name ) or "+" in name or name.count(".") > 1:
-        log.info("Malformed name '%s': non-base-38 characters" % name)
+        log.warning("Malformed name '%s': non-base-38 characters" % name)
         return False
 
     # name must not be revoked
     if state_engine.is_name_revoked( name ):
-        log.info("Name '%s' is revoked" % name)
+        log.warning("Name '%s' is revoked" % name)
         return False
 
     namespace_id = get_namespace_from_name( name )
 
     # namespace must exist and be ready
     if not state_engine.is_namespace_ready( namespace_id ):
-        log.info("Namespace '%s' is not ready" % namespace_id)
+        log.warning("Namespace '%s' is not ready" % namespace_id)
         return False
 
     # get namespace...
@@ -346,14 +353,14 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     # cannot exceed quota
     num_names = get_num_names_owned( state_engine, checked_ops, recipient )
     if num_names >= MAX_NAMES_PER_SENDER:
-        log.info("Recipient '%s' has exceeded quota" % recipient)
+        log.warning("Recipient '%s' has exceeded quota" % recipient)
         return False
 
     # if multisig is not enabled in this epoch, and the recipient
     # address is a p2sh address, then reject the transaction.
     # this if for compatibility with 0.13
     if virtualchain.is_multisig_address( register_addr ) and not epoch_has_multisig( block_id ):
-        log.info("Multisig registration address %s, but this epoch (%s) does not support multisig" % (register_addr, get_epoch_number(block_id)))
+        log.warning("Multisig registration address %s, but this epoch (%s) does not support multisig" % (register_addr, get_epoch_number(block_id)))
         return False
 
     # get preorder...
@@ -363,30 +370,31 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     if preorder is not None:
         # Case 1(a-b): registering or re-registering from a preorder
 
+        # bugfix?
         if EPOCH_FEATURE_FIX_PREORDER_EXPIRE in epoch_features:
             # preorder must not be expired
             if preorder['block_number'] + NAME_PREORDER_EXPIRE < block_id:
-                log.info("Preorder {} is expired".format(preorder['preorder_hash']))
+                log.warning("Preorder {} is expired".format(preorder['preorder_hash']))
                 return False
 
         # can't be registered already 
         if state_engine.is_name_registered( name ):
-            log.info("Name '%s' is already registered" % name)
+            log.warning("Name '%s' is already registered" % name)
             return False 
 
         # name can't be registered if it was reordered before its namespace was ready
         if not namespace.has_key('ready_block') or preorder['block_number'] < namespace['ready_block']:
-           log.info("Name '%s' preordered before namespace '%s' was ready" % (name, namespace_id))
+           log.warning("Name '%s' preordered before namespace '%s' was ready" % (name, namespace_id))
            return False
 
         # name must be preordered by the same sender
         if preorder['sender'] != sender:
-           log.info("Name '%s' was not preordered by %s" % (name, sender))
+           log.warning("Name '%s' was not preordered by %s" % (name, sender))
            return False
 
         # fee was included in the preorder (even if it's just dust)
         if not 'op_fee' in preorder:
-           log.info("Name '%s' preorder did not pay the fee" % (name))
+           log.warning("Name '%s' preorder did not pay the fee" % (name))
            return False
 
         name_fee = preorder['op_fee']
@@ -459,13 +467,13 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         '''
     else:
         # Case 2: has never existed, and not preordered
-        log.info("Name '%s' does not exist, or is not preordered by %s" % (name, sender))
+        log.warning("Name '%s' does not exist, or is not preordered by %s" % (name, sender))
         return False
 
     # check name payment
     payment_res = check_payment(state_engine, "NAME_REGISTRATION", nameop, namespace, name_fee, None, fee_block_id, fee_vtxindex, burn_address, token_address, block_id)
     if not payment_res['status']:
-        log.info("Name '{}' did not receive the appropriate payment".format(name))
+        log.warning("Name '{}' did not receive the appropriate payment".format(name))
         return False
 
     # will be None if we paid in BTC
@@ -501,7 +509,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         # deny value hash if we're not in an epoch that supports register/update in one nameop
         # if opcode == 'NAME_REGISTRATION' and EPOCH_FEATURE_OP_REGISTER_UPDATE not in epoch_features:
         if EPOCH_FEATURE_OP_REGISTER_UPDATE not in epoch_features:
-            log.info("Name '{}' has a zone file hash, but this is not supported in this epoch".format(nameop['name']))
+            log.warning("Name '{}' has a zone file hash, but this is not supported in this epoch".format(nameop['name']))
             return False
 
         log.debug("Adding value hash {} for name '{}'".format(value_hash, nameop['name']))
@@ -541,19 +549,19 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     # address mixed into the preorder
     recipient_addr = nameop.get('recipient_address', None)
     if recipient_addr is None:
-        log.info("No registration address given")
+        log.warning("No registration address given")
         return False
 
     recipient = nameop.get('recipient', None)
     if recipient is None:
-        log.info("No recipient given")
+        log.warning("No recipient given")
         return False
 
     # pre F-day 2017, on renewal, the sender and recipient must be the same 
     # post F-day 2017, the recipient and sender can differ 
     if sender != recipient:
         if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
-            log.info("Sender '%s' is not the recipient '%s'" % (sender, recipient))
+            log.warning("Sender '%s' is not the recipient '%s'" % (sender, recipient))
             return False 
 
         else:
@@ -561,7 +569,7 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
 
     if recipient_addr != address:
         if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
-            log.info("Sender address '%s' is not the recipient address '%s'" % (address, recipient_addr))
+            log.warning("Sender address '%s' is not the recipient address '%s'" % (address, recipient_addr))
             return False
 
         else:
@@ -576,19 +584,19 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
 
     # name must be well-formed
     if not is_b40( name ) or "+" in name or name.count(".") > 1:
-        log.info("Malformed name '%s': non-base-38 characters" % name)
+        log.warning("Malformed name '%s': non-base-38 characters" % name)
         return False
 
     # name must not be revoked
     if state_engine.is_name_revoked( name ):
-        log.info("Name '%s' is revoked" % name)
+        log.warning("Name '%s' is revoked" % name)
         return False
 
     namespace_id = get_namespace_from_name( name )
 
     # namespace must exist and be ready
     if not state_engine.is_namespace_ready( namespace_id ):
-        log.info("Namespace '%s' is not ready" % namespace_id)
+        log.warning("Namespace '%s' is not ready" % namespace_id)
         return False
 
     # get namespace...
@@ -597,29 +605,29 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     # cannot exceed quota
     num_names = get_num_names_owned( state_engine, checked_ops, recipient )
     if num_names >= MAX_NAMES_PER_SENDER:
-        log.info("Recipient '%s' has exceeded quota" % recipient)
+        log.warning("Recipient '%s' has exceeded quota" % recipient)
         return False
 
     # name must be registered already 
     if not state_engine.is_name_registered( name ):
-        log.info("Name '%s' is not registered" % name)
+        log.warning("Name '%s' is not registered" % name)
         return False
 
     # pre F-day 2017: name must be owned by the recipient already
     # post F-day 2017: doesn't matter
     if not state_engine.is_name_owner( name, recipient ):
         if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
-            log.info("Renew: Name '%s' not owned by recipient %s" % (name, recipient))
+            log.warning("Renew: Name '%s' not owned by recipient %s" % (name, recipient))
             return False
 
     # name must be owned by the sender
     if not state_engine.is_name_owner( name, sender ):
-        log.info("Renew: Name '%s' not owned by sender %s" % (name, sender))
+        log.warning("Renew: Name '%s' not owned by sender %s" % (name, sender))
         return False
 
     # fee borne by the renewal
     if not 'op_fee' in nameop or nameop['op_fee'] is None:
-        log.info("Name '%s' renewal did not pay the fee" % (name))
+        log.warning("Name '%s' renewal did not pay the fee" % (name))
         return False
    
     prev_name_rec = state_engine.get_name( name )
@@ -641,7 +649,7 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     # check name payment
     payment_res = check_payment(state_engine, "NAME_RENEWAL", nameop, namespace, name_fee, tokens_paid, fee_block_id, fee_vtxindex, burn_address, token_address, block_id)
     if not payment_res['status']:
-        log.info("Name '{}' did not receive the appropriate payment".format(name))
+        log.warning("Name '{}' did not receive the appropriate payment".format(name))
         return False
  
     # if we're in an epoch that allows us to include a value hash in the renewal, and one is given, then set it 
@@ -857,7 +865,7 @@ def parse(bin_payload, block_height):
             else:
                 # payload must be *exactly* name + value hash
                 if len(bin_payload) != name_value_len:
-                    log.info("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), name_value_len))
+                    log.warning("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), name_value_len))
                     return None
 
         else:
@@ -869,7 +877,7 @@ def parse(bin_payload, block_height):
         fqn = bin_payload
  
     if not is_name_valid( fqn ):
-        log.info("Invalid name: {} ({})".format(fqn, fqn.encode('hex')))
+        log.warning("Invalid name: {} ({})".format(fqn, fqn.encode('hex')))
         return None
 
     return {
