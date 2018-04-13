@@ -167,13 +167,15 @@ CREATE TABLE name_records( name TEXT NOT NULL,
 # chain tip of all account transactions (by address and type).  Stores the history of all account operations.
 # rows get inserted under the following rules:
 # * if the user buys a name or namespace (or transfers in Phase 2+), a row is inserted that *debits* the account (by increasing the debit_value)
-# * if the user receives tokens through vesting or through a transfer (phase 2+) or pay-to-namespace payment (phase 2+), a row is inserted that *credits* the account (by increasing the credit_value)
+# * if the user receives tokens through vesting, or through a transfer (phase 2+), or pay-to-namespace payment (phase 2+), a row is inserted that *credits* the account (by increasing the credit_value)
 BLOCKSTACK_DB_SCRIPT += """
 CREATE TABLE accounts( address TEXT NOT NULL,
                        type TEXT NOT NULL,           -- what kind of token? STACKs, etc.
 
                        credit_value TEXT NOT NULL,   -- always increases, encoded as a TEXT to avoid overflow (unit value)
                        debit_value TEXT NOT NULL,    -- always increases, encoded as a TEXT to avoid overflow (unit value)
+
+                       lock_transfer_block_id INTEGER NOT NULL,     -- point in time where it becomes possible for this account to send tokens
 
                        -- where in the blockchain this occurred
                        -- NOTE: account operations may be inserted as a result of processing another operation (like buying a name).
@@ -182,7 +184,7 @@ CREATE TABLE accounts( address TEXT NOT NULL,
                        txid TEXT NOT NULL,
                        vtxindex INTEGER NOT NULL,
 
-                       PRIMARY KEY(block_id,txid,vtxindex) );
+                       PRIMARY KEY(address,block_id,txid,vtxindex,type) );
 """
 
 BLOCKSTACK_DB_SCRIPT += """
@@ -190,7 +192,7 @@ CREATE INDEX address_accounts ON accounts(address, type);
 """
 
 # extra time-locked credits to an account.
-# value will always be positive.
+# vesting_value will always be positive.
 # when the system reaches a block that vests, a "credit" operation will be generated and inserted into the accounts table to reflect it.
 BLOCKSTACK_DB_SCRIPT += """
 CREATE TABLE account_vesting( address TEXT NOT NULL,
@@ -198,7 +200,7 @@ CREATE TABLE account_vesting( address TEXT NOT NULL,
                               vesting_value TEXT NOT NULL,      -- encoded as a TEXT to avoid overflow (unit value)
                               block_id INTEGER NOT NULL,
 
-                              PRIMARY KEY(address,type,block_id)
+                              PRIMARY KEY(address,type,block_id,type)
                               );
 """
 
@@ -235,6 +237,7 @@ def namedb_create_token_genesis(con, initial_account_balances):
             'vesting': {
                 block_height: value
             },
+            'lock_send': ... (optional; block height)
             'name': ... (optional)
         },
         {...}
@@ -251,20 +254,22 @@ def namedb_create_token_genesis(con, initial_account_balances):
         else:
             log.debug('Grant {} to {}'.format(account_info['value'], address))
 
+        lock_send = account_info.get('lock_send', 0)
+
         # set up initial account balances
-        sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?);'
+        sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?);'
 
         fake_txid = '{}genesis'.format(address)
         fake_txid = '0' * (64 - len(fake_txid)) + fake_txid
 
-        args = (address, account_info['type'], '{}'.format(account_info['value']), '0', FIRST_BLOCK_MAINNET, fake_txid, 0)
+        args = (address, account_info['type'], '{}'.format(account_info['value']), '0', lock_send, FIRST_BLOCK_MAINNET, fake_txid, 0)
         namedb_query_execute(con, sql, args)
 
         # set up vesting period
         if 'vesting' in account_info:
             for block_height in account_info['vesting']:
-                sql = 'INSERT INTO vesting VALUES (?,?,?);'
-                args = (address, block_height, account_info['vesting'][block_height])
+                sql = 'INSERT INTO account_vesting VALUES (?,?,?,?);'
+                args = (address, account_info['type'], '{}'.format(account_info['vesting'][block_height]), block_height)
                 namedb_query_execute(con, sql, args)
 
     namedb_query_execute(con, "END", ())
@@ -1306,21 +1311,27 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
     return canonicalized_record
 
 
-def namedb_account_transaction_save(cur, address, token_type, new_credit_value, new_debit_value, block_id, vtxindex, txid):
+def namedb_account_transaction_save(cur, address, token_type, new_credit_value, new_debit_value, block_id, vtxindex, txid, existing_account):
     """
     Insert the new state of an account at a particular point in time.
 
     The data must be for a never-before-seen (txid,block_id,vtxindex) set in the accounts table, but must
     correspond to an entry in the history table.
 
+    If existing_account is not None, then copy all other remaining fields from it.
+
     Return True on success
     Raise an Exception on error
     """
+    if existing_account is None:
+        existing_account = {}
+
     accounts_insert = {
         'address': address,
         'type': token_type,
         'credit_value': '{}'.format(new_credit_value),
         'debit_value': '{}'.format(new_debit_value),
+        'lock_transfer_block_id': existing_account.get('lock_transfer_block_id', 0),        # unlocks immediately if the account doesn't exist
         'block_id': block_id,
         'txid': txid,
         'vtxindex': vtxindex
@@ -1364,7 +1375,7 @@ def namedb_account_debit(cur, account_addr, token_type, amount, block_id, vtxind
     new_balance = new_credit_value - new_debit_value
     log.debug("Account balance of units of '{}' for {} is now {}".format(token_type, account_addr, new_balance))
 
-    res = namedb_account_transaction_save(cur, account_addr, token_type, new_credit_value, new_debit_value, block_id, vtxindex, txid)
+    res = namedb_account_transaction_save(cur, account_addr, token_type, new_credit_value, new_debit_value, block_id, vtxindex, txid, account)
     if not res:
         traceback.print_stack()
         log.fatal('Failed to save new account state for {}'.format(account_addr))
@@ -1407,7 +1418,7 @@ def namedb_account_credit(cur, account_addr, token_type, amount, block_id, vtxin
     new_balance = new_credit_value - new_debit_value
     log.debug("Account balance of '{}' tokens for {} is now {}".format(token_type, account_addr, new_balance))
 
-    res = namedb_account_transaction_save(cur, account_addr, token_type, new_credit_value, new_debit_value, block_id, vtxindex, txid)
+    res = namedb_account_transaction_save(cur, account_addr, token_type, new_credit_value, new_debit_value, block_id, vtxindex, txid, account)
     if not res:
         traceback.print_stack()
         log.fatal("Failed to save new account state for {}".format(account_addr))
@@ -1441,7 +1452,7 @@ def namedb_accounts_vest(cur, block_height):
         fake_txid = '{}vesting'.format(addr)
         fake_txid = '0' * (64 - len(fake_txid)) + fake_txid
 
-        res = namedb_account_debit(cur, addr, token_type, token_amount, block_height, 0, fake_txid)
+        res = namedb_account_credit(cur, addr, token_type, token_amount, block_height, 0, fake_txid)
         if not res:
             traceback.print_stack()
             log.fatal('Failed to vest {} {} to {}'.format(token_amount, token_type, addr))
@@ -1513,49 +1524,6 @@ def namedb_history_save( cur, opcode, history_id, creator_address, value_hash, b
 
     namedb_query_execute( cur, query, values )
     return True
-
-
-def namedb_get_blocks_with_account_ops(cur, address, start_block_id, end_block_id):
-    """
-    Get the block heights at which an account was affected by an operation.
-    Returns the list of heights
-    Returns [] if there are no blocks in this range
-    """
-    select_query = 'SELECT DISTINCT block_id FROM accounts WHERE address = ? AND block_id >= ? AND block_id < ?'
-    args = (address, start_block_id, end_block_id)
-
-    history_rows = namedb_query_execute(cur, select_query, args)
-    ret = []
-    
-    for r in history_rows:
-        ret.append(r['block_id'])
-
-    ret.sort()
-    return ret
-
-
-def namedb_get_blocks_with_name_ops( cur, history_id, start_block_id, end_block_id ):
-    """
-    Get the block heights at which a name was affected by an operation.
-    Returns the list of heights.
-    Returns [] if there is no history for this item.
-    """
-    select_query = "SELECT DISTINCT name_records.block_number,history.block_id FROM history JOIN name_records ON history.history_id = name_records.name " + \
-                   "WHERE name_records.name = ? AND ((name_records.block_number >= ? OR history.block_id >= ?) AND (name_records.block_number < ? OR history.block_id < ?));"
-    args = (history_id, start_block_id, start_block_id, end_block_id, end_block_id)
-
-    history_rows = namedb_query_execute( cur, select_query, args )
-    ret = []
-
-    for r in history_rows:
-        if r['block_number'] not in ret:
-            ret.append(r['block_number'])
-
-        if r['block_id'] not in ret:
-            ret.append(r['block_id'])
-
-    ret.sort()
-    return ret
 
 
 def namedb_get_history_rows( cur, history_id, offset=None, count=None ):
@@ -1667,7 +1635,7 @@ def namedb_get_account_tokens(cur, address):
     Returns the list of tokens on success
     Returns None if not found
     """
-    sql = 'SELECT type FROM accounts WHERE address = ?;'
+    sql = 'SELECT DISTINCT type FROM accounts WHERE address = ?;'
     args = (address,)
 
     rows = namedb_query_execute(cur, sql, args)
@@ -1738,6 +1706,33 @@ def namedb_get_account_diff(current, prior):
 
     # NOTE: only possible since Python doesn't overflow :P
     return namedb_get_account_balance(current) - namedb_get_account_balance(prior)
+
+
+def namedb_get_account_history(cur, address, block_start, block_end, offset=None, count=None):
+    """
+    Get the history of an account's tokens
+    """
+    sql = 'SELECT * FROM accounts WHERE address = ? AND block_id >= ? AND block_id < ? ORDER BY block_id, vtxindex'
+    args = (address,block_start,block_end)
+
+    if count is not None:
+        sql += ' LIMIT ?'
+        args += (count,)
+
+    if offset is not None:
+        sql += ' OFFSET ?'
+        args += (offset,)
+
+    sql += ';'
+    rows = namedb_query_execute(cur, sql, args)
+
+    ret = []
+    for rowdata in rows:
+        tmp = {}
+        tmp.update(rowdata)
+        ret.append(tmp)
+
+    return ret
 
 
 def namedb_get_namespace( cur, namespace_id, current_block, include_expired=False, include_history=True, only_revealed=True):
@@ -2010,13 +2005,13 @@ def namedb_get_account_at(cur, address, block_number):
         return ret
     
     # if the account did not change in this block, then find the latest version of this account at this block
-    query = 'SELECT * from accounts WHERE address = ? AND block_id < block_number ORDER BY block_id DESC,vtxindex DESC LIMIT 1'
+    query = 'SELECT * from accounts WHERE address = ? AND block_id < ? ORDER BY block_id DESC,vtxindex DESC LIMIT 1'
     args = (address, block_number)
     history_rows = namedb_query_execute(cur, query, args)
 
     for row in history_rows:
         tmp = {}
-        tmp.update(Row)
+        tmp.update(row)
         ret.append(tmp)
 
     return ret
