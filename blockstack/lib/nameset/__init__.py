@@ -24,7 +24,7 @@
 import sys
 import os
 
-from ..config import OPCODE_CREATION_OPS, OPCODE_TRANSITION_OPS, op_get_opcode_name
+from ..config import OPCODE_CREATION_OPS, op_get_opcode_name
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
@@ -160,8 +160,11 @@ def state_create(history_id_key, table_name, collision_checker, always_set=[]):
         def wrapped_check( state_engine, nameop, block_id, checked_ops ):
             rc = check( state_engine, nameop, block_id, checked_ops )
 
-            # succeeded, and still a state-creating operation?
-            if rc and op_get_opcode_name( nameop['op'] ) in OPCODE_CREATION_OPS:
+            # pretty sure this isn't necessary any longer, but leave this is an assert just in case
+            assert op_get_opcode_name(nameop['op']) in OPCODE_CREATION_OPS, 'BUG: opcode became {}'.format(nameop['op'])
+
+            # succeeded?
+            if rc:
 
                 # ensure that there's now a __preorder__ 
                 try:
@@ -248,11 +251,42 @@ def state_transition(history_id_key, table_name, always_set=[], may_spend_tokens
     return wrap
 
 
+def token_operation_invariant_tags():
+    """
+    Get a list of possible token transfer invariant tags
+    """
+    return [
+        '__table__',
+        '__account_payment_info__',
+        '__account_credit_info__',
+    ]
+
+
+# sanity check decorator for token operations
+def token_operation(table_name):
+    """
+    Decorator for the check() method on token operations.
+    Make sure that there is a __account_payment_info__ and __account_credit_info__ set.
+    """
+    def wrap( check ):
+        def wrapped_check( state_engine, token_op, block_id, checked_ops ):
+            rc = check( state_engine, token_op, block_id, checked_ops )
+            if rc:
+                token_op['__table__'] = table_name
+                invariant_tags = token_operation_invariant_tags()
+                for tag in invariant_tags:
+                    assert tag in token_op, 'BUG: missing token operation invariant tag {}'.format(tag)
+
+            return rc
+        return wrapped_check
+    return wrap
+
+
 def get_state_invariant_tags():
     """
     Get the set of state invariant tags for a given opcode
     """
-    return list(set( state_create_invariant_tags() + state_transition_invariant_tags() + state_preorder_invariant_tags() ))
+    return list(set( state_create_invariant_tags() + state_transition_invariant_tags() + state_preorder_invariant_tags() + token_operation_invariant_tags() ))
 
 
 def state_preorder_get_account_payment_info( nameop ):
@@ -267,7 +301,7 @@ def state_preorder_put_account_payment_info( nameop, account_addr, token_type, a
     Call this in a @state_create-decorated method.
     Identifies the account that must be debited.
     """
-    assert amount is None or isinstance(amount, int)
+    assert amount is None or isinstance(amount, (int,long)), 'Amount is {} (type {})'.format(amount, type(amount))
     assert account_addr is None or isinstance(account_addr, (str,unicode))
     assert token_type is None or isinstance(token_type, (str,unicode))
     nameop['__account_payment_info__'] = {
@@ -349,7 +383,7 @@ def state_transition_put_account_payment_info( nameop, account_addr, token_type,
     Call this in a @state_create-decorated method.
     Identifies the account that must be debited.
     """
-    assert amount is None or isinstance(amount, int)
+    assert amount is None or isinstance(amount, (int,long)), 'BUG: amount is {} (type {})'.format(amount, type(amount))
     assert account_addr is None or isinstance(account_addr, (str,unicode))
     assert token_type is None or isinstance(token_type, (str,unicode))
     nameop['__account_payment_info__'] = {
@@ -385,6 +419,64 @@ def state_transition_get_always_set( nameop ):
     Get thie list of fields we will always set on state transition
     """
     return nameop['__always_set__']
+
+
+def token_operation_put_account_payment_info(token_op, account_addr, token_type, amount):
+    """
+    Call this in a @token_operation-decorated method.
+    Identifies the account to be debited
+    """
+    assert isinstance(amount, (int,long)), "BUG: amount is {} (type {})".format(amount, type(amount))
+    assert isinstance(account_addr, (str,unicode)), 'BUG: account is {} (type {})'.format(account_addr, type(account_addr))
+    assert isinstance(token_type, (str,unicode)), 'BUG: token_type is {} (type {})'.format(token_type, type(token_type))
+    token_op['__account_payment_info__'] = {
+            'address': str(account_addr),
+            'type': str(token_type),
+            'amount': int(amount)
+    }
+
+
+def token_operation_put_account_credit_info(token_op, account_addr, token_type, amount):
+    """
+    Call this in a @token_operation-decorated method.
+    Identifies the account to be credited
+    """
+    assert isinstance(amount, (int,long)), 'BUG: amount is {} (type {})'.format(amount, type(amount))
+    assert isinstance(account_addr, (str,unicode)), 'BUG: amount is {} (type {})'.format(account_addr, type(account_addr))
+    assert isinstance(token_type, (str,unicode)), 'BUG: token_type is {} (type {})'.format(token_type, type(token_type))
+    token_op['__account_credit_info__'] = {
+            'address': str(account_addr),
+            'type': str(token_type),
+            'amount': int(amount)
+    }
+
+
+def token_operation_is_valid(token_op):
+    """
+    Is a token operation well-formed?
+    """
+    for tag in token_operation_invariant_tags() + ['opcode']:
+        assert tag in token_op, 'Missing {}'.format(tag)
+
+    return True
+
+
+def token_operation_get_account_payment_info(token_op):
+    """
+    Get the payment information for an account.
+    """
+    ret = nameop['__account_payment_info__']
+    assert ret is not None, 'BUG: no account payment info set'
+    return ret
+
+
+def token_operation_get_account_credit_info(token_op):
+    """
+    Get the credit information from a token op
+    """
+    ret = nameop['__account_credit_info__']
+    assert ret is not None, 'BUG: no account credit info set'
+    return ret
 
 
 import namedb 
