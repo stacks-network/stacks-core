@@ -253,6 +253,7 @@ EPOCH_FEATURE_NAMESPACE_PAY_WITH_STACKS = "BLOCKSTACK_NAMESPACE_PAY_WITH_STACKS"
 EPOCH_FEATURE_STACKS_BUY_NAMESPACES = "BLOCKSTACK_STACKS_BUY_NAMESPACES"
 EPOCH_FEATURE_NAMEOPS_COST_TOKENS = "BLOCKSTACK_NAMEOPS_COST_TOKENS"
 EPOCH_FEATURE_FIX_PREORDER_EXPIRE = "BLOCKSTACK_PREORDER_EXPIRE"
+EPOCH_FEATURE_TOKEN_TRANSFER = "BLOCKSTACK_TOKEN_TRANSFER"
 
 # when epochs end (-1 means "never")
 EPOCH_NOW = -1
@@ -299,6 +300,7 @@ EPOCH_4_FEATURES = [
     EPOCH_FEATURE_STACKS_BUY_NAMESPACES,
     EPOCH_FEATURE_FIX_PREORDER_EXPIRE,
     EPOCH_FEATURE_NAMEOPS_COST_TOKENS,
+    EPOCH_FEATURE_TOKEN_TRANSFER,
 ]
 
 NUM_EPOCHS = 4
@@ -566,6 +568,8 @@ NAMESPACE_REVEAL = '&'
 NAMESPACE_READY = '!'
 ANNOUNCE = '#'
 
+TOKEN_TRANSFER = '$'
+
 # extra bytes affecting a transfer
 TRANSFER_KEEP_DATA = '>'
 TRANSFER_REMOVE_DATA = '~'
@@ -583,7 +587,8 @@ OPCODES = [
    NAMESPACE_PREORDER,
    NAMESPACE_REVEAL,
    NAMESPACE_READY,
-   ANNOUNCE
+   ANNOUNCE,
+   TOKEN_TRANSFER,
 ]
 
 OPCODE_NAMES = {
@@ -597,7 +602,8 @@ OPCODE_NAMES = {
     NAMESPACE_PREORDER: "NAMESPACE_PREORDER",
     NAMESPACE_REVEAL: "NAMESPACE_REVEAL",
     NAMESPACE_READY: "NAMESPACE_READY",
-    ANNOUNCE: "ANNOUNCE"
+    ANNOUNCE: "ANNOUNCE",
+    TOKEN_TRANSFER: "TOKEN_TRANSFER",
 }
 
 NAME_OPCODES = {
@@ -611,7 +617,8 @@ NAME_OPCODES = {
     "NAMESPACE_PREORDER": NAMESPACE_PREORDER,
     "NAMESPACE_REVEAL": NAMESPACE_REVEAL,
     "NAMESPACE_READY": NAMESPACE_READY,
-    "ANNOUNCE": ANNOUNCE
+    "ANNOUNCE": ANNOUNCE,
+    "TOKEN_TRANSFER": TOKEN_TRANSFER,
 }
 
 
@@ -721,13 +728,6 @@ OPCODE_NAMESPACE_STATE_TRANSITIONS = [
 
 OPCODE_TRANSITION_OPS = OPCODE_NAME_STATE_TRANSITIONS + OPCODE_NAMESPACE_STATE_TRANSITIONS 
 
-# set of operations that have fees 
-OPCODE_HAVE_FEES = [
-    "NAMESPACE_PREORDER",
-    "NAME_PREORDER",
-    "NAME_RENEWAL"
-]
-
 # set of ops that have no state to record 
 OPCODE_STATELESS_OPS = [
     "ANNOUNCE"
@@ -742,6 +742,11 @@ OPCODE_NAME_NAMEOPS = [
     'NAME_TRANSFER',
     'NAME_RENEWAL',
     'NAME_REVOKE'
+]
+
+# set of token operations 
+OPCODE_TOKEN_OPS = [
+    "TOKEN_TRANSFER",
 ]
 
 NAMESPACE_LIFE_INFINITE = 0xffffffff
@@ -849,7 +854,7 @@ def get_epoch_price_multiplier( block_height, namespace_id, units ):
     """
     what's the name price multiplier for this epoch?
     """
-    assert units in ['STACKS', 'BTC'], 'Unknown units {}'.format(units)
+    assert units in [TOKEN_TYPE_STACKS, 'BTC'], 'Unknown units {}'.format(units)
     multiplier = 'PRICE_MULTIPLIER' if units == 'BTC' else 'PRICE_MULTIPLIER_STACKS'
 
     epoch_config = get_epoch_config( block_height )
@@ -874,7 +879,7 @@ def get_epoch_namespace_prices( block_height, units ):
     """
     get the list of namespace prices by block height
     """
-    assert units in ['BTC', 'STACKS'], 'Invalid unit {}'.format(units)
+    assert units in ['BTC', TOKEN_TYPE_STACKS], 'Invalid unit {}'.format(units)
 
     epoch_config = get_epoch_config( block_height )
 
