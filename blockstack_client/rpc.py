@@ -3220,7 +3220,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
 
         URLENCODING_CLASS = r'[a-zA-Z0-9\-_.~%]+'
-        NAME_CLASS = r'[a-z0-9\-_.+]{{{},{}}}'.format(3, LENGTH_MAX_NAME)
+        NAME_CLASS = r'[a-z0-9\-_.+]{{{},{}}}'.format(3, 2*LENGTH_MAX_NAME + 1)
         NAMESPACE_CLASS = r'[a-z0-9\-_+]{{{},{}}}'.format(1, LENGTH_MAX_NAMESPACE_ID)
         BASE58CHECK_CLASS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+'
 
