@@ -1908,7 +1908,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         cur = self.db.cursor()
         opcode = token_op.get('opcode', None)
-        clean_token_up = self.sanitize_op(token_op)
+        clean_token_op = self.sanitize_op(token_op)
        
         try:
             assert token_operation_is_valid(token_op), 'Invalid token operation'
@@ -1928,10 +1928,10 @@ class BlockstackDB( virtualchain.StateEngine ):
         # fields must be set
         try:
             for key in account_payment_info:
-                assert account_payment_info[k] is not None, 'BUG: payment info key {} is None'.format(key)
+                assert account_payment_info[key] is not None, 'BUG: payment info key {} is None'.format(key)
 
             for key in account_credit_info:
-                assert account_credit_info[k] is not None, 'BUG: credit info key {} is not None'.format(key)
+                assert account_credit_info[key] is not None, 'BUG: credit info key {} is not None'.format(key)
 
             # NOTE: do not check token amount and type, since in the future we want to support converting
             # between tokens
