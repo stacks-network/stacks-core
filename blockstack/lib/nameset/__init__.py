@@ -465,7 +465,7 @@ def token_operation_get_account_payment_info(token_op):
     """
     Get the payment information for an account.
     """
-    ret = nameop['__account_payment_info__']
+    ret = token_op['__account_payment_info__']
     assert ret is not None, 'BUG: no account payment info set'
     return ret
 
@@ -474,8 +474,17 @@ def token_operation_get_account_credit_info(token_op):
     """
     Get the credit information from a token op
     """
-    ret = nameop['__account_credit_info__']
+    ret = token_op['__account_credit_info__']
     assert ret is not None, 'BUG: no account credit info set'
+    return ret
+
+
+def token_operation_get_table(token_op):
+    """
+    Get the table affected
+    """
+    ret = token_op['__table__']
+    assert ret is not None, 'BUG: no table set'
     return ret
 
 
