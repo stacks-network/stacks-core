@@ -1990,7 +1990,7 @@ def namedb_get_account_at(cur, address, block_number):
 
     Returns an array of states
     """
-    query = 'SELECT * FROM accounts WHERE address = ? AND block_id = ? ORDER BY block_id DESC,vtxindex DESC'
+    query = 'SELECT * FROM accounts WHERE address = ? AND block_id = ? ORDER BY block_id, vtxindex'
     args = (address, block_number)
     history_rows = namedb_query_execute(cur, query, args)
     ret = []
