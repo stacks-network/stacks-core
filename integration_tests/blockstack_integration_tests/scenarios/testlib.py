@@ -210,6 +210,13 @@ class TokenNameRenewal(TokenOperation):
         super(TokenNameRenewal, self).__init__('NAME_RENEWAL', name_cost_info['units'], name_cost_info['amount'], owner_addr)
 
 
+class TokenTransfer(TokenOperation):
+    def __init__(self, recipient_addr, token_type, token_amount, privatekey):
+        sender_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
+        self.recipient_addr = recipient_addr
+        super(TokenTransfer, self).__init__('TOKEN_TRANSFER', token_type, token_amount, sender_addr)
+
+
 class TestAPIProxy(object):
     def __init__(self):
         global utxo_opts
@@ -448,7 +455,7 @@ def nodejs_cli(*args, **kw):
     saved_err = [None]
 
     def run(cmd_opts, cmd_args):
-        cmd = cmd_opts + cmd_args
+        cmd = cmd_opts + ['{}'.format(ca) for ca in cmd_args]
         log.debug('\n$ {}\n'.format(' '.join(cmd)))
 
         p = subprocess.Popen(cmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -898,7 +905,7 @@ def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False,
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
         message_hash = blockstack.lib.storage.get_zonefile_data_hash(message)
-        txid = nodejs_cli('announce',  message_hash, privatekey, tx_only=tx_only)
+        txid = nodejs_cli('announce',  message_hash, privatekey, safety_checks=safety_checks, tx_only=tx_only)
         if tx_only:
             resp = {
                 'status': True,
@@ -920,6 +927,34 @@ def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False,
     if not tx_only:
         api_call_history.append( APICallRecord( "announce", message, None, resp ) )
 
+    return resp
+
+
+def blockstack_send_tokens(recipient_address, token_type, token_amount, privkey, safety_checks=True, tx_only=False, expect_fail=False):
+    global api_call_history
+
+    assert has_nodejs_cli()
+    assert virtualchain.is_singlesig(privkey)    # required for now :( 
+
+    txid = nodejs_cli('send_tokens', recipient_address, token_type, token_amount, privkey, safety_checks=safety_checks, tx_only=tx_only)
+    if tx_only:
+        resp = {
+            'status': True,
+            'transaction': txid
+        }
+    else:
+        resp = {
+            'status': True,
+            'transaction_hash': txid
+        }
+
+
+    token_record = None
+    if not expect_fail:
+        token_record = TokenTransfer(recipient_address, token_type, token_amount, privkey)
+
+    # TODO: expand SNV to cover token records
+    api_call_history.append( APICallRecord( "token_transfer", recipient_address, virtualchain.address_reencode(virtualchain.get_privkey_address(privkey)), resp, token_record=token_record) )
     return resp
 
 
@@ -1740,6 +1775,55 @@ def check_account_debits(state_engine, api_call_history):
     return True
 
 
+def check_account_credits(state_engine, api_call_history):
+    """
+    Verify that each account has been credited the appropriate amount.
+    """
+    # don't do this if we're running in interactive mode, and the test is over
+    if not is_test_running():
+        return True
+    
+    addrs = list(set([api_call.token_record.account_addr for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)]))
+    token_types = filter(lambda tt: tt != 'BTC',
+                         list(set([api_call.token_record.token_type for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)])))
+
+    expected_credits = dict([
+        (addr, dict([
+            (token_type, sum([api_call.token_record.token_cost for api_call in
+                filter(lambda ac: ac.success and isinstance(ac.token_record, TokenTransfer) and ac.token_record.recipient_addr == addr and ac.token_record.token_type == token_type, api_call_history)]))
+            for token_type in token_types]))
+        for addr in addrs])
+
+    accounts = dict([
+        (addr, dict([
+            (token_type, 0 if state_engine.get_account(addr, token_type) is None else state_engine.get_account(addr, token_type)['credit_value'])
+            for token_type in token_types]))
+        for addr in addrs])
+
+    accounts_prior = dict([
+        (addr, dict([
+            (token_type, sum(map(lambda ac: int(ac['credit_value']), filter(lambda ac: ac['type'] == token_type, state_engine.get_account_at(addr, state_engine.lastblock-1)))))
+            for token_type in token_types]))
+        for addr in addrs])
+
+    account_deltas = dict([
+        (addr, dict([
+            (token_type, accounts[addr][token_type] - accounts_prior[addr][token_type])
+            for token_type in token_types]))
+        for addr in addrs])
+
+    log.debug("account credits = \n{}".format(json.dumps(account_deltas, indent=4, sort_keys=True)))
+    log.debug("expected credits =\n{}".format(json.dumps(expected_credits, indent=4, sort_keys=True)))
+
+    for addr in addrs:
+        for token_type in token_types:
+            if accounts[addr][token_type] - accounts_prior[addr][token_type] != expected_credits[addr][token_type]:
+                log.error("mismatch: {}'s {}: {} - {} != {}".format(addr, token_type, accounts[addr][token_type], accounts_prior[addr][token_type], expected_credits[addr][token_type]))
+                return False
+
+    return True
+
+
 def check_account_vesting(state_engine):
     """
     Verify that each account has been credited the appropriate amount
@@ -1804,7 +1888,6 @@ def check_account_vesting(state_engine):
 
     return True
 
-    
 
 def next_block( **kw ):
     """
@@ -1830,6 +1913,7 @@ def next_block( **kw ):
 
     # check all account balances against the database
     assert check_account_debits(state_engine, api_call_history), "Account debit mismatch"
+    assert check_account_credits(state_engine, api_call_history), "Account credit mismatch"
     assert check_account_vesting(state_engine), 'Account vesting error'
 
    
