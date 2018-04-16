@@ -1511,6 +1511,7 @@ as a base64 encoded blob with the 'zonefile_b64' property.
 We recommend base64-encoding your zone files in order to guarantee that they
 will be JSON-encodable. 
 
++ DEPRECATED.
 + Request (application/json)
   + Schema
 
