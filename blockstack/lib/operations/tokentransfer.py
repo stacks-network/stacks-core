@@ -164,7 +164,7 @@ def tx_extract(payload, senders, inputs, outputs, block_id, vtxindex, txid):
         assert sender_address is not None
 
         recipient_script = get_token_transfer_recipient_from_outputs(outputs)
-        recipient_address = virtualchain.script_hex_to_address(recipient)
+        recipient_address = virtualchain.script_hex_to_address(recipient_script)
 
         assert recipient_script is not None
         assert recipient_address is not None
@@ -183,6 +183,10 @@ def tx_extract(payload, senders, inputs, outputs, block_id, vtxindex, txid):
         'sender': sender_script,
         'recipient_address': recipient_address,
         'recipient': recipient_script,
+        'op': TOKEN_TRANSFER,
+        'block_id': block_id,
+        'txid': txid,
+        'vtxindex': vtxindex
     })
 
     return ret
