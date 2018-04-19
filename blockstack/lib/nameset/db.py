@@ -1097,17 +1097,27 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
         if prev_rec is not None:
             exists = True
     
+    # the record we insert into the history table
+    preorder_record_history = {}
+    preorder_record_history.update(preorder_record)
+
     try:
-        assert 'op' in preorder_record.keys(), 'BUG: no preorder op'
-        assert 'preorder_hash' in preorder_record.keys(), "BUG: no preorder hash"
-        assert 'block_number' in preorder_record.keys(), "BUG: preorder has no block number"
-        assert 'vtxindex' in preorder_record.keys(), "BUG: preorder has no vtxindex"
-        assert 'txid' in preorder_record.keys(), "BUG: preorder has no txid"
-        assert 'burn_address' in preorder_record.keys(), 'BUG: preorder has no burn address'
+        assert 'op' in preorder_record_history.keys(), 'BUG: no preorder op'
+        assert 'preorder_hash' in preorder_record_history.keys(), "BUG: no preorder hash"
+        assert 'block_number' in preorder_record_history.keys(), "BUG: preorder has no block number"
+        assert 'vtxindex' in preorder_record_history.keys(), "BUG: preorder has no vtxindex"
+        assert 'txid' in preorder_record_history.keys(), "BUG: preorder has no txid"
+        assert 'burn_address' in preorder_record_history.keys(), 'BUG: preorder has no burn address'
+        assert 'token_fee' in preorder_record_history.keys(), 'BUG: preorder has no token fee'
+        assert 'op_fee' in preorder_record_history.keys(), 'BUG: preorder has no op fee'
 
         if prev_rec is not None:
             # block_number cannot change
             assert prev_rec['block_number'] == new_record['block_number'], 'BUG: trying to change block number from {} to {} for "{}"'.format(prev_rec['block_number'], new_record['block_number'], history_id)
+
+        # convert token fee to string, always
+        if isinstance(preorder_record_history['token_fee'], (int,long)):
+            preorder_record_history['token_fee'] = '{}'.format(preorder_record_history['token_fee'])
 
     except Exception, e:
         log.exception(e)
@@ -1133,7 +1143,7 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
         os.abort()
 
     # save the preorder as history.
-    rc = namedb_history_save(cur, preorder_record['opcode'], history_id, None, None, preorder_record['block_number'], preorder_record['vtxindex'], preorder_record['txid'], preorder_record)
+    rc = namedb_history_save(cur, preorder_record['opcode'], history_id, None, None, preorder_record['block_number'], preorder_record['vtxindex'], preorder_record['txid'], preorder_record_history)
     if not rc:
         log.error("FATAL: failed to save preorder for {} at ({}, {})".format(history_id, preorder_record['block_number'], preorder_record['vtxindex']))
         os.abort()
