@@ -233,6 +233,9 @@ def op_canonicalize_quirks(op_name, new_record, current_record):
     * if the operation was created by a NAME_IMPORT, then 'op_fee' must be a float (i.e. must end in .0)
     * always preserve the 'last_creation_op' field if it is not set in new_record
 
+    Other quirks:
+    * make sure token_fee is a string, to prevent overflows when reading from history
+
     Returns the new canonicalized op data
     """
     ret = {}
@@ -271,6 +274,9 @@ def op_canonicalize_quirks(op_name, new_record, current_record):
 
         # QUIRK: preserve last_creation_op across records
         ret['last_creation_op'] = quirk_values['last_creation_op']
+
+    if 'token_fee' in ret and isinstance(ret['token_fee'], (int,long)):
+        ret['token_fee'] = '{}'.format(ret['token_fee'])
 
     return ret
 
