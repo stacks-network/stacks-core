@@ -32,8 +32,8 @@ FIELDS = [
     'address',          # spending account address
     'recipient',            # recipient scriptpubkey
     'recipient_address',    # address that receives tokens
-    'type',             # token type
-    'value',            # the amount to send
+    'token_units',             # token type
+    'token_fee',            # the amount to send
     'block_id',         # block height of this operation
     'op',               # opcode ($)
     'txid',             # txid on-chain
@@ -68,8 +68,8 @@ def check( state_engine, token_op, block_id, checked_ops ):
     consensus_hash = token_op['consensus_hash']
     address = token_op['address']
     recipient_address = token_op['recipient_address']
-    token_type = token_op['type']
-    token_value = token_op['value']
+    token_type = token_op['token_units']
+    token_value = token_op['token_fee']
 
     # token value must be positive
     if token_value <= 0:
@@ -110,6 +110,9 @@ def check( state_engine, token_op, block_id, checked_ops ):
 
     # will execute a credit against the receiver address 
     token_operation_put_account_credit_info(token_op, recipient_address, token_type, token_value)
+
+    # preserve token_fee as a string to prevent overflow
+    token_op['token_fee'] = '{}'.format(token_op['token_fee'])
     return True
    
 
@@ -228,8 +231,8 @@ def parse(bin_payload, block_height):
     return {
         'opcode': 'TOKEN_TRANSFER',
         'consensus_hash': consensus_hash,
-        'type': token_units,
-        'value': tokens_sent,
+        'token_units': token_units,
+        'token_fee': tokens_sent,
         'scratch_area': scratch_area
     }
 
