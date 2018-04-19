@@ -18,9 +18,13 @@ Ping the Blockstack node to see if it's alive.
                      'status': {
                          'type': 'string'
                      },
+                     'version': {
+                         'type': 'string'
+                     },
                  },
                  'required': [
-                     'status'
+                     'status',
+                     'version'
                  ]
              }
 
@@ -46,55 +50,72 @@ This method returns an error for names that have non-standard zone files.
 
   + Schema
 
-            {
-                'anyOf': [
-                  {
-                    'type': 'object',
-                    'properties': {
-                        'zonefile': {
-                            'type': 'string',
-                            'pattern': '.+',
-                        },
-                   },
-                   {
-                     'type': 'object',
-                     'properties': {
-                        'error': {
-                            'type': 'string',
-                            'pattern': '.+',
-                        },
-                    },
-                ]
-            }
+               {
+                   'anyOf': [
+                     {
+                       'type': 'object',
+                       'properties': {
+                           'zonefile': {
+                               'type': 'string',
+                               'pattern': '.+',
+                           },
+                      },
+                      {
+                        'type': 'object',
+                        'properties': {
+                           'error': {
+                               'type': 'string',
+                               'pattern': '.+',
+                           },
+                       },
+                   ]
+               }
 
-## Publish a zone file [PUT /v1/zonefiles]
+## Publish a zone file [POST /v1/zonefile]
 Publish an already-announced zone file to the Blockstack peer network.
 
-+ Request (application/octet-stream) 
++ Request (application/json) 
   + Body
-
-            "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp URI 10 1 \"https://gaia.blockstack.org/hub/1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs/0/profile.json\"\n"
-        
+               {
+                   "zonefile": "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp URI 10 1 \"https://gaia.blockstack.org/hub/1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs/0/profile.json\"\n"
+               }
+           
 + Response 200 (application/json)
   + Body
 
-            {
-                'status': true
-            }
+               {
+                   'status': true
+               }
 
   + Schema 
-
-            {
-                'type': 'object',
-                'properties': {
-                    'status': {
-                        'type': boolean
-                    },
-                 },
-                 'required': [
-                    'status'
-                 ]
-            }
+            
+                {
+                    'anyOf': [ 
+                        {
+                            'type': 'object',
+                            'properties': {
+                                'status': {
+                                    'type': boolean
+                                },
+                             },
+                             'required': [
+                                'status'
+                             ]
+                        },
+                        {
+                            'type': 'object',
+                            'properties': {
+                               'error': {
+                                   'type': 'string',
+                                   'pattern': '.+',
+                                },
+                             },
+                             'required': [
+                                  'error'
+                             ],
+                       }
+                    ]
+                }
 
 # Group Name Querying
 This family of API endpoints deals with querying name information.
