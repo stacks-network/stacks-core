@@ -49,6 +49,7 @@ MAX_TEST_LIFETIME = 75 * 60 * 60    # max test run is 75 minutes
 TEST_RPC_PORT = 16264
 TEST_CLIENT_RPC_PORT = int(os.environ.get("BLOCKSTACK_TEST_CLIENT_RPC_PORT", 16268))
 TEST_CLIENT_BIND = os.environ.get("BLOCKSTACK_TEST_CLIENT_BIND", "localhost")
+WEB_TEST_BIND = os.environ.get('BLOCKSTACK_WEB_TEST_BIND', 'localhost')
 
 BITCOIND_RPC_ALLOW_IP = os.environ.get("BLOCKSTACK_TEST_BITCOIND_ALLOWIP", False)
 
@@ -349,7 +350,7 @@ class WebTestServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
 class WebTestServer(BaseHTTPServer.HTTPServer):
     def __init__(self, working_dir, port, test_env):
-        BaseHTTPServer.HTTPServer.__init__(self, ('localhost', port), WebTestServerRequestHandler)
+        BaseHTTPServer.HTTPServer.__init__(self, (WEB_TEST_BIND, port), WebTestServerRequestHandler)
         self.test_env = test_env
         self.done = False
         self.working_dir = working_dir
@@ -895,9 +896,19 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
 
     def running_in_docker():
         try:
-            with open('/proc/1/cpuset') as cpuset:
-                content = [l for l in cpuset][0]
-                return content.startswith('/docker')
+            if os.path.exists('/proc/1/cpuset'):
+                with open('/proc/1/cpuset') as cpuset:
+                    content = [l for l in cpuset][0]
+                    return content.startswith('/docker')
+
+            elif os.path.exists('/proc/1/cgroup'):
+                with open('/proc/1/cgroup') as cgroup:
+                    for l in cgroup:
+                        try:
+                            l.index('/docker')
+                            return True
+                        except:
+                            pass
         except:
             return False
     
@@ -1174,6 +1185,7 @@ def fill_genesis_block(address, token_grant, vesting_schedule):
         'type': testlib.TOKEN_TYPE_STACKS,
         'value': token_grant,
         'vesting': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}),
+        'lock_send': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).get('lock_send', 0)
     })
 
     for token_type in vesting_schedule:
@@ -1184,7 +1196,8 @@ def fill_genesis_block(address, token_grant, vesting_schedule):
             'address': address,
             'type': token_type,
             'value': 0,
-            'vesting': vesting_schedule[token_type]
+            'vesting': vesting_schedule[token_type],
+            'lock_send': vesting_schedule[token_type].get('lock_send', 0)
         })
 
 
