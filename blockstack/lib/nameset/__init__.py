@@ -37,6 +37,12 @@ CONSENSUS_FIELDS_REQUIRED = [
     'vtxindex'
 ]
 
+# fields that *must* be present in token operations,
+# *in addition* to CONSENSUS_FIELDS_REQUIRED above
+CONSENSUS_FIELDS_REQUIRED_TOKENS = [
+    'address'
+]
+
 # all fields common to a name record
 # NOTE: this order must be preserved for all eternity
 NAMEREC_FIELDS = [
@@ -139,6 +145,10 @@ def state_preorder(collision_checker):
                 for tag in invariant_tags:
                     assert tag in nameop, "BUG: missing invariant tag '%s'" % tag
 
+                # sanity check---all required consensus fields must be present
+                for required_field in CONSENSUS_FIELDS_REQUIRED:
+                    assert required_field in nameop, 'BUG: missing required consensus field {}'.format(required_field)
+
             return rc
         return wrapped_check
     return wrap
@@ -185,6 +195,10 @@ def state_create(history_id_key, table_name, collision_checker, always_set=[]):
                 for tag in invariant_tags:
                     assert tag in nameop, "BUG: missing invariant tag '%s'" % tag
 
+                # sanity check---all required consensus fields must be present
+                for required_field in CONSENSUS_FIELDS_REQUIRED:
+                    assert required_field in nameop, 'BUG: missing required consensus field {}'.format(required_field)
+
                 # verify no duplicates
                 rc = state_check_collisions( state_engine, nameop, history_id_key, block_id, checked_ops, collision_checker )
                 if rc:
@@ -194,7 +208,7 @@ def state_create(history_id_key, table_name, collision_checker, always_set=[]):
                 else:
                     # no collision
                     rc = True
-    
+
             return rc
         return wrapped_check
     return wrap
@@ -246,6 +260,10 @@ def state_transition(history_id_key, table_name, always_set=[], may_spend_tokens
                 for tag in invariant_tags:
                     assert tag in nameop, "BUG: missing invariant tag '%s'" % tag
 
+                # sanity check---all required consensus fields must be present
+                for required_field in CONSENSUS_FIELDS_REQUIRED:
+                    assert required_field in nameop, 'BUG: missing required consensus field {}'.format(required_field)
+
             return rc
         return wrapped_check
     return wrap
@@ -276,6 +294,14 @@ def token_operation(table_name):
                 invariant_tags = token_operation_invariant_tags()
                 for tag in invariant_tags:
                     assert tag in token_op, 'BUG: missing token operation invariant tag {}'.format(tag)
+
+                # sanity check---all required consensus fields must be present
+                for required_field in CONSENSUS_FIELDS_REQUIRED:
+                    assert required_field in token_op, 'BUG: missing required consensus field {}'.format(required_field)
+
+                # sanity check---all required consensus fields for tokens must be present
+                for required_field in CONSENSUS_FIELDS_REQUIRED_TOKENS:
+                    assert required_field in token_op, 'BUG: missing token-specific required consensus field {}'.format(required_field)
 
             return rc
         return wrapped_check
