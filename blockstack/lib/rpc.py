@@ -43,6 +43,8 @@ from decimal import Decimal
 import client as blockstackd_client
 from client import get_blockstackd_url
 import scripts as blockstackd_scripts
+from scripts import check_name, check_namespace, check_token_type, check_subdomain, check_block, check_offset, \
+        check_count, check_string, check_address
 
 import storage
 
@@ -54,6 +56,8 @@ from virtualchain.lib.ecdsalib import get_pubkey_hex, verify_raw_data, ecdsa_pri
 from virtualchain import AuthServiceProxy, JSONRPCException
 
 import blockstack_zones
+
+from schemas import OP_BASE64_EMPTY_PATTERN
 
 log = virtualchain.get_logger()
 
@@ -299,8 +303,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return 401 on unsupported blockchain
         Return 500 on failure to get names
         """
+        if not check_address(address):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
         if blockchain != 'bitcoin':
-            return self._reply_json({'error': 'Invalid blockchain'}, status_code=401)
+            return self._reply_json({'error': 'Invalid blockchain'}, status_code=400)
 
         blockstackd_url = get_blockstackd_url()
         address = str(address)
@@ -332,6 +339,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get all token types that an address owns
         Returns {'tokens': [...]}
         """
+        if not check_address(account_addr):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
         res = blockstackd_client.get_account_tokens(account_addr, hostport=blockstackd_url)
         if json_is_error(res):
@@ -347,6 +357,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get the state of a particular token account
         Returns the account
         """
+        if not check_address(account_addr):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
+        if not check_token_type(token_type):
+            return self._reply_json({'error': 'Invalid token type'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
         res = blockstackd_client.get_account_record(account_addr, token_type, hostport=blockstackd_url)
         if json_is_error(res):
@@ -362,6 +378,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get the balance of a particular token
         Returns {'balance': ...}
         """
+        if not check_address(account_addr):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
+        if not check_token_type(token_type):
+            return self._reply_json({'error': 'Invalid token type'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
         res = blockstackd_client.get_account_balance(account_addr, token_type, hostport=blockstackd_url)
         if json_is_error(res):
@@ -372,15 +394,29 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
-    def GET_account_history(self, path_info, account_addr, start_block, end_block):
+    def GET_account_history(self, path_info, account_addr):
         """
         Get the history of an account at a given page
         Returns [{...}]
         """
+        if not check_address(account_addr):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
         qs_values = path_info['qs_values']
+        start_block = qs_values.get('startblock', None)
+        end_block = qs_values.get('endblock', None)
         page = qs_values.get('page', None)
+
+        if start_block is None:
+            log.error('startblock= required')
+            return self._reply_json({'error': 'startblock= argument required'}, status_code=400)
+
+        if end_block is None:
+            log.error('endblock= required')
+            return self_reply_json({'error': 'endblock= argument required'}, status_code=400)
+
         if page is None:
-            log.error("Page required")
+            log.error("page= required")
             return self._reply_json({'error': 'page= argument required'}, status_code=400)
 
         try:
@@ -397,8 +433,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockstackd_url = get_blockstackd_url()
         res = blockstackd_client.get_account_history_page(account_addr, start_block, end_block, page, hostport=blockstackd_url)
         if json_is_error(res):
-            log.error("Failed to list account history for {} at page {}: {}".format(account_addr, page, res['error']))
-            return self._reply_json({'error': 'Failed to list account history for {} at page {}'.format(account_addr, page)}, status_code=res.get('http_status', 500))
+            log.error("Failed to list account history for {} at page {} of {}{}: {}".format(account_addr, page, start_block, end_block, res['error']))
+            return self._reply_json({'error': 'Failed to list account history for {} at page {} of {}-{}'.format(account_addr, page, start_block, end_block)}, status_code=res.get('http_status', 500))
 
         self._reply_json(res)
         return
@@ -409,10 +445,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get the state(s) of an account at a particular point in history
         Returns [{...}]
         """
-        try:
-            block_height = int(block_height)
-        except:
-            return self._reply_json({'error': 'Invalid block height "{}"'.format(block_height)}, status_code=400)
+        if not check_address(account_addr):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
+        if not check_block(block_height):
+            return self._reply_json({'error': 'Invalid block height'}, status_code=400)
 
         blockstackd_url = get_blockstackd_url()
         res = blockstackd_client.get_account_at(account_addr, block_height, hostport=blockstackd_url)
@@ -439,13 +476,16 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         page = qs_values.get('page', None)
         if page is None:
             log.error("Page required")
-            return self._reply_json({'error': 'page= argument required'}, status_code=401)
+            return self._reply_json({'error': 'page= argument required'}, status_code=400)
 
         try:
             page = int(page)
+            if page < 0:
+                raise ValueError("Page is negative")
+
         except ValueError:
             log.error("Invalid page")
-            return self._reply_json({'error': 'Invalid page= value'}, status_code=401)
+            return self._reply_json({'error': 'Invalid page= value'}, status_code=400)
 
         if qs_values.get('all', '').lower() in ['1', 'true']:
             include_expired = True
@@ -470,6 +510,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply status, zonefile, zonefile hash, address, and last TXID.
         'status' can be 'available', 'registered', 'revoked', or 'pending'
         """
+        if not check_name(name) and not check_subdomain(name):
+            return self._reply_json({'error': 'Invalid name or subdomain'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
 
         name_rec = None
@@ -537,6 +580,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return 401 on invalid start_block or end_block
         return 500 on failure to query blockstack server
         """
+        if not check_name(name) and not check_subdomain(name):
+            return self._reply_json({'error': 'Invalid name or subdomain'}, status_code=400)
+
         qs_values = path_info['qs_values']
         start_block = qs_values.get('start_block', None)
         end_block = qs_values.get('end_block', None)
@@ -553,22 +599,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 end_block = int(end_block)
         except:
             log.error("Invalid start_block or end_block")
-            self._reply_json({'error': 'Invalid start_block or end_block'}, status_code=401)
+            self._reply_json({'error': 'Invalid start_block or end_block'}, status_code=400)
             return
 
         blockstackd_url = get_blockstackd_url()
         res = blockstackd_client.get_name_record(name, include_expired=True, include_history=True, hostport=blockstackd_url)
         if json_is_error(res):
-            self._reply_json({'error': res['error']}, status_code=res.get('http_status', 500))
-            return
+            return self._reply_json({'error': res['error']}, status_code=res.get('http_status', 500))
 
         history = {}
         for block_height in res['history'].keys():
             if int(block_height) >= start_block and int(block_height) <= end_block:
                 history[block_height] = res['history'][block_height]
 
-        self._reply_json(history)
-        return
+        return self._reply_json(history)
 
 
     def GET_name_zonefile( self, path_info, name ):
@@ -581,9 +625,15 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the {'zonefile': zonefile} on success
         Reply 500 on failure to fetch or parse data
         """
+        if not check_name(name) and not check_subdomain(name):
+            return self._reply_json({'error': 'Invalid name or subdomain'}, status_code=400)
+
         raw = path_info['qs_values'].get('raw', '')
         raw = (raw.lower() in ['1', 'true'])
         
+        if not blockstackd_scripts.is_name_valid(name) and not blockstackd_scripts.is_subdomain(name):
+            return self._reply_json({'error': 'Invalid name or subdomain'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
         resp = blockstackd_client.get_name_record(name, include_history=False, hostport=blockstackd_url)
         if json_is_error(resp):
@@ -598,7 +648,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             zonefile_txt = base64.b64decode(resp['zonefile'])
         except:
             log.error("Zone file data is not serialized properly")
-            return self._reply_json({'error': 'Zone file is not serialized properly'}, status_code=401)
+            return self._reply_json({'error': 'Zone file is not serialized properly'}, status_code=400)
 
         if raw:
             self._send_headers(status_code=200, content_type='application/octet-stream')
@@ -621,6 +671,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the zonefile as application/octet-stream
         Reply 404 if not found
         """
+        if not check_string(zonefile_hash, OP_ZONEFILE_HASH_PATTERN):
+            return self._reply_json({'error': 'Invalid zone file hash'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
         resp = blockstackd_client.get_zonefiles(blockstackd_url, [str(zonefile_hash)])
         if json_is_error(resp):
@@ -635,39 +688,58 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
         
     
-    def PUT_zonefile(self, path_info):
+    def POST_zonefile(self, path_info):
         """
-        Put a zonefile
-        Reply 200 on success
-        Reply 202 if the upstream node already has the zonefile
-        Reply 400 if the node refused to save this zonefile
-        Reply 404 if the zonefile hash is not found
-        Reply 500 if the upstream node didn't accept it
+        Publish a zonefile which has *already* been announced.
+        Return 200 and {'status': True, 'servers': [...]} on success
+        Return 400 on invalid request, such as invalid JSON, JSON that doesn't match the schema, etc.
+        Return 500 on failure to replicate the zone file
         """
+        request_schema = {
+            'type': 'object',
+            'properties': {
+                'zonefile': {
+                    'type': 'string',
+                    'maxLength': RPC_MAX_ZONEFILE_LEN
+                },
+                'zonefile_b64': {
+                    'type': 'string',
+                    'pattern': OP_BASE64_EMPTY_PATTERN,
+                    'maxLength': (RPC_MAX_ZONEFILE_LEN * 4) / 3 + 1,
+                }
+            }
+        }
         blockstackd_url = get_blockstackd_url()
-        zonefile_data = self._read_payload(maxlen=RPC_MAX_ZONEFILE_LEN)
-        if zonefile_data is None:
-            # too long
-            return self._reply_json({'error': 'zone file is too long'}, status_code=401)
-            
-        zonefile_hash = storage.get_zonefile_data_hash(zonefile_data)
-        zonefiles_b64 = [base64.b64encode(str(zonefile_data))]
+        zonefile_json = self._read_json(schema=request_schema)
+        if zonefile_json is None:
+            return self.reply_json({'error': 'Invalid request'}, status_code=400)
+        elif 'error' in zonefile_json:
+            log.error("Failed to parse JSON")
+            return self._reply_json({'error': 'Invalid request'}, status_code=400)
+        
+        zonefile_str = zonefile_json.get('zonefile', False)
+        if zonefile_str:
+            # base64-encode 
+            zonefile_str = base64.b64encode(zonefile_str)
+
+        else:
+            # already given as b64-encoded?
+            zonefile_str = zonefile_json.get('zonefile_b64', False)
+            if not zonefile_str:
+                # neither given
+                return self._reply_json({'error': 'Invalid request'}, status_code=400)
+
+        zonefiles_b64 = [zonefile_str]
         resp = blockstackd_client.put_zonefiles(blockstackd_url, zonefiles_b64)
         if json_is_error(resp):
             log.error("Failed to put {}: {}".format(zonefile_hash, resp['error']))
             return self._reply_json({'error': resp['error']}, status_code=resp.get('http_status', 500))
 
         if len(resp['saved']) != 1:
-            log.error("Did not save {} saved is {}".format(zonefile_hash, resp['saved']))
+            log.error("Did not save {}, saved is {}".format(zonefile_hash, resp['saved']))
             return self._reply_json({'error': 'Blockstack node did not save zonefile {}'}, status_code=400)
 
-        if resp['saved'][0] == 0:
-            # accepted but not processed
-            return self._reply_json({'status': True}, status_code=202)
-
-        else:
-            # accepted and saved
-            return self._reply_json({'status': True}, status_code=200)
+        return self._reply_json({'status': True, 'servers': [blockstackd_url]}, status_code=200)
 
 
     def get_name_zonefile_hashes(self, name):
@@ -713,6 +785,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 on not found
         Reply 500 on failure to fetch data
         """
+        if not check_name(name) and not check_subdomain(name):
+            return self._reply_json({'error': 'Invalid name or subdomain'}, status_code=400)
+        
+        if not check_string(zonefile_hash, pattern=OP_ZONEFILE_HASH_PATTERN):
+            return self._reply_json({'error': 'Invalid zone file hash'}, status_code=400)
+
         raw = path_info['qs_values'].get('raw', '')
         raw = (raw.lower() in ['1', 'true'])
 
@@ -765,6 +843,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the profile on success
         Return 404 on failure to load
         """
+        if not check_name(user_id) and not check_subdomain(user_id):
+            return self._reply_json({'error': 'Invalid name or subdomain'}, status_code=400)
 
         blockstackd_url = get_blockstackd_url()
         resp = blockstackd_client.resolve_profile(user_id, hostport=blockstackd_url)
@@ -782,6 +862,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the price for the namespace as {'satoshis': price in satoshis}
         Reply 500 if we can't reach the namespace for whatever reason
         """
+        if not check_namespace(namespace_id):
+            return self._reply_json({'error': 'Invalid namespace'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
         price_info = blockstackd_client.get_namespace_cost(namespace_id, hostport=blockstackd_url)
         if json_is_error(price_info):
@@ -806,6 +889,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the namespace doesn't exist
         Reply 500 if we can't reach the server for whatever reason
         """
+        if not check_name(name):
+            return self._reply_json({'error': 'Invalid name'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
         price_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
         if json_is_error(price_info):
@@ -829,6 +915,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the price for the namespace as {'units': "...", 'amount': "..."}
         Reply 500 if we can't reach the namespace for whatever reason
         """
+        if not check_namespace(namespace_id):
+            return self._reply_json({'error': 'Invalid namespace'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
         price_info = blockstackd_client.get_namespace_cost(namespace_id, hostport=blockstackd_url)
         if json_is_error(price_info):
@@ -853,6 +942,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the namespace doesn't exist
         Reply 500 if we can't reach the server for whatever reason
         """
+        if not check_name(name):
+            return self._reply_json({'error': 'Invalid name'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
         price_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
         if json_is_error(price_info):
@@ -876,7 +968,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply all existing namespaces
         Reply 500 if we can't reach the server for whatever reason
         """
-
         qs_values = path_info['qs_values']
         offset = qs_values.get('offset', None)
         count = qs_values.get('count', None)
@@ -899,6 +990,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the namespace doesn't exist
         Reply 500 for any error in talking to the blocksatck server
         """
+        if not self.check_namespace(namespace_id):
+            return self._reply_json({'error': 'Invalid namespace'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
         namespace_rec = blockstackd_client.get_namespace_record(namespace_id, hostport=blockstackd_url)
         if json_is_error(namespace_rec):
@@ -917,6 +1011,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the namespace does not exist
         Reply 500 on failure to talk to the blockstack server
         """
+        if not self.check_namespace(namespace_id):
+            return self._reply_json({'error': 'Invalid namespace'}, status_code=400)
+
         blockstackd_url = get_blockstackd_url()
         name_count = blockstackd_client.get_num_names_in_namespace(namespace_id, hostport=blockstackd_url)
         if json_is_error(name_count):
@@ -933,17 +1030,23 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the namespace doesn't exist
         Reply 500 for any error in talking to the blockstack server
         """
+        if not self.check_namespace(namespace_id):
+            return self._reply_json({'error': 'Invalid namespace'}, status_code=400)
+
         qs_values = path_info['qs_values']
         page = qs_values.get('page', None)
         if page is None:
             log.error("Page required")
-            return self._reply_json({'error': 'page= argument required'}, status_code=401)
+            return self._reply_json({'error': 'page= argument required'}, status_code=400)
 
         try:
             page = int(page)
+            if page < 0:
+                raise ValueError()
+
         except ValueError:
             log.error("Invalid page")
-            return self._reply_json({'error': 'Invalid page= value'}, status_code=401)
+            return self._reply_json({'error': 'Invalid page= value'}, status_code=400)
 
         offset = page * 100
         count = 100
@@ -966,10 +1069,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 for blockchains other than those supported
         Reply 500 for any error we have in talking to the blockstack server
         """
+        if not check_block(blockheight):
+            return self._reply_json({'error': 'Invalid block'}, status_code=400)
+
         if blockchain_name != 'bitcoin':
             # not supported
-            self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
-            return
+            return self._reply_json({'error': 'Unsupported blockchain'}, status_code=400)
         
         blockstackd_url = get_blockstackd_url()
         nameops = blockstackd_client.get_blockstack_transactions_at(int(blockheight), hostport=blockstackd_url)
@@ -989,9 +1094,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the name is not found
         Reply 500 if we have an error talking to the server
         """
+        if not check_name(name) and not check_subdomain(name):
+            return self._reply_json({'error': 'Invalid name or subdomain'}, status_code=400)
+
         if blockchain_name != 'bitcoin':
             # not supported
-            self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=400)
             return
 
         blockstackd_url = get_blockstackd_url()
@@ -1012,7 +1120,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if blockchain_name != 'bitcoin':
             # not supported
-            self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=400)
             return
 
         include_expired = False
@@ -1042,7 +1150,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if blockchain_name != 'bitcoin':
             # not supported
-            self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=400)
             return
 
         blockstackd_url = get_blockstackd_url()
@@ -1090,6 +1198,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if not BLOCKSTACK_TEST:
             return self._send_headers(status_code=404, content_type='text/plain')
 
+        if not check_address(address):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
         res = self._get_balance(address, 1)
         if 'error' in res:
             return self._reply_json(res, status_code=500)
@@ -1103,6 +1214,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if not BLOCKSTACK_TEST:
             return self._send_headers(status_code=404, content_type='text/plain')
+
+        if not check_address(address):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
 
         res = self._get_balance(address, 0)
         if 'error' in res:
@@ -1118,6 +1232,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         if not BLOCKSTACK_TEST:
             return self._send_headers(status_code=404, content_type='text/plain')
+
+        if not check_address(address):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
 
         bitcoind_opts = get_bitcoin_opts()
         bitcoind_host = bitcoind_opts['bitcoind_server']
@@ -1180,7 +1297,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_account_at,
                 },
             },
-            r'^/v1/accounts/({})/history/([0-9]+)-([0-9]+)$'.format(BASE58CHECK_CLASS): {
+            r'^/v1/accounts/({})/history$'.format(BASE58CHECK_CLASS): {
                 'routes': {
                     'GET': self.GET_account_history,
                  },
@@ -1300,9 +1417,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_zonefile,
                 },
             },
-            r'^/v1/zonefiles$': {
+            r'^/v1/zonefile$': {
                 'routes': {
-                    'PUT': self.PUT_zonefile,
+                    'POST': self.POST_zonefile,
                 },
             },
             r'^/v1/.*$': {
@@ -1320,7 +1437,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         path_info = self.get_path_and_qs()
         if 'error' in path_info:
-            self._send_headers(status_code=401, content_type='text/plain')
+            self._send_headers(status_code=400, content_type='text/plain')
             return
 
         qs_values = path_info['qs_values']
@@ -1328,7 +1445,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         route_info = self._route_match( method_name, path_info, routes )
         if route_info is None:
             log.debug("Unmatched route: {} '{}'".format(method_name, path_info['path']))
-            log.debug(json.dumps( routes.keys(), sort_keys=True, indent=4 ))
+            routes = routes.keys().sort()
+            log.debug(json.dumps(routes, sort_keys=True, indent=4))
             self._send_headers(status_code=404, content_type='text/plain')
             return
 
