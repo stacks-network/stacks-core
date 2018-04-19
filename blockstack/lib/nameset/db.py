@@ -259,8 +259,8 @@ def namedb_create_token_genesis(con, initial_account_balances):
         # set up initial account balances
         sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?);'
 
-        fake_txid = '{}genesis'.format(address)
-        fake_txid = '0' * (64 - len(fake_txid)) + fake_txid
+        fake_txid_preimage = '{} genesis'.format(address)
+        fake_txid = virtualchain.lib.hashing.bin_double_sha256(fake_txid_preimage).encode('hex')
 
         args = (address, account_info['type'], '{}'.format(account_info['value']), '0', lock_send, FIRST_BLOCK_MAINNET, fake_txid, 0)
         namedb_query_execute(con, sql, args)
@@ -1449,8 +1449,8 @@ def namedb_accounts_vest(cur, block_height):
 
         log.debug("Vest {} with {} {}".format(addr, token_amount, token_type))
 
-        fake_txid = '{}vesting'.format(addr)
-        fake_txid = '0' * (64 - len(fake_txid)) + fake_txid
+        fake_txid_preimage = '{} vest {} {} at {}'.format(addr, token_type, token_amount, block_height)
+        fake_txid = virtualchain.lib.hashing.bin_double_sha256(fake_txid_preimage).encode('hex')
 
         res = namedb_account_credit(cur, addr, token_type, token_amount, block_height, 0, fake_txid)
         if not res:
@@ -1735,6 +1735,23 @@ def namedb_get_account_history(cur, address, block_start, block_end, offset=None
     return ret
 
 
+def namedb_get_all_account_addresses(cur):
+    """
+    TESTING ONLY
+    get all account addresses
+    """
+    assert BLOCKSTACK_TEST, 'BUG: this method is only available in test mode'
+    sql = 'SELECT DISTINCT address FROM accounts;'
+    args = ()
+    rows = namedb_query_execute(cur, sql, args)
+
+    ret = []
+    for rowdata in rows:
+        ret.append(rowdata['address'])
+
+    return ret
+
+
 def namedb_get_namespace( cur, namespace_id, current_block, include_expired=False, include_history=True, only_revealed=True):
     """
     Get a namespace (revealed or ready) and optionally its history.
@@ -1986,7 +2003,7 @@ def namedb_get_account_at(cur, address, block_number):
     """
     Get the state(s) that a given account was in at a given block height
     Normally this is one state if nothing happened in this block.
-    Otherwise, this is two or more states.
+    Otherwise, this is one or more states.
 
     Returns an array of states
     """
@@ -2218,7 +2235,7 @@ def namedb_select_count_rows( cur, query, args, count_column='COUNT(*)' ):
     return count
 
 
-def namedb_get_all_ops_at(db, block_id, offset=None, count=None):
+def namedb_get_all_nameops_at(db, block_id, offset=None, count=None):
     """
     Get the states that each name and namespace record
     passed through in the given block.  Note that this only concerns
@@ -2235,7 +2252,8 @@ def namedb_get_all_ops_at(db, block_id, offset=None, count=None):
     # how many preorders at this block?
     offset_count_query, offset_count_args = namedb_offset_count_predicate(offset=offset, count=count)
 
-    preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? " + " " + offset_count_query + ";"
+    # preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? " + " " + offset_count_query + ";"
+    preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? ORDER BY vtxindex " + " " + offset_count_query + ";"
     preorder_count_rows_args = (block_id,) + offset_count_args
 
     # log.debug(namedb_format_query(preorder_count_rows_query, preorder_count_rows_args))
@@ -2298,9 +2316,9 @@ def namedb_get_all_ops_at(db, block_id, offset=None, count=None):
     return ret
 
 
-def namedb_get_num_ops_at( db, block_id ):
+def namedb_get_num_nameops_at( db, block_id ):
     """
-    Get the number of operations that occurred at a particular block.
+    Get the number of name/namespace operations that occurred at a particular block.
     """
     cur = db.cursor()
 
