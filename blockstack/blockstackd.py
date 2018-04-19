@@ -750,7 +750,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             res = self.get_subdomain_DID_record(did)
         
         if 'error' in res:
-            return {'error': res['error'], 'http_status': 404}
+            return {'error': res['error'], 'http_status': res.get('http_status', 404)}
 
         return self.success_response({'record': res['record']})
 
@@ -770,7 +770,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'Invalid name or subdomain', 'http_status': 400}
 
         if 'error' in res:
-            return {'error': res['error'], 'http_status': 404}
+            return {'error': res['error'], 'http_status': res.get('http_status', 404)}
 
         return self.success_response({'record': res['record']})
 
