@@ -424,16 +424,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             end_block = int(end_block)
             page = int(page)
 
-            assert start_block >= 0
-            assert end_block >= 0
+            assert check_block(start_block)
+            assert check_block(end_block)
+            assert start_block < end_block
             assert page >= 0
         except:
-            return self._reply_json({'error': 'Invalid start and end blocks or invalid page'}, status_code=400)
+            return self._reply_json({'error': 'Invalid start block or end block or invalid page'}, status_code=400)
 
         blockstackd_url = get_blockstackd_url()
         res = blockstackd_client.get_account_history_page(account_addr, start_block, end_block, page, hostport=blockstackd_url)
         if json_is_error(res):
-            log.error("Failed to list account history for {} at page {} of {}{}: {}".format(account_addr, page, start_block, end_block, res['error']))
+            log.error("Failed to list account history for {} at page {} of {}-{}: {}".format(account_addr, page, start_block, end_block, res['error']))
             return self._reply_json({'error': 'Failed to list account history for {} at page {} of {}-{}'.format(account_addr, page, start_block, end_block)}, status_code=res.get('http_status', 500))
 
         self._reply_json(res)
@@ -448,7 +449,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if not check_address(account_addr):
             return self._reply_json({'error': 'Invalid address'}, status_code=400)
 
-        if not check_block(block_height):
+        try:
+            block_height = int(block_height)
+            assert check_block(block_height)
+        except:
             return self._reply_json({'error': 'Invalid block height'}, status_code=400)
 
         blockstackd_url = get_blockstackd_url()
@@ -623,6 +627,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         is well-formed (and return it in a JSON dict).
 
         Reply the {'zonefile': zonefile} on success
+        Reply the raw zone file as application/octet-stream of raw=1 is set
+        Reply {'error': ...} and HTTP 400 on invalid name or subdomain, or invalid zone file
+        Reply {'error': ...} and HTTP 404 if the name doesn't exist
+
         Reply 500 on failure to fetch or parse data
         """
         if not check_name(name) and not check_subdomain(name):
@@ -737,7 +745,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if len(resp['saved']) != 1:
             log.error("Did not save {}, saved is {}".format(zonefile_hash, resp['saved']))
-            return self._reply_json({'error': 'Blockstack node did not save zonefile {}'}, status_code=400)
+            return self._reply_json({'error': 'Blockstack node did not save the zone file'}, status_code=400)
 
         return self._reply_json({'status': True, 'servers': [blockstackd_url]}, status_code=200)
 
@@ -796,7 +804,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         blockstack_hostport = get_blockstackd_url()
 
-        # historic_zonefiles = data.list_update_history(name)
         historic_zonefiles = self.get_name_zonefile_hashes(name)
         if json_is_error(historic_zonefiles):
             self._reply_json({'error': historic_zonefiles['error']}, status_code=historic_zonefiles.get('http_status', 500))
@@ -990,7 +997,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the namespace doesn't exist
         Reply 500 for any error in talking to the blocksatck server
         """
-        if not self.check_namespace(namespace_id):
+        if not check_namespace(namespace_id):
             return self._reply_json({'error': 'Invalid namespace'}, status_code=400)
 
         blockstackd_url = get_blockstackd_url()
@@ -1011,7 +1018,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the namespace does not exist
         Reply 500 on failure to talk to the blockstack server
         """
-        if not self.check_namespace(namespace_id):
+        if not check_namespace(namespace_id):
             return self._reply_json({'error': 'Invalid namespace'}, status_code=400)
 
         blockstackd_url = get_blockstackd_url()
@@ -1030,7 +1037,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 if the namespace doesn't exist
         Reply 500 for any error in talking to the blockstack server
         """
-        if not self.check_namespace(namespace_id):
+        if not check_namespace(namespace_id):
             return self._reply_json({'error': 'Invalid namespace'}, status_code=400)
 
         qs_values = path_info['qs_values']
@@ -1069,7 +1076,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply 404 for blockchains other than those supported
         Reply 500 for any error we have in talking to the blockstack server
         """
-        if not check_block(blockheight):
+        try:
+            blockheight = int(blockheight)
+            assert check_block(blockheight)
+        except:
             return self._reply_json({'error': 'Invalid block'}, status_code=400)
 
         if blockchain_name != 'bitcoin':
@@ -1260,11 +1270,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Top-level dispatch method
         """
-
-        URLENCODING_CLASS = r'[a-zA-Z0-9\-_.~%]+'
-        NAME_CLASS = r'[a-z0-9\-_.+]{{{},{}}}'.format(3, LENGTHS['blockchain_id_name'])
-        NAMESPACE_CLASS = r'[a-z0-9\-_+]{{{},{}}}'.format(1, LENGTHS['namespace_id'])
-        BASE58CHECK_CLASS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+'
+        URLENCODING_CLASS = r'[a-zA-Z0-9\-_.~%]'
 
         routes = {
             r'^/v1/ping$': {
@@ -1272,52 +1278,52 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_ping,
                 },
             },
-            r'^/v1/addresses/({})/({})$'.format(URLENCODING_CLASS, BASE58CHECK_CLASS): {
+            r'^/v1/addresses/({}{{1,256}})/({}{{1,40}})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_names_owned_by_address,
                 },
             },
-            r'^/v1/accounts/({})/tokens$'.format(BASE58CHECK_CLASS): {
+            r'^/v1/accounts/({}{{1,40}})/tokens$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_account_tokens,
                 },
             },
-            r'^/v1/accounts/({})/(.+){{1,{}}}/status$'.format(BASE58CHECK_CLASS, LENGTHS['namespace_id']): {
+            r'^/v1/accounts/({}{{1,40}})/({}{{1,40}})/status$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_account_record,
                 },
             },
-            r'^/v1/accounts/({})/(.+){{1,{}}}/balance$'.format(BASE58CHECK_CLASS, LENGTHS['namespace_id']): {
+            r'^/v1/accounts/({}{{1,40}})/({}{{1,40}})/balance$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_account_balance,
                 },
             },
-            r'^/v1/accounts/({})/history/([0-9]+)$'.format(BASE58CHECK_CLASS): {
+            r'^/v1/accounts/({}{{1,40}})/history/([0-9]+)$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_account_at,
                 },
             },
-            r'^/v1/accounts/({})/history$'.format(BASE58CHECK_CLASS): {
+            r'^/v1/accounts/({}{{1,40}})/history$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_account_history,
                  },
             },
-            r'^/v1/blockchains/({})/name_count'.format(URLENCODING_CLASS) : {
+            r'^/v1/blockchains/({}{{1,40}})/name_count'.format(URLENCODING_CLASS) : {
                 'routes': {
                     'GET': self.GET_blockchain_num_names
                 },
             },
-            r'^/v1/blockchains/({})/operations/([0-9]+)$'.format(URLENCODING_CLASS): {
+            r'^/v1/blockchains/({}{{1,40}})/operations/([0-9]+)$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_ops
                 },
             },
-            r'^/v1/blockchains/({})/names/({})$'.format(URLENCODING_CLASS, NAME_CLASS): {
+            r'^/v1/blockchains/({}{{1,40}})/names/({}{{1,40}})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_name_record,
                 },
             },
-            r'^/v1/blockchains/({})/consensus$'.format(URLENCODING_CLASS): {
+            r'^/v1/blockchains/({}{{1,40}})/consensus$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_consensus,
                 },
@@ -1327,22 +1333,22 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_names,
                 },
             },
-            r'^/v1/names/({})$'.format(NAME_CLASS): {
+            r'^/v1/names/({}{{1,256}})$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_name_info,
                 },
             },
-            r'^/v1/names/({})/history$'.format(NAME_CLASS): {
+            r'^/v1/names/({}{{1,256}})/history$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_name_history,
                 },
             },
-            r'^/v1/names/({})/zonefile$'.format(NAME_CLASS): {
+            r'^/v1/names/({}{{1,256}})/zonefile$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_name_zonefile,
                 },
             },
-            r'^/v1/names/({})/zonefile/([0-9a-fA-F]{{{}}})$'.format(NAME_CLASS, LENGTHS['value_hash']): {
+            r'^/v1/names/({}{{1,256}})/zonefile/([0-9a-fA-F]{{{}}})$'.format(URLENCODING_CLASS, LENGTHS['value_hash']): {
                 'routes': {
                     'GET': self.GET_name_zonefile_by_hash,     # returns a zonefile
                 },
@@ -1352,17 +1358,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_namespaces,
                 },
             },
-            r'^/v1/namespaces/({})$'.format(NAMESPACE_CLASS): {
+            r'^/v1/namespaces/({}{{1,40}})$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_namespace_info,
                 },
             },
-            r'^/v1/namespaces/({})/names$'.format(NAMESPACE_CLASS): {
+            r'^/v1/namespaces/({}{{1,40}})/names$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_namespace_names,
                 },
             },
-            r'^/v1/namespaces/({})/name_count$'.format(NAMESPACE_CLASS): {
+            r'^/v1/namespaces/({}{{1,40}})/name_count$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_namespace_num_names,
                 },
@@ -1372,42 +1378,42 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_ping,
                 },
             },
-            r'^/v1/prices/namespaces/({})$'.format(NAMESPACE_CLASS): {
+            r'^/v1/prices/namespaces/({}{{1,40}})$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_prices_namespace_v1,
                 },
             },
-            r'^/v1/prices/names/({})$'.format(NAME_CLASS): {
+            r'^/v1/prices/names/({}{{1,256}})$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_prices_name_v1,
                 },
             },
-            r'^/v2/prices/namespaces/({})$'.format(NAMESPACE_CLASS): {
+            r'^/v2/prices/namespaces/({}{{1,40}})$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_prices_namespace,
                 },
             },
-            r'^/v2/prices/names/({})$'.format(NAME_CLASS): {
+            r'^/v2/prices/names/({}{{1,256}})$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_prices_name,
                 },
             },
-            r'^/v1/users/({})$'.format(URLENCODING_CLASS): {
+            r'^/v1/users/({}{{1,256}})$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_user_profile,
                 },
             },
-            r'^/insight-api/addr/({})/balance$'.format(BASE58CHECK_CLASS): {
+            r'^/insight-api/addr/({}{{1,40}})/balance$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_confirmed_balance_insight,
                 },
             },
-            r'^/insight-api/addr/({})/unconfirmedBalance$'.format(BASE58CHECK_CLASS): {
+            r'^/insight-api/addr/({}{{1,40}})/unconfirmedBalance$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_unconfirmed_balance_insight,
                 },
             },
-            r'^/insight-api/addr/({})/utxo$'.format(BASE58CHECK_CLASS): {
+            r'^/insight-api/addr/({}{{1,40}})/utxo$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_utxos_insight,
                 },
@@ -1444,11 +1450,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         route_info = self._route_match( method_name, path_info, routes )
         if route_info is None:
-            log.debug("Unmatched route: {} '{}'".format(method_name, path_info['path']))
-            routes = routes.keys().sort()
+            log.warning("Unmatched route: {} '{}'".format(method_name, path_info['path']))
+            routes = routes.keys()
+            routes.sort()
             log.debug(json.dumps(routes, sort_keys=True, indent=4))
-            self._send_headers(status_code=404, content_type='text/plain')
-            return
+            return self._reply_json({'error': 'No such endpoint'}, status_code=404)
 
         route_args = route_info['args']
         route_method = route_info['method']
