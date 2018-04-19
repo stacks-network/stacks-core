@@ -388,9 +388,23 @@ def make_proxy(password=None, config_path=None):
 
 
 def blockstack_get_name_cost(name, config_path=None):
+    """
+    Legacy compat for bitcoin
+    """
     blockstackd_url = 'http://localhost:16264'
     name_cost_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
-    return name_cost_info['amount']
+    return int(name_cost_info['amount'])
+
+
+def blockstack_get_name_token_cost(name):
+    """
+    Get the token price of a name.  Use the CLI.
+    """
+    assert has_nodejs_cli()
+    info = nodejs_cli('price', name)
+    info = json.loads(info)
+    info['amount'] = int(info['amount'])
+    return info
 
 
 def has_nodejs_cli():
@@ -1319,12 +1333,7 @@ def blockstack_put_zonefile(zonefile_txt, config_path=None):
     if has_nodejs_cli():
         res = nodejs_cli('zonefile_push', zonefile_txt)
         print res
-        res = json.loads(res)
-
-        if res['status']:
-            atlas_zonefiles_present.append(blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt))
-
-        return res['status']
+        return True
 
     else:
         raise Exception("Need blockstack-cli")
@@ -1746,7 +1755,7 @@ def check_account_debits(state_engine, api_call_history):
     if not is_test_running():
         return True
     
-    addrs = list(set([api_call.token_record.account_addr for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)]))
+    addrs = state_engine.get_all_account_addresses()
     token_types = filter(lambda tt: tt != 'BTC',
                          list(set([api_call.token_record.token_type for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)])))
 
@@ -1783,42 +1792,70 @@ def check_account_credits(state_engine, api_call_history):
     if not is_test_running():
         return True
     
-    addrs = list(set([api_call.token_record.account_addr for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)]))
+    addrs = state_engine.get_all_account_addresses()
     token_types = filter(lambda tt: tt != 'BTC',
                          list(set([api_call.token_record.token_type for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)])))
 
-    expected_credits = dict([
+    # tokens received from all prior blocks from TokenTransfer
+    block_credits = dict([
         (addr, dict([
             (token_type, sum([api_call.token_record.token_cost for api_call in
                 filter(lambda ac: ac.success and isinstance(ac.token_record, TokenTransfer) and ac.token_record.recipient_addr == addr and ac.token_record.token_type == token_type, api_call_history)]))
             for token_type in token_types]))
         for addr in addrs])
 
+    # tokens given at genesis
+    genesis_tokens = dict([
+        (addr, dict([
+            (token_type, sum([blk['value'] for blk in filter(lambda g: g['address'] == addr and g['type'] == token_type, state_engine.genesis_block)]))
+            for token_type in token_types]))
+        for addr in addrs])
+
+    # tokens received through vesting
+    vesting_schedules = dict([
+        (addr, dict([
+            (token_type, [blk['vesting'] for blk in filter(lambda g: g['address'] == addr and g['type'] == token_type, state_engine.genesis_block)])
+            for token_type in token_types]))
+        for addr in addrs])
+
+    log.debug("Vesting schedule = \n{}".format(vesting_schedules))
+
+    vested_tokens = {}
+    for addr in addrs:
+        vested_tokens[addr] = {}
+        for token_type in token_types:
+            vested_token_sum = 0
+            for i in range(0, len(vesting_schedules[addr][token_type])):
+                for block_height in vesting_schedules[addr][token_type][i]:
+                    if not isinstance(block_height, (int, long)) or block_height > state_engine.lastblock+1:
+                        continue
+
+                    vested_token_sum += vesting_schedules[addr][token_type][i][block_height]
+
+            vested_tokens[addr][token_type] = vested_token_sum
+
+    # total expected tokens
+    expected_credits = dict([
+        (addr, dict([
+            (token_type, genesis_tokens[addr][token_type] + vested_tokens[addr][token_type] + block_credits[addr][token_type])
+            for token_type in token_types]))
+        for addr in addrs])
+
+    # accounts from the db
     accounts = dict([
         (addr, dict([
             (token_type, 0 if state_engine.get_account(addr, token_type) is None else state_engine.get_account(addr, token_type)['credit_value'])
             for token_type in token_types]))
         for addr in addrs])
 
-    accounts_prior = dict([
-        (addr, dict([
-            (token_type, sum(map(lambda ac: int(ac['credit_value']), filter(lambda ac: ac['type'] == token_type, state_engine.get_account_at(addr, state_engine.lastblock-1)))))
-            for token_type in token_types]))
-        for addr in addrs])
-
-    account_deltas = dict([
-        (addr, dict([
-            (token_type, accounts[addr][token_type] - accounts_prior[addr][token_type])
-            for token_type in token_types]))
-        for addr in addrs])
-
-    log.debug("account credits = \n{}".format(json.dumps(account_deltas, indent=4, sort_keys=True)))
+    log.debug("account credits = \n{}".format(json.dumps(accounts, indent=4, sort_keys=True)))
+    log.debug("vested credits = \n{}".format(json.dumps(vested_tokens, indent=4, sort_keys=True)))
     log.debug("expected credits =\n{}".format(json.dumps(expected_credits, indent=4, sort_keys=True)))
 
     for addr in addrs:
         for token_type in token_types:
-            if accounts[addr][token_type] - accounts_prior[addr][token_type] != expected_credits[addr][token_type]:
-                log.error("mismatch: {}'s {}: {} - {} != {}".format(addr, token_type, accounts[addr][token_type], accounts_prior[addr][token_type], expected_credits[addr][token_type]))
+            if accounts[addr][token_type] != expected_credits[addr][token_type]:
+                log.error("mismatch: {}'s {}: {} != {}".format(addr, token_type, accounts[addr][token_type], expected_credits[addr][token_type]))
                 return False
 
     return True
@@ -2802,4 +2839,21 @@ def list_working_dirs(base_working_dir):
 
     return ret
 
+
+def get_wallet_balances(wallets):
+    """
+    Get the balances of all tokens for a list of walelts
+    """
+    if not isinstance(wallets, list):
+        wallets = [wallets]
+
+    balances = {}
+    for w in wallets:
+       balance_info = json.loads(nodejs_cli('balance', w.addr))
+       for token_type in balance_info:
+           balance_info[token_type] = int(balance_info[token_type])
+
+       balances[w.addr] = balance_info
+
+    return balances
 
