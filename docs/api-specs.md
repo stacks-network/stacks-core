@@ -7,8 +7,8 @@ Ping the Blockstack node to see if it's alive.
   + Body
   
             {
-             "status": "alive", 
-             "version": "###version###"
+                "status": "alive", 
+                "version": "###version###"
             }
   + Schema
 
@@ -34,88 +34,276 @@ Ping the Blockstack node to see if it's alive.
 This family of API endpoints deals with zone files stored in Blockstack's peer
 network.
 
-## Fetch zone file [GET /v1/names/{name}/zonefile]
-Fetch a user's raw zone file.  This only works for RFC-compliant zone files.
-This method returns an error for names that have non-standard zone files.
+## Fetch zone file [GET /v1/names/{name}/zonefile?raw={raw}]
+Fetch a user's raw zone file.  Only works with RFC-compliant zone files, unless
+`raw=true` is passed.
 
 + Public Endpoint
 + Parameters
-  + name: bar.test (string) - fully-qualified name
+  + name: hello.id (string) - fully-qualified name
+  + raw: true (enum[string], optional) - return a raw zone file as an
+    octet-stream.
+
+
 + Response 200 (application/json)
   + Body
 
-               {
-                   "zonefile": "$ORIGIN bar.test\n$TTL 3600\n_https._tcp URI 10 1 \"https://blockstack.s3.amazonaws.com/bar.test\"\n"
-               }
+            { 
+               "zonefile": "$ORIGIN hello.id\n$TTL 3600\n_http._tcp URI 10 1 \"https://gaia.blockstack.org/hub/1EovsUFuGnmHspAWxr5YhT6ohZziQ1ioRJ/0/profile.json\"\n"
+            }
 
   + Schema
 
-               {
-                   'anyOf': [
-                     {
-                       'type': 'object',
-                       'properties': {
-                           'zonefile': {
-                               'type': 'string',
-                               'pattern': '.+',
-                           },
-                      },
-                      {
-                        'type': 'object',
-                        'properties': {
-                           'error': {
-                               'type': 'string',
-                               'pattern': '.+',
-                           },
-                       },
-                   ]
+            {
+              'type': 'object',
+              'properties': {
+                  'zonefile': {
+                      'type': 'string',
+                      'pattern': '.+',
+                  },
                }
+            }
+
++ Response 200 (application/octet-stream)
+    + Body
+
+            $ORIGIN hello.id
+            $TTL 3600
+            _http._tcp URI 10 1 "https://gaia.blockstack.org/hub/1EovsUFuGnmHspAWxr5YhT6ohZziQ1ioRJ/0/profile.json"
+
+
++ Response 400 (application/json)
+    + Body
+
+            {
+               "error": "Invalid name or subdomain"
+            }
+
+    + Schema
+
+            {
+               'type': 'object',
+               'properties': {
+                   'error': {
+                      'type': 'string',
+                      'pattern': '.+',
+                    },
+                },
+                'required': [
+                    'error'
+                ]
+            }
+
++ Response 404 (application/json)
+    + Body
+
+            {
+              "error": "Not found."
+            }
+
+    + Schema
+
+            {
+               'type': 'object',
+               'properties': {
+                   'error': {
+                      'type': 'string',
+                      'pattern': '.+',
+                    },
+                },
+                'required': [
+                    'error'
+                ]
+            }
 
 ## Publish a zone file [POST /v1/zonefile]
-Publish an already-announced zone file to the Blockstack peer network.
+Publish an already-announced zone file to the Blockstack peer network.  Once
+uploaded, this Blockstack Core node will asynchronously replicate the zone file to all
+other Blockstack Core nodes.  Eventually, every Blockstack Core node will have
+a copy of the zone file.  Please see the [Atlas Network
+Documentation](https://github.com/blockstack/blockstack-core/blob/master/docs/atlas_network.md)
+for details on how this works.
+
+This method supports two modes of encoding zone files, depending on whether or
+not the zone file is JSON-serializable.  If it is JSON-serializable, then it can
+be uploaded as `{'zonefile': ...}`.  Otherwise, it must be base64-encoded first,
+and must be uploaded as `{'zonefile_b64': ...}`.
+
+This method only succeeds if the zone file's hash corresponds to the zone file hash
+of an existing name in the system.  It will succeed even if the name is expired.
+
++ Public Endpoint
 
 + Request (application/json) 
   + Body
-               {
-                   "zonefile": "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp URI 10 1 \"https://gaia.blockstack.org/hub/1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs/0/profile.json\"\n"
-               }
-           
+
+            {
+                "zonefile": "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp URI 10 1 \"https://gaia.blockstack.org/hub/1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs/0/profile.json\"\n"
+            }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'zonefile': {
+                        'type': 'string',
+                        'maxLength': 40960,
+                    },
+                }
+                'required': [   
+                    'zonefile'
+                ]
+            }
+ 
 + Response 200 (application/json)
   + Body
 
-               {
-                   'status': true
-               }
+            {
+                'status': true
+            }
 
   + Schema 
-            
-                {
-                    'anyOf': [ 
-                        {
-                            'type': 'object',
-                            'properties': {
-                                'status': {
-                                    'type': boolean
-                                },
-                             },
-                             'required': [
-                                'status'
-                             ]
-                        },
-                        {
-                            'type': 'object',
-                            'properties': {
-                               'error': {
-                                   'type': 'string',
-                                   'pattern': '.+',
-                                },
-                             },
-                             'required': [
-                                  'error'
-                             ],
-                       }
-                    ]
-                }
+
+            {
+                 'type': 'object',
+                 'properties': {
+                     'status': {
+                         'type': boolean
+                     }
+                 },
+                 'required': [
+                     'status'
+                 ]
+            }
+
++ Response 400 (application/json)
+    + Body
+
+            {
+                 'error': 'Invalid request'
+            }
+
+    + Schema
+
+            {
+                 'type': 'object',
+                 'properties': {
+                     'error': {
+                         'type': 'string'    
+                     }
+                 },
+                 'required': [
+                     'error'
+                 ]
+            }
+
++ Response 400 (application/json)
+    + Body
+
+            {
+                 'error': 'Blockstack node did not save the zone file' 
+            }
+
+    + Schema
+
+            {
+                 'type': 'object',
+                 'properties': {
+                     'error': {
+                         'type': 'string'    
+                     }
+                 },
+                 'required': [
+                     'error'
+                 ]
+            }
+
++ Request (application/json)
+  + Body
+
+            {
+                "zonefile_b64": "IG11bmVlYi5pZFxuIDM2MDBcbl9odHRwLl90Y3AgVVJJIDEwIDEgImh0dHBzOi8vZ2FpYS5ibG9ja3N0YWNrLm9yZy9odWIvMUozUFV4WTV1RFNoVW5IUnJNeVU2eUt0b0hFVVBoS1VMcy8wL3Byb2ZpbGUuanNvbiJcbgo="
+            }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'zonefile_b64': {
+                        'type': 'string',
+                        'pattern': '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$'
+                        'maxLength': 54614,
+                    }
+                },
+                'required': [
+                    'zonefile'
+                ]
+            }
+ 
++ Response 200 (application/json)
+  + Body
+
+            {
+                'status': true
+            }
+
+  + Schema 
+
+            {
+                 'type': 'object',
+                 'properties': {
+                     'status': {
+                         'type': boolean
+                     }
+                 },
+                 'required': [
+                     'status'
+                 ]
+            }
+
++ Response 400 (application/json)
+    + Body
+
+            {
+                 'error': 'Invalid request'
+            }
+
+    + Schema
+
+            {
+                 'type': 'object',
+                 'properties': {
+                     'error': {
+                         'type': 'string'    
+                     }
+                 },
+                 'required': [
+                     'error'
+                 ]
+            }
+
++ Response 400 (application/json)
+    + Body
+
+            {
+                 'error': 'Blockstack node did not save the zone file' 
+            }
+
+    + Schema
+
+            {
+                 'type': 'object',
+                 'properties': {
+                     'error': {
+                         'type': 'string'    
+                     }
+                 },
+                 'required': [
+                     'error'
+                 ]
+            }
 
 # Group Name Querying
 This family of API endpoints deals with querying name information.
@@ -129,19 +317,25 @@ Fetch a list of all names known to the node.
 + Response 200 (application/json)
   + Body
 
-               [ "aldenquimby.id", "aldeoryn.id",
-                 "alderete.id", "aldert.id",
-                 "aldi.id", "aldighieri.id", ... ]
+            [
+                "aldenquimby.id", 
+                "aldeoryn.id",
+                "alderete.id",
+                "aldert.id",
+                "aldi.id",
+                "aldighieri.id",
+                ...
+            ]
 
   + Schema
 
-              {
-                 'type': 'array',
-                 'items': {
-                       'type': 'string',
-                       'pattern': r'^([a-z0-9\\-_.+]{3,37})$',
-                 }
-              }
+            {
+               'type': 'array',
+               'items': {
+                     'type': 'string',
+                     'pattern': r'^([a-z0-9\\-_.+]{3,37})$',
+               }
+            }
  
 ## Get name info [GET /v1/names/{name}]
 + Public Endpoint
@@ -151,19 +345,19 @@ Fetch a list of all names known to the node.
 + Response 200 (application/json)
   + Body
 
-              {
-              "address": "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP", 
-              "blockchain": "bitcoin", 
-              "expire_block": 489247, 
-              "last_txid": "1edfa419f7b83f33e00830bc9409210da6c6d1db60f99eda10c835aa339cad6b", 
-              "status": "registered", 
-              "zonefile": "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp IN URI 10 1 \"https://blockstack.s3.amazonaws.com/muneeb.id\"\n", 
-              "zonefile_hash": "b100a68235244b012854a95f9114695679002af9"
-              }
+            {
+                "address": "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP", 
+                "blockchain": "bitcoin", 
+                "expire_block": 489247, 
+                "last_txid": "1edfa419f7b83f33e00830bc9409210da6c6d1db60f99eda10c835aa339cad6b", 
+                "status": "registered", 
+                "zonefile": "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp IN URI 10 1 \"https://blockstack.s3.amazonaws.com/muneeb.id\"\n", 
+                "zonefile_hash": "b100a68235244b012854a95f9114695679002af9"
+            }
 
   + Schema
 
-               {
+            {
                  'type': 'object',
                  'properties': {
                    'address': {
@@ -206,13 +400,15 @@ Fetch a list of all names known to the node.
                        'pattern': '^[0-9a-fA-F]{20}$`,
                    },
                  },
-                 { 'required': 
-                   [
-                     'address', 'blockchain', 'last_txid',
-                     'status', 'zonefile', 'zonefile_hash'
-                   ]
-                 }
-               }
+                 'required': [
+                     'address',
+                      'blockchain',
+                      'last_txid',
+                      'status',
+                      'zonefile',
+                      'zonefile_hash'
+                 ]
+            }
                 
 ## Name history [GET /v1/names/{name}/history]
 Get a history of all blockchain records of a registered name.
@@ -244,187 +440,225 @@ Get a history of all blockchain records of a registered name.
                   "preorder_block_number": 373821,
                  }
                ]
-             }
+            }
 
   + Schema
 
             {
-             'type': 'object',
-             'patternProperties': {
-               '^[0-9]+': {
-                 'type': 'array',
-                 'items': {
-                    'type': 'object',
-                    'properties': {
-                        'address': {
-                            'type': 'string',
-                            'pattern': r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
-                        },
-                        'base': {
-                            'type': 'integer',
-                            'minimum': 0,
-                            'maximum': 255,
-                        },
-                        'buckets': {
-                            'anyOf': [
-                                {
-                                    'type': 'array',
-                                    'items': {
-                                        'type': 'integer',
-                                        'minItems': 16,
-                                        'maxItems': 16,
-                                    },
-                                },
-                                {
-                                    'type': 'null',
-                                },
-                            ],
-                        },
-                        'block_number': {
-                            'type': 'integer',
-                            'minimum': 0,
-                        },
-                        'coeff': {
-                            'anyOf': [
-                                {
-                                    'type': 'integer',
-                                    'minimum': 0,
-                                    'maximum': 255,
-                                },
-                                {
-                                    'type': 'null'
-                                },
-                            ],
-                        },
-                        'consensus_hash': {
-                            'anyOf': [
-                                {
-                                    'type': 'string',
-                                    'pattern': '^[0-9a-fA-F]{32}',
-                                },
-                                {
-                                    'type': 'null'
-                                },
-                            ],
-                        },
-                        'fee': {
-                            'type': 'integer',
-                            'minimum': 0,
-                        },
-                        'first_registered': {
-                            'type': 'integer',
-                            'minimum': 0,
-                        },
-                        'history_snapshot': {
-                            'type': 'boolean',
-                        },
-                        'importer': {
-                            'anyOf': [
-                                {
-                                    'type': 'string',
-                                    'pattern': r'^76[aA]914[0-9a-fA-F]{40}88[aA][cC]$',
-                                },
-                                {
-                                    'type': 'null',
-                                },
-                            ],
-                        },
-                        'importer_address': {
-                            'anyOf': [
-                                {
-                                    'type': 'string',
-                                    'pattern': r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
-                                },
-                                {
-                                    'type': 'null',
-                                },
-                            ],
-                        },
-                        'last_renewed': {
-                            'type': 'integer',
-                            'minimum': 0,
-                        },
-                        'op': {
-                            'type': 'string',
-                            'pattern': '^([>?+~:!&*:;#]{1}|>>|>~|::)$',
-                        },
-                        'op_fee': {
-                            'type': 'number',
-                        },
-                        'opcode': {
-                            'type': 'string',
-                            'pattern': '^NAME_TRANSFER|NAME_PREORDER|NAME_UPDATE|NAME_REVOKE|NAME_REGISTRATION|NAMESPACE_READY|NAMESPACE_REVEAL|NAMESPACE_PREORDER|NAME_RENEWAL|NAME_IMPORT|ANNOUNCE$'
-                        },
-                        'revoked': {
-                            'type': 'boolean',
-                        },
-                        'sender': {
-                            'type': 'string',
-                            'pattern': '^([0-9a-fA-F]+)$',
-                        },
-                        'sender_pubkey': {
-                            'anyOf': [
-                                {
-                                    'type': 'string',
-                                    'pattern': '^([0-9a-fA-F]+)$',
-                                },
-                                {
-                                    'type': 'null'
-                                },
-                            ],
-                        },
-                        'recipient': {
-                            'anyOf': [
-                                {
-                                    'type': 'string',
-                                    'pattern': '^([0-9a-fA-F]+)$',
-                                },
-                                {
-                                    'type': 'null'
-                                },
-                            ],
-                        },
-                        'recipient_address': {
-                            'anyOf': [
-                                {
-                                    'type': 'string',
-                                    'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$',
-                                },
-                                {
-                                    'type': 'null'
-                                },
-                            ],
-                        },
-                        'recipient_pubkey': {
-                            'anyOf': [
-                                {
-                                    'type': 'string',
-                                    'pattern': '^([0-9a-fA-F]+)$',
-                                },
-                                {
-                                    'type': 'null'
-                                },
-                            ],
-                        },
-                        'txid': {
-                            'type': 'string',
-                            'pattern': '^([0-9a-fA-F]+)$',
-                        },
-                        'value_hash': {
-                            'anyOf': [
-                                {
-                                    'type': 'string',
-                                    'pattern': '^([0-9a-fA-F]{40})$',
-                                },
-                                {
-                                    'type': 'null',
-                                },
-                            ],
-                        },
-                        'vtxindex': {
-                            'type': 'integer',
-                            'minimum': 0,
-                        },
+               'type': 'object',
+               'patternProperties': {
+                 '^[0-9]+': {
+                   'type': 'array',
+                   'items': {
+                      'type': 'object',
+                      "properties": {
+                          "address": {
+                              "pattern": "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{1,35})$",
+                              "type": "string"
+                          },
+                          "base": {
+                              "maximum": 255,
+                              "minimum": 0,
+                              "type": "integer"
+                          },
+                          "block_number": {
+                              "minimum": 0,
+                              "type": "integer"
+                          },
+                          "buckets": {
+                              "anyOf": [
+                                  {
+                                      "pattern": "^\\[((0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15),){15}(0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15)\\]$",
+                                      "type": "string"
+                                  },
+                                  {
+                                      "items": {
+                                          "maxItems": 16,
+                                          "minItems": 16,
+                                          "type": "integer"
+                                      },
+                                      "type": "array"
+                                  },
+                                  {
+                                      "type": "null"
+                                  }
+                              ]
+                          },
+                          "coeff": {
+                              "anyOf": [
+                                  {
+                                      "maximum": 255,
+                                      "minimum": 0,
+                                      "type": "integer"
+                                  },
+                                  {
+                                      "type": "null"
+                                  }
+                              ]
+                          },
+                          "consensus_hash": {
+                              "anyOf": [
+                                  {
+                                      "pattern": "^([0-9a-fA-F]{32})$",
+                                      "type": "string"
+                                  },
+                                  {
+                                      "type": "null"
+                                  }
+                              ]
+                          },
+                          "did": {
+                              "type": "string"
+                          },
+                          "domain": {
+                              "pattern": "^([a-z0-9\\-_+]{1,37}\\.[a-z0-9\\-_.+]{1,19})$",
+                              "type": "string"
+                          },
+                          "fee": {
+                              "minimum": 0,
+                              "type": "integer"
+                          },
+                          "first_registered": {
+                              "minimum": 0,
+                              "type": "integer"
+                          },
+                          "history_snapshot": {
+                              "type": "boolean"
+                          },
+                          "importer": {
+                              "anyOf": [
+                                  {
+                                      "pattern": "^76[aA]914[0-9a-fA-F]{40}88[aA][cC]$",
+                                      "type": "string"
+                                  },
+                                  {
+                                      "type": "null"
+                                  }
+                              ]
+                          },
+                          "importer_address": {
+                              "anyOf": [
+                                  {
+                                      "pattern": "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{1,35})$",
+                                      "type": "string"
+                                  },
+                                  {
+                                      "type": "null"
+                                  }
+                              ]
+                          },
+                          "last_renewed": {
+                              "minimum": 0,
+                              "type": "integer"
+                          },
+                          'name': {
+                              'type': 'string',
+                              'pattern': '^(^([a-z0-9\\-_+]{1,37}\\.[a-z0-9\\-_.+]{1,19})$)|(^([a-z0-9\\-_+]+){1,37}\\.([a-z0-9\\-_+]{1,37}\\.[a-z0-9\\-_.+]{1,19})$)$',
+                          },
+                          'namespace_id': {
+                              'type': 'string',
+                              'pattern': '^([a-z0-9\\-_.+]{1,19})$',
+                          },
+                          "op": {
+                              "pattern": "^([>?+~:$!&*:;#]{1}|>>|>~|::)$",
+                              "type": "string"
+                          },
+                          "op_fee": {
+                              "type": "number"
+                          },
+                          "opcode": {
+                              "pattern": "NAME_TRANSFER|NAME_PREORDER|NAME_UPDATE|NAME_REVOKE|NAME_REGISTRATION|TOKEN_TRANSFER|NAMESPACE_READY|NAMESPACE_REVEAL|NAMESPACE_PREORDER|NAME_RENEWAL|NAME_IMPORT|ANNOUNCE",
+                              "type": "string"
+                          },
+                          "pending": {
+                              "type": "boolean"
+                          },
+                          "recipient": {
+                              "anyOf": [
+                                  {
+                                      "pattern": "^[0-9a-fA-F]+$",
+                                      "type": "string"
+                                  },
+                                  {
+                                      "type": "null"
+                                  }
+                              ]
+                          },
+                          "recipient_address": {
+                              "anyOf": [
+                                  {
+                                      "pattern": "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{1,35})$",
+                                      "type": "string"
+                                  },
+                                  {
+                                      "type": "null"
+                                  }
+                              ]
+                          },
+                          "recipient_pubkey": {
+                              "anyOf": [
+                                  {
+                                      "pattern": "^([0-9a-fA-F]+)$",
+                                      "type": "string"
+                                  },
+                                  {
+                                      "type": "null"
+                                  }
+                              ]
+                          },
+                          "revoked": {
+                              "type": "boolean"
+                          },
+                          "sender": {
+                              "pattern": "^[0-9a-fA-F]+$",
+                              "type": "string"
+                          },
+                          "sender_pubkey": {
+                              "anyOf": [
+                                  {
+                                      "pattern": "^([0-9a-fA-F]+)$",
+                                      "type": "string"
+                                  },
+                                  {
+                                      "type": "null"
+                                  }
+                              ]
+                          },
+                          "sequence": {
+                              "minimum": 0,
+                              "type": "integer"
+                          },
+                          "token_fee": {
+                              "pattern": "^[0-9]+$",
+                              "type": "string"
+                          },
+                          "token_units": {
+                              "pattern": "^STACKS$|^BTC$|^([a-z0-9\\-_.+]{1,19})$",
+                              "type": "string"
+                          },
+                          "txid": {
+                              "pattern": "^([0-9a-fA-F]+)$",
+                              "type": "string"
+                          },
+                          "value_hash": {
+                              "anyOf": [
+                                  {
+                                      "pattern": "^([0-9a-fA-F]{40})$",
+                                      "type": "string"
+                                  },
+                                  {
+                                      "type": "null"
+                                  }
+                              ]
+                          },
+                          "vtxindex": {
+                              "minimum": 0,
+                              "type": "integer"
+                          },
+                          "zonefile": {
+                              "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                              "type": "string"
+                          }
                     },
                     'required': [
                         'op',
@@ -433,7 +667,7 @@ Get a history of all blockchain records of a registered name.
                         'vtxindex'
                     ],
                   }
-               }
+                }
               }
             }
 
@@ -447,14 +681,13 @@ Fetches the historical zonefile specified by the username and zone hash.
 + Response 200 (application/json)
   + Body
 
-             {
-               "zonefile": 
-               "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp IN URI 10 1 \"https://blockstack.s3.amazonaws.com/muneeb.id\"\n"
-             }
+            {
+               "zonefile":  "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp IN URI 10 1 \"https://blockstack.s3.amazonaws.com/muneeb.id\"\n"
+            }
 
   + Schema
 
-               {
+            {
                    'anyOf': [
                       {
                           'type': 'object',
@@ -482,27 +715,179 @@ Retrieves a list of names owned by the address provided.
 + Response 200 (application/json)
   + Body
 
-                {
-                    "names": ["muneeb.id"]
-                }
+            {
+                "names": ["muneeb.id"]
+            }
 
    + Schema
 
-               {
-                   'type': 'object',
-                   'properties': {
-                       'names': {
-                           'type': 'array',
-                           'items': {
-                               'type': 'string',
-                               'pattern': '^([a-z0-9\-_.+]{3,37})$',
-                           },
+            {
+               'type': 'object',
+               'properties': {
+                   'names': {
+                       'type': 'array',
+                       'items': {
+                           'type': 'string',
+                           'pattern': '^([a-z0-9\-_.+]{3,37})$',
                        },
                    },
-               }
+               },
+            }
 
 # Group Price Checks
-## Get namespace price [GET /v1/prices/namespaces/{tld}]
+
+## Get namespace price [GET /v2/prices/namespaces/{tld}]
+
+This endpoint is used to get the price of a namespace.  Anyone can create a
+namespace by following [this
+tutorial](https://github.com/blockstack/blockstack-core/blob/master/docs/namespace_creation.md).
+
+The price is denominated in either BTC or STACKs.  If it is BTC, then the price
+will be in satoshis.  If it is STACKs, then the units will be in microSTACKs.
+
++ Public Endpoint
++ Parameters
+  + tld: id (string) - namespace to query price for
+
++ Response 200 (application/json)
+  + Body
+
+            {
+               "amount": "64000000000",
+               "units": "STACKS"
+            }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'amount': {
+                        'type': 'string',
+                        'pattern': '^[0-9]+$'
+                    }
+                    'units': {
+                        'type': 'string',
+                        'pattern': '^STACKS$|^BTC$|^([a-z0-9\\-_.+]{1,19})$'
+                    },
+                },
+                'required': [
+                    'amount',
+                    'units',
+                ]
+            }
+
++ Response 400 (application/json)
+
+    + Body
+
+            {
+                'error': 'Invalid namespace'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
+## Get name price [GET /v2/prices/names/{name}]
+
+This endpoint is used to get the price of a name.  The name's price may be 
+denominated in a currency of either BTC, or some token on the Blockstack blockchain
+(STACKs, etc.).  The price will be denominated in the smallest possible unit of
+the currency.  For BTC, this is satoshis.  For STACKs, this is microSTACKs.
+
++ Public Endpoint
++ Parameters
+    + name: muneeb.id (string) - name to query price information for
+
++ Response 200 (application/json)
+  + Body
+
+            {
+              "name_price": {
+                "amount": "1733000",
+                "units": "STACKS"
+              }
+            }
+
+  + Schema
+
+            {
+               'type': 'object',
+               'properties': {
+                   'name_price': {
+                       'type': 'object',
+                       'properties': {
+                           'amount': {
+                                'type': 'string',
+                                'pattern': '^[0-9]+$',
+                            },
+                            'units': {
+                                'type': 'string',
+                                'pattern': '^STACKS$|^BTC$|^([a-z0-9\\-_.+]{1,19})$'
+                            }
+                        }
+                        'required': [
+                            'amount',
+                            'units',
+                        ],
+                   }
+               },
+            }
+
++ Response 400 (application/json)
+    + Body
+
+            {
+                'error': 'Invalid name'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
++ Response 404 (application/json)
+    + Body
+
+            {
+                'error': 'Unknown/invalid namespace'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
+## DEPRECATED Get namespace price [GET /v1/prices/namespaces/{tld}]
 
 This endpoint is used to get the price of a namespace.  Anyone can create a
 namespace by following [this
@@ -530,43 +915,584 @@ tutorial](https://github.com/blockstack/blockstack-core/blob/master/docs/namespa
                 },
             }
 
-## Get name price [GET /v1/prices/names/{name}]
+## DEPRECATED Get name price [GET /v1/prices/names/{name}]
 
-This endpoint is used to get the price of a name.  The name's price may be 
-denominated in units of either STACKs or BTC, depending on the name's
-namespace rules.
-
-If the price is given in BTC, the amount is in satoshis.
-
-If the price is given in STACKs, the amount is in microSTACKs.
+This endpoint is used to get the price of a name in satoshis.
 
 + Public Endpoint
 + Parameters
     + name: muneeb.id (string) - name to query price information for
+
 + Response 200 (application/json)
   + Body
 
-               {
-                        "name_price": {
-                          "satoshis": 100000, 
-                          "btc": 0.001
-                        }, 
-               }
+            {
+                "name_price": {
+                   "satoshis": 100000, 
+                   "btc": 0.001
+                 }, 
+            }
+
+  + Schema
+
+            {
+               'type': 'object',
+               'properties': {
+                   'name_price': {
+                       'type': 'object',
+                       'properties': {
+                           'btc': { 'type': 'number', 'minimum': 0 },
+                           'satoshis': { 'type': 'integer', 'minimum': 0 }
+                       }
+                   },
+               },
+            }
+
+# Group Account Operations
+
+This set of operations is concerned with querying Blockstack token accounts.
+
+## Get account tokens [GET /v1/accounts/{address}/tokens]
+Get the list of token types that an account owns.
+
++ Public Endpoint
++ Parameters
+  + address : 1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J (string) - the account address
+
++ Response 200 (application/json)
+  + Body
+
+            {
+              "tokens": [
+                "STACKS"
+              ]
+            }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'tokens': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'string',
+                            'pattern': '^STACKS$|^([a-z0-9\\-_.+]{1,19})$',
+                        },
+                    },
+                    'required': [   
+                        'tokens'
+                    ],
+                },
+            }
+
++ Response 400 (application/json)
+
+    + Body
+
+            {
+                'error': 'Invalid address'
+            }
 
     + Schema
 
-               {
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
+## Get current account status [GET /v1/accounts/{address}/{tokenType}/status]
+Get the sum of the debits and credits and the last transaction for a
+particular token the account owns.  The debits and credits will be denominated
+in the smallest possible unit of the token type (e.g. microSTACKs for STACKs).
+
+The `vtxindex` field corresponds to the index of the transaction in the block.
+If it is 0 (i.e. it corresponds to the coinbase transaction), then the returned
+status corresponds to a token vesting event.
+
++ Public Endpoint
++ Parameters
+  + address : 1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J (string) - the account address
+  + tokenTYpe : STACKS (string) - the type of token
+
++ Response 200 (application/json)
+  + Body
+
+            {
+              "address": "1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J",
+              "block_id": 694,
+              "credit_value": "138350580652821637105",
+              "debit_value": "111012000",
+              "lock_transfer_block_id": 0,
+              "txid": "ea1f0d93b4ad258dbf2a0573977e887112a189e40bdc9533bda967958332427e",
+              "type": "STACKS",
+              "vtxindex": 0
+            }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'address': {
+                        'type': 'string',
+                        'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{1,35})$',
+                    },
+                    'block_id': {
+                        'type': 'number',
+                        'minimum': 0,
+                    },
+                    'credit_value': {
+                        'type': 'string',
+                        'pattern': '^[0-9]+$',
+                    },
+                    'debit_value': {
+                        'type': 'string',
+                        'pattern': '^[0-9]+$',
+                    },
+                    'lock_transfer_block_id': {
+                        'type': 'number',
+                        'minimum': 0,
+                    },
+                    'txid': {
+                        'type': 'string',
+                        'pattern': '^[0-9a-f]{64}$',
+                    },
+                    'type': {
+                        'type': 'string',
+                        'pattern': '^STACKS$|^([a-z0-9\\-_.+]{1,19})$',
+                    },
+                    'vtxindex': {
+                        'type': 'number',
+                        'minimum': 0,
+                    }
+                },
+                'required': [
+                    'address',
+                    'block_id',
+                    'credit_value',
+                    'debit_value',
+                    'lock_transfer_block_id',
+                    'txid',
+                    'type',
+                    'vtxindex',
+                ],
+            }
+
++ Response 400 (application/json)
+
+    + Body
+
+            {
+                'error': 'Invalid address'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
++ Response 400 (application/json)
+
+    + Body
+
+            {
+                'error': 'Invalid token type'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
+## Get account token balance [GET /v1/accounts/{address}/{tokenType}/balance]
+Get the balance of a particular token type owned by an account.  The balance
+will be denominated in the smallest possible unit of the token (e.g. microSTACKs
+for STACKs).
+
++ Public Endpoint
++ Parameters
+  + address : 1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J (string) - the account address
+  + tokenType : STACKS (string) - the type of token
+
++ Response 200 (application/json)
+  + Body
+
+            {
+                'balance': '138350580652710625105'
+            }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'balance': {
+                        'type': 'string',
+                        'pattern': '^[0-9]+$',
+                    },
+                },
+                'required': [
+                    'balance'
+                ]
+            }
+
++ Response 400 (application/json)
+
+    + Body
+
+            {
+                'error': 'Invalid address'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
++ Response 400 (application/json)
+    + Body
+
+            {
+                'error': 'Invalid token type'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
+
+## Get an account's historic states at a specific block [GET /v1/accounts/{address}/history/{blockHeight}]
+Get the sequence of operations applied to an account at a specific block height.
+This includes all tokens spent, all tokens received, and all tokens vested in
+the block.
+
++ Public Endpoint
++ Parameters
+  + address : 1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J (string) - the account address
+
++ Response 200 (application/json)
+  + Body
+
+            [
+              {
+                "address": "1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J",
+                "block_id": 691,
+                "credit_value": "55340232321128654842",
+                "debit_value": "0",
+                "lock_transfer_block_id": 0,
+                "txid": "d9d55615cefa60e6e6395a1f7227863f1ed88efa427339ce664e435ed026f597",
+                "type": "STACKS",
+                "vtxindex": 0
+              },
+              {
+                "address": "1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J",
+                "block_id": 691,
+                "credit_value": "55340232321128654842",
+                "debit_value": "100000",
+                "lock_transfer_block_id": 0,
+                "txid": "4d4afee3786d33c29b33af92e1e7cd504c7924284290128830ce087fc0638df2",
+                "type": "STACKS",
+                "vtxindex": 2
+              }
+            ]
+
+  + Schema
+
+            {
+                'type': 'array',
+                'items': {
                    'type': 'object',
                    'properties': {
-                       'name_price': {
-                           'type': 'object',
-                           'properties': {
-                               'btc': { 'type': 'number', 'minimum': 0 },
-                               'satoshis': { 'type': 'integer', 'minimum': 0 }
-                           }
+                       'address': {
+                           'type': 'string',
+                           'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{1,35})$',
                        },
+                       'block_id': {
+                           'type': 'number',
+                           'minimum': 0,
+                       },
+                       'credit_value': {
+                           'type': 'string',
+                           'pattern': '^[0-9]+$',
+                       },
+                       'debit_value': {
+                           'type': 'string',
+                           'pattern': '^[0-9]+$',
+                       },
+                       'lock_transfer_block_id': {
+                           'type': 'number',
+                           'minimum': 0,
+                       },
+                       'txid': {
+                           'type': 'string',
+                           'pattern': '^[0-9a-f]{64}$',
+                       },
+                       'type': {
+                           'type': 'string',
+                           'pattern': '^STACKS$|^([a-z0-9\\-_.+]{1,19})$',
+                       },
+                       'vtxindex': {
+                           'type': 'number',
+                           'minimum': 0,
+                       }
                    },
-               }
+                   'required': [
+                       'address',
+                       'block_id',
+                       'credit_value',
+                       'debit_value',
+                       'lock_transfer_block_id',
+                       'txid',
+                       'type',
+                       'vtxindex',
+                   ],
+                }
+            }
+
++ Response 400 (application/json)
+
+    + Body
+
+            {
+                'error': 'Invalid address'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
+
+## Get the sequence of account operations over a block range [GET /v1/accounts/{address}/history?startblock={startblock}&endblock={endblock}&page={page}]
+Get a page of operations that occurred on a given account over a block range.
+This method allows you to page through an account's history of transactions over
+time by varying the `page`, `startblock`, and `endblock` parameters.
+
++ Public Endpoint
++ Parameters
+  + address : 1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J (string) - the account address
+  + startblock : 510000 (number) - the starting block height
+  + endblock : 600000 (number) - the ending block height
+  + page : 3 (number) - the page of history entries to fetch
+
++ Response 200 (application/json)
+  + Body
+
+            [
+              {
+                "address": "1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J",
+                "block_id": 691,
+                "credit_value": "55340232321128654842",
+                "debit_value": "0",
+                "lock_transfer_block_id": 0,
+                "txid": "d9d55615cefa60e6e6395a1f7227863f1ed88efa427339ce664e435ed026f597",
+                "type": "STACKS",
+                "vtxindex": 0
+              },
+              {
+                "address": "1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J",
+                "block_id": 691,
+                "credit_value": "55340232321128654842",
+                "debit_value": "100000",
+                "lock_transfer_block_id": 0,
+                "txid": "4d4afee3786d33c29b33af92e1e7cd504c7924284290128830ce087fc0638df2",
+                "type": "STACKS",
+                "vtxindex": 2
+              }
+            ]
+
+  + Schema
+
+            {
+                'type': 'array',
+                'items': {
+                   'type': 'object',
+                   'properties': {
+                       'address': {
+                           'type': 'string',
+                           'pattern': '^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{1,35})$',
+                       },
+                       'block_id': {
+                           'type': 'number',
+                           'minimum': 0,
+                       },
+                       'credit_value': {
+                           'type': 'string',
+                           'pattern': '^[0-9]+$',
+                       },
+                       'debit_value': {
+                           'type': 'string',
+                           'pattern': '^[0-9]+$',
+                       },
+                       'lock_transfer_block_id': {
+                           'type': 'number',
+                           'minimum': 0,
+                       },
+                       'txid': {
+                           'type': 'string',
+                           'pattern': '^[0-9a-f]{64}$',
+                       },
+                       'type': {
+                           'type': 'string',
+                           'pattern': '^STACKS$|^([a-z0-9\\-_.+]{1,19})$',
+                       },
+                       'vtxindex': {
+                           'type': 'number',
+                           'minimum': 0,
+                       }
+                   },
+                   'required': [
+                       'address',
+                       'block_id',
+                       'credit_value',
+                       'debit_value',
+                       'lock_transfer_block_id',
+                       'txid',
+                       'type',
+                       'vtxindex',
+                   ],
+                }
+            }
+
++ Response 400 (application/json)
+
+    + Body
+
+            {
+                'error': 'Invalid start block or end block or invalid page'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
++ Response 400 (application/json)
+    + Body
+
+            {
+                'error': 'startblock= argument required'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
++ Response 400 (application/json)
+    + Body
+
+            {
+                'error': 'endblock= argument required'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
++ Response 400 (application/json)
+    + Body
+
+            {
+                'error': 'page= argument required'
+            }
+
+    + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'error'
+                ],
+            }
+
 
 # Group Blockchain Operations
 ## Get consensus hash [GET /v1/blockchains/{blockchainName}/consensus]
@@ -577,9 +1503,9 @@ Get the current Blockstack consensus hash on a blockchain.
 + Response 200 (application/json)
   + Body
 
-               {
-                          "consensus_hash": "2fcbdf66c350894fe03b42c6a2e8a6ac"
-               }
+            {
+                "consensus_hash": "2fcbdf66c350894fe03b42c6a2e8a6ac"
+            }
 
   + Schema
 
@@ -593,7 +1519,7 @@ Get the current Blockstack consensus hash on a blockchain.
                 },
             }
 
-## Get number of names on blockchain [GET /v1/blockchains/{blockchainName}/name_count{?all}]
+## Get number of names on blockchain [GET /v1/blockchains/{blockchainName}/name_count?all={all}]
 Get the number of names on a blockchain.
 + Public Endpoint
 + Parameters
