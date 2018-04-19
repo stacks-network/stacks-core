@@ -880,6 +880,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 return self._reply_json({'status': 'available'}, status_code=404)
             elif 'failed to load subdomain' in name_rec['error'].lower():
                 return self._reply_json({'status': 'available'}, status_code=404)
+            elif 'expired' in name_rec['error'].lower():
+                return self._reply_json({'error': name_rec['error']}, status_code=404)
             else:
                 return self._reply_json({'error': 'Blockstack daemon error: {}'.format(name_rec['error'])}, status_code=500)
 
@@ -899,7 +901,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             log.debug("{} is registered_subdomain".format(name))
             ret = {
                 'status': 'registered_subdomain',
-                'zonefile_txt': zonefile_txt,
+                'zonefile': zonefile_txt,
                 'zonefile_hash': storage.get_zonefile_data_hash(zonefile_txt),
                 'address': name_rec['address'],
                 'blockchain': 'bitcoin',

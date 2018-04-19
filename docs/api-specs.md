@@ -593,17 +593,44 @@ Get the current Blockstack consensus hash on a blockchain.
                 },
             }
 
-## Get number of names on blockchain [GET /v1/blockchains/{blockchainName}/name_count]
+## Get number of names on blockchain [GET /v1/blockchains/{blockchainName}/name_count{?all}]
 Get the number of names on a blockchain.
 + Public Endpoint
 + Parameters
-  + blockchainName : bitcoin (string) - the given blockchain
+  + blockchainName: bitcoin (string) - the given blockchain
+  + all: true (enum[string], optional) - include expired names
 + Response 200 (application/json)
   + Body
 
-               {
-                          "names_count": 73950
-               }
+            {
+                "names_count": 73950
+            }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'names_count': {
+                        'type': 'integer',
+                        'minimum': 0,
+                    },
+                },
+            }
+
++ Response 400 (application/json)
+  + Body
+
+            { "error": "Unsupported blockchain" }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            },
 
 ## Get blockchain name record [GET /v1/blockchains/{blockchainName}/names/{name}]
 Get the raw blockchain record for a name
