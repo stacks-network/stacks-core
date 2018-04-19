@@ -164,6 +164,9 @@ def check_payment(state_engine, state_op_type, nameop, namespace, name_fee, toke
     """
     Verify that the right payment was made, in the right cryptocurrency units.
     Set the account payment information in nameop if this is a state-transition (i.e. a NAME_RENEWAL)
+
+    NOTE: you will need to have called state_create_put_preorder() before calling this method!
+
     Returns {'status': True, 'tokens_paid': tokens_paid} if the payment information is correct.
     Returns {'status': False} if not
     """
