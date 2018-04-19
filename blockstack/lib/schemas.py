@@ -249,6 +249,14 @@ OP_HISTORY_SCHEMA = {
             'type': 'integer',
             'minimum': 0,
         },
+        'name': {
+            'type': 'string',
+            'pattern': OP_NAME_OR_SUBDOMAIN_PATTERN,
+        },
+        'namespace_id': {
+            'type': 'string',
+            'pattern': OP_NAMESPACE_PATTERN,
+        },
         'op': {
             'type': 'string',
             'pattern': OP_CODE_PATTERN,
@@ -317,6 +325,14 @@ OP_HISTORY_SCHEMA = {
                     'type': 'null'
                 },
             ],
+        },
+        'token_fee': {
+            'type': 'string',
+            'pattern': '^[0-9]+$',
+        },
+        'token_units': {
+            'type': 'string',
+            'pattern': '^{}$|^BTC$|{}'.format(TOKEN_TYPE_STACKS, OP_NAMESPACE_PATTERN)
         },
         'txid': {
             'type': 'string',
