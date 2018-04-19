@@ -25,4 +25,3 @@ __version_major__ = '0'
 __version_minor__ = '19'
 __version_patch__ = '0'
 __version__ = '{}.{}.{}.0'.format(__version_major__, __version_minor__, __version_patch__)
->>>>>>> develop:blockstack_client/version.py
