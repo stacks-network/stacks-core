@@ -235,6 +235,10 @@ def json_validate(schema, resp):
     try:
         jsonschema.validate(resp, error_schema)
     except ValidationError:
+        if 'error' in resp and 'http_status' not in resp:
+            # bad error message
+            raise 
+
         # not an error.
         jsonschema.validate(resp, schema)
 
@@ -2684,7 +2688,7 @@ def resolve_profile(name, include_expired=False, include_name_record=False, host
    
     if 'grace_period' in name_rec and name_rec['grace_period']:
         log.error("Name {} is in the grace period".format(name))
-        return {'error': 'Name {} is not yet expired, but is in the renewal grace period.'.format(name), 'http_status': name_rec.get('http_status': 404)}
+        return {'error': 'Name {} is not yet expired, but is in the renewal grace period.'.format(name), 'http_status': name_rec.get('http_status', 404)}
         
     if 'value_hash' not in name_rec:
         log.error("Name record for {} has no zone file hash".format(name))
