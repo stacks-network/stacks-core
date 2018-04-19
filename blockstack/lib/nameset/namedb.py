@@ -877,6 +877,16 @@ class BlockstackDB( virtualchain.StateEngine ):
         return namedb_get_account_history(cur, address, block_start, block_end, offset=offset, count=count)
 
 
+    def get_all_account_addresses(self):
+        """
+        TESTING ONLY
+        Get all account addresses
+        """
+        assert BLOCKSTACK_TEST, 'BUG: this method can only be accessed in test mode'
+        cur = self.db.cursor()
+        return namedb_get_all_account_addresses(cur)
+
+
     def get_name_at( self, name, block_number, include_expired=False ):
         """
         Generate and return the sequence of of states a name record was in
@@ -915,9 +925,9 @@ class BlockstackDB( virtualchain.StateEngine ):
         return name_hist
     
 
-    def get_all_ops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
+    def get_all_nameops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
         """
-        Get all records affected at a particular block,
+        Get all name records affected at a particular block,
         in the state they were at the given block number.
         
         Paginate if offset, count are given.
@@ -928,8 +938,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         if restore_history is not None:
             log.warn("DEPRECATED use of restore_history")
 
-        log.debug("Get all ops at %s in %s" % (block_number, self.db_filename))
-        recs = namedb_get_all_ops_at( self.db, block_number, offset=offset, count=count )
+        log.debug("Get all nameops at %s in %s" % (block_number, self.db_filename))
+        recs = namedb_get_all_nameops_at( self.db, block_number, offset=offset, count=count )
 
         # include opcode 
         for rec in recs:
@@ -939,11 +949,11 @@ class BlockstackDB( virtualchain.StateEngine ):
         return recs
        
 
-    def get_num_ops_at( self, block_number ):
+    def get_num_nameops_at( self, block_number ):
         """
         Get the number of name operations at a particular block.
         """
-        count = namedb_get_num_ops_at( self.db, block_number )
+        count = namedb_get_num_nameops_at( self.db, block_number )
         return count
 
 
@@ -1212,7 +1222,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         Return [{'name': name, 'value_hash': value_hash, 'txid': txid}]
         """
-        nameops = self.get_all_ops_at( block_id )
+        nameops = self.get_all_nameops_at( block_id )
         ret = []
         for nameop in nameops:
             if nameop.has_key('op') and op_get_opcode_name(nameop['op']) in ['NAME_UPDATE', 'NAME_IMPORT', 'NAME_REGISTRATION', 'NAME_RENEWAL']:
@@ -1942,10 +1952,11 @@ class BlockstackDB( virtualchain.StateEngine ):
         
         self.log_accept(current_block_number, token_op['vtxindex'], token_op['op'], token_op)
         
-        # NOTE: this code is single-threaded and must remain so
+        # NOTE: this code is single-threaded, but this code must be atomic
         self.commit_account_debit(token_op, account_payment_info, current_block_number, token_op['vtxindex'], token_op['txid'])
         self.commit_account_credit(token_op, account_credit_info, current_block_number, token_op['vtxindex'], token_op['txid'])
 
+        namedb_history_save(cur, opcode, token_op['address'], None, None, current_block_number, token_op['vtxindex'], token_op['txid'], clean_token_op)
         return clean_token_op
 
     
@@ -1953,13 +1964,21 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         vest any tokens at this block height
         """
+        # save all state
+        log.debug("Commit all database state before vesting")
+        self.db.commit()
+
         if block_height in self.vesting:
             traceback.print_stack()
             log.fatal("Tried to vest tokens twice at {}".format(block_height))
             os.abort()
 
+        # commit all vesting in one transaction
         cur = self.db.cursor()
+        namedb_query_execute(cur, 'BEGIN', ())
         res = namedb_accounts_vest(cur, block_height)
+        namedb_query_execute(cur, 'END', ())
+
         self.vesting[block_height] = True
         return True
 
