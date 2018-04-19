@@ -23,6 +23,7 @@
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
+import re
 
 from .config import *
 from .b40 import *
@@ -238,4 +239,138 @@ def get_public_key_hex_from_tx( inputs, address ):
             return pubkey_candidate
 
     return None
+
+
+def check_name(name):
+    """
+    Verify the name is well-formed
+    """
+    if type(name) not in [str, unicode]:
+        return False
+
+    if not is_name_valid(name):
+        return False
+
+    return True
+
+
+def check_namespace(namespace_id):
+    """
+    Verify that a namespace ID is well-formed
+    """
+    if type(namespace_id) not in [str, unicode]:
+        return False
+
+    if not is_namespace_valid(namespace_id):
+        return False
+
+    return True
+
+
+def check_token_type(token_type):
+    """
+    Verify that a token type is well-formed
+    """
+    return check_string(token_type, min_length=1, max_length=LENGTHS['namespace_id'], pattern='^{}$|{}'.format(TOKEN_TYPE_STACKS, OP_NAMESPACE_PATTERN))
+
+
+def check_subdomain(fqn):
+    """
+    Verify that the given fqn is a subdomain
+    """
+    if type(fqn) not in [str, unicode]:
+        return False
+
+    if not is_subdomain(fqn):
+        return False
+
+    return True
+
+
+def check_block(block_id):
+    """
+    Verify that a block ID is valid
+    """
+    if type(block_id) not in [int, long]:
+        return False
+
+    if BLOCKSTACK_TEST:
+        if block_id <= 0:
+            return False
+
+    else:
+        if block_id < FIRST_BLOCK_MAINNET:
+            return False
+
+    if block_id > 1e7:
+        # 1 million blocks? not in my lifetime
+        return False
+
+    return True
+
+
+def check_offset(offset, max_value=None):
+    """
+    Verify that an offset is valid
+    """
+    if type(offset) not in [int, long]:
+        return False
+
+    if offset < 0:
+        return False
+
+    if max_value and offset > max_value:
+        return False
+
+    return True
+
+
+def check_count(count, max_value=None):
+    """
+    verify that a count is valid
+    """
+    if type(count) not in [int, long]:
+        return False
+
+    if count < 0:
+        return False
+
+    if max_value and count > max_value:
+        return False
+
+    return True
+
+
+def check_string(value, min_length=None, max_length=None, pattern=None):
+    """
+    verify that a string has a particular size and conforms
+    to a particular alphabet
+    """
+    if type(value) not in [str, unicode]:
+        return False
+
+    if min_length and len(value) < min_length:
+        return False
+
+    if max_length and len(value) > max_length:
+        return False
+
+    if pattern and not re.match(pattern, value):
+        return False
+
+    return True
+
+
+def check_address(address):
+    """
+    verify that a string is an address
+    """
+    if not check_string(address, min_length=26, max_length=35, pattern=OP_ADDRESS_PATTERN):
+        return False
+
+    try:
+        virtualchain.address_reencode(address)
+        return True
+    except:
+        return False
 
