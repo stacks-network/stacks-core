@@ -490,133 +490,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return resp
 
 
-    def check_name(self, name):
-        """
-        Verify the name is well-formed
-        """
-        if type(name) not in [str, unicode]:
-            return False
-
-        if not is_name_valid(name):
-            return False
-
-        return True
-
-
-    def check_namespace(self, namespace_id):
-        """
-        Verify that a namespace ID is well-formed
-        """
-        if type(namespace_id) not in [str, unicode]:
-            return False
-
-        if not is_namespace_valid(namespace_id):
-            return False
-
-        return True
-
-
-    def check_token_type(self, token_type):
-        """
-        Verify that a token type is well-formed
-        """
-        return self.check_string(token_type, min_length=1, max_length=LENGTHS['namespace_id'], pattern='^{}$|{}'.format(TOKEN_TYPE_STACKS, OP_NAMESPACE_PATTERN))
-
-
-    def check_subdomain(self, fqn):
-        """
-        Verify that the given fqn is a subdomain
-        """
-        if type(fqn) not in [str, unicode]:
-            return False
-
-        if not is_subdomain(fqn):
-            return False
-
-        return True
-
-
-    def check_block(self, block_id):
-        """
-        Verify that a block ID is valid
-        """
-        if type(block_id) not in [int, long]:
-            return False
-
-        if BLOCKSTACK_TEST:
-            if block_id <= 0:
-                return False
-
-        else:
-            if block_id < FIRST_BLOCK_MAINNET:
-                return False
-
-        if block_id > 1e7:
-            # 1 million blocks? not in my lifetime
-            return False
-
-        return True
-
-
-    def check_offset(self, offset, max_value=None):
-        """
-        Verify that an offset is valid
-        """
-        if type(offset) not in [int, long]:
-            return False
-
-        if offset < 0:
-            return False
-
-        if max_value and offset > max_value:
-            return False
-
-        return True
-
-
-    def check_count(self, count, max_value=None):
-        """
-        verify that a count is valid
-        """
-        if type(count) not in [int, long]:
-            return False
-
-        if count < 0:
-            return False
-
-        if max_value and count > max_value:
-            return False
-
-        return True
-
-
-    def check_string(self, value, min_length=None, max_length=None, pattern=None):
-        """
-        verify that a string has a particular size and conforms
-        to a particular alphabet
-        """
-        if type(value) not in [str, unicode]:
-            return False
-
-        if min_length and len(value) < min_length:
-            return False
-
-        if max_length and len(value) > max_length:
-            return False
-
-        if pattern and not re.match(pattern, value):
-            return False
-
-        return True
-
-
-    def check_address(self, address):
-        """
-        verify that a string is an address
-        """
-        return self.check_string(address, min_length=26, max_length=35, pattern=OP_ADDRESS_PATTERN)
-
-
     def sanitize_rec(self, rec):
         """
         sanitize a name/namespace record before returning it.
@@ -703,8 +576,8 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': True, 'record': rec} on success
         Return {'error': ...} on error
         """
-        if not self.check_name(name):
-            return {'error': 'invalid name'}
+        if not check_name(name):
+            return {'error': 'invalid name', 'http_status': 400}
         
         name = str(name)
 
@@ -713,7 +586,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         if name_record is None:
             db.close()
-            return {"error": "Not found."}
+            return {"error": "Not found.", 'http_status': 404}
 
         else:
             assert 'opcode' in name_record, 'BUG: missing opcode in {}'.format(json.dumps(name_record, sort_keys=True))
@@ -730,15 +603,15 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': True, 'record': rec} on success
         Return {'error': ...} on error
         """
-        if not self.check_subdomain(fqn):
-            return {'error': 'invalid subdomain'}
+        if not check_subdomain(fqn):
+            return {'error': 'invalid subdomain', 'http_status': 400}
         
         fqn = str(fqn)
 
         # get current record
         subdomain_rec = get_subdomain_info(fqn, check_pending=True)
         if subdomain_rec is None:
-            return {'error': 'Failed to load subdomain'}
+            return {'error': 'Failed to load subdomain', 'http_status': 404}
    
         ret = subdomain_rec.to_json()
         if include_history:
@@ -755,9 +628,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'error': ...} on error
         """
         res = None
-        if self.check_name(name):
+        if check_name(name):
             res = self.get_name_record(name, include_expired=True, include_history=False)
-        elif self.check_subdomain(name):
+        elif check_subdomain(name):
             res = self.get_subdomain_record(name, include_history=False)
         else:
             return {'error': 'Invalid name or subdomain', 'http_status': 400}
@@ -776,7 +649,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         db = get_db_state(self.working_dir)
         did_info = db.get_name_DID_info(name)
         if did_info is None:
-            return {'error': 'No such name'}
+            return {'error': 'No such name', 'http_status': 404}
 
         return did_info
 
@@ -795,9 +668,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Given a name or subdomain, return its DID.
         """
         did_info = None
-        if self.check_name(name):
+        if check_name(name):
             did_info = self.get_name_DID_info(name)
-        elif self.check_subdomain(name):
+        elif check_subdomain(name):
             did_info = self.get_subdomain_DID_info(name)
         else:
             return {'error': 'No such name', 'http_status': 404}
@@ -819,19 +692,19 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             if BLOCKSTACK_DEBUG:
                 log.exception(e)
 
-            return {'error': 'Invalid DID'}
+            return {'error': 'Invalid DID', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
         rec = db.get_DID_name(did)
         if rec is None:
             db.close()
-            return {'error': 'Failed to resolve DID to a non-revoked name'}
+            return {'error': 'Failed to resolve DID to a non-revoked name', 'http_status': 404}
 
         name_record = self.load_name_info(db, rec)
         db.close()
 
         if name_record is None:
-            return {'error': 'DID does not resolve to an existing name'}
+            return {'error': 'DID does not resolve to an existing name', 'http_status': 404}
 
         return {'record': name_record}
 
@@ -849,11 +722,11 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             if BLOCKSTACK_DEBUG:
                 log.exception(e)
 
-            return {'error': 'Invalid DID'}
+            return {'error': 'Invalid DID', 'http_status': 400}
 
         subrec = get_DID_subdomain(did, check_pending=True)
         if subrec is None:
-            return {'error': 'Failed to load subdomain from {}'.format(did)}
+            return {'error': 'Failed to load subdomain from {}'.format(did), 'http_status': 404}
 
         return {'record': subrec.to_json()}
 
@@ -889,9 +762,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'error': ...} on error
         """
         res = None
-        if self.check_name(name):
+        if check_name(name):
             res = self.get_name_record(name, include_expired=True, include_history=True)
-        elif self.check_subdomain(name):
+        elif check_subdomain(name):
             res = self.get_subdomain_record(name, include_history=True)
         else:
             return {'error': 'Invalid name or subdomain', 'http_status': 400}
@@ -908,10 +781,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Does NOT work on expired names.
         Return {'status': true, 'record': ...}
         """
-        if not self.check_name(name):
+        if not check_name(name):
             return {'error': 'invalid name', 'http_status': 400}
 
-        if not self.check_block(block_height):
+        if not check_block(block_height):
             return self.success_response({'record': None})
 
         db = get_db_state(self.working_dir)
@@ -932,10 +805,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Get all the states an account was in at a given block height.
         """
-        if not self.check_address(address):
+        if not check_address(address):
             return {'error': 'Invalid name', 'http_status': 400}
 
-        if not self.check_block(block_height):
+        if not check_block(block_height):
             return self.success_response({'records': None})
 
         db = get_db_state(self.working_dir)
@@ -951,10 +824,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Works on expired and unexpired names.
         Return {'status': true, 'record': ...}
         """
-        if not self.check_name(name):
+        if not check_name(name):
             return {'error': 'invalid name', 'http_status': 400}
 
-        if not self.check_block(block_height):
+        if not check_block(block_height):
             return self.success_response({'record': None})
 
         db = get_db_state(self.working_dir)
@@ -977,35 +850,36 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Returns {'count': ..} on success
         Returns {'error': ...} on error
         """
-        if not self.check_block(block_id):
+        if not check_block(block_id):
             return {'error': 'Invalid block height', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
-        count = db.get_num_ops_at( block_id )
+        count = db.get_num_nameops_at( block_id )
         db.close()
 
-        log.debug("{} operations at {}".format(count, block_id))
+        log.debug("{} name operations at {}".format(count, block_id))
         return self.success_response({'count': count})
 
 
     def rpc_get_nameops_at(self, block_id, offset, count, **con_info):
         """
         Get the name operations that occured in the given block.
+        Does not include account operations.
 
         Returns {'nameops': [...]} on success.
         Returns {'error': ...} on error
         """
-        if not self.check_block(block_id):
+        if not check_block(block_id):
             return {'error': 'Invalid block height', 'http_status': 400}
 
-        if not self.check_offset(offset):
+        if not check_offset(offset):
             return {'error': 'Invalid offset', 'http_status': 400}
 
-        if not self.check_count(count, 10):
+        if not check_count(count, 10):
             return {'error': 'Invalid count', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
-        nameops = db.get_all_ops_at(block_id, offset=offset, count=count)
+        nameops = db.get_all_nameops_at(block_id, offset=offset, count=count)
         db.close()
 
         log.debug("{} name operations at block {}, offset {}, count {}".format(len(nameops), block_id, offset, count))
@@ -1019,6 +893,45 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return self.success_response({'nameops': ret})
 
 
+    def rpc_get_num_account_ops_at(self, block_id, **con_info):
+        """
+        Get the number of account operations that occured at the given block.
+        Returns {'count': ...} on success
+        Returns {'error': ...} on error
+        """
+        if not check_block(block_id):
+            return {'error': 'Invalid block height', 'http_status': 400}
+
+        db = get_db_state(self.working_dir)
+        count = db.get_num_account_ops_at(self, block_id)
+        db.close()
+
+        log.debug('{} account operations at {}'.format(count, block_id))
+        return self.success_response({'count': count})
+
+
+    def rpc_get_account_ops_at(self, block_id, offset, count, **con_info):
+        """
+        Get the account operations that occured at a given block.
+        This includes account vesting, account debits and credits
+        as a result of name operations, and token transfers.
+
+        Returns {'account_ops': [...]} on success
+        Returns {'error': ...} on error
+        """
+        if not check_block(block_id):
+            return {'error': 'Invalid block height', 'http_status': 400}
+
+        if not check_offset(offset):
+            return {'error': 'Invalid offset', 'http_status': 400}
+
+        if not check_count(count, 10):
+            return {'error': 'Invalid count', 'http_status': 400}
+
+        db = get_db_state(self.working_dir)
+        pass
+
+
     def rpc_get_nameops_hash_at( self, block_id, **con_info ):
         """
         Get the hash over the sequence of names and namespaces altered at the given block.
@@ -1027,7 +940,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Returns {'status': True, 'ops_hash': ops_hash} on success
         Returns {'error': ...} on error
         """
-        if not self.check_block(block_id):
+        if not check_block(block_id):
             return {'error': 'Invalid block height', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1131,7 +1044,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': True, 'subdomains': ...} on success
         Return {'error': ...} on error
         """
-        if not self.check_address(address):
+        if not check_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
         res = get_subdomains_owned_by_address(address)
@@ -1144,7 +1057,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': True, 'names': ...} on success
         Return {'error': ...} on error
         """
-        if not self.check_address(address):
+        if not check_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1163,13 +1076,13 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': True, 'names': [{'name': ..., 'block_id': ..., 'vtxindex': ...}]} on success
         Return {'error': ...} on error
         """
-        if not self.check_address(address):
+        if not check_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
-        if not self.check_offset(offset):
+        if not check_offset(offset):
             return {'error': 'invalid offset', 'http_status': 400}
 
-        if not self.check_count(count, 10):
+        if not check_count(count, 10):
             return {'error': 'invalid count', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1188,7 +1101,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': True, 'count': ...} on success
         Return {'error': ...} on failure
         """
-        if not self.check_address(address):
+        if not check_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1206,7 +1119,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return the cost of a given name.
         Returns {'amount': ..., 'units': ...}
         """
-        if not self.check_name(name):
+        if not check_name(name):
             return {'error': 'Invalid name or namespace', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1224,7 +1137,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return the cost of a given namespace, including fees.
         Returns {'amount': ..., 'units': ...}
         """
-        if not self.check_namespace(namespace_id):
+        if not check_namespace(namespace_id):
             return {'error': 'Invalid namespace', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1255,7 +1168,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Get the types of tokens that an account owns
         Returns the list on success
         """
-        if not self.check_address(address):
+        if not check_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1270,10 +1183,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Returns the value on success
         Returns 0 if the balance is 0, or if there is no address
         """
-        if not self.check_address(address):
+        if not check_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
-        if not self.check_token_type(token_type):
+        if not check_token_type(token_type):
             return {'error': 'Invalid token type', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1309,10 +1222,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Get the current state of an account
         """
-        if not self.check_address(address):
+        if not check_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
-        if not self.check_token_type(token_type):
+        if not check_token_type(token_type):
             return {'error': 'Invalid token type', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1331,16 +1244,16 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Get the history of an account, pagenated over a block range.
         Returns the sequence of history states on success (can be empty)
         """
-        if not self.check_address(address):
+        if not check_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
-        if not self.check_block(block_start):
+        if not check_block(block_start):
             return {'error': 'Invalid start block', 'http_status': 400}
 
-        if not self.check_block(block_end):
+        if not check_block(block_end):
             return {'error': 'Invalid end block', 'http_status': 400}
 
-        if not self.check_count(page):
+        if not check_count(page):
             return {'error': 'Invalid page', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1359,10 +1272,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Get the account's statuses at a particular block height.
         Returns the sequence of history states on success
         """
-        if not self.check_address(address):
+        if not check_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
-        if not self.check_block(block_height):
+        if not check_block(block_height):
             return {'error': 'Invalid start block', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1381,7 +1294,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': True, 'record': ...} on success
         Return {'error': ...} on error
         """
-        if not self.check_namespace(namespace_id):
+        if not check_namespace(namespace_id):
             return {'error': 'Invalid name or namespace', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1442,10 +1355,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
-        if not self.check_offset(offset):
+        if not check_offset(offset):
             return {'error': 'invalid offset', 'http_status': 400}
 
-        if not self.check_count(count, 100):
+        if not check_count(count, 100):
             return {'error': 'invalid count', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1461,10 +1374,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
-        if not self.check_offset(offset):
+        if not check_offset(offset):
             return {'error': 'invalid offset', 'http_status': 400}
 
-        if not self.check_count(count, 100):
+        if not check_count(count, 100):
             return {'error': 'invalid count', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1493,7 +1406,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': true, 'count': count} on success
         Return {'error': ...} on error
         """
-        if not self.check_namespace(namespace_id):
+        if not check_namespace(namespace_id):
             return {'error': 'Invalid name or namespace', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1509,13 +1422,13 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
-        if not self.check_namespace(namespace_id):
+        if not check_namespace(namespace_id):
             return {'error': 'Invalid name or namespace', 'http_status': 400}
 
-        if not self.check_offset(offset):
+        if not check_offset(offset):
             return {'error': 'invalid offset', 'http_status': 400}
 
-        if not self.check_count(count, 100):
+        if not check_count(count, 100):
             return {'error': 'invalid count', 'http_status': 400}
 
         if not is_namespace_valid( namespace_id ):
@@ -1534,7 +1447,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': True, 'consensus': ...} on success
         Return {'error': ...} on error
         """
-        if not self.check_block(block_id):
+        if not check_block(block_id):
             return {'error': 'Invalid block height', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1558,7 +1471,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'Too many block heights', 'http_status': 400}
 
         for bid in block_id_list:
-            if not self.check_block(bid):
+            if not check_block(bid):
                 return {'error': 'Invalid block height', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1575,7 +1488,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Given the consensus hash, find the block number (or None)
         """
-        if not self.check_string(consensus_hash, min_length=LENGTHS['consensus_hash']*2, max_length=LENGTHS['consensus_hash']*2, pattern=OP_CONSENSUS_HASH_PATTERN):
+        if not check_string(consensus_hash, min_length=LENGTHS['consensus_hash']*2, max_length=LENGTHS['consensus_hash']*2, pattern=OP_CONSENSUS_HASH_PATTERN):
             return {'error': 'Not a valid consensus hash', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1631,7 +1544,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'Too many requests (no more than 100 allowed)', 'http_status': 400}
 
         for zfh in zonefile_hashes:
-            if not self.check_string(zfh, min_length=LENGTHS['value_hash']*2, max_length=LENGTHS['value_hash']*2, pattern=OP_HEX_PATTERN):
+            if not check_string(zfh, min_length=LENGTHS['value_hash']*2, max_length=LENGTHS['value_hash']*2, pattern=OP_HEX_PATTERN):
                 return {'error': 'Invalid zone file hash', 'http_status': 400}
 
         ret = {}
@@ -1669,7 +1582,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'Too many zonefiles', 'http_status': 400}
 
         for zfd in zonefile_datas:
-            if not self.check_string(zfd, max_length=((4 * RPC_MAX_ZONEFILE_LEN) / 3) + 3, pattern=OP_BASE64_EMPTY_PATTERN):
+            if not check_string(zfd, max_length=((4 * RPC_MAX_ZONEFILE_LEN) / 3) + 3, pattern=OP_BASE64_EMPTY_PATTERN):
                 return {'error': 'Invalid zone file payload (exceeds {} bytes and/or not base64-encoded)'.format(RPC_MAX_ZONEFILE_LEN)}
 
         zonefile_dir = conf.get("zonefiles", None)
@@ -1744,16 +1657,16 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not is_atlas_enabled(conf):
             return {'error': 'Not an atlas node', 'http_status': 400}
 
-        if not self.check_block(from_block):
+        if not check_block(from_block):
             return {'error': 'Invalid from_block height', 'http_status': 400}
 
-        if not self.check_block(to_block):
+        if not check_block(to_block):
             return {'error': 'Invalid to_block height', 'http_status': 400}
 
-        if not self.check_offset(offset):
+        if not check_offset(offset):
             return {'error': 'invalid offset', 'http_status': 400}
 
-        if not self.check_count(count, 100):
+        if not check_count(count, 100):
             return {'error': 'invalid count', 'http_status': 400}
 
         zonefile_info = atlasdb_get_zonefiles_by_block(from_block, to_block, offset, count, path=conf['atlasdb_path'])
@@ -1857,10 +1770,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not is_atlas_enabled(conf):
             return {'error': 'Not an atlas node', 'http_status': 400}
 
-        if not self.check_offset(offset):
+        if not check_offset(offset):
             return {'error': 'invalid offset', 'http_status': 400}
 
-        if not self.check_count(length, 524288):
+        if not check_count(length, 524288):
             return {'error': 'invalid length', 'http_status': 400}
 
         zonefile_inv = atlas_get_zonefile_inventory( offset=offset, length=length )
