@@ -227,7 +227,7 @@ def json_validate(schema, resp):
         },
         'required': [
             'error',
-            'http_status'
+            'http_status',
         ]
     }
 
@@ -616,7 +616,7 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
         for peer_hostport in peer_list_resp['peers']:
             peer_host, peer_port = url_to_host_port(peer_hostport)
             if peer_host is None or peer_port is None:
-                return {'error': 'Invalid peer listing'}
+                return {'error': 'Server did not return valid Atlas peers', 'http_status': 503}
 
         peers = peer_list_resp
 
@@ -688,7 +688,7 @@ def atlas_peer_exchange(hostport, my_hostport, timeout=30, proxy=None):
         for peer_hostport in peer_list_resp['peers']:
             peer_host, peer_port = url_to_host_port(peer_hostport)
             if peer_host is None or peer_port is None:
-                return {'error': 'Invalid peer listing'}
+                return {'error': 'Server did not return valid Atlas peers', 'http_status': 503}
 
         peers = peer_list_resp
 
@@ -983,7 +983,7 @@ def get_name_record(name, include_history=False, include_expired=False, include_
         resp = json_validate(resp_schema, resp)
         if json_is_error(resp):
             if resp['error'] == 'Not found.':
-                return {'error': 'Not found.'}
+                return {'error': 'Not found.', 'http_status': resp.get('http_status', 404)}
 
             return resp
 
@@ -1007,21 +1007,23 @@ def get_name_record(name, include_history=False, include_expired=False, include_
     if not include_expired and is_blockstack_id:
         # check expired
         if lastblock is None:
-            return {'error': 'No lastblock given from server'}
+            return {'error': 'No lastblock given from server', 'http_status': 503}
 
         if include_grace:
             # only care if the name is beyond the grace period
             if lastblock > int(resp['record']['renewal_deadline']) and int(resp['record']['renewal_deadline']) > 0:
-                return {'error': 'Name expired'}
+                return {'error': 'Name expired', 'http_status': 404}
+
             elif int(resp['record']['renewal_deadline']) > 0 and lastblock >= int(resp['record']['expire_block']) and lastblock < int(resp['record']['renewal_deadline']):
                 resp['record']['grace_period'] = True
+
             else:
                 resp['record']['grace_period'] = False
 
         else:
             # only care about expired, even if it's in the grace period
             if lastblock > resp['record']['expire_block'] and int(resp['record']['expire_block']) > 0:
-                return {'error': 'Name expired'}
+                return {'error': 'Name expired', 'http_status': 404}
 
     return resp['record']
 
@@ -1529,7 +1531,7 @@ def get_all_names_page(offset, count, include_expired=False, hostport=None, prox
         if BLOCKSTACK_DEBUG:
             log.exception(ae)
 
-        return {'error': 'Invalid page'}
+        return {'error': 'Invalid page', 'http_status': 400}
 
     resp = {}
     try:
@@ -1659,7 +1661,7 @@ def get_all_names(offset=None, count=None, include_expired=False, proxy=None, ho
         if len(page) > request_size:
             # error
             error_str = 'server replied too much data'
-            return {'error': error_str}
+            return {'error': error_str, 'http_status': 503}
         elif len(page) == 0:
             # end-of-table
             break
@@ -1872,7 +1874,7 @@ def get_names_in_namespace(namespace_id, offset=None, count=None, proxy=None, ho
         if len(page) > request_size:
             # error
             error_str = 'server replied too much data'
-            return {'error': error_str}
+            return {'error': error_str, 'http_status': 503}
         elif len(page) == 0:
             # end-of-table
             break
@@ -2207,7 +2209,7 @@ def get_consensus_at(block_height, proxy=None, hostport=None):
 
     if resp['consensus'] is None:
         # node hasn't processed this block 
-        return {'error': 'The node has not processed block {}'.format(block_height)}
+        return {'error': 'The node has not processed block {}'.format(block_height), 'http_status': 503}
 
     return resp['consensus']
 
@@ -2300,7 +2302,7 @@ def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
                 return resp
 
             if len(resp['nameops']) == 0:
-                return {'error': 'Got zero-length nameops reply'}
+                return {'error': 'Got zero-length nameops reply', 'http_status': 503}
 
             all_nameops += resp['nameops']
 
@@ -2386,7 +2388,7 @@ def get_consensus_hashes(block_heights, hostport=None, proxy=None):
         log.debug('consensus hashes: {}'.format(ret))
         return ret
     except ValueError:
-        return {'error': 'Invalid data: expected int'}
+        return {'error': 'Server returned invalid data: expected int', 'http_status': 503}
 
 
 def get_block_from_consensus(consensus_hash, hostport=None, proxy=None):
@@ -2678,21 +2680,21 @@ def resolve_profile(name, include_expired=False, include_name_record=False, host
     name_rec = get_name_record(name, include_history=False, include_expired=include_expired, include_grace=False, proxy=proxy, hostport=hostport)
     if 'error' in name_rec:
         log.error("Failed to get name record for {}: {}".format(name, name_rec['error']))
-        return {'error': 'Failed to get name record: {}'.format(name_rec['error'])}
+        return {'error': 'Failed to get name record: {}'.format(name_rec['error']), 'http_status': name_rec.get('http_status', 500)}
    
     if 'grace_period' in name_rec and name_rec['grace_period']:
         log.error("Name {} is in the grace period".format(name))
-        return {'error': 'Name {} is not yet expired, but is in the renewal grace period.'.format(name)}
+        return {'error': 'Name {} is not yet expired, but is in the renewal grace period.'.format(name), 'http_status': name_rec.get('http_status': 404)}
         
     if 'value_hash' not in name_rec:
         log.error("Name record for {} has no zone file hash".format(name))
-        return {'error': 'No zone file hash in name record for {}'.format(name)}
+        return {'error': 'No zone file hash in name record for {}'.format(name), 'http_status': 404}
 
     zonefile_hash = name_rec['value_hash']
     zonefile_res = get_zonefiles(hostport, [zonefile_hash], proxy=proxy)
     if 'error' in zonefile_res:
         log.error("Failed to get zone file for {} for name {}: {}".format(zonefile_hash, name, zonefile_res['error']))
-        return {'error': 'Failed to get zone file for {}'.format(name)}
+        return {'error': 'Failed to get zone file for {}'.format(name), 'http_status': 404}
 
     zonefile_txt = zonefile_res['zonefiles'][zonefile_hash]
     log.debug("Got {}-byte zone file {}".format(len(zonefile_txt), zonefile_hash))
@@ -2702,13 +2704,13 @@ def resolve_profile(name, include_expired=False, include_name_record=False, host
         zonefile_data = dict(zonefile_data)
         assert 'uri' in zonefile_data
         if len(zonefile_data['uri']) == 0:
-            return {'error': 'No URI records in zone file {} for {}'.format(zonefile_hash, name)}
+            return {'error': 'No URI records in zone file {} for {}'.format(zonefile_hash, name), 'http_status': 404}
 
     except Exception as e:
         if BLOCKSTACK_TEST:
             log.exception(e)
 
-        return {'error': 'Failed to parse zone file {} for {}'.format(zonefile_hash, name)}
+        return {'error': 'Failed to parse zone file {} for {}'.format(zonefile_hash, name), 'http_status': 404}
 
     urls = [uri['target'] for uri in zonefile_data['uri']]
     for url in urls:
@@ -2737,7 +2739,7 @@ def resolve_profile(name, include_expired=False, include_name_record=False, host
         return ret
 
     log.error("No zone file URLs resolved to a JWT with the public key whose address is {}".format(name_rec['address']))
-    return {'error': 'No profile found for this name'}
+    return {'error': 'No profile found for this name', 'http_status': 404}
 
 
 def resolve_DID(did, hostport=None, proxy=None):
@@ -2758,17 +2760,17 @@ def resolve_DID(did, hostport=None, proxy=None):
     did_rec = get_DID_record(did, hostport=hostport, proxy=proxy)
     if 'error' in did_rec:
         log.error("Failed to get DID record for {}: {}".format(did, did_rec['error']))
-        return {'error': 'Failed to get DID record: {}'.format(did_rec['error'])}
+        return {'error': 'Failed to get DID record: {}'.format(did_rec['error']), 'http_status': did_rec.get('http_status', 500)}
     
     if 'value_hash' not in did_rec:
         log.error("DID record for {} has no zone file hash".format(did))
-        return {'error': 'No zone file hash in name record for {}'.format(did)}
+        return {'error': 'No zone file hash in name record for {}'.format(did), 'http_status': 404}
 
     zonefile_hash = did_rec['value_hash']
     zonefile_res = get_zonefiles(hostport, [zonefile_hash], proxy=proxy)
     if 'error' in zonefile_res:
         log.error("Failed to get zone file for {} for DID {}: {}".format(zonefile_hash, did, zonefile_res['error']))
-        return {'error': 'Failed to get zone file for {}'.format(did)}
+        return {'error': 'Failed to get zone file for {}'.format(did), 'http_status': 404}
 
     zonefile_txt = zonefile_res['zonefiles'][zonefile_hash]
     log.debug("Got {}-byte zone file {}".format(len(zonefile_txt), zonefile_hash))
@@ -2778,13 +2780,13 @@ def resolve_DID(did, hostport=None, proxy=None):
         zonefile_data = dict(zonefile_data)
         assert 'uri' in zonefile_data
         if len(zonefile_data['uri']) == 0:
-            return {'error': 'No URI records in zone file {} for {}'.format(zonefile_hash, did)}
+            return {'error': 'No URI records in zone file {} for {}'.format(zonefile_hash, did), 'http_status': 404}
 
     except Exception as e:
         if BLOCKSTACK_TEST:
             log.exception(e)
 
-        return {'error': 'Failed to parse zone file {} for {}'.format(zonefile_hash, did)}
+        return {'error': 'Failed to parse zone file {} for {}'.format(zonefile_hash, did), 'http_status': 404}
 
     urls = [uri['target'] for uri in zonefile_data['uri']]
     for url in urls:
@@ -2797,7 +2799,7 @@ def resolve_DID(did, hostport=None, proxy=None):
         return {'public_key': public_key}
 
     log.error("No zone file URLs resolved to a JWT with the public key whose address is {}".format(did_rec['address']))
-    return {'error': 'No public key found for the given DID'}
+    return {'error': 'No public key found for the given DID', 'http_status': 404}
 
 
 def decode_name_zonefile(name, zonefile_txt):
