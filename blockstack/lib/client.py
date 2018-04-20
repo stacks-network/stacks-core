@@ -1121,7 +1121,7 @@ def get_all_names_page(offset, count, include_expired=False, hostport=None, prox
         # must be valid names
         valid_names = []
         for n in resp['names']:
-            if not is_name_valid(str(n)):
+            if not is_name_valid(str(n)) and not is_subdomain(str(n)):
                 log.error('Invalid name "{}"'.format(str(n)))
             else:
                 valid_names.append(n)

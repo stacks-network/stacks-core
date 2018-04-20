@@ -65,7 +65,9 @@ from lib import *
 from lib.storage import *
 from lib.atlas import *
 from lib.fast_sync import *
-from lib.subdomains import subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history, get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info
+from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history,
+                            get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info,
+                            get_all_subdomains)
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
@@ -1292,9 +1294,23 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'invalid count'}
 
         db = get_db_state(self.working_dir)
-        all_names = db.get_all_names( offset=offset, count=count )
+        num_domains = db.get_num_names()
+        if num_domains > offset:
+           all_domains = db.get_all_names( offset=offset, count=count )
+        else:
+           all_domains = []
         db.close()
 
+        subdomain_offset = max(offset - num_domains, 0)
+        subdomain_count  = count - len(all_domains)
+        if subdomain_count > 0:
+           all_subdomains = get_all_subdomains(offset = subdomain_offset,
+                                               count = subdomain_count)
+        else:
+           all_subdomains = []
+
+
+        all_names = all_domains + all_subdomains
         return self.success_response( {'names': all_names} )
 
 
