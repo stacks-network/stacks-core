@@ -1121,7 +1121,7 @@ def get_all_names_page(offset, count, include_expired=False, hostport=None, prox
         # must be valid names
         valid_names = []
         for n in resp['names']:
-            if not is_name_valid(str(n)) and not is_subdomain(str(n)):
+            if not is_name_valid(str(n)):
                 log.error('Invalid name "{}"'.format(str(n)))
             else:
                 valid_names.append(n)
@@ -1196,6 +1196,62 @@ def get_num_names(include_expired=False, proxy=None, hostport=None):
 
     return resp['count']
 
+def get_num_subdomains(proxy=None, hostport=None):
+    """
+    Get the number of subdomains registered
+    Return integer count on success
+    Return {'error': ...} on failure
+    """
+    assert proxy or hostport, 'Need proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    resp = proxy.get_num_subdomains()
+    return resp['count']
+
+def get_all_subdomains(offset=0, count=100, proxy=None, hostport=None):
+    """
+    Get all subdomains within the given range.
+    Return the list of names on success
+    Return {'error': ...} on failure
+    """
+    assert proxy or hostport, 'Need proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+    offset = int(offset)
+    count = int(count)
+
+    page_schema = {
+        'type': 'object',
+        'properties': {
+            'names': {
+                'type': 'array',
+                'items': {
+                    'type': 'string',
+                    'uniqueItems': True
+                },
+            },
+        },
+        'required': [
+            'names',
+        ],
+    }
+
+    schema = json_response_schema(page_schema)
+
+    resp = proxy.get_all_subdomains(offset, count)
+    resp = json_validate(schema, resp)
+    if json_is_error(resp):
+        return resp
+    valid_names = [ n for n in resp['names']
+                    if is_subdomain(str(n)) ]
+    valid_names = []
+    for n in resp['names']:
+        if not is_subdomain(str(n)):
+            log.error('Invalid subdomain name "{}"'.format(str(n)))
+        else:
+            valid_names.append(n)
+    return valid_names
 
 def get_all_names(offset=None, count=None, include_expired=False, proxy=None, hostport=None):
     """

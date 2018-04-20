@@ -1771,7 +1771,36 @@ Fetch a list of all names known to the node.
                        'pattern': r'^([a-z0-9\\-_.+]{3,37})$',
                  }
               }
- 
+
+## Get all subdomains [GET /v1/subdomains?page={page}]
+Fetch a list of all names known to the node.
++ Public Endpoint
++ Parameters
+  + page: 3 (number) - names are returned in pages of size 100,
+    so specify the page number.
++ Response 200 (application/json)
+  + Body
+
+                [
+                  "collegeinfogeek.verified.podcast",
+                  "collider.verified.podcast",
+                  "combatandclassics.verified.podcast",
+                  "combatjack.verified.podcast",
+                  "comedybangbang.verified.podcast",
+                  "comedybutton.verified.podcast",
+                  "commonsense.verified.podcast",
+                  "concilio002.personal.id", ... ]
+
+  + Schema
+
+              {
+                 'type': 'array',
+                 'items': {
+                       'type': 'string',
+                       'pattern': r'^([a-z0-9\\-_.+]{3,37})\.([a-z0-9\\-_.+]{3,37})$',
+                 }
+              }
+
 ## Get name info [GET /v1/names/{name}]
 + Public Endpoint
 + Subdomain Aware
@@ -2324,6 +2353,46 @@ Get the number of names on a blockchain.
                     'error': { 'type': 'string' },
                 },
             },
+
+
+## Get number of subdomains on blockchain [GET /v1/blockchains/{blockchainName}/subdomains_count]
+Get the number of subdomains on a blockchain.
++ Public Endpoint
++ Parameters
+  + blockchainName: bitcoin (string) - the given blockchain
++ Response 200 (application/json)
+  + Body
+
+            {
+                "names_count": 1646
+            }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'names_count': {
+                        'type': 'integer',
+                        'minimum': 0,
+                    },
+                },
+            }
+
++ Response 401 (application/json)
+  + Body
+
+            { "error": "Unsupported blockchain" }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            },
+
 
 ## Get operations in block [GET /v1/blockchains/{blockchainName}/operations/{blockHeight}]
 Get the Blockstack operations in a given block
