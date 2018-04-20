@@ -688,11 +688,15 @@ def gaia_hub_start(gaia_config_path):
     GAIA_SUBPROCESS = None
     GAIA_HTTP_THREAD = None
 
-    rc = os.system("which blockstack-gaia-hub")
+    p = subprocess.Popen('which blockstack-gaia-hub', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = p.communicate()
+    rc = p.returncode
     if rc != 0:
         print 'blockstack-gaia-hub is not installed'
         return
-    
+   
+    gaia_path = out.strip()
+
     print 'Starting Gaia HTTP reader'
     gaia_config = json.loads(open(gaia_config_path, 'r').read())
 
@@ -707,8 +711,8 @@ def gaia_hub_start(gaia_config_path):
     gaia_stdout = open(gaia_logfile_path, 'w')
     gaia_stderr = open(gaia_logfile_path, 'w')
 
-    print 'Starting Gaia hub'
-    p = subprocess.Popen("blockstack-gaia-hub '{}'".format(gaia_config_path), shell=True, stdout=gaia_stdout, stderr=gaia_stderr)
+    print 'Starting Gaia hub at {}'.format(gaia_path)
+    p = subprocess.Popen([gaia_path, gaia_config_path], shell=False, stdout=gaia_stdout, stderr=gaia_stderr)
 
     GAIA_SUBPROCESS = p
     return
@@ -751,11 +755,20 @@ def transaction_broadcaster_start(config_path):
         print 'blockstack-transaction-broadcaster is not installed'
         return 
 
+    p = subprocess.Popen('which blockstack-gaia-hub', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = p.communicate()
+    rc = p.returncode
+    if rc != 0:
+        print 'blockstack-transaction-broadcaster is not installed'
+        return
+
+    txb_path = out.strip()
+    
     txb_logfile_path = os.path.join(os.path.dirname(config_path), 'transaction-broadcaster.log')
     txb_stdout = open(txb_logfile_path, 'w')
     txb_stderr = open(txb_logfile_path, 'w')
 
-    p = subprocess.Popen('blockstack-transaction-broadcaster', shell=True, stdout=txb_stdout, stderr=txb_stderr)
+    p = subprocess.Popen([txb_path], shell=False, stdout=txb_stdout, stderr=txb_stderr)
 
     TRANSACTION_BROADCASTER_SUBPROCESS = p
     return 
