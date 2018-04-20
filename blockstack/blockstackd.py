@@ -1338,6 +1338,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         return self.success_response( {'count': num_names} )
 
+
     def rpc_get_num_subdomains( self, **con_info ):
         """
         Get the number of subdomains that exist
@@ -1384,22 +1385,24 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         return self.success_response( {'names': all_domains} )
 
+
     def rpc_get_all_subdomains( self, offset, count, **conf_info):
         """
         Get all subdomains, paginated
         Return {'status': true, 'names': [...]} on success
         Return {'error': ...} on error
         """
-        if not self.check_offset(offset):
-            return {'error': 'invalid offset'}
+        if not check_offset(offset):
+            return {'error': 'invalid offset', 'http_status': 400}
 
-        if not self.check_count(count, 100):
-            return {'error': 'invalid count'}
+        if not check_count(count, 100):
+            return {'error': 'invalid count', 'http_status': 400}
 
         all_subdomains = get_all_subdomains(offset = offset,
                                             count = count)
 
         return self.success_response( {'names': all_subdomains} )
+
 
     def rpc_get_all_names_cumulative( self, offset, count, **con_info ):
         """
