@@ -1,29 +1,27 @@
 version: 2
 jobs:
   build:
-    working_directory: ~/circleci-demo-python-django
+    working_directory: ~/blockstack
     docker:
       - image: circleci/python:2.7
         environment:
           PIPENV_VENV_IN_PROJECT: true
     steps:
       - checkout
-      - run: sudo chown -R circleci:circleci /usr/local/bin
-      - run: sudo chown -R circleci:circleci /usr/local/lib/python2.7/site-packages
-      - restore_cache:
-          key: deps9-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+##      - restore_cache:
+##          key: deps9-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
       - run:
           command: |
-            python2 -m venv venv
-            . venv/bin/activate
+            python -m virtualenv venv
+            source venv/bin/activate
             pip install . --upgrade
-      - save_cache:
-          key: deps9-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
-          paths:
-            - "venv"
+##      - save_cache:
+##          key: deps9-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+##          paths:
+##            - "venv"
       - run:
           command: |
-            . venv/bin/activate
+            source venv/bin/activate
             blockstack setup -y --password PASSWORD
             blockstack api start -y --password PASSWORD
             python -m blockstack_integration_tests.live_tests.api_tests
