@@ -8,18 +8,18 @@ jobs:
           PIPENV_VENV_IN_PROJECT: true
     steps:
       - checkout
-##      - restore_cache:
-##          key: deps9-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+      - restore_cache:
+          key: deps9-{{ .Branch }}-{{ checksum "setup.py" }}-{{ checksum "integration_tests/setup.py" }}
       - run:
           command: |
             python -m virtualenv venv
             source venv/bin/activate
-            pip install ./integration_tests
-            pip install . --upgrade
-##      - save_cache:
-##          key: deps9-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
-##          paths:
-##            - "venv"
+            pip install ./integration_tests --upgrade --upgrade-strategy only-if-needed
+            pip install . --upgrade --upgrade-strategy only-if-needed
+      - save_cache:
+          key: deps9-{{ .Branch }}-{{ checksum "setup.py" }}-{{ checksum "integration_tests/setup.py" }}
+          paths:
+            - "venv"
       - run:
           command: |
             source venv/bin/activate
