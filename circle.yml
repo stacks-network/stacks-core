@@ -14,6 +14,7 @@ jobs:
           command: |
             python -m virtualenv venv
             source venv/bin/activate
+            pip install ./integration_tests
             pip install . --upgrade
 ##      - save_cache:
 ##          key: deps9-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
