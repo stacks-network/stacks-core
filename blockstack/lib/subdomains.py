@@ -1046,32 +1046,6 @@ class SubdomainDB(object):
 
         return Subdomain(str(name), str(domain), str(encoded_pubkey), int(n), str(zonefile_str), sig, block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing=missing, accepted=accepted)
 
-    def get_all_subdomains(self, offset, count, accepted=True, cur=None):
-        """
-        Fetch subdomain names
-        """
-        if accepted:
-            accepted_filter = 'WHERE accepted=1'
-        else:
-            accepted_filter = ''
-        offset = int(offset)
-        count = int(count)
-        offset_count = 'LIMIT {} OFFSET {}'.format(count, offset)
-        get_cmd = "SELECT fully_qualified_subdomain FROM {} {} GROUP BY fully_qualified_subdomain ORDER BY fully_qualified_subdomain {};".format(
-            self.subdomain_table, accepted_filter, offset_count)
-        cursor = cur
-        if cursor is None:
-            cursor = self.conn.cursor()
-
-        db_query_execute(cursor, get_cmd, ())
-
-        try:
-            return [ x['fully_qualified_subdomain'] for x in cursor.fetchall() ]
-        except Exception as e:
-            if BLOCKSTACK_DEBUG:
-                log.exception(e)
-
-            return []
 
     def get_subdomains_count(self, accepted=True, cur=None):
         """
@@ -1081,8 +1055,10 @@ class SubdomainDB(object):
             accepted_filter = 'WHERE accepted=1'
         else:
             accepted_filter = ''
+
         get_cmd = "SELECT COUNT(DISTINCT fully_qualified_subdomain) as count FROM {} {};".format(
             self.subdomain_table, accepted_filter)
+
         cursor = cur
         if cursor is None:
             cursor = self.conn.cursor()
@@ -1097,32 +1073,33 @@ class SubdomainDB(object):
                 log.exception(e)
             return 0
 
+
     def get_all_subdomains(self, offset=None, count=None, min_sequence=None, cur=None):
         """
         Get and all subdomain names, optionally over a range
         """
-        get_cmd = 'SELECT UNIQUE fully_qualified_subdomain FROM {}'.format(self.subdomain_table)
+        get_cmd = 'SELECT DISTINCT fully_qualified_subdomain FROM {}'.format(self.subdomain_table)
         args = ()
 
         if min_sequence is not None:
             get_cmd += ' WHERE sequence >= ?'
             args += (min_sequence,)
 
-        if limit is not None:
-            get_cmd += ' LIMIT {}'
+        if count is not None:
+            get_cmd += ' LIMIT ?'
             args += (count,)
 
         if offset is not None:
-            get_cmd += ' OFFSET {}'
+            get_cmd += ' OFFSET ?'
             args += (offset,)
 
         get_cmd += ';'
 
         cursor = None
         if cur is None:
-            cur = self.conn.cursor()
+            cursor = self.conn.cursor()
         else:
-            cursor = con
+            cursor = cur
 
         rows = db_query_execute(cursor, get_cmd, args)
         subdomains = []
@@ -1802,24 +1779,6 @@ def get_subdomain_info(fqn, db_path=None, atlasdb_path=None, zonefiles_dir=None,
 
     return subrec
 
-def get_all_subdomains(offset, count, db_path=None, zonefiles_dir=None):
-    """
-    Static method for getting a list of all subdomains, paginated by offset and count
-    Return array of fully-qualified subdomains on success
-    """
-    opts = get_blockstack_opts()
-    if not is_subdomains_enabled(opts):
-        log.warn("Subdomain support is disabled")
-        return None
-
-    if db_path is None:
-        db_path = opts['subdomaindb_path']
-
-    if zonefiles_dir is None:
-        zonefiles_dir = opts['zonefiles']
-
-    db = SubdomainDB(db_path, zonefiles_dir)
-    return db.get_all_subdomains(offset, count)
 
 def get_subdomains_count(db_path=None, zonefiles_dir=None):
     """
@@ -1839,6 +1798,7 @@ def get_subdomains_count(db_path=None, zonefiles_dir=None):
 
     db = SubdomainDB(db_path, zonefiles_dir)
     return db.get_subdomains_count()
+
 
 def get_subdomain_DID_info(fqn, db_path=None, zonefiles_dir=None):
     """
