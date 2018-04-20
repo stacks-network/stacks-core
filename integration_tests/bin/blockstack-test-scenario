@@ -64,6 +64,9 @@ SCENARIO_PID = os.getpid()
 GAIA_SUBPROCESS = None
 GAIA_HTTP_THREAD = None
 
+TEST_TRANSACTION_BROADCASTER_PORT = 16269
+TRANSACTION_BROADCASTER_SUBPROCESS = None
+
 NET_LOG_PATH = "/tmp/blockstack-test-netlog.log"
 
 TEST_GENESIS_BLOCK = []
@@ -178,6 +181,27 @@ DEFAULT_GAIA_HUB_CONFIG_TEMPLATE = """
   }
 }
 """
+
+DEFAULT_TRANSACTION_BROADCASTER_TEMPLATE = """
+{
+  "winstonConsoleTransport": {
+      "level": "debug",
+      "handleExceptions": false,
+      "timestamp": true,
+      "stringify": true,
+      "colorize": false,
+      "json": false
+  },
+  "checkTransactionPeriod": 0.1,
+  "dbLocation": "@WORKING_DIR@/transaction-broadcaster.db",
+  "regtest": true,
+  "stalenessDeadline": 3600,
+  "port": %s,
+  "blockstack": {
+    "api": "http://localhost:%s",
+    "utxo": "http://localhost:%s"
+  }
+}""" % (TEST_TRANSACTION_BROADCASTER_PORT, TEST_CLIENT_RPC_PORT, TEST_CLIENT_RPC_PORT)
 
 class Pinger(threading.Thread):
     """
@@ -713,6 +737,45 @@ def gaia_hub_stop():
         print 'failed to stop Gaia HTTP process'
 
 
+def transaction_broadcaster_start(config_path):
+    """
+    Start the transaction broadcaster
+    """
+    print 'Starting transaction broadcaster'
+    global TRANSACTION_BROADCASTER_SUBPROCESS
+
+    TRANSACTION_BROADCASTER_SUBPROCESS = None
+
+    rc = os.system("which blockstack-transaction-broadcaster")
+    if rc != 0:
+        print 'blockstack-transaction-broadcaster is not installed'
+        return 
+
+    txb_logfile_path = os.path.join(os.path.dirname(config_path), 'transaction-broadcaster.log')
+    txb_stdout = open(txb_logfile_path, 'w')
+    txb_stderr = open(txb_logfile_path, 'w')
+
+    p = subprocess.Popen('blockstack-transaction-broadcaster', shell=True, stdout=txb_stdout, stderr=txb_stderr)
+
+    TRANSACTION_BROADCASTER_SUBPROCESS = p
+    return 
+
+
+def transaction_broadcaster_stop():
+    """
+    Stop the blockstack transaction broadcaster
+    """
+    print 'Stopping transaction broadcaster'
+    global TRANSACTION_BROADCASTER_SUBPROCESS
+    try:
+        if TRANSACTION_BROADCASTER_SUBPROCESS is not None:
+            TRANSACTION_BROADCASTER_SUBPROCESS.kill()
+
+        TRANSACTION_BROADCASTER_SUBPROCESS = None
+    except:
+        print 'Failed to stop transaction broadcaster process'
+
+
 def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
     """
     Clean up a scenario
@@ -730,6 +793,7 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
         pass
 
     gaia_hub_stop()
+    transaction_broadcaster_stop()
 
     if client_config_path is not None:
         client_config_dir = os.path.dirname(client_config_path)
@@ -761,7 +825,7 @@ def sync_virtualchain_upcall(server_state):
     testlib.set_state_engine(db)
 
 
-def run_scenario( virtualchain_working_dir, scenario, config_file, client_config_file, gaia_config_file, interactive=False, blocktime=10, webtest_port=None ):
+def run_scenario( virtualchain_working_dir, scenario, config_file, client_config_file, gaia_config_file, transaction_broadcaster_config_file, interactive=False, blocktime=10, webtest_port=None ):
     """
     Run a test scenario:
     * set up the virtualchain to use our mock UTXO provider and mock bitcoin blockchain
@@ -835,6 +899,9 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
 
     # start Gaia hub 
     gaia_hub_start(gaia_config_file)
+
+    # start transaction broadcaster 
+    transaction_broadcaster_start(transaction_broadcaster_config_file)
 
     # Start server
     server_state = blockstackd.server_setup(working_dir)
@@ -1024,6 +1091,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     pinger = None
     
     gaia_hub_stop()
+    transaction_broadcaster_stop()
 
     blockstackd.server_atlas_shutdown(server_state)
 
@@ -1477,7 +1545,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # basic sanity checks---need some tools to exist 
-    for tool in ['sqlite3', 'blockstack-cli', 'blockstack-gaia-hub']:
+    for tool in ['sqlite3', 'blockstack-cli', 'blockstack-gaia-hub', 'blockstack-transaction-broadcaster']:
         rc = os.system('which {}'.format(tool))
         if rc != 0:
             print >> sys.stderr, '\n\nERROR! Missing {}.\n'.format(tool)
@@ -1587,6 +1655,7 @@ if __name__ == "__main__":
     config_file = os.path.join( working_dir, "blockstack-server.ini" )
     client_config_file = os.path.join( client_working_dir, "client.ini" )
     gaia_config_file = os.path.join(working_dir, 'gaia.conf')
+    transaction_broadcaster_config_file = os.path.join(working_dir, 'transaction-broadcaster.conf')
     client_datastores_path = os.path.join( client_working_dir, "datastores" )
 
     os.makedirs(client_working_dir)
@@ -1598,6 +1667,7 @@ if __name__ == "__main__":
     os.environ["BLOCKSTACK_CLIENT_CONFIG"] = client_config_file
     os.environ["BLOCKSTACK_SERVER_CONFIG"] = config_file
     os.environ['BLOCKSTACK_GAIA_CONFIG'] = gaia_config_file
+    os.environ['BSK_TRANSACTION_BROADCAST_CONFIG'] = transaction_broadcaster_config_file
     os.environ['BLOCKSTACK_SEGWIT_TEST'] = '1'
     os.environ['BLOCKSTACK_TEST_NAME'] = scenario_module
     
@@ -1720,8 +1790,21 @@ if __name__ == "__main__":
 
         sys.exit(1)
 
+    # generate transaction broadcaster config file 
+    rc = generate_config_file(working_dir, scenario, transaction_broadcaster_config_file, DEFAULT_TRANSACTION_BROADCASTER_TEMPLATE, \
+                            {'WORKING_DIR': working_dir})
+
+    if rc != 0:
+        log.error("failed to write transaction broadcaster config file: exit %s" % rc)
+
+        if args.influx:
+            influx_write(influx_client, test_start, scenario_module.split(".")[2], "failure-config")
+
+        sys.exit(1)
+
+
     # run the test
-    rc = run_scenario( working_dir, scenario, config_file, client_config_file, gaia_config_file, interactive=interactive, blocktime=blocktime, webtest_port=webtest_port )
+    rc = run_scenario( working_dir, scenario, config_file, client_config_file, gaia_config_file, transaction_broadcaster_config_file, interactive=interactive, blocktime=blocktime, webtest_port=webtest_port )
 
     if rc:
         # time the test
