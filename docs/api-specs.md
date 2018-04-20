@@ -28,6 +28,9 @@ Ping the Blockstack node to see if it's alive.
                  ]
              }
 
+    + Test
+            $ curl https://localhost:16268/v1/node/ping
+
 
 # Group Managing Zone Files
 
@@ -44,6 +47,10 @@ Fetch a user's raw zone file.  Only works with RFC-compliant zone files, unless
   + raw: true (enum[string], optional) - return a raw zone file as an
     octet-stream.
 
++ Test Setup
+            $ printf '$ORIGIN hello.id\n$TTL 3600\n_http._tcp URI 10 1 \"https://gaia.blockstack.org/hub/1EovsUFuGnmHspAWxr5YhT6ohZziQ1ioRJ/0/profile.json\"\n' > "$BLOCKSTACK_DOCTEST_DIR/hello.id.zonefile
+            $ blockstack-cli -t register hello.id "$BLOCKSTACK_DOCTEST_DIR/hello.id.zonefile"
+            $ curl -X POST --data-urlencode ""$BLOCKSTACK_WEB_TEST"/nextblock
 
 + Response 200 (application/json)
   + Body
@@ -63,6 +70,9 @@ Fetch a user's raw zone file.  Only works with RFC-compliant zone files, unless
                   },
                }
             }
+
+   + Test
+            $ curl 
 
 + Response 200 (application/octet-stream)
     + Body
@@ -1027,7 +1037,7 @@ status corresponds to a token vesting event.
 
             {
               "address": "1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J",
-              "block_id": 694,
+              "block_id": 510694,
               "credit_value": "138350580652821637105",
               "debit_value": "111012000",
               "lock_transfer_block_id": 0,
@@ -1221,7 +1231,7 @@ the block.
             [
               {
                 "address": "1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J",
-                "block_id": 691,
+                "block_id": 510691,
                 "credit_value": "55340232321128654842",
                 "debit_value": "0",
                 "lock_transfer_block_id": 0,
@@ -1231,7 +1241,7 @@ the block.
               },
               {
                 "address": "1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J",
-                "block_id": 691,
+                "block_id": 510691,
                 "credit_value": "55340232321128654842",
                 "debit_value": "100000",
                 "lock_transfer_block_id": 0,
@@ -1335,7 +1345,7 @@ time by varying the `page`, `startblock`, and `endblock` parameters.
             [
               {
                 "address": "1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J",
-                "block_id": 691,
+                "block_id": 510691,
                 "credit_value": "55340232321128654842",
                 "debit_value": "0",
                 "lock_transfer_block_id": 0,
@@ -1345,7 +1355,7 @@ time by varying the `page`, `startblock`, and `endblock` parameters.
               },
               {
                 "address": "1Fj52UvVncNa2hJ6TU8dpu8pHGs65Qxp5J",
-                "block_id": 691,
+                "block_id": 510691,
                 "credit_value": "55340232321128654842",
                 "debit_value": "100000",
                 "lock_transfer_block_id": 0,
