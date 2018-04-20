@@ -52,6 +52,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 TRANSACTION_BROADCAST_LOCATION = os.environ.get('BSK_TRANSACTION_BROADCAST_LOCATION')
 SUBDOMAIN_REGISTRAR_LOCATION = os.environ.get('BSK_SUBDOMAIN_REGISTRAR_LOCATION')
 
+'''
 def start_transaction_broadcaster():
     try:
         os.rename('/tmp/transaction_broadcaster.db', '/tmp/transaction_broadcaster.db.last')
@@ -85,7 +86,7 @@ def start_subdomain_registrar():
     else:
         assert os.system('which blockstack-subdomain-registrar') == 0, 'Missing blockstack-subdomain-registrar'
         Popen('blockstack-subdomain-registrar', shell=True, env=env)
-
+'''
 
 def scenario( wallets, **kw ):
 
