@@ -273,7 +273,7 @@ The API endpoints `/v1/users/<foo.bar.tld>`,
 For example:
 
 ```
-curl http://localhost:6270/v1/names/bar.foo.id | python -m json.tool
+curl http://localhost:6270/v1/names/baz.foo.id | python -m json.tool
 ```
 
 Will return:
@@ -288,8 +288,6 @@ Will return:
     "zonefile_txt": "$ORIGIN bar\n$TTL 3600\n_file URI 10 1 \"file:///tmp/baz.profile.json\"\n"
 }
 ```
-
-The integration test registers `bar.foo.id` during the setup (so remember that for your own testing!)
 
 ### Running an interactive testing environment with the Subdomain Registrar service
 

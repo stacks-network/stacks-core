@@ -37,6 +37,7 @@ import blockstack.lib.storage as storage
 import blockstack.lib.client as client
 import blockstack_zones
 import base64
+import blockstack_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -49,7 +50,10 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
-    
+    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
+    test_proxy = testlib.TestAPIProxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
     zonefile_batches = []
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
@@ -159,8 +163,8 @@ def check( state_engine ):
         if preorder is not None:
             print 'still have preorder: {}'.format(preorder)
             return False
-         
-        # registered 
+
+        # registered
         name_rec = state_engine.get_name(name)
         if name_rec is None:
             print 'did not get name {}'.format(name)
@@ -170,5 +174,33 @@ def check( state_engine ):
         if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
             print 'wrong address for {}: {}'.format(name, name_rec)
             return False
+
+
+    res = testlib.blockstack_REST_call("GET", "/v1/subdomains?page=0", None,
+                                       api_pass='blockstack_integration_test_api_password')
+    if 'error' in res or res['http_status'] != 200:
+        res['test'] = 'Failed to get name bar.test'
+        print json.dumps(res)
+        return False
+
+    names = res['response']
+    found_names = [ x for x in ['bar.foo1.test','bar.foo2.test','bar.foo3.test']
+                    if x in names ]
+    if len(found_names) != 3:
+        print names
+        return False
+
+    print names
+    res = testlib.blockstack_REST_call("GET", "/v1/blockchains/bitcoin/subdomains_count", None,
+                                       api_pass='blockstack_integration_test_api_password')
+    if 'error' in res or res['http_status'] != 200:
+        res['test'] = 'Failed to get name bar.test'
+        print json.dumps(res)
+        return False
+
+    names_count = res['response']['names_count']
+    if names_count != 3:
+        print names
+        return False
 
     return True

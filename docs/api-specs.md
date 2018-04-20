@@ -26,7 +26,7 @@ Ping the Blockstack node to see if it's alive.
                      'status',
                      'version'
                  ]
-             }
+            }
 
     + Test
             $ curl https://localhost:16268/v1/node/ping
@@ -344,6 +344,38 @@ Fetch a list of all names known to the node.
                'items': {
                      'type': 'string',
                      'pattern': r'^([a-z0-9\\-_.+]{3,37})$',
+               }
+            }
+
+
+## Get all subdomains [GET /v1/subdomains?page={page}]
+Fetch a list of all names known to the node.
++ Public Endpoint
++ Parameters
+  + page: 3 (number) - names are returned in pages of size 100,
+    so specify the page number.
++ Response 200 (application/json)
+  + Body
+
+            [
+                  "collegeinfogeek.verified.podcast",
+                  "collider.verified.podcast",
+                  "combatandclassics.verified.podcast",
+                  "combatjack.verified.podcast",
+                  "comedybangbang.verified.podcast",
+                  "comedybutton.verified.podcast",
+                  "commonsense.verified.podcast",
+                  "concilio002.personal.id", 
+                  ... 
+            ]
+
+  + Schema
+
+            {
+               'type': 'array',
+               'items': {
+                    'type': 'string',
+                    'pattern': r'^([a-z0-9\\-_.+]{3,37})\.([a-z0-9\\-_.+]{3,37})$',
                }
             }
  
@@ -1172,6 +1204,27 @@ for STACKs).
                 ]
             }
 
+
+## Get name info [GET /v1/names/{name}]
+Get a name's owner, zone file, and blockchain-based information.
+
++ Public Endpoint
++ Subdomain Aware
++ Parameters
+  + name: muneeb.id (string) - fully-qualified name
++ Response 200 (application/json)
+  + Body
+
+            {
+              "address": "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP", 
+              "blockchain": "bitcoin", 
+              "expire_block": 489247, 
+              "last_txid": "1edfa419f7b83f33e00830bc9409210da6c6d1db60f99eda10c835aa339cad6b", 
+              "status": "registered", 
+              "zonefile": "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp IN URI 10 1 \"https://blockstack.s3.amazonaws.com/muneeb.id\"\n", 
+              "zonefile_hash": "b100a68235244b012854a95f9114695679002af9"
+            }
+
 + Response 400 (application/json)
 
     + Body
@@ -1568,6 +1621,46 @@ Get the number of names on a blockchain.
                 },
             },
 
+
+## Get number of subdomains on blockchain [GET /v1/blockchains/{blockchainName}/subdomains_count]
+Get the number of subdomains on a blockchain.
++ Public Endpoint
++ Parameters
+  + blockchainName: bitcoin (string) - the given blockchain
++ Response 200 (application/json)
+  + Body
+
+            {
+                "names_count": 1646
+            }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'names_count': {
+                        'type': 'integer',
+                        'minimum': 0,
+                    },
+                },
+            }
+
++ Response 400 (application/json)
+  + Body
+
+            { "error": "Unsupported blockchain" }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            },
+
+
 ## Get blockchain name record [GET /v1/blockchains/{blockchainName}/names/{name}]
 Get the raw blockchain record for a name
 + Public Endpoint
@@ -1577,36 +1670,35 @@ Get the raw blockchain record for a name
 + Response 200 (application/json)
   + Body
 
-               {
-                   "address": "1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs",
-                   "block_number": 373821,
-                   "consensus_hash": "36dc9bd59e9ee00370349d0af898144c",
-                   "expire_block": 599266,
-                   "expired": false,
-                   "first_registered": 373821,
-                   "grace_period": false,
-                   "importer": "76a9143e2b5fdd12db7580fb4d3434b31d4fe9124bd9f088ac",
-                   "importer_address": "16firc3qZU97D1pWkyL6ZYwPX5UVnWc82V",
-                   "last_renewed": 494076,
-                   "name": "muneeb.id",
-                   "name_hash128": "deb7fe99776122b77925cbf0a24ab6f8",
-                   "namespace_block_number": 373601,
-                   "namespace_id": "id",
-                   "op": "::",
-                   "op_fee": 10000,
-                   "opcode": "NAME_RENEWAL",
-                   "preorder_block_number": 373821,
-                   "preorder_hash": "e58b193cfe867020ed84cc74edde2487889f28fe",
-                   "renewal_deadline": 604266,
-                   "revoked": false,
-                   "sender": "76a914baedbcbf91cbba4f37680b176d055f47228c8d4e88ac",
-                   "sender_pubkey": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090",
-                   "txid": "7e16e8688ca0413a398bbaf16ad4b10d3c9439555fc140f58e5ab4e50793c476",
-                   "value_hash": "37aecf837c6ae9bdc9dbd98a268f263dacd00361",
-                   "vtxindex": 420,
-                   "zonefile": "JE9SSUdJTiBtdW5lZWIuaWQKJFRUTCAzNjAwCl9odHRwLl90Y3AgVVJJIDEwIDEgImh0dHBzOi8vZ2FpYS5ibG9ja3N0YWNrLm9yZy9odWIvMUozUFV4WTV1RFNoVW5IUnJNeVU2eUt0b0hFVVBoS1VMcy8wL3Byb2ZpbGUuanNvbiIK"
-               }
-
+            {
+                "address": "1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs",
+                "block_number": 373821,
+                "consensus_hash": "36dc9bd59e9ee00370349d0af898144c",
+                "expire_block": 599266,
+                "expired": false,
+                "first_registered": 373821,
+                "grace_period": false,
+                "importer": "76a9143e2b5fdd12db7580fb4d3434b31d4fe9124bd9f088ac",
+                "importer_address": "16firc3qZU97D1pWkyL6ZYwPX5UVnWc82V",
+                "last_renewed": 494076,
+                "name": "muneeb.id",
+                "name_hash128": "deb7fe99776122b77925cbf0a24ab6f8",
+                "namespace_block_number": 373601,
+                "namespace_id": "id",
+                "op": "::",
+                "op_fee": 10000,
+                "opcode": "NAME_RENEWAL",
+                "preorder_block_number": 373821,
+                "preorder_hash": "e58b193cfe867020ed84cc74edde2487889f28fe",
+                "renewal_deadline": 604266,
+                "revoked": false,
+                "sender": "76a914baedbcbf91cbba4f37680b176d055f47228c8d4e88ac",
+                "sender_pubkey": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090",
+                "txid": "7e16e8688ca0413a398bbaf16ad4b10d3c9439555fc140f58e5ab4e50793c476",
+                "value_hash": "37aecf837c6ae9bdc9dbd98a268f263dacd00361",
+                "vtxindex": 420,
+                "zonefile": "JE9SSUdJTiBtdW5lZWIuaWQKJFRUTCAzNjAwCl9odHRwLl90Y3AgVVJJIDEwIDEgImh0dHBzOi8vZ2FpYS5ibG9ja3N0YWNrLm9yZy9odWIvMUozUFV4WTV1RFNoVW5IUnJNeVU2eUt0b0hFVVBoS1VMcy8wL3Byb2ZpbGUuanNvbiIK"
+            }
 
 ## Get operations in block [GET /v1/blockchains/{blockchainName}/operations/{blockHeight}]
 Get the Blockstack operations in a given block
@@ -1975,6 +2067,7 @@ Fetch the number of names from the namespace.
                 {
                     'names_count': 73950
                 } 
+
 
 # Group Resolver Endpoints
 ## Lookup User [GET /v1/users/{username}]
