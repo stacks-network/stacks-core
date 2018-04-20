@@ -53,22 +53,26 @@ Ping the Blockstack node to see if it's alive.
   + Body
   
             {
-             "status": "alive", 
-             "version": "###version###"
+                "status": "alive",
+                "version": "###version###"
             }
   + Schema
 
             {
-                 'type': 'object',
-                 'properties': {
-                     'status': {
-                         'type': 'string'
-                     },
-                 },
-                 'required': [
-                     'status'
-                 ]
-             }
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "status",
+                    "version"
+                ]
+            }
 
 ## Get the node's config [GET /v1/node/config]
 Returns the current configuation settings of the Blockstack node.
