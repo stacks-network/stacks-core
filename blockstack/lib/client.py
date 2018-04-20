@@ -387,17 +387,17 @@ def ping(proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
 
     except socket.timeout:
         log.error("Connection timed out")
-        resp = {'error': 'Connection to remote host timed out.'}
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
         return resp
 
     except socket.error as se:
         log.error("Connection error {}".format(se.errno))
-        resp = {'error': 'Connection to remote host failed.'}
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -405,7 +405,7 @@ def ping(proxy=None, hostport=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp
@@ -481,17 +481,17 @@ def getinfo(proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
 
     except socket.timeout:
         log.error("Connection timed out")
-        resp = {'error': 'Connection to remote host timed out.'}
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
         return resp
 
     except socket.error as se:
         log.error("Connection error {}".format(se.errno))
-        resp = {'error': 'Connection to remote host failed.'}
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -499,7 +499,7 @@ def getinfo(proxy=None, hostport=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp
@@ -549,7 +549,7 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
 
     except AssertionError as ae:
@@ -561,12 +561,12 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
 
     except socket.timeout:
         log.error("Connection timed out")
-        resp = {'error': 'Connection to remote host timed out.'}
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
         return resp
 
     except socket.error as se:
         log.error("Connection error {}".format(se.errno))
-        resp = {'error': 'Connection to remote host failed.'}
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -574,7 +574,7 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return zf_inv
@@ -628,17 +628,17 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
 
     except socket.timeout:
         log.error("Connection timed out")
-        resp = {'error': 'Connection to remote host timed out.'}
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
         return resp
 
     except socket.error as se:
         log.error("Connection error {}".format(se.errno))
-        resp = {'error': 'Connection to remote host failed.'}
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -646,7 +646,7 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node {}.  Try again with `--debug`.'.format(hostport)}
+        resp = {'error': 'Failed to contact Blockstack node {}.  Try again with `--debug`.'.format(hostport), 'http_status': 500}
         return resp
 
     return peers
@@ -700,17 +700,17 @@ def atlas_peer_exchange(hostport, my_hostport, timeout=30, proxy=None):
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
 
     except socket.timeout:
         log.error("Connection timed out")
-        resp = {'error': 'Connection to remote host timed out.'}
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
         return resp
 
     except socket.error as se:
         log.error("Connection error {}".format(se.errno))
-        resp = {'error': 'Connection to remote host failed.'}
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -718,7 +718,7 @@ def atlas_peer_exchange(hostport, my_hostport, timeout=30, proxy=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node {}.  Try again with `--debug`.'.format(hostport)}
+        resp = {'error': 'Failed to contact Blockstack node {}.  Try again with `--debug`.'.format(hostport), 'http_status': 500}
         return resp
 
     return peers
@@ -783,11 +783,21 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
         zonefiles = {'error': 'Zonefile data mismatch'}
         return zonefiles
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
     except ValidationError as ve:
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        zonefiles = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        zonefiles = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return zonefiles
 
     except Exception as ee:
@@ -795,7 +805,7 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return zonefiles
@@ -842,11 +852,21 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
         if json_is_error(push_info):
             return push_info
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
     except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -854,7 +874,7 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return push_info
@@ -993,11 +1013,21 @@ def get_name_record(name, include_history=False, include_expired=False, include_
 
         lastblock = resp['lastblock']
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
     except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
     
     except Exception as ee:
@@ -1005,7 +1035,7 @@ def get_name_record(name, include_history=False, include_expired=False, include_
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     if not include_expired and is_blockstack_id:
@@ -1073,11 +1103,21 @@ def get_namespace_record(namespace_id, proxy=None, hostport=None):
         # this isn't needed
         ret.pop('opcode', None)
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
     except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1085,7 +1125,7 @@ def get_namespace_record(namespace_id, proxy=None, hostport=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return ret
@@ -1149,11 +1189,21 @@ def get_name_cost(name, proxy=None, hostport=None):
         if json_is_error(resp):
             return resp
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
     except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1161,7 +1211,7 @@ def get_name_cost(name, proxy=None, hostport=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp
@@ -1225,11 +1275,21 @@ def get_namespace_cost(namespace_id, proxy=None, hostport=None):
         if json_is_error(resp):
             return resp
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
     except ValidationError as e:
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1237,7 +1297,7 @@ def get_namespace_cost(namespace_id, proxy=None, hostport=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp
@@ -1277,7 +1337,17 @@ def get_account_tokens(address, hostport=None, proxy=None):
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except AssertionError as ae:
@@ -1292,7 +1362,7 @@ def get_account_tokens(address, hostport=None, proxy=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['token_types']
@@ -1334,7 +1404,17 @@ def get_account_record(address, token_type, hostport=None, proxy=None):
             log.exception(e)
 
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1342,7 +1422,7 @@ def get_account_record(address, token_type, hostport=None, proxy=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
    
     return resp['account']
@@ -1381,7 +1461,17 @@ def get_account_balance(address, token_type, hostport=None, proxy=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1389,7 +1479,7 @@ def get_account_balance(address, token_type, hostport=None, proxy=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['balance']
@@ -1434,7 +1524,17 @@ def get_account_at(address, block_height, hostport=None, proxy=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1442,7 +1542,7 @@ def get_account_at(address, block_height, hostport=None, proxy=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['history']
@@ -1487,7 +1587,17 @@ def get_account_history_page(address, block_start, block_end, page, hostport=Non
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1495,7 +1605,7 @@ def get_account_history_page(address, block_start, block_end, page, hostport=Non
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['history']
@@ -1562,7 +1672,17 @@ def get_all_names_page(offset, count, include_expired=False, hostport=None, prox
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
         
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1570,7 +1690,7 @@ def get_all_names_page(offset, count, include_expired=False, hostport=None, prox
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['names']
@@ -1615,7 +1735,17 @@ def get_num_names(include_expired=False, proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1623,10 +1753,11 @@ def get_num_names(include_expired=False, proxy=None, hostport=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['count']
+
 
 def get_num_subdomains(proxy=None, hostport=None):
     """
@@ -1638,8 +1769,54 @@ def get_num_subdomains(proxy=None, hostport=None):
     if proxy is None:
         proxy = connect_hostport(hostport)
 
-    resp = proxy.get_num_subdomains()
+    count_schema = {
+        'type': 'object',
+        'properties': {
+            'count': {
+                'type': 'integer',
+                'minimum': 0
+            },
+        },
+        'required': [
+            'count'
+        ]
+    }
+
+    schema = json_response_schema(count_schema)
+
+    try:
+        resp = proxy.get_num_subdomains()
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
+        return resp
+
     return resp['count']
+
 
 def get_all_subdomains(offset=0, count=100, proxy=None, hostport=None):
     """
@@ -1650,6 +1827,7 @@ def get_all_subdomains(offset=0, count=100, proxy=None, hostport=None):
     assert proxy or hostport, 'Need proxy or hostport'
     if proxy is None:
         proxy = connect_hostport(hostport)
+
     offset = int(offset)
     count = int(count)
 
@@ -1671,19 +1849,43 @@ def get_all_subdomains(offset=0, count=100, proxy=None, hostport=None):
 
     schema = json_response_schema(page_schema)
 
-    resp = proxy.get_all_subdomains(offset, count)
-    resp = json_validate(schema, resp)
-    if json_is_error(resp):
+    try:
+        resp = proxy.get_all_subdomains(offset, count)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+        for name in resp['names']:
+            if not is_subdomain(str(name)):
+                raise ValidationError()
+
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
-    valid_names = [ n for n in resp['names']
-                    if is_subdomain(str(n)) ]
-    valid_names = []
-    for n in resp['names']:
-        if not is_subdomain(str(n)):
-            log.error('Invalid subdomain name "{}"'.format(str(n)))
-        else:
-            valid_names.append(n)
-    return valid_names
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
+        return resp
+
+    return resp['names']
+
 
 def get_all_names(offset=None, count=None, include_expired=False, proxy=None, hostport=None):
     """
@@ -1774,7 +1976,17 @@ def get_all_namespaces(offset=None, count=None, proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1782,7 +1994,7 @@ def get_all_namespaces(offset=None, count=None, proxy=None, hostport=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     stride = len(resp['namespaces']) if count is None else offset + count
@@ -1839,7 +2051,17 @@ def get_names_in_namespace_page(namespace_id, offset, count, proxy=None, hostpor
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1847,7 +2069,7 @@ def get_names_in_namespace_page(namespace_id, offset, count, proxy=None, hostpor
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
 
@@ -1886,7 +2108,17 @@ def get_num_names_in_namespace(namespace_id, proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -1894,7 +2126,7 @@ def get_num_names_in_namespace(namespace_id, proxy=None, hostport=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['count']
@@ -1987,7 +2219,7 @@ def get_names_owned_by_address(address, proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
 
     except AssertionError as e:
@@ -1997,12 +2229,22 @@ def get_names_owned_by_address(address, proxy=None, hostport=None):
         resp = {'error': 'Got an invalid name from the server'}
         return resp
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['names']
@@ -2051,7 +2293,7 @@ def get_subdomains_owned_by_address(address, proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
 
     except AssertionError as e:
@@ -2061,12 +2303,22 @@ def get_subdomains_owned_by_address(address, proxy=None, hostport=None):
         resp = {'error': 'Server response included an invalid subdomain'}
         return resp
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['subdomains']
@@ -2107,7 +2359,7 @@ def get_name_DID(name, proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
     
     except AssertionError as e:
@@ -2117,12 +2369,22 @@ def get_name_DID(name, proxy=None, hostport=None):
         resp = {'error': 'Server replied an unparseable DID'}
         return resp
 
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['did']
@@ -2193,7 +2455,17 @@ def get_DID_record(did, proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -2201,7 +2473,7 @@ def get_DID_record(did, proxy=None, hostport=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     final_name_state = resp['record']
@@ -2256,7 +2528,17 @@ def get_consensus_at(block_height, proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -2264,7 +2546,7 @@ def get_consensus_at(block_height, proxy=None, hostport=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     if resp['consensus'] is None:
@@ -2337,7 +2619,17 @@ def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -2345,7 +2637,7 @@ def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     num_nameops = num_nameops['count']
@@ -2370,7 +2662,17 @@ def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
             if BLOCKSTACK_DEBUG:
                 log.exception(e)
 
-            resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+            resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+            return resp
+
+        except socket.timeout:
+            log.error("Connection timed out")
+            resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+            return resp
+
+        except socket.error as se:
+            log.error("Connection error {}".format(se.errno))
+            resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
             return resp
 
         except Exception as ee:
@@ -2378,7 +2680,7 @@ def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
                 log.exception(ee)
 
             log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-            resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+            resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
             return resp
 
     return all_nameops
@@ -2426,7 +2728,17 @@ def get_consensus_hashes(block_heights, hostport=None, proxy=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -2434,7 +2746,7 @@ def get_consensus_hashes(block_heights, hostport=None, proxy=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     consensus_hashes = resp['consensus_hashes']
@@ -2494,15 +2806,25 @@ def get_block_from_consensus(consensus_hash, hostport=None, proxy=None):
         if BLOCKSTACK_DEBUG:
             log.exception(ve)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
         return resp
     
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
     except Exception as ee:
         if BLOCKSTACK_DEBUG:
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['block_id']
@@ -2562,7 +2884,17 @@ def get_name_at(name, block_id, include_expired=False, hostport=None, proxy=None
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -2570,7 +2902,7 @@ def get_name_at(name, block_id, include_expired=False, hostport=None, proxy=None
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['records']
@@ -2611,7 +2943,17 @@ def get_nameops_hash_at(block_id, hostport=None, proxy=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.'}
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -2619,7 +2961,7 @@ def get_nameops_hash_at(block_id, hostport=None, proxy=None):
             log.exception(ee)
 
         log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
     return resp['ops_hash']
