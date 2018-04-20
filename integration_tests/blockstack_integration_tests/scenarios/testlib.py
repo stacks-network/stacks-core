@@ -42,6 +42,7 @@ import signal
 import atexit
 import re
 import socket
+import requests
 from decimal import Decimal
 import blockstack.blockstackd as blockstackd
 import blockstack.lib.client as blockstackd_client
@@ -1307,7 +1308,7 @@ def blockstack_get_zonefile( zonefile_hash, parse=True, config_path=None ):
     if zonefile_hash not in zonefile_result['zonefiles'].keys():
         return None
 
-    zonefile_txt = base64.b64decode( zonefile_result['zonefiles'][zonefile_hash] )
+    zonefile_txt = zonefile_result['zonefiles'][zonefile_hash]
 
     # verify
     if zonefile_hash != blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt):
@@ -1397,7 +1398,7 @@ def blockstack_REST_call( method, route, api_pass=None, data=None, raw_data=None
     Low-level call to an API route
     Returns {'http_status': http status, 'response': json}
     """
-    api_port = 16268
+    api_port = blockstack.lib.config.DEFAULT_API_PORT
 
     qs = '&'.join('{}={}'.format(urllib.quote(k), urllib.quote(v)) for (k, v) in query_fields.items())
     if len(qs) > 0:
@@ -2470,6 +2471,8 @@ def check_subdomain_db(firstblock=None, **kw):
     * verify that we can resolve each subdomain to its DID
     * verify that we can resolve each DID to its subdomain
     """
+    print '\nbegin auditing the subdomain db\n'
+
     # reindex
     blockstack_opts = blockstack.lib.config.get_blockstack_opts()
     new_opts = {}
@@ -2527,6 +2530,8 @@ def check_subdomain_db(firstblock=None, **kw):
         assert 'error' not in subrec, subrec
 
         assert subrec == subrecs[subd], 'Did not resolve {} to {}, but instead to {}'.format(did, subrecs[subd], subrec)
+
+    print '\nend auditing the subdomain db\n'
 
     return True
 
