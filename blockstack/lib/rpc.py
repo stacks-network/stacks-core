@@ -300,8 +300,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         """
         Get all names owned by an address
         Returns the list on success
-        Return 401 on unsupported blockchain
-        Return 500 on failure to get names
+        Return 400 on unsupported blockchain
+        Return 500 on failure to get names for any non-specified reason
         """
         if not check_address(address):
             return self._reply_json({'error': 'Invalid address'}, status_code=400)
@@ -502,6 +502,42 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if json_is_error(res):
             log.error("Failed to list all names (offset={}, count={}): {}".format(offset, count, res['error']))
             self._reply_json({'error': 'Failed to list all names'}, status_code=res.get('http_status', 500))
+            return
+
+        self._reply_json(res)
+        return
+
+
+    def GET_subdomains( self, path_info ):
+        """
+        Get all subdomains in existence.
+        Requires page={int}
+        Returns the list on success
+        Returns 401 on invalid arguments
+        Returns 500 on failure to get names
+        """
+        qs_values = path_info['qs_values']
+        page = qs_values.get('page', None)
+        if page is None:
+            log.error("Page required")
+            return self._reply_json({'error': 'page= argument required'}, status_code=400)
+
+        try:
+            page = int(page)
+            assert page >= 0
+        except Exception:
+            log.error("Invalid page")
+            return self._reply_json({'error': 'Invalid page= value'}, status_code=400)
+
+        offset = page * 100
+        count = 100
+
+        blockstackd_url = get_blockstackd_url()
+        res = blockstackd_client.get_all_subdomains(offset, count, hostport=blockstackd_url)
+
+        if json_is_error(res):
+            log.error("Failed to list all subdomains (offset={}, count={}): {}".format(offset, count, res['error']))
+            self._reply_json({'error': 'Failed to list all names'}, status_code=406)
             return
 
         self._reply_json(res)
@@ -1150,6 +1186,32 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    def GET_blockchain_num_subdomains( self, path_info, blockchain_name ):
+        """
+        Handle GET /blockchains/:blockchainID/subdomains_count
+        Takes `all=true` to include expired names
+        Reply with the number of names on this blockchain
+        """
+        if blockchain_name != 'bitcoin':
+            # not supported
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
+            return
+
+        blockstackd_url = get_blockstackd_url()
+        num_names = blockstackd_client.get_num_subdomains(hostport=blockstackd_url)
+        if json_is_error(num_names):
+            if json_is_exception(num_names):
+                status_code = 406
+            else:
+                status_code = 404
+
+            self._reply_json({'error': num_names['error']}, status_code=status_code)
+            return
+
+        self._reply_json({'names_count': num_names})
+        return
+
+
     def GET_blockchain_consensus( self, path_info, blockchain_name ):
         """
         Handle GET /blockchain/:blockchainID/consensus
@@ -1313,6 +1375,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_blockchain_num_names
                 },
             },
+            r'^/v1/blockchains/({}{{1,256}})/subdomains_count'.format(URLENCODING_CLASS) : {
+                'routes': {
+                    'GET': self.GET_blockchain_num_subdomains
+                },
+            },
             r'^/v1/blockchains/({}{{1,40}})/operations/([0-9]+)$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_ops
@@ -1396,6 +1463,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             r'^/v2/prices/names/({}{{1,256}})$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_prices_name,
+                },
+            },
+            r'^/v1/subdomains$': {
+                'routes': {
+                    'GET': self.GET_subdomains
                 },
             },
             r'^/v1/users/({}{{1,256}})$'.format(URLENCODING_CLASS): {
