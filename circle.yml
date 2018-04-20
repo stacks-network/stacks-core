@@ -1,36 +1,30 @@
-machine:
-  pre:
-    - sudo -H pip install --upgrade virtualenv
-    - brew update
-    - brew install openssl
-dependencies:
-  pre:
-    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/kantai/py-scrypt.git:
+version: 2
+jobs:
+  build:
+    working_directory: ~/circleci-demo-python-django
+    docker:
+      - image: circleci/python:2.7
         environment:
-          PYSCRYPT_NO_LINK_FLAGS: "1"
-          LDFLAGS: /usr/local/opt/openssl/lib/libcrypto.a /usr/local/opt/openssl/lib/libssl.a
-          CPPFLAGS: -I/usr/local/opt/openssl/include
-    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/virtualchain
-    - ../virtualenvs/venv-system/bin/pip install git+https://github.com/blockstack/jsontokens-py
-
-compile:
-  post:
-    - ../virtualenvs/venv-system/bin/pip install ./integration_tests
-test:
-  pre:
-    - blockstack setup -y --password PASSWORD
-    - blockstack api start -y --password PASSWORD
-  override:
-    - mkdir $CIRCLE_TEST_REPORTS/django
-    - ../virtualenvs/venv-system/bin/python -m blockstack_integration_tests.live_tests.api_tests --xunit-path "$CIRCLE_TEST_REPORTS/django/" --all
-  post:
-    - blockstack api stop -y
-deployment:
-  tarball_venv:
-    branch: [master, osx-single-file-build, develop]
-    commands:
-      - cp -r ../virtualenvs/venv-system ./venv-copy
-      - virtualenv --relocatable ../virtualenvs/venv-system
-      - mv ../virtualenvs/venv-system ./blockstack-venv
-      - mv ./venv-copy ../virtualenvs/venv-system
-      - tar -czvf $CIRCLE_ARTIFACTS/blockstack-venv.tar.gz blockstack-venv
+          PIPENV_VENV_IN_PROJECT: true
+    steps:
+      - checkout
+      - run: sudo chown -R circleci:circleci /usr/local/bin
+      - run: sudo chown -R circleci:circleci /usr/local/lib/python2.7/site-packages
+      - restore_cache:
+          key: deps9-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+      - run:
+          command: |
+            python2 -m venv venv
+            . venv/bin/activate
+            pip install . --upgrade
+      - save_cache:
+          key: deps9-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+          paths:
+            - "venv"
+      - run:
+          command: |
+            . venv/bin/activate
+            blockstack setup -y --password PASSWORD
+            blockstack api start -y --password PASSWORD
+            python -m blockstack_integration_tests.live_tests.api_tests
+            blockstack api stop -y
