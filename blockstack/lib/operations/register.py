@@ -318,6 +318,11 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         log.warning("No recipient script given")
         return False
 
+    # name must be well-formed
+    if not is_name_valid( name ):
+        log.warning("Malformed name '%s'" % name)
+        return False
+
     epoch_features = get_epoch_features(block_id)
 
     name_fee = None
@@ -558,6 +563,11 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     recipient = nameop.get('recipient', None)
     if recipient is None:
         log.warning("No recipient given")
+        return False
+
+    # name must be well-formed
+    if not is_name_valid( name ):
+        log.warning("Malformed name '%s'" % name)
         return False
 
     # pre F-day 2017, on renewal, the sender and recipient must be the same 
