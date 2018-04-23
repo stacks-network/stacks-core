@@ -177,6 +177,8 @@ CREATE TABLE accounts( address TEXT NOT NULL,
 
                        lock_transfer_block_id INTEGER NOT NULL,     -- point in time where it becomes possible for this account to send tokens
 
+                       metadata TEXT,   -- user-programmable field (e.g. stores hash of legal contract that owns the address)
+
                        -- where in the blockchain this occurred
                        -- NOTE: account operations may be inserted as a result of processing another operation (like buying a name).
                        -- if so, then this information will point to the history snapshot of that operation.
@@ -238,18 +240,18 @@ def namedb_create_token_genesis(con, initial_account_balances):
                 block_height: value
             },
             'lock_send': ... (optional; block height)
-            'name': ... (optional)
+            'metadata': ... (optional)
         },
         {...}
     ]
     """
     namedb_query_execute(con, "BEGIN", ())
     for account_info in initial_account_balances:
-        name = None
+        metadata = None
         address = virtualchain.address_reencode(account_info['address'])
-        if 'name' in account_info and account_info['name'] is not None:
-            name = account_info['name']
-            log.debug('Grant {} to {} ({})'.format(account_info['value'], address, name))
+        if 'metadata' in account_info and account_info['metadata'] is not None:
+            metadata = account_info['metadata']
+            log.debug('Grant {} to {} (metadata: {})'.format(account_info['value'], address, metadata))
 
         else:
             log.debug('Grant {} to {}'.format(account_info['value'], address))
@@ -257,12 +259,12 @@ def namedb_create_token_genesis(con, initial_account_balances):
         lock_send = account_info.get('lock_send', 0)
 
         # set up initial account balances
-        sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?);'
+        sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?);'
 
         fake_txid_preimage = '{} genesis'.format(address)
         fake_txid = virtualchain.lib.hashing.bin_double_sha256(fake_txid_preimage).encode('hex')
 
-        args = (address, account_info['type'], '{}'.format(account_info['value']), '0', lock_send, FIRST_BLOCK_MAINNET, fake_txid, 0)
+        args = (address, account_info['type'], '{}'.format(account_info['value']), '0', lock_send, metadata, FIRST_BLOCK_MAINNET, fake_txid, 0)
         namedb_query_execute(con, sql, args)
 
         # set up vesting period
@@ -1342,6 +1344,7 @@ def namedb_account_transaction_save(cur, address, token_type, new_credit_value, 
         'credit_value': '{}'.format(new_credit_value),
         'debit_value': '{}'.format(new_debit_value),
         'lock_transfer_block_id': existing_account.get('lock_transfer_block_id', 0),        # unlocks immediately if the account doesn't exist
+        'metadata': existing_account.get('metadata', None),
         'block_id': block_id,
         'txid': txid,
         'vtxindex': vtxindex
