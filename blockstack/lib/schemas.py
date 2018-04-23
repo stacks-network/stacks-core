@@ -38,7 +38,7 @@ OP_NAME_CLASS = r'[{}]{{{},{}}}\.{}'.format(OP_NAME_CHARS_NOPERIOD, 1, LENGTHS['
 OP_NAMESPACE_PATTERN = r'^({})$'.format(OP_NAMESPACE_CLASS)
 OP_NAMESPACE_ID_HASH_PATTERN = r'^([0-9a-fA-F]{40})$'
 OP_NAME_PATTERN = r'^({})$'.format(OP_NAME_CLASS)
-OP_SUBDOMAIN_NAME_PATTERN = r'^([{}]+){{1,{}}}\.({})$'.format(OP_NAME_CHARS_NOPERIOD, LENGTHS['fqn_max'], OP_NAME_CLASS)
+OP_SUBDOMAIN_NAME_PATTERN = r'^([{}]+){{1,{}}}\.({})$'.format(OP_NAME_CHARS_NOPERIOD, LENGTHS['fqn_max'], OP_NAME_CLASS)    # FIXME: this encodes arbitrary length subdomains
 OP_NAME_OR_SUBDOMAIN_FRAGMENT = r'({})|({})'.format(OP_NAME_PATTERN, OP_SUBDOMAIN_NAME_PATTERN)
 OP_NAME_OR_SUBDOMAIN_PATTERN = r'^{}$'.format(OP_NAME_OR_SUBDOMAIN_FRAGMENT)
 OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
