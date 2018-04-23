@@ -22,6 +22,7 @@
 """
 
 import virtualchain
+import keylib
 log = virtualchain.get_logger("blockstack-server")
 import re
 
@@ -34,7 +35,43 @@ def is_name_valid(fqn):
     Is a fully-qualified name acceptable?
     Return True if so
     Return False if not
+
+    >>> is_name_valid('abcd')
+    False
+    >>> is_name_valid('abcd.')
+    False
+    >>> is_name_valid('.abcd')
+    False
+    >>> is_name_valid('Abcd.abcd')
+    False
+    >>> is_name_valid('abcd.abc.d')
+    False
+    >>> is_name_valid('abcd.abc+d')
+    False
+    >>> is_name_valid('a.b.c')
+    False
+    >>> is_name_valid(True)
+    False
+    >>> is_name_valid(123)
+    False
+    >>> is_name_valid(None)
+    False
+    >>> is_name_valid('')
+    False
+    >>> is_name_valid('abcdabcdabcdabcdabcdabcdabcdabcda.bcd')
+    True
+    >>> is_name_valid('abcdabcdabcdabcdabcdabcdabcdabcdab.bcd')
+    False
+    >>> is_name_valid('abcdabcdabcdabcdabcdabcdabcdabcdabc.d')
+    True
+    >>> is_name_valid('a+b.c')
+    False
+    >>> is_name_valid('a_b.c')
+    True
     """
+
+    if not isinstance(fqn, (str,unicode)):
+        return False
 
     if fqn.count( "." ) != 1:
         return False
@@ -60,6 +97,19 @@ def is_name_valid(fqn):
 def is_namespace_valid( namespace_id ):
     """
     Is a namespace ID valid?
+
+    >>> is_namespace_valid('abcd')
+    True
+    >>> is_namespace_valid('+abcd')
+    False
+    >>> is_namespace_valid('abc.def')
+    False
+    >>> is_namespace_valid('.abcd')
+    False
+    >>> is_namespace_valid('abcdabcdabcdabcdabcd')
+    False
+    >>> is_namespace_valid('abcdabcdabcdabcdabc')
+    True
     """
     if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
         return False
@@ -76,7 +126,15 @@ def get_namespace_from_name( name ):
     It's the sequence of characters after the last "." in the name.
     If there is no "." in the name, then it belongs to the null
     namespace (i.e. the empty string will be returned)
+
+    >>> get_namespace_from_name('abcd.efgh')
+    'efgh'
+    >>> get_namespace_from_name('abc')
+    ''
+    >>> get_namespace_from_name('a.b.c')
+    'c'
     """
+
     if "." not in name:
         # empty namespace
         return ""
@@ -90,12 +148,18 @@ def get_name_from_fq_name( name ):
     It's the sequence of characters before the last "." in the name.
  
     Return None if malformed
+
+    >>> get_name_from_fq_name('abc.def')
+    'abc'
+    >>> get_name_from_fq_name('abc.def.ghi')
+    'abc.def'
+    >>> get_name_from_fq_name('abc')
     """
     if "." not in name:
         # malformed
         return None
  
-    return name.split(".")[0]
+    return ".".join(name.split(".")[:-1])
 
 
 def is_address_subdomain(fqa):
@@ -104,6 +168,23 @@ def is_address_subdomain(fqa):
     @fqa must be a string
     If it isn't, returns False, None, None.
     If it is, returns True and a tuple (subdomain_name, domain)
+
+    >>> is_address_subdomain('abc')
+    (False, None, None)
+    >>> is_address_subdomain('abc.def')
+    (False, None, None)
+    >>> is_address_subdomain('abc.def.ghi')
+    (True, 'abc', 'def.ghi')
+    >>> is_address_subdomain('abc.def.ghi.jkl')
+    (False, None, None)
+    >>> is_address_subdomain('Abc.def.ghi')
+    (False, None, None)
+    >>> is_address_subdomain('abc.Def.ghi')
+    (False, None, None)
+    >>> is_address_subdomain('abc.def.g+hi')
+    (False, None, None)
+    >>> is_address_subdomain('..')
+    (False, None, None)
     """
     # do these checks early to avoid pathological names that make re.match take forever
     if fqa.count(".") != 2:
@@ -114,6 +195,9 @@ def is_address_subdomain(fqa):
         return False, None, None
 
     subdomain_name, domain = grp.groups()
+    if not is_name_valid(domain):
+        return False, None, None
+
     return True, subdomain_name, domain
 
 
@@ -192,6 +276,15 @@ def find_by_opcode( checked_ops, opcode ):
     find the ones that are of a particular opcode.
 
     @opcode can be one opcode, or a list of opcodes
+    
+    >>> find_by_opcode([{'op': '+'}, {'op': '>'}], 'NAME_UPDATE')
+    [{'op': '+'}]
+    >>> find_by_opcode([{'op': '+'}, {'op': '>'}], ['NAME_UPDATE', 'NAME_TRANSFER'])
+    [{'op': '+'}, {'op': '>'}]
+    >>> find_by_opcode([{'op': '+'}, {'op': '>'}], ':')
+    []
+    >>> find_by_opcode([], ':')
+    []
     """
 
     if type(opcode) != list:
@@ -244,6 +337,29 @@ def get_public_key_hex_from_tx( inputs, address ):
 def check_name(name):
     """
     Verify the name is well-formed
+
+    >>> check_name(123)
+    False
+    >>> check_name('')
+    False
+    >>> check_name('abc')
+    False
+    >>> check_name('abc.def')
+    True
+    >>> check_name('abc.def.ghi')
+    False
+    >>> check_name('abc.d-ef')
+    True
+    >>> check_name('abc.d+ef')
+    False
+    >>> check_name('.abc')
+    False
+    >>> check_name('abc.')
+    False
+    >>> check_name('abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd.abcd')
+    False
+    >>> check_name('abcdabcdabcdabcdabcdabcdabcdabcdabc.d')
+    True
     """
     if type(name) not in [str, unicode]:
         return False
@@ -257,6 +373,25 @@ def check_name(name):
 def check_namespace(namespace_id):
     """
     Verify that a namespace ID is well-formed
+
+    >>> check_namespace(123)
+    False
+    >>> check_namespace(None)
+    False
+    >>> check_namespace('')
+    False
+    >>> check_namespace('abcd')
+    True
+    >>> check_namespace('Abcd')
+    False
+    >>> check_namespace('a+bcd')
+    False
+    >>> check_namespace('.abcd')
+    False
+    >>> check_namespace('abcdabcdabcdabcdabcd')
+    False
+    >>> check_namespace('abcdabcdabcdabcdabc')
+    True
     """
     if type(namespace_id) not in [str, unicode]:
         return False
@@ -270,6 +405,15 @@ def check_namespace(namespace_id):
 def check_token_type(token_type):
     """
     Verify that a token type is well-formed
+
+    >>> check_token_type('STACKS')
+    True
+    >>> check_token_type('BTC')
+    False
+    >>> check_token_type('abcdabcdabcd')
+    True
+    >>> check_token_type('abcdabcdabcdabcdabcd')
+    False
     """
     return check_string(token_type, min_length=1, max_length=LENGTHS['namespace_id'], pattern='^{}$|{}'.format(TOKEN_TYPE_STACKS, OP_NAMESPACE_PATTERN))
 
@@ -277,6 +421,23 @@ def check_token_type(token_type):
 def check_subdomain(fqn):
     """
     Verify that the given fqn is a subdomain
+
+    >>> check_subdomain('a.b.c')
+    True
+    >>> check_subdomain(123)
+    False
+    >>> check_subdomain('a.b.c.d')
+    False
+    >>> check_subdomain('A.b.c')
+    False
+    >>> check_subdomain('abcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcdabcd.a.b')
+    True
+    >>> check_subdomain('a.abcdabcdabcdabcdabcdabcdabcdabcdabcdabcd.a')
+    False
+    >>> check_subdomain('a.b.cdabcdabcdabcdabcdabcdabcdabcdabcd')
+    False
+    >>> check_subdomain('a.b')
+    False
     """
     if type(fqn) not in [str, unicode]:
         return False
@@ -290,6 +451,19 @@ def check_subdomain(fqn):
 def check_block(block_id):
     """
     Verify that a block ID is valid
+
+    >>> check_block(FIRST_BLOCK_MAINNET)
+    True
+    >>> check_block(FIRST_BLOCK_MAINNET-1)
+    False
+    >>> check_block(-1)
+    False
+    >>> check_block("abc")
+    False
+    >>> check_block(int(1e7) + 1)
+    False
+    >>> check_block(int(1e7) - 1)
+    True
     """
     if type(block_id) not in [int, long]:
         return False
@@ -312,6 +486,19 @@ def check_block(block_id):
 def check_offset(offset, max_value=None):
     """
     Verify that an offset is valid
+
+    >>> check_offset(0)
+    True
+    >>> check_offset(-1)
+    False
+    >>> check_offset(2, max_value=2)
+    True
+    >>> check_offset(0)
+    True
+    >>> check_offset(2, max_value=1)
+    False
+    >>> check_offset('abc')
+    False
     """
     if type(offset) not in [int, long]:
         return False
@@ -328,6 +515,27 @@ def check_offset(offset, max_value=None):
 def check_count(count, max_value=None):
     """
     verify that a count is valid
+    
+    >>> check_count(None)
+    False
+    >>> check_count('abc')
+    False
+    >>> check_count({})
+    False
+    >>> check_count([])
+    False
+    >>> check_count(True)
+    False
+    >>> check_count(0)
+    True
+    >>> check_count(-1)
+    False
+    >>> check_count(1)
+    True
+    >>> check_count(2, max_value=2)
+    True
+    >>> check_count(2, max_value=1)
+    False
     """
     if type(count) not in [int, long]:
         return False
@@ -345,6 +553,37 @@ def check_string(value, min_length=None, max_length=None, pattern=None):
     """
     verify that a string has a particular size and conforms
     to a particular alphabet
+
+    >>> check_string(1)
+    False
+    >>> check_string(None)
+    False
+    >>> check_string(True)
+    False
+    >>> check_string({})
+    False
+    >>> check_string([])
+    False
+    >>> check_string((1,2))
+    False
+    >>> check_string('abc')
+    True
+    >>> check_string('')
+    True
+    >>> check_string(u'')
+    True
+    >>> check_string('abc', min_length=0, max_length=3)
+    True
+    >>> check_string('abc', min_length=3, max_length=3)
+    True
+    >>> check_string('abc', min_length=4, max_length=5)
+    False
+    >>> check_string('abc', min_length=0, max_length=2)
+    False
+    >>> check_string('abc', pattern='^abc$')
+    True
+    >>> check_string('abc', pattern='^abd$')
+    False
     """
     if type(value) not in [str, unicode]:
         return False
@@ -364,13 +603,37 @@ def check_string(value, min_length=None, max_length=None, pattern=None):
 def check_address(address):
     """
     verify that a string is an address
+
+    >>> check_address('16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg')
+    True
+    >>> check_address('16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJh')
+    False
+    >>> check_address('mkkJsS22dnDJhD8duFkpGnHNr9uz3JEcWu')
+    True
+    >>> check_address('mkkJsS22dnDJhD8duFkpGnHNr9uz3JEcWv')
+    False
+    >>> check_address('MD8WooqTKmwromdMQfSNh8gPTPCSf8KaZj')
+    True
+    >>> check_address('SSXMcDiCZ7yFSQSUj7mWzmDcdwYhq97p2i')
+    True
+    >>> check_address('SSXMcDiCZ7yFSQSUj7mWzmDcdwYhq97p2j')
+    False
+    >>> check_address('16SuThrz')
+    False
+    >>> check_address('1TGKrgtrQjgoPjoa5BnUZ9Qu')
+    False
+    >>> check_address('1LPckRbeTfLjzrfTfnCtP7z2GxFTpZLafXi')
+    True
     """
     if not check_string(address, min_length=26, max_length=35, pattern=OP_ADDRESS_PATTERN):
         return False
 
     try:
-        virtualchain.address_reencode(address)
+        keylib.b58check_decode(address)
         return True
     except:
         return False
 
+if __name__ == '__main__':
+    import doctest
+    doctest.testmod()
