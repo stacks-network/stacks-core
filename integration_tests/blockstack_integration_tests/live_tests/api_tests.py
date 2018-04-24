@@ -158,14 +158,14 @@ class LookupUsersTest(APITestCase):
         check_data(self, data, to_check)
 
         url = base_url.format('muneeb')
-        data = self.get_request(url, headers = {}, status_code=500)
+        data = self.get_request(url, headers = {}, status_code=400)
 
     def test_get_all_names(self):
         data = self.get_request("/v1/names?page=0",
                                 headers = {} , status_code=200)
         self.assertEqual(len(data), 100, "Paginated name length != 100")
         data = self.get_request("/v1/names",
-                                headers = {} , status_code=401)
+                                headers = {} , status_code=400)
         data = self.get_request("/v1/names?page=10000",
                                 headers = {} , status_code=200)
 
@@ -174,7 +174,7 @@ class LookupUsersTest(APITestCase):
                                 headers = {} , status_code=200)
         self.assertEqual(len(data), 100, "Paginated name length != 100")
         data = self.get_request("/v1/subdomains",
-                                headers = {} , status_code=401)
+                                headers = {} , status_code=400)
         data = self.get_request("/v1/subdomains?page=10000",
                                 headers = {} , status_code=200)
         data = self.get_request("/v1/blockchains/bitcoin/subdomains_count",
@@ -260,7 +260,7 @@ class NamespaceTest(APITestCase):
                                 headers = {} , status_code=200)
         self.assertEqual(len(data), 100, "Paginated name length != 100")
         data = self.get_request("/v1/namespaces/id/names",
-                                headers = {} , status_code=401)
+                                headers = {} , status_code=400)
 
 
 
@@ -271,10 +271,6 @@ class Prices(APITestCase):
                                 headers = {} , status_code=200)
         json_keys = data.keys()
         self.assertIn('name_price', json_keys)
-        self.assertIn('preorder_tx_fee', json_keys)
-        self.assertIn('register_tx_fee', json_keys)
-        self.assertIn('total_estimated_cost', json_keys)
-        self.assertIn('total_tx_fees', json_keys)
 
     def test_ns_price(self):
         data = self.get_request("/v1/prices/namespaces/id",
@@ -290,10 +286,7 @@ class BlockChains(APITestCase):
         """ this is currently an unimplemented endpoint """
         data = self.get_request("/v1/blockchains/bitcoin/names/muneeb.id/history",
                                 headers = {} , status_code=405)
-    def test_names_pending(self):
-        data = self.get_request("/v1/blockchains/bitcoin/pending",
-                                headers = {} , status_code=200)
-        self.assertIn("queues", data)
+    
     def test_operations(self):
         data = self.get_request("/v1/blockchains/bitcoin/operations/456383",
                                 headers = {} , status_code=200)
