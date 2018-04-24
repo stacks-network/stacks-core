@@ -28,7 +28,6 @@ import binascii
 import traceback
 import jsontokens
 
-from test import test_support
 from binascii import hexlify
 
 from blockstack_client import schemas
@@ -318,27 +317,7 @@ def test_main(args = []):
     for t in test_classes:
         test_map[t.__name__] = t
 
-
-    with test_support.captured_stdout() as out:
-        try:
-            test_support.run_unittest(PingTest)
-        except Exception as e:
-            traceback.print_exc(file=sys.stdout)
-    out = out.getvalue()
-    if out[-3:-1] != "OK":
-        print(out)
-        print("Failure of the ping test means the rest of the unit tests will " +
-              "fail. Is the blockstack api daemon running? (did you run " +
-              "`blockstack api start`)")
-        sys.exit(1)
-
-    if len(args) == 1 and args[0] == "--list":
-        print("Tests supported: ")
-        for testname in test_map.keys():
-            print(testname)
-        return
-
-    test_runner = test_support.run_unittest
+    test_runner = unittest.TextTestRunner(verbosity=2).run
 
     if "--xunit-path" in args:
         ainx = args.index("--xunit-path")
@@ -346,6 +325,12 @@ def test_main(args = []):
         from xmlrunner import XMLTestRunner
         test_runner = XMLTestRunner(output=args[ainx]).run
         del args[ainx]
+
+    if len(args) == 1 and args[0] == "--list":
+        print("Tests supported: ")
+        for testname in test_map.keys():
+            print(testname)
+        return
 
     if "--api_password" in args:
         ainx = args.index("--api_password")
