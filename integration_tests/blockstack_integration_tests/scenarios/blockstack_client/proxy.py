@@ -413,16 +413,6 @@ def get_name_blockchain_history(name, start_block, end_block, proxy=None):
     return blockstackd_client.get_name_blockchain_history(name, start_block, end_block, proxy=proxy)
 
 
-def get_account_balance(address, token_type, proxy=None):
-    """
-    Get the account balance
-    Returns {'amount': ..., 'units': ...}
-    """
-    proxy = get_default_proxy() if proxy is None else proxy
-    return blockstackd_client.get_account_balance(address, token_type, proxy=proxy)
-
-
-# DEPRECATED
 def get_zonefiles_by_block(from_block, to_block, proxy=None):
     """
     Get zonefile information for zonefiles announced in [@from_block, @to_block]
