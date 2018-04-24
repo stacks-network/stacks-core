@@ -59,7 +59,6 @@ from ..proxy import (
     get_num_names_in_namespace,
     getinfo,
     is_name_owner,
-    get_account_balance
 )
 
 from ..config import get_utxo_provider_client
@@ -822,23 +821,6 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
         return {'status': balance, 'balance': balance}
 
 
-    def _get_token_balance(address, token_type):
-        """
-        Get the owner/payment address balance in tokens (scatter/gather worker)
-        """
-        token_type = 'STACKS'
-        try:
-            res = get_account_balance(address, token_type, proxy=proxy)
-            if json_is_error(res):
-                return {'error': 'Failed to get {} balance for {}'.format(token_type, owner_address)}
-
-            return {'status': res, 'token_type': token_type, 'token_balance': res}
-
-        except Exception as e:
-            log.exception(e)
-            return {'error': 'Failed to query account balance for {}'.format(owner_address)}
-
-
     def _estimate_preorder_tx( operation_index ):
         """
         Estimate preorder tx cost
@@ -1260,16 +1242,6 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
 
     sg.add_task('get_balance', _get_balance)
 
-    # are we getting the owner or payment address's balance?
-    token_address = None
-    if 'renewal' in operations:
-        token_address = owner_address
-    else:
-        token_address = payment_address
-    
-    # TODO: support other tokens too
-    sg.add_task('get_token_balance', lambda: _get_token_balance(token_address, 'STACKS'))
-
     # queue each operation
     for i in xrange(0, len(operations)):
         op = operations[i]
@@ -1288,7 +1260,7 @@ def get_operation_fees(name_or_ns, operations, scatter_gather, payment_privkey_i
     return {'status': True}
 
 
-def interpret_operation_fees( operations, scatter_gather, balance=None, token_balance=None, token_type=None ):
+def interpret_operation_fees( operations, scatter_gather, balance=None ):
     """
     Interpret the result of getting the tx fees required for
     a sequence of operations.  Coalesce them into a grand total,
@@ -1307,9 +1279,7 @@ def interpret_operation_fees( operations, scatter_gather, balance=None, token_ba
         * name_import_tx_fee
         * name_price
         * namespace_price
-        * namespace_price_tokens
         * total_estimated_cost
-        * total_estimated_cost_token
         * warnings
     Return {'error': ...} if an operation failed
     """
@@ -1317,8 +1287,6 @@ def interpret_operation_fees( operations, scatter_gather, balance=None, token_ba
     insufficient_funds = False
     estimate = False
     total_cost = 0
-    token_cost = 0
-    token_type = None
     total_tx_fees = 0
     reply = {}
 
@@ -1334,17 +1302,6 @@ def interpret_operation_fees( operations, scatter_gather, balance=None, token_ba
         else:
             balance = results['get_balance']['balance']
             log.debug("Balance is {} satoshis".format(balance))
-
-    if token_balance is None:
-        # extract from running operation sanity checks
-        assert 'get_token_balance' in results
-        token_balance = 0
-        if 'error' in results['get_token_balance'].keys():
-            log.error("Failed to get token balance")
-
-        else:
-            token_balance = results['get_token_balance']['token_balance']
-            token_type = results['get_token_balance']['token_type']
 
     failed_tasks = []
     failed_task_errors = []
@@ -1386,10 +1343,7 @@ def interpret_operation_fees( operations, scatter_gather, balance=None, token_ba
                 reply['name_price'] = int(task_res['name_cost'])
 
             else:
-                token_type = name_cost_units
-                token_cost = int(task_res['name_cost'])
-                reply['name_price_tokens'] = {'units': name_cost_units, 'amount': token_cost}
-                reply['name_price'] = 0
+                raise Exception("Only support BTC-denominated prices")
 
         if 'namespace_cost' in task_res.keys():
             assert 'namespace_cost_units' in task_res.keys()
@@ -1401,10 +1355,7 @@ def interpret_operation_fees( operations, scatter_gather, balance=None, token_ba
                 total_cost += int(task_res['namespace_cost'])
                 reply['namespace_price'] = int(task_res['namespace_cost'])
             else:
-                token_type = namespace_cost_units
-                token_cost = int(task_res['namespace_cost'])
-                reply['namespace_price_tokens'] = {'units': namespace_cost_units, 'amount': token_cost}
-                reply['namespace_price'] = 0
+                raise Exception("Only support BTC-denominated prices")
 
 
     log.debug('Total cost of {} is {} satoshis'.format(','.join(operations), total_cost))
@@ -1412,16 +1363,6 @@ def interpret_operation_fees( operations, scatter_gather, balance=None, token_ba
     reply['total_tx_fees'] = total_tx_fees
     reply['total_estimated_cost'] = total_cost
     warnings = []
-
-    if token_type is not None:
-        log.debug('Total cost in units of {} is {}'.format(token_type, token_cost))
-        reply['total_token_fees'] = {'units': token_type, 'amount': token_cost}
-        reply['total_estimated_cost_token'] = {'token_balance': token_cost, 'token_type': token_type}
-
-        if token_cost > token_balance:
-            warnings.append("Insufficient funds: need {} {}, have {} {}".format(token_cost, token_type, token_balance, token_type))
-            log.debug(warnings[-1])
-            insufficient_funds = True
 
     if total_cost > balance:
         warnings.append("Insufficient funds: need {}, have {}".format(total_cost, balance))
@@ -1486,7 +1427,7 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
 
     failed_checks = []
     failed_check_errors = {}
-    for res_name in required_checks + ['get_balance', 'get_token_balance']:
+    for res_name in required_checks + ['get_balance']:
         if 'error' in sg.get_result(res_name):
             log.debug("Task '{}' reports error: {}".format(res_name, sg.get_result(res_name)['error']))
             failed_checks.append(res_name)
@@ -1511,15 +1452,6 @@ def check_operations( fqu_or_ns, operations, owner_privkey_info, payment_privkey
         msg = 'Address {} does not have enough balance (need {}, have {}).'
         msg = msg.format(payment_address, opchecks['total_estimated_cost'], balance)
         return {'error': msg, 'opchecks': opchecks, 'tx_fee_per_byte': tx_fee_per_byte}
-
-    if opchecks.has_key('total_estimated_cost_token'):
-        token_balance = sg.get_result('get_token_balance')['token_balance']
-        token_type = sg.get_result('get_token_balance')['token_type']
-
-        assert opchecks['total_estimated_cost_token']['token_type'] == token_type, 'BUG: queried the wrong token type (expected {}, got {})'.format(opchecks['total_estimated_cost_token']['token_type'], token_type)
-
-        if token_balance < opchecks['total_estimated_cost_token']['token_balance']:
-            return {'error': 'Address {} does not have enough balance for {} (need {}, have {})'.format(token_type, token_balance, opchecks['total_estimated_cost_token']['token_balance'])}
 
     # checks pass!
     return {'status': True, 'opchecks': opchecks, 'tx_fee_per_byte': tx_fee_per_byte}
@@ -1563,6 +1495,7 @@ def check_preorder(fqu, cost_token_type, cost_tokens, owner_privkey_info, paymen
     # find tx fee, and do sanity checks
     assert owner_privkey_info
     assert payment_privkey_info
+    assert cost_token_type == 'BTC', 'Only support BTC costs'
 
     required_checks = ['is_name_available', 'is_payment_address_usable', 'is_burn_address_correct']
 
@@ -1580,19 +1513,10 @@ def check_preorder(fqu, cost_token_type, cost_tokens, owner_privkey_info, paymen
     if 'error' in res:
         return {'error': res['error'], 'opchecks': res.get('opchecks', None), 'tx_fee': res.get('opchecks', {}).get('total_tx_fees', None), 'tx_fee_per_byte': tx_fee_per_byte}
 
-    if cost_token_type == 'BTC':
-        # price/cost are in BTC satoshis
-        if opchecks['name_price'] > cost_tokens:
-            return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], cost_tokens), 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
+    # price/cost are in BTC satoshis
+    if opchecks['name_price'] > cost_tokens:
+        return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], cost_tokens), 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
     
-    else:
-        # price/cost are in some other token
-        if opchecks['name_price_tokens']['units'] != cost_token_type:
-            return {'error': 'Invalid cost: expected {} units, got {} units'.format(opchecks['name_price_tokens']['units'], cost_token_type), 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
-
-        if opchecks['name_price_tokens']['amount'] > cost_tokens:
-            return {'error': 'Invalid cost: expected {} tokens, got {} tokens'.format(opchecks['name_price_tokens'], cost_tokens), 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
-
     return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
 
@@ -1635,6 +1559,7 @@ def check_renewal(fqu, cost_token_type, cost_tokens, owner_privkey_info, payment
     # find tx fee, and do sanity checks
     assert owner_privkey_info
     assert payment_privkey_info
+    assert cost_token_type == 'BTC', 'Only support BTC-denominated prices'
     
     if new_owner_address is None:
         new_owner_address = virtualchain.get_privkey_address(owner_privkey_info)
@@ -1656,18 +1581,9 @@ def check_renewal(fqu, cost_token_type, cost_tokens, owner_privkey_info, payment
     if 'error' in res:
         return {'error': res['error'], 'opchecks': res.get('opchecks', None), 'tx_fee': res.get('opchecks', {}).get('total_tx_fees', None), 'tx_fee_per_byte': tx_fee_per_byte}
 
-    if cost_token_type == 'BTC':
-        # price/cost are in BTC satoshis
-        if opchecks['name_price'] > cost_tokens:
-            return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], cost_tokens), 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
-    
-    else:
-        # price/cost are in some other token
-        if opchecks['name_price_tokens']['units'] != cost_token_type:
-            return {'error': 'Invalid cost: expected {} units, got {} units'.format(opchecks['name_price_tokens']['units'], cost_token_type), 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
-
-        if opchecks['name_price_tokens']['amount'] > cost_tokens:
-            return {'error': 'Invalid cost: expected {} tokens, got {} tokens'.format(opchecks['name_price_tokens'], cost_tokens), 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
+    # price/cost are in BTC satoshis
+    if opchecks['name_price'] > cost_tokens:
+        return {'error': 'Invalid cost: expected {}, got {}'.format(opchecks['name_price'], cost_tokens), 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
     return {'status': True, 'tx_fee': tx_fee, 'tx_fee_per_byte': tx_fee_per_byte, 'opchecks': opchecks}
 
