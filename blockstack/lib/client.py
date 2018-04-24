@@ -205,15 +205,9 @@ def json_is_exception(resp):
     return True
 
 
-def json_validate(schema, resp):
+def json_validate_error(resp):
     """
-    Validate an RPC response.
-    The response must either take the
-    form of the given schema, or it must
-    take the form of {'error': ...}
-
-    Returns the resp on success
-    Returns {'error': ...} on validation error
+    See if this is a well-formed error
     """
     error_schema = {
         'type': 'object',
@@ -231,9 +225,23 @@ def json_validate(schema, resp):
         ]
     }
 
+    jsonschema.validate(resp, error_schema)
+    return True
+
+
+def json_validate(schema, resp):
+    """
+    Validate an RPC response.
+    The response must either take the
+    form of the given schema, or it must
+    take the form of {'error': ...}
+
+    Returns the resp on success
+    Returns {'error': ...} on validation error
+    """
     # is this an error?
     try:
-        jsonschema.validate(resp, error_schema)
+        json_validate_error(resp)
     except ValidationError:
         if 'error' in resp and 'http_status' not in resp:
             # bad error message
