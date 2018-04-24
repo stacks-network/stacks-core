@@ -25,7 +25,7 @@ from ..config import *
 from ..hashing import *
 from ..scripts import *
 from ..nameset import *
-import traceback
+
 from binascii import hexlify, unhexlify 
 
 import json
@@ -61,7 +61,7 @@ FIELDS = [
 
 # fields this operation changes
 # everything but the block number
-MUTATE_FIELDS = filter( lambda f: f not in ["block_number"], FIELDS ) + ['token_fee']
+MUTATE_FIELDS = filter( lambda f: f not in ["block_number"], FIELDS )
 
 def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount ):
    """
@@ -76,7 +76,7 @@ def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, 
    if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
       raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
     
-   if version not in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR, NAMESPACE_VERSION_PAY_WITH_STACKS]:
+   if version not in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]:
       raise Exception("Invalid namespace version bits {:x}".format(version))
 
    if lifetime < 0 or lifetime > (2**32 - 1):
@@ -127,133 +127,77 @@ def check( state_engine, nameop, block_id, checked_ops ):
     namespace_preorder = None
 
     if not nameop.has_key('sender_pubkey'):
-       log.warning("Namespace reveal requires a sender_pubkey (i.e. a p2pkh transaction)")
+       log.debug("Namespace reveal requires a sender_pubkey (i.e. a p2pkh transaction)")
        return False
 
     if not nameop.has_key('recipient'):
-       log.warning("No recipient script for namespace '%s'" % namespace_id)
+       log.debug("No recipient script for namespace '%s'" % namespace_id)
        return False
 
     if not nameop.has_key('recipient_address'):
-       log.warning("No recipient address for namespace '%s'" % namespace_id)
+       log.debug("No recipient address for namespace '%s'" % namespace_id)
        return False
 
     # well-formed?
     if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
-       log.warning("Malformed namespace ID '%s': non-base-38 characters")
+       log.debug("Malformed namespace ID '%s': non-base-38 characters")
        return False
 
     # can't be revealed already
     if state_engine.is_namespace_revealed( namespace_id ):
        # this namespace was already revealed
-       log.warning("Namespace '%s' is already revealed" % namespace_id )
+       log.debug("Namespace '%s' is already revealed" % namespace_id )
        return False
 
     # can't be ready already
     if state_engine.is_namespace_ready( namespace_id ):
        # this namespace already exists (i.e. was already begun)
-       log.warning("Namespace '%s' is already registered" % namespace_id )
+       log.debug("Namespace '%s' is already registered" % namespace_id )
        return False
 
     # must currently be preordered
     namespace_preorder = state_engine.get_namespace_preorder( namespace_id_hash )
     if namespace_preorder is None:
        # not preordered
-       log.warning("Namespace '%s' is not preordered (no preorder %s)" % (namespace_id, namespace_id_hash) )
+       log.debug("Namespace '%s' is not preordered (no preorder %s)" % (namespace_id, namespace_id_hash) )
        return False
 
     # must be sent by the same principal who preordered it
     if namespace_preorder['sender'] != sender:
        # not sent by the preorderer
-       log.warning("Namespace '%s' is not preordered by '%s'" % (namespace_id, sender))
+       log.debug("Namespace '%s' is not preordered by '%s'" % (namespace_id, sender))
        return False
 
     # must be a version we support
     # pre F-day 2017: only support names that send payment to the burn address
     # post F-day 2017: support both pay-to-burn and pay-to-creator
-    # 2018 phase 1: support paying for names with STACKs tokens
     namespace_version_bits = int(nameop['version'])
-    if namespace_version_bits == NAMESPACE_VERSION_PAY_TO_CREATOR:
-        # need to be in post F-day 2017 or later
-        if EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR not in epoch_features:
-            log.warning("pay-to-creator is not supported in this epoch")
-            return False
-
-    elif namespace_version_bits == NAMESPACE_VERSION_PAY_WITH_STACKS:
-        # need to be in 2018 phase 1 or later
-        if EPOCH_FEATURE_NAMESPACE_PAY_WITH_STACKS not in epoch_features:
-            log.warning("pay-with-STACKs-tokens is not supported in this epoch")
-            return False
-
-    elif namespace_version_bits != NAMESPACE_VERSION_PAY_TO_BURN:
-        # not supported at all
-        log.warning("Unsupported namespace version {:x}".format(namespace_version_bits))
-        return False
-
-    '''
     if EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR in epoch_features:
         # post F-day 2017
         # can send to burn address or namespace preorder address
         if namespace_version_bits not in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]:
-            log.warning("Namespace '%s' requires version %s or %s" % (namespace_id, [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]))
+            log.debug("Namespace '%s' requires version %s or %s" % (namespace_id, [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]))
             return False
     
     else:
         # pre F-day 2017
         # can only send to burn address
         if namespace_version_bits != NAMESPACE_VERSION_PAY_TO_BURN:
-           log.warning("Namespace '%s' requires version %s, but this blockstack is version %s" % (namespace_id, nameop['version'], NAMESPACE_VERSION_PAY_TO_BURN))
-           return False
-    '''
-
-    # what units did the namespace preorderer pay?
-    units = namespace_preorder['token_units']
-    tokens_paid = 0
-
-    if units == 'STACKS':
-        # namespace creator paid in STACKs
-        if EPOCH_FEATURE_STACKS_BUY_NAMESPACES not in epoch_features:
-            traceback.print_stack()
-            log.fatal("Namespaces must be bought in STACKs, but this epoch does not support it!")
-            os.abort()
-
-        # how much did the NAMESPACE_PREORDER pay?
-        if 'token_fee' not in namespace_preorder:
-            log.warning("Namespace {} did not pay the token fee".format(namespace_id))
-            return False
-
-        tokens_paid = namespace_preorder['token_fee']
-        assert isinstance(tokens_paid, (int,long))
-
-        token_namespace_fee = price_namespace(namespace_id, block_id, units)
-        if token_namespace_fee is None:
-            log.warning("Invalid namespace ID {}".format(namespace_id))
-            return False
-
-        if tokens_paid < token_namespace_fee:
-            # not enough!
-            log.warning("Namespace buyer paid {} tokens, but '{}' costs {} tokens".format(tokens_paid, namespace_id, token_namespace_fee))
-            return False
-
-    elif units == 'BTC':
-        # namespace creator paid in BTC
-        # check fee...
-        if not 'op_fee' in namespace_preorder:
-           log.warning("Namespace '%s' preorder did not pay the fee" % (namespace_id))
+           log.debug("Namespace '%s' requires version %s, but this blockstack is version %s" % (namespace_id, nameop['version'], NAMESPACE_VERSION_PAY_TO_BURN))
            return False
 
-        namespace_fee = namespace_preorder['op_fee']
+    # check fee...
+    if not 'op_fee' in namespace_preorder:
+       log.debug("Namespace '%s' preorder did not pay the fee" % (namespace_id))
+       return False
 
-        # must have paid enough
-        if namespace_fee < price_namespace(namespace_id, block_id, units):
-           # not enough money
-           log.warning("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_namespace(namespace_id, block_id), namespace_fee ))
-           return False
+    namespace_fee = namespace_preorder['op_fee']
 
-    else:
-        traceback.print_stack()
-        log.fatal("Unknown payment unit {}".format(units))
-        os.abort()
+    # must have paid enough
+    if namespace_fee < price_namespace( namespace_id, block_id ):
+       # not enough money
+       log.debug("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_namespace(namespace_id, block_id), namespace_fee ))
+       return False
 
     # is this the first time this namespace has been revealed?
     old_namespace = state_engine.get_namespace_op_state( namespace_id, block_id, include_expired=True )
@@ -262,26 +206,30 @@ def check( state_engine, nameop, block_id, checked_ops ):
     
     if old_namespace is None:
         # revealed for the first time
-        log.warning("Revealing for the first time: '%s'" % namespace_id)
+        log.debug("Revealing for the first time: '%s'" % namespace_id)
         namespace_block_number = namespace_preorder['block_number']
+        # state_create_put_prior_history( nameop, None )
         
     else:
         # revealed for the 2nd or later time
-        log.warning("Re-revealing namespace '%s'" % namespace_id )
+        log.debug("Re-revealing namespace '%s'" % namespace_id )
         
         # push back preorder block number to the original preorder
         namespace_block_number = old_namespace['block_number']
 
+        # re-revealing
+        # prior_hist = prior_history_create( nameop, old_namespace, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash'])
+        # state_create_put_prior_history( nameop, prior_hist )
+
     # record preorder
-    nameop['block_number'] = namespace_block_number 
+    nameop['block_number'] = namespace_block_number  # namespace_preorder['block_number']
     nameop['reveal_block'] = block_id
     state_create_put_preorder( nameop, namespace_preorder )
 
     # NOTE: not fed into the consensus hash, but necessary for database constraints:
     nameop['ready_block'] = 0
     nameop['op_fee'] = namespace_preorder['op_fee']
-    
-    nameop['token_fee'] = '{}'.format(tokens_paid)      # NOTE: avoids overflow
+
     # can begin import
     return True
 
