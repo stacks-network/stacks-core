@@ -25,7 +25,7 @@ import httplib
 from virtualchain import AuthServiceProxy, JSONRPCException
 from .blockchain_client import BlockchainClient
 
-from blockstack_client import constants
+from ... import constants
 from decimal import Decimal
 
 SATOSHIS_PER_COIN = 10**8
