@@ -218,12 +218,7 @@ def get_name_cost( db, name ):
         return None
 
     name_fee = price_name( get_name_from_fq_name( name ), namespace, lastblock )
-    name_fee_units = None
-
-    if namespace['version'] == NAMESPACE_VERSION_PAY_WITH_STACKS:
-        name_fee_units = TOKEN_TYPE_STACKS
-    else:
-        name_fee_units = 'BTC'
+    name_fee_units = 'BTC'
 
     name_fee = int(math.ceil(name_fee))
     log.debug("Cost of '%s' at %s is %s %s" % (name, lastblock, name_fee, name_fee_units))
@@ -237,14 +232,13 @@ def get_namespace_cost( db, namespace_id ):
     Returns {'amount': ..., 'units': ..., 'namespace': ...}
     """
     lastblock = db.lastblock
-    namespace_units = get_epoch_namespace_price_units(lastblock)
-    namespace_fee = price_namespace( namespace_id, lastblock, namespace_units )
+    namespace_fee = price_namespace( namespace_id, lastblock )
     
     # namespace might exist
     namespace = db.get_namespace( namespace_id )
     namespace_fee = int(math.ceil(namespace_fee))
 
-    return {'amount': namespace_fee, 'units': namespace_units, 'namespace': namespace}
+    return {'amount': namespace_fee, 'units': 'BTC', 'namespace': namespace}
 
 
 class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
@@ -804,23 +798,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return self.success_response( {'records': ret} )
 
 
-    def rpc_get_account_at(self, address, block_height, **con_info):
-        """
-        Get all the states an account was in at a given block height.
-        """
-        if not check_address(address):
-            return {'error': 'Invalid name', 'http_status': 400}
-
-        if not check_block(block_height):
-            return self.success_response({'records': None})
-
-        db = get_db_state(self.working_dir)
-        accounts_at = db.get_account_at(address, block_height)
-        db.close()
-
-        return self.success_response({'records': accounts_at})
-
-
     def rpc_get_historic_name_at( self, name, block_height, **con_info ):
         """
         Get all the states the name was in at a particular block height.
@@ -867,7 +844,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
     def rpc_get_nameops_at(self, block_id, offset, count, **con_info):
         """
         Get the name operations that occured in the given block.
-        Does not include account operations.
 
         Returns {'nameops': [...]} on success.
         Returns {'error': ...} on error
@@ -894,45 +870,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             ret.append(canonical_op)
         
         return self.success_response({'nameops': ret})
-
-
-    def rpc_get_num_account_ops_at(self, block_id, **con_info):
-        """
-        Get the number of account operations that occured at the given block.
-        Returns {'count': ...} on success
-        Returns {'error': ...} on error
-        """
-        if not check_block(block_id):
-            return {'error': 'Invalid block height', 'http_status': 400}
-
-        db = get_db_state(self.working_dir)
-        count = db.get_num_account_ops_at(self, block_id)
-        db.close()
-
-        log.debug('{} account operations at {}'.format(count, block_id))
-        return self.success_response({'count': count})
-
-
-    def rpc_get_account_ops_at(self, block_id, offset, count, **con_info):
-        """
-        Get the account operations that occured at a given block.
-        This includes account vesting, account debits and credits
-        as a result of name operations, and token transfers.
-
-        Returns {'account_ops': [...]} on success
-        Returns {'error': ...} on error
-        """
-        if not check_block(block_id):
-            return {'error': 'Invalid block height', 'http_status': 400}
-
-        if not check_offset(offset):
-            return {'error': 'Invalid offset', 'http_status': 400}
-
-        if not check_count(count, 10):
-            return {'error': 'Invalid count', 'http_status': 400}
-
-        db = get_db_state(self.working_dir)
-        pass
 
 
     def rpc_get_nameops_hash_at( self, block_id, **con_info ):
@@ -1164,131 +1101,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             ret['warning'] = 'Namespace already exists'
 
         return self.success_response( ret )
-
-
-    def rpc_get_account_tokens(self, address, **con_info):
-        """
-        Get the types of tokens that an account owns
-        Returns the list on success
-        """
-        if not check_address(address):
-            return {'error': 'Invalid address', 'http_status': 400}
-
-        db = get_db_state(self.working_dir)
-        token_list = db.get_account_tokens(address)
-        db.close()
-        return self.success_response({'token_types': token_list})
-
-
-    def rpc_get_account_balance(self, address, token_type, **con_info):
-        """
-        Get the balance of an address for a particular token type
-        Returns the value on success
-        Returns 0 if the balance is 0, or if there is no address
-        """
-        if not check_address(address):
-            return {'error': 'Invalid address', 'http_status': 400}
-
-        if not check_token_type(token_type):
-            return {'error': 'Invalid token type', 'http_status': 400}
-
-        db = get_db_state(self.working_dir)
-        account = db.get_account(address, token_type)
-        if account is None:
-            return self.success_response({'balance': 0})
-
-        balance = db.get_account_balance(account)
-        if balance is None:
-            balance = 0
-
-        db.close()
-        return self.success_response({'balance': balance})
-
-    
-    def export_account_state(self, account_state):
-        """
-        Make an account state presentable to external consumers
-        """
-        return {
-            'address': account_state['address'],
-            'type': account_state['type'],
-            'credit_value': '{}'.format(account_state['credit_value']),
-            'debit_value': '{}'.format(account_state['debit_value']),
-            'lock_transfer_block_id': account_state['lock_transfer_block_id'],
-            'block_id': account_state['block_id'],
-            'vtxindex': account_state['vtxindex'],
-            'txid': account_state['txid'],
-        }
-
-
-    def rpc_get_account_record(self, address, token_type, **con_info):
-        """
-        Get the current state of an account
-        """
-        if not check_address(address):
-            return {'error': 'Invalid address', 'http_status': 400}
-
-        if not check_token_type(token_type):
-            return {'error': 'Invalid token type', 'http_status': 400}
-
-        db = get_db_state(self.working_dir)
-        account = db.get_account(address, token_type)
-        db.close()
-
-        if account is None:
-            return {'error': 'No such account', 'http_status': 404}
-
-        state = self.export_account_state(account)
-        return self.success_response({'account': state})
-
-
-    def rpc_get_account_history(self, address, block_start, block_end, page, **con_info):
-        """
-        Get the history of an account, pagenated over a block range.
-        Returns the sequence of history states on success (can be empty)
-        """
-        if not check_address(address):
-            return {'error': 'Invalid address', 'http_status': 400}
-
-        if not check_block(block_start):
-            return {'error': 'Invalid start block', 'http_status': 400}
-
-        if not check_block(block_end):
-            return {'error': 'Invalid end block', 'http_status': 400}
-
-        if not check_count(page):
-            return {'error': 'Invalid page', 'http_status': 400}
-
-        db = get_db_state(self.working_dir)
-        page_size = 20
-        account_history = db.get_account_history(address, block_start, block_end, offset=(page * page_size), count=page_size)
-        db.close()
-
-        # return credit_value and debit_value as strings, so the unwitting JS developer doesn't get confused
-        # as to why large balances get mysteriously converted to doubles.
-        ret = [self.export_account_state(hist) for hist in account_history]
-        return self.success_response({'history': ret})
-
-    
-    def rpc_get_account_at(self, address, block_height, **con_info):
-        """
-        Get the account's statuses at a particular block height.
-        Returns the sequence of history states on success
-        """
-        if not check_address(address):
-            return {'error': 'Invalid address', 'http_status': 400}
-
-        if not check_block(block_height):
-            return {'error': 'Invalid start block', 'http_status': 400}
-
-        db = get_db_state(self.working_dir)
-        account_states = db.get_account_at(address, block_height)
-        db.close()
-
-        # return credit_value and debit_value as strings, so the unwitting JS developer doesn't get confused
-        # as to why large balances get mysteriously converted to doubles.
-        ret = [self.export_account_state(hist) for hist in account_states]
-        return self.success_response({'history': ret})
 
 
     def rpc_get_namespace_blockchain_record( self, namespace_id, **con_info ):
@@ -2525,14 +2337,14 @@ def reconfigure(working_dir):
     sys.exit(0)
 
 
-def verify_database(trusted_consensus_hash, consensus_block_height, untrusted_working_dir, trusted_working_dir, genesis_block=GENESIS_BLOCK, start_block=None, expected_snapshots={}):
+def verify_database(trusted_consensus_hash, consensus_block_height, untrusted_working_dir, trusted_working_dir, start_block=None, expected_snapshots={}):
     """
     Verify that a database is consistent with a
     known-good consensus hash.
     Return True if valid.
     Return False if not
     """
-    db = BlockstackDB.get_readwrite_instance(trusted_working_dir, genesis_block=genesis_block)
+    db = BlockstackDB.get_readwrite_instance(trusted_working_dir)
     consensus_impl = virtualchain_hooks
     return virtualchain.state_engine_verify(trusted_consensus_hash, consensus_block_height, consensus_impl, untrusted_working_dir, db, start_block=start_block, expected_snapshots=expected_snapshots)
 
