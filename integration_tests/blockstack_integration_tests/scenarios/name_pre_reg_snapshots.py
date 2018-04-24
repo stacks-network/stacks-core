@@ -71,11 +71,7 @@ def restore( working_dir, snapshot_path, restore_dir, pubkeys, num_required ):
     
     global value_hashes
 
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
-    assert config_path
-
     os.makedirs(restore_dir)
-    shutil.copy(config_path, os.path.join(restore_dir, os.path.basename(config_path)))
 
     rc = blockstack.fast_sync_import( restore_dir, "file://{}".format(snapshot_path), public_keys=pubkeys, num_required=num_required )
     if not rc:
