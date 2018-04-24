@@ -20,14 +20,11 @@
     You should have received a copy of the GNU General Public License
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
-# activate STACKS Phase 1
 """
 TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 682
 TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 683
-TEST ENV BLOCKSTACK_EPOCH_3_END_BLOCK 684
 TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 1
 TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER 1
-TEST ENV BLOCKSTACK_EPOCH_4_NAMESPACE_LIFETIME_MULTIPLIER 1
 """
 
 import testlib
@@ -69,7 +66,7 @@ def start_transaction_broadcaster():
     else:
         assert os.system('which blockstack-transaction-broadcaster') == 0, 'Missing blockstack-transaction-broadcaster'
         Popen('blockstack-transaction-broadcaster', shell=True, env=env)
-
+'''
 
 def start_subdomain_registrar():
     try:
@@ -86,7 +83,7 @@ def start_subdomain_registrar():
     else:
         assert os.system('which blockstack-subdomain-registrar') == 0, 'Missing blockstack-subdomain-registrar'
         Popen('blockstack-subdomain-registrar', shell=True, env=env)
-'''
+
 
 def scenario( wallets, **kw ):
 
