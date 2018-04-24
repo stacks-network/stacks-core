@@ -62,19 +62,19 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # must have been revealed
     if not state_engine.is_namespace_revealed( namespace_id ):
-       log.warning("Namespace '%s' is not revealed" % namespace_id )
+       log.debug("Namespace '%s' is not revealed" % namespace_id )
        return False
 
     # must have been sent by the same person who revealed it
     revealed_namespace = state_engine.get_namespace_reveal( namespace_id )
     if revealed_namespace['recipient'] != sender:
-       log.warning("Namespace '%s' is not owned by '%s' (but by %s)" % (namespace_id, sender, revealed_namespace['recipient']))
+       log.debug("Namespace '%s' is not owned by '%s' (but by %s)" % (namespace_id, sender, revealed_namespace['recipient']))
        return False
 
     # can't be ready yet
     if state_engine.is_namespace_ready( namespace_id ):
        # namespace already exists
-       log.warning("Namespace '%s' is already registered" % namespace_id )
+       log.debug("Namespace '%s' is already registered" % namespace_id )
        return False
 
     # preserve from revealed 
