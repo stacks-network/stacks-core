@@ -57,44 +57,44 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # name must be well-formed
     if not is_b40( name ) or "+" in name or name.count(".") > 1:
-        log.warning("Malformed name '%s': non-base-38 characters" % name)
+        log.debug("Malformed name '%s': non-base-38 characters" % name)
         return False
 
     # name must exist
     name_rec = state_engine.get_name( name )
     if name_rec is None:
-        log.warning("Name '%s' does not exist" % name)
+        log.debug("Name '%s' does not exist" % name)
         return False
 
     # namespace must be ready
     if not state_engine.is_namespace_ready( namespace_id ):
-        log.warning("Namespace '%s' is not ready" % namespace_id )
-        return False
+       log.debug("Namespace '%s' is not ready" % namespace_id )
+       return False
 
     # name must not be revoked
     if state_engine.is_name_revoked( name ):
-        log.warning("Name '%s' is revoked" % name)
+        log.debug("Name '%s' is revoked" % name)
         return False
 
     # name must not be expired as of *this* block
     if state_engine.is_name_expired( name, block_id ):
-        log.warning("Name '%s' is expired" % name)
+        log.debug("Name '%s' is expired" % name)
         return False
 
     # name must not be in grace period in this block
     if state_engine.is_name_in_grace_period(name, block_id):
-        log.warning("Name '{}' is in the renewal grace period.  It can only be renewed at this time.".format(name))
+        log.debug("Name '{}' is in the renewal grace period.  It can only be renewed at this time.".format(name))
         return False
 
     # the name must be registered
     if not state_engine.is_name_registered( name ):
-        log.warning("Name '%s' is not registered" % name )
-        return False
+       log.debug("Name '%s' is not registered" % name )
+       return False
 
     # the sender must own this name
     if not state_engine.is_name_owner( name, sender ):
-        log.warning("Name '%s' is not owned by %s" % (name, sender))
-        return False
+       log.debug("Name '%s' is not owned by %s" % (name, sender))
+       return False
 
     # apply state transition 
     nameop['revoked'] = True

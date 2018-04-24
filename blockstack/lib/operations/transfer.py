@@ -169,73 +169,73 @@ def check( state_engine, nameop, block_id, checked_ops ):
     recipient = nameop['recipient']
 
     if name is None:
-        # invalid
-        log.warning("No name found for '%s'" % name_hash )
-        return False
+       # invalid
+       log.debug("No name found for '%s'" % name_hash )
+       return False
 
     namespace_id = get_namespace_from_name( name )
     name_rec = state_engine.get_name( name )
     
     if name_rec is None:
-        log.warning("Name '%s' does not exist" % name)
-        return False
+       log.debug("Name '%s' does not exist" % name)
+       return False
 
     # namespace must be ready
     if not state_engine.is_namespace_ready( namespace_id ):
-        # non-existent namespace
-        log.warning("Namespace '%s' is not ready" % (namespace_id))
-        return False
+       # non-existent namespace
+       log.debug("Namespace '%s' is not ready" % (namespace_id))
+       return False
 
     # name must not be revoked
     if state_engine.is_name_revoked( name ):
-        log.warning("Name '%s' is revoked" % name)
+        log.debug("Name '%s' is revoked" % name)
         return False
 
     # name must not be expired as of the *last block processed*
     if state_engine.is_name_expired( name, state_engine.lastblock ):
-        log.warning("Name '%s' is expired" % name)
+        log.debug("Name '%s' is expired" % name)
         return False
 
     # name must not be in grace period in this block
     if state_engine.is_name_in_grace_period(name, block_id):
-        log.warning("Name '{}' is in the renewal grace period.  It can only be renewed at this time.".format(name))
+        log.debug("Name '{}' is in the renewal grace period.  It can only be renewed at this time.".format(name))
         return False
 
     if not state_engine.is_consensus_hash_valid( block_id, consensus_hash ):
-        # invalid concensus hash
-        log.warning("Invalid consensus hash '%s'" % consensus_hash )
-        return False
+       # invalid concensus hash
+       log.debug("Invalid consensus hash '%s'" % consensus_hash )
+       return False
 
     if sender == recipient:
-        # nonsensical transfer
-        log.warning("Sender is the same as the Recipient (%s)" % sender )
-        return False
+       # nonsensical transfer
+       log.debug("Sender is the same as the Recipient (%s)" % sender )
+       return False
 
     if not state_engine.is_name_registered( name ):
-        # name is not registered
-        log.warning("Name '%s' is not registered" % name)
-        return False
+       # name is not registered
+       log.debug("Name '%s' is not registered" % name)
+       return False
 
     if not state_engine.is_name_owner( name, sender ):
-        # sender doesn't own the name
-        log.warning("Name '%s' is not owned by %s (but %s)" % (name, sender, state_engine.get_name_owner(name)))
-        return False
+       # sender doesn't own the name
+       log.debug("Name '%s' is not owned by %s (but %s)" % (name, sender, state_engine.get_name_owner(name)))
+       return False
 
     names_owned = state_engine.get_names_owned_by_sender( recipient )
     if name in names_owned:
         # recipient already owns it 
-        log.warning("Recipient %s already owns '%s'" % (recipient, name))
+        log.debug("Recipient %s already owns '%s'" % (recipient, name))
         return False
 
     if len(names_owned) >= MAX_NAMES_PER_SENDER:
         # exceeds quota 
-        log.warning("Recipient %s has exceeded name quota" % recipient)
+        log.debug("Recipient %s has exceeded name quota" % recipient)
         return False
 
     # sender cannot be a p2sh script until we're in an epoch that supports multisig.
     # this is to preserve compatibility with 0.13.
     if virtualchain.is_multisig_script( sender ) and not epoch_has_multisig( block_id ):
-        log.warning("Sender %s is a p2sh script, but multisig is not enabled in epoch %s" % (sender, get_epoch_number(block_id)))
+        log.debug("Sender %s is a p2sh script, but multisig is not enabled in epoch %s" % (sender, get_epoch_number(block_id)))
         return False
 
     # the given consensus hash must be valid
@@ -243,7 +243,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     transfer_send_block_id = state_engine.get_block_from_consensus(nameop_consensus_hash)
     if transfer_send_block_id is None:
         # wrong/invalid consensus hash 
-        log.warning("Unrecognized consensus hash '%s'" % nameop_consensus_hash)
+        log.debug("Unrecognized consensus hash '%s'" % nameop_consensus_hash)
         return False
     
     # QUIRK: we hash either the consensus hash from the last non-NAME_TRANSFER
