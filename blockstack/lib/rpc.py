@@ -1415,7 +1415,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_name_zonefile,
                 },
             },
-            r'^/v1/names/({}{{1,256}})/zonefile/([0-9a-fA-F]{{{}}})$'.format(URLENCODING_CLASS, LENGTHS['value_hash']): {
+            r'^/v1/names/({}{{1,256}})/zonefile/([0-9a-fA-F]{{{}}})$'.format(URLENCODING_CLASS, LENGTHS['value_hash'] * 2): {
                 'routes': {
                     'GET': self.GET_name_zonefile_by_hash,     # returns a zonefile
                 },
