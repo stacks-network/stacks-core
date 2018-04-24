@@ -55,10 +55,9 @@ import virtualchain
 
 log = virtualchain.get_logger("testlib")
 
-import blockstack_client
+from . import blockstack_client
 
 SATOSHIS_PER_COIN = 10**8
-TOKEN_TYPE_STACKS = 'STACKS'
 
 TX_MIN_CONFIRMATIONS = 6
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
@@ -72,13 +71,11 @@ if os.environ.get("BLOCKSTACK_MIN_CONFIRMATIONS", None) is not None:
 
 
 class Wallet(object):
-    def __init__(self, pk_wif, tokens_granted, vesting={} ):
+    def __init__(self, pk_wif, ignored):
 
         pk = virtualchain.BitcoinPrivateKey( pk_wif )
 
         self._pk = pk
-        self._token_grant = tokens_granted
-        self._vesting_schedule = vesting
 
         if pk_wif.startswith("c"):
             # already a private key 
@@ -113,8 +110,6 @@ class MultisigWallet(object):
         self.n = len(pks)
         self.pks = pks
         self.segwit = False
-        self._token_grant = kwargs.get('tokens_granted', 0)
-        self._vesting_schedule = kwargs.get('vesting', {})
 
         self.addr = self.privkey['address']
 
@@ -128,15 +123,13 @@ class MultisigWallet(object):
 
 
 class SegwitWallet(object):
-    def __init__(self, pk_wif, tokens_granted=0, vesting={} ):
+    def __init__(self, pk_wif ):
 
         self.privkey = virtualchain.make_segwit_info( pk_wif )
         pk = virtualchain.BitcoinPrivateKey( pk_wif )
 
         self._pk = pk
         self.segwit = True
-        self._token_grant = tokens_granted
-        self._vesting_schedule = vesting
 
         self.pubkey_hex = pk.public_key().to_hex()
         self.addr = self.privkey['address']
@@ -159,63 +152,14 @@ class MultisigSegwitWallet(object):
        
 
 class APICallRecord(object):
-    def __init__(self, method, name, address, result, token_record=None):
+    def __init__(self, method, name, address, result):
         self.block_id = max(all_consensus_hashes.keys()) + 1
         self.name = name
         self.method = method
         self.result = result
         self.address = address
-        self.token_record = token_record
         self.success = True
         assert 'transaction_hash' in result.keys() or 'error' in result.keys()
-
-
-# for auditing expenditures
-class TokenOperation(object):
-    def __init__(self, opcode, token_type, token_cost, account_addr):
-        self.opcode = opcode
-        self.token_type = token_type
-        self.token_cost = token_cost
-        self.account_addr = account_addr
-
-class TokenNamespacePreorder(TokenOperation):
-    def __init__(self, namespace_id, payment_addr, price=None):
-        blockstackd_url = 'http://localhost:16264'
-        
-        namespace_cost_info = price
-        if not namespace_cost_info:
-            namespace_cost_info = blockstackd_client.get_namespace_cost(namespace_id, hostport=blockstackd_url)
-
-        super(TokenNamespacePreorder, self).__init__("NAMESPACE_PREORDER", namespace_cost_info['units'], namespace_cost_info['amount'], payment_addr)
-
-
-class TokenNamePreorder(TokenOperation):
-    def __init__(self, name, preorder_addr, price=None):
-        blockstackd_url = 'http://localhost:16264'
-
-        name_cost_info = price
-        if not name_cost_info:
-            name_cost_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
-
-        super(TokenNamePreorder, self).__init__('NAME_PREORDER', name_cost_info['units'], name_cost_info['amount'], preorder_addr)
-
-
-class TokenNameRenewal(TokenOperation):
-    def __init__(self, name, owner_addr, price=None):
-        blockstackd_url = 'http://localhost:16264'
-
-        name_cost_info = price
-        if not name_cost_info:
-            name_cost_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
-
-        super(TokenNameRenewal, self).__init__('NAME_RENEWAL', name_cost_info['units'], name_cost_info['amount'], owner_addr)
-
-
-class TokenTransfer(TokenOperation):
-    def __init__(self, recipient_addr, token_type, token_amount, privatekey):
-        sender_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
-        self.recipient_addr = recipient_addr
-        super(TokenTransfer, self).__init__('TOKEN_TRANSFER', token_type, token_amount, sender_addr)
 
 
 class TestAPIProxy(object):
@@ -397,17 +341,6 @@ def blockstack_get_name_cost(name, config_path=None):
     return int(name_cost_info['amount'])
 
 
-def blockstack_get_name_token_cost(name):
-    """
-    Get the token price of a name.  Use the CLI.
-    """
-    assert has_nodejs_cli()
-    info = nodejs_cli('price', name)
-    info = json.loads(info)
-    info['amount'] = int(info['amount'])
-    return info
-
-
 def has_nodejs_cli():
     """
     Do we have the node.js CLI installed, which uses blockstack.js?
@@ -559,11 +492,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
                 burn_address=burn_addr, owner_address=register_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     if not tx_only:
-        token_record = None
-        if not expect_fail:
-            token_record = TokenNamePreorder(name, payment_addr, price=price)
-
-        api_call_history.append( APICallRecord( "preorder", name, payment_addr, resp, token_record=token_record ) )
+        api_call_history.append( APICallRecord( "preorder", name, payment_addr, resp ) )
 
     return resp
 
@@ -603,8 +532,6 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
         except:
             if safety_checks:
                 raise
-
-        payment_addr = virtualchain.lib.ecdsalib.ecdsa_private_key(privatekey).public_key().address()
 
         kwargs = {}
         if not safety_checks:
@@ -735,11 +662,7 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
                 burn_address=burn_addr, zonefile_hash=zonefile_hash, recipient_addr=recipient_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     if not tx_only:
-        token_record = None
-        if not expect_fail:
-            token_record = TokenNameRenewal(name, owner_addr, price=price)
-
-        api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp, token_record=token_record) )
+        api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp ) )
 
     return resp
 
@@ -844,11 +767,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
                 consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     if not tx_only:
-        token_record = None
-        if not expect_fail:
-            token_record = TokenNamespacePreorder(namespace_id, payment_addr, price=price)
-
-        api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp, token_record=token_record) )
+        api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
 
     return resp
 
@@ -942,34 +861,6 @@ def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False,
     if not tx_only:
         api_call_history.append( APICallRecord( "announce", message, None, resp ) )
 
-    return resp
-
-
-def blockstack_send_tokens(recipient_address, token_type, token_amount, privkey, safety_checks=True, tx_only=False, expect_fail=False):
-    global api_call_history
-
-    assert has_nodejs_cli()
-    assert virtualchain.is_singlesig(privkey)    # required for now :( 
-
-    txid = nodejs_cli('send_tokens', recipient_address, token_type, token_amount, privkey, safety_checks=safety_checks, tx_only=tx_only)
-    if tx_only:
-        resp = {
-            'status': True,
-            'transaction': txid
-        }
-    else:
-        resp = {
-            'status': True,
-            'transaction_hash': txid
-        }
-
-
-    token_record = None
-    if not expect_fail:
-        token_record = TokenTransfer(recipient_address, token_type, token_amount, privkey)
-
-    # TODO: expand SNV to cover token records
-    api_call_history.append( APICallRecord( "token_transfer", recipient_address, virtualchain.address_reencode(virtualchain.get_privkey_address(privkey)), resp, token_record=token_record) )
     return resp
 
 
@@ -1452,8 +1343,8 @@ def blockstack_test_setenv(key, value):
     return res
 
 
-def blockstack_verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, working_db_path=None, start_block=None, genesis_block={} ):
-    return blockstackd.verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, start_block=start_block, genesis_block=genesis_block)
+def blockstack_verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, working_db_path=None, start_block=None ):
+    return blockstackd.verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, start_block=start_block )
 
 
 def blockstack_export_db( snapshots_dir, block_height, **kw ):
@@ -1613,7 +1504,7 @@ def format_unspents(unspents):
     ]
 
 
-def get_unspents(address, bitcoind):
+def get_unspents(address):
     """
     Get the spendable transaction outputs, also known as UTXOs or
     unspent transaction outputs.
@@ -1621,6 +1512,7 @@ def get_unspents(address, bitcoind):
     NOTE: this will only return unspents if the address provided is present
     in the bitcoind server.
     """
+    global bitcoind
     addresses = [address]
     
     min_confirmations = 0
@@ -1650,8 +1542,7 @@ def get_utxos( addr ):
     """
     Get the address balance
     """
-    global bitcoind
-    return get_unspents(addr, bitcoind)
+    return get_unspents(addr)
 
 
 def serialize_tx(inputs, outputs):
@@ -1721,7 +1612,8 @@ def send_funds( privkey, satoshis, payment_addr ):
 
 
 def broadcast_transaction(txhex):
-    return sendrawtransaction(txhex)
+    txid = sendrawtransaction(txhex)
+    return {'tx_hash': txid}
 
 
 def sendrawtransaction( tx_hex, **kw ):
@@ -1748,185 +1640,6 @@ def getbalance( addr, **kw ):
     return bitcoind.getbalance( addr )
 
 
-def check_account_debits(state_engine, api_call_history):
-    """
-    Verify that each account has been debited the appropriate amount.
-    """
-    # don't do this if we're running in interactive mode, and the test is over
-    if not is_test_running():
-        return True
-    
-    addrs = state_engine.get_all_account_addresses()
-    token_types = filter(lambda tt: tt != 'BTC',
-                         list(set([api_call.token_record.token_type for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)])))
-
-    expected_expenditures = dict([
-        (addr, dict([
-            (token_type, sum([api_call.token_record.token_cost for api_call in
-                filter(lambda ac: ac.token_record is not None and ac.success and ac.token_record.account_addr == addr and ac.token_record.token_type == token_type, api_call_history)]))
-            for token_type in token_types]))
-        for addr in addrs])
-
-    accounts = dict([
-        (addr, dict([
-            (token_type, 0 if state_engine.get_account(addr, token_type) is None else state_engine.get_account(addr, token_type)['debit_value'])
-            for token_type in token_types]))
-        for addr in addrs])
-
-    log.debug("account debits = \n{}".format(json.dumps(accounts, indent=4, sort_keys=True)))
-    log.debug("expected expenditures =\n{}".format(json.dumps(expected_expenditures, indent=4, sort_keys=True)))
-
-    for addr in addrs:
-        for token_type in token_types:
-            if accounts[addr][token_type] != expected_expenditures[addr][token_type]:
-                log.error("mismatch: {}'s {}: {} != {}".format(addr, token_type, accounts[addr][token_type], expected_expenditures[addr][token_type]))
-                return False
-
-    return True
-
-
-def check_account_credits(state_engine, api_call_history):
-    """
-    Verify that each account has been credited the appropriate amount.
-    """
-    # don't do this if we're running in interactive mode, and the test is over
-    if not is_test_running():
-        return True
-    
-    addrs = state_engine.get_all_account_addresses()
-    token_types = filter(lambda tt: tt != 'BTC',
-                         list(set([api_call.token_record.token_type for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)])))
-
-    # tokens received from all prior blocks from TokenTransfer
-    block_credits = dict([
-        (addr, dict([
-            (token_type, sum([api_call.token_record.token_cost for api_call in
-                filter(lambda ac: ac.success and isinstance(ac.token_record, TokenTransfer) and ac.token_record.recipient_addr == addr and ac.token_record.token_type == token_type, api_call_history)]))
-            for token_type in token_types]))
-        for addr in addrs])
-
-    # tokens given at genesis
-    genesis_tokens = dict([
-        (addr, dict([
-            (token_type, sum([blk['value'] for blk in filter(lambda g: g['address'] == addr and g['type'] == token_type, state_engine.genesis_block)]))
-            for token_type in token_types]))
-        for addr in addrs])
-
-    # tokens received through vesting
-    vesting_schedules = dict([
-        (addr, dict([
-            (token_type, [blk['vesting'] for blk in filter(lambda g: g['address'] == addr and g['type'] == token_type, state_engine.genesis_block)])
-            for token_type in token_types]))
-        for addr in addrs])
-
-    log.debug("Vesting schedule = \n{}".format(vesting_schedules))
-
-    vested_tokens = {}
-    for addr in addrs:
-        vested_tokens[addr] = {}
-        for token_type in token_types:
-            vested_token_sum = 0
-            for i in range(0, len(vesting_schedules[addr][token_type])):
-                for block_height in vesting_schedules[addr][token_type][i]:
-                    if not isinstance(block_height, (int, long)) or block_height > state_engine.lastblock+1:
-                        continue
-
-                    vested_token_sum += vesting_schedules[addr][token_type][i][block_height]
-
-            vested_tokens[addr][token_type] = vested_token_sum
-
-    # total expected tokens
-    expected_credits = dict([
-        (addr, dict([
-            (token_type, genesis_tokens[addr][token_type] + vested_tokens[addr][token_type] + block_credits[addr][token_type])
-            for token_type in token_types]))
-        for addr in addrs])
-
-    # accounts from the db
-    accounts = dict([
-        (addr, dict([
-            (token_type, 0 if state_engine.get_account(addr, token_type) is None else state_engine.get_account(addr, token_type)['credit_value'])
-            for token_type in token_types]))
-        for addr in addrs])
-
-    log.debug("account credits = \n{}".format(json.dumps(accounts, indent=4, sort_keys=True)))
-    log.debug("vested credits = \n{}".format(json.dumps(vested_tokens, indent=4, sort_keys=True)))
-    log.debug("expected credits =\n{}".format(json.dumps(expected_credits, indent=4, sort_keys=True)))
-
-    for addr in addrs:
-        for token_type in token_types:
-            if accounts[addr][token_type] != expected_credits[addr][token_type]:
-                log.error("mismatch: {}'s {}: {} != {}".format(addr, token_type, accounts[addr][token_type], expected_credits[addr][token_type]))
-                return False
-
-    return True
-
-
-def check_account_vesting(state_engine):
-    """
-    Verify that each account has been credited the appropriate amount
-    according to its vesting schedule
-    """
-    global wallets
-
-    # don't do this if we're running in interactive mode, and the test is over
-    if not is_test_running():
-        return True
-     
-    vesting_schedules = dict([(wallet.addr, wallet._vesting_schedule) for wallet in wallets])
-    account_states = dict([(wallet.addr, state_engine.get_account_at(wallet.addr, state_engine.lastblock+1)) for wallet in wallets])
-    account_states_prior = dict([(wallet.addr, state_engine.get_account_at(wallet.addr, state_engine.lastblock)) for wallet in wallets])
-    
-    for addr in account_states:
-        account_states[addr].sort(cmp=lambda a1, a2: -1 if a1['vtxindex'] < a2['vtxindex'] else 0 if a1['vtxindex'] == a2['vtxindex'] else 1)
-
-    for addr in account_states_prior:
-        account_states_prior[addr].sort(cmp=lambda a1, a2: -1 if a1['vtxindex'] < a2['vtxindex'] else 0 if a1['vtxindex'] == a2['vtxindex'] else 1)
-
-    all_vestings = []
-    for addr in [wallet.addr for wallet in wallets]:
-        present = {}
-        for token_type in vesting_schedules[addr]:
-            if state_engine.lastblock+1 not in vesting_schedules[addr][token_type]:
-                continue
-
-            present[addr] = {token_type: vesting_schedules[addr][token_type]}
-
-        if len(present) > 0:
-            all_vestings.append(present)
-
-    if len(all_vestings) > 0:
-        log.debug("Expected vestings at {}:\n{}".format(state_engine.lastblock+1, json.dumps(all_vestings, indent=4, sort_keys=True)))
-
-    for addr in [wallet.addr for wallet in wallets]:
-        for token_type in vesting_schedules[addr]:
-            if state_engine.lastblock+1 not in vesting_schedules[addr][token_type]:
-                continue
-
-            expected_vesting = vesting_schedules[addr][token_type][state_engine.lastblock+1]
-           
-            # select account states by token type
-            account_token_states = filter(lambda a: a['type'] == token_type, account_states[addr])
-            account_token_states_prior = filter(lambda a: a['type'] == token_type, account_states_prior[addr])
-
-            # the state-transition at vtxindex == 0 on the account should have bumped the 'credit_value' by the vesting amount 
-            if len(account_token_states) == 0:
-                log.error("No account states for {} on token type {} at {}".format(addr, token_type, state_engine.lastblock+1))
-                return False
-
-            if len(account_token_states_prior) == 0:
-                raise Exception("BUG: could not query account state of {}".format(addr))
-
-            if account_token_states[0]['vtxindex'] != 0:
-                raise Exception("BUG: first account state of {} at {} is not at vtxindex 0".format(addr, state_engine.lastblock+1))
-
-            if account_token_states_prior[-1]['credit_value'] + expected_vesting != account_token_states[0]['credit_value']:
-                log.error("Account {} changed from {} to {} at {}: expected {}".format(addr, account_token_states_prior[-1]['credit_value'], account_token_states[0]['credit_value'], state_engine.lastblock+1, expected_vesting))
-                return False
-
-    return True
-
-
 def next_block( **kw ):
     """
     Advance the mock blockchain by one block.
@@ -1949,12 +1662,7 @@ def next_block( **kw ):
     blockstack_export_db( snapshots_dir, get_current_block(**kw), **kw )
     log_consensus( **kw )
 
-    # check all account balances against the database
-    assert check_account_debits(state_engine, api_call_history), "Account debit mismatch"
-    assert check_account_credits(state_engine, api_call_history), "Account credit mismatch"
-    assert check_account_vesting(state_engine), 'Account vesting error'
 
-   
 def get_consensus_at( block_id, **kw ):
     """
     Get the consensus hash at a particular block id.
@@ -2033,7 +1741,7 @@ def check_history( state_engine ):
 
         print "\n\nverify %s - %s (%s), expect %s\n\n" % (block_ids[0], block_id+1, untrusted_working_db_dir, expected_consensus_hash)
 
-        valid = blockstack_verify_database(expected_consensus_hash, block_id, untrusted_working_db_dir, working_db_dir, start_block=block_ids[0], genesis_block=state_engine.genesis_block)
+        valid = blockstack_verify_database(expected_consensus_hash, block_id, untrusted_working_db_dir, working_db_dir, start_block=block_ids[0])
         if not valid:
             print "Invalid at block %s" % block_id 
             return False
@@ -2693,14 +2401,13 @@ def peer_start( global_working_dir, working_dir, port=None, command='start', arg
 
     # preserve test environment variables
     for envar in os.environ.keys():
-        if envar.startswith("BLOCKSTACK_") and envar not in ['BLOCKSTACK_CLIENT_CONFIG', 'BLOCKSTACK_SERVER_CONFIG']:
+        if envar.startswith("BLOCKSTACK_") and envar not in ['BLOCKSTACK_SERVER_CONFIG']:
             log.debug("Env: '%s' = '%s'" % (envar, os.environ[envar]))
             env[envar] = os.environ[envar]
 
     env['BLOCKSTACK_ATLAS_NETWORK_SIMULATION'] = "1"
     env['BLOCKSTACK_ATLAS_NETWORK_SIMULATION_PEER'] = "1"
     env['BLOCKSTACK_SERVER_CONFIG'] = os.path.join(working_dir, 'blockstack-server.ini')
-    env['BLOCKSTACK_CLIENT_CONFIG'] = os.path.join(working_dir, 'client/client.ini')
 
     env['PATH'] = os.environ['PATH']
 
@@ -2804,31 +2511,22 @@ def peer_working_dir( base_working_dir, index ):
 def peer_setup( base_working_dir, index ):
     """
     Set up the ith peer
-    Return {'working_dir': ..., 'device_id': ..., 'config_path': ...} on success
+    Return {'working_dir': ...}
     Return {'error': ...} on error 
     """
     # set up a new peer
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-    assert config_path
-
-    config_dir = os.path.dirname(config_path)
-
     peer_wd = peer_working_dir(base_working_dir, index)
     peer_config_dir = os.path.join(peer_wd, 'client')
 
     os.makedirs(peer_wd)
     os.makedirs(peer_config_dir)
 
-    config_path_2 = os.path.join(peer_config_dir, 'client.ini')
-    if os.path.exists(config_path_2):
-        raise Exception("Config already exists for client {}".format(index))
-
     res = peer_make_config(peer_working_dir, 16300 + index, peer_wd)
     if 'error' in res:
         print "failed to set up {}".format(peer_wd)
         return {'error': 'failed to set up config dir'}
 
-    return {'working_dir': peer_wd, 'device_id': res['device_id'], 'config_path': config_path_2}
+    return {'working_dir': peer_wd}
 
 
 def list_working_dirs(base_working_dir):
@@ -2843,22 +2541,4 @@ def list_working_dirs(base_working_dir):
             ret.append(os.path.join(working_dir, name))
 
     return ret
-
-
-def get_wallet_balances(wallets):
-    """
-    Get the balances of all tokens for a list of walelts
-    """
-    if not isinstance(wallets, list):
-        wallets = [wallets]
-
-    balances = {}
-    for w in wallets:
-       balance_info = json.loads(nodejs_cli('balance', w.addr))
-       for token_type in balance_info:
-           balance_info[token_type] = int(balance_info[token_type])
-
-       balances[w.addr] = balance_info
-
-    return balances
 
