@@ -33,6 +33,7 @@ import requests
 import posixpath
 from datetime import datetime
 from influxdb import InfluxDBClient
+from decimal import Decimal 
 
 blockstack = None
 blockstackd = None
@@ -69,7 +70,7 @@ TRANSACTION_BROADCASTER_SUBPROCESS = None
 
 NET_LOG_PATH = "/tmp/blockstack-test-netlog.log"
 
-TEST_GENESIS_BLOCK = []
+SATOSHIS_PER_COIN = 10**8
 
 DEFAULT_SERVER_INI_TEMPLATE = """
 [bitcoind]
@@ -264,12 +265,10 @@ class WebTestServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         # UI
         bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts(self.server.working_dir) )
         blockheight = bitcoind.getblockcount()
-        conf = blockstack_client.get_config()
 
         panel = '<html><head></head><body>Integration test control panel<br>'
         panel += '<br>'
         panel += 'Blockchain height: {}<br>'.format(blockheight)
-        panel += 'API password: {}<br>'.format(conf['api_password'])
         panel += '<br>'
         panel += '<form action="/nextblock" method="post">'
         panel += '    Number of blocks: <input type="text" name="numblocks" value="1"> <input type="submit" value="Generate blocks"></form><br>'
@@ -524,7 +523,7 @@ def get_blockstack_db(working_dir, disposition=None):
     if disposition == blockstackd.DISPOSITION_RO:
         db_inst = BlockstackDB.get_readonly_instance(working_dir)
     elif disposition == blockstackd.DISPOSITION_RW:
-        db_inst = BlockstackDB.get_readwrite_instance(working_dir, genesis_block=TEST_GENESIS_BLOCK)
+        db_inst = BlockstackDB.get_readwrite_instance(working_dir)
     else:
         raise ValueError("Invalid disposition")
 
@@ -789,7 +788,7 @@ def transaction_broadcaster_stop():
         print 'Failed to stop transaction broadcaster process'
 
 
-def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
+def atexit_cleanup( spv_headers_path, stop_bitcoind ):
     """
     Clean up a scenario
     """
@@ -807,10 +806,6 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
 
     gaia_hub_stop()
     transaction_broadcaster_stop()
-
-    if client_config_path is not None:
-        client_config_dir = os.path.dirname(client_config_path)
-        blockstack_client.rpc.local_api_stop(client_config_dir)
 
     if stop_bitcoind:
         bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
@@ -850,8 +845,8 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     """
 
     spv_headers_path = os.path.join( virtualchain_working_dir, "spv_headers.dat")
-    atexit_cleanup( spv_headers_path, None, False )
-    atexit.register( atexit_cleanup, spv_headers_path, client_config_file, True )
+    atexit_cleanup( spv_headers_path, False )
+    atexit.register( atexit_cleanup, spv_headers_path, True )
 
     client_config_dir = os.path.dirname(client_config_file)
 
@@ -861,8 +856,14 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     blockstack_api_opts = server_opts['blockstack-api']
     bitcoin_opts = server_opts['bitcoind']
 
-    client_opts = blockstack_client.config.configure(config_file=client_config_file, interactive=False)
-    utxo_opts = client_opts['blockchain-reader']
+    utxo_opts = {
+        'utxo_provider': 'bitcoind_utxo',
+        'rpc_username': 'blockstack',
+        'rpc_password': 'blockstacksystem',
+        'server': 'localhost',
+        'port': 18332,
+        'use_https': False
+    }
 
     # pass along extra arguments
     utxo_opts['blockchain_server'] = 'localhost'
@@ -898,8 +899,6 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     print ""
 
     bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts(virtualchain_working_dir) )
-
-    utxo_provider = blockstack_client.backend.utxo.bitcoind_utxo.BitcoindClient("blockstack", "blockstacksystem", port=18332, version_byte=virtualchain.version_byte )
     working_dir = virtualchain_working_dir
 
     print "working_dir: %s" % working_dir
@@ -938,9 +937,6 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
         log.info("Shutting down bitcoin")
         bitcoin_stop()
 
-        log.info("Shutting down API endpoint")
-        blockstack_client.rpc.local_api_stop(client_config_dir)
-        
         log.info("Shutting down Blockstackd")
         blockstackd.server_shutdown(server_state)
 
@@ -954,7 +950,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
             timeout_watchdog.ask_join()
             timeout_watchdog.join()
 
-        atexit_cleanup( spv_headers_path, None, True )
+        atexit_cleanup( spv_headers_path, True )
         
     def signal_shutdown_procedure(*args, **kw):
         shutdown_procedure()
@@ -1253,35 +1249,6 @@ def bitcoin_regtest_reset(working_dir):
     return True
 
 
-def fill_genesis_block(address, token_grant, vesting_schedule):
-    """
-    Add an entry to the genesis block for the given address, with an initial amount and a vesting schedule
-    """
-    global TEST_GENESIS_BLOCK
-   
-    log.debug("Grant {} {} {}-tokens".format(address, token_grant, testlib.TOKEN_TYPE_STACKS))
-
-    TEST_GENESIS_BLOCK.append({
-        'address': address,
-        'type': testlib.TOKEN_TYPE_STACKS,
-        'value': token_grant,
-        'vesting': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}),
-        'lock_send': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).get('lock_send', 0)
-    })
-
-    for token_type in vesting_schedule:
-        if token_type == testlib.TOKEN_TYPE_STACKS:
-            continue
-
-        TEST_GENESIS_BLOCK.append({
-            'address': address,
-            'type': token_type,
-            'value': 0,
-            'vesting': vesting_schedule[token_type],
-            'lock_send': vesting_schedule[token_type].get('lock_send', 0)
-        })
-
-
 def fill_wallet( bitcoind, wallet, value ):
     """
     Fill a test wallet on a regtest bitcoind.
@@ -1290,8 +1257,6 @@ def fill_wallet( bitcoind, wallet, value ):
     Return True on success
     Raise on error
     """
-    global TEST_GENESIS_BLOCK
-
     if type(wallet.privkey) in [str, unicode]:
         # single private key
         testnet_wif = virtualchain.BitcoinPrivateKey(virtualchain.get_singlesig_privkey(wallet.privkey)).to_wif()
@@ -1301,9 +1266,6 @@ def fill_wallet( bitcoind, wallet, value ):
 
         bitcoind.importprivkey(testnet_wif, "")
         bitcoind.sendtoaddress( addr, value )
-
-        # also do the token grant
-        fill_genesis_block(addr, wallet._token_grant, wallet._vesting_schedule)
 
     elif wallet.segwit and len(wallet.privkey['private_keys']) == 1:
         # single private key, p2sh-p2wpkh
@@ -1319,9 +1281,6 @@ def fill_wallet( bitcoind, wallet, value ):
         log.debug("Fill p2sh-p2wpkh %s (%s) with %s" % (segwit_wallet['address'], testnet_wif, value ))
         bitcoind.sendtoaddress( segwit_wallet['address'], value )
         
-        # also do the token grant
-        fill_genesis_block(segwit_wallet['address'], wallet._token_grant, wallet._vesting_schedule)
-
     elif wallet.segwit and len(wallet.privkey['private_keys']) > 1:
         # multisig p2sh-p2wsh
         testnet_wifs = []
@@ -1345,9 +1304,6 @@ def fill_wallet( bitcoind, wallet, value ):
         log.debug("Fill p2sh-p2wsh %s with %s" % (segwit_wallet['address'], value ))
         bitcoind.sendtoaddress( segwit_wallet['address'], value )
 
-        # also do the token grant
-        fill_genesis_block(segwit_wallet['address'], wallet._token_grant, wallet._vesting_schedule)
-
     else:
         # multisig address
         testnet_wifs = []
@@ -1366,9 +1322,6 @@ def fill_wallet( bitcoind, wallet, value ):
         log.debug("Fill %s with %s" % (multisig_info['address'], value ))
         bitcoind.sendtoaddress( multisig_info['address'], value )
         
-        # also do the token grant
-        fill_genesis_block(multisig_info['address'], wallet._token_grant, wallet._vesting_schedule)
-
     return True
 
 
@@ -1715,7 +1668,6 @@ if __name__ == "__main__":
     from blockstack.lib import *
 
     from blockstack.lib import nameset as blockstack_state_engine
-    import blockstack_client
 
     import blockstack_integration_tests.scenarios.testlib as testlib
 
