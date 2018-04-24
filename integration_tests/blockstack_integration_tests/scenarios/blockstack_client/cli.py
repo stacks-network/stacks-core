@@ -44,11 +44,11 @@ requests.packages.urllib3.disable_warnings()
 import logging
 logging.disable(logging.CRITICAL)
 
-from blockstack_client import config
-from blockstack_client.client import session
-from blockstack_client.constants import WALLET_FILENAME, set_secret, serialize_secrets, write_secrets, load_secrets, CONFIG_PATH
-from blockstack_client.config import CONFIG_PATH, VERSION, client_uuid_path, get_or_set_uuid
-from blockstack_client.method_parser import parse_methods, build_method_subparsers
+from . import config
+from .client import session
+from .constants import WALLET_FILENAME, set_secret, serialize_secrets, write_secrets, load_secrets, CONFIG_PATH
+from .config import CONFIG_PATH, VERSION, client_uuid_path, get_or_set_uuid
+from .method_parser import parse_methods, build_method_subparsers
 
 from .wallet import inspect_wallet
 from utils import exit_with_error, print_result
