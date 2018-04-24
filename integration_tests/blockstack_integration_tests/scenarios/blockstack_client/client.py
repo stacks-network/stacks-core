@@ -96,7 +96,6 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
 
     # create proxy
     log.debug('Connect to {}://{}:{}'.format(server_protocol, server_host, server_port))
-    # proxy = BlockstackRPCClient(server_host, server_port, protocol=server_protocol)
     proxy = blockstackd_client.connect_hostport('{}://{}:{}'.format(server_protocol, server_host, server_port))
 
     # load all storage drivers
@@ -130,15 +129,17 @@ def load_storage(module_name):
     """
     Load a storage implementation, given its module name.
     """
+    prefix = '.backend.drivers.{}'
+    modpath = prefix.format(module_name)
+
     try:
-        prefix = 'blockstack_client.backend.drivers.{}'
-        storage_impl = importlib.import_module(prefix.format(module_name))
+        storage_impl = importlib.import_module(modpath, package='blockstack_integration_tests.scenarios.blockstack_client')
         storage_impl.__name__ = module_name
     except ImportError as e:
-        msg = ('Failed to import blockstack_client.backend.drivers.{}. '
+        msg = ('Failed to import {}.  '
                'Please verify that it is installed and is accessible via your PYTHONPATH')
         log.exception(e)
-        raise Exception(msg.format(module_name))
+        raise Exception(msg.format(modpath))
 
     return storage_impl
 
