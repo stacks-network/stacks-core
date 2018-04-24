@@ -76,7 +76,7 @@ class BlockstackDB( virtualchain.StateEngine ):
     State engine implementation for blockstack.
     """
 
-    def __init__(self, db_filename, disposition, working_dir, genesis_block={}, expected_snapshots={}):
+    def __init__(self, db_filename, disposition, working_dir, expected_snapshots={}):
         """
         Construct the Blockstack State Engine
         from locally-cached db state.
@@ -97,11 +97,9 @@ class BlockstackDB( virtualchain.StateEngine ):
         if os.path.exists(db_filename):
             self.db = namedb_open(db_filename)
         else:
-            self.db = namedb_create(db_filename, genesis_block)
+            self.db = namedb_create(db_filename)
 
         self.disposition = disposition
-
-        self.genesis_block = copy.deepcopy(genesis_block)
 
         # announcers to track
         blockstack_opts = default_blockstack_opts(working_dir, virtualchain.get_config_filename(virtualchain_hooks, working_dir))
@@ -110,9 +108,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         # collision detection 
         # map block_id --> history_id_key --> list of history ID values
         self.collisions = {}
-
-        # vesting flags for blocks
-        self.vesting = {}
 
         read_only = (disposition == DISPOSITION_RO)
 
@@ -149,7 +144,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
     
     @classmethod
-    def get_readwrite_instance(cls, working_dir, genesis_block={}, restore=False, restore_block_height=None):
+    def get_readwrite_instance(cls, working_dir, restore=False, restore_block_height=None):
         """
         Get a read/write instance to the db, without the singleton check.
         Used for low-level operations like db restore.
@@ -159,7 +154,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         import virtualchain_hooks
         db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
-        db = BlockstackDB(db_path, DISPOSITION_RW, working_dir, genesis_block=genesis_block)
+        db = BlockstackDB(db_path, DISPOSITION_RW, working_dir)
         rc = db.db_setup()
         if not rc:
             if restore:
@@ -441,12 +436,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
 
         self.db.commit()
-
-        # NOTE: tokens vest for the *next* block in order to make the immediately usable
-        assert block_id+1 in self.vesting, 'BUG: failed to vest at {}'.format(block_id)
-
         self.clear_collisions( block_id )
-        self.clear_vesting(block_id+1)
 
     
     def log_accept( self, block_id, vtxindex, op, op_data ):
@@ -617,14 +607,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         if block_id in self.collisions:
             del self.collisions[block_id]
        
-
-    def clear_vesting(self, block_id):
-        """
-        Clear out all vesting state for a given block number
-        """
-        if block_id in self.vesting:
-            del self.vesting[block_id]
-
 
     def check_collision( self, history_id_key, history_id, block_id, checked_ops, affected_opcodes ):
         """
@@ -828,65 +810,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         return name_rec_latest
      
 
-    def get_account_tokens(self, address):
-        """
-        Get the list of tokens that this address owns
-        """
-        cur = self.db.cursor()
-        return namedb_get_account_tokens(cur, address)
-
-    
-    def get_account(self, address, token_type):
-        """
-        Get the state of an account for a given token type
-        """
-        cur = self.db.cursor()
-        return namedb_get_account(cur, address, token_type)
-
-
-    def get_account_balance(self, account):
-        """
-        What's the balance of an account?
-        Aborts if its negative
-        """
-        balance = namedb_get_account_balance(account)
-        assert isinstance(balance, (int,long)), 'BUG: account balance of {} is {} (type {})'.format(account['address'], balance, type(balance))
-        return balance
-
-
-    def get_account_delta(self, address, token_type, block_id, vtxindex):
-        """
-        Get two consecutive account states---the one at (block_id, vtxindex), and the one prior.
-        """
-        return namedb_get_account_delta(address, token_type, block_id, vtxindex)
-
-
-    def get_account_diff(self, current, prior):
-        """
-        Get the difference in balances between two accounts
-        """
-        return namedb_get_account_diff(current, prior)
-
-
-    def get_account_history(self, address, block_start, block_end, offset=None, count=None):
-        """
-        Get the history of account transactions over a block range
-        Returns a dict keyed by blocks, which map to lists of account state transitions
-        """
-        cur = self.db.cursor()
-        return namedb_get_account_history(cur, address, block_start, block_end, offset=offset, count=count)
-
-
-    def get_all_account_addresses(self):
-        """
-        TESTING ONLY
-        Get all account addresses
-        """
-        assert BLOCKSTACK_TEST, 'BUG: this method can only be accessed in test mode'
-        cur = self.db.cursor()
-        return namedb_get_all_account_addresses(cur)
-
-
     def get_name_at( self, name, block_number, include_expired=False ):
         """
         Generate and return the sequence of of states a name record was in
@@ -905,15 +828,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         cur = self.db.cursor() 
         return namedb_get_namespace_at(cur, namespace_id, block_number, include_expired=True)
-
-
-    def get_account_at(self, address, block_number):
-        """
-        Get the sequence of states an account was in at a given block.
-        Returns a list of states
-        """
-        cur = self.db.cursor()
-        return namedb_get_account_at(cur, address, block_number)
 
 
     def get_name_history( self, name ):
@@ -1486,16 +1400,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         return namedb_get_value_hash_txids(cur, value_hash)
 
 
-    def is_token_type_supported(self, token_type):
-        """
-        Is this particular token type supported?
-        i.e. does it refer to an extant token type?
-        """
-        # only STACKs for now
-        # wait for Phase 2
-        return token_type in [TOKEN_TYPE_STACKS]
-
-
     @classmethod
     def nameop_set_collided( cls, nameop, history_id_key, history_id ):
         """
@@ -1584,6 +1488,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         canonical_op = None
         op_type_str = None      # for debugging
         opcode = accepted_nameop.get('opcode', None)
+        history_id = None
 
         try:
             assert opcode is not None, "Undefined op '%s'" % accepted_nameop['op']
@@ -1599,19 +1504,18 @@ class BlockstackDB( virtualchain.StateEngine ):
             
         elif opcode in OPCODE_CREATION_OPS:
             # creation
+            history_id_key = state_create_get_history_id_key( accepted_nameop )
+            history_id = accepted_nameop[history_id_key]
             canonical_op = self.commit_state_create( accepted_nameop, current_block_number )
             op_type_str = "state_create"
            
         elif opcode in OPCODE_TRANSITION_OPS:
             # transition 
+            history_id_key = state_transition_get_history_id_key( accepted_nameop )
+            history_id = accepted_nameop[history_id_key]
             canonical_op = self.commit_state_transition( accepted_nameop, current_block_number )
             op_type_str = "state_transition"
        
-        elif opcode in OPCODE_TOKEN_OPS:
-            # token operation 
-            canonical_op = self.commit_token_operation(accepted_nameop, current_block_number)
-            op_type_str = "token_operation"
-
         else:
             raise Exception("Unknown operation {}".format(opcode))
 
@@ -1622,81 +1526,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         log.debug("Extract consensus fields for {} in {}, as part of a {}".format(opcode, current_block_number, op_type_str))
         consensus_op = self.extract_consensus_op(opcode, input_op_data, canonical_op, current_block_number)
         return consensus_op
-
-    
-    def commit_account_debit(self, opcode, account_payment_info, current_block_number, current_vtxindex, current_txid):
-        """
-        Given the account info set by a state-create or state-transition or a token-operation,
-        debit the relevant account.
-        
-        Do not call this directly.
-
-        Return True on success
-        Abort on error
-        """
-        account_address = account_payment_info['address']
-        account_payment = account_payment_info['amount']
-        account_token_type = account_payment_info['type']
-
-        if account_address is not None and account_payment is not None and account_token_type is not None:
-            # sanity check 
-            try:
-                assert account_payment >= 0, 'Negative account payment {}'.format(account_payment)
-                assert self.is_token_type_supported(account_token_type), 'Unsupported token type {}'.format(account_token_type)
-            except Exception as e:
-                log.exception(e)
-                log.fatal("Sanity check failed")
-                os.abort
-
-            # have to debit this account
-            cur = self.db.cursor()
-            rc = namedb_account_debit(cur, account_address, account_token_type, account_payment, current_block_number, current_vtxindex, current_txid)
-            if not rc:
-                traceback.print_stack()
-                log.fatal("Failed to debit address {} {} {}".format(account_address, account_payment, account_token_type))
-                os.abort()
-
-            log.debug("COMMIT DEBIT ACCOUNT {} for {} units of {}(s) for {}".format(account_address, account_payment, account_token_type, opcode))
-
-        return True
-
-
-    def commit_account_credit(self, opcode, account_credit_info, current_block_number, current_vtxindex, current_txid):
-        """
-        Given the account info set by a state-create or state-transition or a token-operation,
-        debit the relevant account.
-        
-        Do not call this directly.
-
-        Return True on success
-        Abort on error
-        """
-        account_address = account_credit_info['address']
-        account_credit = account_credit_info['amount']
-        account_token_type = account_credit_info['type']
-
-        if account_address is not None and account_credit is not None and account_token_type is not None:
-            # sanity check 
-            try:
-                assert account_credit >= 0, 'Non-positive account credit {}'.format(account_credit)
-                assert self.is_token_type_supported(account_token_type), 'Unsupported token type {}'.format(account_token_type)
-            except Exception as e:
-                log.exception(e)
-                log.fatal("Sanity check failed")
-                os.abort
-
-            # have to debit this account
-            cur = self.db.cursor()
-            rc = namedb_account_credit(cur, account_address, account_token_type, account_credit, current_block_number, current_vtxindex, current_txid)
-            if not rc:
-                traceback.print_stack()
-                log.fatal("Failed to debit address {} {} {}".format(account_address, account_credit, account_token_type))
-                os.abort()
-
-            log.debug("COMMIT CREDIT ACCOUNT {} for {} units of {}(s) for {}".format(account_address, account_credit, account_token_type, opcode))
-
-        return True
-
 
     def commit_state_preorder( self, nameop, current_block_number ):
         """
@@ -1720,9 +1549,6 @@ class BlockstackDB( virtualchain.StateEngine ):
             log.error("FATAL: no opcode in preorder")
             os.abort()
 
-        # did we pay any tokens for this state?
-        account_payment_info = state_preorder_get_account_payment_info(nameop)
-
         cur = self.db.cursor()
 
         # cannot have collided 
@@ -1738,9 +1564,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         if not rc:
             log.error("FATAL: failed to commit preorder '%s'" % commit_preorder['preorder_hash'] )
             os.abort()
-
-        # debit tokens, if present
-        self.commit_account_debit(opcode, account_payment_info, current_block_number, nameop['vtxindex'], nameop['txid'])
 
         self.db.commit()
         return commit_preorder 
@@ -1866,7 +1689,6 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         table = state_transition_get_table( nameop )
         history_id_key = state_transition_get_history_id_key( nameop )
-        account_payment_info = state_transition_get_account_payment_info(nameop)
         history_id = nameop[history_id_key]
 
         # record must exist...
@@ -1897,92 +1719,9 @@ class BlockstackDB( virtualchain.StateEngine ):
             self.db.rollback()
             os.abort()
         
-        self.commit_account_debit(opcode, account_payment_info, current_block_number, transition['vtxindex'], transition['txid'])
-
         return canonical_op
+   
 
-
-    def commit_token_operation(self, token_op, current_block_number):
-        """
-        Commit a token operation that debits one account and credits another
-
-        Returns the new canonicalized record (with all compatibility quirks preserved)
-
-        DO NOT CALL THIS DIRECTLY
-        """
-        # have to have read-write disposition 
-        if self.disposition != DISPOSITION_RW:
-            log.error("FATAL: borrowing violation: not a read-write connection")
-            traceback.print_stack()
-            os.abort()
-
-        cur = self.db.cursor()
-        opcode = token_op.get('opcode', None)
-        clean_token_op = self.sanitize_op(token_op)
-       
-        try:
-            assert token_operation_is_valid(token_op), 'Invalid token operation'
-            assert opcode is not None, 'No opcode given'
-            assert 'txid' in token_op, 'No txid'
-            assert 'vtxindex' in token_op, 'No vtxindex'
-        except Exception as e:
-            log.exception(e)
-            log.error('FATAL: failed to commit token operation')
-            self.db.rollback()
-            os.abort()
-
-        table = token_operation_get_table(token_op)
-        account_payment_info = token_operation_get_account_payment_info(token_op)
-        account_credit_info = token_operation_get_account_credit_info(token_op)
-
-        # fields must be set
-        try:
-            for key in account_payment_info:
-                assert account_payment_info[key] is not None, 'BUG: payment info key {} is None'.format(key)
-
-            for key in account_credit_info:
-                assert account_credit_info[key] is not None, 'BUG: credit info key {} is not None'.format(key)
-
-            # NOTE: do not check token amount and type, since in the future we want to support converting
-            # between tokens
-        except Exception as e:
-            log.exception(e)
-            log.error("FATAL: invalid token debit or credit info")
-            os.abort()
-        
-        self.log_accept(current_block_number, token_op['vtxindex'], token_op['op'], token_op)
-        
-        # NOTE: this code is single-threaded, but this code must be atomic
-        self.commit_account_debit(token_op, account_payment_info, current_block_number, token_op['vtxindex'], token_op['txid'])
-        self.commit_account_credit(token_op, account_credit_info, current_block_number, token_op['vtxindex'], token_op['txid'])
-
-        namedb_history_save(cur, opcode, token_op['address'], None, None, current_block_number, token_op['vtxindex'], token_op['txid'], clean_token_op)
-        return clean_token_op
-
-    
-    def commit_account_vesting(self, block_height):
-        """
-        vest any tokens at this block height
-        """
-        # save all state
-        log.debug("Commit all database state before vesting")
-        self.db.commit()
-
-        if block_height in self.vesting:
-            traceback.print_stack()
-            log.fatal("Tried to vest tokens twice at {}".format(block_height))
-            os.abort()
-
-        # commit all vesting in one transaction
-        cur = self.db.cursor()
-        namedb_query_execute(cur, 'BEGIN', ())
-        res = namedb_accounts_vest(cur, block_height)
-        namedb_query_execute(cur, 'END', ())
-
-        self.vesting[block_height] = True
-        return True
-
-    
     @classmethod
     def restore_from_history( cls, rec, block_id ):
         """
