@@ -1,6 +1,6 @@
 import requests, os
 from ConfigParser import SafeConfigParser
-from blockstack_client.logger import get_logger
+from ...logger import get_logger
 
 ACCESS_TOKEN = None
 ACCESS_ADDRESS = None
