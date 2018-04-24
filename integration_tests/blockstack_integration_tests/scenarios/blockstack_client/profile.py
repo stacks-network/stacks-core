@@ -36,8 +36,8 @@ from .proxy import (
     json_is_error, get_name_blockchain_history, get_name_blockchain_record, get_name_record,
     get_default_proxy)
 
-from blockstack_client import storage
-from blockstack_client import user as user_db
+from . import storage
+from . import user as user_db
 
 from .logger import get_logger
 from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
