@@ -1402,10 +1402,8 @@ def do_preorder( fqu, payment_privkey_info, owner_privkey_info, cost_token_type,
         tx_fee = res.get('tx_fee')
         
         if cost_tokens is None:
-            if cost_token_type == 'BTC':
-                cost_tokens = res['opchecks']['name_price']
-            else:
-                cost_tokens = res['opchecks']['name_price_tokens']
+            assert cost_token_type == 'BTC'
+            cost_tokens = res['opchecks']['name_price']
 
     assert tx_fee, 'Missing tx fee'
     assert cost_tokens is not None, "Missing name cost"
@@ -1774,17 +1772,8 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee_units
     else:
         burn_address = virtualchain.address_reencode(str(burn_address))
 
-    if renewal_fee_units != 'BTC':
-        # we're paying tokens.
-        # we need a zonefile hash
-        name_info = blockstack_get_name_record(fqu, proxy=proxy)
-        if 'error' in name_info:
-            return name_info
-
-        zonefile_hash = name_info['value_hash']
-        if zonefile_hash is None:
-            zonefile_hash = '00' * LENGTH_VALUE_HASH
-
+    assert renewal_fee_units == 'BTC', 'Only support BTC'
+    
     if zonefile_hash is not None:
         zonefile_hash = str(zonefile_hash)
    
@@ -1803,10 +1792,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee_units
             tx_fee_per_byte = res['tx_fee_per_byte']
 
         if renewal_fee_cost is None:
-            if renewal_fee_units == 'BTC':
-                renewal_fee_cost = res['opchecks']['name_price']
-            else:
-                renewal_fee_cost = res['opchecks']['name_price_tokens']
+            renewal_fee_cost = res['opchecks']['name_price']
 
         if not tx_fee:
             tx_fee = res['tx_fee']
