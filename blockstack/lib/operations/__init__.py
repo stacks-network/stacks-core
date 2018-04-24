@@ -31,7 +31,6 @@ import namespacepreorder
 import namespacereveal
 import namespaceready
 import announce
-import tokentransfer
 
 import binascii
 import copy
@@ -53,7 +52,6 @@ from .namespacepreorder import tx_extract as extract_namespace_preorder, check a
 from .namespacereveal import tx_extract as extract_namespace_reveal, check as check_namespace_reveal, canonicalize as canonicalize_namespace_reveal, decanonicalize as decanonicalize_namespace_reveal
 from .namespaceready import tx_extract as extract_namespace_ready, check as check_namespace_ready, canonicalize as canonicalize_namespace_ready, decanonicalize as decanonicalize_namespace_ready
 from .announce import tx_extract as extract_announce, check as check_announce
-from .tokentransfer import tx_extract as extract_token_transfer, check as check_token_transfer
 
 SERIALIZE_FIELDS = {
     "NAME_PREORDER": preorder.FIELDS,
@@ -66,8 +64,7 @@ SERIALIZE_FIELDS = {
     "NAMESPACE_PREORDER": namespacepreorder.FIELDS,
     "NAMESPACE_REVEAL": namespacereveal.FIELDS,
     "NAMESPACE_READY": namespaceready.FIELDS,
-    "ANNOUNCE": announce.FIELDS,
-    "TOKEN_TRANSFER": tokentransfer.FIELDS
+    "ANNOUNCE": announce.FIELDS
 }
 
 MUTATE_FIELDS = {
@@ -81,8 +78,7 @@ MUTATE_FIELDS = {
     "NAMESPACE_PREORDER": namespacepreorder.MUTATE_FIELDS,
     "NAMESPACE_REVEAL": namespacereveal.MUTATE_FIELDS,
     "NAMESPACE_READY": namespaceready.MUTATE_FIELDS,
-    "ANNOUNCE": announce.MUTATE_FIELDS,
-    "TOKEN_TRANSFER": tokentransfer.MUTATE_FIELDS,
+    "ANNOUNCE": announce.MUTATE_FIELDS
 }
 
 # fields that do not have columns in the db schema, but are part of this operation's consensus ops hash
@@ -97,8 +93,7 @@ UNSTORED_CANONICAL_FIELDS = {
     'NAMESPACE_PREORDER': [],
     'NAMESPACE_REVEAL': [],
     'NAMESPACE_READY': [],
-    'ANNOUNCE': [],
-    'TOKEN_TRANSFER': [],
+    'ANNOUNCE': []
 }
 
 # NOTE: these all have the same signatures
@@ -113,8 +108,7 @@ EXTRACT_METHODS = {
     "NAMESPACE_PREORDER": extract_namespace_preorder,
     "NAMESPACE_REVEAL": extract_namespace_reveal,
     "NAMESPACE_READY": extract_namespace_ready,
-    "ANNOUNCE": extract_announce,
-    "TOKEN_TRANSFER": extract_token_transfer,
+    "ANNOUNCE": extract_announce
 }
 
 # NOTE: these all have the same signature
@@ -129,8 +123,7 @@ CHECK_METHODS = {
     "NAMESPACE_PREORDER": check_namespace_preorder,
     "NAMESPACE_REVEAL": check_namespace_reveal,
     "NAMESPACE_READY": check_namespace_ready,
-    "ANNOUNCE": check_announce,
-    "TOKEN_TRANSFER": check_token_transfer,
+    "ANNOUNCE": check_announce
 }
 
 # NOTE: these all have the same signature
@@ -233,9 +226,6 @@ def op_canonicalize_quirks(op_name, new_record, current_record):
     * if the operation was created by a NAME_IMPORT, then 'op_fee' must be a float (i.e. must end in .0)
     * always preserve the 'last_creation_op' field if it is not set in new_record
 
-    Other quirks:
-    * make sure token_fee is a string, to prevent overflows when reading from history
-
     Returns the new canonicalized op data
     """
     ret = {}
@@ -275,9 +265,6 @@ def op_canonicalize_quirks(op_name, new_record, current_record):
         # QUIRK: preserve last_creation_op across records
         ret['last_creation_op'] = quirk_values['last_creation_op']
 
-    if 'token_fee' in ret and isinstance(ret['token_fee'], (int,long)):
-        ret['token_fee'] = '{}'.format(ret['token_fee'])
-
     return ret
 
 
@@ -293,52 +280,75 @@ def op_check( state_engine, nameop, block_id, checked_ops ):
 
     TODO: remove type-cast
     """
+
     global CHECK_METHODS, MUTATE_FIELDS
 
-    nameop_clone = copy.deepcopy( nameop )
-    opcode = None
+    count = 0
+    while count < 3:
 
-    if 'opcode' not in nameop_clone.keys():
-        op = nameop_clone.get('op', None)
+        count += 1
+
+        nameop_clone = copy.deepcopy( nameop )
+        opcode = None
+
+        if 'opcode' not in nameop_clone.keys():
+            op = nameop_clone.get('op', None)
+            try:
+                assert op is not None, "BUG: no op defined"
+                opcode = op_get_opcode_name( op )
+                assert opcode is not None, "BUG: op '%s' undefined" % op
+            except Exception, e:
+                log.exception(e)
+                log.error("FATAL: BUG: no 'op' defined")
+                sys.exit(1)
+
+        else:
+            opcode = nameop_clone['opcode']
+  
+        check_method = CHECK_METHODS.get( opcode, None )
         try:
-            assert op is not None, "BUG: no op defined"
-            opcode = op_get_opcode_name( op )
-            assert opcode is not None, "BUG: op '%s' undefined" % op
+            assert check_method is not None, "BUG: no check-method for '%s'" % opcode
         except Exception, e:
             log.exception(e)
-            log.error("FATAL: BUG: no 'op' defined")
+            log.error("FATAL: BUG: no check-method for '%s'" % opcode )
             sys.exit(1)
 
-    else:
-        opcode = nameop_clone['opcode']
+        rc = check_method( state_engine, nameop_clone, block_id, checked_ops )
+        if not rc:
+            # rejected
+            break
 
-    check_method = CHECK_METHODS.get( opcode, None )
+        # was this type-cast to a new operation?
+        new_opcode = nameop_clone.get('opcode', None)
+        if new_opcode is None or new_opcode == opcode:
+            # we're done
+            nameop.clear()
+            nameop.update( nameop_clone )
+            break
+
+        else:
+            # try again 
+            log.debug("Nameop re-interpreted from '%s' to '%s' (%s)" % (opcode, new_opcode, count))
+            nameop['opcode'] = new_opcode 
+            continue
+
     try:
-        assert check_method is not None, "BUG: no check-method for '%s'" % opcode
+        assert count < 3, "BUG: multiple opcode type-casts detected"
     except Exception, e:
         log.exception(e)
-        log.error("FATAL: BUG: no check-method for '%s'" % opcode )
+        log.error("FATAL: BUG: multiple opcode type-casts detected")
         sys.exit(1)
+    
+    if rc:
+        nameop = op_canonicalize(nameop['opcode'], nameop)
 
-    rc = check_method( state_engine, nameop_clone, block_id, checked_ops )
-    if not rc:
-        # rejected
-        return False
+        # make sure we don't send unstored fields to the db that are otherwise canonical
+        unstored_canonical_fields = UNSTORED_CANONICAL_FIELDS.get(nameop['opcode'])
+        assert unstored_canonical_fields is not None, "BUG: no UNSTORED_CANONICAL_FIELDS entry for {}".format(nameop['opcode'])
 
-    # accepted! clean up and canonicalize
-    nameop.clear()
-    nameop.update(nameop_clone)
-
-    # nameop = op_canonicalize(nameop['opcode'], nameop)
-    op_canonicalize(nameop['opcode'], nameop)
-
-    # make sure we don't send unstored fields to the db that are otherwise canonical
-    unstored_canonical_fields = UNSTORED_CANONICAL_FIELDS.get(nameop['opcode'])
-    assert unstored_canonical_fields is not None, "BUG: no UNSTORED_CANONICAL_FIELDS entry for {}".format(nameop['opcode'])
-
-    for f in unstored_canonical_fields:
-        if f in nameop:
-            del nameop[f]
+        for f in unstored_canonical_fields:
+            if f in nameop:
+                del nameop[f]
 
     return rc
 
