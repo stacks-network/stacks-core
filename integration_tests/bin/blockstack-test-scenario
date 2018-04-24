@@ -1683,6 +1683,7 @@ if __name__ == "__main__":
     os.environ['BSK_TRANSACTION_BROADCAST_CONFIG'] = transaction_broadcaster_config_file
     os.environ['BLOCKSTACK_SEGWIT_TEST'] = '1'
     os.environ['BLOCKSTACK_TEST_NAME'] = scenario_module
+    os.environ['BLOCKSTACK_WORKING_DIR'] = working_dir
     
     BITCOIN_DIR = os.path.join(working_dir, 'bitcoin-regtest')
     if not os.path.exists(BITCOIN_DIR):
