@@ -55,7 +55,7 @@ import virtualchain
 
 log = virtualchain.get_logger("testlib")
 
-import blockstack_client
+from . import blockstack_client
 
 SATOSHIS_PER_COIN = 10**8
 TOKEN_TYPE_STACKS = 'STACKS'
@@ -145,13 +145,15 @@ class SegwitWallet(object):
 
 
 class MultisigSegwitWallet(object):
-    def __init__(self, m, *pks ):
+    def __init__(self, m, *pks, **kwargs ):
 
         self.privkey = virtualchain.make_multisig_segwit_info( m, pks )
         self.m = m
         self.n = len(pks)
         self.pks = pks
         self.segwit = True
+        self._token_grant = kwargs.get('tokens_granted', 0)
+        self._vesting_schedule = kwargs.get('vesting', {})
 
         self.addr = self.privkey['address']
 
@@ -603,8 +605,6 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
         except:
             if safety_checks:
                 raise
-
-        payment_addr = virtualchain.lib.ecdsalib.ecdsa_private_key(privatekey).public_key().address()
 
         kwargs = {}
         if not safety_checks:
@@ -1613,7 +1613,7 @@ def format_unspents(unspents):
     ]
 
 
-def get_unspents(address, bitcoind):
+def get_unspents(address):
     """
     Get the spendable transaction outputs, also known as UTXOs or
     unspent transaction outputs.
@@ -1621,6 +1621,7 @@ def get_unspents(address, bitcoind):
     NOTE: this will only return unspents if the address provided is present
     in the bitcoind server.
     """
+    global bitcoind
     addresses = [address]
     
     min_confirmations = 0
@@ -1651,7 +1652,7 @@ def get_utxos( addr ):
     Get the address balance
     """
     global bitcoind
-    return get_unspents(addr, bitcoind)
+    return get_unspents(addr)
 
 
 def serialize_tx(inputs, outputs):
@@ -1721,7 +1722,8 @@ def send_funds( privkey, satoshis, payment_addr ):
 
 
 def broadcast_transaction(txhex):
-    return sendrawtransaction(txhex)
+    txid = sendrawtransaction(txhex)
+    return {'tx_hash': txid}
 
 
 def sendrawtransaction( tx_hex, **kw ):
@@ -2693,14 +2695,13 @@ def peer_start( global_working_dir, working_dir, port=None, command='start', arg
 
     # preserve test environment variables
     for envar in os.environ.keys():
-        if envar.startswith("BLOCKSTACK_") and envar not in ['BLOCKSTACK_CLIENT_CONFIG', 'BLOCKSTACK_SERVER_CONFIG']:
+        if envar.startswith("BLOCKSTACK_") and envar not in ['BLOCKSTACK_SERVER_CONFIG']:
             log.debug("Env: '%s' = '%s'" % (envar, os.environ[envar]))
             env[envar] = os.environ[envar]
 
     env['BLOCKSTACK_ATLAS_NETWORK_SIMULATION'] = "1"
     env['BLOCKSTACK_ATLAS_NETWORK_SIMULATION_PEER'] = "1"
     env['BLOCKSTACK_SERVER_CONFIG'] = os.path.join(working_dir, 'blockstack-server.ini')
-    env['BLOCKSTACK_CLIENT_CONFIG'] = os.path.join(working_dir, 'client/client.ini')
 
     env['PATH'] = os.environ['PATH']
 
@@ -2804,31 +2805,22 @@ def peer_working_dir( base_working_dir, index ):
 def peer_setup( base_working_dir, index ):
     """
     Set up the ith peer
-    Return {'working_dir': ..., 'device_id': ..., 'config_path': ...} on success
+    Return {'working_dir': ...} on success
     Return {'error': ...} on error 
     """
     # set up a new peer
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-    assert config_path
-
-    config_dir = os.path.dirname(config_path)
-
     peer_wd = peer_working_dir(base_working_dir, index)
     peer_config_dir = os.path.join(peer_wd, 'client')
 
     os.makedirs(peer_wd)
     os.makedirs(peer_config_dir)
 
-    config_path_2 = os.path.join(peer_config_dir, 'client.ini')
-    if os.path.exists(config_path_2):
-        raise Exception("Config already exists for client {}".format(index))
-
     res = peer_make_config(peer_working_dir, 16300 + index, peer_wd)
     if 'error' in res:
         print "failed to set up {}".format(peer_wd)
         return {'error': 'failed to set up config dir'}
 
-    return {'working_dir': peer_wd, 'device_id': res['device_id'], 'config_path': config_path_2}
+    return {'working_dir': peer_wd}
 
 
 def list_working_dirs(base_working_dir):
