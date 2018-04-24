@@ -264,12 +264,10 @@ class WebTestServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         # UI
         bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts(self.server.working_dir) )
         blockheight = bitcoind.getblockcount()
-        conf = blockstack_client.get_config()
 
         panel = '<html><head></head><body>Integration test control panel<br>'
         panel += '<br>'
         panel += 'Blockchain height: {}<br>'.format(blockheight)
-        panel += 'API password: {}<br>'.format(conf['api_password'])
         panel += '<br>'
         panel += '<form action="/nextblock" method="post">'
         panel += '    Number of blocks: <input type="text" name="numblocks" value="1"> <input type="submit" value="Generate blocks"></form><br>'
@@ -789,7 +787,7 @@ def transaction_broadcaster_stop():
         print 'Failed to stop transaction broadcaster process'
 
 
-def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
+def atexit_cleanup( spv_headers_path, stop_bitcoind ):
     """
     Clean up a scenario
     """
@@ -807,10 +805,6 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
 
     gaia_hub_stop()
     transaction_broadcaster_stop()
-
-    if client_config_path is not None:
-        client_config_dir = os.path.dirname(client_config_path)
-        blockstack_client.rpc.local_api_stop(client_config_dir)
 
     if stop_bitcoind:
         bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
@@ -850,8 +844,8 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     """
 
     spv_headers_path = os.path.join( virtualchain_working_dir, "spv_headers.dat")
-    atexit_cleanup( spv_headers_path, None, False )
-    atexit.register( atexit_cleanup, spv_headers_path, client_config_file, True )
+    atexit_cleanup( spv_headers_path, False )
+    atexit.register( atexit_cleanup, spv_headers_path, True )
 
     client_config_dir = os.path.dirname(client_config_file)
 
@@ -861,8 +855,14 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     blockstack_api_opts = server_opts['blockstack-api']
     bitcoin_opts = server_opts['bitcoind']
 
-    client_opts = blockstack_client.config.configure(config_file=client_config_file, interactive=False)
-    utxo_opts = client_opts['blockchain-reader']
+    utxo_opts = {
+        'utxo_provider': 'bitcoind_utxo',
+        'rpc_username': 'blockstack',
+        'rpc_password': 'blockstacksystem',
+        'server': 'localhost',
+        'port': 18332,
+        'use_https': False
+    }
 
     # pass along extra arguments
     utxo_opts['blockchain_server'] = 'localhost'
@@ -898,8 +898,6 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     print ""
 
     bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts(virtualchain_working_dir) )
-
-    utxo_provider = blockstack_client.backend.utxo.bitcoind_utxo.BitcoindClient("blockstack", "blockstacksystem", port=18332, version_byte=virtualchain.version_byte )
     working_dir = virtualchain_working_dir
 
     print "working_dir: %s" % working_dir
@@ -938,9 +936,6 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
         log.info("Shutting down bitcoin")
         bitcoin_stop()
 
-        log.info("Shutting down API endpoint")
-        blockstack_client.rpc.local_api_stop(client_config_dir)
-        
         log.info("Shutting down Blockstackd")
         blockstackd.server_shutdown(server_state)
 
@@ -954,7 +949,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
             timeout_watchdog.ask_join()
             timeout_watchdog.join()
 
-        atexit_cleanup( spv_headers_path, None, True )
+        atexit_cleanup( spv_headers_path, True )
         
     def signal_shutdown_procedure(*args, **kw):
         shutdown_procedure()
@@ -1715,7 +1710,6 @@ if __name__ == "__main__":
     from blockstack.lib import *
 
     from blockstack.lib import nameset as blockstack_state_engine
-    import blockstack_client
 
     import blockstack_integration_tests.scenarios.testlib as testlib
 
