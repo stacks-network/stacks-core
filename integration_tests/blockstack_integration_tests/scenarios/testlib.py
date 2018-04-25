@@ -412,8 +412,10 @@ def nodejs_cli(*args, **kw):
         if res != 0:
             print err
 
-            print 'Sleeping for 30 minutes so you can experiment with what went wrong'
-            time.sleep(1800)
+            if os.environ.get('BLOCKSTACK_TEST_CLI_SLEEP_ON_FAILURE'):
+                print 'Sleeping for 30 minutes so you can experiment with what went wrong'
+                time.sleep(1800)
+
             raise Exception("Exit code {}: {}".format(res, cmd))
 
         ret = None
