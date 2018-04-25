@@ -673,7 +673,7 @@ def bitcoin_stop():
     global BITCOIN_DIR
     assert BITCOIN_DIR
     bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
-    rc = os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
+    rc = os.system("bitcoin-cli -regtest -rpcport=18332 -conf=%s stop" % bitcoin_conf)
     assert rc == 0, "Failed to stop bitcoind"
 
 
