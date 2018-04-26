@@ -70,8 +70,8 @@ def check( state_engine ):
         return False
     
     # paid fee 
-    if preorder['op_fee'] < blockstack.lib.client.get_name_cost('foo.test', hostport='http://localhost:16268'):
-        print "{} < {}".format(preorder['op_fee'], blockstack.lib.client.get_name_cost('foo.test', hostport='http://localhost:16268'))
+    if preorder['op_fee'] < blockstack.lib.client.get_name_cost('foo.test', hostport='http://localhost:16264'):
+        print "{} < {}".format(preorder['op_fee'], blockstack.lib.client.get_name_cost('foo.test', hostport='http://localhost:16264'))
         print "Insufficient fee"
         return False 
 

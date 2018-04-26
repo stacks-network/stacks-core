@@ -90,7 +90,6 @@ def start_subdomain_registrar():
 
 def scenario( wallets, **kw ):
 
-    start_transaction_broadcaster()
     start_subdomain_registrar()
 
     testlib.blockstack_namespace_preorder( "id", wallets[1].addr, wallets[0].privkey )

@@ -105,7 +105,7 @@ def check( state_engine ):
         print "name has wrong owner"
         return False 
 
-    update_history = blockstack.lib.client.list_update_history(name, hostport='http://localhost:16268')
+    update_history = blockstack.lib.client.list_update_history(name, hostport='http://localhost:16264')
     if update_history != update_hashes:
         print "update history: %s" % ",".join(update_history)
         print "update hashes:  %s" % ",".join(update_hashes)

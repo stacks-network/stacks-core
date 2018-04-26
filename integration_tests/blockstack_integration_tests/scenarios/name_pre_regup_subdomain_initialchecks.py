@@ -106,7 +106,7 @@ def scenario( wallets, **kw ):
     # must all be pending
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, hostport='http://localhost:16268')
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if not res['pending']:
             print 'not pending: {}'.format(fqn)
             print res
@@ -120,7 +120,7 @@ def scenario( wallets, **kw ):
 
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, hostport='http://localhost:16268')
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False

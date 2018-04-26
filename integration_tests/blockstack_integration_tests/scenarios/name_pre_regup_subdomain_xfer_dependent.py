@@ -151,7 +151,7 @@ def scenario( wallets, **kw ):
     # query each subdomain
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, hostport='http://localhost:16268')
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False
@@ -186,7 +186,7 @@ def scenario( wallets, **kw ):
             return False
 
         # there should only be three history items per name
-        hist = client.get_name_record(fqn, hostport='http://localhost:16268', include_history=True)
+        hist = client.get_name_record(fqn, hostport='http://localhost:16264', include_history=True)
         if 'error' in hist:
             print res
             return False

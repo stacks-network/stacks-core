@@ -81,7 +81,7 @@ def scenario( wallets, **kw ):
     def _query_subdomains(subdomain_names, expected_sequence, expected_owner):
         # query each subdomain.  Should get the latest
         for fqn in subdomain_names:
-            res = client.get_name_record(fqn, hostport='http://localhost:16268')
+            res = client.get_name_record(fqn, hostport='http://localhost:16264')
             if 'error' in res:
                 print res
                 print 'failed to query {}'.format(fqn)
@@ -146,7 +146,7 @@ def scenario( wallets, **kw ):
     
     # query subdomain history
     for subd in ['bar.foo1.test', 'bar.foo2.test', 'bar.foo3.test']:
-        res = client.get_name_record(subd, include_history=True, hostport='http://localhost:16268')
+        res = client.get_name_record(subd, include_history=True, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False

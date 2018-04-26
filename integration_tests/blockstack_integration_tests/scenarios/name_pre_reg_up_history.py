@@ -143,7 +143,7 @@ def check( state_engine ):
         return False
 
     # get history...
-    name_history = blockstack.lib.client.get_name_blockchain_history('foo.test', name_rec['first_registered'], state_engine.get_current_block()+1, hostport='http://localhost:16268')
+    name_history = blockstack.lib.client.get_name_blockchain_history('foo.test', name_rec['first_registered'], state_engine.get_current_block()+1, hostport='http://localhost:16264')
 
     # did 10 updates, 1 register
     if len(name_history) != 11:

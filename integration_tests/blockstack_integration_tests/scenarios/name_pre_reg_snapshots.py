@@ -139,9 +139,8 @@ logfile = {}
     
     assert take_snapshot(config_file, virtualchain_dir, snapshot_dir, 3)
 
-    zonefile_txt = testlib.make_empty_zonefile( "foo.test".format(i), wallets[3].addr)
-    value_hash = blockstack.lib.storage.get_zonefile_data_hash(empty_zonefile_str)
-
+    zonefile_txt = testlib.make_empty_zonefile( "foo1.test", wallets[3].addr)
+    zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
     value_hashes.append(zonefile_hash)
 
     namespace_ids.append('test')
@@ -174,8 +173,8 @@ logfile = {}
 
     assert take_snapshot(config_file, virtualchain_dir, snapshot_dir, 3)
 
-    zonefile_txt = testlib.make_empty_zonefile( "foo.test".format(i), wallets[3].addr)
-    value_hash = blockstack.lib.storage.get_zonefile_data_hash(empty_zonefile_str)
+    zonefile_txt = testlib.make_empty_zonefile( "foo2.test", wallets[3].addr)
+    zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
     value_hashes.append(zonefile_hash)
     
     testlib.blockstack_name_update('foo.test', zonefile_hash, wallets[3].privkey)
