@@ -382,17 +382,17 @@ def nodejs_cli(*args, **kw):
         base_cmd += ['-U']
 
     if consensus_hash:
-        base_cmd += ['-C', consensus_hash]
+        base_cmd += ['-C', str(consensus_hash)]
 
     if burn_address:
-        base_cmd += ['-B', burn_address]
+        base_cmd += ['-B', str(burn_address)]
 
     if tx_only:
         pattern = '^[0-9a-f]+$'
         base_cmd += ['-x']
 
     if price:
-        base_cmd += ['-P', '{}'.format(price['amount']), '-D', price['units']]
+        base_cmd += ['-P', '{}'.format(price['amount']), '-D', '{}'.format(price['units'])]
 
     base_cmd_save = base_cmd[:]
 
@@ -430,6 +430,14 @@ def nodejs_cli(*args, **kw):
 
     ret = run(base_cmd, list(args))
     if not tx_fee or tx_only:
+        try:
+            json_out = saved_out[0].strip().split('\n')[-1]
+            resp = json.loads(json_out)
+            if 'error' in resp:
+                return json_out
+        except:
+            pass
+
         if pattern:
             assert re.match(pattern, ret), 'Output does not match {}: {}\nfull output:\n{}\nerror:\n{}'.format(pattern, ret, saved_out[0], saved_err[0])
 
@@ -440,8 +448,17 @@ def nodejs_cli(*args, **kw):
     tx_fee_rate = int(round(float(tx_fee)/txlen))
     
     # do it again with this fee
-    base_cmd = base_cmd_save + ['-F', tx_fee_rate]
+    base_cmd = base_cmd_save + ['-F', '{}'.format(tx_fee_rate)]
     ret = run(base_cmd, list(args))
+
+    try:
+        json_out = saved_out[0].strip().split('\n')[-1]
+        resp = json.loads(json_out)
+        if 'error' in resp:
+            return json_out
+    except:
+        pass
+
     if pattern:
         assert re.match(pattern, ret), 'Output does not match {}: {}\nfull output:\n{}\nerror:\n{}'.format(pattern, ret, saved_out[0], saved_err[0])
 
@@ -511,6 +528,9 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
             txid = nodejs_cli('tx_register', name, register_addr, privatekey, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
         else:
             txid = nodejs_cli('tx_register', name, register_addr, privatekey, safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+
+        if 'error' in txid:
+            return txid
 
         if tx_only:
             resp = {
@@ -975,6 +995,11 @@ def blockstack_cli_get_name_blockchain_record( name, config_path=None):
 
     resp = nodejs_cli('get_blockchain_record', name)
     return json.loads(resp)
+
+
+# legacy
+def get_name_blockchain_record(name):
+    return blockstack_cli_get_name_blockchain_record(name)
 
 
 def blockstack_cli_get_name_blockchain_history( name, start_block=None, end_block=None, config_path=None):

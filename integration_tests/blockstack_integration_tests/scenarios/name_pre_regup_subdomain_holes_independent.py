@@ -126,7 +126,7 @@ def scenario( wallets, **kw ):
     # verify that initial subdomains are present 
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, hostport='http://localhost:16268')
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False
@@ -166,7 +166,7 @@ def scenario( wallets, **kw ):
     # verify that we're now up to sequence=2
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, hostport='http://localhost:16268')
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False
@@ -207,7 +207,7 @@ def scenario( wallets, **kw ):
     # query each subdomain (should all be at sequence 3)
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, hostport='http://localhost:16268')
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False

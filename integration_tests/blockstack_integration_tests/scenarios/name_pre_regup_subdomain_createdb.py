@@ -126,7 +126,7 @@ def scenario( wallets, **kw ):
     # subdomains should not exist---we haven't indexed them yet
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, hostport='http://localhost:16268')
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if 'error' not in res:
             print 'got a subdomain'
             print res
@@ -145,7 +145,7 @@ def scenario( wallets, **kw ):
     # query each subdomain
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, hostport='http://localhost:16268')
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False

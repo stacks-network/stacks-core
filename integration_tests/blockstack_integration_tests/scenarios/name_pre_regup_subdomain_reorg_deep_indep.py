@@ -131,7 +131,7 @@ def scenario( wallets, **kw ):
     def _query_subdomains(subdomain_names, expected_zonefiles, expected_sequence):
         # query each subdomain.  Should get the latest
         for (fqn, expected_zonefile) in zip(subdomain_names, expected_zonefiles):
-            res = client.get_name_record(fqn, hostport='http://localhost:16268')
+            res = client.get_name_record(fqn, hostport='http://localhost:16264')
             if 'error' in res:
                 print res
                 print 'failed to query {}'.format(fqn)

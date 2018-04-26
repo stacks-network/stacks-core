@@ -1209,7 +1209,7 @@ def bitcoin_regtest_reset(working_dir):
 
     # start up
     log.debug("Starting up bitcoind in regtest mode")
-    rc = os.system("bitcoind -daemon -rpcport=%s -conf=%s" % (18332, bitcoin_conf))
+    rc = os.system("bitcoind -daemon -deprecatedrpc=addwitnessaddress -rpcport=%s -conf=%s" % (18332, bitcoin_conf))
     if rc != 0:
         log.error("Failed to start `bitcoind`: rc = %s" % rc)
         return False

@@ -150,7 +150,7 @@ def scenario( wallets, **kw ):
     for domain in zonefiles:
         for i in range(0, 100):
             fqn = 'bar{}.{}'.format(i, domain)
-            res = client.get_name_record(fqn, hostport='http://localhost:16268')
+            res = client.get_name_record(fqn, hostport='http://localhost:16264')
             if 'error' in res:
                 print res
                 return False
