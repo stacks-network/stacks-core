@@ -164,7 +164,7 @@ def scenario( wallets, **kw ):
     proxy = testlib.make_proxy()
 
     # test 301 redirects.
-    res = testlib.blockstack_REST_call('GET', '/v1/names/baz.foo1.test', ses)
+    res = testlib.blockstack_REST_call('GET', '/v1/names/baz.foo1.test', ses, allow_redirects = False)
     if 'error' in res:
         res['test'] = 'Failed to query non-registered name.'
         print json.dumps(res)

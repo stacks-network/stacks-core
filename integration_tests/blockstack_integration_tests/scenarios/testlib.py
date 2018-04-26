@@ -2408,7 +2408,9 @@ def blockstack_app_session( app_domain, methods, config_path=None ):
     return {'ses': ses}
 
 
-def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, appname=None, data=None, raw_data=None, config_path=None, **query_fields ):
+def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None,
+                          appname=None, data=None, raw_data=None,
+                          allow_redirects = True, config_path=None, **query_fields ):
     """
     Low-level call to an API route
     Returns {'http_status': http status, 'response': json}
@@ -2453,7 +2455,7 @@ def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, a
         data = raw_data
         headers['content-type'] = 'application/octet-stream'
 
-    resp = requests.request( method, url, headers=headers, data=data, allow_redirects=False )
+    resp = requests.request( method, url, headers=headers, data=data, allow_redirects=allow_redirects )
 
     response = None
     try:

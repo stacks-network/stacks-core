@@ -941,8 +941,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     self._send_headers(status_code = 301,
                                        more_headers = { 'Location': redirect_location })
                     self.wfile.write(json.dumps({
-                        'status': 'redirect',
-                        'more': 'Redirecting to the domain\'s designated resolver for pending subdomains' }))
+                        'status': 'redirect'}))
                     return
             elif 'expired' in name_rec['error'].lower():
                 return self._reply_json({'error': name_rec['error']}, status_code=404)
