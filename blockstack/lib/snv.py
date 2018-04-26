@@ -99,20 +99,23 @@ def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
             log.exception(e)
             return None, None, None
 
+    bitcoind_opts = get_bitcoin_opts()
+    spv_headers_path = bitcoind_opts['bitcoind_spv_path']
+
     # first, can we trust this block? is it in the SPV headers?
     untrusted_block_header_hex = virtualchain.block_header_to_hex(
         untrusted_block_data, untrusted_block_data['previousblockhash']
     )
 
     block_id = SPVClient.block_header_index(
-        proxy.spv_headers_path,
+        spv_headers_path,
         ('{}00'.format(untrusted_block_header_hex)).decode('hex')
     )
 
     if block_id < 0:
         # bad header
         log.error('Block header "{}" is not in the SPV headers ({})'.format(
-            untrusted_block_header_hex, proxy.spv_headers_path
+            untrusted_block_header_hex, spv_headers_path
         ))
 
         return None, None, None
@@ -174,8 +177,11 @@ def serial_number_to_tx(serial_number, bitcoind_proxy, proxy=None):
             time.sleep(timeout)
             timeout = timeout * 2 + random.random() * timeout
 
+    bitcoind_opts = get_bitcoin_opts()
+    spv_headers_path = bitcoind_opts['bitcoind_spv_path']
+
     rc = SPVClient.sync_header_chain(
-        proxy.spv_headers_path, bitcoind_proxy.opts['bitcoind_server'], block_id
+        spv_headers_path, bitcoind_proxy.opts['bitcoind_server'], block_id
     )
 
     if not rc:
@@ -184,7 +190,7 @@ def serial_number_to_tx(serial_number, bitcoind_proxy, proxy=None):
         return None
 
     # verify block header
-    rc = SPVClient.block_header_verify(proxy.spv_headers_path, block_id, block_hash, block_data)
+    rc = SPVClient.block_header_verify(spv_headers_path, block_id, block_hash, block_data)
     if not rc:
         msg = 'Failed to verify block header for {} against SPV headers'
         log.error(msg.format(block_id))
