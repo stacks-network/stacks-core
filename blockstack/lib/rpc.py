@@ -458,7 +458,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'zonefile_hash': storage.get_zonefile_data_hash(zonefile_txt),
                 'address': name_rec['address'],
                 'blockchain': 'bitcoin',
-                'last_txid': name_rec['txid']
+                'last_txid': name_rec['txid'],
             }
 
         else:
@@ -476,6 +476,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'last_txid': name_rec['txid'],
                 'blockchain': 'bitcoin',
                 'expire_block': name_rec['expire_block'],
+                'renewal_deadline': name_rec['renewal_deadline']
             }
 
         return self._reply_json(ret)
