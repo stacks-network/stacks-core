@@ -2453,8 +2453,8 @@ def blockstack_REST_call( method, route, session, api_pass=None, app_fqu=None, a
         data = raw_data
         headers['content-type'] = 'application/octet-stream'
 
-    resp = requests.request( method, url, headers=headers, data=data )
-   
+    resp = requests.request( method, url, headers=headers, data=data, allow_redirects=False )
+
     response = None
     try:
         response = resp.json()

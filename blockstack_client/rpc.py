@@ -917,36 +917,33 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if 'error' in name_rec:
             if 'not found' in name_rec['error'].lower():
-                if blockstackd_scripts.is_subdomain(name):
-                    # handle redirection to specified resolver
-                    subdomain_name, domain_name = blockstackd_script.is_address_subdomain(name)
-                    domain_rec = blockstackd_client.get_name_record(domain_name, include_history = False,
-                                                                    hostport = blockstackd_url)
-                    if 'error' in domain_rec or 'zonefile' not in domain_rec:
-                        return self._reply_json(
-                            {'status': 'available', 'more': 'failed to lookup parent domain'}, status_code=404)
-                    domain_zf_txt = base64.b64decode(domain_rec['zonefile'])
-                    domain_zf_json = zonefile.decode_name_zonefile(domain_name, domain_zf_txt, allow_legacy=False)
-                    matching_uris = [ x['target'] for x in domain_zf_json['uri'] if x['name'] == '_resolver' ]
-                    if len(matching_uris) == 0:
-                        return self._reply_json(
-                            {'status': 'available',
-                             'more': 'failed to find parent domain\'s resolver'}, status_code=404)
-                    else:
-                        resolver_target = matching_uris[0]
-                        if resolver_target.endswith('/'):
-                            resolver_target = resolver_target[:-1]
-                        redirect_location = resolver_target + '/v1/names/' + name
-                        self._send_headers(status_code = 301,
-                                           more_headers = { 'Location': redirect_location })
-                        self.wfile.write(json.dumps({
-                            'status': 'redirect',
-                            'more': 'Redirecting to the domain\'s designated resolver for pending subdomains' }))
-                        return
-                else:
-                    return self._reply_json({'status': 'available'}, status_code=404)
-            elif 'failed to load subdomain' in name_rec['error'].lower():
                 return self._reply_json({'status': 'available'}, status_code=404)
+            elif 'failed to load subdomain' in name_rec['error'].lower():
+                # handle redirection to specified resolver
+                _, _, domain_name = blockstackd_scripts.is_address_subdomain(name)
+                domain_rec = blockstackd_client.get_name_record(domain_name, include_history = False,
+                                                                hostport = blockstackd_url)
+                if 'error' in domain_rec or 'zonefile' not in domain_rec:
+                    return self._reply_json(
+                        {'status': 'available', 'more': 'failed to lookup parent domain'}, status_code=404)
+                domain_zf_txt = base64.b64decode(domain_rec['zonefile'])
+                domain_zf_json = zonefile.decode_name_zonefile(domain_name, domain_zf_txt, allow_legacy=False)
+                matching_uris = [ x['target'] for x in domain_zf_json['uri'] if x['name'] == '_resolver' ]
+                if len(matching_uris) == 0:
+                    return self._reply_json(
+                        {'status': 'available',
+                         'more': 'failed to find parent domain\'s resolver'}, status_code=404)
+                else:
+                    resolver_target = matching_uris[0]
+                    if resolver_target.endswith('/'):
+                        resolver_target = resolver_target[:-1]
+                    redirect_location = resolver_target + '/v1/names/' + name
+                    self._send_headers(status_code = 301,
+                                       more_headers = { 'Location': redirect_location })
+                    self.wfile.write(json.dumps({
+                        'status': 'redirect',
+                        'more': 'Redirecting to the domain\'s designated resolver for pending subdomains' }))
+                    return
             elif 'expired' in name_rec['error'].lower():
                 return self._reply_json({'error': name_rec['error']}, status_code=404)
             else:
