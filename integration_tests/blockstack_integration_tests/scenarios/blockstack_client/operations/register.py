@@ -43,7 +43,7 @@ import virtualchain
 log = get_logger("blockstack-server")
 
 
-def build(name, value_hash, token_fee=None):
+def build(name, value_hash):
     """
     Takes in the name that was preordered, including the namespace ID (but not the id: scheme)
     Returns a hex string representing up to the maximum-length name's bytes.
@@ -61,14 +61,6 @@ def build(name, value_hash, token_fee=None):
     |----|--|----------------------------------|-------------------|
     magic op   name.ns_id (37 bytes, 0-padded)     zone file hash
 
-    Record format (STACKs phase 1):
-    (for register, tokens burned is not included)
-    (for renew, tokens burned is the number of tokens to burn)
-    
-    0    2  3                                  39                  59                             67
-    |----|--|----------------------------------|-------------------|------------------------------|
-    magic op   name.ns_id (37 bytes, 0-padded)     zone file hash    tokens burned (little-endian)
-
     """
     
     if not is_name_valid( name ):
@@ -78,22 +70,13 @@ def build(name, value_hash, token_fee=None):
         if len(value_hash) != LENGTH_VALUE_HASH * 2:
             raise Exception("Invalid value hash '%s' (%s)" % (value_hash, type(value_hash)))
 
-    if token_fee is not None:
-        if value_hash is None:
-            raise Exception("Need value hash if token fee is given")
-
     data = name.encode('hex')
     payload = None
 
     readable_script = None
     if value_hash is not None:
         padded_name = '{}{}'.format(data, '00' * (LENGTH_MAX_NAME - len(data)/2))
-        
-        if token_fee is not None:
-            hex_token_fee = '{:016x}'.format(token_fee)
-            readable_script = 'NAME_REGISTRATION 0x{} 0x{} 0x{}'.format(padded_name, value_hash, hex_token_fee)
-        else:
-            readable_script = 'NAME_REGISTRATION 0x{} 0x{}'.format(padded_name, value_hash)
+        readable_script = 'NAME_REGISTRATION 0x{} 0x{}'.format(padded_name, value_hash)
 
     else:
         readable_script = 'NAME_REGISTRATION 0x{}'.format(data)
@@ -201,23 +184,20 @@ def make_transaction(name, preorder_or_owner_addr, register_or_new_owner_addr, z
         assert len(change_inputs) > 0, "No UTXOs for {}".format(preorder_or_owner_addr)
 
     btc_renewal_fee = None
-    token_renewal_fee = None
 
     if renewal_fee is not None:
         # this is a NAME_RENEWAL
         # will be subsidizing with a separate payment key
         pay_fee = False
         if renewal_fee_units == 'BTC':
-            token_renewal_fee = 0
             btc_renewal_fee = renewal_fee
         else:
-            token_renewal_fee = renewal_fee
-            btc_renewal_fee = DEFAULT_DUST_FEE
+            raise ValueError("invalid units {}".format(renewal_fee_units))
     
     if subsidize:
         pay_fee = False
 
-    nulldata = build(name, zonefile_hash, token_fee=token_renewal_fee)
+    nulldata = build(name, zonefile_hash)
     outputs = make_outputs(nulldata, change_inputs, register_or_new_owner_addr, preorder_or_owner_addr, tx_fee,
                            burn_address=burn_address, renewal_fee=btc_renewal_fee, pay_fee=pay_fee,
                            dust_included = dust_included)

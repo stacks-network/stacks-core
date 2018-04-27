@@ -48,7 +48,7 @@ from scripts import check_name, check_namespace, check_subdomain, check_block, c
 
 import storage
 
-from config import BLOCKSTACK_TEST, get_bitcoin_opts, get_blockstack_opts, get_blockstack_api_opts, LENGTHS, VERSION, RPC_MAX_ZONEFILE_LEN, FIRST_BLOCK_MAINNET
+from config import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, get_bitcoin_opts, get_blockstack_opts, get_blockstack_api_opts, LENGTHS, VERSION, RPC_MAX_ZONEFILE_LEN, FIRST_BLOCK_MAINNET
 from client import json_is_error, json_is_exception, decode_name_zonefile, create_bitcoind_service_proxy
 
 import virtualchain
@@ -198,8 +198,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         except ValidationError as ve:
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
-            log.error("Validation error on request {}...".format(
-                request_str[:15]))
+
+            log.error("Validation error on request {}...".format(request_str[:15]))
+
             if ve.validator == "maxLength":
                 return {"error" : "maxLength"}
 
@@ -475,8 +476,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'address': address,
                 'last_txid': name_rec['txid'],
                 'blockchain': 'bitcoin',
-                'expire_block': name_rec['expire_block'],
-                'renewal_deadline': name_rec['renewal_deadline']
+                'expire_block': name_rec['expire_block'],      # expires_block is what blockstack.js expects
+                'renewal_deadline': name_rec['renewal_deadline'],
+                'grace_period': name_rec.get('grace_period', False),
             }
 
         return self._reply_json(ret)
@@ -1185,7 +1187,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         bitcoind_passwd = bitcoind_opts['bitcoind_passwd']
 
         bitcoind = create_bitcoind_service_proxy(bitcoind_user, bitcoind_passwd, server=bitcoind_host, port=bitcoind_port)
-        address = virtualchain.address_reencode(get_address)
+        address = virtualchain.address_reencode(address)
         utxos = get_unspents(address, bitcoind)
         return self._reply_json(utxos)
 

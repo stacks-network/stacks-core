@@ -317,7 +317,8 @@ def scenario( wallets, **kw ):
 
     testlib.next_block(**kw) # 701 (end of grace period)
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
-  
+ 
+    '''
     whois = testlib.blockstack_cli_whois('foo.test')
     if 'error' in whois:
         print whois
@@ -331,11 +332,14 @@ def scenario( wallets, **kw ):
     if whois['last_transaction_height'] != last_transaction_height:
         print 'accidentally registered'
         return False
+    '''
     
+    '''
     resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
     if 'error' not in resp:
         print resp
         return False
+    '''
 
     # should go through, but be rejected
     resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, safety_checks=False, tx_fee=500*5)

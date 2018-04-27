@@ -68,13 +68,13 @@ def scenario( wallets, **kw ):
     namespace_costs = {}
 
     for n in names + names_novowel + names_nonalpha:
-        name_cost_info = test_proxy.get_name_cost( n )
-        price_satoshis = name_cost_info['satoshis']
+        name_cost_info = blockstack.lib.client.get_name_cost( n, hostport='http://localhost:16264')
+        price_satoshis = name_cost_info['amount']
         name_costs[n] = price_satoshis
 
     for ns in namespaces:
-        namespace_cost_info = test_proxy.get_namespace_cost(ns)
-        namespace_price_satoshis = namespace_cost_info['satoshis']
+        namespace_cost_info = blockstack.lib.client.get_namespace_cost(ns, hostport='http://localhost:16264')
+        namespace_price_satoshis = namespace_cost_info['amount']
         namespace_costs[ns] = namespace_price_satoshis
 
     
@@ -85,13 +85,13 @@ def scenario( wallets, **kw ):
     new_namespace_costs = {}
 
     for n in names + names_novowel + names_nonalpha:
-        name_cost_info = test_proxy.get_name_cost( n )
-        price_satoshis = name_cost_info['satoshis']
+        name_cost_info = blockstack.lib.client.get_name_cost( n, hostport='http://localhost:16264')
+        price_satoshis = name_cost_info['amount']
         new_name_costs[n] = price_satoshis
 
     for ns in namespaces:
-        namespace_cost_info = test_proxy.get_namespace_cost(ns)
-        namespace_price_satoshis = namespace_cost_info['satoshis']
+        namespace_cost_info = blockstack.lib.client.get_namespace_cost(ns, hostport='http://localhost:16264')
+        namespace_price_satoshis = namespace_cost_info['amount']
         new_namespace_costs[ns] = namespace_price_satoshis
 
     for n in names + names_novowel + names_nonalpha:

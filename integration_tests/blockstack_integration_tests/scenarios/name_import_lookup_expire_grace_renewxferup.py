@@ -243,17 +243,11 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    testlib.blockstack_renew_user('foo.test', wallets[3].privkey, wallets[0].privkey)   # end of 701 (end of grace period)
+    testlib.blockstack_renew_user('foo.test', wallets[3].privkey, wallets[0].privkey, **kw)   # end of 701 (end of grace period)
 
     # try lookup (should succeed again)
     res = testlib.blockstack_cli_lookup('foo.test')
     if 'error' in res:
-        print res
-        return False
-
-    if res['zonefile'] != new_zonefile_txt:
-        print 'wrong zonefile'
-        print new_zonefile_txt
         print res
         return False
 

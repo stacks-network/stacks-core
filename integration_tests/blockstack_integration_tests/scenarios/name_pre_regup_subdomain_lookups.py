@@ -161,7 +161,7 @@ def scenario( wallets, **kw ):
             print json.dumps(res)
             return False
 
-        if res['response']['zonefile_txt'] != subdomain_zonefiles[fqn]:
+        if res['response']['zonefile'] != subdomain_zonefiles[fqn]:
             print 'wrong zone file'
             print res
             print 'expected'

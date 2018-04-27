@@ -69,13 +69,13 @@ def scenario( wallets, **kw ):
     zf1_txt = testlib.make_empty_zonefile('foo1.test', wallets[3].addr)
     zf2_txt = '\x00\x01\x02\x03\x04\x05'
 
-    testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=blockstack.lib.client.get_zonefile_data_hash(zf1_txt))
-    testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=blockstack.lib.client.get_zonefile_data_hash(zf2_txt))
+    testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=blockstack.lib.storage.get_zonefile_data_hash(zf1_txt))
+    testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=blockstack.lib.storage.get_zonefile_data_hash(zf2_txt))
     testlib.next_block( **kw )
 
     # replicate zonefiles 
     for zf in [zf1_txt, zf2_txt]:
-        res = testilb.blockstack_put_zonefile(zf1_txt)
+        res = testlib.blockstack_put_zonefile(zf)
         assert res
     
     print 'waiting for zonefiles to be saved...'
@@ -88,6 +88,10 @@ def scenario( wallets, **kw ):
         profile = {'name': name, 'type': '@Person', 'account': []}
         print 'sign profile for {}'.format(name)
 
+        profile_path = os.path.join(working_dir, '{}.profile'.format(name))
+        with open(profile_path, 'w') as f:
+            f.write(json.dumps(profile))
+
         jwt = testlib.blockstack_cli_sign_profile(profile_path, wallets[3].privkey)
         if 'error' in jwt:
             print jwt
@@ -95,7 +99,7 @@ def scenario( wallets, **kw ):
 
         jwt_path = os.path.join(working_dir, '{}.profile.jwt'.format(name))
         with open(jwt_path, 'w') as f:
-            f.write(jwt)
+            f.write(json.dumps(jwt))
 
         print 'verify profile for {}'.format(name)
 
@@ -107,7 +111,7 @@ def scenario( wallets, **kw ):
         print 'store profile for {}'.format(name)
 
         # store the jwt to the right place
-        res = testlib.blockstack_cli_put_profile(name, json.dumps(jwt), wallets[3].privkey)
+        res = testlib.blockstack_put_profile(name, json.dumps(jwt), wallets[3].privkey)
         assert res
 
         print 'lookup profile for {}'.format(name)

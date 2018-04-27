@@ -97,7 +97,7 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
-    nameops = blockstack.lib.client.get_nameops_at(testlib.get_current_block(**kw), hostport='http://localhost:16264')
+    nameops = blockstack.lib.client.get_blockstack_transactions_at(testlib.get_current_block(**kw), hostport='http://localhost:16264')
     if 'error' in nameops:
         print nameops
         return False

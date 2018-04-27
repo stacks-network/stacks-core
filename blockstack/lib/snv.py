@@ -179,9 +179,10 @@ def serial_number_to_tx(serial_number, bitcoind_proxy, proxy=None):
 
     bitcoind_opts = get_bitcoin_opts()
     spv_headers_path = bitcoind_opts['bitcoind_spv_path']
+    bitcoind_server = bitcoind_opts['bitcoind_server']
 
     rc = SPVClient.sync_header_chain(
-        spv_headers_path, bitcoind_proxy.opts['bitcoind_server'], block_id
+        spv_headers_path, bitcoind_server, block_id
     )
 
     if not rc:

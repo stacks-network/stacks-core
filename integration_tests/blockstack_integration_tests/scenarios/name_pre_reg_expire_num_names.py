@@ -46,8 +46,8 @@ NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_m
 
 
 def test_name_count(expected_num, expected_cum_num):
-    num_names = blockstack.lib.client.get_num_names()
-    num_names_cum = blockstack.lib.client.get_num_names(include_expired=True)
+    num_names = blockstack.lib.client.get_num_names(hostport='http://localhost:16264')
+    num_names_cum = blockstack.lib.client.get_num_names(include_expired=True, hostport='http://localhost:16264')
     if num_names != expected_num:
         print 'wrong number of names: {}'.format(num_names)
         return False
@@ -94,8 +94,8 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # should be zero names, zero cumulative names 
-    num_names = blockstack.lib.client.get_num_names()
-    num_names_cum = blockstack.lib.get_num_names(include_expired=True)
+    num_names = blockstack.lib.client.get_num_names(hostport='http://localhost:16264')
+    num_names_cum = blockstack.lib.client.get_num_names(include_expired=True, hostport='http://localhost:16264')
     if num_names != 0:
         print 'wrong number of names: {}'.format(num_names)
         return False
