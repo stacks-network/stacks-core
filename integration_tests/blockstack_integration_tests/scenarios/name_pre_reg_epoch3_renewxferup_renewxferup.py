@@ -63,11 +63,13 @@ def scenario( wallets, **kw ):
         print whois
         return False
 
+    ''' this only applies to the old CLI
     # should fail (safety checks stop it)
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr )
     if 'error' not in resp:
         print resp
         return False
+    '''
 
     # should succeed in being sent
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr, safety_checks=False, tx_fee=10000 * 5 )

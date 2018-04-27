@@ -39,7 +39,7 @@ snv_block_id = None
 last_consensus = None
 
 # do the 2nd epoch
-NAMESPACE_LIFETIME_MULTIPLIER = blockstack.get_epoch_namespace_lifetime_multiplier( blockstak.EPOCH_1_END_BLOCK + 1, "test" )
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack.get_epoch_namespace_lifetime_multiplier( blockstack.EPOCH_1_END_BLOCK + 1, "test" )
 
 def scenario( wallets, **kw ):
 

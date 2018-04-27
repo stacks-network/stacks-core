@@ -243,6 +243,13 @@ def json_validate(schema, resp):
     try:
         json_validate_error(resp)
     except ValidationError:
+        if json_is_exception(resp):
+            # got a traceback 
+            if BLOCKSTACK_TEST:
+                log.error('\n{}'.format(resp['traceback']))
+
+            return {'error': 'Blockstack Core encountered an exception. See `traceback` for details', 'traceback': resp['traceback'], 'http_status': 500}
+
         if 'error' in resp and 'http_status' not in resp:
             # bad error message
             raise 
@@ -1053,7 +1060,7 @@ def get_name_record(name, include_history=False, include_expired=False, include_
 
         if include_grace:
             # only care if the name is beyond the grace period
-            if lastblock > int(resp['record']['renewal_deadline']) and int(resp['record']['renewal_deadline']) > 0:
+            if lastblock >= int(resp['record']['renewal_deadline']) and int(resp['record']['renewal_deadline']) > 0:
                 return {'error': 'Name expired', 'http_status': 404}
 
             elif int(resp['record']['renewal_deadline']) > 0 and lastblock >= int(resp['record']['expire_block']) and lastblock < int(resp['record']['renewal_deadline']):
@@ -1064,7 +1071,7 @@ def get_name_record(name, include_history=False, include_expired=False, include_
 
         else:
             # only care about expired, even if it's in the grace period
-            if lastblock > resp['record']['expire_block'] and int(resp['record']['expire_block']) > 0:
+            if lastblock > int(resp['record']['expire_block']) and int(resp['record']['expire_block']) > 0:
                 return {'error': 'Name expired', 'http_status': 404}
 
     return resp['record']

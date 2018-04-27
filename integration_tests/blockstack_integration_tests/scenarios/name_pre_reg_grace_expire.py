@@ -75,11 +75,12 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
     testlib.next_block(**kw)
 
-    # can't update 
+    '''
     res = testlib.blockstack_name_update("foo.test", '22' * 20, wallets[3].privkey)
     if 'error' not in res:
         print res
         return False
+    '''
 
     res = testlib.blockstack_name_update("foo.test", '22' * 20, wallets[3].privkey, safety_checks=False, tx_fee=300*5)
     if 'error' in res:
@@ -95,7 +96,7 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    if res.has_key('zonefile_hash'):
+    if res.has_key('zonefile_hash') and res['zonefile_hash']:
         print res
         return False
 

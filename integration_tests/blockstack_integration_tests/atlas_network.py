@@ -455,7 +455,7 @@ class AtlasNetwork( SocketServer.ThreadingMixIn, SimpleXMLRPCServer ):
         prob = self.drop_probability( src_hostport, dest_hostport )
         if random.random() <= prob:
             log.debug("Drop connection (%s-%s)" % (src_hostport, dest_hostport))
-            se = socket.error("Connection Refused")
+            se = socket.error("Connection Refused: dropped {}-{}".format(src_hostport, dest_hostport))
             se.errno = errno.ECONNREFUSED
             raise se
 

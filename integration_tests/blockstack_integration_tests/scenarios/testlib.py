@@ -463,6 +463,11 @@ def nodejs_cli(*args, **kw):
     if price:
         base_cmd += ['-P', '{}'.format(price['amount']), '-D', '{}'.format(price['units'])]
 
+    grace_period = blockstack.lib.config.get_epoch_namespace_lifetime_grace_period(state_engine.get_current_block(), '*')
+    fees_period = blockstack.lib.config.get_epoch_namespace_receive_fees_period(state_engine.get_current_block(), '*')
+
+    base_cmd += ['-N', '{}'.format(fees_period), '-G', '{}'.format(grace_period)]
+
     base_cmd_save = base_cmd[:]
 
     if tx_fee:
@@ -544,6 +549,10 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     resp = None
     if has_nodejs_cli() and wallet is None and virtualchain.is_singlesig(privatekey):
         txid = nodejs_cli('tx_preorder', name, register_addr, privatekey, burn_addr=burn_addr, consensus_hash=consensus_hash, tx_fee=tx_fee, tx_only=tx_only, price=price, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
+
+        if 'error' in txid:
+            return txid
+
         if tx_only:
             resp = {
                 'status': True,
@@ -653,6 +662,10 @@ def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, te
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key):
         txid = nodejs_cli('update', name, 'ignored', privatekey, payment_key, data_hash, safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+
+        if 'error' in txid:
+            return txid
+
         if tx_only:
             resp = {
                 'status': True,
@@ -687,6 +700,10 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key):
         txid = nodejs_cli('transfer', name, address, '{}'.format(keepdata).lower(), privatekey, payment_key, safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+
+        if 'error' in txid:
+            return txid
+
         if tx_only:
             resp = {
                 'status': True,
@@ -712,7 +729,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
     return resp
 
 
-def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, zonefile_hash=None, tx_fee=None, tx_only=False, price=None, expect_fail=False, tx_fee_per_byte=None ):
+def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, zonefile_hash=None, tx_fee=None, tx_only=False, price=None, expect_fail=False, tx_fee_per_byte=None, use_cli=True):
     
     global api_call_history
     
@@ -720,18 +737,22 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
     payment_key = get_default_payment_wallet().privkey
     resp = None
 
-    if has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key):
+    if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key) and not (recipient_addr is None and zonefile_hash is not None):
         txid = None
         if recipient_addr is not None:
             if zonefile_hash is not None:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, recipient_addr, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_only=tx_only, price=price, burn_address=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+                txid = nodejs_cli('renew', name, privatekey, payment_key, recipient_addr, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_only=tx_only, price=price, burn_addr=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
             else:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, recipient_addr, safety_checks=safety_checks, burn_address=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
+                txid = nodejs_cli('renew', name, privatekey, payment_key, recipient_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
         else:
             if zonefile_hash is not None:
+                # txid = nodejs_cli('renew', name, privatekey, payment_key, owner_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
                 raise Exception("Cannot set a zone file hash without a destination address")
             else:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, safety_checks=safety_checks, burn_address=burn_addr, price=price, tx_fee=tx_fee)
+                txid = nodejs_cli('renew', name, privatekey, payment_key, safety_checks=safety_checks, burn_addr=burn_addr, price=price, tx_fee=tx_fee)
+
+        if 'error' in txid:
+            return txid
 
         if tx_only:
             resp = {
@@ -775,6 +796,10 @@ def blockstack_name_revoke( name, privatekey, safety_checks=True, config_path=No
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key):
         txid = nodejs_cli('revoke', name, privatekey, payment_key, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+
+        if 'error' in txid:
+            return txid
+
         if tx_only:
             resp = {
                 'status': True,
@@ -806,6 +831,10 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     resp = None
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
         txid = nodejs_cli('name_import', name, recipient_address, update_hash, privatekey, tx_only=tx_only, safety_checks=safety_checks)
+
+        if 'error' in txid:
+            return txid
+
         if tx_only:
             resp = {
                 'status': True,
@@ -830,14 +859,17 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     return resp
 
 
-def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_only=False, price=None, expect_fail=False):
+def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_only=False, price=None, expect_fail=False, use_cli=True):
     
     global api_call_history
     resp = None
     payment_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
 
-    if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
+    if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
         txid = nodejs_cli('namespace_preorder', namespace_id, register_addr, privatekey, consensus_hash=consensus_hash, safety_checks=safety_checks, price=price, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+
+        if 'error' in txid:
+            return txid
 
         if tx_only:
             resp = {
@@ -875,15 +907,19 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
     return resp
 
 
-def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, tx_only=False, config_path=None):
+def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, tx_only=False, config_path=None, use_cli=True):
     
     global api_call_history
     resp = None
     register_addr = virtualchain.address_reencode(register_addr)
 
-    if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
+    if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
         txid = nodejs_cli('namespace_reveal', namespace_id, register_addr, '{}'.format(version_bits), '{}'.format(lifetime), '{}'.format(coeff), '{}'.format(base), 
                 ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), privatekey, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only)
+
+        if 'error' in txid:
+            return txid
+
         if tx_only:
             resp = {
                 'status': True,
@@ -909,13 +945,17 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     return resp
 
 
-def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, tx_only=False, config_path=None ):
+def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, tx_only=False, config_path=None, use_cli=True):
     
     global api_call_history
     resp = None
 
-    if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
+    if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
         txid = nodejs_cli('namespace_ready', namespace_id, privatekey, safety_checks=safety_checks, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+
+        if 'error' in txid:
+            return txid
+
         resp = {
             'status': True,
             'transaction_hash': txid
@@ -943,6 +983,10 @@ def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False,
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
         message_hash = blockstack.lib.storage.get_zonefile_data_hash(message)
         txid = nodejs_cli('announce',  message_hash, privatekey, safety_checks=safety_checks, tx_only=tx_only)
+
+        if 'error' in txid:
+            return txid
+
         if tx_only:
             resp = {
                 'status': True,
@@ -1034,21 +1078,34 @@ def blockstack_cli_namespace_preorder( namespace_id, payment_privkey, reveal_pri
     """
     Preorder a namespace
     """
-    return blockstack_namespace_preorder(namespace_id, virtualchain.get_privkey_address(reveal_privkey), payment_privkey)
+    use_cli = True
+    if not virtualchain.is_singlesig(payment_privkey) or not virtualchain.is_singlesig(reveal_privkey):
+        use_cli = False
+
+    return blockstack_namespace_preorder(namespace_id, virtualchain.get_privkey_address(reveal_privkey), payment_privkey, use_cli=use_cli)
 
 
-def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privkey, lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, preorder_txid=None, config_path=None, version_bits=None ):
+def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privkey, lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, preorder_txid=None, config_path=None, version_bits=None, expect_fail=False):
     """
     reveal a namespace
     """
-    return blockstack_namespace_reveal(namespace_id, virtualchain.get_privkey_address(reveal_privkey), lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, payment_privkey, version_bits=version_bits)
+    use_cli = True
+    if not virtualchain.is_singlesig(payment_privkey) or not virtualchain.is_singlesig(reveal_privkey):
+        use_cli = False
+
+    buckets = [int(x) for x in buckets.split(',')]
+    return blockstack_namespace_reveal(namespace_id, virtualchain.get_privkey_address(reveal_privkey), lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, payment_privkey, version_bits=version_bits, use_cli=use_cli, expect_fail=expect_fail)
 
 
 def blockstack_cli_namespace_ready( namespace_id, reveal_privkey, config_path=None ):
     """
     launch a namespace
     """
-    return blockstack_namespace_ready(namespace_id, reveal_privkey)
+    use_cli = True
+    if not virtualchain.is_singlesig(payment_privkey) or not virtualchain.is_singlesig(reveal_privkey):
+        use_cli = False
+
+    return blockstack_namespace_ready(namespace_id, reveal_privkey, use_cli=use_cli)
   
 
 def blockstack_cli_whois( name, config_path=None):
@@ -1092,7 +1149,7 @@ def blockstack_cli_verify_profile(path, pubkey_or_addr, config_path=None):
         raise Exception("Missing blockstack-cli")
 
     resp = nodejs_cli('profile_verify', path, pubkey_or_addr)
-    return json.loads(s)
+    return json.loads(resp)
 
 
 def blockstack_cli_get_name_blockchain_record( name, config_path=None):
@@ -1103,6 +1160,7 @@ def blockstack_cli_get_name_blockchain_record( name, config_path=None):
         raise Exception("Missing blockstack-cli")
 
     resp = nodejs_cli('get_blockchain_record', name)
+    print 'blockchain record for {} is {}'.format(name, resp)
     return json.loads(resp)
 
 
@@ -1307,7 +1365,7 @@ def blockstack_renew_user(name, privkey, owner_privkey, **kw):
     owner_privkey = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
 
     profile = kw.get('profile', DEFAULT_PROFILE)
-    profile_url = 'http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(new_addr, network='mainnet'))
+    profile_url = 'http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(addr, network='mainnet'))
     zonefile_txt = "$ORIGIN {}\n$TTL 3600\n_http URI 10 1 {}".format(name, profile_url)
 
     zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
@@ -1316,8 +1374,8 @@ def blockstack_renew_user(name, privkey, owner_privkey, **kw):
     next_block(**kw)
 
     blockstack_put_zonefile(zonefile_txt)
-    profile_data = blockstack_make_profile({'type': '@Person', 'account': []}, privkey)
-    blockstack_put_profile(name, profile_data, privkey)
+    profile_data = blockstack_make_profile({'type': '@Person', 'account': []}, owner_privkey)
+    blockstack_put_profile(name, profile_data, owner_privkey)
     return True
 
 
@@ -1359,7 +1417,13 @@ def blockstack_put_zonefile(zonefile_txt, config_path=None):
     """
     global atlas_zonefiles_present
     if has_nodejs_cli():
-        res = nodejs_cli('zonefile_push', zonefile_txt)
+        fd, path = tempfile.mkstemp('-blockstack-zonefile')
+        os.write(fd, zonefile_txt)
+        os.close(fd)
+
+        res = nodejs_cli('zonefile_push', path)
+        os.unlink(path)
+
         print res
         return True
 
@@ -1386,7 +1450,7 @@ def blockstack_make_profile( profile_data, privkey ):
         raise Exception("Need blockstack-cli")
 
 
-def blockstack_put_profile(name, profile_token, privkey):
+def blockstack_put_profile(name, profile_token, privkey, safety_checks=True):
     """
     Store a signed profile token
     """
@@ -1395,7 +1459,7 @@ def blockstack_put_profile(name, profile_token, privkey):
         os.write(fd, profile_token)
         os.close(fd)
 
-        res = nodejs_cli('profile_store', name, path, privkey)
+        res = nodejs_cli('profile_store', name, path, privkey, safety_checks=safety_checks)
         os.unlink(path)
 
         return json.loads(res)['profileUrls']
@@ -1648,11 +1712,11 @@ def get_unspents(address):
     NOTE: this will only return unspents if the address provided is present
     in the bitcoind server.
     """
-    global bitcoind
     addresses = [address]
     
+    bitcoind = connect_bitcoind()
     min_confirmations = 0
-    max_confirmation = 2000000000  # just a very large number for max
+    max_confirmation = 99999  # just a very large number for max
     unspents = bitcoind.listunspent(min_confirmations, max_confirmation, addresses)
 
     if len(unspents) == 0:
@@ -1757,7 +1821,7 @@ def sendrawtransaction( tx_hex, **kw ):
     """
     Send a raw transaction to the regtest bitcoind
     """
-    global bitcoind
+    bitcoind = connect_bitcoind()
     return bitcoind.sendrawtransaction( tx_hex )
 
 
@@ -1765,7 +1829,7 @@ def getrawtransaction( txid, verbose, **kw ):
     """
     Get a raw transaction from the regtest bitcoind
     """
-    global bitcoind
+    bitcoind = connect_bitcoind()
     return bitcoind.getrawtransaction( txid, verbose )
 
 
@@ -1773,7 +1837,7 @@ def getbalance( addr, **kw ):
     """
     Get the balance of an address
     """
-    global bitcoind
+    bitcoind = connect_bitcoind()
     return bitcoind.getbalance( addr )
 
 
@@ -2569,7 +2633,7 @@ def decoderawtransaction( tx_hex ):
     """
     Decode a raw transaction 
     """
-    global bitcoind
+    bitcoind = connect_bitcoind()
     return bitcoind.decoderawtransaction( tx_hex )
 
 # setters for the test enviroment
@@ -2675,12 +2739,14 @@ def peer_make_config( working_dir, peer_port, dirp, seed_relations={}, blacklist
     virtualchain_bitcoin_conf['bitcoind_spv_path'] = os.path.join( dirp, "spv_headers.dat" )
 
     blockstack_conf['rpc_port'] = peer_port
-    blockstack_conf['server_version'] = '0.17.0'
+    blockstack_conf['server_version'] = '0.19.0'
     blockstack_conf['zonefiles'] = os.path.join( dirp, 'zonefiles' )
     blockstack_conf['atlas_seeds'] = ",".join( ["localhost:%s" % p for p in seed_relations.get(peer_port, []) ] )
     blockstack_conf['atlas_blacklist'] = ",".join( ["localhost:%s" % p for p in blacklist_relations.get(peer_port, [])] )
     blockstack_conf['atlasdb_path'] = os.path.join( dirp, 'atlas.db' )
     blockstack_conf['atlas_hostname'] = 'localhost'
+    blockstack_conf['atlas_port'] = peer_port
+    blockstack_conf['enabled'] = True
 
     bitcoin_conf = {}
     for key in virtualchain_bitcoin_conf.keys():
@@ -2690,7 +2756,8 @@ def peer_make_config( working_dir, peer_port, dirp, seed_relations={}, blacklist
 
     conf = {
         'bitcoind': bitcoin_conf,
-        'blockstack': blockstack_conf
+        'blockstack': blockstack_conf,
+        'blockstack-api': {'enabled': False},
     }
 
     conf_path = os.path.join( dirp, 'blockstack-server.ini' )
