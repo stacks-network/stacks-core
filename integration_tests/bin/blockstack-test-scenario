@@ -182,6 +182,7 @@ DEFAULT_GAIA_HUB_CONFIG_TEMPLATE = """
 }
 """
 
+# check once per second
 DEFAULT_TRANSACTION_BROADCASTER_TEMPLATE = """
 {
   "winstonConsoleTransport": {
@@ -192,7 +193,7 @@ DEFAULT_TRANSACTION_BROADCASTER_TEMPLATE = """
       "colorize": false,
       "json": false
   },
-  "checkTransactionPeriod": 0.1,
+  "checkTransactionPeriod": 0.0166666667,
   "dbLocation": "@WORKING_DIR@/transaction-broadcaster.db",
   "regtest": true,
   "stalenessDeadline": 3600,
@@ -202,6 +203,7 @@ DEFAULT_TRANSACTION_BROADCASTER_TEMPLATE = """
     "utxo": "http://localhost:%s"
   }
 }""" % (TEST_TRANSACTION_BROADCASTER_PORT, TEST_CLIENT_RPC_PORT, TEST_CLIENT_RPC_PORT)
+
 
 class Pinger(threading.Thread):
     """
@@ -743,17 +745,11 @@ def transaction_broadcaster_start(config_path):
     """
     Start the transaction broadcaster
     """
-    print 'Starting transaction broadcaster'
     global TRANSACTION_BROADCASTER_SUBPROCESS
 
     TRANSACTION_BROADCASTER_SUBPROCESS = None
 
-    rc = os.system("which blockstack-transaction-broadcaster")
-    if rc != 0:
-        print 'blockstack-transaction-broadcaster is not installed'
-        return 
-
-    p = subprocess.Popen('which blockstack-gaia-hub', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen('which blockstack-transaction-broadcaster', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
     rc = p.returncode
     if rc != 0:
@@ -766,6 +762,10 @@ def transaction_broadcaster_start(config_path):
     txb_stdout = open(txb_logfile_path, 'w')
     txb_stderr = open(txb_logfile_path, 'w')
 
+    print 'Starting transaction broadcaster at {}'.format(txb_path)
+
+    os.environ['BSK_TRANSACTION_BROADCAST_DEVELOP'] = '1'
+    os.environ['BSK_TRANSACTION_BROADCAST_CONFIG'] = config_path
     p = subprocess.Popen([txb_path], shell=False, stdout=txb_stdout, stderr=txb_stderr)
 
     TRANSACTION_BROADCASTER_SUBPROCESS = p
@@ -809,6 +809,8 @@ def atexit_cleanup( spv_headers_path, stop_bitcoind ):
     if stop_bitcoind:
         bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
         os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
+
+    testlib.cleanup()
 
 
 def sync_virtualchain_upcall(server_state):
@@ -1553,7 +1555,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # basic sanity checks---need some tools to exist 
-    for tool in ['sqlite3', 'blockstack-cli', 'blockstack-gaia-hub', 'blockstack-transaction-broadcaster']:
+    for tool in ['sqlite3', 'blockstack-cli', 'blockstack-gaia-hub', 'blockstack-transaction-broadcaster', 'blockstack-subdomain-registrar']:
         rc = os.system('which {}'.format(tool))
         if rc != 0:
             print >> sys.stderr, '\n\nERROR! Missing {}.\n'.format(tool)
