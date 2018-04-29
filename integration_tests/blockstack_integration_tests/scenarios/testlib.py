@@ -38,6 +38,7 @@ import binascii
 import urllib
 import urlparse
 import subprocess
+import threading
 import signal
 import atexit
 import re
@@ -320,6 +321,11 @@ test_running = True
 
 # where's the node.js CLI?
 NODEJS_CLI_PATH = None
+
+# list of cleanup methods to be called
+CLEANUP_METHODS = []
+
+AUDIT_ACCOUNTS = True
 
 class CLIArgs(object):
     pass
@@ -2043,9 +2049,15 @@ def next_block( **kw ):
     log_consensus( **kw )
 
     # check all account balances against the database
-    assert check_account_debits(state_engine, api_call_history), "Account debit mismatch"
-    assert check_account_credits(state_engine, api_call_history), "Account credit mismatch"
-    assert check_account_vesting(state_engine), 'Account vesting error'
+    if AUDIT_ACCOUNTS:
+        assert check_account_debits(state_engine, api_call_history), "Account debit mismatch"
+        assert check_account_credits(state_engine, api_call_history), "Account credit mismatch"
+        assert check_account_vesting(state_engine), 'Account vesting error'
+
+
+def set_account_audits(value):
+    global AUDIT_ACCOUNTS
+    AUDIT_ACCOUNTS = value
 
    
 def get_consensus_at( block_id, **kw ):
@@ -2947,4 +2959,19 @@ def get_wallet_balances(wallets):
        balances[w.addr] = balance_info
 
     return balances
+
+
+def add_cleanup(m):
+    """
+    A poor man's atexit.register
+    """
+    global CLEANUP_METHODS
+    CLEANUP_METHODS.append(m)
+
+def cleanup():
+    global CLEANUP_METHODS
+
+    print 'testlib cleanup'
+    for cleanup_method in CLEANUP_METHODS:
+        cleanup_method()
 
