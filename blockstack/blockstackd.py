@@ -508,6 +508,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             if f in canonical_op:
                 del canonical_op[f]
 
+        # if we have a 'token_fee', make it a string
+        if 'token_fee' in canonical_op:
+            canonical_op['token_fee'] = str(canonical_op['token_fee'])
+
         canonical_op['opcode'] = opcode
         return canonical_op
 
