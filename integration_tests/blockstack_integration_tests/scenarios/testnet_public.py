@@ -401,10 +401,14 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                         div(
                             span("Recipient private key: ", _class="td", align='left') + 
                             span(div(random_recipient_key + ' (address: {})'.format(virtualchain.address_reencode(virtualchain.get_privkey_address(random_recipient_key), network='testnet')), _class="code", align='left'), _class="td"), 
-                        _class="tr") + 
+                        _class="tr") +
+                        div(
+                            span("Install blockstack.js with Stacks tokens:", align="left", _class="td") +
+                            span(div("$ git clone https://github.com/blockstack/blockstack.js && cd blockstack.js && git checkout feature/stacks-transactions && npm install && npm run build && sudo npm link", _class="code", align="left"), _class="td"),
+                        _class="tr") +
                         div(
                             span("Install the Node.js CLI:", align="left", _class="td") + 
-                            span(div("$ git clone https://github.com/jcnelson/cli-blockstack && cd cli-blockstack && npm run build && sudo npm install -g", _class="code", align='left'), _class="td"),
+                            span(div("$ git clone https://github.com/jcnelson/cli-blockstack && cd cli-blockstack && npm install && npm link blockstack && npm run build && sudo npm install -g", _class="code", align='left'), _class="td"),
                          _class="tr") +
                         div(
                             span("Install Blockstack Core with Stacks tokens:", align="left", _class="td") + 
