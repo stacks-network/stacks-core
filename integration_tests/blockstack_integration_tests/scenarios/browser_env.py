@@ -69,7 +69,7 @@ def start_transaction_broadcaster():
     else:
         assert os.system('which blockstack-transaction-broadcaster') == 0, 'Missing blockstack-transaction-broadcaster'
         Popen('blockstack-transaction-broadcaster', shell=True, env=env)
-
+'''
 
 def start_subdomain_registrar():
     try:
@@ -86,7 +86,6 @@ def start_subdomain_registrar():
     else:
         assert os.system('which blockstack-subdomain-registrar') == 0, 'Missing blockstack-subdomain-registrar'
         Popen('blockstack-subdomain-registrar', shell=True, env=env)
-'''
 
 def scenario( wallets, **kw ):
 
