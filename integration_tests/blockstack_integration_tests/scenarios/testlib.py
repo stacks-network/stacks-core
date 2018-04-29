@@ -452,7 +452,7 @@ def nodejs_cli(*args, **kw):
         if not has_nodejs_cli():
             raise Exception("No node.js CLI found")
 
-    base_cmd = [NODEJS_CLI_PATH, '-t']
+    base_cmd = [NODEJS_CLI_PATH, '-r']
     if not safety_checks:
         base_cmd += ['-U']
 
