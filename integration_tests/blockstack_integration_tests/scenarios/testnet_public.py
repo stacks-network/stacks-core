@@ -204,7 +204,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 traceback.print_exc()
                 return self.error_page(400, 'Invalid page')
 
-            names = blockstack.lib.client.get_all_namesspaces(offset=page * 100, count=100, hostport='http://localhost:16264')
+            names = blockstack.lib.client.get_all_namespaces(offset=page * 100, count=100, hostport='http://localhost:16264')
             ret = json.dumps(names)
 
             self.send_response(200)
