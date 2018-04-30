@@ -161,15 +161,16 @@ resolving_subdomains = True
 
 DEFAULT_GAIA_HUB_CONFIG_TEMPLATE = """
 {
-  "servername": "localhost",
+  "servername": "%s",
   "port": 4001,
   "driver": "disk",
-  "readURL": "http://localhost:4000/hub",
+  "readURL": "http://%s:4000/hub",
   "proofsConfig": {
     "proofsRequired" : 0
   },
   "diskSettings": {
-     "storageRootDirectory": "@WORKING_DIR@/gaia-hub"
+     "storageRootDirectory": "@WORKING_DIR@/gaia-hub",
+     "readURL": "http://%s:4000/hub"
   },
   "argsTransport": {
     "level": "debug",
@@ -180,7 +181,7 @@ DEFAULT_GAIA_HUB_CONFIG_TEMPLATE = """
     "json": true
   }
 }
-"""
+""" % (os.environ.get("BLOCKSTACK_TESTNET_PUBLIC_HOST", "localhost"), os.environ.get("BLOCKSTACK_TESTNET_PUBLIC_HOST", 'localhost'), os.environ.get("BLOCKSTACK_TESTNET_PUBLIC_HOST", 'localhost'))
 
 # check once per second
 DEFAULT_TRANSACTION_BROADCASTER_TEMPLATE = """
@@ -701,7 +702,7 @@ def gaia_hub_start(gaia_config_path):
     gaia_config = json.loads(open(gaia_config_path, 'r').read())
 
     # start read gateway 
-    gaia_http = GaiaServer(gaia_config['diskSettings']['storageRootDirectory'], urlparse.urlparse(gaia_config['readURL']).port, 'http://{}:{}'.format(gaia_config['servername'], gaia_config['port']))
+    gaia_http = GaiaServer(gaia_config['diskSettings']['storageRootDirectory'], urlparse.urlparse(gaia_config['readURL']).port, 'http://localhost:{}'.format(gaia_config['port']))
     gaia_thread = GaiaServerThread(gaia_http)
     gaia_thread.start()
 
