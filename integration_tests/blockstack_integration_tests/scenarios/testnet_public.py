@@ -57,9 +57,11 @@ wallets = [
     testlib.Wallet(virtualchain.lib.ecdsalib.ecdsa_private_key().to_wif(), 1000000000000000000 ),
 ]
 
+PROTO = 'http'
+
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
-SUBDOMAIN_DOMAIN = "personal.id"
+SUBDOMAIN_DOMAIN = "personal.id2"
 SUBDOMAIN_OWNER_KEY = wallets[3].privkey
 SUBDOMAIN_PAYMENT_KEY = wallets[2].privkey
 SUBDOMAIN_ADMIN_PASSWORD = os.urandom(16).encode('hex')
@@ -77,219 +79,13 @@ GAIA_READ_URL = None
 GAIA_WRITE_URL = None
 GAIA_PORT = None
 
-SUBDOMAIN_REGISTRAR_URL = 'http://{}:{}'.format(IP_ADDRESS, SUBDOMAIN_REGISTRAR_PORT)
+SUBDOMAIN_REGISTRAR_URL = '{}://{}:{}'.format(PROTO, IP_ADDRESS, SUBDOMAIN_REGISTRAR_PORT)
 TRANSACTION_BROADCASTER_URL = None
 
+BITCOIN_JSONRPC_URL = '{}://{}:18332'.format(PROTO, IP_ADDRESS)
+BITCOIN_P2P_URL = '{}://{}:18444'.format(PROTO, IP_ADDRESS)
+
 SERVER_THREAD = None
-
-def attrs(**kw):
-    for k in kw:
-        assert '"' not in kw[k]
-
-    kwstr = " ".join('{}="{}"'.format(k.strip('_'), kw[k]) for k in kw)
-    return kwstr
-
-def table(body, **kw):
-    kwstr = attrs(**kw)
-    return "<table {}>{}</table>".format(kwstr, body)
-
-def tr(body, **kw):
-    kwstr = attrs(**kw)
-    return "<tr {}>{}</tr>".format(kwstr, body)
-
-def td(body, **kw):
-    kwstr = attrs(**kw)
-    return "<td {}>{}</td>".format(kwstr, body)
-
-def div(body, **kw):
-    kwstr = attrs(**kw)
-    return "<div {}>{}</div>".format(kwstr, body)
-
-def span(body, **kw):
-    kwstr = attrs(**kw)
-    return "<span {}>{}</span>".format(kwstr, body)
-
-def ol(body, **kw):
-    kwstr = attrs(**kw)
-    return '<ol {}>{}</ol>'.format(kwstr)
-
-def li(body, **kw):
-    kwstr = attrs(**kw)
-    return '<li {}>{}</li>'.format(kwstr)
-
-def form(action, method, body, **kw):
-    kwstr = attrs(**kw)
-    return '<form action="{}" method="{}" {}>{}</form>'.format(action, method, kwstr, body)
-
-def textinput(name, default):
-    return '<input type="text" name="{}" default="{}"/>'
-
-def submit(value):
-    assert '"' not in value
-    return '<input type="submit", value="{}"/>'.format(value)
-
-SCRIPTS_LIB = """
-function makeHttpObject() {
-  try {return new XMLHttpRequest();}
-  catch (error) {}
-  try {return new ActiveXObject("Msxml2.XMLHTTP");}
-  catch (error) {}
-  try {return new ActiveXObject("Microsoft.XMLHTTP");}
-  catch (error) {}
-
-  throw new Error("Could not create HTTP request object.");
-}
-
-function formatCode(body) {
-   return "<div class=\\"code\\" align=\\"left\\">" + body + "</div>";
-}
-
-function formatNotGiven(body) {
-   return "<div class=\\"not-given\\" align=\\"left\\">" + body + "</div>";
-}
-
-function makeOperationsTable(operations) {
-   var tableData = "<table width=\\"100%\\">"
-   for (var i = 0; i < operations.length; i++) {
-      var txid = operations[i].txid;
-      var opcode = operations[i].opcode;
-      var address = operations[i].address;
-      var name = operations[i].name;
-      var op_fee = operations[i].op_fee;
-      var token_fee = operations[i].token_fee;
-      var namespace_id = operations[i].namespace_id;
-
-      if (!token_fee) {
-        token_fee = formatNotGiven("(no Stacks fee)");
-      }
-      else {
-        token_fee = formatCode("uStacks: " + token_fee);
-      }
-
-      if (!op_fee) {
-        op_fee = formatNotGiven("(no BTC fee)");
-      }
-      else {
-        op_fee = formatCode("satoshis: " + op_fee);
-      } 
-
-      if (!name) {
-        name = formatNotGiven("(no name)");
-      }
-      else {
-        name = formatCode(name);
-      }
-
-      if (!namespace_id) {
-        namespace_id = formatNotGiven("(no namespace)");
-      }
-      else {
-        namespace_id = formatCode(namespace_id);
-      }
-
-      tableData += "<tr>";
-      tableData += "<td>" + name + "</td>";
-      tableData += "<td>" + namespace_id + "</td>";
-      tableData += "<td>" + op_fee + "</td>";
-      tableData += "<td>" + token_fee + "</td>";
-      tableData += "</tr><tr>"
-      tableData += "<td>" + formatCode(opcode) + "</td>";
-      tableData += "<td>" + formatCode(address) + "</td>";
-      tableData += "<td>" + formatCode(txid) + "</td>";
-      tableData += "</tr>";
-      tableData += "<tr><td colspan=\\"4\\"><hr/></td></tr>";
-    }
-    if (operations.length == 0) {
-       tableData += "<tr><td colspan=\\"4\\">" + formatNotGiven("(no Blockstack transactions)") + "</tr>";
-    }
-
-    tableData += "</table>"
-    return tableData;
-}
-
-function makeAtlasNeighborsTable(neighbors) {
-   var tableData = "<table width=\\"100%\\">"
-   for (var i = 0; i < neighbors.length; i++) {
-      var atlasHost = neighbors[i].host;
-      var atlasPort = neighbors[i].port;
-      
-      tableData += "<tr>";
-      tableData += "<td>" + formatCode(atlasHost + ":" + atlasPort) + "<td>";
-      tableData += "</tr>";
-    }
-    if (neighbors.length == 0) {
-      tableData += "<tr><td colspan=\\"2\\">" + formatNotGiven("(no neighbor peers)") + "</tr>";
-    }
-    tableData += "</table>";
-    return tableData;
-}
-
-function getBlockHeight() {
-    var blockHeightRequest = makeHttpObject();
-    blockHeightRequest.open("GET", "/blockHeight", true);
-    blockHeightRequest.send(null);
-    blockHeightRequest.onreadystatechange = function() {
-        if (blockHeightRequest.readyState == 4) {
-            var blockInfo = JSON.parse(blockHeightRequest.responseText);
-            var blockHeight = blockInfo.blockHeight;
-            var consensusHash = blockInfo.consensusHash;
-            
-            var blockHeightElem = document.getElementById("blockHeight");
-            blockHeightElem.innerHTML = blockHeight;
-
-            var chElem = document.getElementById("consensusHash");
-            chElem.innerHTML = consensusHash;
-        }
-    }
-}
-
-function getBlockchainOperations() {
-    var operationsRequest = makeHttpObject();
-    operationsRequest.open("GET", "/operations");
-    operationsRequest.send(null);
-    operationsRequest.onreadystatechange = function() {
-        if (operationsRequest.readyState == 4) {
-            var operations = JSON.parse(operationsRequest.responseText);
-            var operationsElem = document.getElementById("lastOperations");
-            operationsElem.innerHTML = makeOperationsTable(operations);
-        }
-    }
-}
-
-function getAtlasNeighbors() {
-    var atlasNeighborsRequest = makeHttpObject();
-    atlasNeighborsRequest.open("GET", "/atlas-neighbors");
-    atlasNeighborsRequest.send(null);
-    atlasNeighborsRequest.onreadystatechange = function() {
-        if (atlasNeighborsRequest.readyState == 4) {
-            var neighbors = JSON.parse(atlasNeighborsRequest.responseText);
-            var neighborsElem = document.getElementById("atlasNeighbors");
-            neighborsElem.innerHTML = makeAtlasNeighborsTable(neighbors);
-        }
-    }
-}
-
-function loadStats() {
-    getBlockHeight();
-    getBlockchainOperations();
-    getAtlasNeighbors();
-}
-
-window.setInterval(loadStats, 15000);
-"""
-
-CSS = ""
-CSS += "body { text-align: center; } "
-CSS += "table { border-collapse: separate; border-spacing: 6pt; border-style: hidden hidden; } "
-CSS += ".code { font-family: monospace; line-height: 100%; } " 
-CSS += ".leftcolumn { float: left; width: 40%; } "
-CSS += ".rightcolumn { float: left; width: 60%; } "
-CSS += ".row:after { content; \"\"; display: table; clear: both; } "
-CSS += ".table { display: table; border-collapse: separate; border-spacing: 6pt; } "
-CSS += "DIV.table { display: table; } "
-CSS += "FORM.tr, DIV.tr { display: table-row; } "
-CSS += "SPAN.td { display: table-cell; } "
-CSS += ".not-given { font-style: italic; color: rgb(128,128,128); } "
 
 class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     """
@@ -333,115 +129,94 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             self.wfile.write(ret)
             return
 
-        # UI
-        blockheight = testlib.get_current_block()
-        consensus_hash = testlib.get_consensus_at(blockheight);
+        if self.path == '/config':
+            ret = {
+                'gaiaReadURL': GAIA_READ_URL,
+                'gaiaWriteURL': GAIA_WRITE_URL,
+                'subdomainRegistrarURL': SUBDOMAIN_REGISTRAR_URL,
+                'transactionBroadcasterURL': TRANSACTION_BROADCASTER_URL,
+                'bitcoinJSONRPCURL': BITCOIN_JSONRPC_URL,
+                'bitcoinP2PURL': BITCOIN_P2P_URL,
+            }
+            ret = json.dumps(ret)
 
-        url_set = table(
-                    tr(td(div("Blockckchain Height:", align="right")) + td(div("{}".format(blockheight), align="left", _class="code", _id="blockHeight"))) +
-                    tr(td(div("Consensus Hash:", align="right")) + td(div("{}".format(consensus_hash), align="left", _class="code", _id="consensusHash"))) +
-                    tr(td(div("Gaia read URL:", align="right")) + td(div(GAIA_READ_URL, align="left", _class="code"))) +
-                    tr(td(div("Gaia write URL:", align="right")) + td(div(GAIA_WRITE_URL, align="left", _class="code"))) + 
-                    tr(td(div("Subdomain registrar:", align="right")) + td(div(SUBDOMAIN_REGISTRAR_URL, align="left", _class="code"))) +
-                    tr(td(div("Transaction broadcaster:", align="right")) + td(div(TRANSACTION_BROADCASTER_URL, align="left", _class="code"))) +
-                    tr(td(div("Bitcoin JSON-RPC:", align="right")) + td(div("http://{}:18332".format(IP_ADDRESS), align="left", _class="code"))) + 
-                    tr(td(div("Bitcoin P2P:", align="right")) + td(div("http://{}:18444".format(IP_ADDRESS), align="left", _class="code"))),
-                 width="100%")
+            self.send_response(200)
+            self.send_header('content-type', 'application/json')
+            self.send_header('content-length', len(ret))
+            self.send_header('cache-control', 'max-age=3600')
+            self.end_headers()
+            self.wfile.write(ret)
+            return
 
-        fund_form = div(
-                        form("/sendBTC", "POST",
-                            span("Address: ", align="right", _class="td") + span(textinput("addr", ""), _class="td") + span("Satoshis: ", align="right", _class="td") + span(textinput("value", "0"), _class="td") + span(submit("Fund address"), _class="td"),
-                        _class="tr") +
-                        "<br>" +
-                        form("/sendStacks", "POST",
-                            span("Address: ", align="right", _class="td") + span(textinput("addr", ""), _class="td") + span("microStacks: ", align="right", _class="td") + span(textinput("value", "0"), _class="td") + span(submit("Fund address"), _class="td"),
-                        _class="tr"),
-                    _class="table")
+        # /balance/{}
+        if self.path.startswith('/balance'):
+            try:
+                addr = self.path.strip('/').split('/')[-1]
+                addr = virtualchain.address_reencode(addr, network='testnet')
+            except:
+                traceback.print_exc()
+                return self.error_page(400, 'Invalid address or path')
 
-        left_column = div(
-                "<h2>Services</h2>" + 
-                div(url_set) + 
-                "<br>" + 
-                "<h2>Faucet</h2>" + 
-                div(fund_form) + "<br>", _class="leftcolumn")
+            try:
+                btc_balance = testlib.get_balance(addr)
+                stacks_balance = blockstack.lib.client.get_account_balance(addr, 'STACKS', hostport='http://localhost:16264')
+                assert isinstance(stacks_balance, (int,long))
+            except:
+                traceback.print_exc()
+                return self.error_page(500, 'Failed to query balance')
 
-        blockchain_operations = div("loading...", _id="lastOperations")
+            ret = {
+                'btc': '{}'.format(btc_balance),
+                'stacks': '{}'.format(stacks_balance),
+            }
+            ret = json.dumps(ret)
 
-        atlas_neighbors = div("loading...", _id="atlasNeighbors")
+            self.send_response(200)
+            self.send_header('content-type', 'application/json')
+            self.send_header('content-length', len(ret))
+            self.end_headers()
+            self.wfile.write(ret)
+            return
 
-        right_column = div(
-                "<h2>Last Block</h2>" +
-                div(blockchain_operations) +
-                "<br>" +
-                "<h2>Testnet Peers</h2>" +
-                div(atlas_neighbors),
-                _class="rightcolumn")
+        # /names/page
+        if self.path.startswith('/names/'):
+            try:
+                page = int(self.path.strip('/').split('/')[-1])
+            except:
+                traceback.print_exc()
+                return self.error_page(400, 'Invalid page')
 
-        panel = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'
-        panel += '<html><head></head><title>Stacks Token Testnet</title><style>{}</style><body><h1>Stacks Token Testnet</h1><br>'.format(CSS)
-        panel += '<br>'
+            names = blockstack.lib.client.get_all_names(offset=page * 100, count=100, hostport='http://localhost:16264')
+            ret = json.dumps(names)
 
-        panel += div(left_column + right_column, _class="row")
+            self.send_response(200)
+            self.send_header('content-type', 'application/json')
+            self.send_header('content-length', len(ret))
+            self.end_headers()
+            self.wfile.write(ret)
+            return
 
-        random_owner_key = virtualchain.lib.ecdsalib.ecdsa_private_key().to_hex()
-        random_payment_key = virtualchain.lib.ecdsalib.ecdsa_private_key().to_hex()
-        random_recipient_key = virtualchain.lib.ecdsalib.ecdsa_private_key().to_hex()
-        random_recipient_address = virtualchain.address_reencode(virtualchain.get_privkey_address(random_recipient_key), network='testnet')
+        # /namespaces/page
+        if self.path.startswith('/namesspaces/'):
+            try:
+                page = int(self.path.strip('/').split('/')[-1])
+            except:
+                traceback.print_exc()
+                return self.error_page(400, 'Invalid page')
 
-        panel += div("<hr/><h2 align='left'>Example Usage</h2>" + "<br>" +
-                    div(
-                        div(
-                            span("Owner private key: ", _class="td", align='left') + 
-                            span(div(random_owner_key + ' (address: {})'.format(virtualchain.address_reencode(virtualchain.get_privkey_address(random_owner_key), network='testnet')), _class="code", align="left"), _class="td"),
-                        _class="tr") +
-                        div(
-                            span("Payment private key: ", _class="td", align='left') + 
-                            span(div(random_payment_key + ' (address: {})'.format(virtualchain.address_reencode(virtualchain.get_privkey_address(random_payment_key), network='testnet')), _class="code", align='left'), _class="td"),
-                        _class="tr") + 
-                        div(
-                            span("Recipient private key: ", _class="td", align='left') + 
-                            span(div(random_recipient_key + ' (address: {})'.format(virtualchain.address_reencode(virtualchain.get_privkey_address(random_recipient_key), network='testnet')), _class="code", align='left'), _class="td"), 
-                        _class="tr") +
-                        div(
-                            span("Install blockstack.js with Stacks tokens:", align="left", _class="td") +
-                            span(div("$ git clone https://github.com/blockstack/blockstack.js && cd blockstack.js && git checkout feature/stacks-transactions && npm install && npm run build && sudo npm link", _class="code", align="left"), _class="td"),
-                        _class="tr") +
-                        div(
-                            span("Install the Node.js CLI:", align="left", _class="td") + 
-                            span(div("$ git clone https://github.com/jcnelson/cli-blockstack && cd cli-blockstack && npm install && npm link blockstack && npm run build && sudo npm install -g", _class="code", align='left'), _class="td"),
-                         _class="tr") +
-                        div(
-                            span("Install Blockstack Core with Stacks tokens:", align="left", _class="td") + 
-                            span(div("$ git clone https://github.com/blockstack/blockstack-core && cd cli-blockstack && git checkout feature/token-v1 && ./setup.py build && sudo ./setup.py install", _class="code", align='left'), _class="td"),
-                         _class="tr") +
-                        div(
-                            span("Register a name:", align="left", _class="td") + 
-                            span(div("$ blockstack-cli -t register hello.id {} {} \"{}\"".format(random_owner_key, random_payment_key, GAIA_READ_URL), _class="code", align='left'), _class="td"),
-                        _class="tr") +
-                        div(
-                            span("Register a subdomain:", align="left", _class="td") + 
-                            span(div("$ blockstack-cli -t register_subdomain hello.personal.id {} \"{}\" \"{}\"".format(random_owner_key, GAIA_READ_URL, SUBDOMAIN_REGISTRAR_URL), align='left', _class="code"), _class="td"),
-                        _class="tr") +
-                        div(
-                            span("Send Stacks tokens:", align="left", _class="td") + 
-                            span(div("$ blockstack-cli send_tokens {} STACKS 100000 {}".format(random_recipient_address, random_payment_key), _class="code", align='left'), _class="td"),
-                        _class="tr"),
-                    _class="table"),
-                )
+            names = blockstack.lib.client.get_all_namesspaces(offset=page * 100, count=100, hostport='http://localhost:16264')
+            ret = json.dumps(names)
 
-        panel += "<script>" + SCRIPTS_LIB + "</script>"
+            self.send_response(200)
+            self.send_header('content-type', 'application/json')
+            self.send_header('content-length', len(ret))
+            self.end_headers()
+            self.wfile.write(ret)
+            return
 
-        panel += "</body></html>"
+        return self.error_page(404, 'The server that serves the testnet panel must be down')
 
-        self.send_response(200)
-        self.send_header('content-type', 'text/html')
-        self.send_header('content-length', len(panel))
-        self.send_header('cache-control', 'max-age=30')
-        self.end_headers()
-        self.wfile.write(panel)
-        return
-
-
+    
     def error_page(self, status_code, message):
         self.send_response(status_code)
         self.send_header('content-type', 'text/plain')
@@ -748,14 +523,20 @@ def scenario( wallets, **kw ):
     PORTNUM = int(os.environ.get('TESTNET_PORTNUM', '30001'))
     start_test_server(PORTNUM)
 
-    testlib.blockstack_namespace_preorder( "id", wallets[1].addr, wallets[0].privkey )
+    testlib.blockstack_namespace_preorder( "id2", wallets[1].addr, wallets[0].privkey )
+    testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
+    testlib.blockstack_namespace_preorder( "sandbox", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
     # same price curve as public .id namespace
-    testlib.blockstack_namespace_reveal( "id", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=3)
+    testlib.blockstack_namespace_reveal( "id2", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=3)
+    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, -1, 250, 4, [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=3)
+    testlib.blockstack_namespace_reveal( "sandbox", wallets[1].addr, -1, 250, 4, [6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=3)
     testlib.next_block( **kw )
 
-    testlib.blockstack_namespace_ready( "id", wallets[1].privkey )
+    testlib.blockstack_namespace_ready( "id2", wallets[1].privkey )
+    testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
+    testlib.blockstack_namespace_ready( "sandbox", wallets[1].privkey )
     testlib.next_block( **kw )
 
     testlib.blockstack_register_user(SUBDOMAIN_DOMAIN, SUBDOMAIN_PAYMENT_KEY, SUBDOMAIN_OWNER_KEY, **kw)
