@@ -103,9 +103,10 @@ BLOCKSTACK_TEST = os.environ.get('BLOCKSTACK_TEST', None)
 BLOCKSTACK_TEST_NODEBUG = os.environ.get('BLOCKSTACK_TEST_NODEBUG', None)
 BLOCKSTACK_DEBUG = os.environ.get('BLOCKSTACK_DEBUG', None)
 BLOCKSTACK_TEST_FIRST_BLOCK = os.environ.get('BLOCKSTACK_TEST_FIRST_BLOCK', None)
-BLOCKSTACK_TESTNET = os.environ.get("BLOCKSTACK_TESTNET", None)
-BLOCKSTACK_TESTNET3 = os.environ.get("BLOCKSTACK_TESTNET3", None)
+BLOCKSTACK_TESTNET = os.environ.get("BLOCKSTACK_TESTNET", None)     # changes encoding of addresses
+BLOCKSTACK_TESTNET3 = os.environ.get("BLOCKSTACK_TESTNET3", None)   # changes bitcoin protocol
 BLOCKSTACK_TESTNET_FIRST_BLOCK = os.environ.get("BLOCKSTACK_TESTNET_FIRST_BLOCK", None)
+BLOCKSTACK_PUBLIC_TESTNET = os.environ.get("BLOCKSTACK_PUBLIC_TESTNET", None)   # set if we're running in test mode, but publicly
 BLOCKSTACK_DRY_RUN = os.environ.get('BLOCKSTACK_DRY_RUN', None)
 BLOCKSTACK_TEST_SUBDOMAINS_FIRST_BLOCK = os.environ.get('BLOCKSTACK_TEST_SUBDOMAINS_FIRST_BLOCK', None)
 
@@ -120,6 +121,8 @@ if BLOCKSTACK_TEST:
     if os.environ.get("BLOCKSTACK_TEST_NAME_PREORDER_EXPIRE"):
         NAME_PREORDER_EXPIRE = int(os.environ['BLOCKSTACK_TEST_NAME_PREORDER_EXPIRE'])
 
+    if os.environ.get('BLOCKSTACK_CORE_VERSION'):
+        VERSION = os.environ['BLOCKSTACK_CORE_VERSION']
 
 MAX_NAMES_PER_SENDER = 25                # a single sender script can own up to this many names
 
