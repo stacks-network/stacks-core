@@ -10,7 +10,7 @@ RUN apt-get -y update && \
 COPY . .
 
 # Upgrade pip and install pyparsing
-RUN pip install --upgrade pip && pip install pyparsing
+RUN pip install pyparsing
 
 # Install Blockstack from source
 RUN pip install .

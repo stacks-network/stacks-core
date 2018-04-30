@@ -239,7 +239,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         json_str = json.dumps(json_payload)
         self.wfile.write(json_str)
 
-
     def _read_payload(self, maxlen=None):
         """
         Read raw uploaded data.
@@ -673,6 +672,45 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self._reply_json(res)
         return
 
+    def GET_subdomains( self, ses, path_info ):
+        """
+        Get all subdomains in existence
+        Returns the list on success
+        Returns 401 on invalid arguments
+        Returns 500 on failure to get names
+        """
+
+        include_expired = False
+
+        qs_values = path_info['qs_values']
+        page = qs_values.get('page', None)
+        if page is None:
+            log.error("Page required")
+            return self._reply_json({'error': 'page= argument required'}, status_code=401)
+
+        try:
+            page = int(page)
+        except ValueError:
+            log.error("Invalid page")
+            return self._reply_json({'error': 'Invalid page= value'}, status_code=401)
+
+        if qs_values.get('all', '').lower() in ['1', 'true']:
+            include_expired = True
+
+        offset = page * 100
+        count = 100
+
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
+
+        res = blockstackd_client.get_all_subdomains(
+            offset, count, hostport=blockstackd_url)
+        if json_is_error(res):
+            log.error("Failed to list all subdomains (offset={}, count={}): {}".format(offset, count, res['error']))
+            self._reply_json({'error': 'Failed to list all names'}, status_code=406)
+            return
+
+        self._reply_json(res)
+        return
 
     def POST_names( self, ses, path_info ):
         """
@@ -881,7 +919,30 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if 'not found' in name_rec['error'].lower():
                 return self._reply_json({'status': 'available'}, status_code=404)
             elif 'failed to load subdomain' in name_rec['error'].lower():
-                return self._reply_json({'status': 'available'}, status_code=404)
+                # handle redirection to specified resolver
+                _, _, domain_name = blockstackd_scripts.is_address_subdomain(name)
+                domain_rec = blockstackd_client.get_name_record(domain_name, include_history = False,
+                                                                hostport = blockstackd_url)
+                if 'error' in domain_rec or 'zonefile' not in domain_rec:
+                    return self._reply_json(
+                        {'status': 'available', 'more': 'failed to lookup parent domain'}, status_code=404)
+                domain_zf_txt = base64.b64decode(domain_rec['zonefile'])
+                domain_zf_json = zonefile.decode_name_zonefile(domain_name, domain_zf_txt, allow_legacy=False)
+                matching_uris = [ x['target'] for x in domain_zf_json['uri'] if x['name'] == '_resolver' ]
+                if len(matching_uris) == 0:
+                    return self._reply_json(
+                        {'status': 'available',
+                         'more': 'failed to find parent domain\'s resolver'}, status_code=404)
+                else:
+                    resolver_target = matching_uris[0]
+                    if resolver_target.endswith('/'):
+                        resolver_target = resolver_target[:-1]
+                    redirect_location = resolver_target + '/v1/names/' + name
+                    self._send_headers(status_code = 301,
+                                       more_headers = { 'Location': redirect_location })
+                    self.wfile.write(json.dumps({
+                        'status': 'redirect'}))
+                    return
             elif 'expired' in name_rec['error'].lower():
                 return self._reply_json({'error': name_rec['error']}, status_code=404)
             else:
@@ -3037,6 +3098,32 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self._reply_json({'names_count': num_names})
         return
 
+    def GET_blockchain_num_subdomains( self, ses, path_info, blockchain_name ):
+        """
+        Handle GET /blockchains/:blockchainID/subdomains_count
+        Takes `all=true` to include expired names
+        Reply with the number of names on this blockchain
+        """
+        if blockchain_name != 'bitcoin':
+            # not supported
+            self._reply_json({'error': 'Unsupported blockchain'}, status_code=401)
+            return
+
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
+
+        num_names = blockstackd_client.get_num_subdomains(hostport=blockstackd_url)
+        if json_is_error(num_names):
+            if json_is_exception(info):
+                status_code = 406
+            else:
+                status_code = 404
+
+            self._reply_json({'error': info['error']}, status_code=status_code)
+            return
+
+        self._reply_json({'names_count': num_names})
+        return
+
 
     def GET_blockchain_consensus( self, ses, path_info, blockchain_name ):
         """
@@ -3282,6 +3369,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     },
                 },
             },
+            r'^/v1/blockchains/({})/subdomains_count'.format(URLENCODING_CLASS) : {
+                'routes': {
+                    'GET': self.GET_blockchain_num_subdomains
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'blockchain',
+                        'desc': 'read blockchain name blocks',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    },
+                },
+            },
             r'^/v1/blockchains/({})/operations/([0-9]+)$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_ops
@@ -3387,6 +3488,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'need_data_key': False,
                     },
                 },
+            },
+            r'^/v1/subdomains$': {
+                'routes': {
+                    'GET': self.GET_subdomains
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'names',
+                        'desc': 'read all names',
+                        'auth_session': False,
+                        'auth_pass': False,
+                        'need_data_key': False,
+                    }
+                }
             },
             r'^/v1/names/({})$'.format(NAME_CLASS): {
                 'routes': {
