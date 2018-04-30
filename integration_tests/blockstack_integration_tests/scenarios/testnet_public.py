@@ -60,6 +60,10 @@ wallets = [
 
 PROTO = 'http'
 
+TESTNET_PUBLIC_HOST = 'localhost'   # NOTE: must match gaia config
+if os.environ.get('BLOCKSTACK_TESTNET_PUBLIC_HOST'):
+    TESTNET_PUBLIC_HOST = os.environ['BLOCKSTACK_TESTNET_PUBLIC_HOST']
+
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 SUBDOMAIN_DOMAIN = "personal.id2"
@@ -70,21 +74,17 @@ SUBDOMAIN_OWNER_ADDRESS = wallets[2].addr
 SUBDOMAIN_REGISTRAR_PORT = 30000
 SUBDOMAIN_PROC = None
 
-try:
-    _, IP_ADDRESS, _ = stun.get_ip_info()
-except:
-    IP_ADDRESS = '127.0.0.1'
-
 SUBDOMAIN_REGISTRAR_CONFIG = None
 GAIA_READ_URL = None
 GAIA_WRITE_URL = None
-GAIA_PORT = None
+GAIA_READ_PORT = None
+GAIA_WRITE_PORT = None
 
-SUBDOMAIN_REGISTRAR_URL = '{}://{}:{}'.format(PROTO, IP_ADDRESS, SUBDOMAIN_REGISTRAR_PORT)
+SUBDOMAIN_REGISTRAR_URL = '{}://{}:{}'.format(PROTO, TESTNET_PUBLIC_HOST, SUBDOMAIN_REGISTRAR_PORT)
 TRANSACTION_BROADCASTER_URL = None
 
-BITCOIN_JSONRPC_URL = '{}://{}:18332'.format(PROTO, IP_ADDRESS)
-BITCOIN_P2P_URL = '{}://{}:18444'.format(PROTO, IP_ADDRESS)
+BITCOIN_JSONRPC_URL = '{}://{}:18332'.format(PROTO, TESTNET_PUBLIC_HOST)
+BITCOIN_P2P_URL = '{}://{}:18444'.format(PROTO, TESTNET_PUBLIC_HOST)
 
 SERVER_THREAD = None
 
@@ -398,25 +398,6 @@ class TestnetServer(BaseHTTPServer.HTTPServer):
 def start_subdomain_registrar():
     global SUBDOMAIN_PROC
     global SUBDOMAIN_REGISTRAR_CONFIG
-    global GAIA_READ_URL
-    global GAIA_PORT
-    global GAIA_WRITE_URL
-
-    # get gaia hub info 
-    with open(os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'gaia.conf'), 'r') as f:
-        GAIA_CONF = json.loads(f.read().strip())
-
-    gaia_read_port = urlparse.urlparse(GAIA_CONF['readURL']).netloc.split(':')[-1]
-    if os.environ.get('BLOCKSTACK_PUBLIC_TESTNET_GAIA_READ_PORT'):
-        gaia_read_port = int(os.environ['BLOCKSTACK_PUBLIC_TESTNET_GAIA_READ_PORT'])
-
-    GAIA_READ_URL = 'http://{}:{}'.format(IP_ADDRESS, gaia_read_port)
-
-    GAIA_PORT = GAIA_CONF['port']
-    if os.environ.get('BLOCKSTACK_PUBLIC_TESTNET_GAIA_WRITE_PORT'):
-        GAIA_PORT = int(os.environ['BLOCKSTACK_PUBLIC_TESTNET_GAIA_WRITE_PORT'])
-
-    GAIA_WRITE_URL = 'http://{}:{}'.format(IP_ADDRESS, GAIA_PORT)
 
     # send batches every 30 seconds
     # check transactions every second
@@ -522,12 +503,38 @@ def stop_test_server():
 def scenario( wallets, **kw ):
     global TRANSACTION_BROADCASTER_URL
     
+    global GAIA_READ_URL
+    global GAIA_READ_PORT
+    global GAIA_WRITE_PORT
+    global GAIA_WRITE_URL
+
+    # get gaia hub info 
+    with open(os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'gaia.conf'), 'r') as f:
+        GAIA_CONF = json.loads(f.read().strip())
+
+    try:
+        GAIA_READ_PORT = urlparse.urlparse(GAIA_CONF['readURL']).netloc.split(':')[-1]
+        GAIA_READ_PORT = int(GAIA_READ_PORT)
+    except:
+        GAIA_READ_PORT = 80
+
+    if os.environ.get('BLOCKSTACK_PUBLIC_TESTNET_GAIA_READ_PORT'):
+        GAIA_READ_PORT = int(os.environ['BLOCKSTACK_PUBLIC_TESTNET_GAIA_READ_PORT'])
+
+    GAIA_READ_URL = GAIA_CONF['readURL']
+
+    GAIA_WRITE_PORT = GAIA_CONF['port']
+    if os.environ.get('BLOCKSTACK_PUBLIC_TESTNET_GAIA_WRITE_PORT'):
+        GAIA_WRITE_PORT = int(os.environ['BLOCKSTACK_PUBLIC_TESTNET_GAIA_WRITE_PORT'])
+
+    GAIA_WRITE_URL = 'http://{}:{}'.format(GAIA_CONF['servername'], GAIA_WRITE_PORT)
+
     # fill in URL 
     tb_conf_path = os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'transaction-broadcaster.conf')
     with open(tb_conf_path, 'r') as f:
         tb_conf = json.loads(f.read().strip())
 
-    TRANSACTION_BROADCASTER_URL = 'http://{}:{}'.format(IP_ADDRESS, tb_conf['port'])
+    TRANSACTION_BROADCASTER_URL = 'http://{}:{}'.format(TESTNET_PUBLIC_HOST, tb_conf['port'])
 
     PORTNUM = int(os.environ.get('TESTNET_PORTNUM', '30001'))
     start_test_server(PORTNUM)
@@ -548,7 +555,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "sandbox", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstack_register_user(SUBDOMAIN_DOMAIN, SUBDOMAIN_PAYMENT_KEY, SUBDOMAIN_OWNER_KEY, **kw)
+    testlib.blockstack_register_user(SUBDOMAIN_DOMAIN, SUBDOMAIN_PAYMENT_KEY, SUBDOMAIN_OWNER_KEY, gaia_host='{}:{}'.format(TESTNET_PUBLIC_HOST, GAIA_READ_PORT), **kw)
 
     start_subdomain_registrar()
 
