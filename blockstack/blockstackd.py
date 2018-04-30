@@ -65,7 +65,9 @@ from lib import *
 from lib.storage import *
 from lib.atlas import *
 from lib.fast_sync import *
-from lib.subdomains import subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history, get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info
+from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history,
+                            get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info,
+                            get_all_subdomains, get_subdomains_count)
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
@@ -1265,6 +1267,16 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         return self.success_response( {'count': num_names} )
 
+    def rpc_get_num_subdomains( self, **con_info ):
+        """
+        Get the number of subdomains that exist
+        Return {'status': True, 'count': count} on success
+        Return {'error': ...} on error
+        """
+        num_names = get_subdomains_count()
+
+        return self.success_response( {'count': num_names} )
+
 
     def rpc_get_num_names_cumulative( self, **con_info ):
         """
@@ -1292,11 +1304,31 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'invalid count'}
 
         db = get_db_state(self.working_dir)
-        all_names = db.get_all_names( offset=offset, count=count )
+        num_domains = db.get_num_names()
+        if num_domains > offset:
+           all_domains = db.get_all_names( offset=offset, count=count )
+        else:
+           all_domains = []
         db.close()
 
-        return self.success_response( {'names': all_names} )
+        return self.success_response( {'names': all_domains} )
 
+    def rpc_get_all_subdomains( self, offset, count, **conf_info):
+        """
+        Get all subdomains, paginated
+        Return {'status': true, 'names': [...]} on success
+        Return {'error': ...} on error
+        """
+        if not self.check_offset(offset):
+            return {'error': 'invalid offset'}
+
+        if not self.check_count(count, 100):
+            return {'error': 'invalid count'}
+
+        all_subdomains = get_all_subdomains(offset = offset,
+                                            count = count)
+
+        return self.success_response( {'names': all_subdomains} )
 
     def rpc_get_all_names_cumulative( self, offset, count, **con_info ):
         """

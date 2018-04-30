@@ -249,6 +249,18 @@ class LookupUsersTest(APITestCase):
         data = self.get_request("/v1/names?page=10000",
                                 headers = {} , status_code=200)
 
+    def test_get_subdomain_names(self):
+        data = self.get_request("/v1/subdomains?page=0",
+                                headers = {} , status_code=200)
+        self.assertEqual(len(data), 100, "Paginated name length != 100")
+        data = self.get_request("/v1/subdomains",
+                                headers = {} , status_code=401)
+        data = self.get_request("/v1/subdomains?page=10000",
+                                headers = {} , status_code=200)
+        data = self.get_request("/v1/blockchains/bitcoin/subdomains_count",
+                                headers = {} , status_code=200)
+        self.assertIn('names_count', data)
+
 class Zonefiles(APITestCase):
     def test_get_zonefile(self):
         zf_url = '/v1/names/{}/zonefile'
