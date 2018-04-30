@@ -68,14 +68,15 @@ def scenario( wallets, **kw ):
 
     working_dir = testlib.get_working_dir(**kw)
 
-    zf_template = '$ORIGIN {}\n$TTL 3600\n_http._tcp URI 10 1 "http://www.foo.com"\n{}'
+    sub_zf_template = '$ORIGIN {}\n$TTL 3600\n_http._tcp URI 10 1 "http://www.foo.com"\n{}'
+    zf_template = '$ORIGIN {}\n$TTL 3600\n_http._tcp URI 10 1 "http://www.foo.com"\n_resolver URI 10 1 "http://resolver.foo"\n{}'
     zf_default_url = '_file URI 10 1 "file://' + working_dir + '/{}"'
     zf_default_url_2 = '_file URI 20 1 "file://' + working_dir + '/{}"'
 
     subdomain_zonefiles = {
-        'bar.foo1.test': zf_template.format('bar.foo1.test', zf_default_url.format('bar.foo1.test')),
-        'bar.foo2.test': zf_template.format('bar.foo2.test', zf_default_url.format('bar.foo2.test')),
-        'bar.foo3.test': zf_template.format('bar.foo3.test', zf_default_url.format('bar.foo3.test')),
+        'bar.foo1.test': sub_zf_template.format('bar.foo1.test', zf_default_url.format('bar.foo1.test')),
+        'bar.foo2.test': sub_zf_template.format('bar.foo2.test', zf_default_url.format('bar.foo2.test')),
+        'bar.foo3.test': sub_zf_template.format('bar.foo3.test', zf_default_url.format('bar.foo3.test')),
     }
 
     zonefiles = {
@@ -161,6 +162,18 @@ def scenario( wallets, **kw ):
 
     # query each subdomain
     proxy = testlib.make_proxy()
+
+    # test 301 redirects.
+    res = testlib.blockstack_REST_call('GET', '/v1/names/baz.foo1.test', ses, allow_redirects = False)
+    if 'error' in res:
+        res['test'] = 'Failed to query non-registered name.'
+        print json.dumps(res)
+        return False
+    if res['http_status'] != 301:
+        res['test'] = 'Failed to get a redirect.'
+        print json.dumps(res)
+        return False
+
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
 
@@ -176,7 +189,7 @@ def scenario( wallets, **kw ):
             print json.dumps(res)
             return False
 
-        if res['response']['zonefile_txt'] != subdomain_zonefiles[fqn]:
+        if res['response']['zonefile'] != subdomain_zonefiles[fqn]:
             print 'wrong zone file'
             print res
             print 'expected'
