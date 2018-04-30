@@ -431,13 +431,45 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         except ValueError:
             return self._reply_json({'error': 'Invalid argument: not a well-formed name or subdomain'}, status_code=400)
 
+
         if 'error' in name_rec:
             if 'not found' in name_rec['error'].lower():
                 return self._reply_json({'status': 'available'}, status_code=404)
+
             elif 'failed to load subdomain' in name_rec['error'].lower():
-                return self._reply_json({'status': 'available'}, status_code=404)
+
+                # try to redirect to resolver, if given
+                _, _, domain_name = blockstackd_scripts.is_address_subdomain(name)
+                domain_rec = blockstackd_client.get_name_record(domain_name, include_history=False, hostport=blockstackd_url)
+
+                if 'error' in domain_rec or 'zonefile' not in domain_rec:
+                    # could not look up on-chain name, or no zone file
+                    return self._reply_json({'status': 'available', 'more': 'failed to lookup parent domain'}, status_code=404)
+
+                # see if there's a _resolver URI record
+                domain_zf_txt = base64.b64decode(domain_rec['zonefile'])
+                domain_zf_json = blockstackd_client.decode_name_zonefile(domain_name, domain_zf_txt)
+                matching_uris = [ x['target'] for x in domain_zf_json['uri'] if x['name'] == '_resolver' ]
+
+                if len(matching_uris) == 0:
+                    # no _resolver
+                    return self._reply_json({'status': 'available',  'more': 'failed to find parent domain\'s resolver'}, status_code=404)
+
+                # go with the first _resolver (TODO: maybe use weight?)
+                resolver_target = matching_uris[0].rstrip('/')
+                redirect_location = resolver_target + '/v1/names/' + name
+
+                log.debug("Redirect lookup on {} to {}".format(name, redirect_location))
+
+                self._send_headers(status_code=301, more_headers={ 'Location': redirect_location })
+                return self.wfile.write(json.dumps({'status': 'redirect'}))
+
+            elif 'expired' in name_rec['error'].lower():
+                return self._reply_json({'error': name_rec['error']}, status_code=404)
+
             else:
                 return self._reply_json({'error': 'Blockstack daemon error: {}'.format(name_rec['error'])}, status_code=name_rec.get('http_status', 500))
+
 
         zonefile_txt = None
 
