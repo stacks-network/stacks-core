@@ -960,7 +960,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
     def get_cached_bitcoind_info(self):
         """
         Get cached bitcoind info.
-        Returns {'getinfo': {...}} on success
+        Returns {...} on success
         Return None if it is stale
         """
         cached_bitcoind_info = self.cache.get('bitcoind_info', None)
@@ -981,6 +981,32 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Cache bitcoind info
         """
         self.cache['bitcoind_info'] = {'time': time.time(), 'getinfo': info}
+
+
+    def get_cached_consensus_info(self):
+        """
+        Get cached consensus info.
+        Returns {...} on success
+        Return None if it is stale
+        """
+        cached_consensus_info = self.cache.get('consensus_info', None)
+        if cached_consensus_info is None:
+            # not cached
+            return None
+
+        now = time.time()
+        if cached_consensus_info['time'] + AVERAGE_SECONDS_PER_BLOCK < now:
+            # stale
+            return None
+
+        return cached_consensus_info['info']
+
+
+    def set_cached_consensus_info(self, info):
+        """
+        Cache bitcoind info
+        """
+        self.cache['consensus_info'] = {'time': time.time(), 'info': info}
 
 
     def get_bitcoind_info(self):
@@ -1008,7 +1034,26 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         except Exception as e:
             raise
-        
+   
+
+    def get_consensus_info(self):
+        """
+        Get block height and consensus hash.  Try the cache, and
+        on cache miss, fetch from the db
+        """
+        cached_consensus_info = self.get_cached_consensus_info()
+        if cached_consensus_info:
+            return cached_consensus_info
+
+        db = get_db_state(self.working_dir)
+        ch = db.get_current_consensus()
+        block = db.get_current_block()
+        db.close()
+
+        cinfo = {'consensus_hash': ch, 'block_height': block}
+        self.set_cached_consensus_info(cinfo)
+        return cinfo
+
 
     def rpc_getinfo(self, **con_info):
         """
@@ -1022,17 +1067,16 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         conf = get_blockstack_opts()
         info = self.get_bitcoind_info()
+        cinfo = self.get_consensus_info()
         reply = {}
         reply['last_block_seen'] = info['blocks']
 
-        db = get_db_state(self.working_dir)
-        reply['consensus'] = db.get_current_consensus()
+        reply['consensus'] = cinfo['consensus_hash']
         reply['server_version'] = "%s" % VERSION
-        reply['last_block_processed'] = db.get_current_block()
+        reply['last_block_processed'] = cinfo['block_height']
         reply['server_alive'] = True
         reply['indexing'] = config.is_indexing(self.working_dir)
-
-        db.close()
+        reply['testnet'] = BLOCKSTACK_TEST or BLOCKSTACK_TESTNET
 
         if conf.get('atlas', False):
             # return zonefile inv length
