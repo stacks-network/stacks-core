@@ -99,10 +99,10 @@ atlas_hostname = localhost
 enabled = true
 server_version = 0.19.0
 api_port = %s
-api_host = localhost
+api_host = %s
 api_protocol = http
 indexer_url = http://localhost:%s
-""" % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_RPC_PORT)
+""" % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_CLIENT_BIND, TEST_RPC_PORT)
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
 [blockstack-client]
