@@ -21,7 +21,7 @@ UPSTREAM = "http://localhost:30001"
 UPSTREAM_GET_PATHS = ['/config', '/operations', '/atlas-neighbors', '/blockHeight', '/balance/']
 UPSTREAM_POST_PATHS = ['/sendBTC', '/sendStacks', '/registerName', '/registerSubdomain']
 
-MOCK = True
+MOCK = os.environ.get('MOCK')
 
 class TestnetTestServerHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
