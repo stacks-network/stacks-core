@@ -197,7 +197,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             return
 
         # /namespaces/page
-        if self.path.startswith('/namesspaces/'):
+        if self.path.startswith('/namespaces/'):
             try:
                 page = int(self.path.strip('/').split('/')[-1])
             except:
