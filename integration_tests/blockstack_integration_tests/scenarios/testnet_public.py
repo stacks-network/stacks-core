@@ -406,8 +406,16 @@ def start_subdomain_registrar():
     with open(os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'gaia.conf'), 'r') as f:
         GAIA_CONF = json.loads(f.read().strip())
 
-    GAIA_READ_URL = 'http://{}:{}'.format(IP_ADDRESS, urlparse.urlparse(GAIA_CONF['readURL']).netloc.split(':')[-1])
+    gaia_read_port = urlparse.urlparse(GAIA_CONF['readURL']).netloc.split(':')[-1]
+    if os.environ.get('BLOCKSTACK_PUBLIC_TESTNET_GAIA_READ_PORT'):
+        gaia_read_port = int(os.environ['BLOCKSTACK_PUBLIC_TESTNET_GAIA_READ_PORT'])
+
+    GAIA_READ_URL = 'http://{}:{}'.format(IP_ADDRESS, gaia_read_port)
+
     GAIA_PORT = GAIA_CONF['port']
+    if os.environ.get('BLOCKSTACK_PUBLIC_TESTNET_GAIA_WRITE_PORT'):
+        GAIA_PORT = int(os.environ['BLOCKSTACK_PUBLIC_TESTNET_GAIA_WRITE_PORT'])
+
     GAIA_WRITE_URL = 'http://{}:{}'.format(IP_ADDRESS, GAIA_PORT)
 
     # send batches every 30 seconds
