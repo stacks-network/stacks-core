@@ -521,7 +521,9 @@ def scenario( wallets, **kw ):
     if os.environ.get('BLOCKSTACK_PUBLIC_TESTNET_GAIA_READ_PORT'):
         GAIA_READ_PORT = int(os.environ['BLOCKSTACK_PUBLIC_TESTNET_GAIA_READ_PORT'])
 
-    GAIA_READ_URL = GAIA_CONF['readURL']
+    read_urlinfo = urlparse.urlparse(GAIA_CONF['readURL'])
+
+    GAIA_READ_URL = 'http://{}:{}'.format(read_urlinfo.netloc.split(':')[0], GAIA_READ_PORT)
 
     GAIA_WRITE_PORT = GAIA_CONF['port']
     if os.environ.get('BLOCKSTACK_PUBLIC_TESTNET_GAIA_WRITE_PORT'):
