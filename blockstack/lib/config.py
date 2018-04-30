@@ -168,6 +168,9 @@ DEFAULT_API_PORT = 6270  # API endpoint port
 if BLOCKSTACK_TEST:
     DEFAULT_API_PORT = 16268
 
+if os.environ.get('BLOCKSTACK_PUBLIC_TESTNET'):
+    DEFAULT_API_HOST = '0.0.0.0'
+
 RPC_DEFAULT_TIMEOUT = 30  # in secs
 RPC_MAX_ZONEFILE_LEN = 40960     # 40KB
 RPC_MAX_INDEXING_DELAY = 2 * 3600   # 2 hours; maximum amount of time before the absence of new blocks causes the node to stop responding
