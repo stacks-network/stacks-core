@@ -3,11 +3,13 @@ upstream testFramework {
 }
 
 server {
-  listen       8080;
+  listen       80;
+  listen       [::]:80;
   server_name  testnet;
 
+  index index.html index.htm;
 
-  location ~ ^/(operations|atlas-neighbors|lastblock)/ {
+  location ~ ^/.+/ {
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header Host $http_host;
@@ -17,7 +19,7 @@ server {
   }
 
   location / {
-    index /home/jude/Desktop/research/git/blockstack-core/testnet/static/index.html;
+    try_files $uri $uri/ =404;
   }
 
   # listen 443 ssl; # managed by Certbot
