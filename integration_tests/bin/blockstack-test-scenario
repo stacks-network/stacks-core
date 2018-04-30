@@ -1203,7 +1203,7 @@ def bitcoin_regtest_reset(working_dir):
 
     os.makedirs(bitcoin_dir)
     with open(bitcoin_conf, "w") as f:
-        f.write("server=1\nregtest=1\nbind=0.0.0.0:18444\nrpcbind=0.0.0.0:18332\nrpcuser=%s\nrpcpassword=%s\ntxindex=1\nlisten=1\ndatadir=%s\ndebug=1\nrpcserialversion=0" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
+        f.write("server=1\nregtest=1\nbind=0.0.0.0:18444\nrpcbind=0.0.0.0:18332\nrpcallowip=0.0.0.0/0\nrpcallowip=::/0\nrpcuser=%s\nrpcpassword=%s\ntxindex=1\nlisten=1\ndatadir=%s\ndebug=1\nrpcserialversion=0" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
         if BITCOIND_RPC_ALLOW_IP:
             f.write("\nrpcallowip=%s\n" % BITCOIND_RPC_ALLOW_IP)
         f.flush()
