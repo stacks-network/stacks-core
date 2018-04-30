@@ -82,9 +82,9 @@ def default_cache_off(response):
 
 def forwarded_get(url, params = None):
     if params:
-        resp = requests.get(url, params = params)
+        resp = requests.get(url, params = params, allow_redirects=False)
     else:
-        resp = requests.get(url)
+        resp = requests.get(url, allow_redirects=False)
 
     try:
         log.debug("{} => {}".format(resp.url, resp.status_code))
