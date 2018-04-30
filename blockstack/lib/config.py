@@ -164,6 +164,8 @@ if os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"):
     MAX_RPC_LEN = int(os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"))
     print("Overriding MAX_RPC_LEN to {}".format(MAX_RPC_LEN))
 
+if BLOCKSTACK_TEST:
+    RPC_MAX_INDEXING_DELAY = 5
 
 """ block indexing configs
 """
