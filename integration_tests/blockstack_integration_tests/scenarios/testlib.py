@@ -1309,6 +1309,8 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
 
     Generates 2 blocks
     """
+    gaia_host = kw.get('gaia_host', 'localhost:4000')
+
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
 
     profile = kw.get('profile', DEFAULT_PROFILE)
@@ -1319,7 +1321,8 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
     blockstack_name_preorder(name, privkey, addr)
     next_block(**kw)
 
-    zonefile_txt = make_empty_zonefile(name, addr)
+    urls = ['http://{}/hub/{}/profile.json'.format(gaia_host, virtualchain.address_reencode(addr, network='mainnet'))]
+    zonefile_txt = make_empty_zonefile(name, addr, urls=urls)
     zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
 
     blockstack_name_register(name, privkey, addr, zonefile_hash=zonefile_hash)
