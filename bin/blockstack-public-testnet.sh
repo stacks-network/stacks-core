@@ -17,4 +17,7 @@ export BLOCKSTACK_PUBLIC_TESTNET="1"
 # make ourselves look like we're an old Core node, so mainnet nodes don't add us as peers
 export BLOCKSTACK_CORE_VERSION="0.0.0.1"
 
+# what's our public hostname?
+export BLOCKSTACK_TESTNET_PUBLIC_HOST="testnet.blockstack.org"
+
 blockstack-test-scenario blockstack_integration_tests.scenarios.testnet_public
