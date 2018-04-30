@@ -48,24 +48,14 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
-TRANSACTION_BROADCAST_LOCATION = os.environ.get('BSK_TRANSACTION_BROADCAST_LOCATION',
-                                                '/src/transaction-broadcaster')
-
 SUBDOMAIN_REGISTRAR_LOCATION = os.environ.get('BSK_SUBDOMAIN_REGISTRAR_LOCATION',
-                                              '/src/subdomain-registrar')
+                                              '/usr/bin/blockstack-subdomain-registrar')
 
-def start_transaction_broadcaster():
-    try:
-        os.rename('/tmp/transaction_broadcaster.db', '/tmp/transaction_broadcaster.db.last')
-    except OSError:
-        pass
-    env = {'BSK_TRANSACTION_BROADCAST_DEVELOP' : '1'}
-    if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
-        env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
-    Popen(['node', TRANSACTION_BROADCAST_LOCATION + '/lib/index.js'],
-          env = env)
+SUBDOMAIN_PROC = None
 
 def start_subdomain_registrar():
+    global SUBDOMAIN_PROC
+
     try:
         os.rename('/tmp/subdomain_registrar.db', '/tmp/subdomain_registrar.last')
     except OSError:
@@ -73,11 +63,13 @@ def start_subdomain_registrar():
     env = {'BSK_SUBDOMAIN_REGTEST' : '1'}
     if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
         env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
-    Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION + '/lib/index.js'], env = env)
+
+    SUBDOMAIN_PROC = Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION], env = env)
+    testlib.add_cleanup(lambda: SUBDOMAIN_PROC.kill())
+
 
 def scenario( wallets, **kw ):
 
-    start_transaction_broadcaster()
     start_subdomain_registrar()
 
     testlib.blockstack_namespace_preorder( "id", wallets[1].addr, wallets[0].privkey )
@@ -89,34 +81,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "id", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-    resp = testlib.blockstack_cli_register( "foo.id", "0123456789abcdef" )
-    if 'error' in resp:
-        print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
-        return False
-
-    # wait for the preorder to get confirmed
-    for i in xrange(0, 12):
-        testlib.next_block( **kw )
-
-    # wait for the poller to pick it up
-    print >> sys.stderr, "Waiting 10 seconds for the backend to submit the register"
-    time.sleep(10)
-
-    # wait for the register to get confirmed
-    for i in xrange(0, 12):
-        testlib.next_block( **kw )
-
-    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
-    time.sleep(10)
-
-    # wait for update to get confirmed
-    for i in xrange(0, 12):
-        testlib.next_block( **kw )
-
-    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
-    time.sleep(10)
-
+    testlib.blockstack_register_user("foo.id", wallets[2].privkey, wallets[3].privkey, **kw)
 
     # now, queue a registration.
 
