@@ -258,6 +258,8 @@ function loadStats() {
     getNamespaces(0);
 }
 
+loadStats()
+
 window.setInterval(loadStats, 15000);
 // window.setInterval(loadStats, 1000);
 
