@@ -2794,8 +2794,9 @@ class AtlasPeerCrawler( threading.Thread ):
                 filtered.append(peer)
                 continue
 
-            if semver_newer(res['server_version'], MIN_ATLAS_VERSION):
-                # too old to be a valid atlas node for this network version
+            if (BLOCKSTACK_PUBLIC_TESTNET and res['server_version'] != MIN_ATLAS_VERSION) or (not BLOCKSTACK_PUBLIC_TESTNET and semver_newer(res['server_version'], MIN_ATLAS_VERSION)):
+                # mainnet: too old to be a valid atlas node for this network version
+                # testnet: not the same version == don't connect
                 filtered.append(peer)
                 log.debug("%s is too old to be an atlas node (version %s)" % (peer, res['server_version']))
 
