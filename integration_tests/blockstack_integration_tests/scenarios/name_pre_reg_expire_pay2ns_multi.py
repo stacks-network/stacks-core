@@ -183,7 +183,7 @@ def scenario( wallets, **kw ):
     name_cost_2 = name_rec_2['op_fee']
 
     # namespace should NOT have gotten the fee for foo_fail.  It should only have gotten it for foo.test
-    if new_namespace_balance - namespace_balance != 4*name_cost + 3*5500:
+    if new_namespace_balance - namespace_balance != 4*name_cost + 11250:
         print 'address {} got credited after fee capture period'.format(namespace_rec['address'])
         print '{} != {} + 4*{}'.format(new_namespace_balance, namespace_balance, name_cost)
         return False

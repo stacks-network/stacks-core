@@ -227,12 +227,12 @@ def scenario( wallets, **kw ):
 
         did_rec = res
         old_rec = name_recs[name]
-        if old_rec['revoked'] and 'error' not in did_rec:
-            print 'revoked did is sitll valid: {}'.format(dids[i])
+        if old_rec.get('revoked') and 'error' not in did_rec:
+            print 'revoked did is still valid: {}'.format(dids[i])
             print did_rec
             return False
 
-        elif not name_rec_equal(did_rec, old_rec):
+        elif not name_rec_equal(did_rec, old_rec) and 'error' not in did_rec and 'error' not in old_rec:
             print 'old record mismatch'
             print json.dumps(did_rec, sort_keys=True)
             print json.dumps(old_rec, sort_keys=True)

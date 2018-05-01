@@ -232,7 +232,7 @@ def scenario( wallets, **kw ):
 
         did_rec = res
         old_rec = name_recs[name]
-        if old_rec['revoked'] and 'error' not in did_rec:
+        if old_rec.get('revoked') and 'error' not in did_rec:
             print 'revoked did is sitll valid: {}'.format(dids[i])
             print did_rec
             return False

@@ -826,15 +826,23 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
     return resp
 
 
-def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, tx_only=False, config_path=None, use_cli=True):
+def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, tx_only=False, config_path=None, use_cli=True, expect_fail=False):
     
     global api_call_history
     resp = None
     register_addr = virtualchain.address_reencode(register_addr)
 
     if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('namespace_reveal', namespace_id, register_addr, '{}'.format(version_bits), '{}'.format(lifetime), '{}'.format(coeff), '{}'.format(base), 
-                ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), privatekey, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only)
+        txid = {}
+        try:
+            txid = nodejs_cli('namespace_reveal', namespace_id, register_addr, '{}'.format(version_bits), '{}'.format(lifetime), '{}'.format(coeff), '{}'.format(base), 
+                    ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), privatekey, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only)
+        
+        except:
+            if expect_fail:
+                txid = {'error': 'command failed'}
+            else:
+                raise
 
         if 'error' in txid:
             return txid
@@ -976,16 +984,23 @@ def blockstack_cli_namespace_preorder( namespace_id, payment_privkey, reveal_pri
     return blockstack_namespace_preorder(namespace_id, virtualchain.get_privkey_address(reveal_privkey), payment_privkey, use_cli=use_cli)
 
 
-def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privkey, lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, preorder_txid=None, config_path=None, version_bits=None, expect_fail=False):
+def blockstack_cli_namespace_reveal( namespace_id, payment_privkey, reveal_privkey, lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, preorder_txid=None, config_path=None, version_bits=1, expect_fail=False):
     """
     reveal a namespace
     """
-    use_cli = True
-    if not virtualchain.is_singlesig(payment_privkey) or not virtualchain.is_singlesig(reveal_privkey):
-        use_cli = False
+    try:
+        use_cli = True
+        if not virtualchain.is_singlesig(payment_privkey) or not virtualchain.is_singlesig(reveal_privkey):
+            use_cli = False
 
-    buckets = [int(x) for x in buckets.split(',')]
-    return blockstack_namespace_reveal(namespace_id, virtualchain.get_privkey_address(reveal_privkey), lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, payment_privkey, version_bits=version_bits, use_cli=use_cli, expect_fail=expect_fail)
+        buckets = [int(x) for x in buckets.split(',')]
+        return blockstack_namespace_reveal(namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(reveal_privkey)),
+                lifetime, coeff, base, buckets, nonalpha_disc, no_vowel_disc, payment_privkey, version_bits=version_bits, use_cli=use_cli, expect_fail=expect_fail)
+    except:
+        if expect_fail:
+            return {'error': 'failed to call into CLI to reveal namespace'}
+        else:
+            raise
 
 
 def blockstack_cli_namespace_ready( namespace_id, reveal_privkey, config_path=None ):
