@@ -448,6 +448,21 @@ def install_dependencies(src_dir, deps, venv_dir=None):
                 cwd = os.getcwd()
                 os.chdir(pakdir)
 
+                # npm-specific deps
+                if dep.has_key('npm_link_packages'):
+                    for link_package in dep['npm_link_packages']:
+                        cmd = "npm link '{}'".format(link_package)
+                        log.debug("$ {}".format(cmd))
+
+                        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                        out, err = p.communicate()
+                        retval = p.returncode
+
+                        if retval != 0:
+                            os.chdir(cwd)
+                            log_err(cmd, retval, err)
+                            return False
+
                 cmd = 'npm install'
                 log.debug('$ {}'.format(cmd))
 
@@ -464,21 +479,6 @@ def install_dependencies(src_dir, deps, venv_dir=None):
                 if dep.has_key('npm_deps'):
                     for npm_dep in dep['npm_deps']:
                         cmd = "npm install -g '{}'".format(npm_dep)
-                        log.debug("$ {}".format(cmd))
-
-                        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-                        out, err = p.communicate()
-                        retval = p.returncode
-
-                        if retval != 0:
-                            os.chdir(cwd)
-                            log_err(cmd, retval, err)
-                            return False
-
-                # npm-specific deps
-                if dep.has_key('npm_link_packages'):
-                    for link_package in dep['npm_link_packages']:
-                        cmd = "npm link '{}'".format(link_package)
                         log.debug("$ {}".format(cmd))
 
                         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
