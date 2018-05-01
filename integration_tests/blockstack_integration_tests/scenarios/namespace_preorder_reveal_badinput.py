@@ -55,59 +55,59 @@ def scenario( wallets, **kw ):
     preorder_block = testlib.get_current_block( **kw ) + 1
     testlib.next_block(**kw)
 
-    resp = testlib.blockstack_cli_namespace_reveal('test', "abcd", wallets[1].privkey, 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10)
+    resp = testlib.blockstack_cli_namespace_reveal('test', "abcd", wallets[1].privkey, 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10, expect_fail=True)
     if 'error' not in resp:
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, "abcd", 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10)
+    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, "abcd", 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10, expect_fail=True)
     if 'error' not in resp:
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
     
     # NOTE: there's nothing bad we can put for lifetime, since < 0 or > 2**32-1 will be "infinite"
 
-    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 256, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10)
+    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 256, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10, expect_fail=True)
     if 'error' not in resp:
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, -1, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10)
+    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, -1, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10, expect_fail=True)
     if 'error' not in resp:
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, -1, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10)
+    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, -1, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10, expect_fail=True)
     if 'error' not in resp:
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '16,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10)
+    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '16,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10, expect_fail=True)
     if 'error' not in resp:
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '-1,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10)
+    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '-1,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 10, expect_fail=True)
     if 'error' not in resp:
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 0, 10)
+    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 0, 10, expect_fail=True)
     if 'error' not in resp:
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 16, 10)
+    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 16, 10, expect_fail=True)
     if 'error' not in resp:
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 0)
+    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 0, expect_fail=True)
     if 'error' not in resp:
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 16)
+    resp = testlib.blockstack_cli_namespace_reveal('test', wallets[0].privkey, wallets[1].privkey, 52595, 250, 4, '6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0', 10, 16, expect_fail=True)
     if 'error' not in resp:
         print json.dumps(resp, indent=4, sort_keys=True)
         return False
