@@ -68,21 +68,21 @@ def scenario( wallets, **kw ):
 
     working_dir = testlib.get_working_dir(**kw)
 
-    sub_zf_template = '$ORIGIN {}\n$TTL 3600\n_http._tcp URI 10 1 "http://www.foo.com"\n{}'
+    sub_zf_template = '$ORIGIN {}\n$TTL 3600\n{}'
     zf_template = '$ORIGIN {}\n$TTL 3600\n_http._tcp URI 10 1 "http://www.foo.com"\n_resolver URI 10 1 "http://resolver.foo"\n{}'
-    zf_default_url = '_file URI 10 1 "file://' + working_dir + '/{}"'
-    zf_default_url_2 = '_file URI 20 1 "file://' + working_dir + '/{}"'
+    zf_default_url = '_file URI 10 1 "http://localhost:4000/hub/{}/profile.json'
+    zf_default_url_2 = '_file URI 20 1 "http://localhost:4000/hub/{}/profile.json'
 
     subdomain_zonefiles = {
-        'bar.foo1.test': sub_zf_template.format('bar.foo1.test', zf_default_url.format('bar.foo1.test')),
-        'bar.foo2.test': sub_zf_template.format('bar.foo2.test', zf_default_url.format('bar.foo2.test')),
-        'bar.foo3.test': sub_zf_template.format('bar.foo3.test', zf_default_url.format('bar.foo3.test')),
+        'bar.foo1.test': sub_zf_template.format('bar.foo1.test', zf_default_url.format(virtualchain.address_reencode(wallets[0].addr, network='mainnet'))),
+        'bar.foo2.test': sub_zf_template.format('bar.foo2.test', zf_default_url.format(virtualchain.address_reencode(wallets[1].addr, network='mainnet'))),
+        'bar.foo3.test': sub_zf_template.format('bar.foo3.test', zf_default_url.format(virtualchain.address_reencode(wallets[2].addr, network='mainnet'))),
     }
 
     zonefiles = {
-        'foo1.test': zf_template.format('foo1.test', subdomains.make_subdomain_txt('bar.foo1.test', 'foo1.test', wallets[4].addr, 0, subdomain_zonefiles['bar.foo1.test'], wallets[4].privkey)),
-        'foo2.test': zf_template.format('foo2.test', subdomains.make_subdomain_txt('bar.foo2.test', 'foo2.test', wallets[4].addr, 0, subdomain_zonefiles['bar.foo2.test'], wallets[4].privkey)),
-        'foo3.test': zf_template.format('foo3.test', subdomains.make_subdomain_txt('bar.foo3.test', 'foo3.test', wallets[4].addr, 0, subdomain_zonefiles['bar.foo3.test'], wallets[4].privkey)),
+        'foo1.test': zf_template.format('foo1.test', subdomains.make_subdomain_txt('bar.foo1.test', 'foo1.test', wallets[0].addr, 0, subdomain_zonefiles['bar.foo1.test'], wallets[0].privkey)),
+        'foo2.test': zf_template.format('foo2.test', subdomains.make_subdomain_txt('bar.foo2.test', 'foo2.test', wallets[1].addr, 0, subdomain_zonefiles['bar.foo2.test'], wallets[1].privkey)),
+        'foo3.test': zf_template.format('foo3.test', subdomains.make_subdomain_txt('bar.foo3.test', 'foo3.test', wallets[2].addr, 0, subdomain_zonefiles['bar.foo3.test'], wallets[2].privkey)),
     }
 
     testlib.blockstack_name_register( "foo1.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=storage.get_zonefile_data_hash(zonefiles['foo1.test']))
@@ -91,15 +91,13 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # sign and put profiles
-    for subd in ['bar.foo1.test', 'bar.foo2.test', 'bar.foo3.test']:
+    for i, subd in enumerate(['bar.foo1.test', 'bar.foo2.test', 'bar.foo3.test']):
         profile_data = {
             'type': 'Person',
             'name': subd,
         }
-        profile_jwt = testlib.blockstack_make_profile(profile_data, wallets[4].privkey)
-        path = os.path.join(working_dir, subd)
-        with open(path, 'w') as f:
-            f.write(profile_jwt)
+        profile_jwt = testlib.blockstack_make_profile(profile_data, wallets[i].privkey)
+        testlib.blockstack_put_profile(None, profile_jwt, wallets[i].privkey, 'http://localhost:4000')
 
     # whois
     for i in xrange(1, 4):
@@ -122,15 +120,15 @@ def scenario( wallets, **kw ):
         assert testlib.blockstack_put_zonefile(zonefiles[name])
     
     subdomain_zonefiles_2 = {
-        'bar.foo1.test': zf_template.format('bar.foo1.test', zf_default_url_2.format('bar.foo1.test')),
-        'bar.foo2.test': zf_template.format('bar.foo2.test', zf_default_url_2.format('bar.foo2.test')),
-        'bar.foo3.test': zf_template.format('bar.foo3.test', zf_default_url_2.format('bar.foo3.test')),
+        'bar.foo1.test': sub_zf_template.format('bar.foo1.test', zf_default_url_2.format(virtualchain.address_reencode(wallets[0].addr, network='mainnet'))),
+        'bar.foo2.test': sub_zf_template.format('bar.foo2.test', zf_default_url_2.format(virtualchain.address_reencode(wallets[1].addr, network='mainnet'))),
+        'bar.foo3.test': sub_zf_template.format('bar.foo3.test', zf_default_url_2.format(virtualchain.address_reencode(wallets[2].addr, network='mainnet'))),
     }
 
     zonefiles = {
-        'foo1.test': zf_template.format('foo1.test', subdomains.make_subdomain_txt('bar.foo1.test', 'foo1.test', wallets[4].addr, 1, subdomain_zonefiles['bar.foo1.test'], wallets[4].privkey)),
-        'foo2.test': zf_template.format('foo2.test', subdomains.make_subdomain_txt('bar.foo2.test', 'foo2.test', wallets[4].addr, 1, subdomain_zonefiles['bar.foo2.test'], wallets[4].privkey)),
-        'foo3.test': zf_template.format('foo3.test', subdomains.make_subdomain_txt('bar.foo3.test', 'foo3.test', wallets[4].addr, 1, subdomain_zonefiles['bar.foo3.test'], wallets[4].privkey)),
+        'foo1.test': zf_template.format('foo1.test', subdomains.make_subdomain_txt('bar.foo1.test', 'foo1.test', wallets[0].addr, 1, subdomain_zonefiles['bar.foo1.test'], wallets[0].privkey)),
+        'foo2.test': zf_template.format('foo2.test', subdomains.make_subdomain_txt('bar.foo2.test', 'foo2.test', wallets[1].addr, 1, subdomain_zonefiles['bar.foo2.test'], wallets[1].privkey)),
+        'foo3.test': zf_template.format('foo3.test', subdomains.make_subdomain_txt('bar.foo3.test', 'foo3.test', wallets[2].addr, 1, subdomain_zonefiles['bar.foo3.test'], wallets[2].privkey)),
     }
 
     # update zone files
@@ -150,7 +148,7 @@ def scenario( wallets, **kw ):
     proxy = testlib.make_proxy()
 
     # test 301 redirects.
-    res = testlib.blockstack_REST_call('GET', '/v1/names/baz.foo1.test', ses, allow_redirects = False)
+    res = testlib.blockstack_REST_call('GET', '/v1/names/baz.foo1.test', allow_redirects = False)
     if 'error' in res:
         res['test'] = 'Failed to query non-registered name.'
         print json.dumps(res)
@@ -219,9 +217,9 @@ def scenario( wallets, **kw ):
             return False
 
         # test CLI lookup by address
-        res = testlib.blockstack_cli_get_names_owned_by_address(wallets[4].addr)
+        res = testlib.blockstack_cli_get_names_owned_by_address(wallets[i-1].addr)
         if 'error' in res:
-            print 'failed to get subdomains owned by {}'.format(wallets[4].addr)
+            print 'failed to get subdomains owned by {}'.format(wallets[i-1].addr)
             print res
             return False
 
@@ -231,7 +229,7 @@ def scenario( wallets, **kw ):
             return False
 
         # test REST lookup by address
-        res = testlib.blockstack_REST_call('GET', '/v1/addresses/bitcoin/{}'.format(wallets[4].addr))
+        res = testlib.blockstack_REST_call('GET', '/v1/addresses/bitcoin/{}'.format(wallets[i-1].addr))
         if 'error' in res:
             res['test'] = 'Failed to query names owned by address'
             print json.dumps(res)
