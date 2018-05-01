@@ -94,6 +94,7 @@ DEFAULT_DEPS = [
         'npm_link_packages': ['blockstack'],
         'npm_build_commands': ['build'],
         'npm_link': True,
+        'npm_install_g': False,
     },
     {
         'name': 'blockstack-gaia-hub',
@@ -519,14 +520,20 @@ def install_dependencies(src_dir, deps, venv_dir=None):
                         log_err(cmd, retval, err)
                         return False
 
-                # npm install -g
-                cmd = 'npm install -g'
-                log.debug('$ {}'.format(cmd))
+                # npm install -g, unless we shouldn't
+                if not dep.has_key('npm_install_g') or dep['npm_install_g']:
+                    cmd = 'npm install -g'
+                    log.debug('$ {}'.format(cmd))
 
-                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-                out, err = p.communicate()
-                retval = p.returncode
-                
+                    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                    out, err = p.communicate()
+                    retval = p.returncode
+
+                    if retval != 0:
+                        os.chdir(cwd)
+                        log_err(cmd, retval, err)
+                        return False
+
                 os.chdir(cwd)
 
                 if retval != 0:
