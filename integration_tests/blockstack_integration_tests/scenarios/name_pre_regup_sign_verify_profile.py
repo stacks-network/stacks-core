@@ -130,7 +130,7 @@ def scenario( wallets, **kw ):
                 return False
 
         else:
-            if 'error' not in res:
+            if 'zonefile' not in res or 'error' not in res['zonefile']:
                 print res
                 return False
 
@@ -149,7 +149,7 @@ def check( state_engine ):
     if ns['namespace_id'] != 'test':
         return False 
 
-    for i in xrange(1, 4):
+    for i in xrange(1, 2):
         name = 'foo{}.test'.format(i)
 
         # not preordered

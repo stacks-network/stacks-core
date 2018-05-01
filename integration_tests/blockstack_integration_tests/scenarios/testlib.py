@@ -1474,19 +1474,34 @@ def blockstack_make_profile( profile_data, privkey ):
         raise Exception("Need blockstack-cli")
 
 
-def blockstack_put_profile(name, profile_token, privkey, safety_checks=True):
+def blockstack_put_profile(name, profile_token, privkey, gaia_hub=None, safety_checks=True):
     """
     Store a signed profile token
     """
     if has_nodejs_cli():
+        if name is None:
+            assert gaia_hub, 'Need name or gaia hub'
+            name = virtualchain.get_privkey_address(privkey)
+
         fd, path = tempfile.mkstemp('-blockstack-profile-store')
         os.write(fd, profile_token)
         os.close(fd)
 
-        res = nodejs_cli('profile_store', name, path, privkey, safety_checks=safety_checks)
+        if gaia_hub:
+            res = nodejs_cli('profile_store', name, path, privkey, gaia_hub, safety_checks=safety_checks)
+        else:
+            res = nodejs_cli('profile_store', name, path, privkey, safety_checks=safety_checks)
+
         os.unlink(path)
 
-        return json.loads(res)['profileUrls']
+        res = json.loads(res)
+        if 'error' in res:
+            return res
+        
+        if 'zonefile' in res and 'error' in res['zonefile']:
+            return res['zonefile']
+
+        return res['profileUrls']
     
     else:
         raise Exception("blockstack-cli is required")
