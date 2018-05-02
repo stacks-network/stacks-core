@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 function exit_error() {
     echo $1
@@ -20,4 +20,39 @@ export BLOCKSTACK_CORE_VERSION="0.0.0.1"
 # what's our public hostname?
 export BLOCKSTACK_TESTNET_PUBLIC_HOST="testnet.blockstack.org"
 
-blockstack-test-scenario blockstack_integration_tests.scenarios.testnet_public
+LOGFILE=testnet.log
+LOGFILE_BACKUPS=testnet-logs
+
+mkdir -p "$LOGFILE_BACKUPS"
+
+while true; do 
+   if [ -f "$LOGFILE" ]; then 
+       BACKUP_LOGFILE="$LOGFILE_BACKUPS/testnet.log.$(date +%s)"
+       bzip2 "$BACKUP_LOGFILE" &
+   fi
+
+   blockstack-test-scenario blockstack_integration_tests.scenarios.testnet_public > "$LOGFILE" 2>&1 &
+   TEST_PID=$!
+  
+   sleep 60
+
+   # reboot once a day
+   for i in $(seq 1 1440); do
+       kill -s 0 $TEST_PID
+       RC=$?
+       if [ $RC -ne 0 ]; then 
+          echo "Testnet crashed at $(date)"
+          echo "Testnet crashed at $(date)" >> "$LOGFILE"
+          break;
+       fi
+       sleep 60
+   done
+       
+   echo "Rebooting testnet..." >> "$LOGFILE"
+   echo "Rebooting testnet..."
+   kill "$TEST_PID"
+   sleep 10
+   echo "Testnet stopped at "$(date)"" >> "$LOGFILE"
+   echo "Testnet stopped at "$(date)""
+done
+
