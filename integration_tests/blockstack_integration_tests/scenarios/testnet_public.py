@@ -164,7 +164,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 return self.error_page(400, 'Invalid page')
 
             names = blockstack.lib.client.get_all_names(offset=page * 100, count=100, hostport='http://localhost:16264')
-            return self.reply_json(ret, 30)
+            return self.reply_json(names, 30)
 
         # /namespaces/page
         if self.path.startswith('/namespaces/'):
@@ -175,7 +175,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 return self.error_page(400, 'Invalid page')
 
             names = blockstack.lib.client.get_all_namespaces(offset=page * 100, count=100, hostport='http://localhost:16264')
-            return self.reply_json(ret, 30)
+            return self.reply_json(names, 30)
 
         return self.error_page(404, 'The server that serves the testnet panel must be down')
 
