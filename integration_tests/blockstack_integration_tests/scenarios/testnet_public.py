@@ -94,41 +94,32 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     TODO: replace with Flask app or something
     """
 
+    def reply_json(self, ret, cache_max_age=None):
+        ret = json.dumps(ret)
+        self.send_response(200)
+        self.send_header('content-type', 'application/json')
+        self.send_header('content-length', len(ret))
+
+        if cache_max_age:
+            self.send_header('cache-control', 'max-age={}'.format(cache_max_age))
+
+        self.end_headers()
+        self.wfile.write(ret)
+        return
+
+
     def do_GET(self):
         if self.path == '/blockHeight':
             ret = self.server.get_cached_chain_tip()
-            ret = json.dumps(ret)
-            self.send_response(200)
-            self.send_header('content-type', 'application/json')
-            self.send_header('content-length', len(ret))
-            self.send_header('cache-control', 'max-age=30')
-            self.end_headers()
-            self.wfile.write(ret)
-            return
+            return self.reply_json(ret, 30)
 
         if self.path == "/operations":
             ret = self.server.get_cached_last_block()
-            ret = json.dumps(ret)
-
-            self.send_response(200)
-            self.send_header('content-type', 'application/json')
-            self.send_header('content-length', len(ret))
-            self.send_header('cache-control', 'max-age=30')
-            self.end_headers()
-            self.wfile.write(ret)
-            return
+            return self.reply_json(ret, 30)
 
         if self.path == "/atlas-neighbors":
             ret = self.server.get_cached_atlas_neighbors()
-            ret = json.dumps(ret)
-
-            self.send_response(200)
-            self.send_header('content-type', 'application/json')
-            self.send_header('content-length', len(ret))
-            self.send_header('cache-control', 'max-age=30')
-            self.end_headers()
-            self.wfile.write(ret)
-            return
+            return self.reply_json(ret, 30)
 
         if self.path == '/config':
             ret = {
@@ -139,15 +130,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 'bitcoinJSONRPCURL': BITCOIN_JSONRPC_URL,
                 'bitcoinP2PURL': BITCOIN_P2P_URL,
             }
-            ret = json.dumps(ret)
-
-            self.send_response(200)
-            self.send_header('content-type', 'application/json')
-            self.send_header('content-length', len(ret))
-            self.send_header('cache-control', 'max-age=3600')
-            self.end_headers()
-            self.wfile.write(ret)
-            return
+            return self.reply_json(ret, 3600)
 
         # /balance/{}
         if self.path.startswith('/balance'):
@@ -170,14 +153,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 'btc': '{}'.format(btc_balance),
                 'stacks': '{}'.format(stacks_balance),
             }
-            ret = json.dumps(ret)
-
-            self.send_response(200)
-            self.send_header('content-type', 'application/json')
-            self.send_header('content-length', len(ret))
-            self.end_headers()
-            self.wfile.write(ret)
-            return
+            return self.reply_json(ret)
 
         # /names/page
         if self.path.startswith('/names/'):
@@ -188,14 +164,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 return self.error_page(400, 'Invalid page')
 
             names = blockstack.lib.client.get_all_names(offset=page * 100, count=100, hostport='http://localhost:16264')
-            ret = json.dumps(names)
-
-            self.send_response(200)
-            self.send_header('content-type', 'application/json')
-            self.send_header('content-length', len(ret))
-            self.end_headers()
-            self.wfile.write(ret)
-            return
+            return self.reply_json(ret, 30)
 
         # /namespaces/page
         if self.path.startswith('/namespaces/'):
@@ -206,14 +175,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 return self.error_page(400, 'Invalid page')
 
             names = blockstack.lib.client.get_all_namespaces(offset=page * 100, count=100, hostport='http://localhost:16264')
-            ret = json.dumps(names)
-
-            self.send_response(200)
-            self.send_header('content-type', 'application/json')
-            self.send_header('content-length', len(ret))
-            self.end_headers()
-            self.wfile.write(ret)
-            return
+            return self.reply_json(ret, 30)
 
         return self.error_page(404, 'The server that serves the testnet panel must be down')
 
@@ -230,6 +192,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     def do_POST(self):
         content_type = self.headers.getheader('content-type')
         postvars = {}
+        txid = None
 
         if content_type is not None:
             ctype, pdict = cgi.parse_header(content_type)
@@ -273,8 +236,14 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 self.error_page(400, "Failed to send value")
                 return
 
+            txid = res['transaction_hash']
+
             self.send_response(302)
-            self.send_header('location', '/')
+            location = '/'
+            if txid:
+                location = '/?bitcoinTxid={}'.format(txid)
+
+            self.send_header('location', location)
             self.end_headers()
             return
 
@@ -311,6 +280,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             res = None
             try:
                 res = testlib.blockstack_send_tokens(addr, 'STACKS', value, wallets[3].privkey)
+                txid = res['transaction_hash']
             except Exception as e:
                 log.exception(e)
                 self.error_page(500, 'Failed to send tokens to {}\n{}'.format(addr, ''.join(traceback.format_exc())))
@@ -335,7 +305,11 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 return
 
             self.send_response(302)
-            self.send_header('location', '/')
+            location = '/'
+            if txid:
+                location = '/?stacksTxid={}'.format(txid)
+
+            self.send_header('location', location)
             self.end_headers()
             return
 
@@ -439,7 +413,7 @@ def start_subdomain_registrar():
     subdomain_stderr = open(subdomain_log_path, 'w')
 
     os.environ['BSK_SUBDOMAIN_CONFIG'] = subdomain_registrar_config_path 
-    SUBDOMAIN_PROC = subprocess.Popen('blockstack-subdomain-registrar start personal.id', shell=True, stdout=subdomain_stdout, stderr=subdomain_stderr)
+    SUBDOMAIN_PROC = subprocess.Popen('blockstack-subdomain-registrar start {}'.format(SUBDOMAIN_DOMAIN), shell=True, stdout=subdomain_stdout, stderr=subdomain_stderr)
 
     testlib.add_cleanup(stop_subdomain_registrar)
 
