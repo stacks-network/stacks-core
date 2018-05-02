@@ -1,3 +1,17 @@
+// https://stackoverflow.com/questions/901115/how-can-i-get-query-string-values-in-javascript
+var urlParams;
+(window.onpopstate = function () {
+    var match,
+        pl     = /\+/g,  // Regex for replacing addition symbol with a space
+        search = /([^&=]+)=?([^&]*)/g,
+        decode = function (s) { return decodeURIComponent(s.replace(pl, " ")); },
+        query  = window.location.search.substring(1);
+
+    urlParams = {};
+    while (match = search.exec(query))
+       urlParams[decode(match[1])] = decode(match[2]);
+})();
+
 function makeHttpObject() {
   try {return new XMLHttpRequest();}
   catch (error) {}
@@ -249,6 +263,22 @@ function prevNamesPage() {
   }
 }
 
+function getBitcoinTxid() {
+  var bitcoinTxid = urlParams['bitcoinTxid'];
+  if (!!bitcoinTxid) {
+    var bitcoinTxidElem = document.getElementById("bitcoinTxid");
+    bitcoinTxidElem.innerHTML = "TXID: " + bitcoinTxid;
+  }
+}
+
+function getStacksTxid() {
+  var stacksTxid = urlParams['stacksTxid'];
+  if (!!stacksTxid) {
+    var stacksTxidElem = document.getElementById("stacksTxid");
+    stacksTxidElem.innerHTML = "TXID: " + stacksTxid;
+  }
+}
+
 function loadStats() {
     getTestnetConfig();
     getBlockHeight();
@@ -258,7 +288,11 @@ function loadStats() {
     getNamespaces(0);
 }
 
-loadStats()
+document.addEventListener('DOMContentLoaded', function() {
+  loadStats();
+  getBitcoinTxid();
+  getStacksTxid();
+});
 
 window.setInterval(loadStats, 15000);
 // window.setInterval(loadStats, 1000);
