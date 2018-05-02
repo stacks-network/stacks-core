@@ -26,6 +26,10 @@ $(WWWDIR)/%.js: %.js $(WWWDIR)
 test:
 	$(SHELL) -c "cd "$(WWWDIR)" && python ../test/testServer.py"
 
+.PHONY: mocktest
+mocktest:
+	$(SHELL) -c "cd "$(WWWDIR)" && MOCK=1 python ../test/testServer.py"
+
 clean:
 	rm -rf "$(WWWDIR)"
 
