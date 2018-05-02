@@ -85,6 +85,7 @@ DEFAULT_DEPS = [
         'git': 'https://github.com/blockstack/blockstack.js',
         'branch': 'feature/stacks-transactions',
         'type': 'node.js',
+        'npm_link': True,
     },
     {
         'name': 'cli-blockstack',
@@ -92,6 +93,7 @@ DEFAULT_DEPS = [
         'branch': 'master',
         'type': 'node.js',
         'npm_link_packages': ['blockstack'],
+        'npm_link_packages_pre': ['blockstack'],
         'npm_build_commands': ['build'],
         'npm_link': True,
         'npm_install_g': False,
@@ -351,7 +353,7 @@ def install_dependencies(src_dir, deps, venv_dir=None):
         log.error("Env:\n{}".format("\n".join(["{}={}".format(k,v) for (k,v) in os.environ.items()])))
 
     # where's a good bin directory for installing stuff?
-    os.environ['BLOCKSTACK_TESTBOX_DEFAULT_BIN'] = os.path.join(os.environ['VIRTUAL_ENV']) + 'bin'
+    os.environ['BLOCKSTACK_TESTBOX_DEFAULT_BIN'] = os.path.join(os.environ['VIRTUAL_ENV']) + '/bin'
 
     for dep in deps:
         name = dep['name']
@@ -450,8 +452,8 @@ def install_dependencies(src_dir, deps, venv_dir=None):
                 os.chdir(pakdir)
 
                 # npm-specific deps
-                if dep.has_key('npm_link_packages'):
-                    for link_package in dep['npm_link_packages']:
+                if dep.has_key('npm_link_packages_pre'):
+                    for link_package in dep['npm_link_packages_pre']:
                         cmd = "npm link '{}'".format(link_package)
                         log.debug("$ {}".format(cmd))
 
@@ -475,6 +477,21 @@ def install_dependencies(src_dir, deps, venv_dir=None):
                     os.chdir(cwd)
                     log_err(cmd, retval, err)
                     return False
+
+                # npm-specific deps
+                if dep.has_key('npm_link_packages'):
+                    for link_package in dep['npm_link_packages']:
+                        cmd = "npm link '{}'".format(link_package)
+                        log.debug("$ {}".format(cmd))
+
+                        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                        out, err = p.communicate()
+                        retval = p.returncode
+
+                        if retval != 0:
+                            os.chdir(cwd)
+                            log_err(cmd, retval, err)
+                            return False
 
                 # extra deps not in package.json?
                 if dep.has_key('npm_deps'):
@@ -1067,14 +1084,24 @@ def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencie
 
     bootstrap_threads = []
 
-    for nodeinfo in all_nodes:
+    for i, nodeinfo in enumerate(all_nodes):
         t = threading.Thread(target=host_bootstrap, args=(nodeinfo['user'], nodeinfo['host']))
         t.start()
         bootstrap_threads.append(t)
 
-    for t in bootstrap_threads:
+    for i, t in enumerate(bootstrap_threads):
         t.join()
-    
+
+    bootstrapped = True
+    for host in bootstrap_results:
+        if not bootstrap_results[host]:
+            log.error("Failed to bootstrap {}".format(host))
+            bootstrapped = False
+
+    if not bootstrapped:
+        log.error("Aborting test")
+        return False
+
     os.system('stty sane')
     log.debug("All nodes bootstrapped; running tests")
 
