@@ -130,10 +130,13 @@ fund_form = div(
                     div(
                         div(
                             submit('Fund address with Bitcoin', _class='btn btn-default'),
-                        _class='col-sm-offset-3 col-sm-10'),
-                    _class='form-group'),
+                        _class='col-sm-offset-3 col-sm-4'),
+                    _class='form-group') +
+                    div(
+                        div(' ', _class='code col-sm-8 col-sm-offset-2', _align='center', _id='bitcoinTxid'),
+                    ),
                 _class="form-horizontal"),
-            _class="row") + \
+            _class="row") + "<hr/>" + \
             div(
                 form("/sendStacks", "POST",
                     div(
@@ -152,7 +155,10 @@ fund_form = div(
                         div(
                             submit('Fund address with Stacks', _class='btn btn-default'),
                         _class='col-sm-offset-3 col-sm-10'),
-                    _class='form-group'),
+                    _class='form-group') +
+                    div(
+                        div(' ', _class='code col-sm-8 col-sm-offset-2', _align='center', _id='stacksTxid'),
+                    ),
                 _class="form-horizontal"),
             _class='row') + "<hr/>" + \
             div(
@@ -186,7 +192,8 @@ hello_world = div(
                         li('Register a name with: ' + p('<code>$ blockstack-cli -t register hello_world.id2 YOUR_OWNER_KEY YOUR_PAYMENT_KEY GAIA_READ_URL</code>')) +
                         li('Register a subdomain with: ' + p('<code>$ blockstack-cli -t register_subdomain hello_world.personal.id2 YOUR_OWNER_KEY GAIA_READ_URL SUBDOMAIN_REGISTRAR_URL</code>'))
                     ) +
-                    p("You can find values for <code>GAIA_READ_URL</code> and <code>SUBDOMAIN_REGISTRAR_URL</code> in the Services panel."),
+                    p("You can find values for <code>GAIA_READ_URL</code> and <code>SUBDOMAIN_REGISTRAR_URL</code> in the Services panel.") +
+                    p("<b>NOTE:</b> This server reboots every 24 hours."),
                 _class='col-sm-offset-1 col-sm-10'),
               _class='row')
 
