@@ -23,6 +23,7 @@ UPSTREAM_POST_PATHS = ['/sendBTC', '/sendStacks', '/registerName', '/registerSub
 
 MOCK = os.environ.get('MOCK')
 
+# lifted from SimpleHTTPServer
 class TestnetTestServerHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     def get_data(self):
@@ -30,87 +31,64 @@ class TestnetTestServerHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         bits = self.rfile.read(contentlen)
         return bits
 
+    def reply_json(self, ret, cache_max_age=None):
+
+        ret = json.dumps(ret)
+        self.send_response(200)
+        self.send_header('content-type', 'application/json')
+        self.send_header('content-length', len(ret))
+
+        if cache_max_age:
+            self.send_header('cache-control', 'max-age={}'.format(cache_max_age))
+
+        self.end_headers()
+        self.wfile.write(ret)
+        return
+
+
     def do_GET(self):
         """Serve a GET request."""
         if MOCK:
+            if self.path == '/config':
+                ret = {
+                    'gaiaReadURL': 'http://mock-testnet.blockstack.org:4000',
+                    'gaiaWriteURL': 'http://mock-testnet.blockstack.org:4001',
+                    'subdomainRegistrarURL': 'http://mock-testnet.blockstack.org:30000',
+                    'transactionBroadcasterURL': 'http://mock-testnet.blockstack.org:16269',
+                    'bitcoinJSONRPCURL': 'http://mock-testnet.blockstack.org:18332',
+                    'bitcoinP2PURL': 'http://mock-testnet.blockstack.org:18444'
+                }
+                return self.reply_json(ret, 3600)
+
             if self.path == '/blockHeight':
-                # TODO: return bitcoin block height with cache headers
-                ret = json.dumps({'blockHeight': str(int(time.time())), 'consensusHash': os.urandom(16).encode('hex')})
-                self.send_response(200)
-                self.send_header('content-type', 'application/json')
-                self.send_header('content-length', len(ret))
-                self.send_header('cache-control', 'max-age=60')
-                self.end_headers()
-                self.wfile.write(ret)
-                return
+                ret = {'blockHeight': str(int(time.time())), 'consensusHash': os.urandom(16).encode('hex')}
+                return self.reply_json(ret, 60)
 
             if self.path == "/operations":
-                # TODO: get operations and return those instead
                 ret = []
                 ret.append({'opcode': 'NAME_PREORDER', 'op_fee': 60000, 'address': '16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg', 'txid': os.urandom(32).encode('hex')})
                 ret.append({'opcode': 'NAME_REGISTER', 'namespace_id': 'id', 'name': 'judecn.id', 'address': '16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg', 'txid': os.urandom(32).encode('hex')})
                 ret.append({'opcode': 'TOKEN_TRANSFER', 'token_fee': 100000000, 'address': '16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg', 'txid': os.urandom(32).encode('hex')})
-                ret = json.dumps(ret)
-
-                self.send_response(200)
-                self.send_header('content-type', 'application/json')
-                self.send_header('content-length', len(ret))
-                self.send_header('cache-control', 'max-age=60')
-                self.end_headers()
-                self.wfile.write(ret)
-                return
+                return self.reply_json(ret, 60)
 
             if self.path == "/atlas-neighbors":
-                # TODO: get operations and return those instead 
                 ret = []
                 ret.append({'host': 'localhost', 'port': 1234})
                 ret.append({'host': 'www.foo.com', 'port': 1234})
                 ret.append({'host': 'www.asdf.com', 'port': 1234})
-                ret = json.dumps(ret)
-
-                self.send_response(200)
-                self.send_header('content-type', 'application/json')
-                self.send_header('content-length', len(ret))
-                self.send_header('cache-control', 'max-age=60')
-                self.end_headers()
-                self.wfile.write(ret)
-                return
+                return self.reply_json(ret, 60)
 
             if self.path.startswith('/balance/'):
                 ret = {'btc': 123, 'stacks': 1234}
-                ret = json.dumps(ret)
-
-                self.send_response(200)
-                self.send_header('content-type', 'application/json')
-                self.send_header('content-length', len(ret))
-                self.send_header('cache-control', 'max-age=60')
-                self.end_headers()
-                self.wfile.write(ret)
-                return
+                return self.reply_json(ret, 60)
 
             if self.path.startswith('/names/'):
                 ret = ['larry.id', 'curly.podcast', 'moe.helloworld']
-                ret = json.dumps(ret)
-                
-                self.send_response(200)
-                self.send_header('content-type', 'application/json')
-                self.send_header('content-length', len(ret))
-                self.send_header('cache-control', 'max-age=60')
-                self.end_headers()
-                self.wfile.write(ret)
-                return
+                return self.reply_json(ret, 60)
 
             if self.path.startswith('/namespaces/'):
                 ret = ['id', 'helloworld', 'podcast']
-                ret = json.dumps(ret)
-                
-                self.send_response(200)
-                self.send_header('content-type', 'application/json')
-                self.send_header('content-length', len(ret))
-                self.send_header('cache-control', 'max-age=60')
-                self.end_headers()
-                self.wfile.write(ret)
-                return
+                return self.reply_json(ret, 60)
 
         for upstream_path in UPSTREAM_GET_PATHS:
             if self.path.startswith(upstream_path):
