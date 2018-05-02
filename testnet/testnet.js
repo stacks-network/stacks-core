@@ -294,6 +294,6 @@ document.addEventListener('DOMContentLoaded', function() {
   getStacksTxid();
 });
 
-window.setInterval(loadStats, 15000);
+window.setInterval(loadStats, 30000);
 // window.setInterval(loadStats, 1000);
 
