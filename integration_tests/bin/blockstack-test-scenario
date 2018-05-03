@@ -1552,14 +1552,22 @@ if __name__ == "__main__":
     test_end = None
 
     if len(sys.argv) < 2:
-        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [--force-segwit] [--output PATH] [scenario.import.path] [OPTIONAL: working dir]"
+        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [--force-segwit] [--output PATH] scenario.import.path [working dir]"
         sys.exit(1)
 
     # basic sanity checks---need some tools to exist 
-    for tool in ['sqlite3', 'blockstack-cli', 'blockstack-gaia-hub', 'blockstack-transaction-broadcaster', 'blockstack-subdomain-registrar']:
+    for tool, repo in [('sqlite3', None), \
+                      ('blockstack-cli', 'https://github.com/blockstack/jcnelson/cli-blockstack'), \
+                      ('blockstack-gaia-hub', 'https://github.com/blockstack/gaia/tree/master/hub'), \
+                      ('blockstack-transaction-broadcaster', 'https://github.com/blockstack/transaction-broadcaster'), \
+                      ('blockstack-subdomain-registrar', 'https://github.com/blockstack/blockstack-subdomain-registrar')]:
+
         rc = os.system('which {}'.format(tool))
         if rc != 0:
             print >> sys.stderr, '\n\nERROR! Missing {}.\n'.format(tool)
+            if repo:
+                print >> sys.stderr, 'Go to {} and follow the instructions to install {}\n'.format(repo, tool)
+
             sys.exit(1)
 
     args = parse_args(sys.argv)
