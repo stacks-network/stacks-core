@@ -20,6 +20,11 @@ COPY . .
 
 # Upgrade pip and install pyparsing
 RUN pip install --upgrade pip && pip install pyparsing uwsgi
+
+# If you're doing this from a branch that is not in PyPI, uncomment the line below 
+RUN python ./setup.py build && python ./setup.py install
+
+# install deps
 RUN pip install -r api/requirements.txt
 
 # Install Blockstack from source
