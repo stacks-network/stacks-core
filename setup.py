@@ -51,7 +51,8 @@ setup(
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1',
         'jsontokens>=0.0.4',
-        'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly
+        'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly,
+        'requests>=2.18',
     ],
     classifiers=[
         'Intended Audience :: Developers',
