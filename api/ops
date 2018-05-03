@@ -36,9 +36,6 @@ EOF
   }
 
   case $1 in
-    init-api)
-      init-api
-      ;;
     init-indexer)
       init-indexer
       ;;
