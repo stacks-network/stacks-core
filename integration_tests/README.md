@@ -10,8 +10,13 @@ Blockstack core node running on a private Bitcoin blockchain.
 
 # Getting Started with Docker
 
-The easiest way to get started with our integration tests is to use
-our integration test docker images.
+**NOTE**: This is only supported for the `develop` and `master` branches of
+Blockstack Core.  For testing `feature` branches, including the upcoming Stacks
+token implementation, you must install from source.
+See [this section](#install-from-source) for details.
+
+The easiest way to get started with our integration tests on the `develop`
+branch is to use our integration test docker images.
 
 You can pull the integration test image from quay.
 
@@ -70,56 +75,15 @@ You know the setup has finished when it has displayed in the log:
 $ docker logs -f $IMAGE | grep inished
 ```
 
-The API password for connecting from the browser is:
-
-```
-blockstack_integration_test_api_password
-```
-
 Note: To obtain regtest bitcoins in the browser's wallet during testing-mode,
 use the hidden browser page (http://localhost:8888/wallet/send-core) or
 (http://localhost:3000/wallet/send-core) to send bitcoins to the address.
 
-## Using CLI commands from the docker container
-
-To use the CLI commands once your docker container has started, connect to the docker container:
-
-```bash
-docker exec -it $IMAGE bash
-```
-
-And from the container, set the test environment variables:
-
-```bash
-     $ export BLOCKSTACK_TEST=1    # tells Blockstack CLI that it's running with the test environment
-     $ export BLOCKSTACK_TESTNET=1 # tells Blockstack CLI to use testnet addresses
-     $ export BLOCKSTACK_DEBUG=1   # print debug-level output in the CLI; great for troubleshooting
-     $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.browser_env/client/client.ini
-```
-
-You can also set these variables with an automated script included in the test
-framework:
-
-```bash
-    $ . $(which blockstack-test-env) browser_env
-    |blockstack-test browser_env| $
-```
-
-Your `$PS1` variable will be updated to show the name of the test if you take
-this option.  You can unset the environment variables with `. $(which
-blockstack-test-env) deactivate`.
-
-With these variables set, you can now run `blockstack` commands from the container shell:
-
-```bash
-     $ blockstack lookup foo.id
-```
-
 # Getting Started with Python virtualenv and local bitcoind
+(#install-from-source)
 
 You can run the integration test framework without using our docker containers, however, this
 requires a bit more setup.
-
 
 To install the test framework, first install `blockstack-core` and all of its
 dependencies (done above).
@@ -130,6 +94,24 @@ dependencies (done above).
     $ source bin/activate
     (blockstack-testing) $ git clone https://github.com/blockstack/blockstack-core blockstack-core
     (blockstack-testing) $ cd blockstack-core/ && ./setup.py build && ./setup.py install
+```
+
+Next, you will need to install the Blockstack Gaia hub, the Blockstack subdomain
+registrar, and the Blockstack transaction broadcaster.  Instructions:
+
+* [Installing the Blockstack Subdomain Registrar](https://github.com/blockstack/subdomain-registrar)
+* [Installing the Blockstack Transaction Broadcaster](https://github.com/blockstack/transaction-broadcaster)
+* [Installing the Gaia Hub](https://github.com/blockstack/gaia/tree/master/hub)
+
+You will need to install them somewhere in your `PATH`:
+
+```bash
+$ which blockstack-subdomain-registrar
+/usr/bin/blockstack-subdomain-registrar
+$ which blockstack-transaction-broadcaster
+/usr/bin/blockstack-transaction-broadcaster
+$ which blockstack-gaia-hub
+/usr/bin/blockstack-gaia-hub
 ```
 
 **macOS Note**: Installing the python `scrypt` library on macOS
@@ -175,13 +157,13 @@ $ export PATH=/Users/Whomever/Wherever/bitcoin/src:$PATH
 Run a test with the `blockstack-test-scenario` command
 
 ```
-     $ blockstack-test-scenario blockstack_integration_tests.scenarios.rpc_register
+     $ blockstack-test-scenario blockstack_integration_tests.scenarios.portal_test_env
 ```
 
-If all is well, the test will run for a 5-10 minutes and print:
+If all is well, the test will run for a few minutes and print:
 
 ```
-     SUCCESS blockstack_integration_tests.scenarios.rpc_register
+     SUCCESS blockstack_integration_tests.scenarios.portal_test_env
 ```
 
 ## Interactive Testing
@@ -212,10 +194,6 @@ panel](https://github.com/blockstack/blockstack-core/blob/master/docs/figures/te
 * The **`Blockchain height`** field indicates how many blocks have been
   generated.  This is 693 in this figure.
 
-* The **`API password`** field indicates the Blockstack API password to use in
-  your `client.ini` file (or as the value for `--api-password` on the CLI).  In
-this example, it is `blockstack_integration_test_api_password`.
-
 * The **`Number of blocks`** form field is the number of blocks to generate.
   Simply type in a number and click "Generate blocks" to generate that many
 blocks on the test framework's blockchain.
@@ -225,7 +203,7 @@ blocks on the test framework's blockchain.
 
 * The **`Done testing`** button ends the test.
 
-When you register a name with the Browser or CLI, and you are using interactive
+When you register a name with the Browser, and you are using interactive
 Web testing, you should do the following to make sure the transaction confirms:
 
 1. Generate 12 blocks via the Web panel
@@ -261,46 +239,6 @@ also fund arbitrary addresses in this mode, which makes it easier to do more
 advanced things (like test a subdomain registrar, create a namespace, or test
 the Blockstack wallet).
 
-
-### Using the CLI
-
-To interact with this using the Blockstack Browser, you need to use the api_password:
-
-```
-blockstack_integration_test_api_password
-```
-
-Note: To obtain regtest bitcoins in the browser's wallet during testing-mode,
-use the hidden browser page [http://localhost:8888/wallet/send-core] or
-[http://localhost:3000/wallet/send-core] to send bitcoins to the address.
-
-### Using the CLI
-
-While the test is idling, you can interact with the Blockstack Core node with the Blockstack CLI.  To do so, you'll need to set
-the following environment variables:
-
-```
-     $ export BLOCKSTACK_TEST=1    # tells Blockstack CLI that it's running with the test environment
-     $ export BLOCKSTACK_TESTNET=1 # tells Blockstack CLI to use testnet addresses
-     $ export BLOCKSTACK_DEBUG=1   # print debug-level output in the CLI; great for troubleshooting
-     $
-     $ # this tells the CLI where to find the test-generated config file
-     $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.rpc_register/client/client.ini
-```
-
-Once set, you can use the Blockstack CLI as normal, and it will interact with the test case's Blockstack Core node:
-
-```
-     $ blockstack lookup foo.test
-     {
-         "profile": {
-             "@type": "Person",
-             "accounts": []
-         },
-         "zonefile": '$ORIGIN foo.test\n$TTL 3600\npubkey TXT "pubkey:data:03762f2da226d9c531e8ed371c9e133bfbf42d8475778b7a2be92ab0b376539ae7"\n_file URI 10 1 "file:///tmp/blockstack-disk/mutable/foo.test"'
-     }
-```
-
 # Information on the testing Framework
 
 Internally, the test-runner (`blockstack-test-scenario`) starts up a
@@ -329,17 +267,11 @@ Relevant Files, Ports, Tips, and Tricks
 
 * The Blockstack Core indexer and Atlas peer runs on port 16264.  **This is a private API; do not talk to it directly.**
 
-* The Blockstack RESTful HTTP endpoint (implemented by the API daemon) runs on port 16268.  **This is what you want to use to programmatically interact with Blockstack.**
+* The Blockstack RESTful HTTP endpoint runs on port 16268.  **This is what you want to use to programmatically interact with Blockstack.**
 
-* All state for a given test is located under `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/`, where `${SCENARIO_NAME}` is the name of the test (e.g. `rpc_register`).
+* All state for a given test is located under `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/`, where `${SCENARIO_NAME}` is the name of the test (e.g. `portal_test_env`).
 
-* The CLI's config file (also the API daemon's config file) is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/client/client.ini`.
-
-* The API daemon's log file is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/client/api_endpoint.log`.
-
-* The API daemon's PID file is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/client/api_endpoint.pid`.
-
-* The API daemon's wallet file is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/client/wallet.json`.
+* The Core node's log file is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/blockstack-server.log`.
 
 * The Atlas and indexer node's config file is located at `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.${SCENARIO_NAME}/blockstack-server.ini`.
 
@@ -350,28 +282,32 @@ Relevant Files, Ports, Tips, and Tricks
 Troubleshooting
 ---------------
 
-* We use `rpc_register` as a sample test here, because if it works, then it
-  means that everything is working.  If `rpc_register` fails, try
-  `name_preorder_register` instead (it does NOT start the API daemon; it only
-  tests blockstack's name registration on-chain).  If that fails, then there's
-  probably something wrong with your installation.
-
 * Before starting your test, make sure that there are no `bitcoind -regtest`
   processses running.  Also, make sure that there are no lingering integration
   tests processes running.  This can happen if your test encounters a fatal
   error and does not get a chance to clean itself up properly.
 
-* One common error is that the API daemon may fail to start.  You can start it explicitly with `blockstack api start`, and stop it with `blockstack api stop`.
-  If for some reason you need to (re)start the API daemon, the default wallet password is `0123456789abcdef`.
+* If your Core node fails to start, you should check the `blockstack-server.log` file in order to verify that the Core node didn't crash or misbehave.
 
-* If your API endpoint fails to start, you should check the `api_endpoint.log` file in order to verify that the API daemon didn't crash or misbehave.
-
-* You can verify that your API endpoint is running with `curl http://localhost:16268`.  You should get back a simple HTML page.
+* You can verify that your Core node is running with `curl http://localhost:16268`.  You should get back a simple HTML page.
 
 * Test output can be lengthy.  If you want to preserve it, we recommend `tee(1)`-ing it to a log file.
 
+### ImportError: No module named \_scrypt
+
+The integration test suite depends on [scrypt](https://pypi.python.org/pypi/scrypt/) at this time.  However,
+some Linux distributions have a hard time installing it.
+
+Running this command usually fixes this issue:
+
+```
+$ pip uninstall scrypt; pip install scrypt
+```
+
 CLI Examples
 --------
+
+**TODO**:  These use the deprecated Blockstack CLI.  Need to update them.
 
 You can register names like normal when running the test in interactive mode:
 
