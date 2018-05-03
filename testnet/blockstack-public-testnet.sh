@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# what's our public hostname?
+# XXX If you're running your own testnet, change this to your server's hostname!
+export BLOCKSTACK_TESTNET_PUBLIC_HOST="testnet.blockstack.org"
+
+
 function exit_error() {
     echo $1
     exit 1
@@ -16,9 +21,6 @@ export BLOCKSTACK_PUBLIC_TESTNET="1"
 
 # make ourselves look like we're an old Core node, so mainnet nodes don't add us as peers
 export BLOCKSTACK_CORE_VERSION="0.0.0.1"
-
-# what's our public hostname?
-export BLOCKSTACK_TESTNET_PUBLIC_HOST="testnet.blockstack.org"
 
 LOGFILE=testnet.log
 LOGFILE_BACKUPS=testnet-logs
