@@ -70,7 +70,6 @@ ops commands:
 init-indexer [data_dir]   -> Set up the bootstrapping data for the indexer
 init-core [data_dir [tag] -> Set up blockstack-core instance for this API
 EOF
-}
 
 function init_all() {
   # $1: data directory 
