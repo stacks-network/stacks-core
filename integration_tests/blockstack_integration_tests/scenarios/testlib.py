@@ -554,7 +554,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
      
     resp = None
     if has_nodejs_cli() and wallet is None and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('tx_preorder', name, register_addr, privatekey, burn_addr=burn_addr, consensus_hash=consensus_hash, tx_fee=tx_fee, tx_only=tx_only, price=price, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
+        txid = nodejs_cli('tx_preorder', name, 'ID-' + register_addr, privatekey, burn_addr=burn_addr, consensus_hash=consensus_hash, tx_fee=tx_fee, tx_only=tx_only, price=price, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
 
         if 'error' in txid:
             return txid
@@ -613,9 +613,9 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
     if has_nodejs_cli() and wallet is None and virtualchain.is_singlesig(privatekey):
         txid = None
         if zonefile_hash is not None:
-            txid = nodejs_cli('tx_register', name, register_addr, privatekey, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, privatekey, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
         else:
-            txid = nodejs_cli('tx_register', name, register_addr, privatekey, safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, privatekey, safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
 
         if 'error' in txid:
             return txid
@@ -705,7 +705,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
     resp = None
 
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key):
-        txid = nodejs_cli('transfer', name, address, '{}'.format(keepdata).lower(), privatekey, payment_key, safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+        txid = nodejs_cli('transfer', name, 'ID-' + address, '{}'.format(keepdata).lower(), privatekey, payment_key, safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
 
         if 'error' in txid:
             return txid
@@ -747,9 +747,9 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
         txid = None
         if recipient_addr is not None:
             if zonefile_hash is not None:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, recipient_addr, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_only=tx_only, price=price, burn_addr=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+                txid = nodejs_cli('renew', name, privatekey, payment_key, 'ID-' + recipient_addr, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_only=tx_only, price=price, burn_addr=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
             else:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, recipient_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
+                txid = nodejs_cli('renew', name, privatekey, payment_key, 'ID-' + recipient_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
         else:
             if zonefile_hash is not None:
                 # txid = nodejs_cli('renew', name, privatekey, payment_key, owner_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
@@ -836,7 +836,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     
     resp = None
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('name_import', name, recipient_address, update_hash, privatekey, tx_only=tx_only, safety_checks=safety_checks)
+        txid = nodejs_cli('name_import', name, 'ID-' + recipient_address, update_hash, privatekey, tx_only=tx_only, safety_checks=safety_checks)
 
         if 'error' in txid:
             return txid
@@ -1169,6 +1169,12 @@ def blockstack_cli_verify_profile(path, pubkey_or_addr, config_path=None):
     if not has_nodejs_cli():
         raise Exception("Missing blockstack-cli")
 
+    try:
+        virtualchain.address_reencode(pubkey_or_addr)
+        pubkey_or_addr = 'ID-' + pubkey_or_addr
+    except:
+        pass
+
     resp = nodejs_cli('profile_verify', path, pubkey_or_addr)
     return json.loads(resp)
 
@@ -1241,7 +1247,7 @@ def blockstack_cli_get_names_owned_by_address( address, config_path=None):
     if not has_nodejs_cli():
         raise Exception("Missing blockstack-cli")
 
-    resp = nodejs_cli('names', address)
+    resp = nodejs_cli('names', 'ID-' + address)
     return json.loads(resp)
 
 
@@ -1486,6 +1492,12 @@ def blockstack_put_profile(name, profile_token, privkey, gaia_hub=None, safety_c
         fd, path = tempfile.mkstemp('-blockstack-profile-store')
         os.write(fd, profile_token)
         os.close(fd)
+
+        try:
+            virtualchain.address_reencode(name)
+            name = 'ID-' + name
+        except:
+            pass
 
         if gaia_hub:
             res = nodejs_cli('profile_store', name, path, privkey, gaia_hub, safety_checks=safety_checks)
