@@ -19,16 +19,14 @@ RUN npm -g install aglio --unsafe
 COPY . .
 
 # Upgrade pip and install pyparsing
-RUN pip install --upgrade pip && pip install pyparsing uwsgi
+RUN pip install --upgrade pip
+RUN pip install pyparsing uwsgi
 
-# If you're doing this from a branch that is not in PyPI, uncomment the line below 
+# install Blockstack from source
 RUN python ./setup.py build && python ./setup.py install
 
-# install deps
+# install ancillary deps
 RUN pip install -r api/requirements.txt
-
-# Install Blockstack from source
-RUN pip install . --upgrade
 
 # Create data dir
 RUN mkdir /var/blockstack-search
