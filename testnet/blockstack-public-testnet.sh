@@ -30,6 +30,7 @@ mkdir -p "$LOGFILE_BACKUPS"
 while true; do 
    if [ -f "$LOGFILE" ]; then 
        BACKUP_LOGFILE="$LOGFILE_BACKUPS/testnet.log.$(date +%s)"
+       mv "$LOGFILE" "$BACKUP_LOGFILE"
        bzip2 "$BACKUP_LOGFILE" &
    fi
 
