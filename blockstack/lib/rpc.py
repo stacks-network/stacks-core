@@ -1411,7 +1411,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         route_method = route_info['method']
         route = route_info['route']
 
-        log.debug("\nfull path: {}\nmethod: {}\npath: {}\nqs: {}\nheaders:\n{}\n".format(self.path, method_name, path_info['path'], qs_values, '\n'.join( '{}: {}'.format(k, v) for (k, v) in self.headers.items() )))
+        if BLOCKSTACK_TEST:
+            log.debug("\nfull path: {}\nmethod: {}\npath: {}\nqs: {}\nheaders:\n{}\n".format(self.path, method_name, path_info['path'], qs_values, '\n'.join( '{}: {}'.format(k, v) for (k, v) in self.headers.items() )))
 
         try:
             return route_method( path_info, *route_args )
