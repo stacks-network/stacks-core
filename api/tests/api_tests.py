@@ -46,7 +46,7 @@ API_VERSION = '1'
 
 APP = None
 
-DEFAULT_WALLET_ADDRESS = "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP"
+DEFAULT_WALLET_ADDRESS = "1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs"
 
 class FakeResponseObj:
     def __init__(self):
@@ -121,7 +121,7 @@ class APITestCase(unittest.TestCase):
 
 class InternalAPITestCase(APITestCase):
     def setUp(self):
-        self.app = ForwardingClient("http://localhost:6270")
+        self.app = ForwardingClient(api.config.BASE_API_URL)
 
 def check_data(cls, data, required_keys={}):
     for k in required_keys:
@@ -164,15 +164,15 @@ class LookupUsersTest(APITestCase):
         check_data(self, data, to_check)
 
         url = base_url.format('muneeb')
-        data = self.get_request(url, headers = {}, status_code=500)
-        self.assertTrue(data['error'] == 'Failed to lookup name')
+        data = self.get_request(url, headers = {}, status_code=400)
+        self.assertTrue(data['error'] == 'Invalid name or subdomain')
 
     def test_get_all_names(self):
         data = self.get_request("/v1/names?page=0",
                                 headers = {} , status_code=200)
         self.assertEqual(len(data), 100, "Paginated name length != 100")
         data = self.get_request("/v1/names",
-                                headers = {} , status_code=401)
+                                headers = {} , status_code=400)
         data = self.get_request("/v1/names?page=10000",
                                 headers = {} , status_code=200)
 
@@ -216,7 +216,7 @@ class NamesOwnedTest(APITestCase):
     def build_url(self, addr):
         return '/v1/addresses/bitcoin/{}'.format(addr)
     def test_check_names(self):
-        addrs_to_check = ["1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP",
+        addrs_to_check = ["1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs",
                           "16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg"]
         names_to_check = ["muneeb.id", "judecn.id"]
         for addr, name in zip(addrs_to_check, names_to_check):
@@ -254,7 +254,7 @@ class NamespaceTest(APITestCase):
                                 headers = {} , status_code=200)
         self.assertEqual(len(data), 100, "Paginated name length != 100")
         data = self.get_request("/v1/namespaces/id/names",
-                                headers = {} , status_code=401)
+                                headers = {} , status_code=400)
 
 
 
@@ -265,11 +265,6 @@ class Prices(APITestCase):
                                 headers = {} , status_code=200)
         json_keys = data.keys()
         self.assertIn('name_price', json_keys)
-        self.assertIn('preorder_tx_fee', json_keys)
-        self.assertIn('register_tx_fee', json_keys)
-        self.assertIn('total_estimated_cost', json_keys)
-        self.assertIn('total_tx_fees', json_keys)
-        self.assertIn('update_tx_fee', json_keys)
 
     def test_ns_price(self):
         data = self.get_request("/v1/prices/namespaces/id",
@@ -316,10 +311,7 @@ class BlockChains(APITestCase):
         """ this is currently an unimplemented endpoint """
         data = self.get_request("/v1/blockchains/bitcoin/names/muneeb.id/history",
                                 headers = {} , status_code=405)
-    def test_names_pending(self):
-        data = self.get_request("/v1/blockchains/bitcoin/pending",
-                                headers = {} , status_code=200)
-        self.assertIn("queues", data)
+
     def test_operations(self):
         data = self.get_request("/v1/blockchains/bitcoin/operations/456383",
                                 headers = {} , status_code=200)
@@ -328,7 +320,6 @@ class BlockChains(APITestCase):
                     "block_number" : 0,
                     "consensus_hash": schemas.OP_CONSENSUS_HASH_PATTERN,
                     "first_registered": 0,
-                    "history" : True,
                     "op" : True,
                     "txid": schemas.OP_HEX_PATTERN,
                     "value_hash": schemas.OP_HEX_PATTERN}
@@ -336,9 +327,11 @@ class BlockChains(APITestCase):
 
 
 def test_main(args = []):
+    global APP
+
     test_classes = [PingTest, LookupUsersTest, NamespaceTest, BlockChains, TestAPILandingPageExamples,
                     Prices, NamesOwnedTest, NameHistoryTest, SearchAPITest,
-                    AuthInternal, BlockChainsInternal, Zonefiles, WalletInternal, NodeInternal]
+                    Zonefiles]
     test_classes += [ResolverTestCase]
     if api.config.SEARCH_API_ENDPOINT_ENABLED:
         test_classes += [SearchTestCase]
@@ -387,6 +380,8 @@ def test_main(args = []):
         global APP
         APP = ForwardingClient(args[ainx])
         del args[ainx]
+    else:
+        APP = ForwardingClient(api.config.BASE_API_URL)
 
     test_runner = test_support.run_unittest
 
