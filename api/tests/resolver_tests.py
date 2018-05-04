@@ -25,6 +25,7 @@ import sys
 import requests
 import json
 import unittest
+from types import NoneType
 
 import api
 

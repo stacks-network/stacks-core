@@ -44,6 +44,7 @@ from api.utils import cache_control
 from .config import DEBUG
 from .config import DEFAULT_HOST, DEFAULT_CACHE_TIMEOUT
 from .config import NAMES_FILE
+from .config import BASE_INDEXER_API_URL
 
 import requests
 requests.packages.urllib3.disable_warnings()
@@ -58,9 +59,7 @@ if DEBUG:
 else:
     log.setLevel(level=logging.INFO)
 
-blockstack_working_dir = blockstack.lib.config.default_working_dir()
-blockstack_config = blockstack.lib.load_configuration(blockstack_working_dir)
-blockstack_indexer_url = blockstack_config['blockstack-api']['indexer_url']
+blockstack_indexer_url = BASE_INDEXER_API_URL
 
 # copied and patched from proofs.py
 def site_data_to_fixed_proof_url(account, zonefile):
@@ -180,7 +179,7 @@ def get_profile(fqa):
 
     try:
         res = blockstack.lib.client.resolve_profile(
-                name, include_name_record=True, hostport=blockstack_indexer_url)
+                fqa, include_name_record=True, hostport=blockstack_indexer_url)
 
         if 'error' in res:
             log.error('Error from profile.get_profile: {}'.format(res['error']))

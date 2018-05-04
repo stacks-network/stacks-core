@@ -95,13 +95,6 @@ if upstream nodes are unreachable or go offline.
 
 ## Installing Blockstack Core
 
-There are two parts to Blockstack Core:  a background network daemon that talks
-with the rest of the network and builds up the local BNS and storage routing state
-(`blockstack-core`), and
-an API shim that provides a stable, RESTful API that facilitates name and
-storage routing lookups and registrations (`blockstack api`).  Both are
-installed by default.
-
 There are three supported methods to install Blockstack Core:
 - [`source`](#install-from-source)
 - [`pip`](#install-with-pip)
@@ -169,7 +162,7 @@ $ sudo pip install blockstack --upgrade
 
 Another way to run `blockstack-core` is through docker. We provide per-commit image builds of this repository that are [available on quay.io](https://quay.io/repository/blockstack/blockstack-core?tab=tags).
 
-The common workflow for running in docker is to `--fast_sync` a `blockstack-core` node's data to a location on the host and then start up a container on top of that data. You will need at least ~5GB of disk to run each instance. There is a sample implementation of running the `blockstack-core` and `blockstack api` components in the [`tools/docker`](/tools/docker) folder. The instructions below show how to use that implementation:
+The common workflow for running in docker is to `--fast_sync` a `blockstack-core` node's data to a location on the host and then start up a container on top of that data. You will need at least ~5GB of disk to run each instance. There is a sample implementation of running `blockstack-core` in the [`tools/docker`](/tools/docker) folder. The instructions below show how to use that implementation:
 
 ```shell
 # Clone the repo and navigate to the tools/docker dir:
@@ -178,7 +171,6 @@ cd blockstack-core/tools/docker
 
 # Initialize the core node and api wallet
 ./docker-tools.sh init-core
-./docker-tools.sh init-api
 
 # Wait for the core node to initialize (~15-20 min)
 # Check if job is still running:
@@ -189,8 +181,7 @@ docker-compose up -d
 
 # OR
 
-# Once the job finishes start the containers
-# blockstack-core
+# Once the job finishes start the container
 docker run -d \
   -v './data/core/server/:/root/.blockstack-server' \ 
   -v './data/core/api/:/root/.blockstack' \ 
@@ -200,29 +191,14 @@ docker run -d \
   quay.io/blockstack/blockstack-core:master \ 
   blockstack-core start --foreground --debug
 
-# blockstack api
-docker run -d \ 
-  -v './data/api:/root/.blockstack' \ 
-  -v './data/api/tmp:/tmp' \ 
-  -e 'BLOCKSTACK_CLIENT_INTERACTIVE_YES=0' \ 
-  -p '6270:6270' \ 
-  --name 'blockstack-api' \
-  --restart 'always' \ 
-  quay.io/blockstack/blockstack-core:master \ 
-  blockstack api start-foreground -y --debug --password dummywalletpassword
-
 # Test connectivity for the blockstack-core container
-# NOTE: It can take some time (~1-5 min) before the RPC 
-# interface becomes available
+# NOTE: It can take some time (~1-5 min) before the API
+# becomes available
 ./docker-tools.sh test-core localhost 6264
-
-# Test connectivity for the blockstack api container
-./docker-tools.sh test-api localhost 6270
 ```
 
 Notes:
 - This method is currently only fully supported on Linux.
-- The `blockstack-core` instance runs in docker on MacOS with no problems. To enable this comment out the `blockstack api` section in the `docker-compose.yaml` file and don't run the `./docker-tools.sh init-api` command.
 - You will need `sudo` access to run the above scripts
 - You can run more than one instance of this setup per host. Allow at least 1 CPU core for each container
 - To configure a different `bitcoind` node, or `utxo_provider` for both containers you must change those settings in both `blockstack-server.ini` and `client.ini` before running the `./docker-tools.sh init-*` commands. After `init-*` has been run you must edit the `data/core/server/blockstack-server.ini` and `data/api/client.ini` to change those settings. 
@@ -359,67 +335,6 @@ You can stop the `blockstack-core` daemon with the following command:
 $ blockstack-core stop
 ```
 
-## Using the Blockstack CLI
-
-Please see the [usage docs](https://blockstack.org/docs) to learn how to use the CLI interface for interacting with Blockstack Core.
-
-## Troubleshooting
-
-### ImportError: No module named \_scrypt
-
-Blockstack Core's API endpoint uses
-[scrypt](https://pypi.python.org/pypi/scrypt/) to secure its wallet.  However,
-some Linux distributions have a hard time installing it.
-
-Running this command usually fixes this issue:
-
-```
-$ pip uninstall scrypt; pip install scrypt
-```
-
-### API calls fail with HTTP 403
-
-Some API calls are privileged, because they interact with the wallet and other
-sensitive API daemon state (like its config file).  In the [API
-documentation](https://blockstack.github.io), these methods are marked as
-`Requires root authorization`.
-
-To use these methods, you will need to do two things:
-* pass the API password in an `Authorization` header
-* set the `Origin` header to `http://localhost:8888`.
-
-The reason the `Origin` header is required is to stop a malicious Web page on the same host from
-accessing your API endpoint.  The origin `http://localhost:8888` is whitelisted, because this is what the
-Blockstack Browser uses.
-
-To supply the API password, put it in an `Authorization` field.  You can get the
-password from the `~/.blockstack/client.ini` file:
-
-```
-[blockstack-api]
-...
-api_password = super_secret_password  # <-- this is the password you need
-...
-```
-
-Your HTTP request should look something like this (the endpoint
-`/v1/node/config` is used in this example):
-
-```
-GET /v1/node/config HTTP/1.1
-Host: localhost:6270
-User-Agent: curl/7.58.0
-Accept: */*
-Authorization: bearer super_secret_password
-Origin: http://localhost:8888
-```
-
-You can generate this request with `curl` as follows:
-
-```
-$ curl -H 'Authorization: bearer super_secret_password' -H 'Origin: http://localhost:8888' http://localhost:6270/v1/node/config
-```
-
 ### Getting Verbose Debugging Output
 
 Blockstack Core does not log very much non-error information by default.  To get
@@ -428,15 +343,13 @@ api`, as follows:
 
 ```bash
 $ blockstack-core --debug start && tail -f ~/.blockstack-server/blockstack-server.log
-$ blockstack --debug api start && tail -f ~/.blockstack/api_endpoint.log
 ```
 
-In addition, both `blockstack-core` and `blockstack api` can run in the
+In addition `blockstack-core` can run in the
 foreground, without becoming daemons.  To do so, run them as:
 
 ```bash
 $ blockstack-core --debug start --foreground
-$ blockstack --debug api start-foreground
 ```
 
 ## Developer Resources

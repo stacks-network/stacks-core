@@ -13,7 +13,6 @@ This directory contains the necessary components for running this API in docker 
 ```bash
 # First run the init steps for each service:
 $ ./ops init-core
-$ ./ops init-api
 $ ./ops init-indexer
 
 # Then build the docker images and run them
