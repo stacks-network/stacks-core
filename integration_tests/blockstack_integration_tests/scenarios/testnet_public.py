@@ -236,7 +236,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 self.error_page(400, "Failed to send value")
                 return
 
-            txid = res['transaction_hash']
+            txid = res['txid']
 
             self.send_response(302)
             location = '/'
