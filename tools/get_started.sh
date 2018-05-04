@@ -1,6 +1,6 @@
 #!/bin/sh
 
-BLOCKSTACK_VERSION="0.18.0"
+BLOCKSTACK_VERSION="0.19.0"
 VENV_DIR="$(pwd)/blockstack-$BLOCKSTACK_VERSION"
 LOGPATH="/tmp/blockstack_${BLOCKSTACK_VERSION}_get_started.log"
 
@@ -117,9 +117,9 @@ source "$VENV_DIR"/bin/activate || exit_with_error "Failed to activate virtualen
 pip install blockstack 2>&1 | tee -a "$LOGPATH" || exit_with_error "Failed to install blockstack.  Logfile in $LOGPATH"
 
 # test blockstack 
-test -x "$(which blockstack)" || exit_with_error "Failed to find installed blockstack program.  Logfile in $LOGPATH"
+test -x "$(which blockstack-core)" || exit_with_error "Failed to find installed blockstack program.  Logfile in $LOGPATH"
 
-blockstack --version 2>/dev/null | grep "$BLOCKSTACK_VERSION" >/dev/null || exit_with_error "Could not find blockstack $BLOCKSTACK_VERSION.  Logfile in $LOGPATH."
+blockstack-core --version 2>/dev/null | grep "$BLOCKSTACK_VERSION" >/dev/null || exit_with_error "Could not find blockstack $BLOCKSTACK_VERSION.  Logfile in $LOGPATH."
 
 logecho "Blockstack $BLOCKSTACK_VERSION installed to $VENV_DIR."
 echo ""

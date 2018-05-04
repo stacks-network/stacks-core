@@ -1,4 +1,4 @@
-# This docker-compose file is for spinning up a blockstack-core node and api
+# This docker-compose file is for spinning up a blockstack-core node
 version: '2'
 services:
   blockstack-core:
@@ -6,23 +6,9 @@ services:
     command: 'blockstack-core start --foreground --debug'
     volumes:
       - './data/core/server/:/root/.blockstack-server/'
-      - './data/core/api/:/root/.blockstack/'
     restart: always
     ports:
       - "6264:6264"
-    networks:
-      - "api"
-  blockstack-api:
-    image: 'quay.io/blockstack/blockstack-core:master'
-    command: blockstack api start-foreground -y --debug --password dummywalletpassword
-    ports:
-      - "6270:6270"
-    volumes:
-      - './data/api:/root/.blockstack'
-      - './data/api/tmp:/tmp'
-    environment:
-      - BLOCKSTACK_CLIENT_INTERACTIVE_YES=0
-    restart: always
     networks:
       - "api"
       
