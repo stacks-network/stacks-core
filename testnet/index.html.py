@@ -193,6 +193,15 @@ hello_world = div(
                         li('Register a subdomain with: ' + p('<code>$ blockstack-cli -t register_subdomain hello_world.personal.id2 YOUR_OWNER_KEY GAIA_READ_URL SUBDOMAIN_REGISTRAR_URL</code>'))
                     ) +
                     p("You can find values for <code>GAIA_READ_URL</code> and <code>SUBDOMAIN_REGISTRAR_URL</code> in the Services panel.") +
+                    p('<b>Tips and Tricks</b>' +
+                        ul(
+                            li('Testnet blocks are generated once every 60 seconds.  Your transactions may take that long to confirm.') +
+                            li('Names take up to 10 blocks to register.') +
+                            li('Subdomains take up to 10 blocks to register.') +
+                            li('If you want to run your own subdomain registrar, register a name and read the instructions <a href="https://github.com/blockstack/subdomain-registrar">here</a>.') +
+                            li('If you want to run your own Gaia hub, see <a href="https://github.com/blockstack/gaia">here</a>.')
+                        )
+                    ) +
                     p("<b>NOTE:</b> This server reboots every 24 hours."),
                 _class='col-sm-offset-1 col-sm-10'),
               _class='row')
@@ -234,7 +243,7 @@ main_body = div(
                         div(names_namespace_list, _class='panel-body'),
                     _class='panel panel-default') +
                     div(
-                        div('<b>Latest Blockstack Transactions</b>', _class='code text-center panel-heading panel-heading-custom') +
+                        div('<b>Blockstack Transactions from the Last Block</b>', _class='code text-center panel-heading panel-heading-custom') +
                         div('loading...', _id='lastOperations', _class='panel-body'),
                     _class='panel panel-default') +
                     div(
