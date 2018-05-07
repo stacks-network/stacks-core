@@ -272,7 +272,7 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             # don't take too much
             if value > 1000000000:
                 log.error('{} requested too much ({})'.format(addr, value))
-                self.error_page(400, 'Requested too much BTC (at most {} is allowed)'.format(1000000000))
+                self.error_page(400, 'Requested too much STACKS (at most {} is allowed)'.format(1000000000))
                 self.end_headers()
                 return 
 
