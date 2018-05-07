@@ -865,14 +865,14 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     return resp
 
 
-def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_only=False, price=None, expect_fail=False, use_cli=True):
+def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_only=False, tx_fee=None, price=None, expect_fail=False, use_cli=True):
     
     global api_call_history
     resp = None
     payment_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
 
     if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('namespace_preorder', namespace_id, register_addr, privatekey, consensus_hash=consensus_hash, safety_checks=safety_checks, price=price, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+        txid = nodejs_cli('namespace_preorder', namespace_id, register_addr, privatekey, consensus_hash=consensus_hash, safety_checks=safety_checks, price=price, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
 
         if 'error' in txid:
             return txid
@@ -913,7 +913,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
     return resp
 
 
-def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, tx_only=False, config_path=None, use_cli=True, expect_fail=False):
+def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, tx_only=False, tx_fee=None, config_path=None, use_cli=True, expect_fail=False):
     
     global api_call_history
     resp = None
@@ -923,7 +923,7 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
         txid = {}
         try:
             txid = nodejs_cli('namespace_reveal', namespace_id, register_addr, '{}'.format(version_bits), '{}'.format(lifetime), '{}'.format(coeff), '{}'.format(base), 
-                    ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), privatekey, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only)
+                    ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), privatekey, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only, tx_fee=tx_fee)
         
         except:
             if expect_fail:
