@@ -157,6 +157,9 @@ fund_form = div(
                         _class='col-sm-offset-3 col-sm-10'),
                     _class='form-group') +
                     div(
+                        p('This will also send 5000000 satoshis to your address'),
+                    _class='col-sm-offset-3') +
+                    div(
                         div(' ', _class='code col-sm-8 col-sm-offset-2', _align='center', _id='stacksTxid'),
                     ),
                 _class="form-horizontal"),
