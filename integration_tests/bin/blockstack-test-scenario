@@ -754,7 +754,7 @@ def transaction_broadcaster_start(config_path):
         print 'blockstack-transaction-broadcaster is not installed'
         return 
 
-    p = subprocess.Popen('which blockstack-gaia-hub', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen('which blockstack-transaction-broadcaster', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
     rc = p.returncode
     if rc != 0:
