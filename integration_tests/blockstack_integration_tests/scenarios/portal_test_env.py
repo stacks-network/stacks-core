@@ -48,15 +48,21 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 def scenario( wallets, **kw ):
 
     testlib.blockstack_namespace_preorder( "id", wallets[1].addr, wallets[0].privkey )
+    testlib.blockstack_namespace_preorder( "reveal", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
     testlib.blockstack_namespace_reveal( "id", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    testlib.blockstack_namespace_reveal( "reveal", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
     testlib.next_block( **kw )
 
     testlib.blockstack_namespace_ready( "id", wallets[1].privkey )
     testlib.next_block( **kw )
 
     testlib.blockstack_register_user('foo.id', wallets[2].privkey, wallets[3].privkey, **kw)
+
+    print 'reveal key: {}'.format(wallets[1].privkey)
+    print 'payment key: {}'.format(wallets[2].privkey)
+    print 'address: {}'.format(wallets[3].addr)
 
 
 def check( state_engine ):
