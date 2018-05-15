@@ -753,7 +753,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     
     resp = None
     if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('name_import', name, 'ID-' + recipient_address, update_hash, privatekey, tx_only=tx_only, safety_checks=safety_checks)
+        txid = nodejs_cli('name_import', name, 'ID-' + recipient_address, "ignored_gaia_hub", privatekey, "ignored_zonefile_path", update_hash, tx_only=tx_only, safety_checks=safety_checks)
 
         if 'error' in txid:
             return txid
