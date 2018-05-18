@@ -165,7 +165,7 @@ def catch_all_post(path):
     return jsonify(resp.json()), 200
 
 @app.route('/')
-@cache_control(DEFAULT_CACHE_TIMEOUT)
+@cache_control(10*60)
 def index():
     current_dir = os.path.abspath(os.path.dirname(__file__))
     server_info = getinfo()
