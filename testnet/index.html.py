@@ -193,7 +193,9 @@ hello_world = div(
                         li('Make a keychain with: ' + p('<code>$ blockstack-cli -t make_keychain</code>')) +
                         li('Use the Faucet below to fund your payment address with some Stacks') +
                         li('Register a name with: ' + p('<code>$ blockstack-cli -t register hello_world.id2 YOUR_OWNER_KEY YOUR_PAYMENT_KEY GAIA_READ_URL</code>')) +
-                        li('Register a subdomain with: ' + p('<code>$ blockstack-cli -t register_subdomain hello_world.personal.id2 YOUR_OWNER_KEY GAIA_READ_URL SUBDOMAIN_REGISTRAR_URL</code>'))
+                        li('Register a subdomain with: ' + p('<code>$ blockstack-cli -t register_subdomain hello_world.personal.id2 YOUR_OWNER_KEY GAIA_READ_URL SUBDOMAIN_REGISTRAR_URL</code>')) +
+                        li('Check your balance with: ' + p('<code>$ blockstack-cli -t balance YOUR_ADDRESS</code>')) +
+                        li('Check a transaction\'s confirmations with: ' + p('<code>$ blockstack-cli -t get_confirmations YOUR_TXID</code>'))
                     ) +
                     p("You can find values for <code>GAIA_READ_URL</code> and <code>SUBDOMAIN_REGISTRAR_URL</code> in the Services panel.") +
                     p('<b>Tips, Tricks and Resources</b>' +
