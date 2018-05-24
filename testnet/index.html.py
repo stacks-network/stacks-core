@@ -188,7 +188,7 @@ hello_world = div(
                 div(
                     p('Welcome to the Blockstack blockchain testnet.  Here\'s how to get started:') + '<br>' +
                     ul(
-                        li('Install the <code>feature/stacks-token</code> branch of <a href="https://github.com/blockstack/blockstack.js/tree/feature/stacks-transactions">blockstack.js</a>') +
+                        li('Install the <code>feature/stacks-transactions</code> branch of <a href="https://github.com/blockstack/blockstack.js/tree/feature/stacks-transactions">blockstack.js</a>') +
                         li('Install the new <a href="https://github.com/jcnelson/cli-blockstack">Blockstack CLI</a>') +
                         li('Make a keychain with: ' + p('<code>$ blockstack-cli -t make_keychain</code>')) +
                         li('Use the Faucet below to fund your payment address with some Stacks') +
