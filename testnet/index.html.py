@@ -186,18 +186,49 @@ fund_form = div(
 
 hello_world = div(
                 div(
-                    p('Welcome to the Blockstack blockchain testnet.  Here\'s how to get started:') + '<br>' +
+                    p('Welcome to the Blockstack blockchain testnet.  Here\'s how to get started:') +
                     ul(
                         li('Install the <code>feature/stacks-transactions</code> branch of <a href="https://github.com/blockstack/blockstack.js/tree/feature/stacks-transactions">blockstack.js</a>') +
-                        li('Install the new <a href="https://github.com/jcnelson/cli-blockstack">Blockstack CLI</a>') +
-                        li('Make a keychain with: ' + p('<code>$ blockstack-cli -t make_keychain</code>')) +
-                        li('Use the Faucet below to fund your payment address with some Stacks') +
-                        li('Register a name with: ' + p('<code>$ blockstack-cli -t register hello_world.id2 YOUR_OWNER_KEY YOUR_PAYMENT_KEY GAIA_READ_URL</code>')) +
-                        li('Register a subdomain with: ' + p('<code>$ blockstack-cli -t register_subdomain hello_world.personal.id2 YOUR_OWNER_KEY GAIA_READ_URL SUBDOMAIN_REGISTRAR_URL</code>')) +
-                        li('Check your balance with: ' + p('<code>$ blockstack-cli -t balance YOUR_ADDRESS</code>')) +
-                        li('Check a transaction\'s confirmations with: ' + p('<code>$ blockstack-cli -t get_confirmations YOUR_TXID</code>'))
+                        li('Install the new <a href="https://github.com/jcnelson/cli-blockstack">Blockstack CLI</a>')
+                    ) +
+                    p('<b>Basic Usage</b>' +
+                        p('Here\'s how you can get started with registering names and subdomains:') +
+                        ul(
+                            li('Make a keychain with: ' + p('<code>$ blockstack-cli -t make_keychain</code>')) +
+                            li('Use the Faucet below to fund your payment address with some Stacks') +
+                            li('Register a name with: ' + p('<code>$ blockstack-cli -t register hello_world.id2 YOUR_OWNER_KEY YOUR_PAYMENT_KEY GAIA_READ_URL</code>')) +
+                            li('Register a subdomain with: ' + p('<code>$ blockstack-cli -t register_subdomain hello_world.personal.id2 YOUR_OWNER_KEY GAIA_READ_URL SUBDOMAIN_REGISTRAR_URL</code>')) +
+                            li('Check your balance with: ' + p('<code>$ blockstack-cli -t balance YOUR_ADDRESS</code>')) +
+                            li('Check a transaction\'s confirmations with: ' + p('<code>$ blockstack-cli -t get_confirmations YOUR_TXID</code>'))
+                        )
                     ) +
                     p("You can find values for <code>GAIA_READ_URL</code> and <code>SUBDOMAIN_REGISTRAR_URL</code> in the Services panel.") +
+                    p('<b>Sending and Receiving Stacks Tokens</b>' +
+                        p('You can send and receive Stacks with the following commands:') +
+                        ul(
+                            li('Send Stacks tokens with:' + 
+                                p('<code>$ blockstack-cli -t send_tokens ADDRESS "STACKS" AMOUNT_MICROSTACKS PAYMENT_KEY [MEMO]</code>') + 
+                                p('Note that the second argument <i>must be</i> <code>"STACKS"</code>.  You can optionally supply a memo string to be attached to the transaction.')) +
+                            li('Send Bitcoin with:' + p('<code>$ blockstack-cli -t send_btc ADDRESS AMOUNT_SATOSHIS PAYMENT_KEY</code>'))
+                        )
+                    ) +
+                    p('<b>Making a Namespace</b>' +
+                        p('If you want to create a namespace, use the following commands:') +
+                        ul(
+                            li('Preorder the namespace with: ' + p('<code>$ blockstack-cli -t namespace_preorder NAMESPACE_ID REVEAL_ADDRESS PAYMENT_KEY</code>')) +
+                            li('Reveal the namespace with: ' + p('<code>$ blockstack-cli -t namespace_reveal NAMESPACE_ID REVEAL_ADDRESS VERSION LIFETIME COEFFICIENT BASE PRICE_BUCKETS NONALPHA_DISCOUNT NO_VOWEL_DISCOUNT PAYMENT_KEY</code>')) +
+                            li('Launch the namespace with: ' + p('<code>$ blockstack-cli -t namespace_ready NAMESPACE_ID REVEAL_KEY</code>'))
+                        ) +
+                        p('Example:') +
+                        ul(
+                            li('<code>$ export PAYMENT_KEY="... your payment key goes here ..."</code>') +
+                            li('<code>$ export REVEAL_KEY="... your reveal key goes here ..."</code>') +
+                            li('<code>$ export REVEAL_ADDR="$(blockstack-cli -t get_address "$REVEAL_KEY")"</code>') +
+                            li('<code>$ blockstack-cli -t namespace_preorder id2 "$REVEAL_ADDRESS" "$PAYMENT_KEY"</code>') +
+                            li('<code>$ blockstack-cli -t namespace_reveal id2 "$REVEAL_ADDRESS" 3 52595 250 4 "6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0" 10 10 "$PAYMENT_KEY"</code>') +
+                            li('<code>$ blockstack-cli -t namespace_ready id2 "$REVEAL_KEY"</code>')
+                        )
+                    ) +
                     p('<b>Tips, Tricks and Resources</b>' +
                         ul(
                             li('Testnet blocks are generated once every 60 seconds.  Your transactions may take that long to confirm.') +
