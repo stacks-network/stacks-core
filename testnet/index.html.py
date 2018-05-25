@@ -196,6 +196,7 @@ hello_world = div(
                         ul(
                             li('Make a keychain with: ' + p('<code>$ blockstack-cli -t make_keychain</code>')) +
                             li('Use the Faucet below to fund your payment address with some Stacks') +
+                            li('Get the price of a name with: ' + p('<code>$ blockstack-cli -t price BLOCKSTACK_ID</code>')) +
                             li('Register a name with: ' + p('<code>$ blockstack-cli -t register hello_world.id2 YOUR_OWNER_KEY YOUR_PAYMENT_KEY GAIA_READ_URL</code>')) +
                             li('Register a subdomain with: ' + p('<code>$ blockstack-cli -t register_subdomain hello_world.personal.id2 YOUR_OWNER_KEY GAIA_READ_URL SUBDOMAIN_REGISTRAR_URL</code>')) +
                             li('Check your balance with: ' + p('<code>$ blockstack-cli -t balance YOUR_ADDRESS</code>')) +
@@ -215,6 +216,7 @@ hello_world = div(
                     p('<b>Making a Namespace</b>' +
                         p('If you want to create a namespace, use the following commands:') +
                         ul(
+                            li('Get the price of the namespace with: ' + p('<code>$ blockstack-cli -t price_namespace NAMESPACE_ID</code>')) +
                             li('Preorder the namespace with: ' + p('<code>$ blockstack-cli -t namespace_preorder NAMESPACE_ID REVEAL_ADDRESS PAYMENT_KEY</code>')) +
                             li('Reveal the namespace with: ' + p('<code>$ blockstack-cli -t namespace_reveal NAMESPACE_ID REVEAL_ADDRESS VERSION LIFETIME COEFFICIENT BASE PRICE_BUCKETS NONALPHA_DISCOUNT NO_VOWEL_DISCOUNT PAYMENT_KEY</code>')) +
                             li('Launch the namespace with: ' + p('<code>$ blockstack-cli -t namespace_ready NAMESPACE_ID REVEAL_KEY</code>'))
