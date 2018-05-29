@@ -260,7 +260,7 @@ def op_canonicalize_quirks(op_name, new_record, current_record):
             if val is None and current_record is not None:
                 val = current_record.get(f)
             
-            assert val, 'Neither new record nor current record has a value for "{}"'.format(f)
+            assert val is not None, 'Neither new record nor current record has a value for "{}"'.format(f)
             quirk_values[f] = val
 
         # QUIRK: NAME_IMPORT-created ops need a float(op_fee).  Everyone else just takes it as it is.
