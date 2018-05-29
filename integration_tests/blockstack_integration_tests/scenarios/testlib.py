@@ -48,7 +48,7 @@ from decimal import Decimal
 import blockstack.blockstackd as blockstackd
 import blockstack.lib.client as blockstackd_client
 import blockstack.lib.snv as snv_client
-
+import traceback
 import blockstack
 import keylib
 
@@ -2581,6 +2581,7 @@ def check_historic_names_by_address( state_engine ):
 
                         else:
                             # DID we expected refers to a different name.  It had better be in the same block
+                            log.warning('{} != {}, so {} must be in the same block'.format(old_name_rec['name'], name, block_id))
                             assert old_name_rec['last_renewed'] == block_id, 'Name record for {} (DID {}) comes from a different block than {}:\n{}'.format(old_name_rec['name'], expected_did, block_id, old_name_rec)
 
                     except Exception as e:
