@@ -97,7 +97,7 @@ def scenario( wallets, **kw ):
             'name': subd,
         }
         profile_jwt = testlib.blockstack_make_profile(profile_data, wallets[i].privkey)
-        testlib.blockstack_put_profile(None, profile_jwt, wallets[i].privkey, 'http://localhost:4000')
+        testlib.blockstack_put_profile(None, profile_jwt, wallets[i].privkey, 'http://localhost:4001')
 
     # whois
     for i in xrange(1, 4):
