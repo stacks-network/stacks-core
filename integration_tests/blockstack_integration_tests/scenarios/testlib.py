@@ -493,8 +493,9 @@ def nodejs_cli(*args, **kw):
             print err
 
             if os.environ.get('BLOCKSTACK_TEST_CLI_SLEEP_ON_FAILURE'):
-                print 'Sleeping for 30 minutes so you can experiment with what went wrong'
-                time.sleep(1800)
+                print 'Sleeping so you can experiment with what went wrong'
+                while True:
+                    time.sleep(1)
 
             raise Exception("Exit code {}: {}".format(res, cmd))
 
@@ -1330,7 +1331,7 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
 
     Generates 2 blocks
     """
-    gaia_host = kw.get('gaia_host', 'localhost:4000')
+    gaia_host = kw.get('gaia_host', 'localhost:4001')
 
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
 
@@ -1342,7 +1343,10 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
     blockstack_name_preorder(name, privkey, addr)
     next_block(**kw)
 
-    urls = ['http://{}/hub/{}/profile.json'.format(gaia_host, virtualchain.address_reencode(addr, network='mainnet'))]
+    hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
+    gaia_read_prefix = hub_config['read_url_prefix']
+
+    urls = ['{}{}/profile.json'.format(gaia_read_prefix, virtualchain.address_reencode(addr, network='mainnet'))]
     zonefile_txt = make_empty_zonefile(name, addr, urls=urls)
     zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
 
@@ -1351,7 +1355,7 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
 
     blockstack_put_zonefile(zonefile_txt)
     profile_data = blockstack_make_profile(profile, owner_privkey)
-    blockstack_put_profile(name, profile_data, owner_privkey)
+    blockstack_put_profile(name, profile_data, owner_privkey, 'http://' + gaia_host)
     return True
 
 
@@ -1362,15 +1366,19 @@ def blockstack_import_user(name, privkey, owner_privkey, **kw):
 
     Generates 1 block
     """
+    gaia_host = kw.get('gaia_host', 'localhost:4001')
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
     
     addr = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()   # make it match the wallet
     owner_privkey = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
 
-    profile = kw.get('profile', DEFAULT_PROFILE)
-    profile_url = 'http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(addr, network='mainnet'))
-    zonefile_txt = "$ORIGIN {}\n$TTL 3600\n_http URI 10 1 {}".format(name, profile_url)
+    hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
+    gaia_read_prefix = hub_config['read_url_prefix']
 
+    profile = kw.get('profile', DEFAULT_PROFILE)
+
+    urls = ['{}{}/profile.json'.format(gaia_read_prefix, virtualchain.address_reencode(addr, network='mainnet'))]
+    zonefile_txt = make_empty_zonefile(name, addr, urls=urls)
     zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
 
     blockstack_name_import(name, addr, zonefile_hash, privkey)
@@ -1378,7 +1386,7 @@ def blockstack_import_user(name, privkey, owner_privkey, **kw):
 
     blockstack_put_zonefile(zonefile_txt)
     profile_data = blockstack_make_profile(profile, owner_privkey)
-    blockstack_put_profile(name, profile_data, owner_privkey)
+    blockstack_put_profile(name, profile_data, owner_privkey, 'http://' + gaia_host)
     return True
 
 
@@ -1389,15 +1397,19 @@ def blockstack_renew_user(name, privkey, owner_privkey, **kw):
 
     Generates 1 block
     """
+    gaia_host = kw.get('gaia_host', 'localhost:4001')
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
     
     addr = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()   # make it match the wallet
     owner_privkey = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
 
-    profile = kw.get('profile', DEFAULT_PROFILE)
-    profile_url = 'http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(addr, network='mainnet'))
-    zonefile_txt = "$ORIGIN {}\n$TTL 3600\n_http URI 10 1 {}".format(name, profile_url)
+    hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
+    gaia_read_prefix = hub_config['read_url_prefix']
 
+    profile = kw.get('profile', DEFAULT_PROFILE)
+
+    urls = ['{}{}/profile.json'.format(gaia_read_prefix, virtualchain.address_reencode(addr, network='mainnet'))]
+    zonefile_txt = make_empty_zonefile(name, addr, urls=urls)
     zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
 
     blockstack_name_renew(name, privkey, recipient_addr=addr, zonefile_hash=zonefile_hash)
@@ -1405,7 +1417,7 @@ def blockstack_renew_user(name, privkey, owner_privkey, **kw):
 
     blockstack_put_zonefile(zonefile_txt)
     profile_data = blockstack_make_profile({'type': '@Person', 'account': []}, owner_privkey)
-    blockstack_put_profile(name, profile_data, owner_privkey)
+    blockstack_put_profile(name, profile_data, owner_privkey, 'http://' + gaia_host)
     return True
 
 
@@ -1480,13 +1492,12 @@ def blockstack_make_profile( profile_data, privkey ):
         raise Exception("Need blockstack-cli")
 
 
-def blockstack_put_profile(name, profile_token, privkey, gaia_hub=None, safety_checks=True):
+def blockstack_put_profile(name, profile_token, privkey, gaia_hub, safety_checks=True):
     """
     Store a signed profile token
     """
     if has_nodejs_cli():
         if name is None:
-            assert gaia_hub, 'Need name or gaia hub'
             name = virtualchain.get_privkey_address(privkey)
 
         fd, path = tempfile.mkstemp('-blockstack-profile-store')
@@ -1499,11 +1510,7 @@ def blockstack_put_profile(name, profile_token, privkey, gaia_hub=None, safety_c
         except:
             pass
 
-        if gaia_hub:
-            res = nodejs_cli('profile_store', name, path, privkey, gaia_hub, safety_checks=safety_checks)
-        else:
-            res = nodejs_cli('profile_store', name, path, privkey, safety_checks=safety_checks)
-
+        res = nodejs_cli('profile_store', name, path, privkey, gaia_hub, safety_checks=safety_checks)
         os.unlink(path)
 
         res = json.loads(res)
