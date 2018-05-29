@@ -222,8 +222,10 @@ def check( state_engine, nameop, block_id, checked_ops ):
             os.abort()
 
         stacks_price = price_name(name_without_namespace, namespace, block_id)
+        stacks_price = int(stacks_price)
 
     else:
+        # QUIRK: keep this as a float due to backwards-compatibility
         bitcoin_price = price_name(name_without_namespace, namespace, block_id)
 
     nameop['sender'] = recipient
