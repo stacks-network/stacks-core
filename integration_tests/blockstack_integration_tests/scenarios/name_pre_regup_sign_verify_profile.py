@@ -111,7 +111,7 @@ def scenario( wallets, **kw ):
         print 'store profile for {}'.format(name)
 
         # store the jwt to the right place
-        res = testlib.blockstack_put_profile(name, json.dumps(jwt), wallets[3].privkey)
+        res = testlib.blockstack_put_profile(name, json.dumps(jwt), wallets[3].privkey, 'http://localhost:4001')
         assert res
 
         print 'lookup profile for {}'.format(name)
