@@ -245,10 +245,11 @@ def parse( bin_payload, block_height ):
     namespace_id_hash = bin_payload[ :LENGTHS['preorder_name_hash'] ]
     consensus_hash = bin_payload[ LENGTHS['preorder_name_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] ]
     tokens_burned = None
+    
+    epoch_features = get_epoch_features(block_height)
 
     if len(bin_payload) > LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
-        epoch_features = get_epoch_features(block_height)
-        if EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features or EPOCH_FEATURE_STACKS_BUY_NAMESPACES not in epoch_features:
+        if EPOCH_FEATURE_STACKS_BUY_NAMESPACES not in epoch_features:
             # not allowed--we can't use tokens in this epoch
             log.warning("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']))
             return None
@@ -260,7 +261,14 @@ def parse( bin_payload, block_height ):
         
         bin_tokens_burned = bin_payload[LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']]
         tokens_burned = int(bin_tokens_burned.encode('hex'), 16)
-   
+  
+    else:
+        # only allow the absence of the tokens field if we're in a pre-STACKs epoch 
+        if EPOCH_FEATURE_STACKS_BUY_NAMESPACES in epoch_features:
+            # not allowed---we need the stacks token field
+            log.warning('Invalid payload {}: expected {} bytes'.format(bin_payload.encode('hex'), LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] + LENGTHS['tokens_burnt']))
+            return None
+
     namespace_id_hash = hexlify( namespace_id_hash )
     consensus_hash = hexlify( consensus_hash )
    
