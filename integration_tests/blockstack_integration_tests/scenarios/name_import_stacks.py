@@ -52,6 +52,15 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
     testlib.next_block( **kw )
 
+    # import different block from namespace-ready
+    resp = testlib.blockstack_name_import( "foo_import.test", wallets[3].addr, "22" * 20, wallets[1].privkey )
+    if 'error' in resp:
+        print resp
+        return False
+
+    testlib.next_block(**kw)
+
+    # import same block as namespace-ready
     resp = testlib.blockstack_name_import( "foo.test", wallets[3].addr, "11" * 20, wallets[1].privkey )
     if 'error' in resp:
         print resp
