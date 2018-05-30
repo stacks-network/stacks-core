@@ -858,25 +858,31 @@ def parse(bin_payload, block_height):
         # if so, it's guaranteed to be max_name_len + value_hash_len bytes long.
         name_value_len = LENGTHS['blockchain_id_name'] + LENGTHS['value_hash']
         if len(bin_payload) >= name_value_len:
-            
+            # has name and value hash, and possibly a token burn
             # get name and value hash
             value_hash = bin_payload[LENGTHS['blockchain_id_name']: LENGTHS['blockchain_id_name'] + LENGTHS['value_hash']].encode('hex')
             fqn = bin_payload[:LENGTHS['blockchain_id_name']]
             fqn = fqn.rstrip('\x00')
 
             if EPOCH_FEATURE_NAMEOPS_COST_TOKENS in epoch_features:
-                # expecting tokens burned
+                # might have tokens burned.  If so, it's all or nothing.
                 if len(bin_payload) == name_value_len + LENGTHS['tokens_burnt']:
                     # we have a token count (this is a name renewal)
                     bin_tokens = bin_payload[name_value_len: name_value_len + LENGTHS['tokens_burnt']]
                     tokens_burned = int(bin_tokens.encode('hex'), 16)    # NOTE: little-endian
 
                 else:
+                    # must not have any bits dangling off the end 
+                    if len(bin_payload) != name_value_len:
+                        log.warning('Invalid payload {}: expected {} bytes or {} bytes'.format(bin_payload.encode('hex'), name_value_len, name_value_len + LENGTHS['tokens_burnt']))
+                        return None 
+
                     # no token count (might be a register)
                     tokens_burned = None
 
             else:
-                # payload must be *exactly* name + value hash
+                # tokens are not active in this epoch.
+                # payload must be *exactly* name + value hash.
                 if len(bin_payload) != name_value_len:
                     log.warning("Invalid payload {}: expected {} bytes".format(bin_payload.encode('hex'), name_value_len))
                     return None
