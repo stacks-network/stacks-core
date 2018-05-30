@@ -2511,6 +2511,9 @@ def check_historic_names_by_address( state_engine ):
 
         if name not in final_name_states:
             final_name_states[name] = state_engine.get_name(name, include_expired=True)
+            if final_name_states[name] is None:
+                log.error("No final name states for {}".format(name))
+                return False
 
             # coerse string values
             final_name_states[name] = dict(map(lambda (k, v): (k, str(v)) if isinstance(v, unicode) else (k, v), final_name_states[name].items()))
