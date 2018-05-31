@@ -82,13 +82,16 @@ def default_cache_off(response):
 
 def forwarded_get(url, params = None):
     if params:
-        resp = requests.get(url, params = params)
+        resp = requests.get(url, params = params, allow_redirects=False)
     else:
-        resp = requests.get(url)
+        resp = requests.get(url, allow_redirects=False)
 
     try:
         log.debug("{} => {}".format(resp.url, resp.status_code))
-        return jsonify(resp.json()), resp.status_code
+        if resp.status_code == 301:
+            return jsonify(resp.json()), resp.status_code, resp.headers['Location']
+        else:
+            return jsonify(resp.json()), resp.status_code
     except:
         log.error("Bad response from API URL: {} \n {}".format(resp.url, resp.text))
         return jsonify({'error': 'Not found'}), resp.status_code
@@ -135,7 +138,10 @@ def catch_all_get(path):
     params = dict(request.args)
 
     inner_resp = forwarded_get(API_URL, params = params)
-    resp = make_response(inner_resp)
+    resp = make_response(inner_resp[:2])
+
+    if len(inner_resp) > 2 and inner_resp[1] == 301:
+        resp.headers['Location'] = inner_resp[2]
 
     for ix, matcher in enumerate(CACHE_SPECIFIC):
         if matcher.match('/' + path):
@@ -159,7 +165,7 @@ def catch_all_post(path):
     return jsonify(resp.json()), 200
 
 @app.route('/')
-@cache_control(DEFAULT_CACHE_TIMEOUT)
+@cache_control(10*60)
 def index():
     current_dir = os.path.abspath(os.path.dirname(__file__))
     server_info = blockstack.lib.client.getinfo(hostport=blockstack_indexer_url)

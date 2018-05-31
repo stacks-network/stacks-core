@@ -2146,6 +2146,8 @@ Searches for a profile using a search string.
                {
                  "results": [
                    {
+                     "fullyQualifiedName": "albertwenger.id",
+                     "username": "albertwenger",
                      "profile": {
                        "@type": "Person", 
                        "account": [
