@@ -56,7 +56,6 @@ def clean_profile_entries(profile):
 def fetch_profile_data_from_file():
     """ takes profile data from file and saves in the profile_data DB
     """
-
     with open(SEARCH_PROFILE_DATA_FILE, 'r') as fin:
         profiles = json.load(fin)
 
@@ -115,6 +114,7 @@ def fetch_namespace_from_file():
             continue
 
         new_entry['username'] = username
+        new_entry['fqu'] = entry
         new_entry['profile'] = check_entry['value']
         namespace.save(new_entry)
         counter += 1
@@ -176,7 +176,6 @@ def create_search_index():
         if validUsername(user['username']):
             pass
         else:
-            # print "ignoring: " + user['username']
             continue
 
         profile = get_json(user['profile'])
@@ -226,6 +225,7 @@ def create_search_index():
         else:
             search_profile['twitter_handle'] = None
 
+        search_profile['fullyQualifiedName'] = user['fqu']
         search_profile['username'] = user['username']
         usernames.append(user['username'])
 
