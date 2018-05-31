@@ -108,4 +108,7 @@ def validUsername(username):
         if len(parts) == 2:
             if a.match(parts[0]) and a.match(parts[1]):
                 return True
+        if len(parts) == 3:
+            if a.match(parts[0]) and a.match(parts[1]) and a.match(parts[2]):
+                return True
         return False
