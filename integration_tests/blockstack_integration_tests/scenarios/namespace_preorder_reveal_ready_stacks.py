@@ -21,13 +21,14 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
 
-import testlib 
+import testlib
+import virtualchain
 
 # activate tokens
 """
 TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 682
 TEST ENV BLOCKSTACK_EPOCH_2_END_BLOCK 683
-TEST ENV BLOCKSTACK_EPOCH_3_END_BLOCK 689
+TEST ENV BLOCKSTACK_EPOCH_3_END_BLOCK 690
 TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 1
 TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER 1
 """
@@ -45,10 +46,27 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 def scenario( wallets, **kw ):
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
+    res = testlib.blockstack_namespace_preorder( "teststacks", wallets[1].addr, wallets[3].privkey, safety_checks=False, price={'units': 'STACKS', 'amount': 64000000}, tx_only=True)
+    ns_preorder_tx_stacks = res['transaction']
+
     res = testlib.blockstack_namespace_preorder('test2', wallets[1].addr, wallets[2].privkey, tx_only=True)
     ns_preorder_tx = res['transaction']
 
-    testlib.next_block( **kw )  # end of 689, begin Stacks
+    testlib.broadcast_transaction(ns_preorder_tx_stacks)
+
+    testlib.next_block( **kw )  # end of 689
+
+    # should have only accepted one operation 
+    block_stats = virtualchain.lib.indexer.StateEngine.get_block_statistics(testlib.get_current_block(**kw))
+    if block_stats['num_parsed_ops'] != 1:
+        print 'invalid number of parsed ops: {}'.format(block_stats['num_parsed_ops'])
+        return False
+
+    # try to register a Stacks transaction (should fail)
+    testlib.blockstack_namespace_reveal( "teststacks", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[3].privkey)
+
+    testlib.next_block( **kw )  # end of 690, begin Stacks
+    testlib.expect_snv_fail_at('teststacks', testlib.get_current_block(**kw))
 
     # should not be accepted, since no stacks are paid
     testlib.broadcast_transaction(ns_preorder_tx)
@@ -84,5 +102,10 @@ def check( state_engine ):
     if ns is not None:
         print 'invalid reveal'
         return False 
+
+    ns = state_engine.get_namespace_reveal("teststacks")
+    if ns is not None:
+        print 'invalid reveal teststacks'
+        return False
 
     return True
