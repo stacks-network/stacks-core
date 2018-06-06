@@ -217,6 +217,8 @@ def price_name(name, namespace, block_height):
     """
     units = None
     cost_unit = None
+    epoch_features = get_epoch_features(block_height)
+
     if namespace['version'] == NAMESPACE_VERSION_PAY_WITH_STACKS:
         units = 'STACKS'
         cost_unit = NAME_COST_UNIT_STACKS
@@ -246,12 +248,35 @@ def price_name(name, namespace, block_height):
         # non-alpha!
         discount = max( discount, namespace['nonalpha_discount'] )
 
-    price = (float(coeff * (base ** bucket_exponent)) / float(discount)) * cost_unit
-    if price < cost_unit:
-        price = cost_unit
+    price = None
+    final_price = None
 
-    price_multiplier = get_epoch_price_multiplier(block_height, namespace['namespace_id'], units)
-    return price * price_multiplier
+    if EPOCH_FEATURE_INT_DIVISION in epoch_features:
+        # post-Stacks, we can have arbitrarily high prices and valuations.  Use integer division
+        price = long(coeff * (base ** bucket_exponent) * cost_unit) / int(discount)
+
+        if price < cost_unit:
+            price = long(cost_unit)
+
+        # we're using price divisors in this epoch 
+        price_divisor = get_epoch_price_divisor(block_height, namespace['namespace_id'], units)
+        final_price = price / price_divisor
+
+        assert isinstance(final_price, (int,long))
+
+    else:
+        # pre-Stacks, this was float, since it was deemed "safe" for the size of the numbers we were using.
+        # (wish we knew better then)
+        price = (float(coeff * (base ** bucket_exponent)) / float(discount)) * cost_unit
+        
+        if price < cost_unit:
+            price = cost_unit
+
+        # in this epoch, the price_multiplier is a float coefficient
+        price_multiplier = get_epoch_price_multiplier(block_height, namespace['namespace_id'], units)
+        final_price = price * price_multiplier
+
+    return final_price
 
 
 def price_namespace( namespace_id, block_height, units ):
