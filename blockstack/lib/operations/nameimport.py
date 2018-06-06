@@ -227,6 +227,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     else:
         # QUIRK: keep this as a float due to backwards-compatibility
         bitcoin_price = price_name(name_without_namespace, namespace, block_id)
+        bitcoin_price = float(bitcoin_price)
 
     nameop['sender'] = recipient
     nameop['address'] = recipient_address
