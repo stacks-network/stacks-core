@@ -46,10 +46,17 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
 
+    coeff = 255
+    base = 32
+    bucket_exponents = [10,10,10,9,9,9,8,8,8,0,0,0,0,0,0,0]
+    nonalpha_discount = 10
+    novowel_discount = 10
+    cost_unit = blockstack.config.NAME_COST_UNIT_STACKS
+
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 255, 32, [10,10,10,9,9,9,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
+    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, coeff, base, bucket_exponents, nonalpha_discount, novowel_discount, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
     testlib.next_block( **kw )
 
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
@@ -77,6 +84,22 @@ def scenario( wallets, **kw ):
         return False
     except:
         pass
+
+    ns = testlib.get_state_engine().get_namespace('test')
+
+    # old price function should be wonky since it's a big float
+    discount = 10.0     # for foo2.id, the non-alpha discount applies
+    old_price_multiplier = 0.1
+    old_price_float = (float(coeff * (base ** bucket_exponents[len('foo2')-1])) / float(discount)) * cost_unit * old_price_multiplier
+
+    new_price_int = blockstack.scripts.price_name('foo2', ns, testlib.get_current_block(**kw))
+
+    print 'old price: {}'.format(old_price_float)
+    print 'new price: {}'.format(new_price_int)
+    print 'diff: {}'.format(abs(int(old_price_float) - new_price_int))
+
+    # diff should be 1024, since we're dealing with floats bigger than 2**53
+    assert abs(int(old_price_float) - new_price_int) > 100, 'old price: {}, new price: {}'.format(old_price_float, new_price_int)
 
     testlib.blockstack_name_preorder( "fooo.test", wallets[2].privkey, wallets[3].addr)
     testlib.next_block( **kw )
