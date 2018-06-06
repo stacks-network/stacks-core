@@ -235,6 +235,7 @@ Specifically:
     * NAMESPACE_LIFETIME_MULTIPLIER:    constant to multiply name lifetimes by
     * NAMESPACE_LIFETIME_GRACE_PERIOD:  constant to add to the name's lifetime when it's about to expire
     * PRICE_MULTIPLIER:                 constant to multiply name and namespace prices by
+    * PRICE_DIVISOR:                    constant to divide name and namespace prices by
 """
 EPOCH_FIELDS = [
     "end_block",
@@ -245,7 +246,8 @@ EPOCH_FIELDS = [
 EPOCH_NAMESPACE_FIELDS = [
     "NAMESPACE_LIFETIME_MULTIPLIER",
     "NAMESPACE_LIFETIME_GRACE_PERIOD",
-    "PRICE_MULTIPLIER"
+    "PRICE_MULTIPLIER",
+    "PRICE_DIVISOR",
 ]
 
 # epoch features
@@ -259,6 +261,7 @@ EPOCH_FEATURE_STACKS_BUY_NAMESPACES = "BLOCKSTACK_STACKS_BUY_NAMESPACES"
 EPOCH_FEATURE_NAMEOPS_COST_TOKENS = "BLOCKSTACK_NAMEOPS_COST_TOKENS"
 EPOCH_FEATURE_FIX_PREORDER_EXPIRE = "BLOCKSTACK_PREORDER_EXPIRE"
 EPOCH_FEATURE_TOKEN_TRANSFER = "BLOCKSTACK_TOKEN_TRANSFER"
+EPOCH_FEATURE_INT_DIVISION = "BLOCKSTACK_INT_DIVISION"
 
 # when epochs end (-1 means "never")
 EPOCH_NOW = -1
@@ -280,12 +283,14 @@ EPOCH_4_NAMESPACE_LIFETIME_GRACE_PERIOD_id = 5000   # about 30 days
 EPOCH_1_PRICE_MULTIPLIER_id = 1.0
 EPOCH_2_PRICE_MULTIPLIER_id = 1.0
 EPOCH_3_PRICE_MULTIPLIER_id = 0.1
-EPOCH_4_PRICE_MULTIPLIER_id = 0.1
+# after epoch 3, this becomes an integer divisor
+EPOCH_4_PRICE_DIVISOR_id = 10
 
 EPOCH_1_PRICE_MULTIPLIER_STACKS = 1.0
 EPOCH_2_PRICE_MULTIPLIER_STACKS = 1.0
 EPOCH_3_PRICE_MULTIPLIER_STACKS = 1.0
-EPOCH_4_PRICE_MULTIPLIER_STACKS = 1.0
+# after epcoh 3, this becomes an integer divisor
+EPOCH_4_PRICE_DIVISOR_STACKS = 1
 
 EPOCH_1_NAMESPACE_RECEIVE_FEES_PERIOD_id = 0
 EPOCH_2_NAMESPACE_RECEIVE_FEES_PERIOD_id = 0
@@ -306,6 +311,7 @@ EPOCH_4_FEATURES = [
     EPOCH_FEATURE_FIX_PREORDER_EXPIRE,
     EPOCH_FEATURE_NAMEOPS_COST_TOKENS,
     EPOCH_FEATURE_TOKEN_TRANSFER,
+    EPOCH_FEATURE_INT_DIVISION,
 ]
 
 NUM_EPOCHS = 4
@@ -318,6 +324,10 @@ for i in xrange(1, NUM_EPOCHS+1):
     if os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i, None) is not None and BLOCKSTACK_TEST:
         exec("EPOCH_%s_PRICE_MULTIPLIER_id = float(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i)))
         log.warn("EPOCH_%s_PRICE_MULTIPLIER_id = %s" % (i, eval("EPOCH_%s_PRICE_MULTIPLIER_id" % i)))
+
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_DIVISOR" % i, None) is not None and BLOCKSTACK_TEST:
+        exec("EPOCH_%s_PRICE_DIVISOR_id = float(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_DIVISOR" % i)))
+        log.warn("EPOCH_%s_PRICE_DIVISOR_id = %s" % (i, eval("EPOCH_%s_PRICE_DIVISOR_id" % i)))
 
     if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER" % i, None) is not None and BLOCKSTACK_TEST:
         exec("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER" % i)))
@@ -346,6 +356,8 @@ EPOCHS = [
                 "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
                 "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id,
                 "PRICE_MULTIPLIER_STACKS": EPOCH_1_PRICE_MULTIPLIER_STACKS,
+                "PRICE_DIVISOR": None,
+                "PRICE_DIVISOR_STACKS": None,
                 "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_1_NAMESPACE_RECEIVE_FEES_PERIOD_id,
             },
             "*": {
@@ -353,6 +365,8 @@ EPOCHS = [
                 "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
                 "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id,
                 "PRICE_MULTIPLIER_STACKS": EPOCH_1_PRICE_MULTIPLIER_STACKS,
+                "PRICE_DIVISOR": None,
+                "PRICE_DIVISOR_STACKS": None,
                 "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_1_NAMESPACE_RECEIVE_FEES_PERIOD_id,
             },
         },
@@ -391,6 +405,8 @@ EPOCHS = [
                 "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
                 "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id,
                 "PRICE_MULTIPLIER_STACKS": EPOCH_2_PRICE_MULTIPLIER_STACKS,
+                "PRICE_DIVISOR": None,
+                "PRICE_DIVISOR_STACKS": None,
                 "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_2_NAMESPACE_RECEIVE_FEES_PERIOD_id,
             },
             "*": {
@@ -398,6 +414,8 @@ EPOCHS = [
                 "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
                 "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id,
                 "PRICE_MULTIPLIER_STACKS": EPOCH_2_PRICE_MULTIPLIER_STACKS,
+                "PRICE_DIVISOR": None,
+                "PRICE_DIVISOR_STACKS": None,
                 "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_2_NAMESPACE_RECEIVE_FEES_PERIOD_id,
             },
         },
@@ -436,6 +454,8 @@ EPOCHS = [
                 "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
                 "PRICE_MULTIPLIER": EPOCH_3_PRICE_MULTIPLIER_id,
                 "PRICE_MULTIPLIER_STACKS": EPOCH_3_PRICE_MULTIPLIER_STACKS,
+                "PRICE_DIVISOR": None,
+                "PRICE_DIVISOR_STACKS": None,
                 "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD_id,
             },
             "*": {
@@ -443,6 +463,8 @@ EPOCHS = [
                 "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
                 "PRICE_MULTIPLIER": EPOCH_3_PRICE_MULTIPLIER_id,
                 "PRICE_MULTIPLIER_STACKS": EPOCH_3_PRICE_MULTIPLIER_STACKS,
+                "PRICE_DIVISOR": None,
+                "PRICE_DIVISOR_STACKS": None,
                 "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD_id,
             },
         },
@@ -479,15 +501,19 @@ EPOCHS = [
             "id": {
                 "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_4_NAMESPACE_LIFETIME_MULTIPLIER_id,
                 "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_4_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
-                "PRICE_MULTIPLIER": EPOCH_4_PRICE_MULTIPLIER_id,
-                "PRICE_MULTIPLIER_STACKS": EPOCH_4_PRICE_MULTIPLIER_STACKS,
+                "PRICE_MULTIPLIER": None,
+                "PRICE_MULTIPLIER_STACKS": None,
+                "PRICE_DIVISOR": EPOCH_4_PRICE_DIVISOR_id,
+                "PRICE_DIVISOR_STACKS": EPOCH_4_PRICE_DIVISOR_STACKS,
                 "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_4_NAMESPACE_RECEIVE_FEES_PERIOD_id,
             },
             "*": {
                 "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_4_NAMESPACE_LIFETIME_MULTIPLIER_id,
                 "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_4_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
-                "PRICE_MULTIPLIER": EPOCH_4_PRICE_MULTIPLIER_id,
-                "PRICE_MULTIPLIER_STACKS": EPOCH_4_PRICE_MULTIPLIER_STACKS,
+                "PRICE_MULTIPLIER": None,
+                "PRICE_MULTIPLIER_STACKS": None,
+                "PRICE_DIVISOR": EPOCH_4_PRICE_DIVISOR_id,
+                "PRICE_DIVISOR_STACKS": EPOCH_4_PRICE_DIVISOR_STACKS,
                 "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_4_NAMESPACE_RECEIVE_FEES_PERIOD_id,
             },
         },
@@ -858,15 +884,67 @@ def get_epoch_namespace_lifetime_grace_period( block_height, namespace_id ):
 def get_epoch_price_multiplier( block_height, namespace_id, units ):
     """
     what's the name price multiplier for this epoch?
+    Not all epochs have one---if this epoch has BLOCKSTACK_INT_DIVISION set, use
+    get_epoch_price_divisor() instead.
     """
-    assert units in [TOKEN_TYPE_STACKS, 'BTC'], 'Unknown units {}'.format(units)
+    try:
+        assert units in [TOKEN_TYPE_STACKS, 'BTC'], 'Unknown units {}'.format(units)
+    except AssertionError as ae:
+        log.exception(ae)
+        log.error("FATAL: No such units {}".format(units))
+        os.abort()
+
     multiplier = 'PRICE_MULTIPLIER' if units == 'BTC' else 'PRICE_MULTIPLIER_STACKS'
 
     epoch_config = get_epoch_config( block_height )
+    m = None
+
     if epoch_config['namespaces'].has_key(namespace_id):
-        return epoch_config['namespaces'][namespace_id][multiplier]
+        m = epoch_config['namespaces'][namespace_id][multiplier]
     else:
-        return epoch_config['namespaces']['*'][multiplier]
+        m = epoch_config['namespaces']['*'][multiplier]
+
+    try:
+        assert m is not None
+    except AssertionError as ae:
+        log.exception(ae)
+        log.error("FATAL: Tried to get a price multiplier in an epoch without price multipliers!")
+        os.abort()
+
+    return m
+
+
+def get_epoch_price_divisor( block_height, namespace_id, units ):
+    """
+    what's the name price divisor for this epoch?
+    Not all epochs have one---if this epoch does NOT have BLOCKSTACK_INT_DIVISION set,
+    use get_epoch_price_multiplier() instead.
+    """
+    try:
+        assert units in [TOKEN_TYPE_STACKS, 'BTC'], 'Unknown units {}'.format(units)
+    except AssertionError as ae:
+        log.exception(ae)
+        log.error("FATAL: No such units {}".format(units))
+        os.abort()
+
+    divisor = 'PRICE_DIVISOR' if units == 'BTC' else 'PRICE_DIVISOR_STACKS'
+
+    epoch_config = get_epoch_config( block_height )
+    d = None
+
+    if epoch_config['namespaces'].has_key(namespace_id):
+        d = epoch_config['namespaces'][namespace_id][divisor]
+    else:
+        d = epoch_config['namespaces']['*'][divisor]
+
+    try:
+        assert d is not None
+    except AssertionError as ae:
+        log.exception(ae)
+        log.error("FATAL: Tried to get a price divisor in an epoch without price divisors!")
+        os.abort()
+
+    return d
 
 
 def get_epoch_namespace_receive_fees_period( block_height, namespace_id ):
