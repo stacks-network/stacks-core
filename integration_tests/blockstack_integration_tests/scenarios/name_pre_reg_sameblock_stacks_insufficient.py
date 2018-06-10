@@ -73,6 +73,8 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "goo.test", wallets[2].privkey, wallets[3].addr )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('goo.test', testlib.get_current_block(**kw))
+    testlib.expect_snv_fail_at('baz.test', testlib.get_current_block(**kw))
     
 
 
