@@ -226,7 +226,7 @@ def get_name_cost( db, name ):
         name_fee_units = 'BTC'
 
     name_fee = int(math.ceil(name_fee))
-    log.debug("Cost of '%s' at %s is %s %s" % (name, lastblock, name_fee, name_fee_units))
+    log.debug("Cost of '%s' at %s is %s units of %s" % (name, lastblock, name_fee, name_fee_units))
 
     return {'amount': name_fee, 'units': name_fee_units}
 
