@@ -101,10 +101,10 @@ def scenario( wallets, **kw ):
     # diff should be 1024, since we're dealing with floats bigger than 2**53
     assert abs(int(old_price_float) - new_price_int) > 100, 'old price: {}, new price: {}'.format(old_price_float, new_price_int)
 
-    testlib.blockstack_name_preorder( "fooo.test", wallets[2].privkey, wallets[3].addr)
+    testlib.blockstack_name_preorder( "foo2.test", wallets[2].privkey, wallets[3].addr)
     testlib.next_block( **kw )
 
-    testlib.blockstack_name_register( "fooo.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_register( "foo2.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
 
