@@ -52,6 +52,7 @@ def scenario( wallets, **kw ):
     # force paying in bitcoin.  It should fail
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey, price={'units': 'BTC', 'amount': 40000000}, expect_fail=True)
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
 
     # should fail, since not preordered
     testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
