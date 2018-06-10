@@ -37,7 +37,7 @@ DEBUG = True
 VERSION = __version__
 
 # namespace version bits
-NAMESPACE_VERSION_PAY_TO_BURN = 0x1
+NAMESPACE_VERSION_PAY_TO_BURN = 0x1     # in epoch 4, this means "burn either bitcoin or stacks"
 NAMESPACE_VERSION_PAY_TO_CREATOR = 0x2
 NAMESPACE_VERSION_PAY_WITH_STACKS = 0x3
 
@@ -93,6 +93,14 @@ NAMESPACE_1_CHAR_COST_STACKS = int((96000.0 * MICROSTACKS_PER_STACKS) / STACKS_P
 NAMESPACE_23_CHAR_COST_STACKS = int((9600.0 * MICROSTACKS_PER_STACKS) / STACKS_PRICE)
 NAMESPACE_4567_CHAR_COST_STACKS = int((960.0 * MICROSTACKS_PER_STACKS) / STACKS_PRICE)
 NAMESPACE_8UP_CHAR_COST_STACKS = int((96.0 * MICROSTACKS_PER_STACKS) / STACKS_PRICE)
+
+# converting from BTC to STACKs
+# 1 BTC == $260 (September 2015); 1 STACK = $0.15 (strike price)
+# 1 satoshi = 2.6e-6 (Sept 2015); 1 microStack = 1.5e-7
+# 1 microStacks/satoshi = 2.6e-6 / 1.5e-7 = 260 / 15
+# Record separate numerator and denominator so we can do integer math.
+MICROSTACKS_PER_SATOSHI_NUM = 260
+MICROSTACKS_PER_SATOSHI_DEN = 15
 
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
