@@ -79,6 +79,11 @@ def check( state_engine, nameop, block_id, checked_ops ):
         log.warning("Missing namespace preorder fee")
         return False
 
+    # paid to the right burn address
+    if nameop['burn_address'] != BLOCKSTACK_BURN_ADDRESS:
+        log.warning("Invalid burn address: expected {}, got {}".format(BLOCKSTACK_BURN_ADDRESS, nameop['burn_address']))
+        return False
+    
     # token burn fee must be present, if we're in the right epoch for it
     epoch_features = get_epoch_features(block_id)
     if EPOCH_FEATURE_STACKS_BUY_NAMESPACES in epoch_features:
@@ -208,7 +213,16 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
        "op": NAMESPACE_PREORDER
     }
 
+    # adds:
+    # * opcode
+    # * preorder_hash
+    # * consensus_hash
+    # * token_fee
     ret.update( parsed_payload )
+
+    # adds:
+    # * burn_address
+    # * op_fee
     ret.update( burn_info )
 
     if sender_pubkey_hex is not None:
@@ -216,6 +230,10 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     
     else:
         ret['sender_pubkey'] = None
+
+    # unparseable if the burn address is wrong 
+    if ret['burn_address'] != BLOCKSTACK_BURN_ADDRESS:
+        raise Exception("Invalid burn address: expected {}, got {}".format(BLOCKSTACK_BURN_ADDRESS, ret['burn_address']))
 
     return ret
 
@@ -236,6 +254,13 @@ def parse( bin_payload, block_height ):
     0     2   3                                      23               39                         47
     |-----|---|--------------------------------------|----------------|--------------------------|
     magic op  hash(ns_id,script_pubkey,reveal_addr)   consensus hash    token fee (little-endian)
+
+    Returns {
+        'opcode': ...
+        'preorder_hash': ...
+        'consensus_hash': ...
+        'token_fee': ...
+    }
     """
    
     if len(bin_payload) < LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
