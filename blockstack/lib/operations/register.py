@@ -123,41 +123,231 @@ def get_num_names_owned( state_engine, checked_ops, sender ):
     return count
 
 
-def check_burn_address(namespace, burn_address, block_id):
+def get_stacks_payment(state_engine, nameop, state_op_type, token_address, token_fee):
     """
-    Verify that the burn fee went to the right address
+    Find out how many tokens were paid for this nameop.  Only works for namespace versions that accept Stacks
+    Return {'status': True, 'token_units': ..., 'tokens_paid': ...} on success
+    Return {'status': False} on error (i.e. this is not the right kind of namespace, there is not enough balance, etc.)
+    Throw exception on fatal error
     """
-    # fee must be paid to the right address.
-    # pre F-day 2017: this *must* be the burn address, and the namespace *must* be version 1
-    # post F-day 2017: this *may* be the namespace creator's address
+    token_units = None
+    tokens_paid = None
+    name = nameop['name']
+
+    assert token_fee is None or isinstance(token_fee, (int,long)), 'Invalid token fee {} ({})'.format(token_fee, type(token_fee))
+    
+    namespace_id = get_namespace_from_name(name)
+    name_without_namespace = get_name_from_fq_name(name)
+    namespace = state_engine.get_namespace(namespace_id)
+
+    if namespace['version'] not in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_WITH_STACKS]:
+        # not a namespace that can accept stacks
+        log.warning("Namespace {} is version 0x{}, which does not accept Stacks for payment".format(namespace_id, namespace_version))
+        return {'status': False}
+    
+    # find out how many STACKs (if any) were paid
+    if state_op_type == 'NAME_REGISTRATION':
+        # STACKs were already paid by a preorder.
+        # find out how much.
+        preorder = state_create_get_preorder(nameop)
+        assert preorder, 'BUG: no preorder set'
+        assert isinstance(preorder['token_fee'], (int,long)), 'Not an int: {}'.format(preorder['token_fee'])
+
+        token_units = preorder['token_units']
+        tokens_paid = preorder['token_fee']
+
+        # must have paid STACKs
+        if token_units != TOKEN_TYPE_STACKS:
+            log.warning("Account paid in {}, but this namespace expects {}".format(token_units, TOKEN_TYPE_STACKS))
+            return {'status': False}
+
+    elif state_op_type == 'NAME_RENEWAL':
+        # since this is a pay-with-STACKs namespace, we had to have paid in STACKs
+        token_units = TOKEN_TYPE_STACKS
+        if token_fee is None:
+            # no tokens paid
+            log.warning("No tokens paid by {} for {}".format(token_address, name))
+            return {'status': False}
+
+        # paying in STACKs right now
+        account_info = state_engine.get_account(token_address, token_units)
+        if account_info is None:
+            # no account!
+            log.warning("Name buyer {} does not have an account".format(token_address))
+            return {'status': False}
+
+        # can this account afford it?
+        account_balance = state_engine.get_account_balance(account_info)
+        if account_balance < token_fee:
+            # not enough balance
+            log.warning("Address {} does not have enough {} tokens for {} (need at least {}, but only have {})".format(token_address, token_units, name, token_fee, account_balance))
+            return {'status': False}
+
+        # how much was paid?
+        tokens_paid = token_fee
+
+    else:
+        raise Exception("Unknown state operation type {}".format(state_op_type))
+
+    return {'status': True, 'tokens_paid': tokens_paid, 'token_units': token_units}
+
+
+def check_token_payment(state_engine, state_op_type, nameop, token_price, token_address, fee_block_id, fee_vtxindex, stacks_payment_info):
+    """
+    Check a token payment was enough, and if so, record payment metadata
+    Return {'status': True, 'tokens_paid': ..., 'token_units': ...} if so
+    Return {'status': False} if not
+    """
+    name = nameop['name']
+    token_units = stacks_payment_info['token_units']
+    tokens_paid = stacks_payment_info['tokens_paid']
+    tokens_paid = int(tokens_paid)
+
+    # did the preorder/renewer pay the *right* tokens?
+    # TODO: alter this conditional once we support per-namespace tokens
+    if token_units != TOKEN_TYPE_STACKS:
+        log.warning('Account {} paid in {}, but this namespace only accepts {}'.format(token_address, token_units, TOKEN_TYPE_STACKS))
+        return {'status': False}
+
+    log.debug("Account {} paid {} {}s for {} at ({},{})".format(token_address, tokens_paid, token_units, name, fee_block_id, fee_vtxindex))
+
+    if tokens_paid < token_price:
+        # not enough!
+        log.warning("Name buyer {} paid {} {}s, but '{}' costs {} {}s".format(token_address, tokens_paid, token_units, name, token_price, token_units))
+        return {'status': False}
+
+    return {'status': True, 'tokens_paid': tokens_paid, 'token_units': token_units}
+
+
+def check_payment_v1(state_engine, state_op_type, nameop, namespace, name_fee, token_fee, fee_block_id, fee_vtxindex, token_address, burn_address, block_id):
+    """
+    Verify that for a version-1 namespace, the nameop paid the right amount of BTC or STACKs.
+    Return {'status': True, 'tokens_paid': ..., 'token_units': ...}
+    Return {'status': False} if not
+    """
+    # priced in BTC or Stacks
+    assert namespace['version'] == NAMESPACE_VERSION_PAY_TO_BURN
+    assert name_fee is not None
+
     epoch_features = get_epoch_features(block_id)
+    name = nameop['name']
+    name_without_namespace = get_name_from_fq_name( name )
+    res = None
+
+    # burn address must be the default burn address
+    if burn_address != BLOCKSTACK_BURN_ADDRESS:
+        log.warning('Buyer of {} used the wrong burn address ({}): expected {}'.format(name, burn_address, BLOCKSTACK_BURN_ADDRESS))
+        return {'status': False}
+
+    # did the transaction pay in BTC?
+    btc_price = price_name(name_without_namespace, namespace, fee_block_id)  # price in BTC
+    if name_fee < btc_price:
+        log.debug('Paid {} satoshis for {}, but need at least {}.'.format(name_fee, name, btc_price))
+
+        # are we allowed to pay in Stacks in this epoch?
+        if EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features:
+            log.warning('Buyer of {} is not allowed to pay with tokens in this epoch, and not enough BTC was sent'.format(name))
+            return {'status': False}
+
+        stacks_price = price_name_stacks(name_without_namespace, namespace, fee_block_id)   # price in Stacks, but following the BTC-given price curve
+
+        # did the transaction pay in Stacks?
+        stacks_payment_info = get_stacks_payment(state_engine, nameop, state_op_type, token_address, token_fee)
+        if not stacks_payment_info['status']:
+            # did not pay enough in stacks either
+            log.warning('Name {} cost {} satoshis or {} units of {}; sender paid neither'.format(name, btc_price, stacks_price, TOKEN_TYPE_STACKS))
+            return {'status': False}
+
+        # yes! check price and make sure we paid the right amount
+        log.debug('Paid {} units of {} for {}, even though its namespace was priced in BTC'.format(stacks_payment_info['tokens_paid'], stacks_payment_info['token_units'], name))
+        res = check_token_payment(state_engine, state_op_type, nameop, stacks_price, token_address, fee_block_id, fee_vtxindex, stacks_payment_info)
+        return res
+
+    else:
+        # paid in BTC
+        log.debug('Paid {} satoshis for {}'.format(name_fee, name))
+        return {'status': True, 'tokens_paid': name_fee, 'token_units': 'BTC'}
+
+
+def check_payment_v2(state_engine, state_op_type, nameop, namespace, name_fee, fee_block_id, burn_address, block_id):
+    """
+    Verify that for a version-2 namespace (burn-to-creator), the nameop paid the right amount of BTC.
+    Return {'status': True, 'tokens_paid': ..., 'token_units': ...} if so
+    Return {'status': False} if not.
+    """
+    # priced in BTC only.  Name price will be BTC.
+    assert namespace['version'] == NAMESPACE_VERSION_PAY_TO_CREATOR
+    assert name_fee is not None
+
+    epoch_features = get_epoch_features(block_id)
+    name = nameop['name']
+    name_without_namespace = get_name_from_fq_name( name )
+
+    # check burn address
     receive_fees_period = get_epoch_namespace_receive_fees_period(block_id, namespace['namespace_id'])
     expected_burn_address = None
 
-    if EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR in epoch_features:
-        if (namespace['version'] == NAMESPACE_VERSION_PAY_TO_CREATOR):
-            # can only burn to namespace if the namespace is young enough (starts counting from NAMESPACE_REVEAL)
-            if namespace['reveal_block'] + receive_fees_period >= block_id:
-                log.debug("Register must pay to v2 namespace address {}".format(namespace['address']))
-                expected_burn_address = namespace['address']
-            else:
-                log.debug("Register must pay to burn address, since the namespace has passed its fee-capture period")
-                expected_burn_address = BLOCKSTACK_BURN_ADDRESS
-        else:
-            log.debug("Register must pay to burn address, since the namespace does not support pay-to-creator")
-            expected_burn_address = BLOCKSTACK_BURN_ADDRESS
-
+    # can only burn to namespace if the namespace is young enough (starts counting from NAMESPACE_REVEAL)
+    if namespace['reveal_block'] + receive_fees_period >= block_id:
+        log.debug("Register must pay to v2 namespace address {}".format(namespace['address']))
+        expected_burn_address = namespace['address']
     else:
-        log.debug("Register must pay to burn address, since the pay-to-creator is not supported in this epoch")
+        log.debug("Register must pay to v2 namespace burn address {}".format(BLOCKSTACK_BURN_ADDRESS))
         expected_burn_address = BLOCKSTACK_BURN_ADDRESS
 
-    if expected_burn_address != burn_address:
-        log.warning("Register/renew sends fee to {}, but namespace expects {}".format(burn_address, expected_burn_address))
-        return False
-    else:
-        log.debug("Sending register/renewal fee to {}".format(burn_address))
+    if burn_address != expected_burn_address:
+        log.warning("Buyer of {} used the wrong burn address ({}): expected {}".format(name, burn_address, expected_burn_address))
+        return {'status': False}
 
-    return True
+    btc_price = price_name(name_without_namespace, namespace, fee_block_id)   # price reflects namespace version
+
+    # need to be in the right epoch--i.e. pay-to-creator needs to be a feature
+    if EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR not in epoch_features:
+        log.warning("Name '{}' was created in namespace '{}', with cversion bits 0x{:x}, which is not supported in this epoch".format(name, namespace['namespace_id'], namespace['version']))
+        return {'status': False}
+    
+    # fee must be high enough (either the preorder paid the right fee at the preorder block height,
+    # or the renewal paid the right fee at the renewal height)
+    if name_fee < btc_price:
+        log.warning("Name '%s' costs %s satoshis, but paid %s satoshis" % (name, stacks_or_btc_price, name_fee))
+        return {'status': False}
+
+    return {'status': True, 'tokens_paid': name_fee, 'token_units': 'BTC'}
+
+
+def check_payment_v3(state_engine, state_op_type, nameop, namespace, token_fee, fee_block_id, fee_vtxindex, token_address, burn_address, block_id):
+    """
+    Verify that for a version-3 namespace (burn Stacks), the nameop paid the right amount of STACKs.
+    Return {'status': True} if so, and update nameop with payment metadata.
+    Return {'status': False} if not
+    """
+    # priced in STACKs only.  Name price will be STACKs
+    assert namespace['version'] == NAMESPACE_VERSION_PAY_WITH_STACKS
+
+    epoch_features = get_epoch_features(block_id)
+    name = nameop['name']
+    name_without_namespace = get_name_from_fq_name( name )
+
+    # burn address must be the default burn address
+    if burn_address != BLOCKSTACK_BURN_ADDRESS:
+        log.warning('Buyer of {} used the wrong burn address ({}): expected {}'.format(name, burn_address, BLOCKSTACK_BURN_ADDRESS))
+        return {'status': False}
+
+    stacks_price = price_name(name_without_namespace, namespace, fee_block_id)   # price in Stacks, since this is a Stacks namespace
+
+    # need to be in the right epoch--i.e. need STACKs to exist
+    if EPOCH_FEATURE_NAMESPACE_PAY_WITH_STACKS not in epoch_features:
+        log.warning("Name '{}' was created in namespace '{}', with version bits 0x{:x}, which is not supported in this epoch".format(name, namespace['namespace_id'], namespace['version']))
+        return {'status': False}
+
+    # priced in STACKs only.  Name price will be STACKs, and the preorder must have spent STACKs.
+    stacks_payment_info = get_stacks_payment(state_engine, nameop, state_op_type, token_address, token_fee)
+    if not stacks_payment_info['status']:
+        # failed to query, and Stacks are required
+        return {'status': False}
+    
+    res = check_token_payment(state_engine, state_op_type, nameop, stacks_price, token_address, fee_block_id, fee_vtxindex, stacks_payment_info)
+    return res
 
 
 def check_payment(state_engine, state_op_type, nameop, namespace, name_fee, token_fee, fee_block_id, fee_vtxindex, burn_address, token_address, block_id):
@@ -165,123 +355,39 @@ def check_payment(state_engine, state_op_type, nameop, namespace, name_fee, toke
     Verify that the right payment was made, in the right cryptocurrency units.
     Set the account payment information in nameop if this is a state-transition (i.e. a NAME_RENEWAL)
 
-    NOTE: you will need to have called state_create_put_preorder() before calling this method!
+    NOTE: if state_op_type is NAME_REGISTRATION, you will need to have called state_create_put_preorder() before calling this method!
 
-    Returns {'status': True, 'tokens_paid': tokens_paid} if the payment information is correct.
+    Returns {'status': True, 'tokens_paid': tokens_paid, 'token_units': ...} if the payment information is correct.
     Returns {'status': False} if not
     """
-    
     assert state_op_type in ['NAME_REGISTRATION', 'NAME_RENEWAL'], 'Invalid op type {}'.format(state_op_type)
-
-    epoch_features = get_epoch_features(block_id)
-    name = nameop['name']
-
     assert name_fee is not None
-    name_without_namespace = get_name_from_fq_name( name )
 
-    tokens_paid = 0
-    token_units = None
+    res = None
+    log.debug('{} is a version-0x{} namespace'.format(namespace['namespace_id'], namespace['version']))
 
-    # check name fee
-    # * if the namespace is denominated in BTC, then check against BTC price
-    # * if the namespace is denominated in STACKs, then check against STACK price
-    if namespace['version'] in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]:
-        # priced in BTC
-        # fee must be high enough (either the preorder paid the right fee at the preorder block height,
-        # or the renewal paid the right fee at the renewal height)
-        if name_fee < price_name( name_without_namespace, namespace, fee_block_id ):
-            log.warning("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace, block_id ), name_fee ))
-            return {'status': False}
-
-        # we are *not* paying with STACKs
-        if state_op_type == 'NAME_RENEWAL':
-            state_transition_put_account_payment_info(nameop, None, None, None)
+    # check name fee, depending on which version.
+    if namespace['version'] == NAMESPACE_VERSION_PAY_TO_CREATOR:
+        res = check_payment_v2(state_engine, state_op_type, nameop, namespace, name_fee, fee_block_id, burn_address, block_id)
         
+    elif namespace['version'] == NAMESPACE_VERSION_PAY_WITH_STACKS:
+        res = check_payment_v3(state_engine, state_op_type, nameop, namespace, token_fee, fee_block_id, fee_vtxindex, token_address, burn_address, block_id)
+
+    elif namespace['version'] == NAMESPACE_VERSION_PAY_TO_BURN:
+        res = check_payment_v1(state_engine, state_op_type, nameop, namespace, name_fee, token_fee, fee_block_id, fee_vtxindex, token_address, burn_address, block_id)
+
     else:
-        # need to be in the right epoch--i.e. need STACKs to exist
-        if EPOCH_FEATURE_NAMESPACE_PAY_WITH_STACKS not in epoch_features:
-            log.warning("Name '{}' was created in namespace '{}', with version bits 0x{:x}, which is not supported in this epoch".format(name, namespace['namespace_id'], namespace['version']))
-            return {'status': False}
-
-        if namespace['version'] in [NAMESPACE_VERSION_PAY_WITH_STACKS]:
-            # priced in STACKs
-            # how much is this name in STACKs?
-            token_name_fee = price_name(name_without_namespace, namespace, block_id)
-            token_name_fee = int(token_name_fee)
-
-            # find out how many STACKs (if any) were paid
-            if state_op_type == 'NAME_REGISTRATION':
-                # STACKs were already paid by a preorder.
-                # find out how much.
-                preorder = state_create_get_preorder(nameop)
-                assert preorder, 'BUG: no preorder set'
-                assert isinstance(preorder['token_fee'], (int,long)), 'Not an int: {}'.format(preorder['token_fee'])
-
-                token_units = preorder['token_units']
-                tokens_paid = preorder['token_fee']
-
-                if token_units != TOKEN_TYPE_STACKS:
-                    log.warning("Account paid in {}, but this namespace expects {}".format(token_units, TOKEN_TYPE_STACKS))
-                    return {'status': False}
-
-            elif state_op_type == 'NAME_RENEWAL':
-                # what are this namespace's token units?
-                # since this is a pay-with-STACKs namespace, we had to have paid in STACKs
-                token_units = TOKEN_TYPE_STACKS
-
-                if token_fee is None:
-                    # no tokens paid
-                    log.warning("No tokens paid by {} for {}".format(token_address, nameop['name']))
-                    return {'status': False}
-
-                # paying in STACKs right now
-                account_info = state_engine.get_account(token_address, TOKEN_TYPE_STACKS)
-                if account_info is None:
-                    # no account!
-                    log.warning("Name buyer {} does not have an account".format(token_address))
-                    return {'status': False}
-
-                # can this account afford it?
-                account_balance = state_engine.get_account_balance(account_info)
-                if account_balance < token_fee:
-                    # not enough balance
-                    log.warning("Address {} does not have enough {} tokens for {} (need at least {}, but only have {})".format(token_address, TOKEN_TYPE_STACKS, name, token_fee, account_balance))
-                    return {'status': False}
-
-                # how much was paid?
-                tokens_paid = token_fee
-               
-            # did the preorder/renewer pay the *right* tokens?
-            # TODO: alter this conditional once we support per-namespace tokens
-            if token_units != TOKEN_TYPE_STACKS:
-                log.warning('Account {} paid in {}, but this namespace only accepts {}'.format(token_address, token_units, TOKEN_TYPE_STACKS))
-                return {'status': False}
-
-            log.debug("Account {} paid {} {}s for {} at ({},{})".format(token_address, tokens_paid, TOKEN_TYPE_STACKS, nameop['name'], fee_block_id, fee_vtxindex))
-
-            tokens_paid = int(tokens_paid)
-            if tokens_paid < token_name_fee:
-                # not enough!
-                log.warning("Name buyer {} paid {} {}s, but '{}' costs {} {}s".format(token_address, tokens_paid, TOKEN_TYPE_STACKS, name, token_name_fee, TOKEN_TYPE_STACKS))
-                return {'status': False}
-
-            # charge the price of this name when we commit this state-transition
-            if state_op_type == 'NAME_RENEWAL':
-                state_transition_put_account_payment_info(nameop, token_address, TOKEN_TYPE_STACKS, tokens_paid)
-
-        else:
-            # unrecognized namespace rules
-            log.warning("Namespace {} has version bits 0x{:x}, which has unknown registration rules".format(namespace['namespace_id'], namespace['version']))
-            return {'status': False}
-
-    # fee must be paid to the right address, at the right time.
-    # pre F-day 2017: this *must* be the burn address, and the namespace *must* be version 1
-    # post F-day 2017: this *may* be the namespace creator's address
-    if not check_burn_address(namespace, burn_address, fee_block_id):
-        log.warning("Invalid burn address {}".format(burn_address))
+        # unrecognized namespace rules
+        log.warning("Namespace {} has version bits 0x{:x}, which has unknown registration rules".format(namespace['namespace_id'], namespace['version']))
         return {'status': False}
 
-    return {'status': True, 'tokens_paid': tokens_paid, 'units': token_units}
+    if not res['status']:
+        return res
+
+    tokens_paid = res['tokens_paid']
+    token_units = res['token_units']
+
+    return {'status': True, 'tokens_paid': tokens_paid, 'token_units': token_units}
 
 
 @state_create( "name", "name_records", "check_name_collision" )
@@ -291,10 +397,8 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     * the name must be well-formed
     * the namespace must be ready
     * the name does not collide
-    * either the name was preordered by the same sender, or the name exists and is owned by this sender (the name cannot be registered and owned by someone else)
-    * the mining fee must be high enough.
-    * if the name was expired, then merge the preorder information from the expired preorder
-    * the preorder burned the right amount of tokens, if this name is registered in a pay-with-tokens namespace
+    * the name was preordered by the same sender as the last preorder
+    * the Bitcoin or Stacks fee paid by the preorder must be high enough (for some namespace-version-specific definition of "high enough")
 
     NAME_REGISTRATION is not allowed during a namespace import, so the namespace must be ready.
 
@@ -375,108 +479,61 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     preorder = state_engine.get_name_preorder( name, sender, register_addr )
     old_name_rec = state_engine.get_name( name, include_expired=True )
 
-    if preorder is not None:
-        # Case 1(a-b): registering or re-registering from a preorder
-
-        # bugfix?
-        if EPOCH_FEATURE_FIX_PREORDER_EXPIRE in epoch_features:
-            # preorder must not be expired
-            if preorder['block_number'] + NAME_PREORDER_EXPIRE < block_id:
-                log.warning("Preorder {} is expired".format(preorder['preorder_hash']))
-                return False
-
-        # can't be registered already 
-        if state_engine.is_name_registered( name ):
-            log.warning("Name '%s' is already registered" % name)
-            return False 
-
-        # name can't be registered if it was reordered before its namespace was ready
-        if not namespace.has_key('ready_block') or preorder['block_number'] < namespace['ready_block']:
-           log.warning("Name '%s' preordered before namespace '%s' was ready" % (name, namespace_id))
-           return False
-
-        # name must be preordered by the same sender
-        if preorder['sender'] != sender:
-           log.warning("Name '%s' was not preordered by %s" % (name, sender))
-           return False
-
-        # fee was included in the preorder (even if it's just dust)
-        if not 'op_fee' in preorder:
-           log.warning("Name '%s' preorder did not pay the fee" % (name))
-           return False
-
-        name_fee = preorder['op_fee']
-        preorder_hash = preorder['preorder_hash']
-        preorder_block_number = preorder['block_number']
-        fee_block_id = preorder_block_number
-        fee_vtxindex = preorder['vtxindex']
-
-        burn_address = preorder['burn_address']
-        token_address = preorder['address']     # note that the *preorderer* pays for a registration in tokens, just as it is with BTC
-
-        # pass along the preorder
-        state_create_put_preorder( nameop, preorder )
-
-        if old_name_rec is None:
-            # Case 1(a): registered for the first time ever 
-            log.debug("Registering name '%s'" % name)
-            name_block_number = preorder['block_number']
-        
-        else:
-            # Case 1(b): name expired, and is now re-registered
-            log.debug("Re-registering name '%s'" % name )
-        
-            # push back preorder block number to the original preorder
-            name_block_number = old_name_rec['block_number']
-
-        '''
-        # indent back 4 spaces
-        elif state_engine.is_name_registered( name ):
-            # Case 2: we're renewing
-            assert 'burn_address' in nameop, 'BUG: no burn address set in nameop'
-
-            # pre F-day 2017: name must be owned by the recipient already
-            # post F-day 2017: recipient can be anybody
-            if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE not in epoch_features:
-                # pre F-day 2017
-                if not state_engine.is_name_owner( name, recipient ):
-                    log.debug("Renew: Name '%s' is registered but not owned by recipient %s" % (name, recipient))
-                    return False
-
-            # name must be owned by the sender
-            if not state_engine.is_name_owner( name, sender ):
-                log.debug("Renew: Name '%s' is registered but not owned by sender %s" % (name, sender))
-                return False
-
-            # fee borne by the renewal
-            if not 'op_fee' in nameop or nameop['op_fee'] is None:
-                log.debug("Renew: Name '%s' is registered but renewal did not pay the fee" % (name))
-                return False
-            
-            log.debug("Renewing name '%s'" % name )
-            if not state_engine.is_name_owner( name, recipient ):
-                log.debug("Transferring name '{}' to {}".format(name, recipient))
-
-            prev_name_rec = state_engine.get_name( name )
-            
-            first_registered = prev_name_rec['first_registered']
-            preorder_block_number = prev_name_rec['preorder_block_number']
-            name_block_number = prev_name_rec['block_number']
-            name_fee = nameop['op_fee']
-            preorder_hash = prev_name_rec['preorder_hash']
-            fee_block_id = block_id
-
-            burn_address = nameop['burn_address']
-            token_address = nameop['address']   # note that the renewer *owner* pays for the renewal in tokens
-
-            opcode = "NAME_RENEWAL"     # will cause this operation to be re-checked under check_renewal()
-
-            state_create_put_preorder( nameop, None ) 
-        '''
-    else:
-        # Case 2: has never existed, and not preordered
+    if preorder is None:
+        # not preordered
         log.warning("Name '%s' does not exist, or is not preordered by %s" % (name, sender))
         return False
+
+    # bugfix?
+    if EPOCH_FEATURE_FIX_PREORDER_EXPIRE in epoch_features:
+        # preorder must not be expired
+        if preorder['block_number'] + NAME_PREORDER_EXPIRE < block_id:
+            log.warning("Preorder {} is expired".format(preorder['preorder_hash']))
+            return False
+
+    # can't be registered already 
+    if state_engine.is_name_registered( name ):
+        log.warning("Name '%s' is already registered" % name)
+        return False 
+
+    # name can't be registered if it was reordered before its namespace was ready
+    if not namespace.has_key('ready_block') or preorder['block_number'] < namespace['ready_block']:
+       log.warning("Name '%s' preordered before namespace '%s' was ready" % (name, namespace_id))
+       return False
+
+    # name must be preordered by the same sender
+    if preorder['sender'] != sender:
+       log.warning("Name '%s' was not preordered by %s" % (name, sender))
+       return False
+
+    # fee was included in the preorder (even if it's just dust)
+    if not 'op_fee' in preorder:
+       log.warning("Name '%s' preorder did not pay the fee" % (name))
+       return False
+
+    name_fee = preorder['op_fee']
+    preorder_hash = preorder['preorder_hash']
+    preorder_block_number = preorder['block_number']
+    fee_block_id = preorder_block_number
+    fee_vtxindex = preorder['vtxindex']
+
+    burn_address = preorder['burn_address']
+    token_address = preorder['address']     # note that the *preorderer* pays for a registration in tokens, just as it is with BTC
+
+    # pass along the preorder
+    state_create_put_preorder( nameop, preorder )
+
+    if old_name_rec is None:
+        # Case 1(a): registered for the first time ever 
+        log.debug("Registering name '%s'" % name)
+        name_block_number = preorder['block_number']
+    
+    else:
+        # Case 1(b): name expired, and is now re-registered
+        log.debug("Re-registering name '%s'" % name )
+    
+        # push back preorder block number to the original preorder
+        name_block_number = old_name_rec['block_number']
 
     # check name payment
     payment_res = check_payment(state_engine, "NAME_REGISTRATION", nameop, namespace, name_fee, None, fee_block_id, fee_vtxindex, burn_address, token_address, block_id)
@@ -484,9 +541,17 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         log.warning("Name '{}' did not receive the appropriate payment".format(name))
         return False
 
-    # will be None if we paid in BTC
+    log.debug('payment res: {}'.format(payment_res))
+
+    # extract payment info
     token_fee = payment_res['tokens_paid']
-    assert token_fee is not None
+    token_units = payment_res['token_units']
+
+    if token_units == 'BTC':
+        assert token_fee == name_fee, 'Tokens paid in BTC does not match tokens paid in transaction ({} != {})'.format(token_fee, name_fee)
+        token_fee = 0
+    else:
+        assert token_fee is not None
 
     nameop['opcode'] = opcode
     nameop['op_fee'] = name_fee
@@ -515,7 +580,6 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
 
     if value_hash is not None:
         # deny value hash if we're not in an epoch that supports register/update in one nameop
-        # if opcode == 'NAME_REGISTRATION' and EPOCH_FEATURE_OP_REGISTER_UPDATE not in epoch_features:
         if EPOCH_FEATURE_OP_REGISTER_UPDATE not in epoch_features:
             log.warning("Name '{}' has a zone file hash, but this is not supported in this epoch".format(nameop['name']))
             return False
@@ -523,14 +587,6 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         log.debug("Adding value hash {} for name '{}'".format(value_hash, nameop['name']))
         
     nameop['value_hash'] = value_hash
-
-    '''
-    if opcode == 'NAME_REGISTRATION' and 'burn_address' in nameop: 
-        # not used in NAME_REGISTRATION (but is used in NAME_RENEWAL)
-        del nameop['burn_address']
-    '''
-
-    # regster/renewal
     return True
 
 
@@ -656,15 +712,29 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     fee_block_id = block_id         # fee for this name is paid now
     fee_vtxindex = nameop['vtxindex']   # fee for this name is paid now
     token_address = address         # current owner pays tokens to renew
-    tokens_paid = nameop['token_fee']
-    assert tokens_paid is not None
-    
+
     # check name payment
-    payment_res = check_payment(state_engine, "NAME_RENEWAL", nameop, namespace, name_fee, tokens_paid, fee_block_id, fee_vtxindex, burn_address, token_address, block_id)
+    payment_res = check_payment(state_engine, "NAME_RENEWAL", nameop, namespace, name_fee, nameop['token_fee'], fee_block_id, fee_vtxindex, burn_address, token_address, block_id)
     if not payment_res['status']:
         log.warning("Name '{}' did not receive the appropriate payment".format(name))
         return False
  
+    # extract payment info
+    token_fee = payment_res['tokens_paid']
+    token_units = payment_res['token_units']
+
+    if token_units == 'BTC':
+        # paid no tokens.  Record no debits 
+        assert token_fee == name_fee, 'Tokens paid in BTC does not match tokens paid in transaction ({} != {})'.format(token_fee, name_fee)
+        state_transition_put_account_payment_info(nameop, None, None, None)
+        token_fee = 0
+    else:
+        # paid in tokens.  need to debit if this was a renewal 
+        # charge the price of this name when we commit this state-transition
+        assert token_fee is not None
+        assert token_units == TOKEN_TYPE_STACKS, 'BUG: token units must be BTC or STACKS'
+        state_transition_put_account_payment_info(nameop, token_address, token_units, token_fee)
+
     # if we're in an epoch that allows us to include a value hash in the renewal, and one is given, then set it 
     # instead of the previous name record's value hash.
     if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE in epoch_features:
@@ -672,10 +742,8 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
             log.debug("Adding value hash {} for name '{}'".format(value_hash, nameop['name']))
             value_hash = nameop['value_hash']
 
-    # nameop['op'] = "%s:" % (NAME_REGISTRATION,)
-    # nameop['opcode'] = "NAME_RENEWAL"
     nameop['op_fee'] = name_fee
-    nameop['token_fee'] = '{}'.format(tokens_paid)      # NOTE: use a string to prevent integer overflow
+    nameop['token_fee'] = '{}'.format(token_fee)      # NOTE: use a string to prevent integer overflow
     nameop['preorder_hash'] = preorder_hash
     nameop['namespace_block_number'] = namespace['block_number']
     nameop['first_registered'] = first_registered
