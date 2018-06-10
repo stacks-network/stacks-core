@@ -214,6 +214,10 @@ def price_name(name, namespace, block_height):
     namespace parameters.
 
     The minimum price is NAME_COST_UNIT (or NAME_COST_UNIT_STACKS)
+
+    This method returns an integer in the *current* epoch,
+    but it will return a float in previous epochs for backwards
+    compatibility.  The units are determined by the given namespace.
     """
     units = None
     cost_unit = None
@@ -277,6 +281,29 @@ def price_name(name, namespace, block_height):
         final_price = price * price_multiplier
 
     return final_price
+
+
+def price_name_stacks(name, namespace, block_height):
+    """
+    Get a name's price in Stacks, regardless of whether or not
+    the namespace it was created in was created before Stacks
+    existed.  This is because any name can be purchased with 
+    Stacks.  If the namespace price curve was meant for BTC
+    (per its version bits), then the BTC price will be converted
+    to the Stacks price.
+
+    Returns an integer (microStacks)
+    """
+    if namespace['version'] in [NAMESPACE_VERSION_PAY_WITH_STACKS]:
+        # price curve already reflects Stacks prices
+        return price_name(name, namespace, block_height)
+
+    else:
+        # price curve reflects Bitcoin prices.
+        # convert to Stacks prices with (MICROSTACKS_PER_SATOSHI_NUM / MICROSTACKS_PER_SATOSHI_DEN) ratio
+        btc_price = price_name(name, namespace, block_height)
+        btc_price = int(btc_price)
+        return (btc_price * MICROSTACKS_PER_SATOSHI_NUM) / MICROSTACKS_PER_SATOSHI_DEN
 
 
 def price_namespace( namespace_id, block_height, units ):
