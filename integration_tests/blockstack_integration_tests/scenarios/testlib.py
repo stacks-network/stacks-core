@@ -546,7 +546,7 @@ def nodejs_cli(*args, **kw):
     return ret
 
 
-def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn_addr=None, consensus_hash=None, tx_fee=None, tx_only=False, safety_checks=True, price=None, expect_fail=False, config_path=None ):
+def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn_addr=None, consensus_hash=None, tx_fee=None, tx_only=False, safety_checks=True, price=None, expect_fail=False, expect_success=False, config_path=None ):
 
     global api_call_history 
 
@@ -595,10 +595,14 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
         resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, units, cost, test_proxy, test_proxy, tx_fee=tx_fee,
                 burn_address=burn_addr, owner_address=register_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    if not tx_only:
+    if not tx_only or expect_success:
         token_record = None
         if not expect_fail:
             token_record = TokenNamePreorder(name, payment_addr, price=price)
+
+        if tx_only:
+            transaction_hash = virtualchain.btc_tx_get_hash(resp['transaction'])
+            resp['transaction_hash'] = transaction_hash
 
         api_call_history.append( APICallRecord( "preorder", name, payment_addr, resp, token_record=token_record ) )
 
@@ -736,7 +740,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
     return resp
 
 
-def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, zonefile_hash=None, tx_fee=None, tx_only=False, price=None, expect_fail=False, tx_fee_per_byte=None, use_cli=True):
+def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, zonefile_hash=None, tx_fee=None, tx_only=False, price=None, expect_fail=False, expect_success=False, tx_fee_per_byte=None, use_cli=True):
     
     global api_call_history
     
@@ -750,13 +754,13 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
             if zonefile_hash is not None:
                 txid = nodejs_cli('renew', name, privatekey, payment_key, 'ID-' + recipient_addr, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_only=tx_only, price=price, burn_addr=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
             else:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, 'ID-' + recipient_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
+                txid = nodejs_cli('renew', name, privatekey, payment_key, 'ID-' + recipient_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_only=tx_only, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
         else:
             if zonefile_hash is not None:
                 # txid = nodejs_cli('renew', name, privatekey, payment_key, owner_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
                 raise Exception("Cannot set a zone file hash without a destination address")
             else:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, safety_checks=safety_checks, burn_addr=burn_addr, price=price, tx_fee=tx_fee)
+                txid = nodejs_cli('renew', name, privatekey, payment_key, safety_checks=safety_checks, burn_addr=burn_addr, tx_only=tx_only, price=price, tx_fee=tx_fee)
 
         if 'error' in txid:
             return txid
@@ -784,10 +788,14 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
         resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['units'], name_cost_info['amount'], test_proxy, test_proxy, tx_fee=tx_fee, tx_fee_per_byte=tx_fee_per_byte,
                 burn_address=burn_addr, zonefile_hash=zonefile_hash, recipient_addr=recipient_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
 
-    if not tx_only:
+    if not tx_only or expect_success:
         token_record = None
         if not expect_fail:
             token_record = TokenNameRenewal(name, owner_addr, price=price)
+
+        if tx_only:
+            transaction_hash = virtualchain.btc_tx_get_hash(resp['transaction'])
+            resp['transaction_hash'] = transaction_hash
 
         api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp, token_record=token_record) )
 
@@ -866,14 +874,14 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     return resp
 
 
-def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_only=False, tx_fee=None, price=None, expect_fail=False, use_cli=True):
+def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, burn_addr=None, consensus_hash=None, safety_checks=True, config_path=None, tx_only=False, tx_fee=None, price=None, expect_fail=False, use_cli=True):
     
     global api_call_history
     resp = None
     payment_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
 
     if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('namespace_preorder', namespace_id, register_addr, privatekey, consensus_hash=consensus_hash, safety_checks=safety_checks, price=price, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+        txid = nodejs_cli('namespace_preorder', namespace_id, register_addr, privatekey, consensus_hash=consensus_hash, burn_addr=burn_addr, safety_checks=safety_checks, price=price, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
 
         if 'error' in txid:
             return txid
@@ -3013,6 +3021,24 @@ def get_wallet_balances(wallets):
            balance_info[token_type] = int(balance_info[token_type])
 
        balances[w.addr] = balance_info
+
+    return balances
+
+
+def get_addr_balances(addrs):
+    """
+    Get the balances of all tokens for a list of walelts
+    """
+    if not isinstance(addrs, list):
+        addrs = [addrs]
+
+    balances = {}
+    for addr in addrs:
+       balance_info = json.loads(nodejs_cli('balance', addr))
+       for token_type in balance_info:
+           balance_info[token_type] = int(balance_info[token_type])
+
+       balances[addr] = balance_info
 
     return balances
 
