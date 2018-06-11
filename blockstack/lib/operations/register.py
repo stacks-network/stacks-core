@@ -149,13 +149,11 @@ def get_stacks_payment(state_engine, nameop, state_op_type):
         # find out how much, if any
         preorder = state_create_get_preorder(nameop)
         assert preorder, 'BUG: no preorder set'
-
-        # did the preorder pay?
-        if preorder.get('token_fee') is None or preorder.get('token_units') is None:
-            return {'status': False, 'error': 'Name {} not paid for in tokens'.format(name)}
+        assert 'token_fee' in preorder, 'BUG: no token_fee set in preorder'
+        assert 'token_units' in preorder, 'BUG: no token_units set in preorder'
 
         token_units = preorder['token_units']
-        tokens_paid = preorder.get('token_fee', 0)
+        tokens_paid = preorder['token_fee']
 
         # must have paid STACKs
         if token_units != TOKEN_TYPE_STACKS:
@@ -169,10 +167,6 @@ def get_stacks_payment(state_engine, nameop, state_op_type):
 
         token_units = TOKEN_TYPE_STACKS
         tokens_paid = token_fee
-
-        if tokens_paid is None:
-            # no tokens paid
-            return {'status': False, 'error': 'No tokens paid for {}'.format(name)}
 
     else:
         raise Exception("Unknown state operation type {}".format(state_op_type))
@@ -204,6 +198,36 @@ def check_token_payment(name, token_price, stacks_payment_info):
     return {'status': True, 'tokens_paid': tokens_paid, 'token_units': token_units}
 
 
+def check_payment_in_stacks(state_engine, nameop, state_op_type, fee_block_id):
+    """
+    Verify that if tokens were paid for a name priced in BTC, that enough were paid.
+    Does not check account balances or namespace types; it only inspects the transaction data.
+
+    Returns {'status': True, 'tokens_paid': ..., 'token_units': ...} on success
+    Returns {'status': False} on error
+    """
+    name = nameop['name']
+    namespace_id = get_namespace_from_name(name)
+    name_without_namespace = get_name_from_fq_name(name)
+    namespace = state_engine.get_namespace( namespace_id )
+
+    stacks_payment_info = get_stacks_payment(state_engine, nameop, state_op_type)
+    if stacks_payment_info['status']:
+        # got a stacks payment! check price and make sure we paid the right amount
+        tokens_paid = stacks_payment_info['tokens_paid']
+        token_units = stacks_payment_info['token_units']
+
+        log.debug('Transaction pays {} units of {} for {}, even though its namespace was priced in BTC'.format(tokens_paid, token_units, name))
+        
+        stacks_price = price_name_stacks(name_without_namespace, namespace, fee_block_id)   # price in Stacks, but following the BTC-given price curve
+        res = check_token_payment(name, stacks_price, stacks_payment_info)
+        if res['status']:
+            # success
+            return {'status': True, 'tokens_paid': tokens_paid, 'token_units': token_units}
+
+    return {'status': False}
+
+
 def check_payment_v1(state_engine, state_op_type, nameop, fee_block_id, token_address, burn_address, name_fee, block_id):
     """
     Verify that for a version-1 namespace, the nameop paid the right amount of BTC or STACKs.
@@ -232,19 +256,18 @@ def check_payment_v1(state_engine, state_op_type, nameop, fee_block_id, token_ad
 
     # possible that the transaction paid in Stacks?
     if EPOCH_FEATURE_NAMEOPS_COST_TOKENS in epoch_features:
-        stacks_payment_info = get_stacks_payment(state_engine, nameop, state_op_type)
-        if stacks_payment_info['status']:
-            # got a stacks payment! check price and make sure we paid the right amount
-            tokens_paid = stacks_payment_info['tokens_paid']
-            token_units = stacks_payment_info['token_units']
+        # did we pay any stacks?
+        res = get_stacks_payment(state_engine, nameop, state_op_type)
+        if res['status']:
+            # paid something in Stacks. Will ignore BTC.
+            res = check_payment_in_stacks(state_engine, nameop, state_op_type, fee_block_id)
+            if not res['status']:
+                log.warning("Buyer of {} paid in Stacks, but did not pay enough".format(name))
+                return {'status': False}
 
-            log.debug('Transaction pays {} units of {} for {}, even though its namespace was priced in BTC'.format(tokens_paid, token_units, name))
-            
-            stacks_price = price_name_stacks(name_without_namespace, namespace, fee_block_id)   # price in Stacks, but following the BTC-given price curve
-            res = check_token_payment(name, stacks_price, stacks_payment_info)
-            if res['status']:
-                # success
-                return {'status': True, 'tokens_paid': tokens_paid, 'token_units': token_units}
+            tokens_paid = res['tokens_paid']
+            token_units = res['token_units']
+            return {'status': True, 'tokens_paid': tokens_paid, 'token_units': token_units}
 
     # did not pay in Stacks.
     # did the transaction pay in BTC?
@@ -260,11 +283,14 @@ def check_payment_v1(state_engine, state_op_type, nameop, fee_block_id, token_ad
 
 def check_payment_v2(state_engine, state_op_type, nameop, fee_block_id, token_address, burn_address, name_fee, block_id):
     """
-    Verify that for a version-2 namespace (burn-to-creator), the nameop paid the right amount of BTC.
+    Verify that for a version-2 namespace (burn-to-creator), the nameop paid the right amount of BTC or Stacks.
+    It can pay either through a preorder (for registers), or directly (for renewals)
+
     Return {'status': True, 'tokens_paid': ..., 'token_units': ...} if so
     Return {'status': False} if not.
     """
-    # priced in BTC only.  Name price will be BTC.
+    # priced in BTC only if the namespace creator can receive name fees.
+    # once the namespace switches over to burning, then the name creator can pay in Stacks as well.
     assert name_fee is not None
     assert isinstance(name_fee, (int,long))
 
@@ -284,19 +310,40 @@ def check_payment_v2(state_engine, state_op_type, nameop, fee_block_id, token_ad
     # check burn address
     receive_fees_period = get_epoch_namespace_receive_fees_period(block_id, namespace['namespace_id'])
     expected_burn_address = None
+    tokens_allowed = None
 
     # can only burn to namespace if the namespace is young enough (starts counting from NAMESPACE_REVEAL)
+    # can only pay in tokens if the register takes place after the pay-to-creator period (receive_fees_period) expires
     if namespace['reveal_block'] + receive_fees_period >= block_id:
         log.debug("Register must pay to v2 namespace address {}".format(namespace['address']))
         expected_burn_address = namespace['address']
+        tokens_allowed = False
     else:
         log.debug("Register must pay to burn address {}".format(BLOCKSTACK_BURN_ADDRESS))
         expected_burn_address = BLOCKSTACK_BURN_ADDRESS
+        tokens_allowed = True
 
     if burn_address != expected_burn_address:
         log.warning("Buyer of {} used the wrong burn address ({}): expected {}".format(name, burn_address, expected_burn_address))
         return {'status': False}
 
+    if tokens_allowed:
+        # allowed to pay in Stacks?
+        if EPOCH_FEATURE_NAMEOPS_COST_TOKENS in epoch_features:
+            # did we pay any stacks?
+            res = get_stacks_payment(state_engine, nameop, state_op_type)
+            if res['status']:
+                # paid something in Stacks. Will ignore BTC.
+                res = check_payment_in_stacks(state_engine, nameop, state_op_type, fee_block_id)
+                if not res['status']:
+                    log.warning("Buyer of {} paid in Stacks, but did not pay enough".format(name))
+                    return {'status': False}
+
+                tokens_paid = res['tokens_paid']
+                token_units = res['token_units']
+                return {'status': True, 'tokens_paid': tokens_paid, 'token_units': token_units}
+
+    # did not pay in stacks tokens, or this isn't allowed yet
     btc_price = price_name(name_without_namespace, namespace, fee_block_id)   # price reflects namespace version
     
     # fee must be high enough (either the preorder paid the right fee at the preorder block height,
@@ -305,6 +352,7 @@ def check_payment_v2(state_engine, state_op_type, nameop, fee_block_id, token_ad
         log.warning("Name '%s' costs %s satoshis, but paid %s satoshis" % (name, stacks_or_btc_price, name_fee))
         return {'status': False}
 
+    log.debug('Paid {} satoshis for {} to {}'.format(name_fee, name, burn_address))
     return {'status': True, 'tokens_paid': name_fee, 'token_units': 'BTC'}
 
 
@@ -555,19 +603,31 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     token_units = payment_res['token_units']
 
     if token_units == 'BTC':
-        # name was paid for in the preorder by burning BTC.
+        # name was paid for in the preorder by burning BTC, not by spending Stacks
         # if we paid tokens *as well*, then figure out how many and record it
         assert token_fee == name_fee, 'Tokens paid in BTC does not match tokens paid in transaction ({} != {})'.format(token_fee, name_fee)
-        token_payment_info = get_stacks_payment(state_engine, nameop, "NAME_REGISTRATION")
-        if token_payment_info['status']:
-            assert token_payment_info['token_units'] == TOKEN_TYPE_STACKS, 'BUG: did not pay in Stacks'
-            token_fee = token_payment_info['tokens_paid']
-            
-            log.debug('Also paid {} units of {} for {}'.format(token_payment_info['tokens_paid'], token_payment_info['token_units'], name))
+
+        # sanity check
+        res = get_stacks_payment(state_engine, nameop, "NAME_REGISTRATION")
+        assert not res['status'], "BUG: we paid in BTC but also Stacks"
+
+        token_fee = 0
+    
     else:
+        if EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features:
+            # can't do this---tokens aren't active yet
+            log.warning('Tried to pay for {} in Stacks before Stacks exist'.format(name))
+            return False
+
         # name was paid for in the preorder by burning Stacks
         assert token_fee is not None
         assert token_units == TOKEN_TYPE_STACKS
+
+        # sanity check
+        res = get_stacks_payment(state_engine, nameop, "NAME_REGISTRATION")
+        assert res['status'], "BUG: we paid in Stacks but did not"
+        assert res['tokens_paid'] == token_fee
+        assert res['token_units'] == token_units
 
     nameop['opcode'] = opcode
     nameop['op_fee'] = name_fee
@@ -742,43 +802,44 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     if token_units == 'BTC':
         # paid in BTC
         assert token_fee == name_fee, 'Tokens paid in BTC does not match tokens paid in transaction ({} != {})'.format(token_fee, name_fee)
-    else:
-        # paid in tokens.  need to debit if this was a renewal 
-        # charge the price of this name when we commit this state-transition
-        assert token_fee is not None
-        assert token_units == TOKEN_TYPE_STACKS, 'BUG: token units must be BTC or STACKS'
 
-    # find out how many Stacks tokens this NAME_RENEWAL transaction spent, if any
-    token_payment_info = get_stacks_payment(state_engine, nameop, "NAME_RENEWAL")
-    if token_payment_info['status']:
+        # make sure we did NOT pay in stacks
+        res = get_stacks_payment(state_engine, nameop, "NAME_RENEWAL")
+        assert not res['status'], 'BUG: paid in both BTC and Stacks'
+
+    else:
         if EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features:
             # can't do this---tokens aren't active yet
             log.warning('Tried to pay for {} in Stacks before Stacks exist'.format(name))
             return False
 
-        if token_payment_info['token_units'] != TOKEN_TYPE_STACKS:
-            # only Stacks are supported at this time
-            log.warning('Name buyer {} did not pay in Stacks'.format(token_address))
-            return False
+        # paid in tokens.  need to debit if this was a renewal 
+        # charge the price of this name when we commit this state-transition
+        assert token_fee is not None
+        assert token_units == TOKEN_TYPE_STACKS, 'BUG: token units must be BTC or STACKS'
 
-        # paid some tokens---possibly for the name itself; possibly in addition to paying in BTC.  Either way, need to debit it.
+        # make sure we did, in fact, pay in Stacks
+        res = get_stacks_payment(state_engine, nameop, 'NAME_RENEWAL')
+        assert res['status'], 'BUG: paid in Stacks but did not'
+        assert res['token_units'] == token_units
+        assert res['tokens_paid'] == token_fee
+
         # make sure the account in question has enough balance
-        account_info = state_engine.get_account(token_address, token_payment_info['token_units'])
+        account_info = state_engine.get_account(token_address, token_units)
         if account_info is None:
             # no account!
-            log.warning("Name buyer {} does not have an account for {}".format(token_address, token_payment_info['token_units']))
+            log.warning("Name buyer {} does not have an account for {}".format(token_address, token_units))
             return False
 
         # can this account afford it?
         account_balance = state_engine.get_account_balance(account_info)
-        if account_balance < token_payment_info['tokens_paid']:
+        if account_balance < token_fee:
             # not enough balance
-            log.warning("Address {} does not have enough {} tokens for {} (need at least {}, but only have {})".format(token_address, token_payment_info['token_units'], name, token_payment_info['tokens_paid'], account_balance))
+            log.warning("Address {} does not have enough {} tokens for {} (need at least {}, but only have {})".format(token_address, token_units, name, token_fee, account_balance))
             return False
 
         # can afford it! debit this account
-        state_transition_put_account_payment_info(nameop, token_address, token_payment_info['token_units'], token_payment_info['tokens_paid'])
-        token_fee = token_payment_info['tokens_paid']
+        state_transition_put_account_payment_info(nameop, token_address, token_units, token_fee)
 
     # if we're in an epoch that allows us to include a value hash in the renewal, and one is given, then set it 
     # instead of the previous name record's value hash.
