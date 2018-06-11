@@ -71,7 +71,7 @@ def scenario( wallets, **kw ):
     print 'price of {} in Stacks is {}'.format('foo.test', stacks_price)
     print ''
 
-    testlib.blockstack_send_tokens(addr, "STACKS", stacks_price * 3, wallets[0].privkey)
+    testlib.blockstack_send_tokens(addr, "STACKS", stacks_price * 4, wallets[0].privkey)
     testlib.send_funds(wallets[0].privkey, btc_price * 10, addr)    # fund with enough bitcoin
     testlib.next_block(**kw)
 
@@ -170,7 +170,46 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register('goo.test', pk, wallets[3].addr)
     testlib.next_block(**kw)
 
-    # TODO: try one with not enough of either (should be rejected)
+    balance_before = testlib.get_addr_balances(addr)[addr]['STACKS']
+
+    # underpay in both Stacks and Bitcoin.
+    # both stacks and bitcoin will be burned
+    res = testlib.blockstack_name_preorder('nop.test', pk, wallets[3].addr, price={'units': 'STACKS', 'amount': stacks_price-1}, safety_checks=False, tx_only=True, expect_success=True)
+    txhex = res['transaction']
+    tx = virtualchain.btc_tx_deserialize(txhex)
+
+    # up the burn amount to the name price, but just under
+    btc_price = blockstack.lib.scripts.price_name('nop', namespace, testlib.get_current_block(**kw))
+    tx['outs'][2]['script'] = virtualchain.btc_make_payment_script(blockstack.lib.config.BLOCKSTACK_BURN_ADDRESS)
+    tx['outs'][2]['value'] = btc_price - 1
+
+    tx['outs'][1]['value'] -= btc_price - 1
+
+    # re-sign 
+    for i in tx['ins']:
+        i['script'] = ''
+
+    txhex = virtualchain.btc_tx_serialize(tx)
+    txhex_signed = virtualchain.tx_sign_all_unsigned_inputs(pk, testlib.get_utxos(addr), txhex)
+    
+    print txhex_signed
+
+    res = testlib.broadcast_transaction(txhex_signed)
+    if 'error' in res:
+        print res
+        return False
+
+    testlib.next_block(**kw)
+
+    res = testlib.blockstack_name_register('nop.test', pk, wallets[3].addr)
+    testlib.next_block(**kw)
+    testlib.expect_snv_fail_at('nop.test', testlib.get_current_block(**kw))
+
+    balance_after = testlib.get_addr_balances(addr)[addr]['STACKS']
+    if balance_after != balance_before - stacks_price + 1:
+        print 'paid {} for nop.test'.format(balance_before - balance_after)
+        return False
+
 
 def check( state_engine ):
 
@@ -187,11 +226,32 @@ def check( state_engine ):
 
     if ns['namespace_id'] != 'test':
         print "wrong namespace"
-        return False 
+        return False
+
+    # should not exist
+    name_rec = state_engine.get_name('nop.test')
+    if name_rec is not None:
+        print 'registered nop.test'
+        return False
+
+    # preorder should exist
+    addr = virtualchain.address_reencode(virtualchain.get_privkey_address(pk))
+    preorder_rec = state_engine.get_name_preorder('nop.test', virtualchain.make_payment_script(addr), wallets[3].addr)
+    if preorder_rec is None:
+        print 'preorder does not exist for nop.test'
+        return False
+
+    if preorder_rec['op_fee'] != blockstack.lib.scripts.price_name('nop', ns, state_engine.lastblock) - 1:
+        print 'wrong BTC paid for {}'.format('nop.test')
+        print 'expected {}, got {}'.format(blockstack.lib.scripts.price_name('nop', ns, state_engine.lastblock) - 1, preorder_rec['op_fee'])
+        return False
+
+    if preorder_rec['token_fee'] != blockstack.lib.scripts.price_name_stacks('nop', ns, state_engine.lastblock) - 1:
+        print 'wrong Stacks paid for {}'.format('nop.test')
+        return False
 
     for name in ['foo.test', 'bar.test', 'baz.test', 'goo.test']:
         # not preordered
-        addr = virtualchain.address_reencode(virtualchain.get_privkey_address(pk))
         preorder = state_engine.get_name_preorder( name, virtualchain.make_payment_script(addr), wallets[3].addr )
         if preorder is not None:
             print "preorder exists"
