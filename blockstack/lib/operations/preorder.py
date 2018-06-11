@@ -118,7 +118,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
             log.warning("Account {} has balance {} {}, but needs to pay {} {}".format(token_address, account_balance, token_type, token_fee, token_type))
             return False
 
-        # must be the black hole address
+        # must be the black hole address, regardless of namespace version (since we don't yet support pay-stacks-to-namespace-creator)
         if nameop['burn_address'] != BLOCKSTACK_BURN_ADDRESS:
             # not sent to the right address
             log.warning('Preorder burned to {}, but expected {}'.format(nameop['burn_address'], BLOCKSTACK_BURN_ADDRESS))
