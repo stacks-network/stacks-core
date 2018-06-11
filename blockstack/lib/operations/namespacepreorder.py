@@ -231,10 +231,6 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     else:
         ret['sender_pubkey'] = None
 
-    # unparseable if the burn address is wrong 
-    if ret['burn_address'] != BLOCKSTACK_BURN_ADDRESS:
-        raise Exception("Invalid burn address: expected {}, got {}".format(BLOCKSTACK_BURN_ADDRESS, ret['burn_address']))
-
     return ret
 
 
