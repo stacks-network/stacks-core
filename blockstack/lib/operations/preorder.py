@@ -124,6 +124,12 @@ def check( state_engine, nameop, block_id, checked_ops ):
             log.warning('Preorder burned to {}, but expected {}'.format(nameop['burn_address'], BLOCKSTACK_BURN_ADDRESS))
             return False
 
+        # for now, this must be Stacks
+        if nameop['token_units'] != TOKEN_TYPE_STACKS:
+            # can't use any other token (yet)
+            log.warning('Preorder burned unrecognized token unit "{}"'.format(nameop['token_units']))
+            return False
+
         # debit this account when we commit
         state_preorder_put_account_payment_info(nameop, token_address, token_type, token_fee)
         
