@@ -83,10 +83,12 @@ def scenario( wallets, **kw ):
     # preorder/register using Stacks
     testlib.blockstack_name_preorder( "baz.test", wallets[2].privkey, addr2, price={'units': 'STACKS', 'amount': stacks_price})
     testlib.blockstack_name_preorder( "goo.test", wallets[2].privkey, addr2, price={'units': 'STACKS', 'amount': stacks_price})
+    testlib.blockstack_name_preorder( "nop.test", wallets[2].privkey, addr2, price={'units': 'STACKS', 'amount': stacks_price})
     testlib.next_block( **kw )
 
     testlib.blockstack_name_register( "baz.test", wallets[2].privkey, addr2 )
     testlib.blockstack_name_register( "goo.test", wallets[2].privkey, addr2 )
+    testlib.blockstack_name_register( "nop.test", wallets[2].privkey, addr2 )
     testlib.next_block( **kw )
 
     balance_before = testlib.get_addr_balances(addr2)[addr2]['STACKS']
@@ -175,6 +177,48 @@ def scenario( wallets, **kw ):
         print 'goo.test paid {}'.format(balance_before - balance_after)
         return False
 
+    balance_before = testlib.get_addr_balances(addr2)[addr2]['STACKS']
+
+    # underpay in both Stacks and Bitcoin.
+    # only bitcoin will be burned; transaction will not be processed
+    res = testlib.blockstack_name_renew('nop.test', pk2, price={'units': 'STACKS', 'amount': stacks_price-1}, safety_checks=False, tx_only=True)
+    txhex = res['transaction']
+    tx = virtualchain.btc_tx_deserialize(txhex)
+
+    # up the burn amount to the name price
+    btc_price = blockstack.lib.scripts.price_name('goo', namespace, testlib.get_current_block(**kw))
+    tx['outs'][3]['script'] = virtualchain.btc_make_payment_script(blockstack.lib.config.BLOCKSTACK_BURN_ADDRESS)
+    tx['outs'][3]['value'] = btc_price - 1
+
+    tx['outs'][4]['value'] -= btc_price + 1
+
+    # re-sign 
+    for i in tx['ins']:
+        i['script'] = ''
+
+    txhex = virtualchain.btc_tx_serialize(tx)
+    txhex_signed = virtualchain.tx_sign_all_unsigned_inputs(pk2, testlib.get_utxos(addr2), txhex)
+
+    # re-sign the last output with the payment key
+    tx_signed = virtualchain.btc_tx_deserialize(txhex_signed)
+    tx_signed['ins'][-1]['script'] = ''
+    txhex_signed = virtualchain.tx_sign_all_unsigned_inputs(testlib.get_default_payment_wallet().privkey, testlib.get_utxos(testlib.get_default_payment_wallet().addr), virtualchain.btc_tx_serialize(tx_signed))
+    
+    print txhex_signed
+
+    res = testlib.broadcast_transaction(txhex_signed)
+    if 'error' in res:
+        print res
+        return False
+
+    testlib.next_block(**kw)
+    testlib.expect_snv_fail_at('nop.test', testlib.get_current_block(**kw))
+
+    balance_after = testlib.get_addr_balances(addr2)[addr2]['STACKS']
+    if balance_after != balance_before:
+        print 'paid {} for nop.test'.format(balance_before - balance_after)
+        return False
+    
 
 def check( state_engine ):
 
@@ -192,6 +236,17 @@ def check( state_engine ):
     if ns['namespace_id'] != 'test':
         print "wrong namespace"
         return False 
+
+    # name should exist, but not be renewed
+    addr2 = virtualchain.address_reencode(virtualchain.get_privkey_address(pk2))
+    name_rec = state_engine.get_name('nop.test')
+    if name_rec is None:
+        print 'name record does not exist for nop.test'
+        return False
+
+    if name_rec['first_registered'] != name_rec['last_renewed']:
+        print 'name nop.test was renewed'
+        return False
 
     for name in ['baz.test', 'goo.test']:
         # not preordered
