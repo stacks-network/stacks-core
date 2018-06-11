@@ -136,10 +136,9 @@ def scenario( wallets, **kw ):
 
     balance_before = testlib.get_addr_balances(addr2)[addr2]['STACKS']
 
-    # register a name where we pay not enough stacks, but enough bitcoin.  should still go through
-    # should favor Bitcoin payment over Stacks payment.
-    # No Stacks should be burned on NAME_RENEWAL, since it's clear that we burned Bitcoin from the transaction.
-    res = testlib.blockstack_name_renew('goo.test', pk2, price={'units': 'STACKS', 'amount': stacks_price-1}, tx_only=True, expect_success=True)
+    # try to renew a name where we pay not enough stacks, but enough bitcoin.
+    # should be rejected.
+    res = testlib.blockstack_name_renew('goo.test', pk2, price={'units': 'STACKS', 'amount': stacks_price-1}, tx_only=True)
     txhex = res['transaction']
     tx = virtualchain.btc_tx_deserialize(txhex)
 
@@ -171,9 +170,9 @@ def scenario( wallets, **kw ):
 
     testlib.next_block(**kw)
 
-    # should have paid in Stacks
+    # should NOT have paid in Stacks
     balance_after = testlib.get_addr_balances(addr2)[addr2]['STACKS']
-    if balance_after != balance_before - stacks_price + 1:
+    if balance_after != balance_before:
         print 'goo.test paid {}'.format(balance_before - balance_after)
         return False
 
@@ -181,7 +180,7 @@ def scenario( wallets, **kw ):
 
     # underpay in both Stacks and Bitcoin.
     # only bitcoin will be burned; transaction will not be processed
-    res = testlib.blockstack_name_renew('nop.test', pk2, price={'units': 'STACKS', 'amount': stacks_price-1}, safety_checks=False, tx_only=True)
+    res = testlib.blockstack_name_renew('nop.test', pk2, price={'units': 'STACKS', 'amount': stacks_price-1}, tx_only=True)
     txhex = res['transaction']
     tx = virtualchain.btc_tx_deserialize(txhex)
 
@@ -248,9 +247,19 @@ def check( state_engine ):
         print 'name nop.test was renewed'
         return False
 
-    for name in ['baz.test', 'goo.test']:
+    # name should exist, but not be renewed
+    addr2 = virtualchain.address_reencode(virtualchain.get_privkey_address(pk2))
+    name_rec = state_engine.get_name('goo.test')
+    if name_rec is None:
+        print 'name record does not exist for goo.test'
+        return False
+
+    if name_rec['first_registered'] != name_rec['last_renewed']:
+        print 'name goo.test was renewed'
+        return False
+
+    for name in ['baz.test']:
         # not preordered
-        addr2 = virtualchain.address_reencode(virtualchain.get_privkey_address(pk2))
         preorder = state_engine.get_name_preorder( name, virtualchain.make_payment_script(wallets[2].addr), addr2 )
         if preorder is not None:
             print "preorder exists"
@@ -279,18 +288,6 @@ def check( state_engine ):
 
         if name_rec['op_fee'] != blockstack.lib.scripts.price_name(name, ns, state_engine.lastblock):
             print 'paid wrong BTC for baz.test ({})'.format(name_rec['op_fee'])
-            return False
-
-    for name in ['goo']:
-        name_rec = state_engine.get_name( name + '.test' )
-
-        # paid both BTC and tokens
-        if name_rec['token_fee'] != blockstack.lib.scripts.price_name_stacks(name, ns, state_engine.lastblock) - 1:
-            print 'paid wrong token fee for {}.test'.format(name)
-            return False
-
-        if name_rec['op_fee'] != blockstack.lib.scripts.price_name(name, ns, state_engine.lastblock):
-            print 'paid wrong BTC for {}.test ({})'.format(name, name_rec['op_fee'])
             return False
 
     return True
