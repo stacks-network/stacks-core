@@ -92,8 +92,7 @@ def scenario( wallets, **kw ):
 
     balance_before = testlib.get_addr_balances(addr)[addr]['STACKS']
 
-    # pay with both Stacks and Bitcoin.
-    # will spend both Stacks and Bitcoin when we preorder
+    # pay with Stacks and Bitcoin.  Preorder should succeed, and register should also succeed since we're paying enough stacks.  Underpay bitcoin
     res = testlib.blockstack_name_preorder('baz.test', pk, wallets[3].addr, price={'units': 'STACKS', 'amount': stacks_price}, tx_only=True, expect_success=True)
     txhex = res['transaction']
     tx = virtualchain.btc_tx_deserialize(txhex)
@@ -101,9 +100,9 @@ def scenario( wallets, **kw ):
     # up the burn amount 
     btc_price = blockstack.lib.scripts.price_name('baz', namespace, testlib.get_current_block(**kw))
     tx['outs'][2]['script'] = virtualchain.btc_make_payment_script(blockstack.lib.config.BLOCKSTACK_BURN_ADDRESS)
-    tx['outs'][2]['value'] = btc_price
+    tx['outs'][2]['value'] = btc_price - 1
 
-    tx['outs'][1]['value'] -= btc_price
+    tx['outs'][1]['value'] -= btc_price - 1
 
     # re-sign 
     for i in tx['ins']:
@@ -127,13 +126,13 @@ def scenario( wallets, **kw ):
         print 'baz.test cost {}'.format(balance_before - balance_after)
         return False
 
+    # should succeed, since we paid enough stacks (Bitcoin is not considered)
     testlib.blockstack_name_register('baz.test', pk, wallets[3].addr)
     testlib.next_block(**kw)
 
     balance_before = testlib.get_addr_balances(addr)[addr]['STACKS']
 
-    # register a name where we pay not enough stacks, but enough bitcoin.  should still go through
-    # should favor Bitcoin payment over Stacks payment, but we should still burn both Stacks and BTC
+    # register a name where we pay not enough stacks, but enough bitcoin.  preorder should succeed, but register should fail since we tried to use stacks
     res = testlib.blockstack_name_preorder('goo.test', pk, wallets[3].addr, price={'units': 'STACKS', 'amount': stacks_price-1}, tx_only=True, expect_success=True)
     txhex = res['transaction']
     tx = virtualchain.btc_tx_deserialize(txhex)
@@ -167,13 +166,20 @@ def scenario( wallets, **kw ):
         print 'goo.test paid {}'.format(balance_before - balance_after)
         return False
 
+    # should fail, since we tried to pay in stacks and didn't pay enough
     testlib.blockstack_name_register('goo.test', pk, wallets[3].addr)
     testlib.next_block(**kw)
+    testlib.expect_snv_fail_at('goo.test', testlib.get_current_block(**kw))
+
+    if testlib.get_state_engine().get_name('goo.test') is not None:
+        print 'registered goo.test'
+        return False
 
     balance_before = testlib.get_addr_balances(addr)[addr]['STACKS']
 
     # underpay in both Stacks and Bitcoin.
-    # both stacks and bitcoin will be burned
+    # both stacks and bitcoin will be burned.
+    # preorder should succeed, but register should fail.
     res = testlib.blockstack_name_preorder('nop.test', pk, wallets[3].addr, price={'units': 'STACKS', 'amount': stacks_price-1}, safety_checks=False, tx_only=True, expect_success=True)
     txhex = res['transaction']
     tx = virtualchain.btc_tx_deserialize(txhex)
@@ -201,10 +207,12 @@ def scenario( wallets, **kw ):
 
     testlib.next_block(**kw)
 
+    # should fail, since we didn't pay enough stacks and tried to pay in stacks 
     res = testlib.blockstack_name_register('nop.test', pk, wallets[3].addr)
     testlib.next_block(**kw)
     testlib.expect_snv_fail_at('nop.test', testlib.get_current_block(**kw))
 
+    # preorder should still have debited
     balance_after = testlib.get_addr_balances(addr)[addr]['STACKS']
     if balance_after != balance_before - stacks_price + 1:
         print 'paid {} for nop.test'.format(balance_before - balance_after)
@@ -250,7 +258,7 @@ def check( state_engine ):
         print 'wrong Stacks paid for {}'.format('nop.test')
         return False
 
-    for name in ['foo.test', 'bar.test', 'baz.test', 'goo.test']:
+    for name in ['foo.test', 'bar.test', 'baz.test']:
         # not preordered
         preorder = state_engine.get_name_preorder( name, virtualchain.make_payment_script(addr), wallets[3].addr )
         if preorder is not None:
@@ -268,44 +276,65 @@ def check( state_engine ):
             print "sender is wrong"
             return False 
 
-    # paid for foo.test and baz.test with Stacks
-    # however, baz.test's burn output is equal to the bitcoin price
-    for name in ['foo', 'baz']:
-        name_rec = state_engine.get_name( name + '.test' )
-        stacks_price = blockstack.lib.scripts.price_name_stacks(name, ns, state_engine.lastblock)
-        if name_rec['token_fee'] != stacks_price:
-            print 'paid wrong token fee for {}.test'.format(name)
-            print 'expected {} ({}), got {} ({})'.format(stacks_price, type(stacks_price), name_rec['token_fee'], type(name_rec['token_fee']))
+        stacks_price = blockstack.lib.scripts.price_name_stacks(name.split('.')[0], ns, state_engine.lastblock)
+        btc_price = blockstack.lib.scripts.price_name(name.split('.')[0], ns, state_engine.lastblock)
+
+        if name == 'foo.test':
+            # should have paid all in Stacks
+            if name_rec['op_fee'] > 5500:
+                print 'paid for foo.test in BTC'
+                return False
+
+            if name_rec['token_fee'] != stacks_price:
+                print 'did not pay token fee for foo.test'
+                return False
+
+        if name == 'bar.test':
+            # should have paid all in BTC
+            if name_rec['op_fee'] != btc_price:
+                print 'paid for bar.test in wrong BTC amount'
+                return False
+
+            if name_rec['token_fee'] != 0:
+                print 'paid for bar.test in tokens'
+                return False
+
+
+        if name == 'baz.test':
+            # should have paid all in Stacks, and also burned bitcoin
+            if name_rec['op_fee'] != btc_price - 1:
+                print 'paid for baz.test in wrong BTC amount'
+                return False
+
+            if name_rec['token_fee'] != stacks_price:
+                print 'paid for baz.test in wrong Token amount'
+                return False
+
+
+    for name in ['goo.test']:
+        # preordered still 
+        preorder = state_engine.get_name_preorder(name, virtualchain.make_payment_script(addr), wallets[3].addr)
+        if preorder is None:
+            print 'not preordered: {}'.format(name)
             return False
 
-        if name == 'foo':
-            if name_rec['op_fee'] > 5500:  # dust minimum
-                print 'paid in BTC ({})'.format(name_rec['op_fee'])
-                return False
-
-        elif name == 'baz':
-            if name_rec['op_fee'] != blockstack.lib.scripts.price_name(name, ns, state_engine.lastblock):
-                print 'paid wrong BTC for baz.test ({})'.format(name_rec['op_fee'])
-                return False
-
-    for name in ['baz', 'goo']:
-        name_rec = state_engine.get_name( name + '.test' )
-
-        # make sure we debited Stacks in both cases
-        if name == 'baz':
-            if name_rec['token_fee'] != blockstack.lib.scripts.price_name_stacks(name, ns, state_engine.lastblock):
-                print 'paid wrong token fee for {}.test'.format(name)
-                print 'expected {}, got {}'.format(blockstack.lib.scripts.price_name_stacks(name, ns, state_engine.lastblock), name_rec['token_fee'])
-                return False
-
-        if name == 'goo':
-            if name_rec['token_fee'] != blockstack.lib.scripts.price_name_stacks(name, ns, state_engine.lastblock) - 1:
-                print 'paid wrong token fee for {}.test'.format(name)
-                print 'expected {}, got {}'.format(blockstack.lib.scripts.price_name_stacks(name, ns, state_engine.lastblock) - 1, name_rec['token_fee'])
-                return False
-
-        if name_rec['op_fee'] != blockstack.lib.scripts.price_name(name, ns, state_engine.lastblock):
-            print 'paid wrong BTC for {}.test ({})'.format(name, name_rec['op_fee'])
+        # not registered 
+        name_rec = state_engine.get_name(name)
+        if name_rec is not None:
+            print 'name exists: {}'.format(name)
             return False
+
+        stacks_price = blockstack.lib.scripts.price_name_stacks(name.split('.')[0], ns, state_engine.lastblock)
+        btc_price = blockstack.lib.scripts.price_name(name.split('.')[0], ns, state_engine.lastblock)
+
+        # preorder paid the right amount of Stacks and BTC
+        if name == 'baz.test':
+            if preorder['op_fee'] != btc_price - 1:
+                print 'did not pay bitcoin for goo.test'
+                return False
+
+            if preorder['token_fee'] != stacks_price - 1:
+                print 'did not pay stacks for goo.test'
+                return False
 
     return True
