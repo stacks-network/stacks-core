@@ -162,7 +162,7 @@ def get_stacks_payment(state_engine, nameop, state_op_type):
     elif state_op_type == 'NAME_RENEWAL':
         # will have paid in Stacks in the nameop (but not yet debited the account, so we'll need to 
         # check the account balance later on in check_renewal())
-        if token_fee is None:
+        if token_fee is None or token_fee == 0:
             return {'status': False, 'error': 'No token fee given for {}'.format(name)}
 
         token_units = TOKEN_TYPE_STACKS
@@ -327,21 +327,24 @@ def check_payment_v2(state_engine, state_op_type, nameop, fee_block_id, token_ad
         log.warning("Buyer of {} used the wrong burn address ({}): expected {}".format(name, burn_address, expected_burn_address))
         return {'status': False}
 
-    if tokens_allowed:
-        # allowed to pay in Stacks?
-        if EPOCH_FEATURE_NAMEOPS_COST_TOKENS in epoch_features:
-            # did we pay any stacks?
-            res = get_stacks_payment(state_engine, nameop, state_op_type)
-            if res['status']:
-                # paid something in Stacks. Will ignore BTC.
-                res = check_payment_in_stacks(state_engine, nameop, state_op_type, fee_block_id)
-                if not res['status']:
-                    log.warning("Buyer of {} paid in Stacks, but did not pay enough".format(name))
-                    return {'status': False}
+    # allowed to pay in Stacks?
+    if EPOCH_FEATURE_NAMEOPS_COST_TOKENS in epoch_features:
+        # did we pay any stacks?
+        res = get_stacks_payment(state_engine, nameop, state_op_type)
+        if res['status']:
+            # paid something in Stacks. Will ignore BTC.
+            if not tokens_allowed:
+                log.warning('Buyer of {} paid in Stacks, but should have paid in BTC to the namespace creator'.format(name))
+                return {'status': False}
 
-                tokens_paid = res['tokens_paid']
-                token_units = res['token_units']
-                return {'status': True, 'tokens_paid': tokens_paid, 'token_units': token_units}
+            res = check_payment_in_stacks(state_engine, nameop, state_op_type, fee_block_id)
+            if not res['status']:
+                log.warning("Buyer of {} paid in Stacks, but did not pay enough".format(name))
+                return {'status': False}
+
+            tokens_paid = res['tokens_paid']
+            token_units = res['token_units']
+            return {'status': True, 'tokens_paid': tokens_paid, 'token_units': token_units}
 
     # did not pay in stacks tokens, or this isn't allowed yet
     btc_price = price_name(name_without_namespace, namespace, fee_block_id)   # price reflects namespace version
@@ -349,7 +352,7 @@ def check_payment_v2(state_engine, state_op_type, nameop, fee_block_id, token_ad
     # fee must be high enough (either the preorder paid the right fee at the preorder block height,
     # or the renewal paid the right fee at the renewal height)
     if name_fee < btc_price:
-        log.warning("Name '%s' costs %s satoshis, but paid %s satoshis" % (name, stacks_or_btc_price, name_fee))
+        log.warning("Name '%s' costs %s satoshis, but paid %s satoshis" % (name, btc_price, name_fee))
         return {'status': False}
 
     log.debug('Paid {} satoshis for {} to {}'.format(name_fee, name, burn_address))
@@ -807,6 +810,9 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
         res = get_stacks_payment(state_engine, nameop, "NAME_RENEWAL")
         assert not res['status'], 'BUG: paid in both BTC and Stacks'
 
+        # no Stacks will be spent
+        state_transition_put_account_payment_info(nameop, None, None, None)
+
     else:
         if EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features:
             # can't do this---tokens aren't active yet
@@ -845,7 +851,7 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     # instead of the previous name record's value hash.
     if EPOCH_FEATURE_OP_RENEW_TRANSFER_UPDATE in epoch_features:
         if nameop.has_key('value_hash') and nameop['value_hash'] is not None:
-            log.debug("Adding value hash {} for name '{}'".format(value_hash, nameop['name']))
+            log.debug("Adding value hash {} for name '{}'".format(nameop['value_hash'], nameop['name']))
             value_hash = nameop['value_hash']
 
     nameop['op_fee'] = name_fee
@@ -901,6 +907,9 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     opcode = 'NAME_REGISTRATION'
 
     try:
+       # first 2 outputs matter (op_return, owner addr)
+       assert check_tx_output_types(outputs[:2], block_id)
+
        recipient = get_registration_recipient_from_outputs( outputs )
        recipient_address = virtualchain.script_hex_to_address( recipient )
 
