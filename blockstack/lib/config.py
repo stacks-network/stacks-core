@@ -248,7 +248,12 @@ Specifically:
 EPOCH_FIELDS = [
     "end_block",
     "namespaces",
-    "features"
+    "features",
+    "namespace_prices",
+    "namespace_prices_stacks",
+    "namespace_price_units",
+    "script_types",
+    "sender_types",
 ]
 
 EPOCH_NAMESPACE_FIELDS = [
@@ -402,7 +407,9 @@ EPOCHS = [
         ],
         "namespace_prices_stacks": None,
         "namespace_price_units": "BTC",
-        "features": EPOCH_1_FEATURES
+        "features": EPOCH_1_FEATURES,
+        'script_types': ['nulldata', 'p2pkh'],
+        'sender_types': ['p2pkh'],
     },
     {
         # epoch 2
@@ -452,6 +459,8 @@ EPOCHS = [
         "namespace_prices_stacks": None,
         "namespace_price_units": "BTC",
         "features": EPOCH_2_FEATURES,
+        'script_types': ['nulldata', 'p2pkh', 'p2sh'],
+        'sender_types': ['p2pkh', 'p2sh'],
     },
     {
         # epoch 3
@@ -501,6 +510,8 @@ EPOCHS = [
         "namespace_prices_stacks": None,
         "namespace_price_units": "BTC",
         "features": EPOCH_3_FEATURES,
+        'script_types': ['nulldata', 'p2pkh', 'p2sh', 'p2sh-p2wpkh', 'p2sh-p2wsh'],
+        'sender_types': ['p2pkh', 'p2sh'],
     },
     {
         # epoch 4
@@ -550,6 +561,8 @@ EPOCHS = [
         ],
         "namespace_price_units": "STACKS",
         "features": EPOCH_4_FEATURES,
+        'script_types': ['nulldata', 'p2pkh', 'p2sh', 'p2sh-p2wpkh', 'p2sh-p2wsh'],
+        'sender_types': ['p2pkh', 'p2sh'],
     },
 ]
 
@@ -986,6 +999,22 @@ def get_epoch_namespace_price_units(block_height):
     """
     epoch_config = get_epoch_config(block_height)
     return epoch_config['namespace_price_units']
+
+
+def get_epoch_btc_script_types(block_height):
+    """
+    What kind of output scripts do we allow in this epoch?
+    """
+    epoch_config = get_epoch_config(block_height)
+    return epoch_config['script_types']
+
+
+def get_epoch_btc_sender_types(block_height):
+    """
+    What kind of sender output scripts do we allow in this epoch?
+    """
+    epoch_config = get_epoch_config(block_height)
+    return epoch_config['sender_types']
 
 
 def get_epoch_features( block_height ):
