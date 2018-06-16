@@ -102,6 +102,21 @@ def check( state_engine, token_op, block_id, checked_ops ):
     if account_balance < token_value:
         log.warning('Account {} has {} {}; tried to send {}'.format(address, account_balance, token_type, token_value))
         return False
+    
+    if not BLOCKSTACK_PUBLIC_TESTNET:
+        # not running the testnet.
+        # receiver must exist and be white-listed (for now).
+        receiver_account = state_engine.get_account(recipient_address, token_type)
+        if receiver_account is None:
+            log.warning('Receiver account {} does not exist, so it cannot be whitelisted'.format(recipient_address))
+            return False
+
+        if not isinstance(receiver_account['receive_whitelisted'], bool) or not receiver_account['receive_whitelisted']:
+            log.warning('Receiver account {} is not whitelisted'.format(recipient_address))
+            return False
+    
+    else:
+        log.debug('In public testnet.  All addresses (including {}) are whitelisted by default.'.format(recipient_address))
 
     log.debug("Account {} will pay {} {} to {}".format(address, token_value, token_type, recipient_address))
 
@@ -156,6 +171,9 @@ def tx_extract(payload, senders, inputs, outputs, block_id, vtxindex, txid):
     recipient_address = None
 
     try:
+        # first two outputs matter to us
+        assert check_tx_output_types(outputs[:2], block_id)
+
         assert len(senders) > 0
         assert 'script_pubkey' in senders[0].keys()
         assert 'addresses' in senders[0].keys()
