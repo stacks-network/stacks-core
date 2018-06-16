@@ -408,8 +408,8 @@ EPOCHS = [
         "namespace_prices_stacks": None,
         "namespace_price_units": "BTC",
         "features": EPOCH_1_FEATURES,
-        'script_types': ['nulldata', 'p2pkh'],
-        'sender_types': ['p2pkh'],
+        'script_types': ['nulldata', 'p2pkh', 'p2sh'],
+        'sender_types': ['p2pkh', 'p2sh'],
     },
     {
         # epoch 2
