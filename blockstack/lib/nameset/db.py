@@ -176,12 +176,14 @@ CREATE TABLE accounts( address TEXT NOT NULL,
                        debit_value TEXT NOT NULL,    -- always increases, encoded as a TEXT to avoid overflow (unit value)
 
                        lock_transfer_block_id INTEGER NOT NULL,     -- point in time where it becomes possible for this account to send tokens
+                       receive_whitelisted INTEGER NOT NULL,        -- for now, only certain accounts can receive tokens (this will be 1 if this is true for this account)
 
                        metadata TEXT,   -- user-programmable field (e.g. stores hash of legal contract that owns the address)
 
                        -- where in the blockchain this occurred
                        -- NOTE: account operations may be inserted as a result of processing another operation (like buying a name).
                        -- if so, then this information will point to the history snapshot of that operation.
+                       -- built-in operations (like token vesting) will 'occur' at vtxindex = 0 (i.e. as part of the block's "coinbase")
                        block_id INTEGER NOT NULL,
                        txid TEXT NOT NULL,
                        vtxindex INTEGER NOT NULL,
@@ -197,10 +199,10 @@ CREATE INDEX address_accounts ON accounts(address, type);
 # vesting_value will always be positive.
 # when the system reaches a block that vests, a "credit" operation will be generated and inserted into the accounts table to reflect it.
 BLOCKSTACK_DB_SCRIPT += """
-CREATE TABLE account_vesting( address TEXT NOT NULL,
-                              type TEXT NOT NULL,
-                              vesting_value TEXT NOT NULL,      -- encoded as a TEXT to avoid overflow (unit value)
-                              block_id INTEGER NOT NULL,
+CREATE TABLE account_vesting( address TEXT NOT NULL,            -- account address
+                              type TEXT NOT NULL,               -- type of token (e.g. STACKs)
+                              vesting_value TEXT NOT NULL,      -- value to vest, encoded as a TEXT to avoid overflow (unit value, e.g. microSTACKs)
+                              block_id INTEGER NOT NULL,        -- block at which these tokens are credited
 
                               PRIMARY KEY(address,type,block_id,type)
                               );
@@ -224,6 +226,24 @@ PRAGMA foreign_keys = ON;
 """
 
 
+def namedb_genesis_txid(address, metadata):
+    """
+    Make a "fake" txid for a genesis block entry.
+    Returns a 32-byte hash (double-sha256), hex-encoded
+    """
+    preimage = '{} genesis {}'.format(address, metadata)
+    return virtualchain.lib.hashing.bin_double_sha256(preimage).encode('hex')
+
+
+def namedb_vesting_txid(address, token_type, token_amount, block_height):
+    """
+    Make a "fake" txid for a vesting transaction.
+    Returns a 32-byte hash (double-sha256), hex-encoded
+    """
+    preimage = '{} vesting {} {} at {}'.format(address, token_type, token_amount, block_height)
+    return virtualchain.lib.hashing.bin_double_sha256(preimage).encode('hex')
+
+
 def namedb_create_token_genesis(con, initial_account_balances):
     """
     Create the initial account balances.
@@ -240,6 +260,7 @@ def namedb_create_token_genesis(con, initial_account_balances):
                 block_height: value
             },
             'lock_send': ... (optional; block height)
+            'receive_whitelisted': ... (optional; bool)
             'metadata': ... (optional)
         },
         {...}
@@ -255,16 +276,17 @@ def namedb_create_token_genesis(con, initial_account_balances):
 
         else:
             log.debug('Grant {} to {}'.format(account_info['value'], address))
+            metadata = '' 
 
         lock_send = account_info.get('lock_send', 0)
+        receive_whitelisted = account_info.get('receive_whitelisted', False)
 
         # set up initial account balances
-        sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?);'
+        sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?);'
 
-        fake_txid_preimage = '{} genesis'.format(address)
-        fake_txid = virtualchain.lib.hashing.bin_double_sha256(fake_txid_preimage).encode('hex')
+        fake_txid = namedb_genesis_txid(address, metadata)
 
-        args = (address, account_info['type'], '{}'.format(account_info['value']), '0', lock_send, metadata, FIRST_BLOCK_MAINNET, fake_txid, 0)
+        args = (address, account_info['type'], '{}'.format(account_info['value']), '0', lock_send, receive_whitelisted, metadata, FIRST_BLOCK_MAINNET, fake_txid, 0)
         namedb_query_execute(con, sql, args)
 
         # set up vesting period
@@ -326,7 +348,7 @@ def namedb_row_factory( cursor, row ):
     """
     d = {}
     for idx, col in enumerate( cursor.description ):
-        if col[0] in ['revoked', 'locked']:
+        if col[0] in ['revoked', 'locked', 'receive_whitelisted']:
             if row[idx] == 0:
                 d[col[0]] = False
             elif row[idx] == 1:
@@ -1344,6 +1366,7 @@ def namedb_account_transaction_save(cur, address, token_type, new_credit_value, 
         'credit_value': '{}'.format(new_credit_value),
         'debit_value': '{}'.format(new_debit_value),
         'lock_transfer_block_id': existing_account.get('lock_transfer_block_id', 0),        # unlocks immediately if the account doesn't exist
+        'receive_whitelisted': existing_account.get('receive_whitelisted', False),          # new accounts are not whitelisted by default (for now)
         'metadata': existing_account.get('metadata', None),
         'block_id': block_id,
         'txid': txid,
@@ -1461,9 +1484,8 @@ def namedb_accounts_vest(cur, block_height):
         token_amount = row['vesting_value']
 
         log.debug("Vest {} with {} {}".format(addr, token_amount, token_type))
-
-        fake_txid_preimage = '{} vest {} {} at {}'.format(addr, token_type, token_amount, block_height)
-        fake_txid = virtualchain.lib.hashing.bin_double_sha256(fake_txid_preimage).encode('hex')
+        
+        fake_txid = namedb_vesting_txid(addr, token_type, token_amount, block_height)
 
         res = namedb_account_credit(cur, addr, token_type, token_amount, block_height, 0, fake_txid)
         if not res:
