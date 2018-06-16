@@ -84,7 +84,7 @@ def scenario( wallets, **kw ):
     assert balances[wallets[1].addr][STACKS] == 0
 
     # will succeed
-    testlib.blockstack_send_tokens(wallets[1].addr, "STACKS", 600000, wallets[0].privkey)
+    testlib.blockstack_send_tokens(wallets[1].addr, "STACKS", 600000, wallets[0].privkey, safety_checks=False)
     testlib.next_block(**kw) # end of 694
 
     balances = testlib.get_wallet_balances(wallets)

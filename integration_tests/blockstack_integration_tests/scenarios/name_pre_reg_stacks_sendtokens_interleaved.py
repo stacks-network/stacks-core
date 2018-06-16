@@ -42,7 +42,12 @@ wallets = [
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 0 ),     # no tokens yet
     testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 0 ),
-    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 0 )
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 0 ),
+    testlib.Wallet("9864768ccf5137392de5b5d6551a0f9f17279df2f82b4de7b905290f95fde66201", 0),
+    testlib.Wallet("2e55007fec0f1d9a81700e56aa8ce24d7e6e245ede48c00663f930f99fae133601", 0),
+    testlib.Wallet("9d6836cdaf81245d646988effe398338073892143b1185f4553e6118f231d1bf01", 0),
+    testlib.Wallet("f9c9371b7a8cc6b5ef544457cdd565e5791d743f5d60c924265732147429414801", 0),
+    testlib.Wallet("cd8d6bdf3dfd7b3d498539bb42cf218b77b0fda4f3bc119c7226d803e8425da901", 0), 
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
@@ -72,7 +77,7 @@ def scenario( wallets, **kw ):
     # send tokens and preorder multiple times in the block
     # should all succeed, BUT: force them to go in order through UTXO chaining
     for i in range(0, 5):
-        name_recipient_privkey = virtualchain.lib.ecdsalib.ecdsa_private_key().to_hex()
+        name_recipient_privkey = wallets[-(i-1)].privkey
         name_recipient_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(name_recipient_privkey))
 
         testlib.blockstack_send_tokens(name_recipient_addr, "STACKS", name_cost['amount'], wallets[0].privkey)

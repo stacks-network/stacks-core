@@ -39,11 +39,12 @@ wallets = [
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
     testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
-    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 )
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 ),
+    testlib.Wallet("e802e6b061d7d9594afef1d82037d6a3901c60f567b26c7ad8be9cfb3fd8320d01", 0),
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
-pk = None
+pk = wallets[-1].privkey
 
 def scenario( wallets, **kw ):
     global pk
@@ -64,7 +65,6 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # pay for a name in a v1 namespace with Stacks
-    pk = virtualchain.lib.ecdsalib.ecdsa_private_key().to_hex()
     addr = virtualchain.address_reencode(virtualchain.get_privkey_address(pk))
 
     # calculate the cost of doing so
