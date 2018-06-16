@@ -66,7 +66,7 @@ def scenario( wallets, **kw ):
     # should fail
     # in 0.13, this is because it's owned by the "None" address now 
     # in 0.14, this is because we're waiting until F-day 
-    testlib.blockstack_name_transfer( "foo.test", wallets[1].addr, True, wallets[2].privkey, safety_checks=False )
+    testlib.blockstack_name_transfer( "foo.test", wallets[1].addr, True, wallets[2].privkey, safety_checks=False, expect_fail=True )
     testlib.next_block( **kw )
 
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))

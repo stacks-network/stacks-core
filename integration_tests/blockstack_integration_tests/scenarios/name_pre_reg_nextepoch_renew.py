@@ -79,7 +79,7 @@ def scenario( wallets, **kw ):
 def check( state_engine ):
 
     original_price = 6400000
-    curr_price = original_price * blockstack_server.lib.config.get_epoch_price_multiplier( 273, "test" )
+    curr_price = original_price * blockstack_server.lib.config.get_epoch_price_multiplier( 273, "test", "BTC")
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )

@@ -77,7 +77,7 @@ def scenario( wallets, **kw ):
     # send tokens and preorder multiple times in the block
     # should all succeed, BUT: force them to go in order through UTXO chaining
     for i in range(0, 5):
-        name_recipient_privkey = wallets[-(i-1)].privkey
+        name_recipient_privkey = wallets[-(i+1)].privkey
         name_recipient_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(name_recipient_privkey))
 
         testlib.blockstack_send_tokens(name_recipient_addr, "STACKS", name_cost['amount'], wallets[0].privkey)

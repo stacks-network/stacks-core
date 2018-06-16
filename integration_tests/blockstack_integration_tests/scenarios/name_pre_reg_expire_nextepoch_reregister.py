@@ -96,7 +96,7 @@ def scenario( wallets, **kw ):
         return False
 
     # actually expire
-    for i in xrange(0, 5 * blockstack_server.config.get_epoch_namespace_lifetime_multiplier( testlib.get_current_block(**kw), "test" ) - 5 - 3):
+    for i in xrange(0, 5 * blockstack_server.config.get_epoch_namespace_lifetime_multiplier( testlib.get_current_block(**kw), "test", "BTC" ) - 5 - 3):
         testlib.next_block( **kw )
 
     # should work
@@ -115,7 +115,7 @@ def check( state_engine ):
     global last_first_block, first_preorder
 
     original_price = 6400000
-    curr_price = original_price * blockstack_server.config.get_epoch_price_multiplier( last_first_block, "test" )
+    curr_price = original_price * blockstack_server.config.get_epoch_price_multiplier( last_first_block, "test", "BTC" )
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )

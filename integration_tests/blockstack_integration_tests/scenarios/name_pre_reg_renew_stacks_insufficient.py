@@ -53,6 +53,7 @@ def scenario( wallets, **kw ):
     # should fail---not enough STACKs
     testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
 
     # should succeed
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[3].privkey )
@@ -86,10 +87,11 @@ def scenario( wallets, **kw ):
     # should fail--not enough funds
     testlib.blockstack_name_preorder( "baz.test", wallets[4].privkey, wallets[3].addr, expect_fail=True, safety_checks=False )
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at('baz.test', testlib.get_current_block(**kw))
 
     testlib.blockstack_name_register( "baz.test", wallets[4].privkey, wallets[3].addr )
     testlib.next_block( **kw )
-
+    testlib.expect_snv_fail_at('baz.test', testlib.get_current_block(**kw))
 
 
 def check( state_engine ):
@@ -135,6 +137,11 @@ def check( state_engine ):
     if name_rec['address'] != wallets[3].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[3].addr):
         print "sender is wrong"
         return False
+
+    # not renewed
+    if name_rec['first_registered'] != name_rec['last_renewed']:
+        print 'renewed foo.test'
+        return False 
 
     name_rec = state_engine.get_name( "bar.test" )
     if name_rec is None:

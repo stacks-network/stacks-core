@@ -71,7 +71,9 @@ def scenario( wallets, **kw ):
 
     # send a large amount of Stacks (exceeds 2**64) -- should fail, since our transactions only allow 8 bytes to encode the STACKs count
     try:
-        testlib.blockstack_send_tokens(wallets[2].addr, "STACKS", name_cost['amount'], wallets[0].privkey, expect_fail=True)
+        res = testlib.blockstack_send_tokens(wallets[2].addr, "STACKS", name_cost['amount'], wallets[0].privkey, expect_fail=True)
+        assert 'error' not in res
+        print res
         print 'Accidentally succeeded to send {} STACKS'.format(name_cost['amount'])
         return False
     except:
@@ -79,7 +81,9 @@ def scenario( wallets, **kw ):
 
     # should fail, since we can't encode the price as a 64-bit number
     try:
-        testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, expect_fail=True)
+        res = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, expect_fail=True)
+        assert 'error' not in res
+        print res
         print 'Accidentally succeeded to preorder foo.test for {} STACKs'.format(name_cost['amount'])
         return False
     except:
@@ -126,13 +130,13 @@ def check( state_engine ):
         return False 
 
     # not preordered
-    preorder = state_engine.get_name_preorder( "fooo.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
+    preorder = state_engine.get_name_preorder( "foo2.test", virtualchain.make_payment_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
         print "preorder exists"
         return False
     
     # registered 
-    name_rec = state_engine.get_name( "fooo.test" )
+    name_rec = state_engine.get_name( "foo2.test" )
     if name_rec is None:
         print "name does not exist"
         return False 

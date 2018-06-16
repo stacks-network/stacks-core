@@ -180,14 +180,14 @@ def check( state_engine ):
         print "historic op fee mismatch: original price = %s, historic fee = %s" % (original_price, historic_name_rec['op_fee'])
         return False
 
-    current_fee = original_price * blockstack.lib.config.get_epoch_price_multiplier( 703, "test" )
+    current_fee = original_price * blockstack.lib.config.get_epoch_price_multiplier( 703, "test", 'BTC')
     current_price = blockstack.price_name( "foo", namespace_rec, 703 )
 
     if abs(current_price - current_fee) >= 10e-8:
         print "current op fee mismatch: original price = %s, historic price = %s" % (current_price, current_fee)
         return False
 
-    epoch_cost_multiplier = blockstack.get_epoch_price_multiplier( 703, "test" )
+    epoch_cost_multiplier = blockstack.get_epoch_price_multiplier( 703, "test", 'BTC')
 
     if abs(original_price * epoch_cost_multiplier - current_price) >= 10e-8:
         print "epoch cost failure: original_price = %s, multiplier = %s, current price = %s" % (original_price, epoch_cost_multiplier, current_price)

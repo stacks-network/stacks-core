@@ -101,13 +101,13 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test3", wallets[1].privkey, wallets[3].addr ) # paid in Stacks
     testlib.next_block( **kw )
 
-    wallet_before_burn = wallet_after_burn
-
     testlib.send_funds(wallets[0].privkey, btc_price - 5500 - 1, addr)  # deliberately insufficient funds for ordering the name in BTC
-    testlib.blockstack_name_renew( "foo.test1", pk, price={'units': 'STACKS', 'amount': stacks_price}) # paid in Stacks
-    testlib.blockstack_name_renew( "bar.test1", wallets[1].privkey ) # paid in BTC
-    testlib.blockstack_name_renew( "foo.test2", wallets[1].privkey ) # paid in BTC to wallets[0]
-    testlib.blockstack_name_renew( "foo.test3", wallets[1].privkey ) # paid in Stacks
+    
+    wallet_before_burn = testlib.get_balance(wallets[0].addr)
+    testlib.blockstack_name_renew( "foo.test1", wallets[3].privkey, price={'units': 'STACKS', 'amount': stacks_price}) # paid in Stacks
+    testlib.blockstack_name_renew( "bar.test1", wallets[3].privkey ) # paid in BTC
+    testlib.blockstack_name_renew( "foo.test2", wallets[3].privkey ) # paid in BTC to wallets[0]
+    testlib.blockstack_name_renew( "foo.test3", wallets[3].privkey ) # paid in Stacks
     testlib.next_block( **kw )
 
     wallet_after_burn = testlib.get_balance(wallets[0].addr)
@@ -117,9 +117,9 @@ def scenario( wallets, **kw ):
 
     # should all fail--wrong burn addresses
     testlib.blockstack_name_renew( "foo.test1", pk, price={'units': 'STACKS', 'amount': stacks_price}, burn_addr=wallets[0].addr, safety_checks=False, expect_fail=True )
-    testlib.blockstack_name_renew( "bar.test1", wallets[1].privkey, burn_addr=wallets[0].addr, safety_checks=False, expect_fail=True )
-    testlib.blockstack_name_renew( "foo.test2", wallets[1].privkey, burn_addr=wallets[1].addr, safety_checks=False, expect_fail=True )
-    testlib.blockstack_name_renew( "foo.test3", wallets[1].privkey, burn_addr=wallets[0].addr, safety_checks=False, expect_fail=True )
+    testlib.blockstack_name_renew( "bar.test1", wallets[3].privkey, burn_addr=wallets[0].addr, safety_checks=False, expect_fail=True )
+    testlib.blockstack_name_renew( "foo.test2", wallets[3].privkey, burn_addr=wallets[1].addr, safety_checks=False, expect_fail=True )
+    testlib.blockstack_name_renew( "foo.test3", wallets[3].privkey, burn_addr=wallets[0].addr, safety_checks=False, expect_fail=True )
     testlib.next_block( **kw )
     testlib.expect_snv_fail_at('foo_fail.test1', testlib.get_current_block(**kw))
     testlib.expect_snv_fail_at('bar_fail.test1', testlib.get_current_block(**kw))

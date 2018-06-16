@@ -96,7 +96,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "bar.test", pk2, addr)
     testlib.next_block( **kw )
 
-    # try to renew using not enough bitcoin 
+    # try to renew using not enough bitcoin (should fail) 
     testlib.blockstack_name_renew('foo.test', pk, price={'units': 'BTC', 'amount': btc_price - 1})
     testlib.next_block(**kw)
     testlib.expect_snv_fail_at('foo.test', testlib.get_current_block(**kw))

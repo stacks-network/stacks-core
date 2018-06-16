@@ -454,6 +454,7 @@ def nodejs_cli(*args, **kw):
     pattern = kw.get('pattern', None)
     full_output = kw.get('full_output', False)
     price = kw.get('price', None)
+    expect_fail = kw.get('expect_fail', False)
 
     if NODEJS_CLI_PATH is None:
         if not has_nodejs_cli():
@@ -496,7 +497,7 @@ def nodejs_cli(*args, **kw):
         p = subprocess.Popen(cmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = p.communicate()
         res = p.returncode
-        if res != 0:
+        if res != 0 and not expect_fail:
             print err
 
             if os.environ.get('BLOCKSTACK_TEST_CLI_SLEEP_ON_FAILURE'):
@@ -505,6 +506,10 @@ def nodejs_cli(*args, **kw):
                     time.sleep(1)
 
             raise Exception("Exit code {}: {}".format(res, cmd))
+
+        elif res != 0 and expect_fail:
+            print err
+            return {'error': 'CLI exited {} (but this is expected)'.format(res)}
 
         ret = None
         if full_output:
@@ -526,7 +531,7 @@ def nodejs_cli(*args, **kw):
         except:
             pass
 
-        if pattern:
+        if pattern and not expect_fail:
             assert re.match(pattern, ret), 'Output does not match {}: {}\nfull output:\n{}\nerror:\n{}'.format(pattern, ret, saved_out[0], saved_err[0])
 
         return ret
@@ -547,7 +552,7 @@ def nodejs_cli(*args, **kw):
     except:
         pass
 
-    if pattern:
+    if pattern and not expect_fail:
         assert re.match(pattern, ret), 'Output does not match {}: {}\nfull output:\n{}\nerror:\n{}'.format(pattern, ret, saved_out[0], saved_err[0])
 
     return ret
@@ -561,9 +566,10 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     register_addr = virtualchain.address_reencode(register_addr)
      
     resp = None
-    if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
+    if has_nodejs_cli() and (not virtualchain.btc_is_multisig_segwit(privatekey) and not virtualchain.btc_is_singlesig_segwit(privatekey)):
+        print privatekey
         txid = nodejs_cli('tx_preorder', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), burn_addr=burn_addr, consensus_hash=consensus_hash,
-                          tx_fee=tx_fee, tx_only=tx_only, price=price, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
+                          tx_fee=tx_fee, tx_only=tx_only, price=price, safety_checks=safety_checks, expect_fail=expect_fail, pattern='^[0-9a-f]{64}$')
 
         if 'error' in txid:
             return txid
@@ -617,18 +623,18 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     return resp
 
 
-def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=None, wallet=None, safety_checks=True, tx_only=False, config_path=None, tx_fee=None ):
+def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=None, wallet=None, safety_checks=True, tx_only=False, config_path=None, tx_fee=None, expect_fail=False ):
     
     global api_call_history
     resp = None
     register_addr = virtualchain.address_reencode(register_addr)
 
-    if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
+    if has_nodejs_cli() and (not virtualchain.btc_is_multisig_segwit(privatekey) and not virtualchain.btc_is_singlesig_segwit(privatekey)):
         txid = None
         if zonefile_hash is not None:
-            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
         else:
-            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -672,15 +678,16 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
     return resp
 
 
-def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, test_api_proxy=True, safety_checks=True, tx_only=False, config_path=None, tx_fee=None ):
+def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, test_api_proxy=True, safety_checks=True, tx_only=False, config_path=None, tx_fee=None, expect_fail=False ):
     
     global api_call_history
     
     payment_key = get_default_payment_wallet().privkey
     resp = None
 
-    if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
-        txid = nodejs_cli('update', name, 'ignored', serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), data_hash, safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+    if has_nodejs_cli() and (not virtualchain.btc_is_multisig_segwit(privatekey) and not virtualchain.btc_is_singlesig_segwit(privatekey)):
+        txid = nodejs_cli('update', name, 'ignored', serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), data_hash, 
+                safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -710,15 +717,16 @@ def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, te
     return resp
 
 
-def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_hash=None, safety_checks=True, tx_only=False, config_path=None, tx_fee=None ):
+def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_hash=None, safety_checks=True, tx_only=False, config_path=None, tx_fee=None, expect_fail=False ):
      
     global api_call_history
 
     payment_key = get_default_payment_wallet().privkey
     resp = None
 
-    if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
-        txid = nodejs_cli('transfer', name, 'ID-' + address, '{}'.format(keepdata).lower(), serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+    if has_nodejs_cli() and (not virtualchain.btc_is_multisig_segwit(privatekey) and not virtualchain.btc_is_singlesig_segwit(privatekey)):
+        txid = nodejs_cli('transfer', name, 'ID-' + address, '{}'.format(keepdata).lower(), serialize_privkey_info(privatekey), serialize_privkey_info(payment_key),
+                safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -756,19 +764,22 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
     payment_key = get_default_payment_wallet().privkey
     resp = None
 
-    if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
+    if has_nodejs_cli() and (not virtualchain.btc_is_multisig_segwit(privatekey) and not virtualchain.btc_is_singlesig_segwit(privatekey)):
         txid = None
         if recipient_addr is not None:
             if zonefile_hash is not None:
-                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 'ID-' + recipient_addr, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_only=tx_only, price=price, burn_addr=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 'ID-' + recipient_addr, 'ignored', zonefile_hash, 
+                        safety_checks=safety_checks, tx_only=tx_only, price=price, burn_addr=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
             else:
-                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 'ID-' + recipient_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_only=tx_only, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
+                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 'ID-' + recipient_addr, 
+                        safety_checks=safety_checks, burn_addr=burn_addr, tx_only=tx_only, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
         else:
             if zonefile_hash is not None:
                 # txid = nodejs_cli('renew', name, privatekey, payment_key, owner_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
                 raise Exception("Cannot set a zone file hash without a destination address")
             else:
-                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), safety_checks=safety_checks, burn_addr=burn_addr, tx_only=tx_only, price=price, tx_fee=tx_fee)
+                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 
+                        safety_checks=safety_checks, burn_addr=burn_addr, tx_only=tx_only, price=price, tx_fee=tx_fee, expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -810,15 +821,15 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
     return resp
 
 
-def blockstack_name_revoke( name, privatekey, safety_checks=True, config_path=None, tx_fee=None, tx_only=False ):
+def blockstack_name_revoke( name, privatekey, safety_checks=True, config_path=None, tx_fee=None, tx_only=False, expect_fail=False ):
     
     global api_call_history
 
     payment_key = get_default_payment_wallet().privkey
     resp = None
 
-    if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
-        txid = nodejs_cli('revoke', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+    if has_nodejs_cli() and (not virtualchain.btc_is_multisig_segwit(privatekey) and not virtualchain.btc_is_singlesig_segwit(privatekey)):
+        txid = nodejs_cli('revoke', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -847,13 +858,13 @@ def blockstack_name_revoke( name, privatekey, safety_checks=True, config_path=No
     return resp
 
 
-def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=True, tx_only=False, config_path=None ):
+def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=True, tx_only=False, config_path=None, expect_fail=False):
     
     global api_call_history
     
     resp = None
-    if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
-        txid = nodejs_cli('name_import', name, 'ID-' + recipient_address, "ignored_gaia_hub", serialize_privkey_info(privatekey), "ignored_zonefile_path", update_hash, tx_only=tx_only, safety_checks=safety_checks)
+    if has_nodejs_cli() and (not virtualchain.btc_is_multisig_segwit(privatekey) and not virtualchain.btc_is_singlesig_segwit(privatekey)):
+        txid = nodejs_cli('name_import', name, 'ID-' + recipient_address, "ignored_gaia_hub", serialize_privkey_info(privatekey), "ignored_zonefile_path", update_hash, tx_only=tx_only, safety_checks=safety_checks, expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -888,8 +899,9 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, burn
     resp = None
     payment_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
 
-    if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
-        txid = nodejs_cli('namespace_preorder', namespace_id, register_addr, serialize_privkey_info(privatekey), consensus_hash=consensus_hash, burn_addr=burn_addr, safety_checks=safety_checks, price=price, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+    if has_nodejs_cli() and (not virtualchain.btc_is_multisig_segwit(privatekey) and not virtualchain.btc_is_singlesig_segwit(privatekey)):
+        txid = nodejs_cli('namespace_preorder', namespace_id, register_addr, serialize_privkey_info(privatekey), 
+                consensus_hash=consensus_hash, burn_addr=burn_addr, safety_checks=safety_checks, price=price, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -936,11 +948,12 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     resp = None
     register_addr = virtualchain.address_reencode(register_addr)
 
-    if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
+    if has_nodejs_cli() and (not virtualchain.btc_is_multisig_segwit(privatekey) and not virtualchain.btc_is_singlesig_segwit(privatekey)):
         txid = {}
         try:
             txid = nodejs_cli('namespace_reveal', namespace_id, register_addr, '{}'.format(version_bits), '{}'.format(lifetime), '{}'.format(coeff), '{}'.format(base), 
-                    ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), serialize_privkey_info(privatekey), safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only, tx_fee=tx_fee)
+                    ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), 
+                    serialize_privkey_info(privatekey), safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only, tx_fee=tx_fee, expect_fail=expect_fail)
         
         except:
             if expect_fail:
@@ -976,13 +989,13 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     return resp
 
 
-def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, tx_only=False, config_path=None, use_cli=True):
+def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, tx_only=False, config_path=None, use_cli=True, expect_fail=False):
     
     global api_call_history
     resp = None
 
     if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
-        txid = nodejs_cli('namespace_ready', namespace_id, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+        txid = nodejs_cli('namespace_ready', namespace_id, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_only=tx_only, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -1005,15 +1018,15 @@ def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, tx
     return resp
 
 
-def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False, config_path=None ):
+def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False, config_path=None, expect_fail=False ):
     
     global api_call_history
 
     resp = None
 
-    if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
+    if has_nodejs_cli() and (not virtualchain.btc_is_multisig_segwit(privatekey) and not virtualchain.btc_is_singlesig_segwit(privatekey)):
         message_hash = blockstack.lib.storage.get_zonefile_data_hash(message)
-        txid = nodejs_cli('announce',  message_hash, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_only=tx_only)
+        txid = nodejs_cli('announce',  message_hash, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_only=tx_only, expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -1045,9 +1058,12 @@ def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False,
 def blockstack_send_tokens(recipient_address, token_type, token_amount, privkey, consensus_hash=None, safety_checks=True, tx_only=False, expect_fail=False):
     global api_call_history
 
-    assert has_nodejs_cli() and (not virtualchain.is_multisig(privkey) or ('segwit' not in privkey or not privkey['segwit'])) # no segwit yet
+    assert has_nodejs_cli() and (not virtualchain.btc_is_multisig_segwit(privkey) and not virtualchain.btc_is_singlesig_segwit(privkey))
 
-    txid = nodejs_cli('send_tokens', recipient_address, token_type, token_amount, serialize_privkey_info(privkey), safety_checks=safety_checks, tx_only=tx_only, consensus_hash=consensus_hash)
+    txid = nodejs_cli('send_tokens', recipient_address, token_type, token_amount, serialize_privkey_info(privkey), safety_checks=safety_checks, tx_only=tx_only, consensus_hash=consensus_hash, expect_fail=expect_fail)
+    if 'error' in txid:
+        return txid
+
     if tx_only:
         resp = {
             'status': True,

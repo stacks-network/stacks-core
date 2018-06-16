@@ -187,7 +187,7 @@ def scenario( wallets, **kw ):
         print 'accidentally registered'
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, safety_checks=False, tx_fee=500*5)
     if 'error' not in resp:
         print resp
         return False

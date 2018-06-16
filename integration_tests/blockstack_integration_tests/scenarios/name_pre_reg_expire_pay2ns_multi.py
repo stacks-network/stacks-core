@@ -144,7 +144,7 @@ def scenario( wallets, **kw ):
         return False
 
     # try forcing it to the namespace burn address, to verify that it fails
-    res = testlib.blockstack_name_preorder( "foo_fail.test", wallets[4].privkey, wallets[0].addr, burn_addr=namespace_rec['address'] )
+    res = testlib.blockstack_name_preorder( "foo_fail.test", wallets[4].privkey, wallets[0].addr, burn_addr=namespace_rec['address'], safety_checks=False)
     if 'error' not in res:
         print res
         return False
@@ -163,7 +163,7 @@ def scenario( wallets, **kw ):
         return False
 
     # should be rejected
-    res = testlib.blockstack_name_register( "foo_fail.test", wallets[4].privkey, wallets[0].addr )
+    res = testlib.blockstack_name_register( "foo_fail.test", wallets[4].privkey, wallets[0].addr, safety_checks=False )
     if 'error' in res:
         print res
         return False
