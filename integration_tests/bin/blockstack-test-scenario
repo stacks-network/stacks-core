@@ -1264,7 +1264,8 @@ def fill_genesis_block(address, token_grant, vesting_schedule):
         'type': testlib.TOKEN_TYPE_STACKS,
         'value': token_grant,
         'vesting': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}),
-        'lock_send': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).get('lock_send', 0)
+        'lock_send': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).get('lock_send', 0),
+        'receive_whitelisted': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).get('receive_whitelisted', True)  # for testing, all addresses can receive unless otherwise noted
     })
 
     for token_type in vesting_schedule:
@@ -1276,7 +1277,8 @@ def fill_genesis_block(address, token_grant, vesting_schedule):
             'type': token_type,
             'value': 0,
             'vesting': vesting_schedule[token_type],
-            'lock_send': vesting_schedule[token_type].get('lock_send', 0)
+            'lock_send': vesting_schedule[token_type].get('lock_send', 0),
+            'receive_whitelisted': vesting_schedule[token_type].get('receive_whitelisted', True) # for testing, all addresses can receive unless otherwise noted
         })
 
 
