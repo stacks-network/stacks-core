@@ -686,6 +686,43 @@ def check_address(address):
     except:
         return False
 
+
+def check_tx_output_types(outputs, block_height):
+    """
+    Verify that the list of transaction outputs are acceptable
+    """
+    # for now, we do not allow nonstandard outputs (all outputs must be p2pkh or p2sh outputs)
+    # this excludes bech32 outputs, for example.
+    supported_output_types = get_epoch_btc_script_types(block_height)
+    for out in outputs:
+        out_type = virtualchain.btc_script_classify(out['script'])
+        if out_type not in supported_output_types:
+            log.warning('Unsupported output type {} ({})'.format(out_type, out['script']))
+            return False
+
+    return True
+
+
+def check_tx_sender_types(senders, block_height):
+    """
+    Verify that the list of transaction senders are acceptable
+    * a sender should have 1 address
+    * that address should match the epoch's supported sender types
+    """
+    supported_sender_types = get_epoch_btc_sender_types(block_height)
+    for sender in senders:
+        if len(sender['addresses']) != 1:
+            log.warning('Sender has {} addresses'.format(sender['addresses']))
+            return False
+
+        out_type = virtualchain.btc_script_classify(sender['script_pubkey'])
+        if out_type not in supported_sender_types:
+            log.warning('Unsupported sender output type {} ({})'.format(out_type, sender['script_pubkey']))
+            return False
+
+    return True
+
+
 if __name__ == '__main__':
     import doctest
     doctest.testmod()
