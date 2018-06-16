@@ -18,7 +18,7 @@ except ImportError:
 
 UPSTREAM = "http://localhost:30001"
 
-UPSTREAM_GET_PATHS = ['/config', '/operations', '/atlas-neighbors', '/blockHeight', '/balance/']
+UPSTREAM_GET_PATHS = ['/config', '/operations', '/atlas-neighbors', '/blockHeight', '/balance/', '/names/', '/namespaces/']
 UPSTREAM_POST_PATHS = ['/sendBTC', '/sendStacks', '/registerName', '/registerSubdomain']
 
 MOCK = os.environ.get('MOCK')
