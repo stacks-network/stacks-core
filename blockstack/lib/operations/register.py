@@ -812,6 +812,7 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
 
         # no Stacks will be spent
         state_transition_put_account_payment_info(nameop, None, None, None)
+        token_fee = 0
 
     else:
         if EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features:
