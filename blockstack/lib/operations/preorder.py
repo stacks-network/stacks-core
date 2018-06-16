@@ -187,6 +187,8 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     sender_pubkey_hex = None
 
     try:
+       # first 3 outputs matter (op_return, payment addr, burn addr)
+       assert check_tx_output_types(outputs[:3], block_id)
 
        # by construction, the first input comes from the principal
        # who sent the preorder transaction...

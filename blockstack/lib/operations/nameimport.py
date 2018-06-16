@@ -262,8 +262,6 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     recipient:  the script_pubkey (as a hex string) of the principal that is meant to receive the name
     recipient_address:  the address from the recipient script
     import_update_hash:  the hash of the data belonging to the recipient
-
-    Optional:
     sender_pubkey_hex: the public key of the sender
     """
   
@@ -277,13 +275,15 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     import_update_hash = None
 
     try:
+       # first three outputs matter to us
+       assert check_tx_output_types(outputs[:3], block_id)
+
        recipient = get_import_recipient_from_outputs( outputs )
        recipient_address = virtualchain.script_hex_to_address( recipient )
 
        assert recipient is not None 
        assert recipient_address is not None
        
-       # import_update_hash = get_import_update_hash_from_outputs( outputs, recipient )
        import_update_hash = get_import_update_hash_from_outputs( outputs )
        assert import_update_hash is not None
        assert is_hex( import_update_hash )

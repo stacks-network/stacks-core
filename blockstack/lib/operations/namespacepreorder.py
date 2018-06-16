@@ -178,6 +178,8 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     burn_info = None
 
     try:
+       # first three outputs matter to us
+       assert check_tx_output_types(outputs[:3], block_id)
 
        # by construction, the first input comes from the principal
        # who sent the registration transaction...

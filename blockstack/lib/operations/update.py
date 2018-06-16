@@ -167,7 +167,6 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     sender_pubkey_hex = None
 
     try:
-
        # by construction, the first input comes from the principal
        # who sent the registration transaction...
        assert len(senders) > 0

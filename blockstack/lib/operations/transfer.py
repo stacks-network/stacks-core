@@ -310,6 +310,9 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     recipient_address = None 
 
     try:
+       # first two outputs matter to us (op_return, new recipient)
+       assert check_tx_output_types(outputs[:2], block_id)
+
        recipient = get_transfer_recipient_from_outputs( outputs )
        recipient_address = virtualchain.script_hex_to_address( recipient )
 
