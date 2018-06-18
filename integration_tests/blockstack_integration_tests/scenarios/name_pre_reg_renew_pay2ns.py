@@ -75,7 +75,7 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
 
     # renew/update 
-    res = testlib.blockstack_name_renew("foo.test", wallets[4].privkey, zonefile_hash="33" * 20)
+    res = testlib.blockstack_name_renew("foo.test", wallets[4].privkey, recipient_addr=wallets[4].addr, zonefile_hash="33" * 20)
     if 'error' in res:
         print res
         return False
