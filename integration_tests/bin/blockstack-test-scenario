@@ -1264,6 +1264,7 @@ def fill_genesis_block(address, token_grant, vesting_schedule):
         'type': testlib.TOKEN_TYPE_STACKS,
         'value': token_grant,
         'vesting': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}),
+        'vesting_value': sum(vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).values()),
         'lock_send': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).get('lock_send', 0),
         'receive_whitelisted': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).get('receive_whitelisted', True)  # for testing, all addresses can receive unless otherwise noted
     })
@@ -1277,6 +1278,7 @@ def fill_genesis_block(address, token_grant, vesting_schedule):
             'type': token_type,
             'value': 0,
             'vesting': vesting_schedule[token_type],
+            'vesting_value': sum(vesting_schedule[token_type].values()),
             'lock_send': vesting_schedule[token_type].get('lock_send', 0),
             'receive_whitelisted': vesting_schedule[token_type].get('receive_whitelisted', True) # for testing, all addresses can receive unless otherwise noted
         })
@@ -1749,6 +1751,9 @@ if __name__ == "__main__":
     bitcoin_regtest_fill_wallets( working_dir, scenario.wallets, default_payment_wallet=default_payment_wallet )
     testlib.set_default_payment_wallet( default_payment_wallet )
     testlib.set_wallets( scenario.wallets )
+    
+    # preserve genesis block 
+    os.environ['BLOCKSTACK_TEST_GENESIS_BLOCK'] = json.dumps(TEST_GENESIS_BLOCK)
 
     # did the scenario change the storage drivers?
     storage_drivers = BLOCKSTACK_STORAGE_DRIVERS
