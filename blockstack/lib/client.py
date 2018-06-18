@@ -167,8 +167,15 @@ class BlockstackRPCClient(object):
                     log.error(msg)
                     res = {'error': msg}
 
-                self.log_debug_timeline('end', key, r)
+                except xmlrpclib.ProtocolError as pe:
+                    msg = 'Server replied ProtocolError: {} {}'.format(pe.errcode, pe.errmsg)
+                    if BLOCKSTACK_TEST is not None:
+                        log.debug('{}: {}'.format(msg, res))
 
+                    log.error(msg)
+                    res = {'error': msg}
+
+                self.log_debug_timeline('end', key, r)
                 return res
 
             return inner
@@ -522,7 +529,7 @@ def getinfo(proxy=None, hostport=None):
     return resp
 
 
-def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostport=None, proxy=None):
+def get_zonefile_inventory(hostport, offset, count, timeout=30, my_hostport=None, proxy=None):
     """
     Get the atlas zonefile inventory from the given peer.
     Return {'status': True, 'inv': inventory} on success.
@@ -551,7 +558,7 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
 
     zf_inv = None
     try:
-        zf_inv = proxy.get_zonefile_inventory(bit_offset, bit_count)
+        zf_inv = proxy.get_zonefile_inventory(offset, count)
         zf_inv = json_validate(schema, zf_inv)
         if json_is_error(zf_inv):
             return zf_inv
@@ -560,7 +567,7 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
         zf_inv['inv'] = base64.b64decode(str(zf_inv['inv']))
 
         # make sure it corresponds to this range
-        assert len(zf_inv['inv']) <= (bit_count / 8) + (bit_count % 8), 'Zonefile inventory in is too long (got {} bytes)'.format(len(zf_inv['inv']))
+        assert len(zf_inv['inv']) <= count, 'Zonefile inventory in is too long (got {} bytes)'.format(len(zf_inv['inv']))
 
     except ValidationError as ve:
         if BLOCKSTACK_DEBUG:
@@ -573,7 +580,7 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
         if BLOCKSTACK_DEBUG:
             log.exception(ae)
 
-        zf_inv = {'error': 'Server replied an invalid zone file inventory vector'}
+        resp = {'error': 'Server replied an invalid zone file inventory vector'}
         return resp
 
     except socket.timeout:
