@@ -1506,6 +1506,7 @@ def atlas_make_zonefile_inventory( bit_offset, bit_length, con=None, path=None )
 def atlas_get_zonefile_inventory( offset=None, length=None ):
     """
     Get the in-RAM zonefile inventory vector.
+    offset and length are in *bytes*
     """
     global ZONEFILE_INV, ZONEFILE_INV_LOCK
 
