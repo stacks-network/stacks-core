@@ -48,6 +48,7 @@ from decimal import Decimal
 import blockstack.blockstackd as blockstackd
 import blockstack.lib.client as blockstackd_client
 import blockstack.lib.snv as snv_client
+from blockstack.lib.nameset.namedb import BlockstackDB
 import traceback
 import blockstack
 import keylib
@@ -2885,6 +2886,17 @@ def peer_start( global_working_dir, working_dir, port=None, command='start', arg
     
     args += ['--expected-snapshots', os.path.join(global_working_dir, 'blockstack-server.snapshots')]
     env = {}
+
+    # instantiate DB with genesis block
+
+    def _str_encode(obj):
+        return {k.encode('utf-8') if isinstance(k,unicode) else k :
+            v.encode('utf-8') if isinstance(v, unicode) else v
+            for k,v in obj}
+
+    genesis_block = json.loads(os.environ['BLOCKSTACK_TEST_GENESIS_BLOCK'], object_pairs_hook=_str_encode)
+
+    BlockstackDB.get_readwrite_instance(working_dir, genesis_block=genesis_block).close()
 
     # preserve test environment variables
     for envar in os.environ.keys():
