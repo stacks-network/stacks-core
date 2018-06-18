@@ -259,6 +259,7 @@ def namedb_create_token_genesis(con, initial_account_balances):
             'vesting': {
                 block_height: value
             },
+            'vesting_total': ...,
             'lock_send': ... (optional; block height)
             'receive_whitelisted': ... (optional; bool)
             'metadata': ... (optional)
@@ -268,6 +269,10 @@ def namedb_create_token_genesis(con, initial_account_balances):
     """
     namedb_query_execute(con, "BEGIN", ())
     for account_info in initial_account_balances:
+        # check required fields 
+        for f in ['address', 'type', 'value']:
+            assert f in account_info, 'BUG: missing {} in {}'.format(f, account_info)
+
         metadata = None
         address = virtualchain.address_reencode(account_info['address'])
         if 'metadata' in account_info and account_info['metadata'] is not None:
@@ -291,6 +296,11 @@ def namedb_create_token_genesis(con, initial_account_balances):
 
         # set up vesting period
         if 'vesting' in account_info:
+            assert 'vesting_total' in account_info, 'BUG: vesting is present but vesting_total is not'
+
+            vesting_sum = sum([ac[h] for h in account_info['vesting']]) 
+            assert vesting_sum == account_info['vesting_total'], 'BUG: vesting mismatch on {}: {} != {}'.format(address, vesting_sum, account_info['vesting'])
+
             for block_height in account_info['vesting']:
                 sql = 'INSERT INTO account_vesting VALUES (?,?,?,?);'
                 args = (address, account_info['type'], '{}'.format(account_info['vesting'][block_height]), block_height)
