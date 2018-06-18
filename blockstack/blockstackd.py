@@ -1845,7 +1845,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
     def rpc_get_zonefile_inventory( self, offset, length, **con_info ):
         """
         Get an inventory bit vector for the zonefiles in the
-        given bit range (i.e. offset and length are in bits)
+        given bit range (i.e. offset and length are in bytes)
         Returns at most 64k of inventory (or 524288 bits)
         Return {'status': True, 'inv': ...} on success, where 'inv' is a b64-encoded bit vector string
         Return {'error': ...} on error.
