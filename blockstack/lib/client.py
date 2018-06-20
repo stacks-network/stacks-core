@@ -904,6 +904,7 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
     return push_info
 
 
+<<<<<<< HEAD
 def get_zonefiles_by_block(from_block, to_block, hostport=None, proxy=None):
     """
     Get zonefile information for zonefiles announced in [@from_block, @to_block]
@@ -962,7 +963,8 @@ def get_zonefiles_by_block(from_block, to_block, hostport=None, proxy=None):
              'zonefile_info' : output_zonefiles }
 
 
-def get_name_record(name, include_history=False, include_expired=False, include_grace=True, proxy=None, hostport=None):
+def get_name_record(name, include_history=False, include_expired=False, include_grace=True, proxy=None, hostport=None,
+                    history_page=None):
     """
     Get the record for a name or a subdomain.  Optionally include its history, and optionally return an expired name or a name in its grace period.
     Return the blockchain-extracted information on success.
@@ -1024,9 +1026,10 @@ def get_name_record(name, include_history=False, include_expired=False, include_
     lastblock = None
     try:
         if include_history:
-            resp = get_name_and_history(name, proxy=proxy)
+            resp = get_name_and_history(name, proxy=proxy, history_page=history_page)
             if 'error' in resp:
-                # fall back to legacy path 
+                # fall back to legacy path
+                log.debug(resp)
                 resp = proxy.get_name_blockchain_record(name)
         else:
             resp = proxy.get_name_record(name)
@@ -2652,7 +2655,7 @@ def name_history_merge(h1, h2):
     return ret
     
 
-def get_name_history(name, hostport=None, proxy=None):
+def get_name_history(name, hostport=None, proxy=None, history_page=None):
     """
     Get the full history of a name
     Returns {'status': True, 'history': ...} on success, where history is grouped by block
@@ -2665,6 +2668,16 @@ def get_name_history(name, hostport=None, proxy=None):
     hist = {}
     indexing = None
     lastblock = None
+
+    if history_page != None:
+        resp = get_name_history_page(name, history_page, proxy=proxy)
+        if 'error' in resp:
+            return resp
+
+        indexing = resp['indexing']
+        lastblock = resp['lastblock']
+
+        return {'status': True, 'history': resp['history'], 'indexing': indexing, 'lastblock': lastblock}
 
     for i in range(0, 10000):       # this is obviously too big
         resp = get_name_history_page(name, i, proxy=proxy)
@@ -2683,7 +2696,7 @@ def get_name_history(name, hostport=None, proxy=None):
     return {'status': True, 'history': hist, 'indexing': indexing, 'lastblock': lastblock}
 
 
-def get_name_and_history(name, include_expired=False, include_grace=True, hostport=None, proxy=None):
+def get_name_and_history(name, include_expired=False, include_grace=True, hostport=None, proxy=None, history_page=None):
     """
     Get the current name record and its history
     (this is a replacement for proxy.get_name_blockchain_record())
@@ -2694,7 +2707,7 @@ def get_name_and_history(name, include_expired=False, include_grace=True, hostpo
     if proxy is None:
         proxy = connect_hostport(hostport)
 
-    hist = get_name_history(name, proxy=proxy)
+    hist = get_name_history(name, proxy=proxy, history_page=history_page)
     if 'error' in hist:
         return hist
 
