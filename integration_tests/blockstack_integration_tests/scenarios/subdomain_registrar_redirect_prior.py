@@ -36,7 +36,6 @@ import sys
 import os
 import requests
 import blockstack
-import blockstack_client
 import blockstack_zones
 from subprocess import Popen
 
@@ -50,28 +49,14 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
-TRANSACTION_BROADCAST_LOCATION = os.environ.get('BSK_TRANSACTION_BROADCAST_LOCATION',
-                                                '/src/transaction-broadcaster')
-
 SUBDOMAIN_REGISTRAR_LOCATION = os.environ.get('BSK_SUBDOMAIN_REGISTRAR_LOCATION',
-                                              '/src/subdomain-registrar')
+                                              '/usr/bin/blockstack-subdomain-registrar')
 
-def start_transaction_broadcaster():
-    try:
-        os.rename('/tmp/transaction_broadcaster.db', '/tmp/transaction_broadcaster.db.last')
-    except OSError:
-        pass
-    env = {'BSK_TRANSACTION_BROADCAST_DEVELOP' : '1'}
-    if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
-        env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
-
-    trans_logfile = '/tmp/transaction_broadcaster.log'
-    fd = open(trans_logfile, 'w')
-
-    Popen(['node', TRANSACTION_BROADCAST_LOCATION + '/lib/index.js'],
-          env = env, stdout=fd, stderr=fd)
+SUBDOMAIN_PROC = None
 
 def start_subdomain_registrar():
+    global SUBDOMAIN_PROC
+
     try:
         os.rename('/tmp/subdomain_registrar.db', '/tmp/subdomain_registrar.last')
     except OSError:
@@ -80,14 +65,11 @@ def start_subdomain_registrar():
     if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
         env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
 
-    subd_logfile = '/tmp/subdomain_registrar.log'
-    fd = open(subd_logfile, 'w')
+    SUBDOMAIN_PROC = Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION], env = env)
 
-    Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION + '/lib/index.js'], env = env, stdout=fd, stderr=fd)
 
 def scenario( wallets, **kw ):
 
-    start_transaction_broadcaster()
     start_subdomain_registrar()
 
     testlib.blockstack_namespace_preorder( "id", wallets[1].addr, wallets[0].privkey )
@@ -99,13 +81,10 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "id", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-
     resp = testlib.blockstack_name_preorder('foo.id', wallets[2].privkey, wallets[3].addr)
     testlib.next_block(**kw)
 
-    zonefile = blockstack_client.zonefile.make_empty_zonefile('foo.id', None)
-    zfdata = blockstack_zones.make_zone_file(zonefile)
+    zfdata = testlib.make_empty_zonefile('foo.id', wallets[3].addr)
     zfhash = blockstack.lib.storage.get_zonefile_data_hash(zfdata)
 
     resp = testlib.blockstack_name_register('foo.id', wallets[2].privkey, wallets[3].addr, zonefile_hash=zfhash)
@@ -178,13 +157,16 @@ def scenario( wallets, **kw ):
 
     testlib.next_block(**kw)
     
-    # should fail--we have too many prior zone files 
+    # should continue to work
     res = testlib.blockstack_REST_call('GET', '/v1/names/zap.foo.id', None)
 
-    if res['http_status'] != 404:
+    if res['http_status'] != 200:
         res['test'] = 'HTTP status {}, response = {} on name lookup'.format(res['http_status'], res['response'])
         print json.dumps(res)
         return False
+
+    SUBDOMAIN_PROC.kill()
+
 
 def check( state_engine ):
 
