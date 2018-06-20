@@ -1571,13 +1571,17 @@ def namedb_history_save( cur, opcode, history_id, creator_address, value_hash, b
     return True
 
 
-def namedb_get_history_rows( cur, history_id, offset=None, count=None ):
+def namedb_get_history_rows( cur, history_id, offset=None, count=None, reverse=False ):
     """
     Get the history for a name or namespace from the history table.
     Use offset/count if given.
     """
     ret = []
-    select_query = "SELECT * FROM history WHERE history_id = ? ORDER BY block_id ASC, vtxindex ASC"
+    if not reverse:
+        select_query = "SELECT * FROM history WHERE history_id = ? ORDER BY block_id ASC, vtxindex ASC"
+    else:
+        select_query = "SELECT * FROM history WHERE history_id = ? ORDER BY block_id DESC, vtxindex DESC"
+
     args = (history_id,)
 
     if count is not None:
@@ -1611,14 +1615,13 @@ def namedb_get_num_history_rows( cur, history_id ):
     return count
 
 
-def namedb_get_history( cur, history_id ):
+def namedb_get_history( cur, history_id, offset=None, count=None, reverse=False ):
     """
     Get all of the history for a name or namespace.
     Returns a dict keyed by block heights, paired to lists of changes (see namedb_history_extract)
     """
-
     # get history in increasing order by block_id and then vtxindex
-    history_rows = namedb_get_history_rows( cur, history_id )
+    history_rows = namedb_get_history_rows( cur, history_id, offset=offset, count=count, reverse=reverse )
     return namedb_history_extract( history_rows )
 
 
