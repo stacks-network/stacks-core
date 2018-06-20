@@ -916,12 +916,12 @@ class BlockstackDB( virtualchain.StateEngine ):
         return namedb_get_account_at(cur, address, block_number)
 
 
-    def get_name_history( self, name ):
+    def get_name_history( self, name, offset=None, count=None, reverse=False):
         """
-        Get the historic states for a name
+        Get the historic states for a name, grouped by block height.
         """
         cur = self.db.cursor()
-        name_hist = namedb_get_history( cur, name )
+        name_hist = namedb_get_history( cur, name, offset=offset, count=count, reverse=reverse )
         return name_hist
     
 
