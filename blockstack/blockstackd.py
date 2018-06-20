@@ -782,6 +782,29 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return self.success_response({'record': res['record']})
 
 
+    def rpc_get_name_history_page(self, name, page, **con_info):
+        """
+        Get the list of history entries for a name's history, paginated.
+        Small pages correspond to later history (page = 0 is the page of last updates)
+        Page size is 20 rows.
+        Return {'status': True, 'history': [...]} on success
+        Return {'error': ...} on error
+        """
+        if not self.check_name(name):
+            return {'error': 'invalid name'}
+
+        if not self.check_count(page):
+            return {'error': 'invalid page'}
+
+        offset = page * 20
+        count = (page + 1) * 20
+
+        db = get_db_state(self.working_dir)
+        history_data = db.get_name_history(name, offset, count, reverse=True)
+        db.close()
+        return self.success_response({'history': history_data})
+       
+
     def rpc_get_name_at( self, name, block_height, **con_info ):
         """
         Get all the states the name was in at a particular block height.
