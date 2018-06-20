@@ -903,7 +903,6 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
     return push_info
 
 
-<<<<<<< HEAD
 def get_zonefiles_by_block(from_block, to_block, hostport=None, proxy=None):
     """
     Get zonefile information for zonefiles announced in [@from_block, @to_block]
