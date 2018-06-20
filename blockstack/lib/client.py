@@ -530,6 +530,7 @@ def getinfo(proxy=None, hostport=None):
 def get_zonefile_inventory(hostport, offset, count, timeout=30, my_hostport=None, proxy=None):
     """
     Get the atlas zonefile inventory from the given peer.
+    offset/count are in bytes.
     Return {'status': True, 'inv': inventory} on success.
     Return {'error': ...} on error
     """
