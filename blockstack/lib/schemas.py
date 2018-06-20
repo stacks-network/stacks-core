@@ -326,6 +326,16 @@ OP_HISTORY_SCHEMA = {
                 },
             ],
         },
+        'resolver': {
+            'anyOf': [
+                {
+                    'type': 'string',
+                },
+                {
+                    'type': 'null',
+                },
+            ],
+        },
         'txid': {
             'type': 'string',
             'pattern': OP_TXID_PATTERN,
@@ -398,6 +408,16 @@ NAMEOP_SCHEMA_PROPERTIES = {
     'op_fee': OP_HISTORY_SCHEMA['properties']['op_fee'],
     'opcode': OP_HISTORY_SCHEMA['properties']['opcode'],
     'revoked': OP_HISTORY_SCHEMA['properties']['revoked'],
+    'resolver': {
+        'anyOf': [
+            {
+                'type': 'string',
+            },
+            {
+                'type': 'null',
+            },
+        ],
+    },
     'sender': OP_HISTORY_SCHEMA['properties']['sender'],
     'sender_pubkey': OP_HISTORY_SCHEMA['properties']['sender_pubkey'],
     'sequence': OP_HISTORY_SCHEMA['properties']['sequence'],
