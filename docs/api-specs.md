@@ -452,12 +452,13 @@ Fetch a list of all names known to the node.
                  ]
             }
                 
-## Name history [GET /v1/names/{name}/history]
+## Name history [GET /v1/names/{name}/history?page={page}]
 Get a history of all blockchain records of a registered name.
 + Public Endpoint
 + Subdomain aware
 + Parameters
   + name: muneeb.id (string) - name to query
+  + page: 0 (integer) - the page (in 20-entry pages) of the history to fetch
 + Response 200 (application/json)
   + Body
 
