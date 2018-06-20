@@ -1092,6 +1092,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         qs_values = path_info['qs_values']
         start_block = qs_values.get('start_block', None)
         end_block = qs_values.get('end_block', None)
+        page = int(qs_values.get('page', 0))
 
         try:
             if start_block is None:
@@ -1111,7 +1112,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         # res = proxy.get_name_blockchain_history(name, start_block, end_block)
-        res = blockstackd_client.get_name_record(name, include_history=True, hostport=blockstackd_url)
+        res = blockstackd_client.get_name_record(name, include_history=True,
+                                                 hostport=blockstackd_url, history_page=page)
         if json_is_error(res):
             self._reply_json({'error': res['error']}, status_code=500)
             return
