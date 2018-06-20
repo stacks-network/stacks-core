@@ -98,7 +98,7 @@ class Subdomain(object):
     """
     Subdomain entry
     """
-    def __init__(self, fqn, domain, address, n, zonefile_str, sig, block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing=[], accepted=False):
+    def __init__(self, fqn, domain, address, n, zonefile_str, sig, block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing=[], accepted=False, resolver=None):
         """
         @fqn: fully-qualified subdomain name
         @domain: the stem name at which this subdomain record was found
@@ -132,6 +132,8 @@ class Subdomain(object):
         self.domain_zonefiles_missing = domain_zonefiles_missing
         self.pending = None     # set at runtime
         self.did_info = None    # set at runtime
+        
+        self.resolver = resolver
 
 
     def get_fqn(self):
@@ -247,6 +249,9 @@ class Subdomain(object):
         if self.pending is not None:
             ret['pending'] = self.pending
 
+        if self.resolver is not None:
+            ret['resolver'] = self.resolver
+
         return ret
    
 
@@ -268,7 +273,7 @@ class Subdomain(object):
 
 
     @staticmethod
-    def parse_subdomain_record(domain_name, rec, block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing):
+    def parse_subdomain_record(domain_name, rec, block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing, resolver=None):
         """
         Parse a subdomain record, and verify its signature.
         @domain_name: the stem name
@@ -333,7 +338,7 @@ class Subdomain(object):
             # already fully-qualified
             subd_name = rec['name']
             
-        return Subdomain(str(subd_name), str(domain_name), str(pubkey), int(n), base64.b64decode(b64_zonefile), str(sig), block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing=domain_zonefiles_missing)
+        return Subdomain(str(subd_name), str(domain_name), str(pubkey), int(n), base64.b64decode(b64_zonefile), str(sig), block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing=domain_zonefiles_missing, resolver=resolver)
 
 
     def get_public_key(self):
@@ -1023,6 +1028,7 @@ class SubdomainDB(object):
         txid = str(rowdata['txid'])
         missing = [int(i) for i in rowdata['missing'].split(',')] if rowdata['missing'] is not None and len(rowdata['missing']) > 0 else []
         accepted = int(rowdata['accepted'])
+        resolver = str(rowdata['resolver']) if rowdata['resolver'] is not None else None
 
         if accepted == 0:
             accepted = False
@@ -1044,7 +1050,7 @@ class SubdomainDB(object):
             log.error("No zone file for {}".format(name))
             raise SubdomainNotFound('{}: missing zone file {}'.format(name, zonefile_hash))
 
-        return Subdomain(str(name), str(domain), str(encoded_pubkey), int(n), str(zonefile_str), sig, block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing=missing, accepted=accepted)
+        return Subdomain(str(name), str(domain), str(encoded_pubkey), int(n), str(zonefile_str), sig, block_height, parent_zonefile_hash, parent_zonefile_index, txid, domain_zonefiles_missing=missing, accepted=accepted, resolver=resolver)
 
 
     def get_subdomains_count(self, accepted=True, cur=None):
@@ -1204,6 +1210,28 @@ class SubdomainDB(object):
             return []
 
 
+    def get_domain_resolver(self, domain_name, cur=None):
+        """
+        Get the last-knwon resolver entry for a domain name
+        Returns None if not found.
+        """
+        get_cmd = "SELECT resolver FROM {} WHERE domain=? AND resolver != '' AND accepted=1 ORDER BY sequence DESC, parent_zonefile_index DESC LIMIT 1;".format(self.subdomain_table)
+
+        cursor = None
+        if cur is None:
+            cursor = self.conn.cursor()
+        else:
+            cursor = cur
+
+        db_query_execute(cursor, get_cmd, (domain_name,))
+
+        rowdata = cursor.fetchone()
+        if not rowdata:
+            return None
+
+        return rowdata['resolver']
+
+
     def get_subdomain_DID_info(self, fqn, cur=None):
         """
         Get the DID information for a subdomain.
@@ -1348,12 +1376,13 @@ class SubdomainDB(object):
         if not rc:
             raise Exception("Failed to store zone file {} from {}".format(zonefile_hash, subdomain_obj.get_fqn()))
         
-        write_cmd = 'INSERT OR REPLACE INTO {} VALUES (?,?,?,?,?,?,?,?,?,?,?,?)'.format(self.subdomain_table)
+        write_cmd = 'INSERT OR REPLACE INTO {} VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'.format(self.subdomain_table)
         args = (subdomain_obj.get_fqn(), subdomain_obj.domain, subdomain_obj.n, subdomain_obj.address, zonefile_hash,
                 subdomain_obj.sig, subdomain_obj.block_height, subdomain_obj.parent_zonefile_hash,
                 subdomain_obj.parent_zonefile_index, subdomain_obj.txid, 
                 ','.join(str(i) for i in subdomain_obj.domain_zonefiles_missing),
-                1 if subdomain_obj.accepted else 0)
+                1 if subdomain_obj.accepted else 0,
+                subdomain_obj.resolver)
 
         cursor = None
         if cur is None:
@@ -1478,6 +1507,7 @@ class SubdomainDB(object):
         txid TEXT NOT NULL,
         missing TEXT NOT NULL,
         accepted INTEGER NOT NULL,
+        resolver TEXT,
         PRIMARY KEY(fully_qualified_subdomain,parent_zonefile_index));
         """.format(self.subdomain_table)
         db_query_execute(cursor, create_cmd, ())
@@ -1530,6 +1560,12 @@ def decode_zonefile_subdomains(domain, zonefile_txt, block_height, zonefile_inde
             raise ValueError("Not a user zone file")
 
         assert zonefile_json['$origin'] == domain, 'Zonefile does not contain $ORIGIN == {} (but has {} instead)'.format(domain, zonefile_json['$origin'])
+        
+        resolver_url = None
+        if 'uri' in zonefile_json:
+            resolver_urls = [x['target'] for x in zonefile_json['uri'] if x['name'] == SUBDOMAIN_TXT_RR_RESOLVER]
+            if len(resolver_urls) > 0:
+                resolver_url = resolver_urls[0]
 
         subdomains = {}     # map fully-qualified name to subdomain record with lowest sequence number
         subdomain_pos = {}  # map fully-qualified name to position in zone file
@@ -1561,7 +1597,7 @@ def decode_zonefile_subdomains(domain, zonefile_txt, block_height, zonefile_inde
                         if txt['name'] in SUBDOMAIN_TXT_RR_RESERVED:
                             continue
 
-                        subrec = Subdomain.parse_subdomain_record(domain, txt, block_height, zonefile_hash, zonefile_index, txid, domain_zonefiles_missing)
+                        subrec = Subdomain.parse_subdomain_record(domain, txt, block_height, zonefile_hash, zonefile_index, txid, domain_zonefiles_missing, resolver=resolver_url)
                     except ParseError as pe:
                         if BLOCKSTACK_DEBUG:
                             log.exception(pe)
@@ -1778,6 +1814,29 @@ def get_subdomain_info(fqn, db_path=None, atlasdb_path=None, zonefiles_dir=None,
         subrec.did_info = db.get_subdomain_DID_info(fqn)
 
     return subrec
+
+
+def get_subdomain_resolver(name, db_path=None, zonefiles_dir=None):
+    """
+    Static method for determining the last-known resolver for a domain name.
+    Returns the resolver URL on success
+    Returns None on error
+    """
+    opts = get_blockstack_opts()
+    if not is_subdomains_enabled(opts):
+        log.warn("Subdomain support is disabled")
+        return None
+
+    if db_path is None:
+        db_path = opts['subdomaindb_path']
+
+    if zonefiles_dir is None:
+        zonefiles_dir = opts['zonefiles']
+
+    db = SubdomainDB(db_path, zonefiles_dir)
+    resolver_url = db.get_domain_resolver(name)
+
+    return resolver_url
 
 
 def get_subdomains_count(db_path=None, zonefiles_dir=None):
