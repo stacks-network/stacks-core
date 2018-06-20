@@ -68,7 +68,7 @@ from lib.fast_sync import *
 from lib.rpc import BlockstackAPIEndpoint
 from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history,
                             get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info,
-                            get_all_subdomains, get_subdomains_count)
+                            get_all_subdomains, get_subdomains_count, get_subdomain_resolver)
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
@@ -600,6 +600,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             name_record = self.load_name_info(db, name_record)
             db.close()
 
+            # also get the subdomain resolver 
+            resolver = get_subdomain_resolver(name)
+            name_record['resolver'] = resolver
             return {'status': True, 'record': name_record}
 
 
@@ -790,10 +793,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'status': True, 'history': [...]} on success
         Return {'error': ...} on error
         """
-        if not self.check_name(name):
+        if not check_name(name):
             return {'error': 'invalid name'}
 
-        if not self.check_count(page):
+        if not check_count(page):
             return {'error': 'invalid page'}
 
         offset = page * 20
