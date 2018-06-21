@@ -1,0 +1,67 @@
+#!/bin/bash
+
+set -e
+
+GENESIS_BLOCK_HISTORY_PATH="$1"
+if [ -z "$GENESIS_BLOCK_HISTORY_PATH" ]; then 
+    echo "usage: $0 /path/to/genesis/block/history.json"
+    exit 1
+fi
+
+WORKDIR="$(mktemp -d)"
+pushd "$WORKDIR" >/dev/null
+
+GPGDIR="./.gnupg"
+mkdir -p "$GPGDIR"
+
+# unpack keys 
+cat "$GENESIS_BLOCK_HISTORY_PATH" | jq ".keys" | jq "keys" | jq -r ".[]" | \
+while IFS= read KEY_ID; do 
+   printf -- "$(cat "$GENESIS_BLOCK_HISTORY_PATH" | jq -r ".keys.$KEY_ID")" > ".key.txt"
+   gpg --homedir "$GPGDIR" --import ".key.txt"
+   RC="$?"
+
+   if [ "$RC" -ne "0" ]; then 
+      echo "failed to import $KEY_ID"
+      exit 1
+   fi
+done
+
+RC=$?
+
+if [ "$RC" -ne "0" ]; then 
+   echo "failed to import keys"
+   exit 1
+fi
+
+# unpack commits and verify them 
+cat "$GENESIS_BLOCK_HISTORY_PATH" | jq ".commits[]" | jq ".object" | \
+while IFS= read -r OBJECT_TEXT; do
+   OBJECT_TEXT="${OBJECT_TEXT%\"}"
+   OBJECT_TEXT="${OBJECT_TEXT#\"}"
+
+   printf -- "$OBJECT_TEXT" | grep -B 9999 'BEGIN PGP SIGNATURE-----' | head -n -1 > ".commit-stripped"
+   printf -- "$OBJECT_TEXT" | grep -A 9999 'END PGP SIGNATURE-----' | tail -n +2 >> ".commit-stripped"
+   printf -- "$OBJECT_TEXT" > ".commit.sig.tmp"
+   sed 's/^gpgsig //' ".commit.sig.tmp" | sed 's/^ //' > ".commit.sig"
+
+   gpg --homedir "$GPGDIR" --verify ".commit.sig" ".commit-stripped"
+   RC="$?"
+
+   if [ "$RC" -ne "0" ]; then 
+      echo "failed to verify commit"
+      printf "$OBJECT_TXT"
+      exit 1
+   fi
+done
+
+RC=$?
+
+if [ "$RC" -ne "0" ]; then 
+   echo "failed to verify history"
+   exit 1
+fi
+
+popd
+echo rm -rf "$WORKDIR"
+exit 0
