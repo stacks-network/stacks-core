@@ -381,7 +381,7 @@ $ pip uninstall scrypt; pip install scrypt
 
 Some API calls are privileged, because they interact with the wallet and other
 sensitive API daemon state (like its config file).  In the [API
-documentation](https://blockstack.github.io), these methods are marked as
+documentation](https://blockstack.github.io/blockstack-core), these methods are marked as
 `Requires root authorization`.
 
 To use these methods, you will need to do two things:
@@ -487,7 +487,7 @@ You can learn more by visiting [the Blockstack Website](https://blockstack.org) 
 You can also read peer-reviewed Blockstack papers:
 
 - ["Blockstack: A Global Naming and Storage System Secured by Blockchains"](https://blockstack.org/blockstack.pdf), Proc. USENIX Annual Technical Conference ([ATC '16](https://www.usenix.org/conference/atc16)), June 2016
-- ["Extending Existing Blockchains with Virtualchain"](https://blockstack.org/virtualchain_dccl2016.pdf), Distributed Cryptocurrencies and Consensus Ledgers ([DCCL '16](https://www.zurich.ibm.com/dccl/) workshop, at [ACM PODC 2016](https://www.podc.org/podc2016/)), July 2016
+- ["Extending Existing Blockchains with Virtualchain"](https://blockstack.org/virtualchain_dccl16.pdf), Distributed Cryptocurrencies and Consensus Ledgers ([DCCL '16](https://www.zurich.ibm.com/dccl/) workshop, at [ACM PODC 2016](https://www.podc.org/podc2016/)), July 2016
 
 If you have high-level questions about Blockstack, try [searching our forum](https://forum.blockstack.org) and start a new question if your question is not answered there.
 
