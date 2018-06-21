@@ -108,5 +108,5 @@ EOF
 
 JSON_OUT="${JSON_OUT%%,} ] }"
 
-# echo "$JSON_OUT"
-echo "$JSON_OUT" | jq -M .
+echo "$JSON_OUT" | jq -SMc .
+
