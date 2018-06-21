@@ -200,7 +200,7 @@ CREATE INDEX address_accounts ON accounts(address, type);
 # when the system reaches a block that vests, a "credit" operation will be generated and inserted into the accounts table to reflect it.
 BLOCKSTACK_DB_SCRIPT += """
 CREATE TABLE account_vesting( address TEXT NOT NULL,            -- account address
-                              type TEXT NOT NULL,               -- type of token (e.g. STACKs)
+                              type TEXT NOT NULL,               -- type of token (e.g. STACKS, GENESIS)
                               vesting_value TEXT NOT NULL,      -- value to vest, encoded as a TEXT to avoid overflow (unit value, e.g. microSTACKs)
                               block_id INTEGER NOT NULL,        -- block at which these tokens are credited
 
@@ -244,7 +244,19 @@ def namedb_vesting_txid(address, token_type, token_amount, block_height):
     return virtualchain.lib.hashing.bin_double_sha256(preimage).encode('hex')
 
 
-def namedb_create_token_genesis(con, initial_account_balances):
+def namedb_genesis_block_history_hash(genesis_block_history):
+    """
+    Make a "fake" txid for the genesis block history
+    Returns a 32-byte hash (single sha256), hex-encoded
+    (single sha256 so it can be easily verified against our genesis block tooling)
+    """
+    # no-whitespace sorted serialization
+    preimage = json.dumps(genesis_block_history, sort_keys=True, separators=(',',':'))
+    h = hashlib.sha256(preimage).hexdigest()
+    return h
+
+
+def namedb_create_token_genesis(con, initial_account_balances, genesis_block_history={'keys': {}, 'commits': []}):
     """
     Create the initial account balances.
     All accounts will be locked, and will have been created at the genesis date
@@ -266,6 +278,21 @@ def namedb_create_token_genesis(con, initial_account_balances):
         },
         {...}
     ]
+    @genesis_block_history this structure:
+    {
+        "keys": {
+            key_id: key data,
+            ...
+        },
+        "commits": [
+            {
+                "hash": ...,
+                "body": ...
+            },
+            { ... }
+        ],
+    }
+    we'll store the genesis block history's canonical hash as the first transaction.
     """
     namedb_query_execute(con, "BEGIN", ())
     for account_info in initial_account_balances:
@@ -305,6 +332,12 @@ def namedb_create_token_genesis(con, initial_account_balances):
                 sql = 'INSERT INTO account_vesting VALUES (?,?,?,?);'
                 args = (address, account_info['type'], '{}'.format(account_info['vesting'][block_height]), block_height)
                 namedb_query_execute(con, sql, args)
+
+    # insert genesis history 
+    genesis_hash = namedb_genesis_block_history_hash(genesis_block_history)
+    sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?);'
+    args = (BLOCKSTACK_BURN_ADDRESS, 'GENESIS', '0', '0', True, False, genesis_hash, FIRST_BLOCK_MAINNET, genesis_hash, 0)
+    namedb_query_execute(con, sql, args)
 
     namedb_query_execute(con, "END", ())
 
