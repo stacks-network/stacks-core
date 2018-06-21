@@ -18,11 +18,20 @@ mkdir -p "$GPGDIR"
 cat "$GENESIS_BLOCK_HISTORY_PATH" | jq ".keys" | jq "keys" | jq -r ".[]" | \
 while IFS= read KEY_ID; do 
    printf -- "$(cat "$GENESIS_BLOCK_HISTORY_PATH" | jq -r ".keys.$KEY_ID")" > ".key.txt"
+   printf "\n" >> ".key.txt"
    gpg --homedir "$GPGDIR" --import ".key.txt"
    RC="$?"
 
    if [ "$RC" -ne "0" ]; then 
       echo "failed to import $KEY_ID"
+      exit 1
+   fi
+
+   # make sure this key loads (i.e. matches the key ID)
+   gpg --homedir "$GPGDIR" --export -a "$KEY_ID" > ".key-out.txt"
+   cmp ".key.txt" ".key-out.txt" >/dev/null 2>&1
+   if [ "$?" -ne 0 ]; then 
+      echo "Key mismatch for $KEY_ID"
       exit 1
    fi
 done
