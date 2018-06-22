@@ -1000,7 +1000,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
 
     # make sure we're connected
     try:
-        rpcclient = testlib.TestAPIProxy()
+        rpcclient = blockstack.lib.client.BlockstackRPCClient('localhost', 16264, protocol='http')
         res = rpcclient.getinfo()
     except Exception as e:
         log.exception(e)
