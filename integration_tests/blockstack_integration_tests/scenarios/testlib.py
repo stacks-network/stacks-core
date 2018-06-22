@@ -430,9 +430,9 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
     if has_nodejs_cli():
         txid = None
         if zonefile_hash is not None:
-            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, privatekey, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
         else:
-            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, privatekey, safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
 
         if 'error' in txid:
             return txid
@@ -537,15 +537,15 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
         txid = None
         if recipient_addr is not None:
             if zonefile_hash is not None:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, 'ID-' + recipient_addr, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_only=tx_only, price=price, burn_addr=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 'ID-' + recipient_addr, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_only=tx_only, price=price, burn_addr=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
             else:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, 'ID-' + recipient_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
+                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 'ID-' + recipient_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
         else:
             if zonefile_hash is not None:
                 # txid = nodejs_cli('renew', name, privatekey, payment_key, owner_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
                 raise Exception("Cannot set a zone file hash without a destination address")
             else:
-                txid = nodejs_cli('renew', name, privatekey, payment_key, safety_checks=safety_checks, burn_addr=burn_addr, price=price, tx_fee=tx_fee)
+                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), safety_checks=safety_checks, burn_addr=burn_addr, price=price, tx_fee=tx_fee)
 
         if 'error' in txid:
             return txid
@@ -634,7 +634,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     return resp
 
 
-def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_only=False, price=None, expect_fail=False, use_cli=True):
+def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_fee=None, tx_only=False, price=None, expect_fail=False, use_cli=True, burn_addr=None):
     
     global api_call_history
     resp = None
@@ -677,7 +677,7 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
         txid = {}
         try:
             txid = nodejs_cli('namespace_reveal', namespace_id, register_addr, '{}'.format(version_bits), '{}'.format(lifetime), '{}'.format(coeff), '{}'.format(base), 
-                    ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), privatekey, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only)
+                    ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), serialize_privkey_info(privatekey), safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only)
         
         except:
             if expect_fail:
@@ -714,7 +714,7 @@ def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, tx
     resp = None
 
     if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('namespace_ready', namespace_id, privatekey, safety_checks=safety_checks, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+        txid = nodejs_cli('namespace_ready', namespace_id, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
 
         if 'error' in txid:
             return txid
@@ -741,7 +741,7 @@ def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False,
 
     if has_nodejs_cli():
         message_hash = blockstack.lib.storage.get_zonefile_data_hash(message)
-        txid = nodejs_cli('announce',  message_hash, privatekey, safety_checks=safety_checks, tx_only=tx_only)
+        txid = nodejs_cli('announce',  message_hash, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_only=tx_only)
 
         if 'error' in txid:
             return txid
