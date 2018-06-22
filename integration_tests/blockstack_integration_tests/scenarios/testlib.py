@@ -827,7 +827,7 @@ def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, tx
     global api_call_history
     resp = None
 
-    if has_nodejs_cli() and (not virtualchain.is_multisig(privatekey) or ('segwit' not in privatekey or not privatekey['segwit'])):
+    if has_nodejs_cli():
         txid = nodejs_cli('namespace_ready', namespace_id, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_only=tx_only, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
