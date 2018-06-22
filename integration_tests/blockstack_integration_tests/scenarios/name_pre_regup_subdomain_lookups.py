@@ -145,8 +145,6 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
    
     # query each subdomain
-    proxy = testlib.make_proxy()
-
     # test 301 redirects.
     res = testlib.blockstack_REST_call('GET', '/v1/names/baz.foo1.test', allow_redirects = False)
     if 'error' in res:

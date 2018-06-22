@@ -37,7 +37,6 @@ import blockstack.lib.storage as storage
 import blockstack.lib.client as client
 import blockstack_zones
 import base64
-import blockstack_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),

@@ -35,7 +35,6 @@ import json
 import sys
 import os
 import requests
-import blockstack_client
 from subprocess import Popen
 
 wallets = [
