@@ -37,7 +37,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 def scenario( wallets, **kw ):
     testlib.next_block(**kw)
 
-    rpcclient = testlib.TestAPIProxy()
+    rpcclient = blockstack.lib.client.BlockstackRPCClient('localhost', 16264, debug_timeline=True, protocol='http')
 
     res = rpcclient.getinfo()
     assert 'stale' not in res and 'error' not in res

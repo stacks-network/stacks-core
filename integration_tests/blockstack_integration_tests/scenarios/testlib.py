@@ -55,8 +55,6 @@ import virtualchain
 
 log = virtualchain.get_logger("testlib")
 
-from . import blockstack_client
-
 SATOSHIS_PER_COIN = 10**8
 
 TX_MIN_CONFIRMATIONS = 6
@@ -162,62 +160,6 @@ class APICallRecord(object):
         assert 'transaction_hash' in result.keys() or 'error' in result.keys()
 
 
-class TestAPIProxy(object):
-    def __init__(self):
-        global utxo_opts
-
-        client_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-        assert client_path is not None
-
-        client_config = blockstack_client.get_config(client_path)
-
-        log.debug("Connect to Blockstack node at {}:{}".format(client_config['server'], client_config['port']))
-        self.client = blockstack.lib.client.BlockstackRPCClient(
-            client_config['server'], client_config['port'], protocol = client_config['protocol'])
-
-        self.config_path = client_path
-        self.conf = {
-            "start_block": blockstack.FIRST_BLOCK_MAINNET,
-            "storage_drivers": client_config['storage_drivers'],
-            "metadata": client_config['metadata'],
-            "path": client_path,
-            "queue_path": client_config['queue_path'],
-            "server": client_config['server'],
-            "port": client_config['port'],
-            "api_endpoint_port": int(client_config['api_endpoint_port']),
-            'bitcoind_spv_path': utxo_opts['spv_headers_path'],
-            "api_password": client_config['api_password'],
-        }
-        self.spv_headers_path = utxo_opts['spv_headers_path']
-        self.min_confirmations = TX_MIN_CONFIRMATIONS
-
-        if not os.path.exists(self.conf['metadata']):
-            os.makedirs(self.conf['metadata'], 0700)
-
-
-    def __getattr__(self, name):
-        
-        try:
-            def inner(*args, **kw):
-                rc = None
-                if name == 'get_unspents':
-                    r = get_unspents(*args, **kw)
-
-                elif name == 'broadcast_transaction':
-                    r = broadcast_transaction(*args, **kw)
-
-                else:
-                    c = getattr( self.client, name)
-                    r = c(*args, **kw)
-
-                return r
-
-            return inner
-        except Exception, e:
-            log.exception(e)
-            raise Exception("No such attribute or API call: '%s'" % name)
-
-
 # store the database after each block, under this directory
 snapshots_dir = None
 
@@ -304,32 +246,6 @@ def expect_atlas_zonefile( zonefile_hash ):
     """
     global atlas_zonefiles_present
     atlas_zonefiles_present.append( zonefile_hash )
-
-
-def make_proxy(password=None, config_path=None):
-    """
-    Create a blockstack client API proxy
-    """
-    client_path = None
-    if config_path is None:
-        client_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-        assert client_path is not None
-
-    else:
-        client_path = config_path
-
-    client_config = blockstack_client.get_config(client_path)
-    proxy = blockstack_client.session( conf=client_config, wallet_password=password )
-    assert proxy
-
-    proxy.config_path = client_path
-
-    # add in some UTXO goodness 
-    proxy.get_unspents = get_unspents
-    proxy.broadcast_transaction = broadcast_transaction
-    proxy.min_confirmations = int(os.environ.get("BLOCKSTACK_MIN_CONFIRMATIONS", blockstack_client.constants.TX_MIN_CONFIRMATIONS))
-
-    return proxy
 
 
 def blockstack_get_name_cost(name, config_path=None):
@@ -478,8 +394,9 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     register_addr = virtualchain.address_reencode(register_addr)
      
     resp = None
-    if has_nodejs_cli() and wallet is None and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('tx_preorder', name, 'ID-' + register_addr, privatekey, burn_addr=burn_addr, consensus_hash=consensus_hash, tx_fee=tx_fee, tx_only=tx_only, price=price, safety_checks=safety_checks, pattern='^[0-9a-f]{64}$')
+    if has_nodejs_cli():
+        txid = nodejs_cli('tx_preorder', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), burn_addr=burn_addr, consensus_hash=consensus_hash,
+                          tx_fee=tx_fee, tx_only=tx_only, price=price, safety_checks=safety_checks, expect_fail=expect_fail, pattern='^[0-9a-f]{64}$')
 
         if 'error' in txid:
             return txid
@@ -496,28 +413,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
             }
 
     else:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-
-        owner_privkey_info = None
-        try:
-            owner_privkey_info = find_wallet(register_addr).privkey
-        except:
-            if safety_checks:
-                raise
-
-        blockstackd_url = 'http://localhost:16264'
-        name_cost_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
-        assert 'amount' in name_cost_info, 'error getting cost of {}: {}'.format(name,name_cost_info)
-
-        cost = name_cost_info['amount']
-        units = name_cost_info['units']
-
-        log.debug("Name {} cost {} units of {}".format(name, units, cost))
-
-        resp = blockstack_client.do_preorder( name, privatekey, owner_privkey_info, units, cost, test_proxy, test_proxy, tx_fee=tx_fee,
-                burn_address=burn_addr, owner_address=register_addr, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+        raise Exception("No Node.js CLI found")
 
     if not tx_only:
         api_call_history.append( APICallRecord( "preorder", name, payment_addr, resp ) )
@@ -531,7 +427,7 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
     resp = None
     register_addr = virtualchain.address_reencode(register_addr)
 
-    if has_nodejs_cli() and wallet is None and virtualchain.is_singlesig(privatekey):
+    if has_nodejs_cli():
         txid = None
         if zonefile_hash is not None:
             txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, privatekey, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
@@ -553,26 +449,7 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
             }
 
     else:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-
-        owner_privkey_info = None
-        try:
-            owner_privkey_info = find_wallet(register_addr).privkey
-        except:
-            if safety_checks:
-                raise
-
-        kwargs = {}
-        if not safety_checks:
-            if tx_fee is None:
-                tx_fee = 1
-
-            kwargs = {'tx_fee' : tx_fee} # regtest shouldn't care about the tx_fee
-
-        resp = blockstack_client.do_register( name, privatekey, owner_privkey_info, test_proxy, test_proxy, 
-                zonefile_hash=zonefile_hash, owner_address=register_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, **kwargs )
+        raise Exception("No Node.js CLI found")
 
     if not tx_only:
         api_call_history.append( APICallRecord( "register", name, register_addr, resp ) )
@@ -580,15 +457,16 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
     return resp
 
 
-def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, test_api_proxy=True, safety_checks=True, tx_only=False, config_path=None, tx_fee=None ):
+def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, safety_checks=True, tx_only=False, config_path=None, tx_fee=None, expect_fail=False ):
     
     global api_call_history
     
     payment_key = get_default_payment_wallet().privkey
     resp = None
 
-    if has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key):
-        txid = nodejs_cli('update', name, 'ignored', privatekey, payment_key, data_hash, safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+    if has_nodejs_cli():
+        txid = nodejs_cli('update', name, 'ignored', serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), data_hash, 
+                safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -605,12 +483,7 @@ def blockstack_name_update( name, data_hash, privatekey, consensus_hash=None, te
             }
 
     else:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-
-        resp = blockstack_client.do_update( name, data_hash, privatekey, payment_key, test_proxy, test_proxy,
-                consensus_hash=consensus_hash, tx_fee=tx_fee, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+        raise Exception("No Node.js CLI found")
 
     if not tx_only:
         api_call_history.append( APICallRecord( "update", name, None, resp ) )
@@ -625,8 +498,9 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
     payment_key = get_default_payment_wallet().privkey
     resp = None
 
-    if has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key):
-        txid = nodejs_cli('transfer', name, 'ID-' + address, '{}'.format(keepdata).lower(), privatekey, payment_key, safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+    if has_nodejs_cli():
+        txid = nodejs_cli('transfer', name, 'ID-' + address, '{}'.format(keepdata).lower(), serialize_privkey_info(privatekey), serialize_privkey_info(payment_key),
+                safety_checks=safety_checks, consensus_hash=consensus_hash, tx_only=tx_only, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -643,12 +517,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
             }
 
     else:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-
-        resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy,
-                tx_fee=tx_fee, consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+        raise Exception("No Node.js CLI found")
 
     if not tx_only:
         api_call_history.append( APICallRecord( "transfer", name, address, resp ) )
@@ -664,7 +533,7 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
     payment_key = get_default_payment_wallet().privkey
     resp = None
 
-    if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key) and not (recipient_addr is None and zonefile_hash is not None):
+    if has_nodejs_cli():
         txid = None
         if recipient_addr is not None:
             if zonefile_hash is not None:
@@ -693,16 +562,7 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
             }
 
     else:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-
-        blockstackd_url = 'http://localhost:16264'
-        name_cost_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
-
-        log.debug("Renew %s for %s units of %s" % (name, name_cost_info['amount'], name_cost_info['units']))
-        resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['units'], name_cost_info['amount'], test_proxy, test_proxy, tx_fee=tx_fee, tx_fee_per_byte=tx_fee_per_byte,
-                burn_address=burn_addr, zonefile_hash=zonefile_hash, recipient_addr=recipient_addr, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+        raise Exception("No Node.js CLI found")
 
     if not tx_only:
         api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp ) )
@@ -717,8 +577,8 @@ def blockstack_name_revoke( name, privatekey, safety_checks=True, config_path=No
     payment_key = get_default_payment_wallet().privkey
     resp = None
 
-    if has_nodejs_cli() and virtualchain.is_singlesig(privatekey) and virtualchain.is_singlesig(payment_key):
-        txid = nodejs_cli('revoke', name, privatekey, payment_key, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+    if has_nodejs_cli():
+        txid = nodejs_cli('revoke', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -735,11 +595,7 @@ def blockstack_name_revoke( name, privatekey, safety_checks=True, config_path=No
             }
 
     else:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-
-        resp = blockstack_client.do_revoke( name, privatekey, payment_key, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks, tx_fee=tx_fee )
+        raise Exception("No Node.js CLI found")
 
     if not tx_only:
         api_call_history.append( APICallRecord( "revoke", name, None, resp ) )
@@ -752,8 +608,8 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     global api_call_history
     
     resp = None
-    if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('name_import', name, 'ID-' + recipient_address, "ignored_gaia_hub", privatekey, "ignored_zonefile_path", update_hash, tx_only=tx_only, safety_checks=safety_checks)
+    if has_nodejs_cli():
+        txid = nodejs_cli('name_import', name, 'ID-' + recipient_address, "ignored_gaia_hub", serialize_privkey_info(privatekey), "ignored_zonefile_path", update_hash, tx_only=tx_only, safety_checks=safety_checks, expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -770,11 +626,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
             }
 
     else:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-    
-        resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+        raise Exception("No Node.js CLI found")
 
     if not tx_only:
         api_call_history.append( APICallRecord( "name_import", name, virtualchain.address_reencode(recipient_address), resp ) )
@@ -788,8 +640,9 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
     resp = None
     payment_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
 
-    if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
-        txid = nodejs_cli('namespace_preorder', namespace_id, register_addr, privatekey, consensus_hash=consensus_hash, safety_checks=safety_checks, price=price, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+    if has_nodejs_cli():
+        txid = nodejs_cli('namespace_preorder', namespace_id, register_addr, serialize_privkey_info(privatekey), 
+                consensus_hash=consensus_hash, burn_addr=burn_addr, safety_checks=safety_checks, price=price, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -806,19 +659,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
             }
         
     else:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-        register_addr = virtualchain.address_reencode(register_addr)
-
-        blockstackd_url = 'http://localhost:16264'
-        namespace_cost = blockstackd_client.get_namespace_cost(namespace_id, hostport=blockstackd_url)
-        if 'error' in namespace_cost:
-            log.error("Failed to get namespace cost for '%s': %s" % (namespace_id, namespace_cost['error']))
-            return {'error': 'Failed to get namespace costs'}
-        
-        resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['units'], namespace_cost['amount'], privatekey, register_addr, test_proxy, test_proxy,
-                consensus_hash=consensus_hash, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+        raise Exception("No Node.js CLI found")
 
     if not tx_only:
         api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
@@ -832,7 +673,7 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     resp = None
     register_addr = virtualchain.address_reencode(register_addr)
 
-    if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
+    if has_nodejs_cli():
         txid = {}
         try:
             txid = nodejs_cli('namespace_reveal', namespace_id, register_addr, '{}'.format(version_bits), '{}'.format(lifetime), '{}'.format(coeff), '{}'.format(base), 
@@ -859,12 +700,7 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
             }
 
     else:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-
-        resp = blockstack_client.do_namespace_reveal( namespace_id, version_bits, register_addr, lifetime, coeff, base, bucket_exponents,
-                nonalpha_discount, no_vowel_discount, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy)
+        raise Exception("No Node.js CLI found")
 
     if not tx_only:
         api_call_history.append( APICallRecord( "namespace_reveal", namespace_id, virtualchain.address_reencode(register_addr), resp ) )
@@ -889,11 +725,7 @@ def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, tx
         }
 
     else:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-        
-        resp = blockstack_client.do_namespace_ready( namespace_id, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks ) 
+        raise Exception("No Node.js CLI found")
 
     if not tx_only:
         api_call_history.append( APICallRecord( "namespace_ready", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
@@ -907,7 +739,7 @@ def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False,
 
     resp = None
 
-    if has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
+    if has_nodejs_cli():
         message_hash = blockstack.lib.storage.get_zonefile_data_hash(message)
         txid = nodejs_cli('announce',  message_hash, privatekey, safety_checks=safety_checks, tx_only=tx_only)
 
@@ -926,11 +758,7 @@ def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False,
             }
 
     else:
-        test_proxy = make_proxy(config_path=config_path)
-        blockstack_client.set_default_proxy( test_proxy )
-        config_path = test_proxy.config_path if config_path is None else config_path
-
-        resp = blockstack_client.do_announce( message, privatekey, test_proxy, test_proxy, config_path=config_path, proxy=test_proxy, safety_checks=safety_checks )
+        raise Exception("No Node.js CLI found")
 
     if not tx_only:
         api_call_history.append( APICallRecord( "announce", message, None, resp ) )
@@ -960,11 +788,7 @@ def serialize_privkey_info(payment_privkey):
         if payment_privkey['segwit']:
             m = payment_privkey['m']
             n = len(payment_privkey['private_keys'])
-
-            if n > 1:
-                payment_privkey_str = 'segwit:{},{},{}'.format(m, n, ','.join(payment_privkey['private_keys']))
-            else:
-                payment_privkey_str = 'segwit:{}'.format(payment_privkey['private_keys'][0])
+            payment_privkey_str = 'segwit:p2sh:{},{}'.format(m, ','.join(payment_privkey['private_keys']))
         else:
             m, pubks = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
             n = len(payment_privkey['private_keys'])
@@ -1507,120 +1331,6 @@ def blockstack_export_db( snapshots_dir, block_height, **kw ):
     if os.path.exists(subdomain_path):
         virtualchain.sqlite3_backup(subdomain_path, os.path.join(export_dir, 'subdomains.db'))
 
-'''
-def make_legacy_wallet( master_private_key, password ):
-    """
-    make a legacy pre-0.13 wallet with a single master private key
-    """
-    master_private_key = virtualchain.BitcoinPrivateKey(master_private_key).to_hex()
-    hex_password = binascii.hexlify(password)
-
-    legacy_wallet = {
-        'encrypted_master_private_key': aes_encrypt( master_private_key, hex_password )
-    }
-
-    return legacy_wallet
-
-
-def encrypt_multisig_info(multisig_info, password):
-    """
-    Given a multisig info dict,
-    encrypt the sensitive fields.
-
-    LEGACY WALLET TESTING ONLY
-
-    Returns {'encrypted_private_keys': ..., 'encrypted_redeem_script': ..., **other_fields}
-    """
-    enc_info = {
-        'encrypted_private_keys': None,
-        'encrypted_redeem_script': None
-    }
-
-    hex_password = hexlify(password)
-
-    assert virtualchain.is_multisig(multisig_info), 'Invalid multisig keys'
-
-    enc_info['encrypted_private_keys'] = []
-    for pk in multisig_info['private_keys']:
-        pk_ciphertext = aes_encrypt(pk, hex_password)
-        enc_info['encrypted_private_keys'].append(pk_ciphertext)
-
-    enc_info['encrypted_redeem_script'] = aes_encrypt(multisig_info['redeem_script'], hex_password)
-
-    # preserve any other fields
-    for k, v in multisig_info.items():
-        if k not in ['private_keys', 'redeem_script']:
-            enc_info[k] = v
-
-    return enc_info
-
-
-def encrypt_private_key_info(privkey_info, password):
-    """
-    Encrypt private key info.
-
-    LEGACY WALLET TESTING ONLY
-
-    Return {'status': True, 'encrypted_private_key_info': {'address': ..., 'private_key_info': ...}} on success
-    Returns {'error': ...} on error
-    """
-
-    ret = {}
-    if virtualchain.is_multisig(privkey_info):
-        ret['address'] = virtualchain.address_reencode( virtualchain.make_p2sh_address( privkey_info['redeem_script'] ))
-        ret['private_key_info'] = encrypt_multisig_info(privkey_info, password)
-
-        return {'status': True, 'encrypted_private_key_info': ret}
-
-    if virtualchain.is_singlesig(privkey_info):
-        ret['address'] = virtualchain.address_reencode( ecdsa_private_key(privkey_info).public_key().address() )
-
-        hex_password = hexlify(password)
-        ret['private_key_info'] = aes_encrypt(privkey_info, hex_password)
-
-        return {'status': True, 'encrypted_private_key_info': ret}
-
-    return {'error': 'Invalid private key info'}
-
-
-def make_legacy_013_wallet( owner_privkey, payment_privkey, password ):
-    """
-    make a legacy 0.13 wallet with an owner and payment private key
-    """
-    assert virtualchain.is_singlesig(owner_privkey)
-    assert virtualchain.is_singlesig(payment_privkey)
-
-    decrypted_legacy_wallet = blockstack_client.keys.make_wallet_keys(owner_privkey=owner_privkey, payment_privkey=payment_privkey)
-    encrypted_legacy_wallet = {
-        'owner_addresses': decrypted_legacy_wallet['owner_addresses'],
-        'encrypted_owner_privkey': encrypt_private_key_info(owner_privkey, password)['encrypted_private_key_info']['private_key_info'],
-        'payment_addresses': decrypted_legacy_wallet['payment_addresses'],
-        'encrypted_payment_privkey': encrypt_private_key_info(payment_privkey, password)['encrypted_private_key_info']['private_key_info'],
-    }
-    return encrypted_legacy_wallet
-
-
-def make_legacy_014_wallet( owner_privkey, payment_privkey, data_privkey, password ):
-    """
-    make a legacy 0.14 wallet with the owner, payment, and data keys
-    """
-    assert virtualchain.is_singlesig(owner_privkey)
-    assert virtualchain.is_singlesig(payment_privkey)
-    assert virtualchain.is_singlesig(data_privkey)
-
-    decrypted_legacy_wallet = blockstack_client.keys.make_wallet_keys(data_privkey=data_privkey, owner_privkey=owner_privkey, payment_privkey=payment_privkey)
-    encrypted_legacy_wallet = {
-        'data_pubkey': keylib.ECPrivateKey(data_privkey).public_key().to_hex(),
-        'data_pubkeys': [keylib.ECPrivateKey(data_privkey).public_key().to_hex()],
-        'data_privkey': encrypt_private_key_info(data_privkey, password)['encrypted_private_key_info']['private_key_info'],
-        'owner_addresses': decrypted_legacy_wallet['owner_addresses'],
-        'encrypted_owner_privkey': encrypt_private_key_info(owner_privkey, password)['encrypted_private_key_info']['private_key_info'],
-        'payment_addresses': decrypted_legacy_wallet['payment_addresses'],
-        'encrypted_payment_privkey': encrypt_private_key_info(payment_privkey, password)['encrypted_private_key_info']['private_key_info'],
-        'version': '0.14.0'
-    }
-    return encrypted_legacy_wallet
-'''
 
 def format_unspents(unspents):
     return [{
