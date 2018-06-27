@@ -888,7 +888,13 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return {'error': 'Not found', 'http_status': 404}
 
         if 'zonefile' in domain_rec:
-            return {'status': True, 'zonefile': domain_rec['zonefile']}
+            try:
+                zf_txt = base64.b64decode(domain_rec['zonefile'])
+                return {'status': True, 'zonefile': zf_txt}
+            except:
+                log.error("Failed to parse zonefile returned by blockstackd: contents return: {}"
+                          .format(domain_rec['zonefile']))
+                return {'error': 'Failed to parse zonefile', 'http_status': 502}
 
         last_zonefile_hash = None
         page = 0
@@ -1011,7 +1017,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     else:
                         return self._reply_json(
                             {'error': res['error']}, status_code=res['http_status'])
-               
+                
                 domain_zf_txt = res['zonefile']
                 domain_zf_json = zonefile.decode_name_zonefile(domain_name, domain_zf_txt, allow_legacy=False)
                 matching_uris = [ x['target'] for x in domain_zf_json['uri'] if x['name'] == '_resolver' ]
@@ -1106,6 +1112,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         blockstackd_url = get_blockstackd_url(self.server.config_path)
+
         res = blockstackd_client.get_name_record(name, include_history=True,
                                                  hostport=blockstackd_url, history_page=page)
         if json_is_error(res):
