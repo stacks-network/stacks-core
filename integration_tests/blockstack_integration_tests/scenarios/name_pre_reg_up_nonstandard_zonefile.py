@@ -24,7 +24,6 @@
 import testlib
 import virtualchain
 import json
-import blockstack_profiles
 import blockstack
 import time
 import sys
