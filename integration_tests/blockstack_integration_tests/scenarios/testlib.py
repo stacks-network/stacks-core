@@ -288,6 +288,7 @@ def nodejs_cli(*args, **kw):
     pattern = kw.get('pattern', None)
     full_output = kw.get('full_output', False)
     price = kw.get('price', None)
+    expect_fail = kw.get('expect_fail', False)
 
     if NODEJS_CLI_PATH is None:
         if not has_nodejs_cli():
@@ -330,14 +331,19 @@ def nodejs_cli(*args, **kw):
         p = subprocess.Popen(cmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = p.communicate()
         res = p.returncode
-        if res != 0:
+        if res != 0 and not expect_fail:
             print err
 
             if os.environ.get('BLOCKSTACK_TEST_CLI_SLEEP_ON_FAILURE'):
-                print 'Sleeping for 30 minutes so you can experiment with what went wrong'
-                time.sleep(1800)
+                print 'Sleeping so you can experiment with what went wrong'
+                while True:
+                    time.sleep(1)
 
             raise Exception("Exit code {}: {}".format(res, cmd))
+
+        elif res != 0 and expect_fail:
+            print err
+            return {'error': 'CLI exited {} (but this is expected)'.format(res)}
 
         ret = None
         if full_output:
@@ -359,7 +365,7 @@ def nodejs_cli(*args, **kw):
         except:
             pass
 
-        if pattern:
+        if pattern and not expect_fail:
             assert re.match(pattern, ret), 'Output does not match {}: {}\nfull output:\n{}\nerror:\n{}'.format(pattern, ret, saved_out[0], saved_err[0])
 
         return ret
@@ -380,7 +386,7 @@ def nodejs_cli(*args, **kw):
     except:
         pass
 
-    if pattern:
+    if pattern and not expect_fail:
         assert re.match(pattern, ret), 'Output does not match {}: {}\nfull output:\n{}\nerror:\n{}'.format(pattern, ret, saved_out[0], saved_err[0])
 
     return ret
@@ -430,9 +436,9 @@ def blockstack_name_register( name, privatekey, register_addr, zonefile_hash=Non
     if has_nodejs_cli():
         txid = None
         if zonefile_hash is not None:
-            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$')
+            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), 'ignored', zonefile_hash, safety_checks=safety_checks, tx_fee=tx_fee, tx_only=tx_only, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
         else:
-            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$')
+            txid = nodejs_cli('tx_register', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -1037,6 +1043,8 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
 
     Generates 2 blocks
     """
+    gaia_host = kw.get('gaia_host', 'http://localhost:4001')
+
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
 
     profile = kw.get('profile', DEFAULT_PROFILE)
@@ -1055,7 +1063,7 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
 
     blockstack_put_zonefile(zonefile_txt)
     profile_data = blockstack_make_profile(profile, owner_privkey)
-    blockstack_put_profile(name, profile_data, owner_privkey)
+    blockstack_put_profile(name, profile_data, owner_privkey, gaia_host)
     return True
 
 
@@ -1066,6 +1074,8 @@ def blockstack_import_user(name, privkey, owner_privkey, **kw):
 
     Generates 1 block
     """
+    gaia_host = kw.get('gaia_host', 'http://localhost:4001')
+
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
     
     addr = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()   # make it match the wallet
@@ -1082,7 +1092,7 @@ def blockstack_import_user(name, privkey, owner_privkey, **kw):
 
     blockstack_put_zonefile(zonefile_txt)
     profile_data = blockstack_make_profile(profile, owner_privkey)
-    blockstack_put_profile(name, profile_data, owner_privkey)
+    blockstack_put_profile(name, profile_data, owner_privkey, gaia_host)
     return True
 
 
@@ -1093,6 +1103,8 @@ def blockstack_renew_user(name, privkey, owner_privkey, **kw):
 
     Generates 1 block
     """
+    gaia_host = kw.get('gaia_host', 'http://localhost:4001')
+
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
     
     addr = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()   # make it match the wallet
@@ -1109,7 +1121,7 @@ def blockstack_renew_user(name, privkey, owner_privkey, **kw):
 
     blockstack_put_zonefile(zonefile_txt)
     profile_data = blockstack_make_profile({'type': '@Person', 'account': []}, owner_privkey)
-    blockstack_put_profile(name, profile_data, owner_privkey)
+    blockstack_put_profile(name, profile_data, owner_privkey, gaia_host)
     return True
 
 
@@ -1184,13 +1196,12 @@ def blockstack_make_profile( profile_data, privkey ):
         raise Exception("Need blockstack-cli")
 
 
-def blockstack_put_profile(name, profile_token, privkey, gaia_hub=None, safety_checks=True):
+def blockstack_put_profile(name, profile_token, privkey, gaia_hub, safety_checks=True):
     """
     Store a signed profile token
     """
     if has_nodejs_cli():
         if name is None:
-            assert gaia_hub, 'Need name or gaia hub'
             name = virtualchain.get_privkey_address(privkey)
 
         fd, path = tempfile.mkstemp('-blockstack-profile-store')
@@ -1203,11 +1214,7 @@ def blockstack_put_profile(name, profile_token, privkey, gaia_hub=None, safety_c
         except:
             pass
 
-        if gaia_hub:
-            res = nodejs_cli('profile_store', name, path, privkey, gaia_hub, safety_checks=safety_checks)
-        else:
-            res = nodejs_cli('profile_store', name, path, privkey, safety_checks=safety_checks)
-
+        res = nodejs_cli('profile_store', name, path, privkey, gaia_hub, safety_checks=safety_checks)
         os.unlink(path)
 
         res = json.loads(res)
