@@ -787,12 +787,10 @@ def serialize_privkey_info(payment_privkey):
     else:
         if payment_privkey['segwit']:
             m = payment_privkey['m']
-            n = len(payment_privkey['private_keys'])
             payment_privkey_str = 'segwit:p2sh:{},{}'.format(m, ','.join(payment_privkey['private_keys']))
         else:
             m, pubks = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
-            n = len(payment_privkey['private_keys'])
-            payment_privkey_str = '{},{},{}'.format(m, n, ','.join(payment_privkey['private_keys']))
+            payment_privkey_str = '{},{}'.format(m, ','.join(payment_privkey['private_keys']))
 
     return payment_privkey_str
 
