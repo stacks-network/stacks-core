@@ -30,16 +30,10 @@ import jsontokens
 
 from binascii import hexlify
 
-from blockstack_client import schemas
-import blockstack_client.storage
-import blockstack_client.config as blockstack_config
-import blockstack_client.config as blockstack_constants
-import blockstack_client.keys
+import blockstack.lib.schemas as schemas
+import blockstack.lib.storage
 
 BASE_URL = 'http://localhost:5000'
-
-API_PASSWORD = blockstack_config.get_config(
-    blockstack_constants.CONFIG_PATH).get('api_password', None)
 
 DEFAULT_WALLET_ADDRESS = "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP"
 
@@ -110,12 +104,6 @@ class APITestCase(unittest.TestCase):
                 return {}
             traceback.print_exc()
             raise e
-
-def get_auth_header(key = None, port = 8888):
-    if key is None:
-        key = API_PASSWORD
-    return {'Authorization' : 'bearer {}'.format(key),
-            'Origin' : 'http://localhost:{}'.format(port)}
 
 def check_data(cls, data, required_keys={}):
     for k in required_keys:
@@ -191,7 +179,7 @@ class Zonefiles(APITestCase):
                                    headers = {}, status_code = 200)
         self.assertIn('zonefile', zf_data)
 
-        zf_hash = blockstack_client.storage.get_zonefile_data_hash(zf_data['zonefile'])
+        zf_hash = blockstack.lib.storage.get_zonefile_data_hash(zf_data['zonefile'])
         zf_data_historic_lookup = self.get_request(zf_hash_url.format(user, zf_hash),
                                                    headers = {}, status_code = 200)
         self.assertEqual(zf_data_historic_lookup['zonefile'],
@@ -324,13 +312,6 @@ def test_main(args = []):
         for testname in test_map.keys():
             print(testname)
         return
-
-    if "--api_password" in args:
-        ainx = args.index("--api_password")
-        del args[ainx]
-        global API_PASSWORD
-        API_PASSWORD = args[ainx]
-        del args[ainx]
 
     if len(args) == 0 or args[0] == "--all":
         args = [ testname for testname in test_map.keys() ]
