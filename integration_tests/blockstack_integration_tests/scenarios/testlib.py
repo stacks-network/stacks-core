@@ -683,7 +683,8 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
         txid = {}
         try:
             txid = nodejs_cli('namespace_reveal', namespace_id, register_addr, '{}'.format(version_bits), '{}'.format(lifetime), '{}'.format(coeff), '{}'.format(base), 
-                    ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), serialize_privkey_info(privatekey), safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only)
+                    ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), serialize_privkey_info(privatekey), 
+                    safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only, expect_fail=expect_fail)
         
         except:
             if expect_fail:

@@ -59,21 +59,21 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # can't re-create test 
-    resp = testlib.blockstack_namespace_preorder( "test", wallets[3].addr, wallets[4].privkey )
+    resp = testlib.blockstack_namespace_preorder( "test", wallets[3].addr, wallets[4].privkey, expect_fail=True)
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
     testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
 
-    resp = testlib.blockstack_namespace_reveal( "test", wallets[3].addr, 52595, 251, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[4].privkey )
+    resp = testlib.blockstack_namespace_reveal( "test", wallets[3].addr, 52595, 251, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[4].privkey, expect_fail=True)
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
     testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
 
-    resp = testlib.blockstack_namespace_ready( "test", wallets[4].privkey )
+    resp = testlib.blockstack_namespace_ready( "test", wallets[4].privkey, expect_fail=True )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -81,7 +81,7 @@ def scenario( wallets, **kw ):
     testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
 
     # can't re-reveal test
-    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 252, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 252, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, expect_fail=True)
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -89,7 +89,7 @@ def scenario( wallets, **kw ):
     testlib.expect_snv_fail_at('test', testlib.get_current_block(**kw))
 
     # can't re-ready test 
-    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
+    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey, expect_fail=True)
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 

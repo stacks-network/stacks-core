@@ -65,7 +65,8 @@ def start_subdomain_registrar():
     if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
         env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
 
-    SUBDOMAIN_PROC = Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION], env = env)
+    logfile = open('/tmp/subdomain_registrar.log', 'w')
+    SUBDOMAIN_PROC = Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION], env = env, stdout=logfile, stderr=logfile)
 
 
 def scenario( wallets, **kw ):
