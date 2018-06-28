@@ -107,7 +107,7 @@ def scenario( wallets, **kw ):
         return False
 
     # should be rejected if not burned
-    res = testlib.blockstack_name_renew('foo.test', wallets[3].privkey, burn_addr=namespace_rec['address'])
+    res = testlib.blockstack_name_renew('foo.test', wallets[3].privkey, burn_addr=namespace_rec['address'], expect_fail=True)
     if 'error' not in res:
         print res
         return False

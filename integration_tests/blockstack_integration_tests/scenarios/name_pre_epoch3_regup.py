@@ -55,14 +55,11 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw ) # 692
 
-    '''
-    # no longer a relevant test, since we're in epoch 3 now
     # should fail (safety checks stop it)
-    resp = testlib.blockstack_name_register('foo.test', wallets[2].privkey, wallets[3].addr, zonefile_hash='22' * 20)
+    resp = testlib.blockstack_name_register('foo.test', wallets[2].privkey, wallets[3].addr, zonefile_hash='22' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
-    '''
 
     # should succeed in being sent, but will be rejected
     resp = testlib.blockstack_name_register('foo.test', wallets[2].privkey, wallets[3].addr, zonefile_hash='22' * 20, safety_checks=False, tx_fee=300 * 5)

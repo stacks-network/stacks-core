@@ -75,12 +75,10 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
     testlib.next_block(**kw)
 
-    '''
-    res = testlib.blockstack_name_update("foo.test", '22' * 20, wallets[3].privkey)
+    res = testlib.blockstack_name_update("foo.test", '22' * 20, wallets[3].privkey, expect_fail=True)
     if 'error' not in res:
         print res
         return False
-    '''
 
     res = testlib.blockstack_name_update("foo.test", '22' * 20, wallets[3].privkey, safety_checks=False, tx_fee=300*5)
     if 'error' in res:
@@ -101,7 +99,7 @@ def scenario( wallets, **kw ):
         return False
 
     # can't transfer 
-    res = testlib.blockstack_name_transfer('foo.test', wallets[4].addr, True, wallets[3].privkey)
+    res = testlib.blockstack_name_transfer('foo.test', wallets[4].addr, True, wallets[3].privkey, expect_fail=True)
     if 'error' not in res:
         print res
         return False
@@ -125,7 +123,7 @@ def scenario( wallets, **kw ):
         return False
 
     # can't revoke 
-    res = testlib.blockstack_name_revoke('foo.test', wallets[3].privkey)
+    res = testlib.blockstack_name_revoke('foo.test', wallets[3].privkey, expect_fail=True)
     if 'error' not in res:
         print res
         return False

@@ -95,7 +95,7 @@ def scenario( wallets, **kw ):
 
     # preorder should send to the null burn address now.
     # try forcing it to the namespace burn address, to verify that it fails
-    res = testlib.blockstack_name_preorder( "foo_fail.test", wallets[2].privkey, wallets[3].addr, burn_addr=namespace_rec['address'] )
+    res = testlib.blockstack_name_preorder( "foo_fail.test", wallets[2].privkey, wallets[3].addr, burn_addr=namespace_rec['address'], expect_fail=True)
     if 'error' not in res:
         print res
         return False

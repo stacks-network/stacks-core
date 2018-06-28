@@ -219,7 +219,7 @@ def scenario( wallets, **kw ):
         print json.dumps(whois)
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -248,7 +248,7 @@ def scenario( wallets, **kw ):
         print 'accidentally registered'
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -276,7 +276,7 @@ def scenario( wallets, **kw ):
         print 'accidentally registered'
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -304,7 +304,7 @@ def scenario( wallets, **kw ):
         print 'accidentally registered'
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -334,12 +334,10 @@ def scenario( wallets, **kw ):
         return False
     '''
     
-    '''
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
-    '''
 
     # should go through, but be rejected
     resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, safety_checks=False, tx_fee=500*5)

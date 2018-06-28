@@ -62,7 +62,7 @@ def scenario( wallets, **kw ):
     namespace_balance = testlib.get_balance(namespace_rec['address'])
 
     # should fail safety checks
-    res = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, burn_addr=wallets[1].addr )
+    res = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, burn_addr=wallets[1].addr, expect_fail=True)
     if 'error' not in res:
         print res
         return False
