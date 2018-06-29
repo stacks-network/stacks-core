@@ -38,6 +38,8 @@ import blockstack.lib.client as client
 import blockstack_zones
 import base64
 import requests
+import os
+import subprocess
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -72,7 +74,7 @@ subdomain_registrar_config = """
   "dbLocation": "%s/subdomain_registrar.db",
   "adminPassword": "hello_world",
   "domainUri": "http://localhost:%s",
-  "port": %s
+  "port": %s,
   "ipLimit": 1,
   "apiKeys": [],
   "proofsRequired": 0,
@@ -81,8 +83,22 @@ subdomain_registrar_config = """
 """ % (base_name, wallets[3].privkey, wallets[2].privkey, os.environ.get('BLOCKSTACK_WORKING_DIR'), registrar_port, registrar_port)
 
 
+
+SUBDOMAIN_REGISTRAR_LOCATION = os.environ.get('BSK_SUBDOMAIN_REGISTRAR_LOCATION',
+                                              '/usr/bin/blockstack-subdomain-registrar')
+
+SUBDOMAIN_PROC = None
+
 def start_subdomain_registrar():
-    # needs to exist 
+    global SUBDOMAIN_PROC
+
+    try:
+        os.rename('/tmp/subdomain_registrar.db', '/tmp/subdomain_registrar.last')
+    except OSError:
+        pass
+    env = {'BSK_SUBDOMAIN_REGTEST' : '1'}
+    if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
+        env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
 
     # write out config file
     working_dir = os.environ.get('BLOCKSTACK_WORKING_DIR')
@@ -92,7 +108,10 @@ def start_subdomain_registrar():
     with open(config_path, 'w') as f:
         f.write(subdomain_registrar_config)
 
-    os.environ['BSK_SUBDOMAIN_CONFIG'] = config_path
+    env['BSK_SUBDOMAIN_CONFIG'] = config_path
+
+    logfile = open('/tmp/subdomain_registrar.log', 'w')
+    SUBDOMAIN_PROC = subprocess.Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION], env = env, stdout=logfile, stderr=logfile)
 
 
 def scenario( wallets, **kw ):
@@ -117,6 +136,8 @@ def scenario( wallets, **kw ):
 
     testlib.blockstack_put_zonefile(registrar_zf)
 
+    start_subdomain_registrar()
+
     zf_template = "$ORIGIN {}\n$TTL 3600\n{}"
     zf_default_url = '_https._tcp URI 10 1 "https://raw.githubusercontent.com/nobody/content/profile.md"'
 
@@ -127,13 +148,14 @@ def scenario( wallets, **kw ):
 
         req_json = {
             'name': 'hello_{}.personal.test'.format(i+1),
-            'owner_address': wallets[4].address,
+            'owner_address': wallets[4].addr,
             'zonefile': sub_zf,
         }
 
         resp = requests.post('http://localhost:{}/register'.format(registrar_port), json=req_json)
         if resp.status_code != 202:
             print 'did not accept {}'.format(sub_name)
+            SUBDOMAIN_PROC.kill()
             return False
 
     # try to resolve each name on the subdomain registrar
@@ -146,6 +168,7 @@ def scenario( wallets, **kw ):
 
         if resp.status_code != 200:
             print 'not accepted: {}'.format(sub_name)
+            SUBDOMAIN_PROC.kill()
             return False
 
     # test /v1/names/{} emulation on the subdomain registrar
@@ -158,10 +181,12 @@ def scenario( wallets, **kw ):
 
         if 'pending_subdomain' != status['status']:
             print 'not pending: {}'.format(sub_name)
+            SUBDOMAIN_PROC.kill()
             return False
 
         if len(status['txid']) != 0:
             print 'not pending: {}'.format(sub_name)
+            SUBDOMAIN_PROC.kill()
             return False
 
     # test /v1/names/{} redirect from Blockstack Core
@@ -174,16 +199,19 @@ def scenario( wallets, **kw ):
 
         if 'pending_subdomain' != status['status']:
             print 'not pending: {}'.format(sub_name)
+            SUBDOMAIN_PROC.kill()
             return False
 
         if len(status['txid']) != 0:
             print 'not pending: {}'.format(sub_name)
+            SUBDOMAIN_PROC.kill()
             return False
 
     # tell the registrar to flush the queue
 
     # reindex
     assert testlib.check_subdomain_db(**kw)
+    SUBDOMAIN_PROC.kill()
 
 
 def check( state_engine ):
