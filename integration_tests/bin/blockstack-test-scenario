@@ -192,7 +192,8 @@ DEFAULT_TRANSACTION_BROADCASTER_TEMPLATE = """
       "timestamp": true,
       "stringify": true,
       "colorize": false,
-      "json": false
+      "json": false,
+      "stderrLevels": ["debug", "info", "warning", "error"]
   },
   "checkTransactionPeriod": 0.0166666667,
   "dbLocation": "@WORKING_DIR@/transaction-broadcaster.db",
