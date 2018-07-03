@@ -361,7 +361,7 @@ def has_nodejs_cli():
 def nodejs_cli(*args, **kw):
     """
     Run the node.js CLI tool
-    Returns the last line of output
+    Returns the last line of output, unless otherwise specified
     """
     safety_checks = kw.get('safety_checks', True)
     consensus_hash = kw.get('consensus_hash', None)
@@ -885,7 +885,15 @@ def blockstack_send_tokens(recipient_address, token_type, token_amount, privkey,
 
     assert has_nodejs_cli()
 
-    txid = nodejs_cli('send_tokens', recipient_address, token_type, token_amount, serialize_privkey_info(privkey), safety_checks=safety_checks, tx_only=tx_only, consensus_hash=consensus_hash, expect_fail=expect_fail)
+    # re-encode the address to stacks format
+    res = nodejs_cli('convert_address', recipient_address)
+    res = json.loads(res)
+    if 'error' in res:
+        return res
+
+    stacks_recipient_address = res['STACKS']
+
+    txid = nodejs_cli('send_tokens', stacks_recipient_address, token_type, token_amount, serialize_privkey_info(privkey), safety_checks=safety_checks, tx_only=tx_only, consensus_hash=consensus_hash, expect_fail=expect_fail)
     if 'error' in txid:
         return txid
 
@@ -1198,6 +1206,9 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
     hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
     gaia_read_prefix = hub_config['read_url_prefix']
 
+    if gaia_read_prefix[-1] != '/':
+        gaia_read_prefix += '/'
+
     urls = ['{}{}/profile.json'.format(gaia_read_prefix, virtualchain.address_reencode(addr, network='mainnet'))]
     zonefile_txt = make_empty_zonefile(name, addr, urls=urls)
     zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
@@ -1226,6 +1237,9 @@ def blockstack_import_user(name, privkey, owner_privkey, **kw):
 
     hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
     gaia_read_prefix = hub_config['read_url_prefix']
+
+    if gaia_read_prefix[-1] != '/':
+        gaia_read_prefix += '/'
 
     profile = kw.get('profile', DEFAULT_PROFILE)
 
@@ -1257,6 +1271,9 @@ def blockstack_renew_user(name, privkey, owner_privkey, **kw):
 
     hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
     gaia_read_prefix = hub_config['read_url_prefix']
+
+    if gaia_read_prefix[-1] != '/':
+        gaia_read_prefix += '/'
 
     profile = kw.get('profile', DEFAULT_PROFILE)
 
@@ -1392,6 +1409,46 @@ def blockstack_get_profile( name, config_path=None ):
 
     else:
         raise Exception("blockstack_cli is required")
+
+
+def blockstack_gaia_getfile(username, origin, gaia_path, privkey=None, decrypt=False, verify=False):
+    """
+    Get a file from Gaia
+    """
+    assert has_nodejs_cli()
+    res = None
+    if privkey:
+        res = nodejs_cli('gaia_getfile', username, origin, gaia_path, privkey, '1' if decrypt else '0', '1' if verify else '0', full_output=True)
+    else:
+        res = nodejs_cli('gaia_getfile', username, origin, gaia_path, full_output=True)
+
+    return res
+
+
+def blockstack_gaia_putfile(privkey, data_path, gaia_path, gaia_hub, encrypt=False, sign=False):
+    """
+    Store a file to Gaia
+    """
+    assert has_nodejs_cli()
+    res = nodejs_cli('gaia_putfile', gaia_hub, privkey, data_path, gaia_path, '1' if encrypt else '0', '1' if sign else '0')
+    try:
+        return json.loads(res)
+    except:
+        print res
+        return {'error': 'failed to store {} to {}'.format(data_path, gaia_path)}
+
+
+def blockstack_gaia_listfiles(privkey, gaia_hub):
+    """
+    List gaia hub files
+    Returns an array of file names
+    """
+    assert has_nodejs_cli()
+    res = nodejs_cli('gaia_listfiles', gaia_hub, privkey, full_output=True)
+
+    # listfiles output is a newline-separated list of names, plus the number of files at the end 
+    filenames = filter(lambda s: len(s) > 0, res.split('\n'))
+    return filenames[:-1]
 
 
 def blockstack_REST_call( method, route, api_pass=None, data=None, raw_data=None, config_path=None, allow_redirects=True, **query_fields ):
