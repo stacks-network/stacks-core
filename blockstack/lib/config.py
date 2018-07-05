@@ -26,12 +26,17 @@ import sys
 import copy
 import socket
 import stun
+import imp
 from ConfigParser import SafeConfigParser
 
 from ..version import __version__
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
+
+if not __debug__:
+    log.error('FATAL: __debug__ must be set')
+    os.abort()
 
 DEBUG = True
 VERSION = __version__
@@ -220,22 +225,22 @@ GENESIS_SNAPSHOT = {
     str(FIRST_BLOCK_MAINNET-1): "17ac43c1d8549c3181b200f1bf97eb7d",
 }
 
-GENESIS_BLOCK = []      # TODO
+GENESIS_BLOCK = None
 
-# when testing, you can pass in a genesis block as a JSON string or as a file
-if BLOCKSTACK_TEST:
-    if os.environ.get("BLOCKSTACK_TEST_GENESIS_BLOCK") is not None:
-        try:
-            GENESIS_BLOCK = json.loads(os.environ['BLOCKSTACK_TEST_GENESIS_BLOCK'])
-        except:
-            GENESIS_BLOCK = []
+GENESIS_BLOCK_PATH = os.environ.get('BLOCKSTACK_GENESIS_BLOCK_PATH')
+if GENESIS_BLOCK_PATH:
+    # try to import.  Needs a GENESIS_BLOCK global
+    genesis_block = imp.load_source('genesis_block', GENESIS_BLOCK_PATH)
+    try:
+        GENESIS_BLOCK = genesis_block.GENESIS_BLOCK
+    except:
+        print >> sys.stderr, 'FATAL: no GENESIS_BLOCK global in {}'.format(GENESIS_BLOCK_PATH)
+        os.abort()
 
-    if os.environ.get("BLOCKSTACK_TEST_GENESIS_BLOCK_FILE") is not None:
-        if os.path.exists(os.environ['BLOCKSTACK_TEST_GENESIS_BLOCK_FILE']):
-            try:
-                GENESIS_BLOCK = json.loads(open(os.environ['BLOCKSTACK_TEST_GENESIS_BLOCK_FILE']).read())
-            except:
-                GENESIS_BLOCK = []
+else:
+    # use built-in one 
+    import genesis_block
+    GENESIS_BLOCK = genesis_block.GENESIS_BLOCK
 
 """
 Epoch constants govern externally-adjusted behaviors over different time intervals.
