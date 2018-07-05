@@ -526,7 +526,7 @@ def get_blockstack_db(working_dir, disposition=None):
     if disposition == blockstackd.DISPOSITION_RO:
         db_inst = BlockstackDB.get_readonly_instance(working_dir)
     elif disposition == blockstackd.DISPOSITION_RW:
-        db_inst = BlockstackDB.get_readwrite_instance(working_dir, genesis_block=TEST_GENESIS_BLOCK)
+        db_inst = BlockstackDB.get_readwrite_instance(working_dir)
     else:
         raise ValueError("Invalid disposition")
 
@@ -907,6 +907,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     print "working_dir: %s" % working_dir
 
     # set up test environment
+    blockstackd.genesis_block_setup()
     db = get_blockstack_db(virtualchain_working_dir, disposition=blockstackd.DISPOSITION_RW)
     testlib.set_utxo_opts( utxo_opts )
     testlib.set_bitcoind( bitcoind )
@@ -1293,8 +1294,6 @@ def fill_wallet( bitcoind, wallet, value ):
     Return True on success
     Raise on error
     """
-    global TEST_GENESIS_BLOCK
-
     if type(wallet.privkey) in [str, unicode]:
         # single private key
         testnet_wif = virtualchain.BitcoinPrivateKey(virtualchain.get_singlesig_privkey(wallet.privkey)).to_wif()
@@ -1745,7 +1744,6 @@ if __name__ == "__main__":
         os.unlink("/tmp/blockstack-test-scenario-spv.dat")
 
     # set up default payment wallet
-    # default_payment_wallet = testlib.MultisigWallet( 2, '5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', '5Kfg4xkZ1gGN5ozgDZ37Mn3EH9pXSuWZnQt1pzax4cLax8PetNs', '5JXB7rNxZa8yQtpuKtwy1nWUUTgdDEYTDmaEqQvKKC8HCWs64bL' )
     default_payment_wallet = testlib.Wallet('5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', 1000000000)
 
     # load wallets
@@ -1753,8 +1751,17 @@ if __name__ == "__main__":
     testlib.set_default_payment_wallet( default_payment_wallet )
     testlib.set_wallets( scenario.wallets )
     
-    # preserve genesis block 
-    os.environ['BLOCKSTACK_TEST_GENESIS_BLOCK'] = json.dumps(TEST_GENESIS_BLOCK)
+    # preserve genesis block
+    genesis_block_data = { 'history': [], 'rows': TEST_GENESIS_BLOCK }
+    genesis_block_path = os.path.join(working_dir, 'genesis_block.py')
+    with open(genesis_block_path, 'w') as f:
+        f.write('# automatically generated\n')
+        f.write('import json\n')
+        f.write('false = False\n')
+        f.write('true = True\n')
+        f.write('GENESIS_BLOCK = {}'.format(json.dumps(genesis_block_data)))
+
+    os.environ['BLOCKSTACK_GENESIS_BLOCK_PATH'] = genesis_block_path 
 
     # did the scenario change the storage drivers?
     storage_drivers = BLOCKSTACK_STORAGE_DRIVERS
