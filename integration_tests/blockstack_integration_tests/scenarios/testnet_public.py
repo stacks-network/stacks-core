@@ -48,6 +48,7 @@ import traceback
 import virtualchain
 import cgi
 import blockstack
+import re
 
 log = virtualchain.get_logger('testnet')
 
@@ -259,12 +260,24 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 self.end_headers()
                 return
 
+            # addr can be either base58check or c32check
+            if re.match('^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]+$', addr[0]):
+                # c32check 
+                try:
+                    res = testlib.nodejs_cli('convert_address', addr[0])
+                    res = json.loads(res)
+                    addr = [res['BTC']]
+                except:
+                    self.error_page(500, 'Failed to convert {} to a Stacks address'.format(addr[0]))
+                    self.end_headers()
+                    return
+
             try:
                 value = int(value[0])
-                addr = virtualchain.address_reencode(addr[0])
+                addr = virtualchain.address_reencode(str(addr[0]))
             except:
                 log.error("Failed to read addr and/or value")
-                log.error("postvars = {}".format(postvars))
+                log.error('addr = {}, value = {}'.format(addr[0], value[0]))
                 self.error_page(400, "Invalid addr or value")
                 self.end_headers()
                 return
