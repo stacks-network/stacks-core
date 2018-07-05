@@ -251,7 +251,7 @@ def parse( bin_payload, block_height ):
 
     0     2   3                                      23               39                         47
     |-----|---|--------------------------------------|----------------|--------------------------|
-    magic op  hash(ns_id,script_pubkey,reveal_addr)   consensus hash    token fee (little-endian)
+    magic op  hash(ns_id,script_pubkey,reveal_addr)   consensus hash    token fee (big-endian)
 
     Returns {
         'opcode': ...
