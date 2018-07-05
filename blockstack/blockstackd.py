@@ -39,6 +39,7 @@ import blockstack_zones
 import keylib
 import base64
 import gc
+import imp
 import argparse
 import jsonschema
 from jsonschema import ValidationError
@@ -66,6 +67,7 @@ from lib import *
 from lib.storage import *
 from lib.atlas import *
 from lib.fast_sync import *
+from lib.schemas import GENESIS_BLOCK_SCHEMA
 from lib.rpc import BlockstackAPIEndpoint
 from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history,
                             get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info,
@@ -2452,12 +2454,42 @@ def blockstack_signal_handler( sig, frame ):
     set_running(False)
 
 
+def genesis_block_setup():
+    """
+    Make sure the genesis block is good to go.
+    """
+    if not get_genesis_block():
+        if not os.environ.get('BLOCKSTACK_GENESIS_BLOCK_PATH'):
+            log.fatal('No genesis block defined, and BLOCKSTACK_GENESIS_BLOCK_PATH is not set')
+            os.abort()
+
+        genesis_block_path = os.environ['BLOCKSTACK_GENESIS_BLOCK_PATH']
+        try:
+            genesis_block_mod = imp.load_source('genesis_block', genesis_block_path)
+            set_genesis_block(genesis_block_mod.GENESIS_BLOCK)
+        except Exception as e:
+            log.exception(e)
+            log.fatal('Failed to load genesis block')
+            os.abort()
+
+    try:
+        jsonschema.validate(GENESIS_BLOCK_SCHEMA, get_genesis_block())
+    except Exception as e:
+        log.exception(e)
+        log.fatal("Invalid genesis block")
+        os.abort()
+
+    return True
+
+
 def server_setup(working_dir, port=None, indexer_enabled=None, indexer_url=None, api_enabled=None):
     """
     Set up the server.
     Start all subsystems, write pid file, set up signal handlers, set up DB.
     Returns a server instance.
     """
+    genesis_block_setup()
+
     blockstack_opts = get_blockstack_opts()
     blockstack_api_opts = get_blockstack_api_opts()
     pid_file = get_pidfile_path(working_dir)
