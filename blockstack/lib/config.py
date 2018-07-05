@@ -193,7 +193,7 @@ if os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"):
     MAX_RPC_LEN = int(os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"))
     print("Overriding MAX_RPC_LEN to {}".format(MAX_RPC_LEN))
 
-MAX_RPC_THREADS = 1024
+MAX_RPC_THREADS = 1000      # typical rlimit for the number of open file descriptors, minus a buffer
 if os.environ.get('BLOCKSTACK_RPC_MAX_THREADS'):
     MAX_RPC_THREADS = int(os.environ.get('BLOCKSTACK_RPC_MAX_THREADS'))
     print('Overriding MAX_RPC_THREADS to {}'.format(MAX_RPC_THREADS))
