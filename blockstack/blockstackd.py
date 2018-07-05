@@ -799,8 +799,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not check_count(page):
             return {'error': 'invalid page'}
 
-        offset = page * 20
-        count = (page + 1) * 20
+        page_size = 20
+        offset = page * page_size
+        count = (page + 1) * page_size
 
         db = get_db_state(self.working_dir)
         history_data = db.get_name_history(name, offset, count, reverse=True)
@@ -2599,14 +2600,14 @@ def reconfigure(working_dir):
     sys.exit(0)
 
 
-def verify_database(trusted_consensus_hash, consensus_block_height, untrusted_working_dir, trusted_working_dir, genesis_block=GENESIS_BLOCK, start_block=None, expected_snapshots={}):
+def verify_database(trusted_consensus_hash, consensus_block_height, untrusted_working_dir, trusted_working_dir, start_block=None, expected_snapshots={}):
     """
     Verify that a database is consistent with a
     known-good consensus hash.
     Return True if valid.
     Return False if not
     """
-    db = BlockstackDB.get_readwrite_instance(trusted_working_dir, genesis_block=genesis_block)
+    db = BlockstackDB.get_readwrite_instance(trusted_working_dir)
     consensus_impl = virtualchain_hooks
     return virtualchain.state_engine_verify(trusted_consensus_hash, consensus_block_height, consensus_impl, untrusted_working_dir, db, start_block=start_block, expected_snapshots=expected_snapshots)
 
