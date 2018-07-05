@@ -1025,7 +1025,7 @@ def parse(bin_payload, block_height):
     
     0    2  3                                  39                  59                             67
     |----|--|----------------------------------|-------------------|------------------------------|
-    magic op   name.ns_id (37 bytes, 0-padded)     zone file hash    tokens burned (little-endian)
+    magic op   name.ns_id (37 bytes, 0-padded)     zone file hash    tokens burned (big-endian)
 
     """
     
@@ -1053,7 +1053,7 @@ def parse(bin_payload, block_height):
                 if len(bin_payload) == name_value_len + LENGTHS['tokens_burnt']:
                     # we have a token count (this is a name renewal)
                     bin_tokens = bin_payload[name_value_len: name_value_len + LENGTHS['tokens_burnt']]
-                    tokens_burned = int(bin_tokens.encode('hex'), 16)    # NOTE: little-endian
+                    tokens_burned = int(bin_tokens.encode('hex'), 16)    # NOTE: big-endian
 
                 else:
                     # must not have any bits dangling off the end 
