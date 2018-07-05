@@ -67,12 +67,16 @@ GAIA_WRITE_URL = None
 GAIA_READ_PORT = None
 GAIA_WRITE_PORT = None
 
+owner_privkey = None
+owner_address = None
 
 def scenario( wallets, **kw ):
     global GAIA_READ_URL
     global GAIA_READ_PORT
     global GAIA_WRITE_PORT
     global GAIA_WRITE_URL
+    global owner_privkey
+    global owner_address
 
     # get gaia hub info 
     with open(os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'gaia.conf'), 'r') as f:
@@ -111,24 +115,22 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstack_register_user('foo.test', wallets[3].privkey, wallets[2].privkey, **kw)
+    # register this user under a keychain 
+    res = testlib.nodejs_cli('make_keychain')
+    res = json.loads(res)
+    mnemonic = res['mnemonic']
+    owner_privkey = res['ownerKeyInfo']['privateKey']
+    owner_address = res['ownerKeyInfo']['idAddress'][3:]
+
+    testlib.blockstack_register_user('foo.test', wallets[3].privkey, owner_privkey, **kw)
+
+    # get app keys 
+    res = testlib.nodejs_cli('get_app_keys', mnemonic, 'ID-{}'.format(owner_address), 'http://www.testapp.com')
+    res = json.loads(res)
+    app_privkey = res['keyInfo']['privateKey'] if res['keyInfo']['privateKey'] != 'TODO' else res['legacyKeyInfo']['privateKey']
 
     # patch the profile to insert an app URL 
-    res = testlib.blockstack_cli_lookup('foo.test')
-    profile = res['profile']
-    print profile
-
-    assert profile
-
-    profile['apps'] = {
-        'http://www.testapp.com': '{}/hub/{}'.format(GAIA_READ_URL, virtualchain.address_reencode(wallets[4].addr, network='mainnet')),
-    }
-
-    profile_jwt = testlib.blockstack_make_profile(profile, wallets[2].privkey)
-    res = testlib.blockstack_put_profile('foo.test', profile_jwt, wallets[2].privkey, GAIA_WRITE_URL)
-    if 'error' in res:
-        print res
-        return False
+    res = testlib.nodejs_cli('gaia_sethub', 'foo.test', GAIA_WRITE_URL, 'http://www.testapp.com', GAIA_WRITE_URL, mnemonic) 
 
     # store a bunch of data to Gaia
     tmpdir = os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'gaia_inputs')
@@ -145,13 +147,13 @@ def scenario( wallets, **kw ):
             f.write('gaia encrypted data {}'.format(i))
 
         print '\n\nputfile {}\n\n'.format(path)
-        testlib.blockstack_gaia_putfile(wallets[4].privkey[:64], path, '/gaia-{}.txt'.format(i), GAIA_WRITE_URL, encrypt=False, sign=False)
-        testlib.blockstack_gaia_putfile(wallets[4].privkey[:64], encrypted_path, '/gaia-{}-encrypted.txt'.format(i), GAIA_WRITE_URL, encrypt=True)
-        testlib.blockstack_gaia_putfile(wallets[4].privkey[:64], path, '/gaia-{}-signed.txt'.format(i), GAIA_WRITE_URL, encrypt=False, sign=True)
-        testlib.blockstack_gaia_putfile(wallets[4].privkey[:64], encrypted_path, '/gaia-{}-encrypted-signed.txt'.format(i), GAIA_WRITE_URL, encrypt=True, sign=True)
+        testlib.blockstack_gaia_putfile(app_privkey, path, '/gaia-{}.txt'.format(i), GAIA_WRITE_URL, encrypt=False, sign=False)
+        testlib.blockstack_gaia_putfile(app_privkey, encrypted_path, '/gaia-{}-encrypted.txt'.format(i), GAIA_WRITE_URL, encrypt=True)
+        testlib.blockstack_gaia_putfile(app_privkey, path, '/gaia-{}-signed.txt'.format(i), GAIA_WRITE_URL, encrypt=False, sign=True)
+        testlib.blockstack_gaia_putfile(app_privkey, encrypted_path, '/gaia-{}-encrypted-signed.txt'.format(i), GAIA_WRITE_URL, encrypt=True, sign=True)
 
     # make sure they're all there
-    res = testlib.blockstack_gaia_listfiles(wallets[4].privkey[:64], GAIA_WRITE_URL)
+    res = testlib.blockstack_gaia_listfiles(app_privkey, GAIA_WRITE_URL)
     if len(res) != 5 * count:
         print json.dumps(res, indent=4, sort_keys=True)
         print 'wrong number of files: {}'.format(len(res))
@@ -169,7 +171,7 @@ def scenario( wallets, **kw ):
         for filename in ['gaia-{}.txt'.format(i), 'gaia-{}-encrypted.txt'.format(i), 'gaia-{}-signed.txt'.format(i), 'gaia-{}-encrypted-signed.txt'.format(i)]:
             verify = 'signed' in filename
             decrypt = 'encrypted' in filename
-            privkey = wallets[4].privkey[:64] if verify or decrypt else None
+            privkey = app_privkey if verify or decrypt else None
             expected_data = 'gaia encrypted data {}'.format(i) if decrypt else 'gaia data {}'.format(i)
 
             res = testlib.blockstack_gaia_getfile('foo.test', 'http://www.testapp.com', '/{}'.format(filename), privkey=privkey, verify=verify, decrypt=decrypt)
@@ -206,8 +208,8 @@ def check( state_engine ):
             print name_info
             return False
 
-        if name_info['address'] != wallets[2].addr:
-            print 'wrong address; expected {}'.format(wallets[2].addr)
+        if name_info['address'] != owner_address:
+            print 'wrong address; expected {}'.format(owner_address)
             print name_info
             return False
 
