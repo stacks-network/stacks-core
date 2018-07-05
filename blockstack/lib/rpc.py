@@ -397,7 +397,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def GET_account_history(self, path_info, account_addr):
         """
-        Get the history of an account at a given page
+        Get the history of an account at a given page.
+        Takes startblock= and endblock= and page=
         Returns [{...}]
         """
         if not check_address(account_addr):
