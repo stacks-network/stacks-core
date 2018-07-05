@@ -26,7 +26,6 @@ import sys
 import copy
 import socket
 import stun
-import imp
 from ConfigParser import SafeConfigParser
 
 from ..version import __version__
@@ -233,20 +232,25 @@ GENESIS_SNAPSHOT = {
 
 GENESIS_BLOCK = None
 
-GENESIS_BLOCK_PATH = os.environ.get('BLOCKSTACK_GENESIS_BLOCK_PATH')
-if GENESIS_BLOCK_PATH:
-    # try to import.  Needs a GENESIS_BLOCK global
-    genesis_block = imp.load_source('genesis_block', GENESIS_BLOCK_PATH)
-    try:
-        GENESIS_BLOCK = genesis_block.GENESIS_BLOCK
-    except:
-        print >> sys.stderr, 'FATAL: no GENESIS_BLOCK global in {}'.format(GENESIS_BLOCK_PATH)
-        os.abort()
-
-else:
+try:
     # use built-in one 
     import genesis_block
     GENESIS_BLOCK = genesis_block.GENESIS_BLOCK
+except:
+    if not BLOCKSTACK_TEST:
+        print >> sys.stderr, 'FATAL: no genesis block defined'
+        os.abort()
+
+    print >> sys.stderr, 'WARNING: will try to load a genesis block from $BLOCKSTACK_GENESIS_BLOCK_PATH at runtime'
+
+def get_genesis_block():
+    return GENESIS_BLOCK
+
+
+def set_genesis_block(new_genesis_block):
+    global GENESIS_BLOCK
+    assert BLOCKSTACK_TEST, 'Cannot set the genesis block in production mode'
+    GENESIS_BLOCK = new_genesis_block
 
 """
 Epoch constants govern externally-adjusted behaviors over different time intervals.
