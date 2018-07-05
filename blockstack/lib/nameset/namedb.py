@@ -76,7 +76,7 @@ class BlockstackDB( virtualchain.StateEngine ):
     State engine implementation for blockstack.
     """
 
-    def __init__(self, db_filename, disposition, working_dir, genesis_block={}, expected_snapshots={}):
+    def __init__(self, db_filename, disposition, working_dir, genesis_block, expected_snapshots={}):
         """
         Construct the Blockstack State Engine
         from locally-cached db state.
@@ -139,7 +139,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         import virtualchain_hooks
         db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
-        db = BlockstackDB(db_path, DISPOSITION_RO, working_dir, expected_snapshots={})
+        db = BlockstackDB(db_path, DISPOSITION_RO, working_dir, get_genesis_block(), expected_snapshots={})
         rc = db.db_setup()
         if not rc:
             log.error("Failed to set up virtualchain state engine")
@@ -159,7 +159,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         import virtualchain_hooks
         db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
-        db = BlockstackDB(db_path, DISPOSITION_RW, working_dir, genesis_block=GENESIS_BLOCK)
+        db = BlockstackDB(db_path, DISPOSITION_RW, working_dir, get_genesis_block())
         rc = db.db_setup()
         if not rc:
             if restore:
@@ -204,7 +204,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             log.error("FATAL: Borrowing violation")
             os.abort()
 
-        db = BlockstackDB(db_path, DISPOSITION_RW, working_dir, expected_snapshots=expected_snapshots)
+        db = BlockstackDB(db_path, DISPOSITION_RW, working_dir, get_genesis_block(), expected_snapshots=expected_snapshots)
         rc = db.db_setup()
         if not rc:
             db.close()
