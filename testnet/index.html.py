@@ -208,8 +208,12 @@ hello_world = div(
                         p('You can send and receive Stacks with the following commands:') +
                         ul(
                             li('Send Stacks tokens with:' + 
-                                p('<code>$ blockstack-cli -t send_tokens ADDRESS "STACKS" AMOUNT_MICROSTACKS PAYMENT_KEY [MEMO]</code>') + 
-                                p('Note that the second argument <i>must be</i> <code>"STACKS"</code>.  You can optionally supply a memo string to be attached to the transaction.')) +
+                                p('<code>$ blockstack-cli -t send_tokens TOKEN_ADDRESS "STACKS" AMOUNT_MICROSTACKS PAYMENT_KEY [MEMO]</code>') + 
+                                p('Note that the second argument <i>must be</i> <code>"STACKS"</code>.  You can optionally supply a memo string to be attached to the transaction.') +
+                                p('Note also that <code>TOKEN_ADDRESS</code> must be a Stacks address.' +
+                                    p('You can use <code>blockstack-cli convert_address ADDRESS</code> to convert between Bitcoin and Stacks addresses.') +
+                                    p('You can use <code>blockstack-cli get_address PRIVATE_KEY</code> to get both the Bitcoin and Stacks addresses for a private key.')
+                                )) +
                             li('Send Bitcoin with:' + p('<code>$ blockstack-cli -t send_btc ADDRESS AMOUNT_SATOSHIS PAYMENT_KEY</code>'))
                         )
                     ) +
