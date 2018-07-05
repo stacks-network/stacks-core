@@ -149,7 +149,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
     
     @classmethod
-    def get_readwrite_instance(cls, working_dir, genesis_block={}, restore=False, restore_block_height=None):
+    def get_readwrite_instance(cls, working_dir, restore=False, restore_block_height=None):
         """
         Get a read/write instance to the db, without the singleton check.
         Used for low-level operations like db restore.
@@ -159,7 +159,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         import virtualchain_hooks
         db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
-        db = BlockstackDB(db_path, DISPOSITION_RW, working_dir, genesis_block=genesis_block)
+        db = BlockstackDB(db_path, DISPOSITION_RW, working_dir, genesis_block=GENESIS_BLOCK)
         rc = db.db_setup()
         if not rc:
             if restore:
