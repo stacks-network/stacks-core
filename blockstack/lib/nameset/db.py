@@ -292,7 +292,8 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
             { ... }
         ],
     }
-    we'll store the genesis block history's canonical hash as the first transaction.
+    We'll store the genesis block history's canonical hash as the first transaction.
+    TODO: add code to verify that the genesis block history matches the initial_count_balances
     """
     namedb_query_execute(con, "BEGIN", ())
     for account_info in initial_account_balances:
@@ -330,7 +331,7 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
 
             for block_height in account_info['vesting']:
                 sql = 'INSERT INTO account_vesting VALUES (?,?,?,?);'
-                args = (address, account_info['type'], '{}'.format(account_info['vesting'][block_height]), block_height)
+                args = (address, account_info['type'], '{}'.format(account_info['vesting'][block_height]), int(block_height))
                 namedb_query_execute(con, sql, args)
 
     # insert genesis history 
