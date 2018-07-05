@@ -1510,8 +1510,8 @@ def blockstack_test_setenv(key, value):
     return res
 
 
-def blockstack_verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, working_db_path=None, start_block=None, genesis_block={} ):
-    return blockstackd.verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, start_block=start_block, genesis_block=genesis_block)
+def blockstack_verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, working_db_path=None, start_block=None):
+    return blockstackd.verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, start_block=start_block)
 
 
 def blockstack_export_db( snapshots_dir, block_height, **kw ):
@@ -1754,14 +1754,14 @@ def check_account_credits(state_engine, api_call_history):
     # tokens given at genesis
     genesis_tokens = dict([
         (addr, dict([
-            (token_type, sum([blk['value'] for blk in filter(lambda g: g['address'] == addr and g['type'] == token_type, state_engine.genesis_block)]))
+            (token_type, sum([blk['value'] for blk in filter(lambda g: g['address'] == addr and g['type'] == token_type, state_engine.genesis_block['rows'])]))
             for token_type in token_types]))
         for addr in addrs])
 
     # tokens received through vesting
     vesting_schedules = dict([
         (addr, dict([
-            (token_type, [blk['vesting'] for blk in filter(lambda g: g['address'] == addr and g['type'] == token_type, state_engine.genesis_block)])
+            (token_type, [blk['vesting'] for blk in filter(lambda g: g['address'] == addr and g['type'] == token_type, state_engine.genesis_block['rows'])])
             for token_type in token_types]))
         for addr in addrs])
 
@@ -1985,7 +1985,7 @@ def check_history( state_engine ):
 
         print "\n\nverify %s - %s (%s), expect %s\n\n" % (block_ids[0], block_id+1, untrusted_working_db_dir, expected_consensus_hash)
 
-        valid = blockstack_verify_database(expected_consensus_hash, block_id, untrusted_working_db_dir, working_db_dir, start_block=block_ids[0], genesis_block=state_engine.genesis_block)
+        valid = blockstack_verify_database(expected_consensus_hash, block_id, untrusted_working_db_dir, working_db_dir, start_block=block_ids[0])
         if not valid:
             print "Invalid at block %s" % block_id 
             return False
@@ -2650,16 +2650,7 @@ def peer_start( global_working_dir, working_dir, port=None, command='start', arg
     args += ['--expected-snapshots', os.path.join(global_working_dir, 'blockstack-server.snapshots')]
     env = {}
 
-    # instantiate DB with genesis block
-
-    def _str_encode(obj):
-        return {k.encode('utf-8') if isinstance(k,unicode) else k :
-            v.encode('utf-8') if isinstance(v, unicode) else v
-            for k,v in obj}
-
-    genesis_block = json.loads(os.environ['BLOCKSTACK_TEST_GENESIS_BLOCK'], object_pairs_hook=_str_encode)
-
-    BlockstackDB.get_readwrite_instance(working_dir, genesis_block=genesis_block).close()
+    BlockstackDB.get_readwrite_instance(working_dir).close()
 
     # preserve test environment variables
     for envar in os.environ.keys():
