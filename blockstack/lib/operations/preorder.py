@@ -251,7 +251,7 @@ def parse(bin_payload, block_height):
     Record format when burning STACKs (STACKS Phase 1):
     0     2  3                                              23                 39                            47                      66
     |-----|--|----------------------------------------------|------------------|-----------------------------|-----------------------|
-    magic op  hash(name.ns_id,script_pubkey,register_addr)   consensus hash     tokens to burn (little-endian)  token units (0-padded)
+    magic op  hash(name.ns_id,script_pubkey,register_addr)   consensus hash     tokens to burn (big-endian)  token units (0-padded)
 
     Returns {
         opcode: NAME_PREORDER,
