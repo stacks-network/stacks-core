@@ -222,7 +222,7 @@ def parse(bin_payload, block_height):
    
     0     2  3              19         38          46                        80
     |-----|--|--------------|----------|-----------|-------------------------|
-    magic op  consensus_hash token_type amount (LE) scratch area
+    magic op  consensus_hash token_type amount (BE) scratch area
                              (ns_id)
 
     Returns a parsed payload on success
