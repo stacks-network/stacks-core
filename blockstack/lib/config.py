@@ -164,6 +164,12 @@ if os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"):
     MAX_RPC_LEN = int(os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"))
     print("Overriding MAX_RPC_LEN to {}".format(MAX_RPC_LEN))
 
+MAX_RPC_THREADS = 1024
+if os.environ.get('BLOCKSTACK_RPC_MAX_THREADS'):
+    MAX_RPC_THREADS = int(os.environ.get('BLOCKSTACK_RPC_MAX_THREADS'))
+    print('Overriding MAX_RPC_THREADS to {}'.format(MAX_RPC_THREADS))
+
+
 if BLOCKSTACK_TEST:
     RPC_MAX_INDEXING_DELAY = 5
 
