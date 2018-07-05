@@ -256,7 +256,7 @@ def namedb_genesis_block_history_hash(genesis_block_history):
     return h
 
 
-def namedb_create_token_genesis(con, initial_account_balances, genesis_block_history={'keys': {}, 'commits': []}):
+def namedb_create_token_genesis(con, initial_account_balances, genesis_block_history):
     """
     Create the initial account balances.
     All accounts will be locked, and will have been created at the genesis date
@@ -343,7 +343,7 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
     namedb_query_execute(con, "END", ())
 
 
-def namedb_create(path, initial_account_balances):
+def namedb_create(path, genesis_block):
     """
     Create a sqlite3 db at the given path.
     Create all the tables and indexes we need.
@@ -367,7 +367,7 @@ def namedb_create(path, initial_account_balances):
     con.create_function("namespace_lifetime_grace_period", 2, namedb_get_namespace_lifetime_grace_period)
 
     # create genesis block 
-    namedb_create_token_genesis(con, initial_account_balances)
+    namedb_create_token_genesis(con, genesis_block['rows'], genesis_block['history'])
 
     return con
 
