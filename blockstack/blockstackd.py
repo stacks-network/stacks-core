@@ -425,7 +425,7 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             return json.dumps(rpc_traceback())
 
 
-class BoundedThreadingMixIn:
+class BoundedThreadingMixIn(object):
     """
     Bounded threading mix-in, based on the original SocketServer.ThreadingMixIn
     (from https://github.com/python/cpython/blob/master/Lib/socketserver.py).
@@ -499,7 +499,7 @@ class BoundedThreadingMixIn:
 
 
     def server_close(self):
-        super().server_close()
+        super(BoundedThreadingMixIn, self).server_close()
 
         with self._thread_guard:
             threads = self._threads
@@ -933,23 +933,6 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
             ret.append(self.sanitize_rec(name_rec))
 
         return self.success_response( {'records': ret} )
-
-
-    def rpc_get_account_at(self, address, block_height, **con_info):
-        """
-        Get all the states an account was in at a given block height.
-        """
-        if not check_address(address):
-            return {'error': 'Invalid name', 'http_status': 400}
-
-        if not check_block(block_height):
-            return self.success_response({'records': None})
-
-        db = get_db_state(self.working_dir)
-        accounts_at = db.get_account_at(address, block_height)
-        db.close()
-
-        return self.success_response({'records': accounts_at})
 
 
     def rpc_get_historic_name_at( self, name, block_height, **con_info ):
@@ -1715,7 +1698,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         Return None on error
         """
         # check cache
-        atlas_zonefile_data = get_atlas_zonefile_data( zonefile_hash, zonefile_dir )
+        atlas_zonefile_data = get_atlas_zonefile_data( zonefile_hash, zonefile_dir, check=False )
         if atlas_zonefile_data is not None:
             # check hash
             zfh = get_zonefile_data_hash( atlas_zonefile_data )
