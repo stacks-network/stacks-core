@@ -326,7 +326,7 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
         if 'vesting' in account_info:
             assert 'vesting_total' in account_info, 'BUG: vesting is present but vesting_total is not'
 
-            vesting_sum = sum([ac[h] for h in account_info['vesting']]) 
+            vesting_sum = sum([account_info['vesting'][h] for h in account_info['vesting']]) 
             assert vesting_sum == account_info['vesting_total'], 'BUG: vesting mismatch on {}: {} != {}'.format(address, vesting_sum, account_info['vesting'])
 
             for block_height in account_info['vesting']:
@@ -2200,7 +2200,7 @@ def namedb_get_preorder(cur, preorder_hash, current_block_number, include_expire
         args = (preorder_hash, expiry_time + current_block_number)
 
     preorder_rows = namedb_query_execute( cur, select_query, (preorder_hash,))
-    preorder_row = preorder_row.fetchone()
+    preorder_row = preorder_rows.fetchone()
     if preorder_row is None:
         # no such preorder 
         return None
@@ -2816,7 +2816,7 @@ if __name__ == "__main__":
 
     path = "/tmp/namedb.sqlite"
     if not os.path.exists( path ):
-        db = namedb_create( path )
+        db = namedb_create( path, {'rows': [], 'history': []})
     else:
         db = namedb_open( path )
 

@@ -50,7 +50,7 @@ blockstack_db_lastblock = None
 blockstack_db_lock = threading.Lock()
 
 
-def autofill( *autofill_fields ):
+def autofill(*autofill_fields):
     """
     Decorator to automatically fill in extra useful fields
     that aren't stored in the db.
@@ -71,7 +71,7 @@ def autofill( *autofill_fields ):
     return wrap
 
 
-class BlockstackDB( virtualchain.StateEngine ):
+class BlockstackDB(virtualchain.StateEngine):
     """
     State engine implementation for blockstack.
     """
@@ -858,7 +858,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         Get two consecutive account states---the one at (block_id, vtxindex), and the one prior.
         """
-        return namedb_get_account_delta(address, token_type, block_id, vtxindex)
+        cur = self.db.cursor()
+        return namedb_get_account_delta(cur, address, token_type, block_id, vtxindex)
 
 
     def get_account_diff(self, current, prior):
@@ -1391,7 +1392,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         Given a namespace preorder hash, determine if it is preordered
         at the current block.
         """
-        namespace_preorder = self.get_namespace_preorder( self.db, namespace_id_hash, self.lastblock )
+        namespace_preorder = self.get_namespace_preorder(namespace_id_hash)
         if namespace_preorder is None:
             return False 
         else:
@@ -1646,7 +1647,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             except Exception as e:
                 log.exception(e)
                 log.fatal("Sanity check failed")
-                os.abort
+                os.abort()
 
             # have to debit this account
             cur = self.db.cursor()
@@ -1683,7 +1684,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             except Exception as e:
                 log.exception(e)
                 log.fatal("Sanity check failed")
-                os.abort
+                os.abort()
 
             # have to debit this account
             cur = self.db.cursor()
@@ -1728,7 +1729,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         # cannot have collided 
         if BlockstackDB.nameop_is_collided( nameop ):
             log.debug("Not commiting '%s', since it collided" % nameop)
-            self.log_reject( block_id, nameop['vtxindex'], nameop['op'], nameop )
+            self.log_reject(current_block_number, nameop['vtxindex'], nameop['op'], nameop)
             return []
 
         self.log_accept( current_block_number, nameop['vtxindex'], nameop['op'], nameop )
@@ -1983,16 +1984,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         return True
 
     
-    @classmethod
-    def restore_from_history( cls, rec, block_id ):
-        """
-        Given a record with a history and a block number,
-        calculate the sequence of states it went through
-        in that block number.
-        """
-        return namedb_restore_from_history( rec, block_id )
-       
-
     def get_block_ops_hash( self, block_id ):
         """
         Get the block's operations hash

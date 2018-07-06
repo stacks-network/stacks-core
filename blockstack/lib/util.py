@@ -35,6 +35,7 @@ import jsonschema
 import random
 import sqlite3
 import re
+import signal
 
 import keylib
 import virtualchain

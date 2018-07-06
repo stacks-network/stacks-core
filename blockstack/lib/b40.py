@@ -24,6 +24,7 @@
 import re
 import string
 from binascii import hexlify, unhexlify
+import virtualchain
 
 B16_CHARS = string.hexdigits[0:16]
 B40_CHARS = string.digits + string.lowercase + '-_.+'

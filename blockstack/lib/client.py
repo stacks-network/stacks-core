@@ -24,6 +24,7 @@
 import sys
 import os
 
+import xmlrpclib
 from xmlrpclib import ServerProxy, Transport
 from defusedxml import xmlrpc
 import httplib
@@ -942,6 +943,8 @@ def get_zonefiles_by_block(from_block, to_block, hostport=None, proxy=None):
     offset = 0
     output_zonefiles = []
     last_server_block = 0
+
+    resp = {'zonefile_info': []}
 
     while offset == 0 or len(resp['zonefile_info']) > 0:
 
@@ -1885,7 +1888,7 @@ def get_all_subdomains(offset=0, count=100, proxy=None, hostport=None):
 
         for name in resp['names']:
             if not is_subdomain(str(name)):
-                raise ValidationError()
+                raise ValidationError('Not a valid subdomain: {}'.format(str(name)))
 
     except ValidationError as ve:
         if BLOCKSTACK_DEBUG:

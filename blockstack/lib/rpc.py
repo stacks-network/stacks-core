@@ -57,7 +57,7 @@ from virtualchain import AuthServiceProxy, JSONRPCException
 
 import blockstack_zones
 
-from schemas import OP_BASE64_EMPTY_PATTERN
+from schemas import OP_BASE64_EMPTY_PATTERN, OP_ZONEFILE_HASH_PATTERN
 
 log = virtualchain.get_logger()
 
@@ -415,7 +415,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if end_block is None:
             log.error('endblock= required')
-            return self_reply_json({'error': 'endblock= argument required'}, status_code=400)
+            return self._reply_json({'error': 'endblock= argument required'}, status_code=400)
 
         if page is None:
             log.error("page= required")
@@ -785,14 +785,18 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockstackd_url = get_blockstackd_url()
         zonefile_json = self._read_json(schema=request_schema)
         if zonefile_json is None:
-            return self.reply_json({'error': 'Invalid request'}, status_code=400)
+            return self._reply_json({'error': 'Invalid request'}, status_code=400)
+
         elif 'error' in zonefile_json:
             log.error("Failed to parse JSON")
             return self._reply_json({'error': 'Invalid request'}, status_code=400)
         
         zonefile_str = zonefile_json.get('zonefile', False)
+        zonefile_hash = None 
+
         if zonefile_str:
             # base64-encode 
+            zonefile_hash = storage.get_zonefile_data_hash(zonefile_str)
             zonefile_str = base64.b64encode(zonefile_str)
 
         else:
@@ -801,6 +805,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if not zonefile_str:
                 # neither given
                 return self._reply_json({'error': 'Invalid request'}, status_code=400)
+
+            zonefile_hash = storage.get_zonefile_data_hash(base64.b64decode(zonefile_json['zonefile_b64']))
 
         zonefiles_b64 = [zonefile_str]
         resp = blockstackd_client.put_zonefiles(blockstackd_url, zonefiles_b64)

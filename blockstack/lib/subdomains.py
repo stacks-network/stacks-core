@@ -31,7 +31,7 @@ import virtualchain
 import blockstack_zones
 import threading
 
-from virtualchain import bitcoin_blockchain
+import virtualchain.lib.blockchain.bitcoin_blockchain as bitcoin_blockchain
 
 from .config import BLOCKSTACK_TESTNET, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, SUBDOMAINS_FIRST_BLOCK, get_blockstack_opts, is_atlas_enabled, is_subdomains_enabled, \
         SUBDOMAIN_ADDRESS_VERSION_BYTE, SUBDOMAIN_ADDRESS_MULTISIG_VERSION_BYTE, SUBDOMAIN_ADDRESS_VERSION_BYTES
@@ -332,7 +332,7 @@ class Subdomain(object):
                 if BLOCKSTACK_DEBUG:
                     log.exception(ae)
 
-                raise ParserError("Invalid names: {}".format(ae))
+                raise ParseError("Invalid names: {}".format(ae))
 
         else:
             # already fully-qualified

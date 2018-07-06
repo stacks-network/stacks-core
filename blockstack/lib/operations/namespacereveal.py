@@ -247,7 +247,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
         # must have paid enough
         if namespace_fee < price_namespace(namespace_id, block_id, units):
            # not enough money
-           log.warning("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_namespace(namespace_id, block_id), namespace_fee ))
+           log.warning("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_namespace(namespace_id, block_id, units), namespace_fee))
            return False
 
     else:
