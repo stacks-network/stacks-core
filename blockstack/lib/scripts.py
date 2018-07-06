@@ -392,22 +392,6 @@ def check_namespace(namespace_id):
     return True
 
 
-def check_token_type(token_type):
-    """
-    Verify that a token type is well-formed
-
-    >>> check_token_type('STACKS')
-    True
-    >>> check_token_type('BTC')
-    False
-    >>> check_token_type('abcdabcdabcd')
-    True
-    >>> check_token_type('abcdabcdabcdabcdabcd')
-    False
-    """
-    return check_string(token_type, min_length=1, max_length=LENGTHS['namespace_id'], pattern='^{}$|{}'.format(TOKEN_TYPE_STACKS, OP_NAMESPACE_PATTERN))
-
-
 def check_subdomain(fqn):
     """
     Verify that the given fqn is a subdomain

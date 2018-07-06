@@ -1647,7 +1647,7 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
             res = {'error': 'Remote peer {} did not rely last_block_processed'.format(peer_hostport)}
 
         if 'stale' in res and res['stale']:
-            log.error("Remote host is well behind the chain tip".format(peer_hostport))
+            log.error("Remote host {} is well behind the chain tip".format(peer_hostport))
             res = {'error': 'Remote peer {} is well behind the chain tip'.format(peer_hostport)}
 
         if 'testnet' in res:

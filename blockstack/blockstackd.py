@@ -419,7 +419,7 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             return json.dumps(rpc_traceback())
 
 
-class BoundedThreadingMixIn:
+class BoundedThreadingMixIn(object):
     """
     Bounded threading mix-in, based on the original SocketServer.ThreadingMixIn
     (from https://github.com/python/cpython/blob/master/Lib/socketserver.py).
@@ -493,7 +493,7 @@ class BoundedThreadingMixIn:
 
 
     def server_close(self):
-        super().server_close()
+        super(BoundedThreadingMixIn, self).server_close()
 
         with self._thread_guard:
             threads = self._threads

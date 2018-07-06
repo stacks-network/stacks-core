@@ -23,6 +23,7 @@
 
 import re
 import string
+import virtualchain
 from binascii import hexlify, unhexlify
 
 B16_CHARS = string.hexdigits[0:16]

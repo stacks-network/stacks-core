@@ -653,14 +653,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockstackd_url = get_blockstackd_url()
         zonefile_json = self._read_json(schema=request_schema)
         if zonefile_json is None:
-            return self.reply_json({'error': 'Invalid request'}, status_code=400)
+            return self._reply_json({'error': 'Invalid request'}, status_code=400)
+        
         elif 'error' in zonefile_json:
             log.error("Failed to parse JSON")
             return self._reply_json({'error': 'Invalid request'}, status_code=400)
         
+        zonefile_hash = None
         zonefile_str = zonefile_json.get('zonefile', False)
         if zonefile_str:
             # base64-encode 
+            zonefile_hash = storage.get_zonefile_data_hash(zonefile_str)
             zonefile_str = base64.b64encode(zonefile_str)
 
         else:
@@ -669,6 +672,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             if not zonefile_str:
                 # neither given
                 return self._reply_json({'error': 'Invalid request'}, status_code=400)
+
+            zonefile_hash = storage.get_zonefile_data_hash(base64.b64decode(zonefile_str))
 
         zonefiles_b64 = [zonefile_str]
         resp = blockstackd_client.put_zonefiles(blockstackd_url, zonefiles_b64)
