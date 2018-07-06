@@ -69,7 +69,7 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack-core',
         'git': 'https://github.com/blockstack/blockstack-core',
-        'branch': 'feature/blockstack_client_refactor',
+        'branch': 'develop',
         'type': 'python',
         'subpackages': ['integration_tests'],
     },
