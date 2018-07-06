@@ -84,7 +84,7 @@ gc_thread = None
 
 GC_EVENT_THRESHOLD = 15
 
-def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
+def get_bitcoind(new_bitcoind_opts=None, reset=False, new=False):
    """
    Get or instantiate our bitcoind client.
    Optionally re-set the bitcoind options.
