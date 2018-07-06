@@ -25,6 +25,7 @@ import virtualchain
 import keylib
 log = virtualchain.get_logger("blockstack-server")
 import re
+import traceback
 
 from .config import *
 from .b40 import *

@@ -180,7 +180,6 @@ def remove_atlas_zonefile_data( zonefile_hash, zonefile_dir ):
     if not os.path.exists(zonefile_dir):
         return True
 
-    zonefile_hash = get_zonefile_data_hash( zonefile_data )
     zonefile_path = atlas_zonefile_path( zonefile_dir, zonefile_hash )
     zonefile_path_legacy = atlas_zonefile_path_legacy( zonefile_dir, zonefile_hash )
 

@@ -3524,7 +3524,7 @@ class AtlasZonefilePusher(threading.Thread):
         # it's a valid zonefile.  store it.
         rc = add_atlas_zonefile_data( str(zfdata_txt), self.zonefile_dir )
         if not rc:
-            log.error("Failed to replicate zonefile %s to external storage" % zonefile_hash)
+            log.error("Failed to replicate zonefile %s to external storage" % zfhash)
 
         peers = None
         

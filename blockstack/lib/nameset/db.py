@@ -1684,7 +1684,7 @@ def namedb_get_preorder(cur, preorder_hash, current_block_number, include_expire
         args = (preorder_hash, expiry_time + current_block_number)
 
     preorder_rows = namedb_query_execute( cur, select_query, (preorder_hash,))
-    preorder_row = preorder_row.fetchone()
+    preorder_row = preorder_rows.fetchone()
     if preorder_row is None:
         # no such preorder 
         return None

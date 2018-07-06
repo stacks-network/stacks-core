@@ -217,4 +217,4 @@ def queuedb_peek(path, queue_id, name):
     """
     Find the oldest instance of a named record in a queue.
     """
-    return queuedb_find( queue_id, name, limit=1, path=path )
+    return queuedb_find(path, queue_id, name, limit=1)

@@ -176,7 +176,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
         # post F-day 2017
         # can send to burn address or namespace preorder address
         if namespace_version_bits not in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]:
-            log.debug("Namespace '%s' requires version %s or %s" % (namespace_id, [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]))
+            log.debug("Namespace '%s' requires version %s or %s" % (namespace_id, NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR))
             return False
     
     else:

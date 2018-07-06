@@ -332,7 +332,7 @@ class Subdomain(object):
                 if BLOCKSTACK_DEBUG:
                     log.exception(ae)
 
-                raise ParserError("Invalid names: {}".format(ae))
+                raise ParseError("Invalid names: {}".format(ae))
 
         else:
             # already fully-qualified
