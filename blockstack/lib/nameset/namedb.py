@@ -1315,7 +1315,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         Given a namespace preorder hash, determine if it is preordered
         at the current block.
         """
-        namespace_preorder = self.get_namespace_preorder( self.db, namespace_id_hash, self.lastblock )
+        namespace_preorder = self.get_namespace_preorder(namespace_id_hash)
         if namespace_preorder is None:
             return False 
         else:
@@ -1556,7 +1556,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         # cannot have collided 
         if BlockstackDB.nameop_is_collided( nameop ):
             log.debug("Not commiting '%s', since it collided" % nameop)
-            self.log_reject( block_id, nameop['vtxindex'], nameop['op'], nameop )
+            self.log_reject( current_block_number, nameop['vtxindex'], nameop['op'], nameop )
             return []
 
         self.log_accept( current_block_number, nameop['vtxindex'], nameop['op'], nameop )
@@ -1724,16 +1724,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         return canonical_op
 
     
-    @classmethod
-    def restore_from_history( cls, rec, block_id ):
-        """
-        Given a record with a history and a block number,
-        calculate the sequence of states it went through
-        in that block number.
-        """
-        return namedb_restore_from_history( rec, block_id )
-       
-
     def get_block_ops_hash( self, block_id ):
         """
         Get the block's operations hash

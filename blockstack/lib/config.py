@@ -968,7 +968,7 @@ def store_announcement( working_dir, announcement_hash, announcement_text, force
        failed_path = announce_filename_tmp + (".%s" % i)
        while os.path.exists( failed_path ):
 
-           log.debug("Merge announcement list %s" % failed_paht )
+           log.debug("Merge announcement list %s" % failed_path )
            with open(failed_path, "r") as f:
                announce_text += f.read()
 
@@ -998,9 +998,9 @@ def store_announcement( working_dir, announcement_hash, announcement_text, force
        f.flush()
 
    # NOTE: rename doesn't remove the old file on Windows
-   if sys.platform == 'win32' and os.path.exists( announcement_filename_tmp ):
+   if sys.platform == 'win32' and os.path.exists( announce_filename_tmp ):
        try:
-           os.unlink( announcement_filename_tmp )
+           os.unlink( announce_filename_tmp )
        except:
            pass
 

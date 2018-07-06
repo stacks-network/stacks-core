@@ -23,6 +23,7 @@
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
+import traceback
 
 from .config import *
 from .b40 import *

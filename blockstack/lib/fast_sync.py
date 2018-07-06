@@ -499,7 +499,7 @@ def fast_sync_inspect_snapshot( snapshot_path ):
     with open(snapshot_path, 'r') as f:
         info = fast_sync_inspect( f )
         if 'error' in info:
-            log.error("Failed to inspect snapshot {}: {}".format(import_path, info['error']))
+            log.error("Failed to inspect snapshot {}: {}".format(snapshot_path, info['error']))
             return {'error': 'Failed to inspect snapshot'}
 
         # get the hash of the file 
