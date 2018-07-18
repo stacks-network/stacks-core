@@ -783,7 +783,10 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         elif check_subdomain(name):
             did_info = self.get_subdomain_DID_info(name)
         else:
-            return {'error': 'No such name', 'http_status': 404}
+            return {'error': 'Invalid name or subdomain', 'http_status': 400}
+
+        if did_info is None:
+            return {'error': 'No DID for this name', 'http_status': 404}
 
         did = make_DID(did_info['name_type'], did_info['address'], did_info['index'])
         return self.success_response({'did': did})
