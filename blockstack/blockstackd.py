@@ -2441,15 +2441,18 @@ def genesis_block_setup():
     """
     Make sure the genesis block is good to go.
     """
-    if not get_genesis_block():
-        if not os.environ.get('BLOCKSTACK_GENESIS_BLOCK_PATH'):
-            log.fatal('No genesis block defined, and BLOCKSTACK_GENESIS_BLOCK_PATH is not set')
-            os.abort()
-
+    if os.environ.get('BLOCKSTACK_GENESIS_BLOCK_PATH'):
         genesis_block_path = os.environ['BLOCKSTACK_GENESIS_BLOCK_PATH']
         try:
             genesis_block_mod = imp.load_source('genesis_block', genesis_block_path)
             set_genesis_block(genesis_block_mod.GENESIS_BLOCK)
+
+            if BLOCKSTACK_TEST:
+                print ''
+                print 'genesis block'
+                print json.dumps(get_genesis_block(), indent=4, sort_keys=True)
+                print ''
+
         except Exception as e:
             log.exception(e)
             log.fatal('Failed to load genesis block')
