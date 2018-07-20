@@ -863,6 +863,10 @@ class SubdomainIndex(object):
             
             offset += 100
             all_queued_zfinfos += queued_zfinfos
+
+            if len(all_queued_zfinfos) >= 1000:
+                # only do so many zone files per block, so we don't stall the node
+                break
         
         log.debug("Discovered {} zonefiles".format(len(all_queued_zfinfos)))
 
