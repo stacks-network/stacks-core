@@ -155,10 +155,6 @@ def store_atlas_zonefile_data(zonefile_data, zonefile_dir, fsync=True):
     zonefile_path = atlas_zonefile_path( zonefile_dir, zonefile_hash )
     zonefile_dir_path = os.path.dirname(zonefile_path)
 
-    if os.path.exists(zonefile_path):
-        # already exists 
-        return True
-
     if not os.path.exists(zonefile_dir_path):
         os.makedirs(zonefile_dir_path)
 
