@@ -483,20 +483,6 @@ def atlas_inventory_flip_zonefile_bits( inv_vec, bit_indexes, operation ):
     return "".join(inv_list)
 
 
-def atlas_inventory_set_zonefile_bits( inv_vec, bit_indexes ):
-    """
-    Set bits in a zonefile inventory vector.
-    """
-    return atlas_inventory_flip_zonefile_bits( inv_vec, bit_indexes, True )
-
-
-def atlas_inventory_clear_zonefile_bits( inv_vec, bit_indexes ):
-    """
-    Clear bits in a zonefile inventory vector
-    """
-    return atlas_inventory_flip_zonefile_bits( inv_vec, bit_indexes, False )
-
-
 def atlas_inventory_test_zonefile_bits( inv_vec, bit_indexes ):
     """
     Given a list of bit indexes (bit_indexes), determine whether or not 
@@ -585,32 +571,32 @@ def atlasdb_add_zonefile_info( name, zonefile_hash, txid, present, tried_storage
     global ZONEFILE_INV, NUM_ZONEFILES, ZONEFILE_INV_LOCK
 
     with AtlasDBOpen( con=con, path=path ) as dbcon:
-        if present:
-            present = 1
-        else:
-            present = 0
+        with ZONEFILE_INV_LOCK:
+            # need to lock here since someone could call atlasdb_cache_zonefile_info
+            if present:
+                present = 1
+            else:
+                present = 0
 
-        if tried_storage:
-            tried_storage = 1
-        else:
-            tried_storage = 0
+            if tried_storage:
+                tried_storage = 1
+            else:
+                tried_storage = 0
 
-        sql = "UPDATE zonefiles SET name = ?, zonefile_hash = ?, txid = ?, present = ?, tried_storage = ?, block_height = ? WHERE txid = ?;"
-        args = (name, zonefile_hash, txid, present, tried_storage, block_height, txid )
+            sql = "UPDATE zonefiles SET name = ?, zonefile_hash = ?, txid = ?, present = ?, tried_storage = ?, block_height = ? WHERE txid = ?;"
+            args = (name, zonefile_hash, txid, present, tried_storage, block_height, txid )
 
-        cur = dbcon.cursor()
-        update_res = atlasdb_query_execute( cur, sql, args )
-        dbcon.commit()
-
-        if update_res.rowcount == 0:
-            sql = "INSERT OR IGNORE INTO zonefiles (name, zonefile_hash, txid, present, tried_storage, block_height) VALUES (?,?,?,?,?,?);"
-            args = (name, zonefile_hash, txid, present, tried_storage, block_height)
-        
             cur = dbcon.cursor()
-            atlasdb_query_execute( cur, sql, args )
+            update_res = atlasdb_query_execute( cur, sql, args )
             dbcon.commit()
 
-        with ZONEFILE_INV_LOCK:
+            if update_res.rowcount == 0:
+                sql = "INSERT OR IGNORE INTO zonefiles (name, zonefile_hash, txid, present, tried_storage, block_height) VALUES (?,?,?,?,?,?);"
+                args = (name, zonefile_hash, txid, present, tried_storage, block_height)
+            
+                cur = dbcon.cursor()
+                atlasdb_query_execute( cur, sql, args )
+                dbcon.commit()
 
             # keep in-RAM zonefile inv coherent
             zfbits = atlasdb_get_zonefile_bits( zonefile_hash, con=dbcon, path=path )
@@ -622,6 +608,7 @@ def atlasdb_add_zonefile_info( name, zonefile_hash, txid, present, tried_storage
                 inv_vec = ZONEFILE_INV[:]
 
             ZONEFILE_INV = atlas_inventory_flip_zonefile_bits( inv_vec, zfbits, present )
+            log.debug('Set {} ({}) to {}'.format(zonefile_hash, ','.join(str(i) for i in zfbits), present))
 
             # keep in-RAM zonefile count coherent
             NUM_ZONEFILES = atlasdb_zonefile_inv_length( con=dbcon, path=path )
@@ -843,19 +830,20 @@ def atlasdb_set_zonefile_present( zonefile_hash, present, con=None, path=None ):
 
     was_present = None
     with AtlasDBOpen(con=con, path=path) as dbcon:
-        if present:
-            present = 1
-        else:
-            present = 0
-
-        sql = "UPDATE zonefiles SET present = ? WHERE zonefile_hash = ?;"
-        args = (present, zonefile_hash)
-
-        cur = dbcon.cursor()
-        res = atlasdb_query_execute( cur, sql, args )
-        dbcon.commit()
-        
         with ZONEFILE_INV_LOCK:
+            # need to lock here in case someone tries to call atlasdb_cache_zonefile_info
+            if present:
+                present = 1
+            else:
+                present = 0
+
+            sql = "UPDATE zonefiles SET present = ? WHERE zonefile_hash = ?;"
+            args = (present, zonefile_hash)
+
+            cur = dbcon.cursor()
+            res = atlasdb_query_execute( cur, sql, args )
+            dbcon.commit()
+        
             zfbits = atlasdb_get_zonefile_bits( zonefile_hash, con=dbcon, path=path )
             
             inv_vec = None
@@ -869,6 +857,7 @@ def atlasdb_set_zonefile_present( zonefile_hash, present, con=None, path=None ):
 
             # keep our inventory vector coherent.
             ZONEFILE_INV = atlas_inventory_flip_zonefile_bits( inv_vec, zfbits, present )
+            log.debug('Set {} ({}) to {} (was_present={})'.format(zonefile_hash, ','.join(str(i) for i in zfbits), present, was_present))
 
     return was_present
 
@@ -912,7 +901,7 @@ def atlasdb_reset_zonefile_tried_storage( con=None, path=None ):
 
 def atlasdb_cache_zonefile_info( con=None, path=None ):
     """
-    Load up and cache our zonefile inventory
+    Load up and cache our zonefile inventory from the database
     """
     global ZONEFILE_INV, NUM_ZONEFILES, ZONEFILE_INV_LOCK
     
@@ -3259,7 +3248,10 @@ class AtlasZonefileCrawler( threading.Thread ):
 
         # tell anyone who cares that we got this zone file, if it was new 
         if not was_present and self.store_zonefile_cb:
+            log.debug('{} was new, so passing it along to zonefile storage watchers...'.format(zfhash))
             self.store_zonefile_cb(zfhash, block_height)
+        else:
+            log.debug('{} was seen before, so not passing it along to zonefile storage watchers'.format(zfhash))
 
 
     def store_zonefile_data( self, fetched_zfhash, zonefile_data, min_block_height, peer_hostport, con, path ):
