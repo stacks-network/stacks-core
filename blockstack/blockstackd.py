@@ -2233,7 +2233,7 @@ def index_blockchain(server_state, expected_snapshots=GENESIS_SNAPSHOT):
     # NOTE: at each block, the atlas db will be synchronized by virtualchain_hooks
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( working_dir, True )
-    rc = virtualchain_hooks.sync_blockchain(working_dir, bt_opts, current_block, subdomain_index=server_state['subdomains'], expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter)
+    rc = virtualchain_hooks.sync_blockchain(working_dir, bt_opts, current_block, server_state, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter)
     set_indexing( working_dir, False )
 
     db.close()
