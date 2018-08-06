@@ -69,7 +69,7 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack-core',
         'git': 'https://github.com/blockstack/blockstack-core',
-        'branch': 'develop',
+        'branch': 'feature/async-subdomains',
         'type': 'python',
         'subpackages': ['integration_tests'],
     },
