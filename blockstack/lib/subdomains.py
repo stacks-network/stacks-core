@@ -430,6 +430,8 @@ class SubdomainIndex(object):
         self.subdomain_db = SubdomainDB(subdomain_db_path, blockstack_opts['zonefiles'])
         self.subdomain_db_lock = threading.Lock()
 
+        self.serialized_enqueue_zonefile = threading.Lock()
+
         self.atlasdb_path = blockstack_opts['atlasdb_path']
         self.zonefiles_dir = blockstack_opts['zonefiles']
 
@@ -828,8 +830,9 @@ class SubdomainIndex(object):
         * AtlasZonefileCrawler (as it's "store_zonefile" callback).
         * rpc_put_zonefiles() 
         """
-        log.debug("Append {} from {}".format(zonefile_hash, block_height))
-        queuedb_append(self.subdomain_queue_path, "zonefiles", zonefile_hash, json.dumps({'zonefile_hash': zonefile_hash, 'block_height': block_height}))
+        with self.serialized_enqueue_zonefile:
+            log.debug("Append {} from {}".format(zonefile_hash, block_height))
+            queuedb_append(self.subdomain_queue_path, "zonefiles", zonefile_hash, json.dumps({'zonefile_hash': zonefile_hash, 'block_height': block_height}))
          
 
     def index_blockchain(self, block_start, block_end):
