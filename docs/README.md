@@ -7,6 +7,7 @@ from this file.
 
 * [General FAQ](https://blockstack.org/faq)
 * [Technical FAQ](faq_technical.md)
+* [Best Practices for Running a Node](best-practices.md)
 
 ## System Design and Implementation
 
