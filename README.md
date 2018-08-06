@@ -23,7 +23,7 @@ If you are looking to get started with Blockstack applications, we recommend you
 
 ## What is Blockstack?
 
-Blockstack is a new internet for decentralized apps where users own their data.
+Blockstack is a network for decentralized apps where users own their data.
 
 Blockstack applications follow a **can't-be-evil** design
 philosophy.  They *cannot* alter, transfer, or revoke the user's identity, and
@@ -178,7 +178,7 @@ The common workflow for running in docker is to `--fast_sync` a `blockstack-core
 git clone git@github.com:blockstack/blockstack-core.git
 cd blockstack-core/tools/docker
 
-# Initialize the core node and api wallet
+# Initialize the core node
 ./docker-tools.sh init-core
 
 # Wait for the core node to initialize (~15-20 min)
@@ -193,7 +193,6 @@ docker-compose up -d
 # Once the job finishes start the container
 docker run -d \
   -v './data/core/server/:/root/.blockstack-server' \ 
-  -v './data/core/api/:/root/.blockstack' \ 
   -p '6264:6264' \ 
   -p '6270:6270' \
   --restart 'always' \
@@ -261,7 +260,7 @@ To check that your API endpoint is up, you can ping it with:
 
 ```
 $ curl http://localhost:6270/v1/ping
-{"status": "alive", "version": "0.18.0"}
+{"status": "alive", "version": "0.19.0"}
 ```
 
 You can confirm that your API endpoint can contact the `blockstack-core` daemon
@@ -297,7 +296,7 @@ $ blockstack-core --debug start --foreground
 
 ## Developer Resources
 
-**v0.18.0** is the current stable release of Blockstack Core.  It available on the `master` branch.
+**v0.19.0** is the current stable release of Blockstack Core.  It available on the `master` branch.
 
 The next release is being built on the [develop](https://github.com/blockstack/blockstack-core/tree/develop). Please submit all
 pull requests to the `develop` branch.
