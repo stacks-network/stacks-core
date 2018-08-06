@@ -984,7 +984,7 @@ def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir, validate=True, 
     return ret
 
 
-def atlasdb_sync_zonefiles( db, start_block, zonefile_dir, validate=True, end_block=None, path=None, con=None ):
+def atlasdb_sync_zonefiles( db, start_block, zonefile_dir, atlas_state, validate=True, end_block=None, path=None, con=None ):
     """
     Synchronize atlas DB with name db
 
@@ -994,6 +994,15 @@ def atlasdb_sync_zonefiles( db, start_block, zonefile_dir, validate=True, end_bl
     with AtlasDBOpen(con=con, path=path) as dbcon:
         ret = atlasdb_queue_zonefiles( dbcon, db, start_block, zonefile_dir, validate=validate, end_block=end_block )
         atlasdb_cache_zonefile_info( con=dbcon )
+
+    if atlas_state:
+        # it could have been the case that a zone file we already have was re-announced.
+        # if so, then inform any storage listeners in the crawler thread that this has happened
+        # (such as the subdomain system).
+        crawler_thread = atlas_state['zonefile_crawler']
+        for zfinfo in filter(lambda zfi: zfi['present'], ret):
+            log.debug('Store re-discovered zonefile {} at {}'.format(zfinfo['zonefile_hash'], zfinfo['block_height']))
+            crawler_thread.store_zonefile_cb(zfinfo['zonefile_hash'], zfinfo['block_height'])
 
     return ret
 
@@ -3227,6 +3236,7 @@ class AtlasZonefileCrawler( threading.Thread ):
         self.zonefile_dir = zonefile_dir
         self.last_storage_reset = time_now()
         self.atlasdb_path = path
+        self.store_zonefile_cb = lambda zfh, block_height: True
         
     def set_store_zonefile_callback(self, cb):
         self.store_zonefile_cb = cb
