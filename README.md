@@ -122,6 +122,8 @@ install Blockstack Core in a non-system directory.
 
 ### Install with `pip`
 
+**NOTE:** Using `pip` is only supported for stable releases (i.e. `master`).
+
 Blockstack is built against Python 2.7.  You should use `pip2` if you have it instead of `pip`.  If you do not have `pip2`, you should verify that your `pip` is configured for Python 2.
 
 On Mac:
@@ -133,10 +135,6 @@ $ pip install blockstack --upgrade
 On CentOS 7 & RHEL:
 
 ```
-# Disable SELinux
-$ setenforce 0
-$ sed -i --follow-symlinks 's/^SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/selinux && cat /etc/sysconfig/selinux
-
 # Install dependencies
 $ yum install epel-release
 $ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-devel zlib-devel 
@@ -144,6 +142,15 @@ $ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-d
 # Install blockstack
 $ sudo pip install blockstack --upgrade
 
+You will need to open ports TCP:6264 and TCP:6270.  If you have trouble starting
+`blockstack-core`, you can try disabling SELinux and/or `firewalld` as follows:
+
+```bash
+# Disable SELinux
+$ setenforce 0
+$ sed -i --follow-symlinks 's/^SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/selinux && cat /etc/sysconfig/selinux
+
+# Stop firewalld
 $ systemctl stop firewalld && systemctl disable firewalld
 ```
 
@@ -159,6 +166,8 @@ $ sudo pip install blockstack --upgrade
 ```
 
 ### Install with `docker`
+
+**NOTE:** Using `docker` is only supported for stable releases (i.e. `master`).
 
 Another way to run `blockstack-core` is through docker. We provide per-commit image builds of this repository that are [available on quay.io](https://quay.io/repository/blockstack/blockstack-core?tab=tags).
 
@@ -186,6 +195,7 @@ docker run -d \
   -v './data/core/server/:/root/.blockstack-server' \ 
   -v './data/core/api/:/root/.blockstack' \ 
   -p '6264:6264' \ 
+  -p '6270:6270' \
   --restart 'always' \
   --name 'blockstack-core' \
   quay.io/blockstack/blockstack-core:master \ 
@@ -199,19 +209,11 @@ docker run -d \
 
 Notes:
 - This method is currently only fully supported on Linux.
-- You will need `sudo` access to run the above scripts
+- You will need `sudo` access to run the above scripts, and/or be a member of the `docker` group.
 - You can run more than one instance of this setup per host. Allow at least 1 CPU core for each container
-- To configure a different `bitcoind` node, or `utxo_provider` for both containers you must change those settings in both `blockstack-server.ini` and `client.ini` before running the `./docker-tools.sh init-*` commands. After `init-*` has been run you must edit the `data/core/server/blockstack-server.ini` and `data/api/client.ini` to change those settings. 
+- To configure a different `bitcoind` node, you must edit your `blockstack-server.ini` file before running the `./docker-tools.sh init-*` commands. After `init-*` has been run you must edit the `data/core/server/blockstack-server.ini` to change those settings. 
 
 ## Running a Blockstack Core Node
-
-There are two parts to this:
-- Running a `blockstack-core` daemon to build up a local copy of the Blockstack
-  network state.
-- Running a `blockstack api` daemon to provide a RESTful API endpoint for
-  looking up and registering names.
-
-### Setting up Blockstack Core
 
 Before doing anything, you should configure your Blockstack Core node.
 
@@ -251,62 +253,9 @@ any problems you may have.
 
 You can find the node's log in `~/.blockstack-server/blockstack-server.log`.
 
-#### Setting up an API Endpoint
-
-The Blockstack API endpoint provides a convenient RESTful API for interacting
-with the Blockstack network.  It is stable, versioned, and 
-[documented](https://blockstack.github.io/blockstack-core).
-It provides the programmatic interfaces for registering new user names and
-looking up other users' public keys and storage routing information.
-In addition, it is used to implement Web services like
-[core.blockstack.org](https://core.blockstack.org) and
-[explorer.blockstack.org](https://explorer.blockstack.org).
-*Programs that want to interact with Blockstack over the Web should use the
-RESTful API*.
-
-Once you have a `blockstack-core` daemon running somewhere, you can stand up a
-RESTful API endpoint.  This is achieved with the `blockstack` CLI program that comes with Blockstack Core.
-
-First, you will need to set up the API endpoint.  To do so, run:
-
-```
-$ blockstack setup
-```
-
-The `blockstack` program stores its state in `~/.blockstack/`.
-- The configuration file is in `~/.blockstack/client.ini`
-- The log file is in `~/.blockstack/api_endpoint.log`
-- The encrypted wallet file is in `~/.blockstack/wallet.json`
-
-**NOTE:** This will generate a wallet.  *BE SURE TO SAVE THE PASSWORD.*  The
-wallet will be used to *pay for* names.
-
-**Hints**
-
-Most of the default config options are sound.  However, there are a few to be
-aware of:
-
-* When prompted for a `server` and `port`, fill in the host and port
-number for your `blockstack-core` daemon.  The default port is 6264.
-
-* You will be prompted for a wallet password.  Again, *BE SURE TO SAVE THE WALLET PASSWORD*.  It is used to derive the key that encrypts the wallet on disk.
-
-* Some RESTful API methods require an API password.  This is set in the config
-  file, under `[blockstack_client]` as `api_password`.
-
-Once this step is complete, you will be able to start the API endpoint with:
-
-```
-$ blockstack api start
-```
-
 ## Using Blockstack Core
 
-Once you have Blockstack Core installed, you will have two daemons running:
-* The `blockstack-core` daemon
-* The `blockstack api` daemon
-
-The standard way to interact with Blockstack Core is through the `blockstack api` daemon.  The full documentation for the API endpoints is available [here](https://blockstack.github.io/blockstack-core).  Below are some common examples.
+The standard way to interact with Blockstack Core is through its RESTful interface.  The full documentation for the API endpoints is available [here](https://core.blockstack.org).  Below are some common examples.
 
 To check that your API endpoint is up, you can ping it with:
 
@@ -323,13 +272,7 @@ $ curl http://localhost:6270/v1/names/muneeb.id
 {"status": "registered", "zonefile": "$ORIGIN muneeb.id\n$TTL 3600\n_http._tcp URI 10 1 \"https://gaia.blockstack.org/hub/1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs/0/profile.json\"\n", "expire_block": 599266, "blockchain": "bitcoin", "last_txid": "7e16e8688ca0413a398bbaf16ad4b10d3c9439555fc140f58e5ab4e50793c476", "address": "1J3PUxY5uDShUnHRrMyU6yKtoHEUPhKULs", "zonefile_hash": "37aecf837c6ae9bdc9dbd98a268f263dacd00361"}
 ```
 
-You can stop the API daemon with the following command:
-
-```
-$ blockstack api stop
-```
-
-You can stop the `blockstack-core` daemon with the following command:
+You can stop the Blockstack Core daemon with the following command:
 
 ```
 $ blockstack-core stop
