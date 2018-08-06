@@ -608,7 +608,6 @@ def snv_lookup(verify_name, verify_block_id,
         parts = trusted_serial_number_or_txid_or_consensus_hash.split('-')
         try:
             trusted_block_id = int(parts[0])
-            # TODO: Check why this variable is unused
             trusted_tx_index = int(parts[1])
         except:
             log.error('Malformed serial number "{}"'.format(trusted_serial_number_or_txid_or_consensus_hash))
