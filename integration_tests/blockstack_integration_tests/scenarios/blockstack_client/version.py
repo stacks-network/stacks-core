@@ -24,4 +24,8 @@
 __version_major__ = '0'
 __version_minor__ = '19'
 __version_patch__ = '0'
+<<<<<<< HEAD:integration_tests/blockstack_integration_tests/scenarios/blockstack_client/version.py
 __version__ = '{}.{}.{}.0'.format(__version_major__, __version_minor__, __version_patch__)
+=======
+__version__ = '{}.{}.{}.9'.format(__version_major__, __version_minor__, __version_patch__)
+>>>>>>> master:blockstack_client/version.py

@@ -30,6 +30,7 @@ import json
 import tempfile
 import subprocess
 import fcntl
+import blockstack
 
 import virtualchain
 from .version import __version__, __version_major__, __version_minor__, __version_patch__
@@ -297,10 +298,10 @@ BLOCKSTACK_BURN_ADDRESS = virtualchain.hex_hash160_to_address(BLOCKSTACK_BURN_PU
 # never changes, so safe to duplicate to avoid gratuitous imports
 MAXIMUM_NAMES_PER_ADDRESS = 25
 
-RPC_MAX_ZONEFILE_LEN = 4096     # 4KB
+RPC_MAX_ZONEFILE_LEN = blockstack.lib.config.RPC_MAX_ZONEFILE_LEN
 RPC_MAX_PROFILE_LEN = 1024000   # 1MB
 
-MAX_RPC_LEN = RPC_MAX_ZONEFILE_LEN * 110    # maximum blockstackd RPC length--100 zonefiles with overhead
+MAX_RPC_LEN = blockstack.lib.config.MAX_RPC_LEN
 if os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"):
     MAX_RPC_LEN = int(os.environ.get("BLOCKSTACK_TEST_MAX_RPC_LEN"))
     print("Overriding MAX_RPC_LEN to {}".format(MAX_RPC_LEN))

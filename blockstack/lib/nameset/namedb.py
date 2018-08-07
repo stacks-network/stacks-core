@@ -935,7 +935,7 @@ class BlockstackDB(virtualchain.StateEngine):
         cur = self.db.cursor()
         name_hist = namedb_get_history( cur, name, offset=offset, count=count, reverse=reverse )
         return name_hist
-    
+
 
     def get_all_nameops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
         """
@@ -1994,10 +1994,4 @@ class BlockstackDB(virtualchain.StateEngine):
         self.vesting[block_height] = True
         return True
 
-    
-    def get_block_ops_hash( self, block_id ):
-        """
-        Get the block's operations hash
-        """
-        return self.get_ops_hash_at(block_id)
 

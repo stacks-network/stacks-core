@@ -888,12 +888,26 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return {'error': 'Not found', 'http_status': 404}
 
         if 'zonefile' in domain_rec:
+<<<<<<< HEAD:integration_tests/blockstack_integration_tests/scenarios/blockstack_client/rpc.py
             return {'status': True, 'zonefile': domain_rec['zonefile']}
+=======
+            try:
+                zf_txt = base64.b64decode(domain_rec['zonefile'])
+                return {'status': True, 'zonefile': zf_txt}
+            except:
+                log.error("Failed to parse zonefile returned by blockstackd: contents return: {}"
+                          .format(domain_rec['zonefile']))
+                return {'error': 'Failed to parse zonefile', 'http_status': 502}
+>>>>>>> master:blockstack_client/rpc.py
 
         last_zonefile_hash = None
         page = 0
         while attempts > 0:
+<<<<<<< HEAD:integration_tests/blockstack_integration_tests/scenarios/blockstack_client/rpc.py
             # paginate back through the name's history to find a zone file 
+=======
+            # paginate back through the name's history to find a zone file
+>>>>>>> master:blockstack_client/rpc.py
             res = blockstackd_client.get_name_history_page(name, page, hostport=blockstackd_url)
             if 'error' in res:
                 log.error("Failed to get name history page {} for {}: {}".format(page, name, res['error']))
@@ -1011,7 +1025,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     else:
                         return self._reply_json(
                             {'error': res['error']}, status_code=res['http_status'])
+<<<<<<< HEAD:integration_tests/blockstack_integration_tests/scenarios/blockstack_client/rpc.py
                
+=======
+
+>>>>>>> master:blockstack_client/rpc.py
                 domain_zf_txt = res['zonefile']
                 domain_zf_json = zonefile.decode_name_zonefile(domain_name, domain_zf_txt, allow_legacy=False)
                 matching_uris = [ x['target'] for x in domain_zf_json['uri'] if x['name'] == '_resolver' ]
@@ -1106,6 +1124,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return
 
         blockstackd_url = get_blockstackd_url(self.server.config_path)
+<<<<<<< HEAD:integration_tests/blockstack_integration_tests/scenarios/blockstack_client/rpc.py
+=======
+
+        # res = proxy.get_name_blockchain_history(name, start_block, end_block)
+>>>>>>> master:blockstack_client/rpc.py
         res = blockstackd_client.get_name_record(name, include_history=True,
                                                  hostport=blockstackd_url, history_page=page)
         if json_is_error(res):

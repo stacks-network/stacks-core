@@ -48,9 +48,6 @@ import xmlrpclib
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 import SocketServer
 
-# stop common XML attacks
-from defusedxml import xmlrpc
-xmlrpc.monkey_patch()
 
 import virtualchain
 from virtualchain.lib.hashing import *
@@ -75,6 +72,11 @@ from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_in
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
+
+# stop common XML attacks
+from defusedxml import xmlrpc
+xmlrpc.MAX_DATA = MAX_RPC_LEN
+xmlrpc.monkey_patch()
 
 # global variables, for use with the RPC server
 bitcoind = None

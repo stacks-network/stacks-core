@@ -1226,33 +1226,61 @@ Get a name's owner, zone file, and blockchain-based information.
               "zonefile_hash": "b100a68235244b012854a95f9114695679002af9"
             }
 
-+ Response 400 (application/json)
-
-    + Body
-
-            {
-                'error': 'Invalid address'
-            }
-
     + Schema
-
             {
-                'type': 'object',
-                'properties': {
-                    'error': {
-                        'type': 'string',
-                    },
+              'type': 'object',
+              'properties': {
+                'address': {
+                    'type': 'string',
+                    'pattern': r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$", 
                 },
-                'required': [
-                    'error'
-                ],
+                'blockchain': {
+                    'type': 'string',
+                    'pattern': '^bitcoin$',
+                },
+                'expire_block': {
+                    'type': 'integer',
+                    'minimum': 0,
+                },
+                'last_txid': {
+                    'type': 'string',
+                    'pattern': '^[0-9a-fA-F]+$',
+                },
+                'status': {
+                    'type': 'string',
+                    'pattern': '^(registered|revoked)$',
+                },
+                'zonefile': {
+                    'anyOf': [
+                       {
+                           'type': 'string',
+                       },
+                       {
+                           'type': 'object',
+                           'properties': {
+                               'error': {
+                                   'type': 'string',
+                               },
+                           },
+                       },
+                    ],
+                },
+                'zonefile_hash': {
+                    'type': 'string',
+                    'pattern': '^[0-9a-fA-F]{20}$`,
+                },
+              },
+              { 'required': 
+                [
+                  'address', 'blockchain', 'last_txid',
+                  'status', 'zonefile', 'zonefile_hash'
+                ]
+              }
             }
-
+                
 + Response 400 (application/json)
-    + Body
-
             {
-                'error': 'Invalid token type'
+                'error': 'Invalid name'
             }
 
     + Schema
