@@ -1540,6 +1540,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'OPTIONS': self.OPTIONS_preflight,
                 },
             },
+            r'^/v2/.*$': {
+                'routes': {
+                    'OPTIONS': self.OPTIONS_preflight,
+                },
+            },
         }
         
         conf = get_blockstack_api_opts()
