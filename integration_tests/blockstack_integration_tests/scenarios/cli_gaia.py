@@ -137,14 +137,17 @@ def scenario( wallets, **kw ):
     os.makedirs(tmpdir)
 
     count = 3
+    random_noise = os.urandom(32)
     for i in range(0, count):
         path = os.path.join(tmpdir, 'gaia-{}.txt'.format(i))
         with open(path, 'w') as f:
             f.write('gaia data {}'.format(i))
+            f.write(random_noise)
 
         encrypted_path = os.path.join(tmpdir, 'gaia-{}-encrypted.txt'.format(i))
         with open(encrypted_path, 'w') as f:
             f.write('gaia encrypted data {}'.format(i))
+            f.write(random_noise)
 
         print '\n\nputfile {}\n\n'.format(path)
         testlib.blockstack_gaia_putfile(app_privkey, path, '/gaia-{}.txt'.format(i), GAIA_WRITE_URL, encrypt=False, sign=False)
@@ -172,7 +175,7 @@ def scenario( wallets, **kw ):
             verify = 'signed' in filename
             decrypt = 'encrypted' in filename
             privkey = app_privkey if verify or decrypt else None
-            expected_data = 'gaia encrypted data {}'.format(i) if decrypt else 'gaia data {}'.format(i)
+            expected_data = 'gaia encrypted data {}{}'.format(i, random_noise) if decrypt else 'gaia data {}{}'.format(i, random_noise)
 
             res = testlib.blockstack_gaia_getfile('foo.test', 'http://www.testapp.com', '/{}'.format(filename), privkey=privkey, verify=verify, decrypt=decrypt)
             if res != expected_data:
@@ -182,6 +185,21 @@ def scenario( wallets, **kw ):
                 import time
                 time.sleep(1000000)
                 return False
+
+    # dump the gaia hub and make sure they're all there
+    dump_dir = os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'gaia-dump')
+    res = testlib.blockstack_gaia_dump_bucket(app_privkey, GAIA_WRITE_URL, dump_dir)
+    if 'error' in res:
+        print res
+        return False
+
+    rc = os.system('diff "{}" "{}"'.format(
+        os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'gaia-hub/{}'.format(virtualchain.address_reencode(virtualchain.get_privkey_address(app_privkey + '01'), network='mainnet'))), 
+        dump_dir))
+
+    if rc != 0:
+        print 'dump directory differs'
+        return False
 
 
 def check( state_engine ):
