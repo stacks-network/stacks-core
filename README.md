@@ -135,10 +135,6 @@ $ pip install blockstack --upgrade
 On CentOS 7 & RHEL:
 
 ```
-# Disable SELinux
-$ setenforce 0
-$ sed -i --follow-symlinks 's/^SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/selinux && cat /etc/sysconfig/selinux
-
 # Install dependencies
 $ yum install epel-release
 $ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-devel zlib-devel 
@@ -146,6 +142,15 @@ $ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-d
 # Install blockstack
 $ sudo pip install blockstack --upgrade
 
+You will need to open ports TCP:6264 and TCP:6270.  If you have trouble starting
+`blockstack-core`, you can try disabling SELinux and/or `firewalld` as follows:
+
+```bash
+# Disable SELinux
+$ setenforce 0
+$ sed -i --follow-symlinks 's/^SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/selinux && cat /etc/sysconfig/selinux
+
+# Stop firewalld
 $ systemctl stop firewalld && systemctl disable firewalld
 ```
 
@@ -190,6 +195,7 @@ docker run -d \
   -v './data/core/server/:/root/.blockstack-server' \ 
   -v './data/core/api/:/root/.blockstack' \ 
   -p '6264:6264' \ 
+  -p '6270:6270' \
   --restart 'always' \
   --name 'blockstack-core' \
   quay.io/blockstack/blockstack-core:master \ 
@@ -203,9 +209,9 @@ docker run -d \
 
 Notes:
 - This method is currently only fully supported on Linux.
-- You will need `sudo` access to run the above scripts
+- You will need `sudo` access to run the above scripts, and/or be a member of the `docker` group.
 - You can run more than one instance of this setup per host. Allow at least 1 CPU core for each container
-- To configure a different `bitcoind` node, or `utxo_provider` for both containers you must change those settings in both `blockstack-server.ini` and `client.ini` before running the `./docker-tools.sh init-*` commands. After `init-*` has been run you must edit the `data/core/server/blockstack-server.ini` and `data/api/client.ini` to change those settings. 
+- To configure a different `bitcoind` node, you must edit your `blockstack-server.ini` file before running the `./docker-tools.sh init-*` commands. After `init-*` has been run you must edit the `data/core/server/blockstack-server.ini` to change those settings. 
 
 ## Running a Blockstack Core Node
 
