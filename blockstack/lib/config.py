@@ -26,6 +26,7 @@ import sys
 import copy
 import socket
 import stun
+import jsonschema
 from ConfigParser import SafeConfigParser
 
 from ..version import __version__
@@ -243,9 +244,9 @@ except:
 
     print >> sys.stderr, 'WARNING: will try to load a genesis block from $BLOCKSTACK_GENESIS_BLOCK_PATH at runtime'
 
+
 def get_genesis_block():
     return GENESIS_BLOCK
-
 
 def set_genesis_block(new_genesis_block):
     global GENESIS_BLOCK
