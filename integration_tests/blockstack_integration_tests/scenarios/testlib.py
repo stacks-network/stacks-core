@@ -1451,6 +1451,16 @@ def blockstack_gaia_listfiles(privkey, gaia_hub):
     return filenames[:-1]
 
 
+def blockstack_gaia_dump_bucket(privkey, gaia_hub, dumpdir):
+    """
+    Dump a gaia hub bucket
+    """
+    assert has_nodejs_cli()
+    res = nodejs_cli('gaia_dump_bucket', gaia_hub, privkey, dumpdir, full_output=True)
+    print res
+    return {'status': True}
+
+
 def blockstack_REST_call( method, route, api_pass=None, data=None, raw_data=None, config_path=None, allow_redirects=True, **query_fields ):
     """
     Low-level call to an API route
