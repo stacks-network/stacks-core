@@ -1,7 +1,5 @@
 #!/usr/bin/env python2
 
-import virtualchain
-
 SCRIPTS = [
     "testnet.js",
     "jquery.min.js",
