@@ -290,11 +290,11 @@ class BlockstackDB( virtualchain.StateEngine ):
             self.db = None
 
         return
-    
+
+
     def export_db(self, dirpath):
         """
-        Copy all database info to a given directory.  This does NOT include the atlas state.
-
+        Copy all database info to a given directory.
         Used primarily for testing; production users
         should just pull a backup db from ~/.blockstack-server/backups
         (or whatever the working directory is)
@@ -306,10 +306,21 @@ class BlockstackDB( virtualchain.StateEngine ):
         
         db_path = os.path.join(dirpath, os.path.basename(self.get_db_path()))
         snapshots_path = os.path.join(dirpath, os.path.basename(virtualchain.get_snapshots_filename(virtualchain_hooks, self.working_dir)))
+        atlas_path = os.path.join(dirpath, 'atlas.db')
+        subdomain_path = os.path.join(dirpath, 'subdomains.db')
 
+        src_atlas_path = os.path.join(self.working_dir, 'atlas.db')
+        src_subdomain_path = os.path.join(self.working_dir, 'subdomains.db')
+        
         virtualchain.sqlite3_backup(self.get_db_path(), db_path)
         virtualchain.sqlite3_backup(virtualchain.get_snapshots_filename(virtualchain_hooks, self.working_dir), snapshots_path)
-   
+
+        if os.path.exists(src_atlas_path):
+            virtualchain.sqlite3_backup(src_atlas_path, atlas_path)
+
+        if os.path.exists(src_subdomain_path):
+            virtualchain.sqlite3_backup(src_subdomain_path, subdomain_path)
+  
 
     @classmethod
     def get_import_keychain_path( cls, keychain_dir, namespace_id ):

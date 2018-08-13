@@ -773,7 +773,10 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         elif check_subdomain(name):
             did_info = self.get_subdomain_DID_info(name)
         else:
-            return {'error': 'No such name', 'http_status': 404}
+            return {'error': 'Invalid name or subdomain', 'http_status': 400}
+
+        if did_info is None:
+            return {'error': 'No DID for this name', 'http_status': 404}
 
         did = make_DID(did_info['name_type'], did_info['address'], did_info['index'])
         return self.success_response({'did': did})
@@ -2230,7 +2233,7 @@ def index_blockchain(server_state, expected_snapshots=GENESIS_SNAPSHOT):
     # NOTE: at each block, the atlas db will be synchronized by virtualchain_hooks
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( working_dir, True )
-    rc = virtualchain_hooks.sync_blockchain(working_dir, bt_opts, current_block, subdomain_index=server_state['subdomains'], expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter)
+    rc = virtualchain_hooks.sync_blockchain(working_dir, bt_opts, current_block, server_state, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter)
     set_indexing( working_dir, False )
 
     db.close()
@@ -2876,10 +2879,15 @@ def run_blockstackd():
            log.error("Blockstackd appears to be running already.  If not, please run '{} stop'".format(sys.argv[0]))
            sys.exit(1)
 
-        if pid is not None and use_indexer is not False:
+        # unclean shutdown?
+        is_indexing = BlockstackDB.db_is_indexing(virtualchain_hooks, working_dir)
+        if is_indexing:
+            log.warning('Unclean shutdown detected!  Will attempt to restore from backups')
+
+        if pid is not None and use_indexer is not False or is_indexing:
            # The server didn't shut down properly.
            # restore from back-up before running
-           log.warning("Server did not shut down properly (stale PID {}).  Restoring state from last known-good backup.".format(pid))
+           log.warning("Server did not shut down properly (stale PID {}, or indexing lockfile detected).  Restoring state from last known-good backup.".format(pid))
 
            # move any existing db information out of the way so we can start fresh.
            state_paths = BlockstackDB.get_state_paths(virtualchain_hooks, working_dir)
@@ -2900,6 +2908,7 @@ def run_blockstackd():
 
            # make sure we "stop"
            set_indexing(working_dir, False)
+           BlockstackDB.db_set_indexing(False, virtualchain_hooks, working_dir)
 
         # use snapshots?
         if args.expected_snapshots is not None:

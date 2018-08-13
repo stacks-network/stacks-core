@@ -1325,18 +1325,6 @@ def blockstack_export_db( snapshots_dir, block_height, **kw ):
         else:
             raise
 
-    # save atlasdb too 
-    # TODO: this is hacky; find a generic way to find the atlas db path
-    atlas_path = os.path.join(os.path.dirname(state_engine.get_db_path()), "atlas.db")
-    if os.path.exists(atlas_path):
-        virtualchain.sqlite3_backup(atlas_path, os.path.join(export_dir, 'atlas.db'))
-
-    # save subdomaindb too
-    # TODO: this is hacky; find a generic way to find the atlas db path
-    subdomain_path = os.path.join(os.path.dirname(state_engine.get_db_path()), 'subdomains.db')
-    if os.path.exists(subdomain_path):
-        virtualchain.sqlite3_backup(subdomain_path, os.path.join(export_dir, 'subdomains.db'))
-
 
 def format_unspents(unspents):
     return [{
@@ -2073,20 +2061,15 @@ def check_subdomain_db(firstblock=None, **kw):
 
         subd_did = blockstack.lib.client.get_name_DID(subd, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
 
-        subrecs[subd] = subrec
-        subrec_dids[subd] = subd_did
-
         did_info = blockstack.lib.util.parse_DID(subd_did)
         assert did_info['name_type'] == 'subdomain'
         assert virtualchain.address_reencode(did_info['address']) == virtualchain.address_reencode(addr), 'address mismatch on {}: {} (expected {})\nsubrec: {}'.format(subd, did_info['address'], addr, subrec)
 
-    for subd in subrec_dids:
-        did = subrec_dids[subd]
-        subrec = blockstack.lib.client.get_DID_record(did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
-        assert subrec
-        assert 'error' not in subrec, subrec
+        subrec_did = blockstack.lib.client.get_DID_record(subd_did, hostport='localhost:{}'.format(blockstack.lib.config.RPC_SERVER_PORT))
+        assert subrec_did
+        assert 'error' not in subrec_did, subrec_did
 
-        assert subrec == subrecs[subd], 'Did not resolve {} to {}, but instead to {}'.format(did, subrecs[subd], subrec)
+        assert subrec_did == subrec, 'At ({}, {}): Did not resolve to {}, but instead to {}'.format(subd, addr, subrec, subrec_did)
 
     print '\nend auditing the subdomain db\n'
 
