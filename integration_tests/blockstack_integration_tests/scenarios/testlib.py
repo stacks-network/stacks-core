@@ -1192,6 +1192,7 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
     Generates 2 blocks
     """
     gaia_host = kw.get('gaia_host', 'localhost:4001')
+    profile_name = kw.get('profile_name', 'profile.json')
 
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
 
@@ -1209,7 +1210,7 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
     if gaia_read_prefix[-1] != '/':
         gaia_read_prefix += '/'
 
-    urls = ['{}{}/profile.json'.format(gaia_read_prefix, virtualchain.address_reencode(addr, network='mainnet'))]
+    urls = ['{}{}/{}'.format(gaia_read_prefix, virtualchain.address_reencode(addr, network='mainnet'), profile_name)]
     zonefile_txt = make_empty_zonefile(name, addr, urls=urls)
     zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
 
@@ -1458,6 +1459,28 @@ def blockstack_gaia_dump_bucket(privkey, gaia_hub, dumpdir):
     assert has_nodejs_cli()
     res = nodejs_cli('gaia_dump_bucket', gaia_hub, privkey, dumpdir, full_output=True)
     print res
+
+    try:
+        res_json = json.loads(res.strip())
+        if 'error' in res_json:
+            return res_json
+    except:
+        pass
+
+    return {'status': True}
+
+
+def blockstack_gaia_restore_bucket(privkey, gaia_hub, dumpdir):
+    """
+    Restore a gaia dump
+    """
+    assert has_nodejs_cli()
+    res = nodejs_cli('gaia_restore_bucket', gaia_hub, privkey, dumpdir)
+    print res
+
+    if 'error' in res:
+        return res
+
     return {'status': True}
 
 
