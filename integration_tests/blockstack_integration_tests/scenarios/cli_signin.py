@@ -96,11 +96,6 @@ def scenario( wallets, **kw ):
 
     GAIA_WRITE_URL = 'http://{}:{}'.format(GAIA_CONF['servername'], GAIA_WRITE_PORT)
 
-    # fill in URL 
-    tb_conf_path = os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'transaction-broadcaster.conf')
-    with open(tb_conf_path, 'r') as f:
-        tb_conf = json.loads(f.read().strip())
-
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
