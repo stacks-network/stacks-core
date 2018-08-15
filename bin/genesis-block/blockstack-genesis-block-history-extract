@@ -1,6 +1,23 @@
 #!/bin/bash
 
-# Prereq: you need the genesis block signers' keys in your ~/.gnupg directory
+# This script will take a directory containing genesis block information and extract
+# the signed commit history for it.  It will output a JSON object in the format of:
+# 
+# {
+#    "keys": {
+#       "$KEY_ID": "$GPG_KEY"
+#    },
+#    "commits": [
+#        {
+#          "hash": "$HASH_OF_COMMIT",       # the sha1 of the commit
+#          "object": "$COMMIT_TEXT",        # the git commit object text
+#          "trusted": "$WHITELISTED"        # 0 or 1.  Will be 1 if the commit is whitelisted
+#        },
+#        ...
+#    ]
+# }
+#  
+# Prereq: you need the genesis block signers' keys in your ~/.gnupg directory.
 
 function usage() {
     echo "Usage: $0 GENESIS_BLOCK_DIR_OR_REPO [WHITELISTED_COMMITS]"

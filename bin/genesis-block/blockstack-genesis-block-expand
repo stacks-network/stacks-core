@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import csv
 
 def create_unlock_schedule(start_block, total, interval, increments):
     """
@@ -41,14 +42,14 @@ def create_unlock_schedule(start_block, total, interval, increments):
     return ret
 
 
-def expand_genesis_block(genesis_block_json, start_block, lock_time, unlock_increments):
+def expand_genesis_block_shareholders(genesis_block_json, start_block, lock_time, unlock_increments):
     """
-    Expand the genesis block given.
-    The given genesis block has the format:
+    Expand the genesis block rows for the Blockstack PBC shareholders.
+    These genesis block rows have the format:
     "stack_token_allocations": [
         {
-           "tokens": ...,
-           "owner": ...,
+           "tokens": ...,   # the allocation 
+           "owner": ...,    # the hash of the legal document
         }, ...
     ]
 
@@ -80,13 +81,15 @@ def expand_genesis_block(genesis_block_json, start_block, lock_time, unlock_incr
     return ret
 
 
+def expand_genesis_block_coinlist(genesis_block_json
+
 if __name__ == "__main__":
     try:
         start_block = int(sys.argv[1])
         lock_time = int(sys.argv[2])
         unlock_increments = int(sys.argv[3])
     except:
-        print "Usage: {} START_BLOCK LOCK_TIME UNLOCK_INCREMENTS".format(sys.argv[0])
+        print "Usage: {} START_BLOCK LOCK_TIME UNLOCK_INCREMENTS < GENESIS_BLOCK_SHAREHOLDERS".format(sys.argv[0])
         sys.exit(1)
 
     assert lock_time > unlock_increments, 'Invalid input: lock time must be greater than the unlock increments'
