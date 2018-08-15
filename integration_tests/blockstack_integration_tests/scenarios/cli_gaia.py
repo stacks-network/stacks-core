@@ -49,6 +49,7 @@ import virtualchain
 import cgi
 import blockstack
 import requests
+import shutil
 
 log = virtualchain.get_logger('testnet')
 
@@ -100,11 +101,7 @@ def scenario( wallets, **kw ):
         GAIA_WRITE_PORT = int(os.environ['BLOCKSTACK_PUBLIC_TESTNET_GAIA_WRITE_PORT'])
 
     GAIA_WRITE_URL = 'http://{}:{}'.format(GAIA_CONF['servername'], GAIA_WRITE_PORT)
-
-    # fill in URL 
-    tb_conf_path = os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'transaction-broadcaster.conf')
-    with open(tb_conf_path, 'r') as f:
-        tb_conf = json.loads(f.read().strip())
+    GAIA_DISK_PATH = GAIA_CONF['diskSettings']['storageRootDirectory']
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -150,10 +147,10 @@ def scenario( wallets, **kw ):
             f.write(random_noise)
 
         print '\n\nputfile {}\n\n'.format(path)
-        testlib.blockstack_gaia_putfile(app_privkey, path, '/gaia-{}.txt'.format(i), GAIA_WRITE_URL, encrypt=False, sign=False)
-        testlib.blockstack_gaia_putfile(app_privkey, encrypted_path, '/gaia-{}-encrypted.txt'.format(i), GAIA_WRITE_URL, encrypt=True)
-        testlib.blockstack_gaia_putfile(app_privkey, path, '/gaia-{}-signed.txt'.format(i), GAIA_WRITE_URL, encrypt=False, sign=True)
-        testlib.blockstack_gaia_putfile(app_privkey, encrypted_path, '/gaia-{}-encrypted-signed.txt'.format(i), GAIA_WRITE_URL, encrypt=True, sign=True)
+        testlib.blockstack_gaia_putfile(app_privkey, path, '/foo/gaia-{}.txt'.format(i), GAIA_WRITE_URL, encrypt=False, sign=False)
+        testlib.blockstack_gaia_putfile(app_privkey, encrypted_path, '/foo/gaia-{}-encrypted.txt'.format(i), GAIA_WRITE_URL, encrypt=True)
+        testlib.blockstack_gaia_putfile(app_privkey, path, '/foo/gaia-{}-signed.txt'.format(i), GAIA_WRITE_URL, encrypt=False, sign=True)
+        testlib.blockstack_gaia_putfile(app_privkey, encrypted_path, '/foo/gaia-{}-encrypted-signed.txt'.format(i), GAIA_WRITE_URL, encrypt=True, sign=True)
 
     # make sure they're all there
     res = testlib.blockstack_gaia_listfiles(app_privkey, GAIA_WRITE_URL)
@@ -163,28 +160,35 @@ def scenario( wallets, **kw ):
         return False
 
     for i in range(0, count):
-        for filename in ['gaia-{}.txt'.format(i), 'gaia-{}-encrypted.txt'.format(i), 'gaia-{}-signed.txt'.format(i), 'gaia-{}-signed.txt.sig'.format(i), 'gaia-{}-encrypted-signed.txt'.format(i)]:
+        for filename in ['foo/gaia-{}.txt'.format(i), 'foo/gaia-{}-encrypted.txt'.format(i), 'foo/gaia-{}-signed.txt'.format(i), 'foo/gaia-{}-signed.txt.sig'.format(i), 'foo/gaia-{}-encrypted-signed.txt'.format(i)]:
             if filename not in res:
-                print json.dumps(res, indnet=4, sort_keys=True)
+                print json.dumps(res, indent=4, sort_keys=True)
                 print 'missing {}'.format(filename)
                 return False
 
-    # make sure we can get them all 
-    for i in range(0, count):
-        for filename in ['gaia-{}.txt'.format(i), 'gaia-{}-encrypted.txt'.format(i), 'gaia-{}-signed.txt'.format(i), 'gaia-{}-encrypted-signed.txt'.format(i)]:
-            verify = 'signed' in filename
-            decrypt = 'encrypted' in filename
-            privkey = app_privkey if verify or decrypt else None
-            expected_data = 'gaia encrypted data {}{}'.format(i, random_noise) if decrypt else 'gaia data {}{}'.format(i, random_noise)
+    def check_reads():
+        # make sure we can get them all 
+        for i in range(0, count):
+            for filename in ['foo/gaia-{}.txt'.format(i), 'foo/gaia-{}-encrypted.txt'.format(i), 'foo/gaia-{}-signed.txt'.format(i), 'foo/gaia-{}-encrypted-signed.txt'.format(i)]:
+                verify = 'signed' in filename
+                decrypt = 'encrypted' in filename
+                privkey = app_privkey if verify or decrypt else None
+                expected_data = 'gaia encrypted data {}{}'.format(i, random_noise) if decrypt else 'gaia data {}{}'.format(i, random_noise)
 
-            res = testlib.blockstack_gaia_getfile('foo.test', 'http://www.testapp.com', '/{}'.format(filename), privkey=privkey, verify=verify, decrypt=decrypt)
-            if res != expected_data:
-                print 'expected\n{}'.format(expected_data)
-                print 'got\n{}'.format(res)
+                res = testlib.blockstack_gaia_getfile('foo.test', 'http://www.testapp.com', filename, privkey=privkey, verify=verify, decrypt=decrypt)
+                if res != expected_data:
+                    print 'expected\n{}'.format(expected_data)
+                    print 'got\n{}'.format(res)
 
-                import time
-                time.sleep(1000000)
-                return False
+                    import time
+                    time.sleep(1000000)
+                    return False
+
+        return True
+
+    res = check_reads()
+    if not res:
+        return False
 
     # dump the gaia hub and make sure they're all there
     dump_dir = os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'gaia-dump')
@@ -193,12 +197,52 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    rc = os.system('diff "{}" "{}"'.format(
-        os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'gaia-hub/{}'.format(virtualchain.address_reencode(virtualchain.get_privkey_address(app_privkey + '01'), network='mainnet'))), 
-        dump_dir))
+    app_storage_path = os.path.join(GAIA_DISK_PATH, virtualchain.address_reencode(virtualchain.get_privkey_address(app_privkey + '01'), network='mainnet'))
 
-    if rc != 0:
-        print 'dump directory differs'
+    def compare_directories():
+        for filename in os.listdir(dump_dir):
+            app_storage_filename = os.path.join(app_storage_path, filename.replace('\\x2f', '/'))
+            deserialized_filename = os.path.join(dump_dir, filename)
+
+            d1 = open(deserialized_filename).read()
+            d2 = open(app_storage_filename).read()
+
+            if d1 != d2:
+                print "{} and {} differ".format(app_storage_filename, deserialized_filename)
+                return False
+
+        for filename in os.listdir(os.path.join(app_storage_path, 'foo')):
+            serialized_filename = os.path.join(dump_dir, 'foo\\x2f{}'.format(filename))
+            app_storage_filename = os.path.join(app_storage_path, 'foo', filename)
+
+            d1 = open(serialized_filename).read()
+            d2 = open(app_storage_filename).read()
+
+            if d1 != d2:
+                print "{} and {} differ".format(app_storage_filename, app_storage_filename)
+                return False
+
+        return True
+
+    res = compare_directories()
+    if not res:
+        return False
+
+    shutil.move(app_storage_path, '{}.bak'.format(app_storage_path))
+    os.makedirs(app_storage_path)
+
+    # restore the gaia dump
+    res = testlib.blockstack_gaia_restore_bucket(app_privkey, GAIA_WRITE_URL, dump_dir)
+    if 'error' in res:
+        print res
+        return False
+
+    res = compare_directories()
+    if not res:
+        return False
+
+    res = check_reads()
+    if not res:
         return False
 
 
