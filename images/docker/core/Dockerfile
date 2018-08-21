@@ -5,5 +5,6 @@ RUN sudo pip install pip --upgrade
 RUN sudo pip install blockstack --upgrade
 
 EXPOSE 6264
+EXPOSE 6270
 
 CMD blockstack-core --debug start
