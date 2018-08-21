@@ -12,7 +12,7 @@ the latest version of Blockstack core (with fastsync support).
 - **Step 4:** Use fastsync to get the latest state:
 
 ```
-$ blockstack-server --debug fast_sync http://fastsync.blockstack.org/snapshots/latest.bsk 023fa2e30724998010764529bda23213061c8e758d7095e1883bed8006844daaec
+$ blockstack-server --debug fast_sync
 ```
 
 - **Step 5:** Start the Blockstack Core node:
@@ -24,7 +24,3 @@ $ tail -f ~/.blockstack-server/blockstack-server.log
 
 If you run into any issues, you can talk to us in the #support channel at http://chat.blockstack.org
 
-Note: fastsyn command usage is changing and we'll update it shortly:
-```
-$ blockstack-core --debug fast_sync http://40.121.156.215/snapshot.bsk
-```
