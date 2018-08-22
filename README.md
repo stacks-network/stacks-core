@@ -44,7 +44,7 @@ but lets users securely store and share application data
 via existing storage systems like Dropbox or S3.
 
 Blockstack applications differ from traditional Web applications in two key
-ways.  First, **users own their identities**.  
+ways.  First, **users own their identities**.
 The [Blockstack Browser](https://github.com/blockstack/blockstack-browser)
 gives users direct control over their private keys and profile data,
 and fulfills the role of a SSO provider to Blockstack apps.
@@ -137,7 +137,7 @@ On CentOS 7 & RHEL:
 ```
 # Install dependencies
 $ yum install epel-release
-$ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-devel zlib-devel 
+$ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-devel zlib-devel
 
 # Install blockstack
 $ sudo pip install blockstack --upgrade
@@ -197,7 +197,7 @@ docker run -d \
   -p '6270:6270' \
   --restart 'always' \
   --name 'blockstack-core' \
-  quay.io/blockstack/blockstack-core:master \ 
+  quay.io/blockstack/blockstack-core:master \
   blockstack-core start --foreground --debug
 
 # Test connectivity for the blockstack-core container
@@ -240,7 +240,7 @@ By default, it will pull a snapshot from
 verify its authenticity.  It will populate your `~/.blockstack-server/`
 directory with a recent snapshot of the network state (less than 24 hours old).
 
-To start your Blockstack Core node, you should run 
+To start your Blockstack Core node, you should run
 
 ```bash
 $ blockstack-core --debug start
@@ -324,9 +324,9 @@ maintains a [mailing list](https://blockstack.org/signup) which sends out
 community announcements.
 
 The greater Blockstack community regularly hosts in-person
-[meetups](https://www.meetup.com/topics/blockstack/).  The project's 
+[meetups](https://www.meetup.com/topics/blockstack/).  The project's
 [YouTube channel](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ) includes
-videos from some of these meetups, as well as video tutorials to help new 
+videos from some of these meetups, as well as video tutorials to help new
 users get started and help developers wrap their heads around the system's
 design.
 
