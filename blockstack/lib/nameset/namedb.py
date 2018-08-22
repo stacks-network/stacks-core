@@ -830,12 +830,12 @@ class BlockstackDB( virtualchain.StateEngine ):
         return namedb_get_namespace_at(cur, namespace_id, block_number, include_expired=True)
 
 
-    def get_name_history( self, name ):
+    def get_name_history( self, name, offset=None, count=None, reverse=False):
         """
-        Get the historic states for a name
+        Get the historic states for a name, grouped by block height.
         """
         cur = self.db.cursor()
-        name_hist = namedb_get_history( cur, name )
+        name_hist = namedb_get_history( cur, name, offset=offset, count=count, reverse=reverse )
         return name_hist
 
 
@@ -847,7 +847,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         update_points = namedb_get_blocks_with_ops( cur, name, FIRST_BLOCK_MAINNET, self.lastblock )
         return update_points
-       
+
 
     def get_all_ops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
         """

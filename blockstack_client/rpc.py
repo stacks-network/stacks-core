@@ -878,6 +878,96 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(resp, status_code=202)
 
 
+    def find_last_resolver_zonefile(self, name, attempts=5):
+        """
+        Find the last known zone file for a name.
+        Do not carry out more than $attempts zone file requests (prevents a malicious name from opening a DDoS vector).
+        Return {'status': True, 'zonefile': ...} on success
+        Return {'error': 'Not found'} if the name doesn't exist, or we have no zone file.
+        """
+        blockstackd_url = get_blockstackd_url(self.server.config_path)
+        domain_rec = blockstackd_client.get_name_record(name, include_history = False,
+                                                        hostport = blockstackd_url)
+        if 'error' in domain_rec:
+            return {'error': 'Not found', 'http_status': 404}
+
+        if 'zonefile' in domain_rec:
+            try:
+                zf_txt = base64.b64decode(domain_rec['zonefile'])
+                return {'status': True, 'zonefile': zf_txt}
+            except:
+                log.error("Failed to parse zonefile returned by blockstackd: contents return: {}"
+                          .format(domain_rec['zonefile']))
+                return {'error': 'Failed to parse zonefile', 'http_status': 502}
+
+        last_zonefile_hash = None
+        page = 0
+        while attempts > 0:
+            # paginate back through the name's history to find a zone file
+            res = blockstackd_client.get_name_history_page(name, page, hostport=blockstackd_url)
+            if 'error' in res:
+                log.error("Failed to get name history page {} for {}: {}".format(page, name, res['error']))
+                return {'error': 'Failed to get name history: {}'.format(res['error']), 'http_status': 502}
+
+            hist = res['history']
+
+            if BLOCKSTACK_TEST:
+                log.debug('Name history page {} for {}:\n{}'.format(page, name, json.dumps(hist, indent=4, sort_keys=True)))
+
+            page += 1
+
+            if len(hist) == 0:
+                # out of history
+                log.debug("Out of history on {}".format(name))
+                break
+
+            for block_id in reversed(hist.keys()):
+                # go in reverse vtx order
+                vtxs = hist[block_id]
+                vtxs.sort(lambda v1, v2: 1 if v1['vtxindex'] < v2['vtxindex'] else -1)
+                for vtx in vtxs:
+
+                    if attempts < 0:
+                        log.debug('Tried too many times to find a zone file for {}'.format(name))
+                        return {'error': 'Not Found', 'http_status': 404}
+
+                    if 'value_hash' not in vtx:
+                        log.debug('No value hash in ({}, {}) for {}'.format(block_id, vtx['vtxindex'], name))
+                        continue
+
+                    if vtx['value_hash'] == last_zonefile_hash:
+                        log.debug('Duplicate value hash in ({}, {}) for {}'.format(block_id, vtx['vtxindex'], name))
+                        continue
+
+                    # new zone file 
+                    last_zonefile_hash = vtx['value_hash']
+                    resp = blockstackd_client.get_zonefiles(blockstackd_url, [str(last_zonefile_hash)])
+
+                    attempts -= 1
+
+                    if 'error' in resp:
+                        log.debug('Failed to get {} (from ({}, {}) for {}): {}'.format(last_zonefile_hash, block_id, vtx['vtxindex'], name, resp['error']))
+                        continue
+
+                    if last_zonefile_hash not in resp['zonefiles']:
+                        log.debug('Failed to get {} (from ({}, {}) for {}): missing'.format(last_zonefile_hash, block_id, vtx['vtxindex'], name))
+                        continue
+
+                    # got a zonefile!
+                    # is it well-formed? does it have a _resolver entry?
+                    try:
+                        domain_zf_txt = resp['zonefiles'][last_zonefile_hash]
+                        domain_zf_json = zonefile.decode_name_zonefile(name, domain_zf_txt, allow_legacy=False)
+                        matching_uris = [ x['target'] for x in domain_zf_json['uri'] if x['name'] == '_resolver' ]
+                    except:
+                        log.debug("Malformed zone file {} (from {}, {} for {})".format(last_zonefile_hash, block_id, vtx['vtxindex'], name))
+                        continue
+
+                    return {'status': True, 'zonefile': resp['zonefiles'][last_zonefile_hash]}
+
+        return {'error': 'Not found', 'http_status': 404}
+
+
     def GET_name_info( self, ses, path_info, name ):
         """
         Look up a name's zonefile, address, and last TXID
@@ -921,12 +1011,18 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             elif 'failed to load subdomain' in name_rec['error'].lower():
                 # handle redirection to specified resolver
                 _, _, domain_name = blockstackd_scripts.is_address_subdomain(name)
-                domain_rec = blockstackd_client.get_name_record(domain_name, include_history = False,
-                                                                hostport = blockstackd_url)
-                if 'error' in domain_rec or 'zonefile' not in domain_rec:
-                    return self._reply_json(
-                        {'status': 'available', 'more': 'failed to lookup parent domain'}, status_code=404)
-                domain_zf_txt = base64.b64decode(domain_rec['zonefile'])
+
+                res = self.find_last_resolver_zonefile(domain_name)
+                if 'error' in res:
+                    if res['http_status'] == 404:
+                        return self._reply_json(
+                            {'status': 'available', 'more': 'failed to look up parent domain'}, status_code=404)
+
+                    else:
+                        return self._reply_json(
+                            {'error': res['error']}, status_code=res['http_status'])
+
+                domain_zf_txt = res['zonefile']
                 domain_zf_json = zonefile.decode_name_zonefile(domain_name, domain_zf_txt, allow_legacy=False)
                 matching_uris = [ x['target'] for x in domain_zf_json['uri'] if x['name'] == '_resolver' ]
                 if len(matching_uris) == 0:
@@ -1002,6 +1098,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         qs_values = path_info['qs_values']
         start_block = qs_values.get('start_block', None)
         end_block = qs_values.get('end_block', None)
+        page = int(qs_values.get('page', 0))
 
         try:
             if start_block is None:
@@ -1021,7 +1118,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockstackd_url = get_blockstackd_url(self.server.config_path)
 
         # res = proxy.get_name_blockchain_history(name, start_block, end_block)
-        res = blockstackd_client.get_name_record(name, include_history=True, hostport=blockstackd_url)
+        res = blockstackd_client.get_name_record(name, include_history=True,
+                                                 hostport=blockstackd_url, history_page=page)
         if json_is_error(res):
             self._reply_json({'error': res['error']}, status_code=500)
             return
@@ -1106,7 +1204,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
     
-    # DEPRECATED
     def POST_raw_zonefile( self, ses, path_info ):
         """
         Publish a zonefile which has *already* been announced.
