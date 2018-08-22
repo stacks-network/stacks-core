@@ -103,9 +103,6 @@ def fetch_namespace_from_file():
 
         new_entry = {}
 
-        username = entry.rstrip('id')
-        username = username.rstrip('.')
-
         key = entry
         check_entry = profile_data.find_one({"key": key})
 
