@@ -111,9 +111,6 @@ def fetch_namespace_from_file():
 
         new_entry = {}
 
-        username = entry.rstrip('id')
-        username = username.rstrip('.')
-
         key = entry
         check_entry = profile_data.find_one({"key": key})
 
@@ -122,7 +119,7 @@ def fetch_namespace_from_file():
             # profile data not available, skip
             continue
 
-        new_entry['username'] = username
+        new_entry['username'] = entry
         new_entry['fqu'] = entry
         new_entry['profile'] = check_entry['value']
         namespace.save(new_entry)
