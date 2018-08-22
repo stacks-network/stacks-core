@@ -149,10 +149,9 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
     
     # query each subdomain
-    proxy = testlib.make_proxy()
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, proxy=proxy)
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False
@@ -187,7 +186,7 @@ def scenario( wallets, **kw ):
             return False
 
         # there should only be three history items per name
-        hist = client.get_name_record(fqn, proxy=proxy, include_history=True)
+        hist = client.get_name_record(fqn, hostport='http://localhost:16264', include_history=True)
         if 'error' in hist:
             print res
             return False

@@ -39,7 +39,6 @@ import shutil
 import tempfile
 
 import blockstack
-import blockstack_client
 import blockstack_zones
 
 wallets = [
@@ -62,7 +61,6 @@ first_name_block = None
 def scenario( wallets, **kw ):
 
     global first_name_block
-    test_proxy = testlib.make_proxy()
 
     # make a test namespace
     resp = testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
@@ -80,49 +78,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw ) # 690
 
     # make a zonefile and a profile 
-    driver_urls = blockstack_client.storage.make_mutable_data_urls('foo.test', use_only=['dht', 'disk'])
-    zonefile = blockstack_client.zonefile.make_empty_zonefile('foo.test', wallets[4].pubkey_hex, urls=driver_urls)
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile, origin='foo.test', ttl=4200 )
-
-    # make a new keyfile as well 
-    user_profile = blockstack_client.user.make_empty_user_profile()
-    '''
-    res = blockstack_client.key_file.make_initial_key_file(user_profile, wallets[3].privkey)
-    if 'error' in res:
-        print res
-        return res
-
-    keyfile_txt = res['key_file']
-    '''
-    zonefile_hash = blockstack_client.get_zonefile_data_hash(zonefile_txt)
-
-    resp = testlib.blockstack_name_import( "foo.test", wallets[3].addr, zonefile_hash, wallets[1].privkey )
-    if 'error' in resp:
-        print json.dumps( resp, indent=4 )
-        return False
-
-    testlib.next_block( **kw ) # 691
-
-    # broadcast zonefile 
-    res = testlib.blockstack_cli_sync_zonefile('foo.test', zonefile_string=zonefile_txt)
-    if 'error' in res:
-        print res
-        return False
-
-    '''
-    # upload keyfile
-    res = blockstack_client.key_file.key_file_put('foo.test', keyfile_txt)
-    if 'error' in res:
-        print res
-        return False
-    '''
- 
-    rc = blockstack_client.profile.put_profile('foo.test', user_profile, blockchain_id='foo.test',
-                                              user_data_privkey=wallets[4].privkey, user_zonefile=zonefile,
-                                              proxy=test_proxy)
-    if not rc:
-        print 'failed to put profile'
-        return False
+    resp = testlib.blockstack_import_user('foo.test', wallets[1].privkey, wallets[3].privkey, **kw)    # 691
 
     # try lookup 
     res = testlib.blockstack_cli_lookup('foo.test')
@@ -287,49 +243,11 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    # make a zonefile and a profile 
-    driver_urls = blockstack_client.storage.make_mutable_data_urls('foo.test', use_only=['dht', 'disk'])
-    new_zonefile = blockstack_client.zonefile.make_empty_zonefile('foo.test', wallets[4].pubkey_hex, urls=driver_urls)
-    new_zonefile_txt = blockstack_zones.make_zone_file( new_zonefile, origin='foo.test', ttl=4200 )
-
-    # make a new keyfile as well 
-    new_user_profile = blockstack_client.user.make_empty_user_profile()
-    new_user_profile['new_user'] = True
-    '''
-    res = blockstack_client.key_file.make_initial_key_file(new_user_profile, wallets[0].privkey)
-    if 'error' in res:
-        print res
-        return res
-
-    new_keyfile_txt = res['key_file']
-    '''
-    new_zonefile_hash = blockstack_client.get_zonefile_data_hash(new_zonefile_txt)
-
-    rc = blockstack_client.profile.put_profile('foo.test', new_user_profile, blockchain_id='foo.test',
-                                              user_data_privkey=wallets[4].privkey, user_zonefile=new_zonefile,
-                                              proxy=test_proxy)
-    if not rc:
-        print 'failed to put profile'
-        return False
-
-
-    # renew/xfer/update 
-    resp = testlib.blockstack_name_renew('foo.test', wallets[3].privkey, zonefile_hash=new_zonefile_hash, recipient_addr=wallets[0].addr)
-    if 'error' in resp:
-        print resp
-        return False
-
-    testlib.next_block(**kw) # end of 701 (end of grace period)
+    testlib.blockstack_renew_user('foo.test', wallets[3].privkey, wallets[0].privkey, **kw)   # end of 701 (end of grace period)
 
     # try lookup (should succeed again)
     res = testlib.blockstack_cli_lookup('foo.test')
     if 'error' in res:
-        print res
-        return False
-
-    if res['zonefile'] != new_zonefile_txt:
-        print 'wrong zonefile'
-        print new_zonefile_txt
         print res
         return False
 

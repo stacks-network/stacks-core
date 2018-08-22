@@ -24,7 +24,7 @@
 import testlib
 import virtualchain
 import json
-import blockstack_client
+import blockstack
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -143,10 +143,12 @@ def check( state_engine ):
         return False
 
     # get history...
-    name_history = blockstack_client.get_name_blockchain_history( "foo.test", name_rec['first_registered'], state_engine.get_current_block()+1 )
-
-    # did 10 updates, 1 register
-    if len(name_history) != 11:
+    #name_history = blockstack.lib.client.get_name_blockchain_history('foo.test', name_rec['first_registered'], state_engine.get_current_block()+1, hostport='http://localhost:16264')
+    name_rec = blockstack.lib.client.get_name_record('foo.test', include_history=True, hostport='http://localhost:16264')
+    name_history = name_rec['history']
+    
+    # did 10 updates, 1 register, 1 preorder
+    if len(name_history) != 12:
         print "history (%s)" % len(name_history)
         print json.dumps(name_history, indent=4 )
         return False 
@@ -154,17 +156,17 @@ def check( state_engine ):
     block_ids = [int(b) for b in name_history.keys()]
     block_ids.sort()
 
-    # NOTE: first value hash doesn't exist
-    for i in xrange(1, 10):
+    # NOTE: first and second value hash doesn't exist
+    for i in xrange(2, 12):
         block_id = block_ids[i]
-        snapshots = name_history[block_id]
+        snapshots = name_history[str(block_id)]
 
         if len(snapshots) != 1:
             print "multiple snapshots at %s" % block_id
             return False
 
         snapshot = snapshots[0]
-        expected_value_hash = ("%02x" % (2*(i - 1) + 1)) * 20
+        expected_value_hash = ("%02x" % (2*(i - 2) + 1)) * 20
 
         if snapshot['value_hash'] != expected_value_hash:
             print "Invalid value hash '%s' (expected %s) at %s" % (snapshot['value_hash'], expected_value_hash, block_id)

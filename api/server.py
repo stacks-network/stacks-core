@@ -47,14 +47,14 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-import blockstack_client.config as blockstack_config
-import blockstack_client.config as blockstack_constants
+import blockstack
+import virtualchain
 
-from blockstack_client.rpc import local_api_connect, local_api_start, local_api_action
-from blockstack_client.wallet import make_wallet
-from blockstack_client.proxy import getinfo
+blockstack_working_dir = blockstack.lib.config.default_working_dir()
+blockstack_config = blockstack.lib.load_configuration(blockstack_working_dir)
+blockstack_indexer_url = blockstack_config['blockstack-api']['indexer_url']
 
-log = blockstack_config.get_logger()
+log = virtualchain.get_logger()
 
 """
 # starting internal API logic should go somewhere else
@@ -82,13 +82,16 @@ def default_cache_off(response):
 
 def forwarded_get(url, params = None):
     if params:
-        resp = requests.get(url, params = params)
+        resp = requests.get(url, params = params, allow_redirects=False)
     else:
-        resp = requests.get(url)
+        resp = requests.get(url, allow_redirects=False)
 
     try:
         log.debug("{} => {}".format(resp.url, resp.status_code))
-        return jsonify(resp.json()), resp.status_code
+        if resp.status_code == 301:
+            return jsonify(resp.json()), resp.status_code, resp.headers['Location']
+        else:
+            return jsonify(resp.json()), resp.status_code
     except:
         log.error("Bad response from API URL: {} \n {}".format(resp.url, resp.text))
         return jsonify({'error': 'Not found'}), resp.status_code
@@ -135,7 +138,10 @@ def catch_all_get(path):
     params = dict(request.args)
 
     inner_resp = forwarded_get(API_URL, params = params)
-    resp = make_response(inner_resp)
+    resp = make_response(inner_resp[:2])
+
+    if len(inner_resp) > 2 and inner_resp[1] == 301:
+        resp.headers['Location'] = inner_resp[2]
 
     for ix, matcher in enumerate(CACHE_SPECIFIC):
         if matcher.match('/' + path):
@@ -159,10 +165,10 @@ def catch_all_post(path):
     return jsonify(resp.json()), 200
 
 @app.route('/')
-@cache_control(DEFAULT_CACHE_TIMEOUT)
+@cache_control(10*60)
 def index():
     current_dir = os.path.abspath(os.path.dirname(__file__))
-    server_info = getinfo()
+    server_info = blockstack.lib.client.getinfo(hostport=blockstack_indexer_url)
 
     return render_template('index.html',
                            server_info=server_info,

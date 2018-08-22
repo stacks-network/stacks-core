@@ -74,7 +74,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     # try to ready it (should fail)
-    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
+    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey, expect_fail=True )
     if 'error' in resp:
         print json.dumps(resp, indent=4)
 

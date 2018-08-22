@@ -1066,7 +1066,9 @@ def atlasdb_add_peer( peer_hostport, discovery_time=None, peer_table=None, con=N
 
             for old_hostport in old_hostports:
                 # is this other peer still alive?
-                res = atlas_peer_ping( old_hostport )
+                # is this other peer part of the same mainnet history?
+                # res = atlas_peer_ping( old_hostport )
+                res = atlas_peer_getinfo(old_hostport)
                 if res:
                     log.debug("Peer %s is still alive; will not replace" % (old_hostport))
                     return False
@@ -1503,6 +1505,7 @@ def atlas_make_zonefile_inventory( bit_offset, bit_length, con=None, path=None )
 def atlas_get_zonefile_inventory( offset=None, length=None ):
     """
     Get the in-RAM zonefile inventory vector.
+    offset and length are in *bytes*
     """
     global ZONEFILE_INV, ZONEFILE_INV_LOCK
 
@@ -1596,7 +1599,7 @@ def atlas_peer_ping( peer_hostport, timeout=None, peer_table=None ):
 
     ret = False
     try:
-        res = blockstack_ping( proxy=rpc )
+        res = blockstack_ping( proxy=rpc ) 
         if 'error' not in res:
             ret = True
 
@@ -1638,6 +1641,23 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
         res = blockstack_getinfo( proxy=rpc )
         if 'error' in res:
             log.error("Failed to getinfo on %s: %s" % (peer_hostport, res['error']))
+
+        if 'last_block_processed' not in res:
+            log.error("Missing last_block_processed response from {}".format(peer_hostport))
+            res = {'error': 'Remote peer {} did not rely last_block_processed'.format(peer_hostport)}
+
+        if 'stale' in res and res['stale']:
+            log.error("Remote host {} is well behind the chain tip".format(peer_hostport))
+            res = {'error': 'Remote peer {} is well behind the chain tip'.format(peer_hostport)}
+
+        if 'testnet' in res:
+            if (res['testnet'] and not BLOCKSTACK_TEST and not BLOCKSTACK_TESTNET) or (not res['testnet'] and (BLOCKSTACK_TEST or BLOCKSTACK_TESTNET)):
+                if BLOCKSTACK_TEST or BLOCKSTACK_TESTNET:
+                    log.error("Remote host {} is a mainnet host, and we're testnet".format(peer_hostport))
+                    res = {'error': 'Remote peer {} is a mainnet host, and we\'re testnet'.format(peer_hostport)}
+                else:
+                    log.error("Remote host {} is a testnet host".format(peer_hostport))
+                    res = {'error': 'Remote peer {} is a testnet host'.format(peer_hostport)}
 
     except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
         atlas_log_socket_error( "getinfo(%s)" % peer_hostport, peer_hostport, se )
@@ -1755,7 +1775,7 @@ def atlas_revalidate_peers( con=None, path=None, now=None, peer_table=None ):
 
     old_peer_infos = atlasdb_get_old_peers( now, con=con, path=path )
     for old_peer_info in old_peer_infos:
-        res = atlas_peer_ping( old_peer_info['peer_hostport'] )
+        res = atlas_peer_getinfo( old_peer_info['peer_hostport'] )
         if not res:
             log.debug("Failed to revalidate %s" % (old_peer_info['peer_hostport']))
             if atlas_peer_is_whitelisted( old_peer_info['peer_hostport'], peer_table=peer_table ):
@@ -3407,7 +3427,7 @@ class AtlasZonefileCrawler( threading.Thread ):
                 with AtlasPeerTableLocked() as ptbl:
                     # if the node didn't actually have these zonefiles, then 
                     # update their inventories so we don't ask for them again.
-                    # TODO: ban nodes that repeatedly lie to us
+                    # TODO: do NOT ban nodes that repeatedly lie to us, since the "node" could be a load-balancer for a set of nodes that may or may not have the zonefile
                     for zfh in peer_zonefile_hashes:
                         log.debug("%s: %s did not have %s" % (self.hostport, peer_hostport, zfh))
                         atlas_peer_set_zonefile_status( peer_hostport, zfh, False, zonefile_bits=missing_zfinfo[zfh]['indexes'], peer_table=ptbl )

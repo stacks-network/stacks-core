@@ -33,7 +33,7 @@ TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD 3
 
 import testlib
 import virtualchain
-import blockstack_client
+import blockstack
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -62,7 +62,7 @@ def scenario( wallets, **kw ):
         return False
 
     namespace_balance = testlib.get_balance(namespace_rec['address'])
-    burn_balance = testlib.get_balance(blockstack_client.constants.BLOCKSTACK_BURN_ADDRESS)
+    burn_balance = testlib.get_balance(blockstack.lib.config.BLOCKSTACK_BURN_ADDRESS)
 
     res = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
     if 'error' in res:
@@ -95,7 +95,7 @@ def scenario( wallets, **kw ):
 
     # preorder should send to the null burn address now.
     # try forcing it to the namespace burn address, to verify that it fails
-    res = testlib.blockstack_name_preorder( "foo_fail.test", wallets[2].privkey, wallets[3].addr, burn_addr=namespace_rec['address'] )
+    res = testlib.blockstack_name_preorder( "foo_fail.test", wallets[2].privkey, wallets[3].addr, burn_addr=namespace_rec['address'], expect_fail=True)
     if 'error' not in res:
         print res
         return False
@@ -128,13 +128,13 @@ def scenario( wallets, **kw ):
         print whois
         return False
 
-    new_burn_balance = testlib.get_balance(blockstack_client.constants.BLOCKSTACK_BURN_ADDRESS)
+    new_burn_balance = testlib.get_balance(blockstack.lib.config.BLOCKSTACK_BURN_ADDRESS)
     new_namespace_balance = testlib.get_balance(namespace_rec['address'])
     name_rec_2 = testlib.get_name_blockchain_record('foo2.test')
     name_cost_2 = name_rec_2['op_fee']
 
     # namespace should NOT have gotten the fee for foo_fail.  It should only have gotten it for foo.test
-    if new_namespace_balance - namespace_balance != name_cost + 5500:
+    if new_namespace_balance - namespace_balance != name_cost + 250:
         print 'address {} got credited after fee capture period'.format(namespace_rec['address'])
         print '{} != {} + {}'.format(new_namespace_balance, namespace_balance, name_cost)
         return False

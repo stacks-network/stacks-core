@@ -144,10 +144,9 @@ def scenario( wallets, **kw ):
    
     def _query_subdomains():
         # query each subdomain.  Should get the latest
-        proxy = testlib.make_proxy()
         for i in xrange(1, 4):
             fqn = 'bar.foo{}.test'.format(i)
-            res = client.get_name_record(fqn, proxy=proxy)
+            res = client.get_name_record(fqn, hostport='http://localhost:16264')
             if 'error' in res:
                 print res
                 return False
@@ -180,8 +179,7 @@ def scenario( wallets, **kw ):
     # query each subdomain history.  sequence=1 should have test.com, but not 'withheld'
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        proxy = testlib.make_proxy()
-        res = client.get_name_record(fqn, proxy=proxy, include_history=True)
+        res = client.get_name_record(fqn, hostport='http://localhost:16264', include_history=True)
         if 'error' in res:
             print res
             return False
@@ -225,8 +223,7 @@ def scenario( wallets, **kw ):
     # query each subdomain history.  sequence=1 should have test.com, but with 'withheld' present in the URL
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        proxy = testlib.make_proxy()
-        res = client.get_name_record(fqn, proxy=proxy, include_history=True)
+        res = client.get_name_record(fqn, hostport='http://localhost:16264', include_history=True)
         if 'error' in res:
             print res
             return False

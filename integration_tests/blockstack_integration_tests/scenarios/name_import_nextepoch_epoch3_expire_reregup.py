@@ -147,7 +147,7 @@ def scenario( wallets, **kw ):
         return False
 
     # safety checks should NOT allow the preorder to go through
-    resp = testlib.blockstack_name_preorder('foo.test', wallets[3].privkey, wallets[4].addr)
+    resp = testlib.blockstack_name_preorder('foo.test', wallets[3].privkey, wallets[4].addr, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -156,7 +156,7 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw) # end of 697
 
     # safety checks should NOT allow the preorder to go through
-    resp = testlib.blockstack_name_preorder('foo.test', wallets[3].privkey, wallets[4].addr)
+    resp = testlib.blockstack_name_preorder('foo.test', wallets[3].privkey, wallets[4].addr, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -164,7 +164,7 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw) # 698
 
     # safety checks should NOT allow the preorder to go through
-    resp = testlib.blockstack_name_preorder('foo.test', wallets[3].privkey, wallets[4].addr)
+    resp = testlib.blockstack_name_preorder('foo.test', wallets[3].privkey, wallets[4].addr, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -172,7 +172,7 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw) # 699
 
     # safety checks should NOT allow the preorder to go through
-    resp = testlib.blockstack_name_preorder('foo.test', wallets[3].privkey, wallets[4].addr)
+    resp = testlib.blockstack_name_preorder('foo.test', wallets[3].privkey, wallets[4].addr, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -180,7 +180,7 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw) # 700
 
     # safety checks should NOT allow the preorder to go through
-    resp = testlib.blockstack_name_preorder('foo.test', wallets[3].privkey, wallets[4].addr)
+    resp = testlib.blockstack_name_preorder('foo.test', wallets[3].privkey, wallets[4].addr, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False

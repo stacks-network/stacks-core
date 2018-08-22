@@ -104,10 +104,9 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
    
     # must all be pending
-    proxy = testlib.make_proxy()
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, proxy=proxy)
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if not res['pending']:
             print 'not pending: {}'.format(fqn)
             print res
@@ -119,10 +118,9 @@ def scenario( wallets, **kw ):
     assert testlib.blockstack_put_zonefile(initial_zonefiles['foo3.test'])
     testlib.next_block(**kw)
 
-    proxy = testlib.make_proxy()
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, proxy=proxy)
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False

@@ -72,17 +72,22 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    if res.has_key('zonefile_hash'):
+    if res.has_key('zonefile_hash') and res['zonefile_hash']:
+        print 'have a new zone file???'
         print res
         return False
 
     if res['owner_address'] != wallets[3].addr:
+        print 'wrong owner address'
         print res
         return False
     
+    ''' no longer supported in the node.js CLI 
+
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='11' * 20 )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
 
@@ -93,13 +98,14 @@ def scenario( wallets, **kw ):
         return False
 
     if not res.has_key('zonefile_hash') or res['zonefile_hash'] != '11' * 20:
+        print 'wrong zone file hash'
         print res
         return False
 
     if res['owner_address'] != wallets[3].addr:
         print res
         return False
-
+    '''
     # update/transfer
 
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr )
@@ -183,8 +189,8 @@ def check( state_engine ):
     if name_rec['address'] != wallets[1].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[1].addr):
         return False
 
-    # renewed (4 blocks difference)
-    if name_rec['last_renewed'] - 4 != name_rec['first_registered']:
+    # renewed (3 blocks difference)
+    if name_rec['last_renewed'] - 3 != name_rec['first_registered']:
         print name_rec['last_renewed']
         print name_rec['first_registered']
         return False

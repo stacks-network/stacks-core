@@ -29,9 +29,13 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'blockstack>=0.17.0',
+        'blockstack>=0.19.0',
         'xmlrunner>=1.7.7',
-        'influxdb>=4.1.1'
+        'influxdb>=4.1.1',
+
+        # hold-overs for blockstack_client
+        'jsonpointer>=1.14',
+        'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly
     ],
     classifiers=[
         'Intended Audience :: Developers',

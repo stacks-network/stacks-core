@@ -26,7 +26,7 @@ from ..scripts import *
 from ..hashing import *
 from ..nameset import *
 from ..storage import get_zonefile_data_hash, get_atlas_zonefile_data
-from utilitybelt import is_hex
+from virtualchain.lib.hashing import is_hex
 
 from binascii import hexlify, unhexlify
 
@@ -56,18 +56,18 @@ def process_announcement( sender_namerec, op, working_dir ):
 
     if announce_hash not in allowed_value_hashes:
         # this individual did not send this announcement
-        log.debug("Announce hash {} not found in name history for {}".format(announce_hash, announcer_id))
+        log.warning("Announce hash {} not found in name history for {}".format(announce_hash, announcer_id))
         return 
 
     # go get it from Atlas
     zonefiles_dir = node_config.get('zonefiles', None)
     if not zonefiles_dir:
-        log.debug("This node does not store zone files, so no announcement can be found")
+        log.warning("This node does not store zone files, so no announcement can be found")
         return 
 
     announce_text = get_atlas_zonefile_data(announce_hash, zonefiles_dir)
     if announce_text is None:
-        log.debug("No zone file {} found".format(announce_hash))
+        log.warning("No zone file {} found".format(announce_hash))
         return
 
     # go append it 
@@ -141,11 +141,11 @@ def parse(bin_payload):
     
     message_hash = hexlify(bin_payload)
     if not is_hex( message_hash ):
-        log.error("Not a message hash")
+        log.warning("Not a message hash")
         return None 
 
     if len(message_hash) != 40:
-        log.error("Not a 160-bit hash")
+        log.warning("Not a 160-bit hash")
         return None 
 
     return {
@@ -180,7 +180,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
             break
 
     if not found:
-        log.debug("Announcement not sent from our whitelist of blockchain IDs")
+        log.warning("Announcement not sent from our whitelist of blockchain IDs")
         return False
 
     nameop['announcer_id'] = sending_blockchain_id

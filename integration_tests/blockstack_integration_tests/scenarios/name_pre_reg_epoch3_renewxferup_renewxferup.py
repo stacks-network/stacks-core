@@ -63,11 +63,14 @@ def scenario( wallets, **kw ):
         print whois
         return False
 
+    '''
+    # DPRECATED: the new CLI doesn't know about this epoch shift.
     # should fail (safety checks stop it)
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr, expect_fail=True )
     if 'error' not in resp:
         print resp
         return False
+    '''
 
     # should succeed in being sent
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, zonefile_hash='22' * 20, recipient_addr=wallets[0].addr, safety_checks=False, tx_fee=10000 * 5 )

@@ -95,9 +95,8 @@ def scenario( wallets, **kw ):
 
     def _query_subdomains(subdomain_names, expected_sequence, expected_owner, expect_pending):
         # query each subdomain.  Should get the latest
-        proxy = testlib.make_proxy()
         for fqn in subdomain_names:
-            res = client.get_name_record(fqn, proxy=proxy)
+            res = client.get_name_record(fqn, hostport='http://localhost:16264')
             if 'error' in res:
                 print res
                 print 'failed to query {}'.format(fqn)
@@ -200,9 +199,8 @@ def scenario( wallets, **kw ):
         
     
     # query subdomain history
-    proxy = testlib.make_proxy()
     for subd in ['bar.foo1.test', 'bar.foo2.test', 'bar.foo3.test']:
-        res = client.get_name_record(subd, include_history=True, proxy=proxy)
+        res = client.get_name_record(subd, include_history=True, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False
@@ -244,9 +242,8 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
 
     # query subdomain history again.  pending and owner should change
-    proxy = testlib.make_proxy()
     for subd in ['bar.foo1.test', 'bar.foo2.test', 'bar.foo3.test']:
-        res = client.get_name_record(subd, include_history=True, proxy=proxy)
+        res = client.get_name_record(subd, include_history=True, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False

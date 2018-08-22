@@ -122,7 +122,7 @@ def db_query_execute(cur, query, values, abort=True, max_timeout=300):
             return ret
         except sqlite3.OperationalError as oe:
             if oe.message == "database is locked":
-                timeout = min(max_timeout, timeout * 2 + timeout * random.random())
+                timeout = min(max_timeout, timeout * 1.1 + timeout * random.random())
                 log.error("Query timed out due to lock; retrying in %s: %s" % (timeout, db_format_query( query, values )))
                 time.sleep(timeout)
             

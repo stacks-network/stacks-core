@@ -42,8 +42,8 @@ def cache_control(timeout):
     return decorator
 
 def profile_log(function):
-    import blockstack_client.config as blockstack_config
-    log = blockstack_config.get_logger()
+    import virtualchain
+    log = virtualchain.get_logger()
 
     import cProfile, StringIO, pstats
     def wrapper(*a, **kw):

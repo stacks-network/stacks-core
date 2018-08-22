@@ -36,16 +36,15 @@ from time import time
 
 from blockstack_proofs import profile_to_proofs, profile_v3_to_proofs
 
-import blockstack_client.profile
-import blockstack_client.subdomains
-
-from blockstack_client.schemas import OP_NAME_PATTERN, OP_NAMESPACE_PATTERN
+import blockstack
+from blockstack.lib.schemas import OP_NAME_PATTERN, OP_NAMESPACE_PATTERN
 
 from api.utils import cache_control
 
 from .config import DEBUG
 from .config import DEFAULT_HOST, DEFAULT_CACHE_TIMEOUT
 from .config import NAMES_FILE
+from .config import BASE_INDEXER_API_URL
 
 import requests
 requests.packages.urllib3.disable_warnings()
@@ -59,6 +58,8 @@ if DEBUG:
     log.setLevel(level=logging.DEBUG)
 else:
     log.setLevel(level=logging.INFO)
+
+blockstack_indexer_url = BASE_INDEXER_API_URL
 
 # copied and patched from proofs.py
 def site_data_to_fixed_proof_url(account, zonefile):
@@ -177,8 +178,9 @@ def get_profile(fqa):
     fqa = fqa.lower()
 
     try:
-        res = blockstack_client.profile.get_profile(
-            fqa, use_legacy = True, include_name_record = True)
+        res = blockstack.lib.client.resolve_profile(
+                fqa, include_name_record=True, hostport=blockstack_indexer_url)
+
         if 'error' in res:
             log.error('Error from profile.get_profile: {}'.format(res['error']))
             if "no user record hash defined" in res['error']:
@@ -186,6 +188,7 @@ def get_profile(fqa):
             if "Failed to load user profile" in res['error']:
                 res['status_code'] = 404
             return res
+
         log.warn(json.dumps(res['name_record']))
 
         profile = res['profile']

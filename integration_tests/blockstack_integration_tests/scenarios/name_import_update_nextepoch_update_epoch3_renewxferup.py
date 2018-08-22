@@ -182,7 +182,7 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw) # end of 696.  Name should be expired
 
     # update should be impossible, since we're now in the renewal period
-    resp = testlib.blockstack_name_update( 'foo.test', '66' * 20, wallets[3].privkey )
+    resp = testlib.blockstack_name_update( 'foo.test', '66' * 20, wallets[3].privkey, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False

@@ -25,7 +25,7 @@ import testlib
 import virtualchain
 import json
 import blockstack as blockstack_server
-import blockstack_client
+import blockstack
 
 # in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
 """
@@ -46,8 +46,8 @@ NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_m
 
 
 def test_name_count(expected_num, expected_cum_num):
-    num_names = blockstack_client.proxy.get_num_names()
-    num_names_cum = blockstack_client.proxy.get_num_names(include_expired=True)
+    num_names = blockstack.lib.client.get_num_names(hostport='http://localhost:16264')
+    num_names_cum = blockstack.lib.client.get_num_names(include_expired=True, hostport='http://localhost:16264')
     if num_names != expected_num:
         print 'wrong number of names: {}'.format(num_names)
         return False
@@ -56,14 +56,14 @@ def test_name_count(expected_num, expected_cum_num):
         print 'wrong number of cumulative names: {}'.format(num_names_cum)
         return False
 
-    num_names_res = testlib.blockstack_REST_call('GET', '/v1/blockchains/bitcoin/name_count', None)
+    num_names_res = testlib.blockstack_REST_call('GET', '/v1/blockchains/bitcoin/name_count', )
     if 'error' in num_names_res or num_names_res['http_status'] != 200:
         print num_names_res
         return False
 
     num_names = num_names_res['response']['names_count']
 
-    num_names_cum_res = testlib.blockstack_REST_call('GET', '/v1/blockchains/bitcoin/name_count', None, all='True')
+    num_names_cum_res = testlib.blockstack_REST_call('GET', '/v1/blockchains/bitcoin/name_count', all='True')
     if 'error' in num_names_cum_res or num_names_cum_res['http_status'] != 200:
         print num_names_cum_res
         return False
@@ -93,11 +93,9 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-
     # should be zero names, zero cumulative names 
-    num_names = blockstack_client.proxy.get_num_names()
-    num_names_cum = blockstack_client.proxy.get_num_names(include_expired=True)
+    num_names = blockstack.lib.client.get_num_names(hostport='http://localhost:16264')
+    num_names_cum = blockstack.lib.client.get_num_names(include_expired=True, hostport='http://localhost:16264')
     if num_names != 0:
         print 'wrong number of names: {}'.format(num_names)
         return False

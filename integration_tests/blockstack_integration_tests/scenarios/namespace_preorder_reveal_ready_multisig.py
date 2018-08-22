@@ -34,8 +34,8 @@ import testlib
 import virtualchain
 import keychain
 import json
-import blockstack_client
 import binascii
+import time
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),

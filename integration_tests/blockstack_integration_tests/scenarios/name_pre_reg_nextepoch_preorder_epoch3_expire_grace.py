@@ -219,7 +219,7 @@ def scenario( wallets, **kw ):
         print json.dumps(whois)
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -248,7 +248,7 @@ def scenario( wallets, **kw ):
         print 'accidentally registered'
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -276,7 +276,7 @@ def scenario( wallets, **kw ):
         print 'accidentally registered'
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -304,7 +304,7 @@ def scenario( wallets, **kw ):
         print 'accidentally registered'
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -317,7 +317,8 @@ def scenario( wallets, **kw ):
 
     testlib.next_block(**kw) # 701 (end of grace period)
     testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
-  
+ 
+    '''
     whois = testlib.blockstack_cli_whois('foo.test')
     if 'error' in whois:
         print whois
@@ -331,11 +332,15 @@ def scenario( wallets, **kw ):
     if whois['last_transaction_height'] != last_transaction_height:
         print 'accidentally registered'
         return False
-    
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    '''
+   
+    '''
+    # DEPRECATED: the new CLI correctly allows this through, since it's possible that, now that the grace period has passed, that someone has correctly preoredered and is now registering this name
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
+    '''
 
     # should go through, but be rejected
     resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, safety_checks=False, tx_fee=500*5)

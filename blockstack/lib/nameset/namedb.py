@@ -606,7 +606,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         if block_id in self.collisions:
             del self.collisions[block_id]
-        
+       
 
     def check_collision( self, history_id_key, history_id, block_id, checked_ops, affected_opcodes ):
         """
@@ -808,7 +808,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                 name_rec_latest = state
 
         return name_rec_latest
-       
+     
 
     def get_name_at( self, name, block_number, include_expired=False ):
         """
@@ -837,21 +837,11 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         name_hist = namedb_get_history( cur, name, offset=offset, count=count, reverse=reverse )
         return name_hist
+    
 
-
-    def get_name_history_blocks( self, name ):
+    def get_all_nameops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
         """
-        Get the blocks at which this name was affected
-        Returns [block heights]
-        """
-        cur = self.db.cursor()
-        update_points = namedb_get_blocks_with_ops( cur, name, FIRST_BLOCK_MAINNET, self.lastblock )
-        return update_points
-
-
-    def get_all_ops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
-        """
-        Get all records affected at a particular block,
+        Get all name records affected at a particular block,
         in the state they were at the given block number.
         
         Paginate if offset, count are given.
@@ -862,8 +852,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         if restore_history is not None:
             log.warn("DEPRECATED use of restore_history")
 
-        log.debug("Get all ops at %s in %s" % (block_number, self.db_filename))
-        recs = namedb_get_all_ops_at( self.db, block_number, offset=offset, count=count )
+        log.debug("Get all nameops at %s in %s" % (block_number, self.db_filename))
+        recs = namedb_get_all_nameops_at( self.db, block_number, offset=offset, count=count )
 
         # include opcode 
         for rec in recs:
@@ -873,11 +863,11 @@ class BlockstackDB( virtualchain.StateEngine ):
         return recs
        
 
-    def get_num_ops_at( self, block_number ):
+    def get_num_nameops_at( self, block_number ):
         """
         Get the number of name operations at a particular block.
         """
-        count = namedb_get_num_ops_at( self.db, block_number )
+        count = namedb_get_num_nameops_at( self.db, block_number )
         return count
 
 
@@ -1146,7 +1136,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         Return [{'name': name, 'value_hash': value_hash, 'txid': txid}]
         """
-        nameops = self.get_all_ops_at( block_id )
+        nameops = self.get_all_nameops_at( block_id )
         ret = []
         for nameop in nameops:
             if nameop.has_key('op') and op_get_opcode_name(nameop['op']) in ['NAME_UPDATE', 'NAME_IMPORT', 'NAME_REGISTRATION', 'NAME_RENEWAL']:
@@ -1525,9 +1515,9 @@ class BlockstackDB( virtualchain.StateEngine ):
             history_id = accepted_nameop[history_id_key]
             canonical_op = self.commit_state_transition( accepted_nameop, current_block_number )
             op_type_str = "state_transition"
-        
+       
         else:
-            raise Exception("Unknown operation '%s'" % opcode)
+            raise Exception("Unknown operation {}".format(opcode))
 
         if canonical_op is None:
             log.error("FATAL: no canonical op generated (for {})".format(op_type_str))
@@ -1536,7 +1526,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         log.debug("Extract consensus fields for {} in {}, as part of a {}".format(opcode, current_block_number, op_type_str))
         consensus_op = self.extract_consensus_op(opcode, input_op_data, canonical_op, current_block_number)
         return consensus_op
-
 
     def commit_state_preorder( self, nameop, current_block_number ):
         """
@@ -1549,6 +1538,15 @@ class BlockstackDB( virtualchain.StateEngine ):
         if self.disposition != DISPOSITION_RW:
             log.error("FATAL: borrowing violation: not a read-write connection")
             traceback.print_stack()
+            os.abort()
+        
+        opcode = None
+        try:
+            opcode = nameop.get('opcode')
+            assert opcode is not None, 'BUG: no preorder opcode'
+        except Exception as e:
+            log.exception(e)
+            log.error("FATAL: no opcode in preorder")
             os.abort()
 
         cur = self.db.cursor()
@@ -1722,8 +1720,8 @@ class BlockstackDB( virtualchain.StateEngine ):
             os.abort()
         
         return canonical_op
+   
 
-    
     def get_block_ops_hash( self, block_id ):
         """
         Get the block's operations hash

@@ -11,7 +11,11 @@ import json
 
 from config import NAMES_FILE, NEW_NAMES_FILE
 # hack to ensure local, until we update client
-from blockstack_client import client as bs_client
+import blockstack
+
+blockstack_working_dir = blockstack.lib.config.default_working_dir()
+blockstack_config = blockstack.lib.load_configuration(blockstack_working_dir)
+blockstack_indexer_url = blockstack_config['blockstack-api']['indexer_url']
 
 if __name__ == "__main__":
 
@@ -31,7 +35,7 @@ if __name__ == "__main__":
 
     print old_counter
 
-    total_names = bs_client.get_all_names()
+    total_names = blockstack.lib.client.get_all_names(hostport=blockstack_indexer_url)
        
     new_counter = len(total_names)
 

@@ -22,8 +22,9 @@
 """
 
 import sys
+import os
 
-from ..config import OPCODE_CREATION_OPS, OPCODE_TRANSITION_OPS, op_get_opcode_name
+from ..config import OPCODE_CREATION_OPS, op_get_opcode_name
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
@@ -35,6 +36,7 @@ CONSENSUS_FIELDS_REQUIRED = [
     'txid',
     'vtxindex'
 ]
+
 
 # all fields common to a name record
 # NOTE: this order must be preserved for all eternity
@@ -68,16 +70,22 @@ NAMEREC_MUTATE_FIELDS = [
 ]
 
 
+def state_preorder_invariant_tags():
+    """
+    Get a list of state-preorder invariant tags
+    """
+    return []
+
+
 def state_create_invariant_tags():
     """
     Get a list of state-create invariant tags.
     """
     return [
         '__preorder__',
-        # '__prior_history__',
         '__table__',
         '__history_id_key__',
-        '__state_create__'
+        '__state_create__',
     ]
 
 
@@ -125,6 +133,15 @@ def state_preorder(collision_checker):
                     # no collision
                     rc = True
 
+                # sanity check---we need to have the appropriate metadata for this operation
+                invariant_tags = state_preorder_invariant_tags()
+                for tag in invariant_tags:
+                    assert tag in nameop, "BUG: missing invariant tag '%s'" % tag
+
+                # sanity check---all required consensus fields must be present
+                for required_field in CONSENSUS_FIELDS_REQUIRED:
+                    assert required_field in nameop, 'BUG: missing required consensus field {}'.format(required_field)
+
             return rc
         return wrapped_check
     return wrap
@@ -136,7 +153,6 @@ def state_create(history_id_key, table_name, collision_checker, always_set=[]):
     Decorator for the check() method on state-creating operations.
     Makes sure that:
     * there is a __preorder__ field set, which contains the state-creating operation's associated preorder
-    # * there is a __prior_history__ field set, which contains the state-creating operation's associated prior state history
     * there is a __table__ field set, which contains the table into which to insert this state into
     * there is a __history_id_key__ field set, which identifies the table's primary key name
     * there are no unexpired, duplicate instances of this state with this history id.
@@ -147,17 +163,19 @@ def state_create(history_id_key, table_name, collision_checker, always_set=[]):
         def wrapped_check( state_engine, nameop, block_id, checked_ops ):
             rc = check( state_engine, nameop, block_id, checked_ops )
 
-            # succeeded, and still a state-creating operation?
-            if rc and op_get_opcode_name( nameop['op'] ) in OPCODE_CREATION_OPS:
+            # pretty sure this isn't necessary any longer, but leave this is an assert just in case
+            assert op_get_opcode_name(nameop['op']) in OPCODE_CREATION_OPS, 'BUG: opcode became {}'.format(nameop['op'])
 
-                # ensure that there's now a __preorder__ # and a __prior_history__
+            # succeeded?
+            if rc:
+
+                # ensure that there's now a __preorder__ 
                 try:
                     assert '__preorder__' in nameop.keys(), "Missing __preorder__"
-                    # assert '__prior_history__' in nameop.keys(), "Missing __prior_history__"
                 except Exception, e:
                     log.exception(e)
                     log.error("FATAL: missing fields")
-                    sys.exit(1)
+                    os.abort()
 
                 # propagate __table__ and __history_id_key__
                 nameop['__table__'] = table_name
@@ -165,10 +183,14 @@ def state_create(history_id_key, table_name, collision_checker, always_set=[]):
                 nameop['__state_create__'] = True
                 nameop['__always_set__'] = always_set
 
-                # sanity check
+                # sanity check---we need to have the appropriate metadata for this operation
                 invariant_tags = state_create_invariant_tags()
                 for tag in invariant_tags:
                     assert tag in nameop, "BUG: missing invariant tag '%s'" % tag
+
+                # sanity check---all required consensus fields must be present
+                for required_field in CONSENSUS_FIELDS_REQUIRED:
+                    assert required_field in nameop, 'BUG: missing required consensus field {}'.format(required_field)
 
                 # verify no duplicates
                 rc = state_check_collisions( state_engine, nameop, history_id_key, block_id, checked_ops, collision_checker )
@@ -179,7 +201,7 @@ def state_create(history_id_key, table_name, collision_checker, always_set=[]):
                 else:
                     # no collision
                     rc = True
-    
+
             return rc
         return wrapped_check
     return wrap
@@ -193,7 +215,7 @@ def state_transition_invariant_tags():
         '__table__',
         '__history_id_key__',
         '__state_transition__',
-        '__always_set__'
+        '__always_set__',
     ]
 
 
@@ -225,6 +247,10 @@ def state_transition(history_id_key, table_name, always_set=[]):
                 for tag in invariant_tags:
                     assert tag in nameop, "BUG: missing invariant tag '%s'" % tag
 
+                # sanity check---all required consensus fields must be present
+                for required_field in CONSENSUS_FIELDS_REQUIRED:
+                    assert required_field in nameop, 'BUG: missing required consensus field {}'.format(required_field)
+
             return rc
         return wrapped_check
     return wrap
@@ -234,12 +260,13 @@ def get_state_invariant_tags():
     """
     Get the set of state invariant tags for a given opcode
     """
-    return list(set( state_create_invariant_tags() + state_transition_invariant_tags() ))
+    return list(set( state_create_invariant_tags() + state_transition_invariant_tags() + state_preorder_invariant_tags() ))
 
 
 def state_create_put_preorder( nameop, preorder ):
     """
     Call this in a @state_create-decorated method.
+    Identifies the preorder record for this state.
     """
     nameop['__preorder__'] = preorder
 
@@ -251,7 +278,6 @@ def state_create_is_valid( nameop ):
     assert '__state_create__' in nameop, "Not tagged with @state_create"
     assert nameop['__state_create__'], "BUG: tagged False by @state_create"
     assert '__preorder__' in nameop, "No preorder"
-    # assert '__prior_history__' in nameop, "No prior history"
     assert '__table__' in nameop, "No table given"
     assert '__history_id_key__' in nameop, "No history ID key given"
     assert nameop['__history_id_key__'] in nameop, "No history ID given"

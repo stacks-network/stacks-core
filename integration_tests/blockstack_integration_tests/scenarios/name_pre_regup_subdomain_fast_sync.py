@@ -34,7 +34,6 @@ import shutil
 import testlib
 import virtualchain
 import blockstack
-import blockstack_client
 import blockstack_zones
 import virtualchain
 import json
@@ -58,14 +57,10 @@ def restore( working_dir, snapshot_path, restore_dir, pubkeys, num_required ):
     
     global value_hashes
 
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
-    assert config_path
-
     if os.path.exists(restore_dir):
         shutil.rmtree(restore_dir)
 
     os.makedirs(restore_dir)
-    shutil.copy(config_path, os.path.join(restore_dir, os.path.basename(config_path)))
 
     rc = blockstack.fast_sync_import( restore_dir, "file://{}".format(snapshot_path), public_keys=pubkeys, num_required=num_required )
     if not rc:
@@ -165,12 +160,11 @@ def scenario( wallets, **kw ):
     print 'waiting for all zone files to replicate'
     time.sleep(10)
 
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
-    assert config_path
-    restore_dir = os.path.join(os.path.dirname(config_path), "snapshot_dir")
+    working_dir = os.environ.get('BLOCKSTACK_WORKING_DIR')
+    restore_dir = os.path.join(working_dir, "snapshot_dir")
 
     # snapshot the latest backup
-    snapshot_path = os.path.join( os.path.dirname(config_path), "snapshot.bsk" )
+    snapshot_path = os.path.join(working_dir, "snapshot.bsk" )
     rc = blockstack.fast_sync_snapshot(kw['working_dir'], snapshot_path, wallets[3].privkey, None )
     if not rc:
         print "Failed to fast_sync_snapshot"
