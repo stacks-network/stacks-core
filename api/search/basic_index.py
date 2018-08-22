@@ -119,7 +119,7 @@ def fetch_namespace_from_file():
             # profile data not available, skip
             continue
 
-        new_entry['username'] = username
+        new_entry['username'] = entry
         new_entry['fqu'] = entry
         new_entry['profile'] = check_entry['value']
         namespace.save(new_entry)
