@@ -251,7 +251,7 @@ def create_search_index():
 
         search_profile['fullyQualifiedName'] = user['fqu']
         search_profile['username'] = user['username']
-        usernames.append(user['username'])
+        usernames.append(user['fqu'])
 
         search_profile['profile'] = profile
         search_profiles.save(search_profile)

@@ -44,7 +44,7 @@ but lets users securely store and share application data
 via existing storage systems like Dropbox or S3.
 
 Blockstack applications differ from traditional Web applications in two key
-ways.  First, **users own their identities**.  
+ways.  First, **users own their identities**.
 The [Blockstack Browser](https://github.com/blockstack/blockstack-browser)
 gives users direct control over their private keys and profile data,
 and fulfills the role of a SSO provider to Blockstack apps.
@@ -137,7 +137,7 @@ On CentOS 7 & RHEL:
 ```
 # Install dependencies
 $ yum install epel-release
-$ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-devel zlib-devel 
+$ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-devel zlib-devel
 
 # Install blockstack
 $ sudo pip install blockstack --upgrade
@@ -171,57 +171,32 @@ $ sudo pip install blockstack --upgrade
 
 Another way to run `blockstack-core` is through docker. We provide per-commit image builds of this repository that are [available on quay.io](https://quay.io/repository/blockstack/blockstack-core?tab=tags).
 
-The common workflow for running in docker is to `--fast_sync` a `blockstack-core` node's data to a location on the host and then start up a container on top of that data. You will need at least ~5GB of disk to run each instance. There is a sample implementation of running `blockstack-core` in the [`tools/docker`](/tools/docker) folder. The instructions below show how to use that implementation:
-
 ```shell
-# Clone the repo and navigate to the tools/docker dir:
-git clone git@github.com:blockstack/blockstack-core.git
-cd blockstack-core/tools/docker
+$ git clone git@github.com:blockstack/blockstack-core.git
+$ cd blockstack-core
+$ docker build -t blockstack-core:master .
 
-# Initialize the core node
-./docker-tools.sh init-core
-
-# Wait for the core node to initialize (~15-20 min)
-# Check if job is still running:
-docker ps -f name=blockstack-core-init
-
-# Once job finishes start the containers with docker-compose
-docker-compose up -d
-
-# OR
-
-# Once the job finishes start the container
-docker run -d \
-  -v './data/core/server/:/root/.blockstack-server' \ 
-  -p '6264:6264' \ 
-  -p '6270:6270' \
-  --restart 'always' \
-  --name 'blockstack-core' \
-  quay.io/blockstack/blockstack-core:master \ 
-  blockstack-core start --foreground --debug
-
-# Test connectivity for the blockstack-core container
-# NOTE: It can take some time (~1-5 min) before the API
-# becomes available
-./docker-tools.sh test-core localhost 6264
+# create directory to store Blockstack Core state
+$ export BLOCKSTACK_DIR="/var/blockstack-core-data"
+$ mkdir -p $BLOCKSTACK_DIR
+$ docker run \
+   -v $BLOCKSTACK_DIR:/root/.blockstack-server
+   -p 6264:6264
+   -p 6270:6270
+   blockstack-core:master
 ```
+
+These commands will fast-sync and run a Blockstack Core node in about 10
+minutes.  The state for the Blockstack Core node will be stored to
+`$BLOCKSTACK_DIR`.  You can see the node's logs with `docker logs -f` or with
+`tail -f "$BLOCKSTACK_DIR/blockstack-server.log"`.
 
 Notes:
 - This method is currently only fully supported on Linux.
 - You will need `sudo` access to run the above scripts, and/or be a member of the `docker` group.
 - You can run more than one instance of this setup per host. Allow at least 1 CPU core for each container
-- To configure a different `bitcoind` node, you must edit your `blockstack-server.ini` file before running the `./docker-tools.sh init-*` commands. After `init-*` has been run you must edit the `data/core/server/blockstack-server.ini` to change those settings. 
 
 ## Running a Blockstack Core Node
-
-Before doing anything, you should configure your Blockstack Core node.
-
-```bash
-$ blockstack-core configure
-```
-
-It is safe to accept all defaults.  It will generate some configuration state in
-`~/.blockstack-server/`.
 
 Because each Blockstack Core node maintains a full copy of the network state
 locally, it will need to synchronize its state with the Bitcoin blockchain when
@@ -240,7 +215,7 @@ By default, it will pull a snapshot from
 verify its authenticity.  It will populate your `~/.blockstack-server/`
 directory with a recent snapshot of the network state (less than 24 hours old).
 
-To start your Blockstack Core node, you should run 
+To start your Blockstack Core node, you should run
 
 ```bash
 $ blockstack-core --debug start
@@ -324,9 +299,9 @@ maintains a [mailing list](https://blockstack.org/signup) which sends out
 community announcements.
 
 The greater Blockstack community regularly hosts in-person
-[meetups](https://www.meetup.com/topics/blockstack/).  The project's 
+[meetups](https://www.meetup.com/topics/blockstack/).  The project's
 [YouTube channel](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ) includes
-videos from some of these meetups, as well as video tutorials to help new 
+videos from some of these meetups, as well as video tutorials to help new
 users get started and help developers wrap their heads around the system's
 design.
 
