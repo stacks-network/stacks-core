@@ -35,6 +35,7 @@ from flask_crossdomain import crossdomain
 from time import time
 
 from blockstack_proofs import profile_to_proofs, profile_v3_to_proofs
+import blockstack_zones
 
 import blockstack
 from blockstack.lib.schemas import OP_NAME_PATTERN, OP_NAMESPACE_PATTERN
@@ -145,6 +146,14 @@ def format_profile(profile, fqa, zone_file, address, public_key):
         1) Insert verifications
         2) Check if profile data is valid JSON
     """
+    
+    # if the zone file is a string, then parse it 
+    if isinstance(zone_file, (str,unicode)):
+        try:
+            zone_file = blockstack_zones.parse_zone_file(zone_file)
+        except:
+            # leave as text
+            pass
 
     data = {'profile' : profile,
             'zone_file' : zone_file,
@@ -178,8 +187,12 @@ def get_profile(fqa):
     fqa = fqa.lower()
 
     try:
-        res = blockstack.lib.client.resolve_profile(
-                fqa, include_name_record=True, hostport=blockstack_indexer_url)
+        try:
+            res = blockstack.lib.client.resolve_profile(
+                    fqa, include_name_record=True, hostport=blockstack_indexer_url)
+        except ValueError:
+            # invalid name 
+            res = {'error': 'Invalid name', 'status_code': 400}
 
         if 'error' in res:
             log.error('Error from profile.get_profile: {}'.format(res['error']))
@@ -187,6 +200,12 @@ def get_profile(fqa):
                 res['status_code'] = 404
             if "Failed to load user profile" in res['error']:
                 res['status_code'] = 404
+
+            if res.get('http_status'):
+                # pass along 
+                res['status_code'] = res['http_status']
+                del res['http_status']
+
             return res
 
         log.warn(json.dumps(res['name_record']))

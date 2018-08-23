@@ -56,20 +56,6 @@ blockstack_indexer_url = blockstack_config['blockstack-api']['indexer_url']
 
 log = virtualchain.get_logger()
 
-"""
-# starting internal API logic should go somewhere else
-# local_api_start(password='temptemptemp')
-
-# Check first if API daemon is running
-status = local_api_action('status')
-
-if(status):
-    log.debug("API daemon is running")
-else:
-    log.debug("Start API daemon first")
-    exit(0)
-"""
-
 # Import app
 from . import app
 
@@ -167,9 +153,7 @@ def catch_all_post(path):
 @app.route('/')
 @cache_control(10*60)
 def index():
-    current_dir = os.path.abspath(os.path.dirname(__file__))
     server_info = blockstack.lib.client.getinfo(hostport=blockstack_indexer_url)
-
     return render_template('index.html',
                            server_info=server_info,
                            server_url=PUBLIC_NODE_URL)
