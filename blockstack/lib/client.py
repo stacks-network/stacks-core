@@ -3020,6 +3020,15 @@ def resolve_profile(name, include_expired=False, include_name_record=False, host
         profile_data = jwt['payload']['claim']
         public_key = str(jwt['payload']['issuer']['publicKey'])
 
+        # return public key that matches address 
+        pubkeys = [virtualchain.ecdsalib.ecdsa_public_key(keylib.key_formatting.decompress(public_key)),
+                   virtualchain.ecdsalib.ecdsa_public_key(keylib.key_formatting.compress(public_key))]
+
+        if name_rec['address'] == pubkeys[0].address():
+            public_key = pubkeys[0].to_hex()
+        else:
+            public_key = pubkeys[1].to_hex()
+
         ret = {
             'profile': profile_data,
             'zonefile': zonefile_txt,
