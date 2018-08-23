@@ -223,7 +223,7 @@ def fetch_profiles(search_results, search_type="name"):
             response = search_profiles.find({"twitter_handle": search_result})
 
         elif search_type == 'username':
-            response = search_profiles.find({"username": search_result})
+            response = search_profiles.find({"fullyQualifiedName": search_result})
 
         for result in response:
 

@@ -32,9 +32,18 @@ from .utils import get_json, config_log, pretty_print
 
 from api.config import SEARCH_BLOCKCHAIN_DATA_FILE, SEARCH_PROFILE_DATA_FILE
 
-from .db import namespace, profile_data
-from .db import search_profiles
-from .db import people_cache, twitter_cache, username_cache
+client = get_mongo_client()
+
+
+search_db = client['search_db_next']
+search_cache = client['search_cache_next']
+
+namespace = search_db.namespace
+profile_data = search_db.profile_data
+search_profiles = search_db.profiles
+people_cache = search_cache.people_cache
+twitter_cache = search_cache.twitter_cache
+username_cache = search_cache.username_cache
 
 """ create the basic index
 """
@@ -56,7 +65,6 @@ def clean_profile_entries(profile):
 def fetch_profile_data_from_file():
     """ takes profile data from file and saves in the profile_data DB
     """
-
     with open(SEARCH_PROFILE_DATA_FILE, 'r') as fin:
         profiles = json.load(fin)
 
@@ -115,6 +123,7 @@ def fetch_namespace_from_file():
             continue
 
         new_entry['username'] = username
+        new_entry['fqu'] = entry
         new_entry['profile'] = check_entry['value']
         namespace.save(new_entry)
         counter += 1
@@ -131,11 +140,26 @@ def flush_db():
     client = get_mongo_client()
 
     # delete any old cache/index
-    client.drop_database('search_db')
-    client.drop_database('search_cache')
+    client.drop_database('search_db_next')
+    client.drop_database('search_cache_next')
 
     log.debug("Flushed DB")
 
+def swap_next_current_db():
+
+    client = get_mongo_client()
+
+    client.drop_database('search_db_prior')
+    client.drop_database('search_cache_prior')
+
+    client.admin.command('copydb', fromdb='search_db', todb='search_db_prior')
+    client.admin.command('copydb', fromdb='search_cache', todb='search_cache_prior')
+
+    client.drop_database('search_db')
+    client.drop_database('search_cache')
+
+    client.admin.command('copydb', fromdb='search_db_next', todb='search_db')
+    client.admin.command('copydb', fromdb='search_cache_next', todb='search_cache')
 
 def optimize_db():
 
@@ -176,7 +200,6 @@ def create_search_index():
         if validUsername(user['username']):
             pass
         else:
-            # print "ignoring: " + user['username']
             continue
 
         profile = get_json(user['profile'])
@@ -226,8 +249,9 @@ def create_search_index():
         else:
             search_profile['twitter_handle'] = None
 
+        search_profile['fullyQualifiedName'] = user['fqu']
         search_profile['username'] = user['username']
-        usernames.append(user['username'])
+        usernames.append(user['fqu'])
 
         search_profile['profile'] = profile
         search_profiles.save(search_profile)
@@ -281,6 +305,7 @@ if __name__ == "__main__":
         fetch_profile_data_from_file()
         fetch_namespace_from_file()
         create_search_index()
+        swap_next_current_db()
 
     else:
         print "Usage error"

@@ -19,7 +19,7 @@ RUN npm -g install aglio --unsafe
 COPY . .
 
 # Upgrade pip and install pyparsing
-RUN pip install --upgrade pip && pip install pyparsing uwsgi
+RUN pip install pyparsing uwsgi
 RUN pip install -r api/requirements.txt
 
 # Install Blockstack from source
