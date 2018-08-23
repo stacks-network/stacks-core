@@ -44,7 +44,7 @@ but lets users securely store and share application data
 via existing storage systems like Dropbox or S3.
 
 Blockstack applications differ from traditional Web applications in two key
-ways.  First, **users own their identities**.  
+ways.  First, **users own their identities**.
 The [Blockstack Browser](https://github.com/blockstack/blockstack-browser)
 gives users direct control over their private keys and profile data,
 and fulfills the role of a SSO provider to Blockstack apps.
@@ -146,7 +146,7 @@ $ sed -i --follow-symlinks 's/^SELINUX=.*/SELINUX=disabled/g' /etc/sysconfig/sel
 
 # Install dependencies
 $ yum install epel-release
-$ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-devel zlib-devel 
+$ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-devel zlib-devel
 
 # Install blockstack
 $ sudo pip install blockstack --upgrade
@@ -192,27 +192,27 @@ docker-compose up -d
 # Once the job finishes start the containers
 # blockstack-core
 docker run -d \
-  -v './data/core/server/:/root/.blockstack-server' \ 
-  -v './data/core/api/:/root/.blockstack' \ 
-  -p '6264:6264' \ 
+  -v './data/core/server/:/root/.blockstack-server' \
+  -v './data/core/api/:/root/.blockstack' \
+  -p '6264:6264' \
   --restart 'always' \
   --name 'blockstack-core' \
-  quay.io/blockstack/blockstack-core:master \ 
+  quay.io/blockstack/blockstack-core:master \
   blockstack-core start --foreground --debug
 
 # blockstack api
-docker run -d \ 
-  -v './data/api:/root/.blockstack' \ 
-  -v './data/api/tmp:/tmp' \ 
-  -e 'BLOCKSTACK_CLIENT_INTERACTIVE_YES=0' \ 
-  -p '6270:6270' \ 
+docker run -d \
+  -v './data/api:/root/.blockstack' \
+  -v './data/api/tmp:/tmp' \
+  -e 'BLOCKSTACK_CLIENT_INTERACTIVE_YES=0' \
+  -p '6270:6270' \
   --name 'blockstack-api' \
-  --restart 'always' \ 
-  quay.io/blockstack/blockstack-core:master \ 
+  --restart 'always' \
+  quay.io/blockstack/blockstack-core:master \
   blockstack api start-foreground -y --debug --password dummywalletpassword
 
 # Test connectivity for the blockstack-core container
-# NOTE: It can take some time (~1-5 min) before the RPC 
+# NOTE: It can take some time (~1-5 min) before the RPC
 # interface becomes available
 ./docker-tools.sh test-core localhost 6264
 
@@ -225,7 +225,7 @@ Notes:
 - The `blockstack-core` instance runs in docker on MacOS with no problems. To enable this comment out the `blockstack api` section in the `docker-compose.yaml` file and don't run the `./docker-tools.sh init-api` command.
 - You will need `sudo` access to run the above scripts
 - You can run more than one instance of this setup per host. Allow at least 1 CPU core for each container
-- To configure a different `bitcoind` node, or `utxo_provider` for both containers you must change those settings in both `blockstack-server.ini` and `client.ini` before running the `./docker-tools.sh init-*` commands. After `init-*` has been run you must edit the `data/core/server/blockstack-server.ini` and `data/api/client.ini` to change those settings. 
+- To configure a different `bitcoind` node, or `utxo_provider` for both containers you must change those settings in both `blockstack-server.ini` and `client.ini` before running the `./docker-tools.sh init-*` commands. After `init-*` has been run you must edit the `data/core/server/blockstack-server.ini` and `data/api/client.ini` to change those settings.
 
 ## Running a Blockstack Core Node
 
@@ -263,7 +263,7 @@ By default, it will pull a snapshot from
 verify its authenticity.  It will populate your `~/.blockstack-server/`
 directory with a recent snapshot of the network state (less than 24 hours old).
 
-To start your Blockstack Core node, you should run 
+To start your Blockstack Core node, you should run
 
 ```bash
 $ blockstack-core --debug start
@@ -278,7 +278,7 @@ You can find the node's log in `~/.blockstack-server/blockstack-server.log`.
 #### Setting up an API Endpoint
 
 The Blockstack API endpoint provides a convenient RESTful API for interacting
-with the Blockstack network.  It is stable, versioned, and 
+with the Blockstack network.  It is stable, versioned, and
 [documented](https://blockstack.github.io/blockstack-core).
 It provides the programmatic interfaces for registering new user names and
 looking up other users' public keys and storage routing information.
@@ -358,10 +358,6 @@ You can stop the `blockstack-core` daemon with the following command:
 ```
 $ blockstack-core stop
 ```
-
-## Using the Blockstack CLI
-
-Please see the [usage docs](https://blockstack.org/docs) to learn how to use the CLI interface for interacting with Blockstack Core.
 
 ## Troubleshooting
 
@@ -469,9 +465,9 @@ maintains a [mailing list](https://blockstack.org/signup) which sends out
 community announcements.
 
 The greater Blockstack community regularly hosts in-person
-[meetups](https://www.meetup.com/topics/blockstack/).  The project's 
+[meetups](https://www.meetup.com/topics/blockstack/).  The project's
 [YouTube channel](https://www.youtube.com/channel/UC3J2iHnyt2JtOvtGVf_jpHQ) includes
-videos from some of these meetups, as well as video tutorials to help new 
+videos from some of these meetups, as well as video tutorials to help new
 users get started and help developers wrap their heads around the system's
 design.
 
