@@ -255,6 +255,27 @@ if __name__ == "__main__":
 
     option = sys.argv[1]
 
+    # wait for blockstack-core to come alive 
+    # wait for up to an hour 
+    start_time = time.time()
+    alive = False
+    while time.time() < start_time + 3600:
+        info_resp = {}
+        try:
+            info_resp = blockstack.lib.client.getinfo(hostport=blockstack_indexer_url)
+            assert 'error' not in info_resp
+            alive = True
+            break
+        except:
+            if 'error' in info_resp:
+                time.sleep(5.0)
+                continue
+            else:
+                raise
+
+    if not alive:
+        raise Exception("Could not contact blockstack-core")
+
     if(option == '--fetch_namespace'):
         # Step 1
         fetch_namespace()
