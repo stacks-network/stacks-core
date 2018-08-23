@@ -54,10 +54,8 @@ services:
     build:
       context: ../
       dockerfile: Dockerfile
-    command: 'blockstack-core start --foreground --debug'
     volumes:
       - './blockstack-core/server/:/root/.blockstack-server/'
-      - './blockstack-core/api/:/root/.blockstack/'
     restart: always
     networks: 
       - api
