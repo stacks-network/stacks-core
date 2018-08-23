@@ -407,7 +407,7 @@ def fast_sync_snapshot(working_dir, export_path, private_key, block_number ):
     return True
 
 
-def fast_sync_fetch( import_url ):
+def fast_sync_fetch(working_dir, import_url):
     """
     Get the data for an import snapshot.
     Store it to a temporary path
@@ -415,7 +415,7 @@ def fast_sync_fetch( import_url ):
     Return None on error
     """
     try:
-        fd, tmppath = tempfile.mkstemp(prefix='.blockstack-fast-sync-')
+        fd, tmppath = tempfile.mkstemp(prefix='.blockstack-fast-sync-', dir=working_dir)
     except Exception, e:
         log.exception(e)
         return None
@@ -536,7 +536,7 @@ def fast_sync_import(working_dir, import_url, public_keys=config.FAST_SYNC_PUBLI
         return False
 
     # go get it 
-    import_path = fast_sync_fetch(import_url)
+    import_path = fast_sync_fetch(working_dir, import_url)
     if import_path is None:
         logerr("Failed to fetch {}".format(import_url))
         return False
@@ -604,6 +604,12 @@ def fast_sync_import(working_dir, import_url, public_keys=config.FAST_SYNC_PUBLI
 
     # success!
     logmsg("Restored to {}".format(working_dir))
+
+    try:
+        os.unlink(import_path)
+    except:
+        pass
+
     return True
 
 
