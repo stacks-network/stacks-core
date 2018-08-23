@@ -51,6 +51,10 @@ TEST_CLIENT_RPC_PORT = int(os.environ.get("BLOCKSTACK_TEST_CLIENT_RPC_PORT", 162
 TEST_CLIENT_BIND = os.environ.get("BLOCKSTACK_TEST_CLIENT_BIND", "localhost")
 WEB_TEST_BIND = os.environ.get('BLOCKSTACK_WEB_TEST_BIND', 'localhost')
 
+START_GAIA_HUB = int(os.environ.get('BLOCKSTACK_TEST_START_GAIA', 1))
+START_BROADCASTER = int(os.environ.get('BLOCKSTACK_TEST_START_BROADCASTER', 1))
+CHECK_SUBDOMAIN_REGISTRAR = int(os.environ.get('BLOCKSTACK_TEST_CHECK_SUBDOMAIN_REGISTRAR', 1))
+
 BITCOIND_RPC_ALLOW_IP = os.environ.get("BLOCKSTACK_TEST_BITCOIND_ALLOWIP", False)
 
 BLOCKSTACK_STORAGE_DRIVERS = "disk"
@@ -924,11 +928,13 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     testlib.set_bitcoind( bitcoind )
     testlib.set_state_engine( db )
 
-    # start Gaia hub 
-    gaia_hub_start(gaia_config_file)
+    # start Gaia hub
+    if START_GAIA_HUB == 1:
+        gaia_hub_start(gaia_config_file)
 
-    # start transaction broadcaster 
-    transaction_broadcaster_start(transaction_broadcaster_config_file)
+    # start transaction broadcaster
+    if START_BROADCASTER == 1:
+        transaction_broadcaster_start(transaction_broadcaster_config_file)
 
     # Start server
     server_state = blockstackd.server_setup(working_dir)
@@ -1570,12 +1576,18 @@ if __name__ == "__main__":
         print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [--force-segwit] [--output PATH] scenario.import.path [working dir]"
         sys.exit(1)
 
-    # basic sanity checks---need some tools to exist 
-    for tool, repo in [('sqlite3', None), \
-                      ('blockstack-cli', 'https://github.com/blockstack/jcnelson/cli-blockstack'), \
-                      ('blockstack-gaia-hub', 'https://github.com/blockstack/gaia/tree/master/hub'), \
-                      ('blockstack-transaction-broadcaster', 'https://github.com/blockstack/transaction-broadcaster'), \
-                      ('blockstack-subdomain-registrar', 'https://github.com/blockstack/blockstack-subdomain-registrar')]:
+    tools_required = [('sqlite3', None), \
+                      ('blockstack-cli', 'https://github.com/blockstack/jcnelson/cli-blockstack')]
+
+    if START_GAIA_HUB:
+        tools_required.append(('blockstack-gaia-hub', 'https://github.com/blockstack/gaia/tree/master/hub'))
+    if START_BROADCASTER:
+        tools_required.append(('blockstack-transaction-broadcaster', 'https://github.com/blockstack/transaction-broadcaster'))
+    if CHECK_SUBDOMAIN_REGISTRAR:
+        tools_required.append(('blockstack-subdomain-registrar', 'https://github.com/blockstack/blockstack-subdomain-registrar'))
+
+    # basic sanity checks---need some tools to exist
+    for tool, repo in tools_required:
 
         rc = os.system('which {}'.format(tool))
         if rc != 0:

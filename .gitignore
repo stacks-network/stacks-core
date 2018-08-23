@@ -48,3 +48,11 @@ Docker/blockstore.ini
 #Docs
 api/templates/index.html
 api/data
+
+# testnets
+testnet-logs/
+testnet.log
+testnet/index.html
+
+# virtualenvs
+.venv
