@@ -64,7 +64,6 @@ def start_subdomain_registrar():
         env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
 
     SUBDOMAIN_PROC = Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION], env = env)
-    testlib.add_cleanup(lambda: SUBDOMAIN_PROC.kill())
 
 
 def scenario( wallets, **kw ):
@@ -133,6 +132,7 @@ def scenario( wallets, **kw ):
             print 'wrong zone file: {}'.format(listing[i])
             return False
 
+    SUBDOMAIN_PROC.kill()
 
 def check( state_engine ):
 
