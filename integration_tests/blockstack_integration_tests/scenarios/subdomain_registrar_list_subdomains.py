@@ -57,13 +57,15 @@ def start_subdomain_registrar():
 
     try:
         os.rename('/tmp/subdomain_registrar.db', '/tmp/subdomain_registrar.last')
+        os.rename('/tmp/subdomain_registrar.log', '/tmp/subdomain_registrar.log.bak')
     except OSError:
         pass
     env = {'BSK_SUBDOMAIN_REGTEST' : '1'}
     if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
         env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
 
-    SUBDOMAIN_PROC = Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION], env = env)
+    fd = open('/tmp/subdomain_registrar.log', 'w+')
+    SUBDOMAIN_PROC = Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION], stdout=fd, stderr=fd, env = env)
 
 
 def scenario( wallets, **kw ):
@@ -89,7 +91,7 @@ def scenario( wallets, **kw ):
                                      'owner_address': virtualchain.address_reencode(wallets[i].addr, network='mainnet') })
 
         if res.status_code != 202:
-            print 'bad status code {}'.format(res.status_code)
+            print 'bad POST status code {}'.format(res.status_code)
             return False
 
         time.sleep(1)
@@ -106,7 +108,7 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
     # list all subdomains 
-    res = requests.get('http://localhost:3000/list/0')
+    res = requests.get('http://localhost:3000/list/{}'.format(int(time.time())))
     if res.status_code != 200:
         print 'bad status code on list: {}'.format(res.status_code)
         return False
@@ -131,6 +133,25 @@ def scenario( wallets, **kw ):
         if listing[i]['zonefile'] != 'hello world {}'.format(j):
             print 'wrong zone file: {}'.format(listing[i])
             return False
+
+    # over a day should be empty
+    # list all subdomains 
+    res = requests.get('http://localhost:3000/list/{}'.format(int(time.time()) - 24*3600))
+    if res.status_code != 200:
+        print 'bad status code on list: {}'.format(res.status_code)
+        return False
+
+    listing = res.json()
+    if len(listing) > 0:
+        print 'got back more records'
+        print listing
+        return False
+
+    # can't go over a week 
+    res = requests.get('http://localhost:3000/list/{}'.format(int(time.time()) - 7*24*3600 - 1))
+    if res.status_code != 400:
+        print 'bad status code on list: {}'.format(res.status_code)
+        return False
 
     SUBDOMAIN_PROC.kill()
 
