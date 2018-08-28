@@ -1,8 +1,15 @@
+---
+layout: core
+permalink: /:collection/:path.html
+---
+# Bitcoin wire format
+{:.no_toc}
+
 This page is for organizations who want to be able to create and send name operation transactions to the blockchain(s) Blockstack supports.
+It describes the transaction formats for the Bitcoin blockchain.
 
-# Bitcoin
-
-This section describes the transaction formats for the Bitcoin blockchain.
+* TOC
+{:toc}
 
 ## Transaction format
 
@@ -16,7 +23,7 @@ The general transaction layout is as follows:
 | ------------------------ | ----------------------- |
 | Owner scriptSig (1)      | `OP_RETURN <payload>` (2)  |
 | Payment scriptSig        | Owner scriptPubKey (3) |
-| Payment scriptSig... (4) | 
+| Payment scriptSig... (4) |
 | ...                  (4) | ... (5)                |
 
 (1) The owner `scriptSig` is *always* the first input.
@@ -156,7 +163,7 @@ Op: `+`
 
 Description:  This transaction sets the name state for a name to the given
 `value`.  In practice, this is used to announce new DNS zone file hashes to the [Atlas
-network](atlas_network.md).
+network]({{ site.baseurl }}/core/atlas/overview.html).
 
 Example: [e2029990fa75e9fc642f149dad196ac6b64b9c4a6db254f23a580b7508fc34d7](https://www.blocktrail.com/BTC/tx/e2029990fa75e9fc642f149dad196ac6b64b9c4a6db254f23a580b7508fc34d7)
 
@@ -179,7 +186,7 @@ Inputs:
 Outputs:
 * `OP_RETURN` payload
 * owner's `scriptPubkey`
-* payment `scriptPubkey` change 
+* payment `scriptPubkey` change
 
 ### NAME_TRANSFER
 
@@ -208,9 +215,9 @@ Outputs:
 * `OP_RETURN` payload
 * new name owner's `scriptPubkey`
 * old name owner's `scriptPubkey`
-* payment `scriptPubkey` change 
+* payment `scriptPubkey` change
 
-Notes: 
+Notes:
 
 * The `keep data?` byte controls whether or not the name's 20-byte value is preserved.  This value is either `>` to preserve it, or `~` to delete it.
 
@@ -254,7 +261,7 @@ received, the following must be true:
 * The BNS nodes must list the sender's BNS name as being a "trusted message
   sender"
 * The message must have already been propagated through the [Atlas
-  network](atlas_network.md).  This transaction references it by content hash.
+  network]({{ site.baseurl }}/core/atlas/overview.html).  This transaction references it by content hash.
 
 `OP_RETURN` wire format:
 
@@ -348,7 +355,7 @@ The rules for a namespace are as follows:
    * a name can fall into one of 16 buckets, measured by length.  Bucket 16 incorporates all names at least 16 characters long.
    * the pricing structure applies a multiplicative penalty for having numeric characters, or punctuation characters.
    * the price of a name in a bucket is ((coeff) * (base) ^ (bucket exponent)) / ((numeric discount multiplier) * (punctuation discount multiplier))
-   
+
 Example:
 * base = 10
 * coeff = 2
@@ -373,8 +380,7 @@ Op: `;`
 
 Description:  This transaction registers a name and some name state into a
 namespace that has been revealed, but not been launched.  Only the namespace
-creator can import names.  See the [namespace creation
-tutorial](namespace_creation.md) for details.
+creator can import names.  See the [namespace creation section]({{ site.baseurl }}/core/naming/namespace.html) for details.
 
 Example: [c698ac4b4a61c90b2c93dababde867dea359f971e2efcf415c37c9a4d9c4f312](https://www.blocktrail.com/BTC/tx/c698ac4b4a61c90b2c93dababde867dea359f971e2efcf415c37c9a4d9c4f312)
 
@@ -415,7 +421,7 @@ Example: [2bf9a97e3081886f96c4def36d99a677059fafdbd6bdb6d626c0608a1e286032](http
 
 `OP_RETURN` wire format:
 ```
-   
+
    0     2  3  4           23
    |-----|--|--|------------|
    magic op  .  ns_id
@@ -469,9 +475,9 @@ def hex_hash160(s, hex_format=False):
 def hash_name(name, script_pubkey, register_addr=None):
     """
     Generate the hash over a name and hex-string script pubkey.
-    Returns the hex-encoded string RIPEMD160(SHA256(x)), where 
-    x is the byte string composed of the concatenation of the 
-    binary 
+    Returns the hex-encoded string RIPEMD160(SHA256(x)), where
+    x is the byte string composed of the concatenation of the
+    binary
     """
     bin_name = b40_to_bin(name)
     name_and_pubkey = bin_name + unhexlify(script_pubkey)
@@ -489,4 +495,3 @@ def hash128(data):
     """
     return hexlify(bin_sha256(data)[0:16])
 ```
-

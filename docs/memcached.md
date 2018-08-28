@@ -1,5 +1,8 @@
-Installing Memcached
-=======
+---
+layout: core
+permalink: /:collection/:path.html
+---
+# Installing Memcached
 
 The Blockstack API optionally uses memcached and pylibmc for scaling read-only
 calls. If you want to enable this functionality then you should have memcached
