@@ -108,22 +108,21 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to pickup first batch"
     time.sleep(10)
 
-    # list all subdomains 
-    res = requests.get('http://localhost:3000/list/{}'.format(int(time.time())))
+    # list all subdomains
+    res = requests.get('http://localhost:3000/list/{}'.format(0))
     if res.status_code != 200:
         print 'bad status code on list: {}'.format(res.status_code)
         return False
 
     listing = res.json()
 
-    # should be in reverse order
+    # should be in order by queue_ix (iterator)
     for i in range(0, len(wallets)):
-        j = len(wallets) - 1 - i
-        if listing[i]['name'] != 'bar{}.foo.id'.format(j):
+        if listing[i]['name'] != 'bar{}.foo.id'.format(i):
             print 'wrong name: {}'.format(listing[i])
             return False
 
-        if listing[i]['address'] != virtualchain.address_reencode(wallets[j].addr, network='mainnet'):
+        if listing[i]['address'] != virtualchain.address_reencode(wallets[i].addr, network='mainnet'):
             print 'wrong address: {}'.format(listing[i])
             return False
 
@@ -131,13 +130,16 @@ def scenario( wallets, **kw ):
             print 'wrong sequence: {}'.format(listing[i])
             return False
 
-        if listing[i]['zonefile'] != 'hello world {}'.format(j):
+        if listing[i]['zonefile'] != 'hello world {}'.format(i):
             print 'wrong zone file: {}'.format(listing[i])
             return False
 
-    # over a day should be empty
-    # list all subdomains 
-    res = requests.get('http://localhost:3000/list/{}'.format(int(time.time()) - 24*3600))
+        if listing[i]['iterator'] != i+1:
+            print 'wrong iterator: {}'.format(listing[i])
+            return False
+
+    # list all subdomains after the last one
+    res = requests.get('http://localhost:3000/list/{}'.format(len(wallets)+1))
     if res.status_code != 200:
         print 'bad status code on list: {}'.format(res.status_code)
         return False
@@ -146,12 +148,6 @@ def scenario( wallets, **kw ):
     if len(listing) > 0:
         print 'got back more records'
         print listing
-        return False
-
-    # can't go over a week 
-    res = requests.get('http://localhost:3000/list/{}'.format(int(time.time()) - 7*24*3600 - 1))
-    if res.status_code != 400:
-        print 'bad status code on list: {}'.format(res.status_code)
         return False
 
     SUBDOMAIN_PROC.kill()
