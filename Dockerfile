@@ -1,8 +1,8 @@
-FROM ubuntu:xenial
+FROM ubuntu:bionic
 
 # Install dependencies from apt
 RUN apt-get -y update && \
-    apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools libgmp3-dev lsof sqlite3 gnupg2
+    apt-get install -y python-pip rng-tools libgmp3-dev lsof sqlite3 gnupg2
 
 # add a minimal pid 1
 ENV TINI_VERSION v0.18.0
