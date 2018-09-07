@@ -35,8 +35,12 @@ WORKDIR /src/blockstack/api
 # Add crontab file in the cron directory
 COPY api/deployment/crontab /var/spool/cron/crontabs/root
 
+# Copy fixtures
+COPY search/fixtures/blockchain_data.json /var/blockstack-search/blockchain_data.json
+COPY search/fixtures/profile_data.slice.json /var/blockstack-search/profile_data.json
+
 # Give execution rights on the cron job
 RUN chmod 0600 /var/spool/cron/crontabs/root
 
 # install fixtures and run cron
-CMD ["sh", "-c", "cp search/fixtures/blockchain_data.json /var/blockstack-search/blockchain_data.json; cp search/fixtures/profile_data.slice.json /var/blockstack-search/profile_data.json; crond -f -d 8"]
+CMD ["crond" "-f" "-d" "8"]
