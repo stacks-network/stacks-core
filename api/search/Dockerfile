@@ -43,4 +43,4 @@ COPY api/search/fixtures/profile_data.slice.json /var/blockstack-search/profile_
 RUN chmod 0600 /var/spool/cron/crontabs/root
 
 # install fixtures and run cron
-CMD ["crond" "-f" "-d" "8"]
+CMD ["crond","-f","-d","8"]
