@@ -880,13 +880,13 @@ class BlockstackDB(virtualchain.StateEngine):
         return namedb_get_account_diff(current, prior)
 
 
-    def get_account_history(self, address, block_start, block_end, offset=None, count=None):
+    def get_account_history(self, address, offset=None, count=None):
         """
         Get the history of account transactions over a block range
         Returns a dict keyed by blocks, which map to lists of account state transitions
         """
         cur = self.db.cursor()
-        return namedb_get_account_history(cur, address, block_start, block_end, offset=offset, count=count)
+        return namedb_get_account_history(cur, address, offset=offset, count=count)
 
 
     def get_all_account_addresses(self):
