@@ -1334,7 +1334,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         Get the types of tokens that an account owns
         Returns the list on success
         """
-        if not check_address(address):
+        if not check_account_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
@@ -1349,7 +1349,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         Returns the value on success
         Returns 0 if the balance is 0, or if there is no address
         """
-        if not check_address(address):
+        if not check_account_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
         if not check_token_type(token_type):
@@ -1388,7 +1388,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         """
         Get the current state of an account
         """
-        if not check_address(address):
+        if not check_account_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
         if not check_token_type(token_type):
@@ -1405,26 +1405,20 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         return self.success_response({'account': state})
 
 
-    def rpc_get_account_history(self, address, block_start, block_end, page, **con_info):
+    def rpc_get_account_history(self, address, page, **con_info):
         """
         Get the history of an account, pagenated over a block range.
         Returns the sequence of history states on success (can be empty)
         """
-        if not check_address(address):
+        if not check_account_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
-
-        if not check_block(block_start):
-            return {'error': 'Invalid start block', 'http_status': 400}
-
-        if not check_block(block_end):
-            return {'error': 'Invalid end block', 'http_status': 400}
 
         if not check_count(page):
             return {'error': 'Invalid page', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
         page_size = 20
-        account_history = db.get_account_history(address, block_start, block_end, offset=(page * page_size), count=page_size)
+        account_history = db.get_account_history(address, offset=(page * page_size), count=page_size)
         db.close()
 
         # return credit_value and debit_value as strings, so the unwitting JS developer doesn't get confused
@@ -1438,7 +1432,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         Get the account's statuses at a particular block height.
         Returns the sequence of history states on success
         """
-        if not check_address(address):
+        if not check_account_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
         if not check_block(block_height):
