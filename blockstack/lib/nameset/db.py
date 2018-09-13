@@ -293,7 +293,6 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
         ],
     }
     We'll store the genesis block history's canonical hash as the first transaction.
-    TODO: add code to verify that the genesis block history matches the initial_count_balances
     """
     namedb_query_execute(con, "BEGIN", ())
     for account_info in initial_account_balances:
@@ -302,7 +301,16 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
             assert f in account_info, 'BUG: missing {} in {}'.format(f, account_info)
 
         metadata = None
-        address = virtualchain.address_reencode(account_info['address'])
+        address = None
+
+        try:
+            address = virtualchain.address_reencode(account_info['address'])
+        except ValueError:
+            assert account_info.get('receive_whitelisted') == False, 'Unspendable address "{}" must be explicitly marked as not receive-whitelisted'.format(account_info['address'])
+
+            log.warning('Using unspendable address "{}"'.format(account_info['address']))
+            address = account_info['address']
+
         if 'metadata' in account_info and account_info['metadata'] is not None:
             metadata = account_info['metadata']
             log.debug('Grant {} to {} (metadata: {})'.format(account_info['value'], address, metadata))
@@ -312,7 +320,9 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
             metadata = '' 
 
         lock_send = account_info.get('lock_send', 0)
-        receive_whitelisted = account_info.get('receive_whitelisted', False)
+        assert lock_send >= 0, 'Invalid lock_send: {}'.format(lock_send)
+
+        receive_whitelisted = account_info.get('receive_whitelisted', True)     # whitelist by default for now
 
         # set up initial account balances
         sql = 'INSERT INTO accounts VALUES (?,?,?,?,?,?,?,?,?,?);'
@@ -1410,7 +1420,7 @@ def namedb_account_transaction_save(cur, address, token_type, new_credit_value, 
         'credit_value': '{}'.format(new_credit_value),
         'debit_value': '{}'.format(new_debit_value),
         'lock_transfer_block_id': existing_account.get('lock_transfer_block_id', 0),        # unlocks immediately if the account doesn't exist
-        'receive_whitelisted': existing_account.get('receive_whitelisted', False),          # new accounts are not whitelisted by default (for now)
+        'receive_whitelisted': existing_account.get('receive_whitelisted', True),           # new accounts are whitelisted by default (for now)
         'metadata': existing_account.get('metadata', None),
         'block_id': block_id,
         'txid': txid,
@@ -1790,12 +1800,12 @@ def namedb_get_account_diff(current, prior):
     return namedb_get_account_balance(current) - namedb_get_account_balance(prior)
 
 
-def namedb_get_account_history(cur, address, block_start, block_end, offset=None, count=None):
+def namedb_get_account_history(cur, address, offset=None, count=None):
     """
     Get the history of an account's tokens
     """
-    sql = 'SELECT * FROM accounts WHERE address = ? AND block_id >= ? AND block_id < ? ORDER BY block_id, vtxindex'
-    args = (address,block_start,block_end)
+    sql = 'SELECT * FROM accounts WHERE address = ? ORDER BY block_id, vtxindex'
+    args = (address,)
 
     if count is not None:
         sql += ' LIMIT ?'
