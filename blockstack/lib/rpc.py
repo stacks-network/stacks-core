@@ -626,10 +626,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json(ret)
 
 
-    def GET_name_history(self, path_info, name ):
+    def GET_name_history(self, path_info, name):
         """
         Get the history of a name or subdomain.
-        Takes `start_block` and `end_block` in the query string.
+        Requires 'page' in the query string
         return the history on success
         return 400 on invalid start_block or end_block
         return 502 on failure to query blockstack server
@@ -638,35 +638,27 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             return self._reply_json({'error': 'Invalid name or subdomain'}, status_code=400)
 
         qs_values = path_info['qs_values']
-        start_block = qs_values.get('start_block', None)
-        end_block = qs_values.get('end_block', None)
+        page = qs_values.get('page', None)
+
+        if page is None:
+            return self._reply_json({'error': 'Missing page argument'}, status_code=400)
 
         try:
-            if start_block is None:
-                start_block = FIRST_BLOCK_MAINNET
-            else:
-                start_block = int(start_block)
-
-            if end_block is None:
-                end_block = 2**32   # hope we never get this many blocks!
-            else:
-                end_block = int(end_block)
+            assert len(page) < 10
+            page = int(page)
+            assert page >= 0
+            assert page <= 2**32 - 1
         except:
-            log.error("Invalid start_block or end_block")
-            self._reply_json({'error': 'Invalid start_block or end_block'}, status_code=400)
+            log.error("Invalid page")
+            self._reply_json({'error': 'Invalid page'}, status_code=400)
             return
 
         blockstackd_url = get_blockstackd_url()
-        res = blockstackd_client.get_name_record(name, include_expired=True, include_history=True, hostport=blockstackd_url)
+        res = blockstackd_client.get_name_history_page(name, page, hostport=blockstackd_url)
         if json_is_error(res):
             return self._reply_json({'error': res['error']}, status_code=res.get('http_status', 502))
 
-        history = {}
-        for block_height in res['history'].keys():
-            if int(block_height) >= start_block and int(block_height) <= end_block:
-                history[block_height] = res['history'][block_height]
-
-        return self._reply_json(history)
+        return self._reply_json(res['history'])
 
 
     def GET_name_zonefile( self, path_info, name ):

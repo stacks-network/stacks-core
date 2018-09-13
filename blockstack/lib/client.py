@@ -2988,7 +2988,7 @@ def get_name_history(name, hostport=None, proxy=None, history_page=None):
 
         return {'status': True, 'history': resp['history'], 'indexing': indexing, 'lastblock': lastblock}
 
-    for i in range(0, 10000):       # this is obviously too big
+    for i in range(0, 100000000):       # this is obviously too big
         resp = get_name_history_page(name, i, proxy=proxy)
         if 'error' in resp:
             return resp
