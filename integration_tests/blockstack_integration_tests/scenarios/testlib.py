@@ -1057,21 +1057,14 @@ def get_name_blockchain_record(name):
     return blockstack_cli_get_name_blockchain_record(name)
 
 
-def blockstack_cli_get_name_blockchain_history( name, start_block=None, end_block=None, config_path=None):
+def blockstack_cli_get_name_blockchain_history( name, page, config_path=None):
     """
     get name blockchain history
     """
     if not has_nodejs_cli():
         raise Exception("Missing blockstack-cli")
 
-    resp = None
-    if start_block is not None and end_block is not None:
-        resp = nodejs_cli('get_blockchain_history', name, start_block, end_block)
-    elif start_block is not None:
-        resp = nodejs_cli('get_blockchain_history', name, start_block)
-    else:
-        resp = nodejs_cli('get_blockchain_history', name)
-
+    resp = nodejs_cli('get_blockchain_history', name, page)
     return json.loads(resp)
 
 
