@@ -2046,13 +2046,14 @@ class BlockstackdAPIServer( threading.Thread, object ):
         self.working_dir = working_dir
         self.api_server = BlockstackAPIEndpoint(host=host, port=port)
 
+        self.api_server.bind()
+        self.api_server.timeout = 0.5
+
 
     def run(self):
         """
         Serve until asked to stop
         """
-        self.api_server.bind()
-        self.api_server.timeout = 0.5
         self.api_server.serve_forever()
 
     
@@ -2097,14 +2098,17 @@ class GCThread( threading.Thread ):
         self.event_count += 1
 
 
-def rpc_start( working_dir, port, subdomain_index=None ):
+def rpc_start( working_dir, port, subdomain_index=None, thread=True ):
     """
     Start the global RPC server thread
     Returns the RPC server thread
     """
     rpc_srv = BlockstackdRPCServer( working_dir, port, subdomain_index=subdomain_index )
     log.debug("Starting RPC on port {}".format(port))
-    rpc_srv.start()
+
+    if thread:
+        rpc_srv.start()
+
     return rpc_srv
 
 
@@ -2164,14 +2168,16 @@ def gc_stop():
         log.info("GC thread already joined")
 
 
-def api_start(working_dir, host, port):
+def api_start(working_dir, host, port, thread=True):
     """
     Start the global API server
     Returns the API server thread
     """
     api_srv = BlockstackdAPIServer( working_dir, host, port )
     log.info("Starting API server on port {}".format(port))
-    api_srv.start()
+    if thread:
+        api_srv.start()
+
     return api_srv
 
 
@@ -2467,7 +2473,7 @@ def genesis_block_setup():
     return True
 
 
-def server_setup(working_dir, port=None, indexer_enabled=None, indexer_url=None, api_enabled=None):
+def server_setup(working_dir, port=None, api_port=None, indexer_enabled=None, indexer_url=None, api_enabled=None):
     """
     Set up the server.
     Start all subsystems, write pid file, set up signal handlers, set up DB.
@@ -2491,6 +2497,9 @@ def server_setup(working_dir, port=None, indexer_enabled=None, indexer_url=None,
     if port is None:
         port = blockstack_opts['rpc_port']
 
+    if api_port is None:
+        api_port = blockstack_api_opts['api_port']
+
     # set up signals
     signal.signal( signal.SIGINT, blockstack_signal_handler )
     signal.signal( signal.SIGQUIT, blockstack_signal_handler )
@@ -2498,9 +2507,6 @@ def server_setup(working_dir, port=None, indexer_enabled=None, indexer_url=None,
 
     # put pid file
     put_pidfile(pid_file, os.getpid())
-
-    # start GC
-    gc_start()
 
     # clear indexing state
     set_indexing(working_dir, False)
@@ -2543,11 +2549,20 @@ def server_setup(working_dir, port=None, indexer_enabled=None, indexer_url=None,
             atlas_node_start(atlas_state)
         
         # start back-plane API server
-        rpc_srv = rpc_start(working_dir, port, subdomain_index=subdomain_state)
+        rpc_srv = rpc_start(working_dir, port, subdomain_index=subdomain_state, thread=False)
 
     if blockstack_api_opts['enabled']:
         # start public RESTful API server
-        api_srv = api_start(working_dir, blockstack_api_opts['api_host'], blockstack_api_opts['api_port'])
+        api_srv = api_start(working_dir, blockstack_api_opts['api_host'], api_port, thread=False)
+
+    if rpc_srv:
+        rpc_srv.start()
+
+    if api_srv:
+        api_srv.start()
+
+    # start GC
+    gc_start()
 
     set_running(True)
 
@@ -2565,6 +2580,7 @@ def server_setup(working_dir, port=None, indexer_enabled=None, indexer_url=None,
         'api': api_srv,
         'pid_file': pid_file,
         'port': port,
+        'api_port': api_port
     }
 
     return ret
@@ -2609,7 +2625,7 @@ def server_shutdown(server_state):
     return True
 
 
-def run_server(working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None, use_api=None, use_indexer=None, indexer_url=None):
+def run_server(working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None, api_port=None, use_api=None, use_indexer=None, indexer_url=None):
     """
     Run blockstackd.  Optionally daemonize.
     Return 0 on success
@@ -2637,7 +2653,7 @@ def run_server(working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHO
             log.debug("Running in the background as PID {}".format(child_pid))
             sys.exit(0)
     
-    server_state = server_setup(working_dir, port, indexer_enabled=use_indexer, indexer_url=indexer_url, api_enabled=use_api)
+    server_state = server_setup(working_dir, port=port, api_port=api_port, indexer_enabled=use_indexer, indexer_url=indexer_url, api_enabled=use_api)
     atexit.register(server_shutdown, server_state)
 
     rpc_server = server_state['rpc']
@@ -2929,7 +2945,10 @@ def run_blockstackd():
         help='path to a .snapshots file with the expected consensus hashes')
     parser.add_argument(
         '--port', action='store',
-        help='port to bind on')
+        help='peer network port to bind on')
+    parser.add_argument(
+        '--api_port', action='store',
+        help='RESTful API port to bind on')
     parser.add_argument(
         '--working-dir', action='store',
         help='Directory with the chain state to use')
@@ -3140,7 +3159,13 @@ def run_blockstackd():
         else:
            args.port = None
 
-        exit_status = run_server(working_dir, foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port, use_api=use_api, use_indexer=use_indexer, indexer_url=args.indexer_url)
+        if args.api_port is not None:
+            log.info('Binding RESTful API on port {}'.format(int(args.api_port)))
+            args.api_port = int(args.api_port)
+        else:
+            args.api_port = None
+
+        exit_status = run_server(working_dir, foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port, api_port=args.api_port, use_api=use_api, use_indexer=use_indexer, indexer_url=args.indexer_url)
         if args.foreground:
            log.info("Service endpoint exited with status code %s" % exit_status )
 
