@@ -1419,6 +1419,27 @@ def bitcoin_regtest_fill_wallets( working_dir, wallets, default_payment_wallet=N
         # fill optional default payment address
         fill_wallet( bitcoind, default_payment_wallet, 250 )
 
+    # fake treasury and unallocated 
+    TEST_GENESIS_BLOCK.append({
+        'address': 'treasury',
+        'type': testlib.TOKEN_TYPE_STACKS,
+        'value': 110000000000000,
+        'vesting': {},
+        'vesting_total': 0,
+        'lock_send': 0,
+        'receive_whitelisted': False,
+    })
+
+    TEST_GENESIS_BLOCK.append({
+        'address': 'unallocated',
+        'type': testlib.TOKEN_TYPE_STACKS,
+        'value': 2222222222222222,
+        'vesting': {},
+        'vesting_total': 0,
+        'lock_send': 0,
+        'receive_whitelisted': False,
+    })
+
     bitcoind.generate(6)
 
     print >> sys.stderr, ""
