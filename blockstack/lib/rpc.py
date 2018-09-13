@@ -44,7 +44,7 @@ import client as blockstackd_client
 from client import get_blockstackd_url
 import scripts as blockstackd_scripts
 from scripts import check_name, check_namespace, check_token_type, check_subdomain, check_block, check_offset, \
-        check_count, check_string, check_address
+        check_count, check_string, check_address, check_account_address
 
 import storage
 
@@ -340,7 +340,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get all token types that an address owns
         Returns {'tokens': [...]}
         """
-        if not check_address(account_addr):
+        if not check_account_address(account_addr):
             return self._reply_json({'error': 'Invalid address'}, status_code=400)
 
         blockstackd_url = get_blockstackd_url()
@@ -358,7 +358,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get the state of a particular token account
         Returns the account
         """
-        if not check_address(account_addr):
+        if not check_account_address(account_addr):
             return self._reply_json({'error': 'Invalid address'}, status_code=400)
 
         if not check_token_type(token_type):
@@ -379,7 +379,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get the balance of a particular token
         Returns {'balance': ...}
         """
-        if not check_address(account_addr):
+        if not check_account_address(account_addr):
             return self._reply_json({'error': 'Invalid address'}, status_code=400)
 
         if not check_token_type(token_type):
@@ -401,43 +401,28 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Takes startblock= and endblock= and page=
         Returns [{...}]
         """
-        if not check_address(account_addr):
+        if not check_account_address(account_addr):
             return self._reply_json({'error': 'Invalid address'}, status_code=400)
 
         qs_values = path_info['qs_values']
-        start_block = qs_values.get('startblock', None)
-        end_block = qs_values.get('endblock', None)
         page = qs_values.get('page', None)
 
-        if start_block is None:
-            log.error('startblock= required')
-            return self._reply_json({'error': 'startblock= argument required'}, status_code=400)
-
-        if end_block is None:
-            log.error('endblock= required')
-            return self._reply_json({'error': 'endblock= argument required'}, status_code=400)
-
         if page is None:
-            log.error("page= required")
-            return self._reply_json({'error': 'page= argument required'}, status_code=400)
+            return self._reply_json({'error': 'page argument required'}, status_code=400)
 
         try:
-            start_block = int(start_block)
-            end_block = int(end_block)
+            assert len(page) < 10
             page = int(page)
 
-            assert check_block(start_block)
-            assert check_block(end_block)
-            assert start_block < end_block
             assert page >= 0
         except:
             return self._reply_json({'error': 'Invalid start block or end block or invalid page'}, status_code=400)
 
         blockstackd_url = get_blockstackd_url()
-        res = blockstackd_client.get_account_history_page(account_addr, start_block, end_block, page, hostport=blockstackd_url)
+        res = blockstackd_client.get_account_history_page(account_addr, page, hostport=blockstackd_url)
         if json_is_error(res):
-            log.error("Failed to list account history for {} at page {} of {}-{}: {}".format(account_addr, page, start_block, end_block, res['error']))
-            return self._reply_json({'error': 'Failed to list account history for {} at page {} of {}-{}'.format(account_addr, page, start_block, end_block)}, status_code=res.get('http_status', 500))
+            log.error("Failed to list account history for {} at page {}: {}".format(account_addr, page, res['error']))
+            return self._reply_json({'error': 'Failed to list account history for {} at page {}'.format(account_addr, page)}, status_code=res.get('http_status', 500))
 
         self._reply_json(res)
         return
@@ -448,7 +433,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Get the state(s) of an account at a particular point in history
         Returns [{...}]
         """
-        if not check_address(account_addr):
+        if not check_account_address(account_addr):
             return self._reply_json({'error': 'Invalid address'}, status_code=400)
 
         try:
@@ -622,7 +607,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             status = 'revoked' if name_rec['revoked'] else 'registered'
             address = name_rec['address']
             if address:
-                address = virtualchain.address_reencode(str(address), network='mainnet')
+                address = virtualchain.address_reencode(str(address))
 
             log.debug("{} is {}".format(name, status))
             ret = {
@@ -632,7 +617,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'address': address,
                 'last_txid': name_rec['txid'],
                 'blockchain': 'bitcoin',
-                'expire_block': name_rec['expire_block'],      # expires_block is what blockstack.js expects
+                'expire_block': name_rec['expire_block'],      # expire_block is what blockstack.js expects
                 'renewal_deadline': name_rec['renewal_deadline'],
                 'grace_period': name_rec.get('grace_period', False),
                 'resolver': name_rec.get('resolver', None)
