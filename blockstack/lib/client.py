@@ -1579,7 +1579,7 @@ def get_account_at(address, block_height, hostport=None, proxy=None):
     return resp['history']
 
 
-def get_account_history_page(address, block_start, block_end, page, hostport=None, proxy=None):
+def get_account_history_page(address, page, hostport=None, proxy=None):
     """
     Get a page of the account's history
     Returns the list of account operations on success
@@ -1609,7 +1609,7 @@ def get_account_history_page(address, block_start, block_end, page, hostport=Non
     schema = json_response_schema(page_schema)
 
     try:
-        resp = proxy.get_account_history(address, block_start, block_end, page)
+        resp = proxy.get_account_history(address, page)
         resp = json_validate(schema, resp)
         if json_is_error(resp):
             return resp
