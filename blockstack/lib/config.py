@@ -36,6 +36,7 @@ log = virtualchain.get_logger("blockstack-server")
 DEBUG = True
 VERSION = __version__
 
+ATLAS_SEEDS_ENV_VAR = 'BLOCKSTACK_ATLAS_SEEDS'
 # namespace version bits
 NAMESPACE_VERSION_PAY_TO_BURN = 0x1
 NAMESPACE_VERSION_PAY_TO_CREATOR = 0x2
@@ -1150,12 +1151,9 @@ def default_blockstack_opts( working_dir, config_file=None ):
 
       if parser.has_option('blockstack', 'atlas_seeds'):
          atlas_seed_peers = parser.get('blockstack', 'atlas_seeds')
-         
+
          # must be a CSV of host:port
-         hostports = filter( lambda x: len(x) > 0, atlas_seed_peers.split(",") )
-         for hp in hostports:
-             host, port = url_to_host_port( hp )
-             assert host is not None and port is not None
+         check_hostport_list(atlas_seed_peers)
 
       if parser.has_option('blockstack', 'atlasdb_path'):
          atlasdb_path = parser.get('blockstack', 'atlasdb_path')
@@ -1178,6 +1176,9 @@ def default_blockstack_opts( working_dir, config_file=None ):
       if parser.has_option('blockstack', 'subdomaindb_path'):
          subdomaindb_path = parser.get('blockstack', 'subdomaindb_path')
 
+   if os.environ.get(ATLAS_SEEDS_ENV_VAR, False):
+       atlas_seed_peers = os.environ[ATLAS_SEEDS_ENV_VAR]
+       check_hostport_list(atlas_seed_peers)
 
    if os.path.exists( announce_path ):
        # load announcement list
@@ -1378,6 +1379,12 @@ def opt_strip(prefix, opts):
 
     return ret
 
+def check_hostport_list(hp_list):
+    from .util import url_to_host_port
+    hostports = filter( lambda x: len(x) > 0, hp_list.split(",") )
+    for hp in hostports:
+        host, port = url_to_host_port( hp )
+        assert host is not None and port is not None
 
 def opt_restore(prefix, opts):
     """
