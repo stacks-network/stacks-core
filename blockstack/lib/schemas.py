@@ -33,7 +33,9 @@ OP_C32CHECK_CLASS = r'[0123456789ABCDEFGHJKMNPQRSTVWXYZ]'
 OP_BASE58CHECK_PATTERN = r'^({}+)$'.format(OP_BASE58CHECK_CLASS)
 OP_C32CHECK_PATTERN = r'^({}+)$'.format(OP_C32CHECK_CLASS)
 OP_ADDRESS_PATTERN = r'^({}{{1,35}})$'.format(OP_BASE58CHECK_CLASS)
+OP_ACCOUNT_ADDRESS_PATTERN = r'^({}{{1,35}})$|^unallocated$|^treasury$|^not_distributed_[0-9a-f]+$'.format(OP_BASE58CHECK_CLASS)
 OP_STACKS_ADDRESS_PATTERN = r'^({}+)$'.format(OP_C32CHECK_CLASS)
+OP_GENESIS_ADDRESS_PATTERN = r'^({}{{1,35}})$|^unallocated$|^treasury$|^not_distributed_[0-9a-f]+$'.format(OP_BASE58CHECK_CLASS)
 OP_NAME_CHARS = r'a-z0-9\-_.+'
 OP_NAME_CHARS_NOPERIOD = r'a-z0-9\-_+'
 OP_NAMESPACE_CLASS = r'[{}]{{{},{}}}'.format(OP_NAME_CHARS, 1, LENGTHS['namespace_id'])
@@ -509,7 +511,7 @@ NAMESPACE_SCHEMA_PROPERTIES = {
 ACCOUNT_SCHEMA_PROPERTIES = {
     'address': {
         'type': 'string',
-        'pattern': OP_ADDRESS_PATTERN,
+        'pattern': OP_ACCOUNT_ADDRESS_PATTERN,
      },
     'type': {
         'type': 'string',
@@ -609,7 +611,7 @@ GENESIS_BLOCK_ROW_SCHEMA = {
     'properties': {
         'address': {
             'type': 'string',
-            'pattern': OP_STACKS_ADDRESS_PATTERN,
+            'pattern': OP_GENESIS_ADDRESS_PATTERN,
         },
         'lock_send': {
             'type': 'integer',
