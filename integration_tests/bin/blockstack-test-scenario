@@ -1273,17 +1273,26 @@ def bitcoin_regtest_reset(working_dir):
 def fill_genesis_block(address, token_grant, vesting_schedule):
     """
     Add an entry to the genesis block for the given address, with an initial amount and a vesting schedule
+    NOTE: vesting_schedule is a grabbag of {'block height': 'amount'} pairs as well as {'lock_send': ...}, {'receive_whitelisted': ...}
     """
     global TEST_GENESIS_BLOCK
    
     log.debug("Grant {} {} {}-tokens".format(address, token_grant, testlib.TOKEN_TYPE_STACKS))
 
+    vesting = {}
+    for k in vesting_schedule.get('STACKS', []):
+        try:
+            ki = int(k)
+            vesting[ki] = vesting_schedule['STACKS'][k]
+        except Exception as e:
+            pass
+
     TEST_GENESIS_BLOCK.append({
         'address': address,
         'type': testlib.TOKEN_TYPE_STACKS,
         'value': token_grant,
-        'vesting': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}),
-        'vesting_total': sum(vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).values()),
+        'vesting': vesting,
+        'vesting_total': sum(vesting.values()),
         'lock_send': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).get('lock_send', 0),
         'receive_whitelisted': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).get('receive_whitelisted', True)  # for testing, all addresses can receive unless otherwise noted
     })
@@ -1292,12 +1301,20 @@ def fill_genesis_block(address, token_grant, vesting_schedule):
         if token_type == testlib.TOKEN_TYPE_STACKS:
             continue
 
+        vesting = {}
+        for k in vesting_schedule.get(token_type, []):
+            try:
+                ki = int(k)
+                vesting[ki] = vesting_schedule[token_type][k]
+            except:
+                pass
+
         TEST_GENESIS_BLOCK.append({
             'address': address,
             'type': token_type,
             'value': 0,
-            'vesting': vesting_schedule[token_type],
-            'vesting_total': sum(vesting_schedule[token_type].values()),
+            'vesting': vesting,
+            'vesting_total': sum(vesting.values()),
             'lock_send': vesting_schedule[token_type].get('lock_send', 0),
             'receive_whitelisted': vesting_schedule[token_type].get('receive_whitelisted', True) # for testing, all addresses can receive unless otherwise noted
         })
@@ -1420,6 +1437,41 @@ def bitcoin_regtest_fill_wallets( working_dir, wallets, default_payment_wallet=N
         fill_wallet( bitcoind, default_payment_wallet, 250 )
 
     # fake treasury and unallocated 
+    TEST_GENESIS_BLOCK.append({
+        'address': 'not_distributed_{}'.format('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'),
+        'type': testlib.TOKEN_TYPE_STACKS,
+        'value': 0,
+        'vesting': {
+            TEST_FIRST_BLOCK_HEIGHT+7: 2084166667,  # block 689 
+            TEST_FIRST_BLOCK_HEIGHT+8: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+9: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+10: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+11: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+12: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+13: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+14: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+15: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+16: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+17: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+18: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+19: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+20: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+21: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+22: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+23: 2084166666,
+            TEST_FIRST_BLOCK_HEIGHT+24: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+25: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+26: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+27: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+28: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+29: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+30: 2084166667,
+        },
+        'vesting_total': 50020000000,
+        'lock_send': 0,
+        'receive_whitelisted': False,
+    })
+        
     TEST_GENESIS_BLOCK.append({
         'address': 'treasury',
         'type': testlib.TOKEN_TYPE_STACKS,
