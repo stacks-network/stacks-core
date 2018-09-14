@@ -1785,13 +1785,24 @@ def check_account_credits(state_engine, api_call_history):
     for addr in addrs:
         vested_tokens[addr] = {}
         for token_type in token_types:
+            vested_tokens[addr][token_type] = 0
             vested_token_sum = 0
-            for i in range(0, len(vesting_schedules[addr][token_type])):
-                for block_height in vesting_schedules[addr][token_type][i]:
-                    if not isinstance(block_height, (int, long)) or block_height > state_engine.lastblock+1:
-                        continue
 
-                    vested_token_sum += vesting_schedules[addr][token_type][i][block_height]
+            assert len(vesting_schedules[addr][token_type]) <= 1, vesting_schedules[addr]
+            if len(vesting_schedules[addr][token_type]) == 0:
+                continue
+
+            vest_token_blocks = vesting_schedules[addr][token_type][0]
+
+            for block_height_key in vest_token_blocks:
+                block_height = int(block_height_key)
+                amount = vest_token_blocks[block_height_key]
+                
+                if block_height > state_engine.lastblock+1:
+                    continue
+                
+                print >> sys.stderr, '{} receives {} {} at {}'.format(addr, amount, token_type, block_height)
+                vested_token_sum += amount
 
             vested_tokens[addr][token_type] = vested_token_sum
 
