@@ -1356,27 +1356,27 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_names_owned_by_address,
                 },
             },
-            r'^/v1/accounts/({}{{1,40}})/tokens$'.format(URLENCODING_CLASS): {
+            r'^/v1/accounts/({}{{1,256}})/tokens$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_account_tokens,
                 },
             },
-            r'^/v1/accounts/({}{{1,40}})/({}{{1,40}})/status$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/accounts/({}{{1,256}})/({}{{1,40}})/status$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_account_record,
                 },
             },
-            r'^/v1/accounts/({}{{1,40}})/({}{{1,40}})/balance$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
+            r'^/v1/accounts/({}{{1,256}})/({}{{1,40}})/balance$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_account_balance,
                 },
             },
-            r'^/v1/accounts/({}{{1,40}})/history/([0-9]+)$'.format(URLENCODING_CLASS): {
+            r'^/v1/accounts/({}{{1,256}})/history/([0-9]+)$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_account_at,
                 },
             },
-            r'^/v1/accounts/({}{{1,40}})/history$'.format(URLENCODING_CLASS): {
+            r'^/v1/accounts/({}{{1,256}})/history$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_account_history,
                  },
