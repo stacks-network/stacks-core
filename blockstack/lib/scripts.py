@@ -691,7 +691,7 @@ def check_address(address):
 def check_account_address(address):
     """
     verify that a string is a valid account address.
-    Can be a b58-check address, as well as the string "treasury" or "unallocated"
+    Can be a b58-check address, as well as the string "treasury" or "unallocated" or a string starting with 'not_distributed_'
 
     >>> check_account_address('16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg')
     True
@@ -703,8 +703,17 @@ def check_account_address(address):
     True
     >>> check_account_address('neither')
     False
+    >>> check_account_address('not_distributed')
+    False
+    >>> check_account_address('not_distributed_')
+    False
+    >>> check_account_address('not_distributed_asdfasdfasdfasdf')
+    True
     """
     if address == 'treasury' or address == 'unallocated':
+        return True
+
+    if address.startswith('not_distributed_') and len(address) > len('not_distributed_'):
         return True
 
     return check_address(address)
