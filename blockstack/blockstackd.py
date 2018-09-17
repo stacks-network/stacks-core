@@ -186,6 +186,8 @@ def get_index_range(working_dir):
         else:
             return first_block, last_block - NUM_CONFIRMATIONS
 
+    return None, None
+
 
 def rpc_traceback():
     exception_data = traceback.format_exc().splitlines()
@@ -887,10 +889,10 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         Return {'error': ...} on error
         """
         if not check_name(name):
-            return {'error': 'invalid name'}
+            return {'error': 'invalid name', 'http_status': 400}
 
         if not check_count(page):
-            return {'error': 'invalid page'}
+            return {'error': 'invalid page', 'http_status': 400}
 
         offset = page * 20
         count = (page + 1) * 20
