@@ -291,18 +291,10 @@ EPOCHS = [
         # epoch 1
         "end_block": EPOCH_1_END_BLOCK,
         "namespaces": {
-            "id": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id,
-                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
-                "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id,
-                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_1_NAMESPACE_RECEIVE_FEES_PERIOD_id,
-            },
-            "*": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id,
-                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
-                "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id,
-                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_1_NAMESPACE_RECEIVE_FEES_PERIOD_id,
-            },
+            "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id,
+            "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_1_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+            "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id,
+            "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_1_NAMESPACE_RECEIVE_FEES_PERIOD_id,
         },
         "namespace_prices": [
             21 * 10**8,                 # 0-character cost
@@ -332,18 +324,10 @@ EPOCHS = [
         # epoch 2
         "end_block": EPOCH_2_END_BLOCK,
         "namespaces": {
-            "id": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id,
-                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
-                "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id,
-                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_2_NAMESPACE_RECEIVE_FEES_PERIOD_id,
-            },
-            "*": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id,
-                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
-                "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id,
-                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_2_NAMESPACE_RECEIVE_FEES_PERIOD_id,
-            },
+            "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id,
+            "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_2_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+            "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id,
+            "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_2_NAMESPACE_RECEIVE_FEES_PERIOD_id,
         },
         "namespace_prices": [
             21 * 10**8,                 # 0-character cost
@@ -373,18 +357,10 @@ EPOCHS = [
         # epoch 3
         "end_block": EPOCH_3_END_BLOCK,
         "namespaces": {
-            "id": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER_id,
-                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
-                "PRICE_MULTIPLIER": EPOCH_3_PRICE_MULTIPLIER_id,
-                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD_id,
-            },
-            "*": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER_id,
-                "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
-                "PRICE_MULTIPLIER": EPOCH_3_PRICE_MULTIPLIER_id,
-                "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD_id,
-            },
+            "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_3_NAMESPACE_LIFETIME_MULTIPLIER_id,
+            "NAMESPACE_LIFETIME_GRACE_PERIOD": EPOCH_3_NAMESPACE_LIFETIME_GRACE_PERIOD_id,
+            "PRICE_MULTIPLIER": EPOCH_3_PRICE_MULTIPLIER_id,
+            "NAMESPACE_RECEIVE_FEES_PERIOD": EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD_id,
         },
         "namespace_prices": [
             21 * 10**8,                 # 0-character cost
@@ -412,11 +388,6 @@ EPOCHS = [
     },
 ]
 
-# if we're testing, then add the same rules for the 'test' namespace
-if BLOCKSTACK_TEST:
-    for i in xrange(0, len(EPOCHS)):
-        EPOCHS[i]['namespaces']['test'] = EPOCHS[i]['namespaces']['id']
-
 # epoch self-consistency check 
 for epoch_field in EPOCH_FIELDS:
     for i in xrange(0, len(EPOCHS)):
@@ -424,10 +395,9 @@ for epoch_field in EPOCH_FIELDS:
             raise Exception("Missing field '%s' at epoch %s" % (epoch_field, i))
 
 for i in xrange(0, len(EPOCHS)):
-    for nsid in EPOCHS[i]['namespaces']:
-        for epoch_field in EPOCH_NAMESPACE_FIELDS:
-            if not EPOCHS[i]['namespaces'][nsid].has_key(epoch_field):
-                raise Exception("Missing field '%s' at epoch %s in namespace '%s'" % (epoch_field, i, nsid))
+    for epoch_field in EPOCHS[i]['namespaces']:
+        if not EPOCHS[i]['namespaces'].has_key(epoch_field):
+            raise Exception("Missing field '%s' at epoch %s" % (epoch_field, i))
 
 # if EPOCHS[len(EPOCHS)-1]['end_block'] != EPOCH_NOW:
 #    raise Exception("Last epoch ends at %s" % EPOCHS[len(EPOCHS)-1]['end_block'])
@@ -442,7 +412,6 @@ for i in xrange(0, len(EPOCHS)-1):
 
 del epoch_field
 del i 
-del nsid
 
 """ magic bytes configs
 """
@@ -717,10 +686,7 @@ def get_epoch_namespace_lifetime_multiplier( block_height, namespace_id ):
     what's the namespace lifetime multipler for this epoch?
     """
     epoch_config = get_epoch_config( block_height )
-    if epoch_config['namespaces'].has_key(namespace_id):
-        return epoch_config['namespaces'][namespace_id]['NAMESPACE_LIFETIME_MULTIPLIER']
-    else:
-        return epoch_config['namespaces']['*']['NAMESPACE_LIFETIME_MULTIPLIER']
+    return epoch_config['namespaces']['NAMESPACE_LIFETIME_MULTIPLIER']
 
 
 def get_epoch_namespace_lifetime_grace_period( block_height, namespace_id ):
@@ -728,10 +694,7 @@ def get_epoch_namespace_lifetime_grace_period( block_height, namespace_id ):
     what's the namespace lifetime grace period for this epoch?
     """
     epoch_config = get_epoch_config( block_height )
-    if epoch_config['namespaces'].has_key(namespace_id):
-        return epoch_config['namespaces'][namespace_id]['NAMESPACE_LIFETIME_GRACE_PERIOD']
-    else:
-        return epoch_config['namespaces']['*']['NAMESPACE_LIFETIME_GRACE_PERIOD']
+    return epoch_config['namespaces']['NAMESPACE_LIFETIME_GRACE_PERIOD']
 
 
 def get_epoch_price_multiplier( block_height, namespace_id ):
@@ -739,10 +702,7 @@ def get_epoch_price_multiplier( block_height, namespace_id ):
     what's the name price multiplier for this epoch?
     """
     epoch_config = get_epoch_config( block_height )
-    if epoch_config['namespaces'].has_key(namespace_id):
-        return epoch_config['namespaces'][namespace_id]['PRICE_MULTIPLIER']
-    else:
-        return epoch_config['namespaces']['*']['PRICE_MULTIPLIER']
+    return epoch_config['namespaces']['PRICE_MULTIPLIER']
 
 
 def get_epoch_namespace_receive_fees_period( block_height, namespace_id ):
@@ -750,10 +710,7 @@ def get_epoch_namespace_receive_fees_period( block_height, namespace_id ):
     how long can a namespace receive register/renewal fees?
     """
     epoch_config = get_epoch_config( block_height )
-    if epoch_config['namespaces'].has_key(namespace_id):
-        return epoch_config['namespaces'][namespace_id]['NAMESPACE_RECEIVE_FEES_PERIOD']
-    else:
-        return epoch_config['namespaces']['*']['NAMESPACE_RECEIVE_FEES_PERIOD']
+    return epoch_config['namespaces']['NAMESPACE_RECEIVE_FEES_PERIOD']
 
 
 def get_epoch_namespace_prices( block_height ):

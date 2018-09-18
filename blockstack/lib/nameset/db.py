@@ -1483,6 +1483,7 @@ def namedb_select_where_unexpired_names(current_block, only_registered=True):
     If only_registered is False, then as long as current_block is before the expire block, then the name will be returned (but the name may not have existed at that block)
     """
 
+    ''' 
     unexpired_query_fragment =  "(" + \
                                     "(" + \
                                         "namespaces.op = ? AND " + \
@@ -1499,8 +1500,30 @@ def namedb_select_where_unexpired_names(current_block, only_registered=True):
     unexpired_query_args = (NAMESPACE_READY, 
                                 current_block, current_block, current_block, 
                                 current_block, current_block, current_block,
-                            NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
+                          NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
+    '''
 
+    ns_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier(current_block, '*')
+    ns_grace_period = get_epoch_namespace_lifetime_grace_period(current_block, '*')
+
+    unexpired_query_fragment =  "(" + \
+                                    "(" + \
+                                        "namespaces.op = ? AND " + \
+                                        "(" + \
+                                            "(namespaces.ready_block + ((namespaces.lifetime * {}) + {}) > ?) OR ".format(ns_lifetime_multiplier, ns_grace_period) + \
+                                            "(name_records.last_renewed + ((namespaces.lifetime * {}) + {}) >= ?)".format(ns_lifetime_multiplier, ns_grace_period) + \
+                                        ")" + \
+                                    ") OR " + \
+                                    "(" + \
+                                        "namespaces.op = ? AND namespaces.reveal_block <= ? AND ? < namespaces.reveal_block + ?" + \
+                                    ")" + \
+                                ")"
+
+    unexpired_query_args = (NAMESPACE_READY, 
+                                current_block,
+                                current_block,
+                            NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
+    
     if only_registered:
         # also limit to only names registered before this block
         unexpired_query_fragment = '(name_records.first_registered <= ? AND {})'.format(unexpired_query_fragment)
