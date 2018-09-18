@@ -1224,6 +1224,20 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self._reply_json({'status': 'alive', 'version': VERSION})
         return
 
+    
+    def GET_getinfo(self, path_info):
+        """
+        getinfo
+        """
+        blockstackd_url = get_blockstackd_url()
+        info = blockstackd_client.getinfo(hostport=blockstackd_url)
+        if json_is_error(info):
+            # error
+            status_code = info.get('http_status', 502)
+            return self._reply_json({'error': info['error']}, status_code=status_code)
+
+        return self._reply_json(info)
+
 
     def _dispatch(self, method_name):
         """
@@ -1235,6 +1249,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             r'^/v1/ping$': {
                 'routes': {
                     'GET': self.GET_ping,
+                },
+            },
+            r'^/v1/info$': {
+                'routes': {
+                    'GET': self.GET_getinfo,
                 },
             },
             r'^/v1/addresses/({}{{1,256}})/({}{{1,40}})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
