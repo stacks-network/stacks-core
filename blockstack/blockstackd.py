@@ -184,6 +184,8 @@ def get_index_range(working_dir):
         else:
             return first_block, last_block - NUM_CONFIRMATIONS
 
+    return None, None
+
 
 def rpc_traceback():
     exception_data = traceback.format_exc().splitlines()
