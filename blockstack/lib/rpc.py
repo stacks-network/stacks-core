@@ -38,6 +38,7 @@ import urlparse
 from jsonschema import ValidationError
 import signal
 import json
+import BaseHTTPServer
 from decimal import Decimal
 
 import client as blockstackd_client
@@ -45,6 +46,8 @@ from client import get_blockstackd_url
 import scripts as blockstackd_scripts
 from scripts import check_name, check_namespace, check_token_type, check_subdomain, check_block, check_offset, \
         check_count, check_string, check_address, check_account_address
+
+from util import BoundedThreadingMixIn
 
 import storage
 
@@ -110,6 +113,7 @@ def get_unspents(address, bitcoind):
             return format_unspents([])
 
     return format_unspents(unspents)
+
 
 
 class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
@@ -641,7 +645,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         page = qs_values.get('page', None)
 
         if page is None:
-            return self._reply_json({'error': 'Missing page argument'}, status_code=400)
+            page = "0"        # compatibility 
 
         try:
             assert len(page) < 10
@@ -1601,7 +1605,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._dispatch("PATCH")
 
 
-class BlockstackAPIEndpoint(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
+class BlockstackAPIEndpoint(BoundedThreadingMixIn, SocketServer.TCPServer):
     """
     Lightweight API endpoint to Blockstack server:
     exposes all of the client methods via a RESTful interface,
@@ -1644,3 +1648,12 @@ class BlockstackAPIEndpoint(SocketServer.ThreadingMixIn, SocketServer.TCPServer)
         self.server_activate()
 
 
+    def overloaded(self, client_addr):
+        """
+        Deflect if we have too many inbound requests
+        """
+        overloaded_txt = 'HTTP/1.0 429 Too Many Requests\r\nServer: BaseHTTP/0.3 Python/2.7.14+\r\nContent-type: text/plain\r\nContent-length: 17\r\n\r\nToo many requests'
+        if BLOCKSTACK_TEST:
+            log.warn('Too many requests; deflecting {}'.format(client_addr))
+
+        return overloaded_txt

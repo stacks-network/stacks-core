@@ -41,6 +41,7 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def slow_client(timeout):
+    # NOTE: these will 400, but that's okay -- the point is to fill up the number of concurrent client slots
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(timeout)
     s.connect(('localhost', 16264))
@@ -80,6 +81,7 @@ def scenario( wallets, **kw ):
         # should fail---no threads are free
         res = rpcclient.getinfo()
         assert 'error' in res, 'Expected error, got {}'.format(res)
+        assert res['error'] == 'overloaded', res
     except:
         pass
 

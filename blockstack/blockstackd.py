@@ -43,6 +43,7 @@ import imp
 import argparse
 import jsonschema
 from jsonschema import ValidationError
+import BaseHTTPServer
 
 import xmlrpclib
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
@@ -59,7 +60,7 @@ from lib.client import BlockstackRPCClient
 from lib.client import ping as blockstack_ping
 from lib.client import OP_HEX_PATTERN, OP_CONSENSUS_HASH_PATTERN, OP_ADDRESS_PATTERN, OP_BASE64_EMPTY_PATTERN
 from lib.config import REINDEX_FREQUENCY, BLOCKSTACK_TEST, default_bitcoind_opts, is_subdomains_enabled
-from lib.util import url_to_host_port, atlas_inventory_to_string, daemonize, make_DID, parse_DID
+from lib.util import url_to_host_port, atlas_inventory_to_string, daemonize, make_DID, parse_DID, BoundedThreadingMixIn, GCThread
 from lib import *
 from lib.storage import *
 from lib.atlas import *
@@ -84,7 +85,6 @@ rpc_server = None
 api_server = None
 gc_thread = None
 
-GC_EVENT_THRESHOLD = 15
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -429,91 +429,6 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             return json.dumps(rpc_traceback())
 
 
-class BoundedThreadingMixIn(object):
-    """
-    Bounded threading mix-in, based on the original SocketServer.ThreadingMixIn
-    (from https://github.com/python/cpython/blob/master/Lib/socketserver.py).
-
-    Only difference between this and the original is that this will reject
-    requests after a certain number of threads exist.
-    """
-
-    _threads = None
-    _thread_guard = threading.Lock()
-    _close = False
-
-    def process_request_thread(self, request, client_address):
-        """
-        Same as in BaseServer but as a thread.
-        In addition, exception handling is done here.
-        """
-        global gc_thread
-
-        try:
-            self.finish_request(request, client_address)
-        except Exception:
-            self.handle_error(request, client_address)
-        finally:
-            self.shutdown_request(request)
-
-        shutdown_thread = False
-        with self._thread_guard:
-            if threading.current_thread().ident in self._threads:
-                del self._threads[threading.current_thread().ident]
-                shutdown_thread = True
-
-                if BLOCKSTACK_TEST:
-                    log.debug('{} active threads (removed {})'.format(len(self._threads), threading.current_thread().ident))
-
-        if shutdown_thread:
-            # count this towards our preemptive garbage collection
-            gc_thread.gc_event()
-
-
-    def process_request(self, request, client_address):
-        """
-        Start a new thread to process the request.
-        """
-        t = threading.Thread(target = self.process_request_thread,
-                             args = (request, client_address))
-
-        t.daemon = False
-
-        with self._thread_guard:
-            if self._close:
-                # server is done. do not make more threads
-                self.shutdown_request(request)
-                return 
-
-            if self._threads is None:
-                self._threads = {}
-
-            if len(self._threads) + 1 > MAX_RPC_THREADS:
-                # overloaded
-                log.warning("Too many outstanding requests ({})".format(len(self._threads)))
-                self.shutdown_request(request)
-                return
-
-            t.start()
-
-            self._threads[t.ident] = t
-
-            if BLOCKSTACK_TEST:
-                log.debug('{} active threads (added {})'.format(len(self._threads), t.ident))
-
-
-    def server_close(self):
-        super(BoundedThreadingMixIn, self).server_close()
-
-        with self._thread_guard:
-            threads = self._threads
-            self._threads = None
-            self._close = True
-
-        if threads:
-            for thread_id in threads.keys():
-                threads[thread_id].join()
-
 
 class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
     """
@@ -570,6 +485,25 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         Are we behind the chain?
         """
         return self.last_indexing_time + RPC_MAX_INDEXING_DELAY < time.time()
+
+    
+    def overloaded(self, client_address):
+        """
+        Got too many requests.
+        Send back a (precompiled) XMLRPC response saying as much
+        """
+        body = {
+            'status': False,
+            'indexing': False,
+            'lastblock': -1,
+            'error': 'overloaded',
+            'http_status': 429
+        }
+        body_str = json.dumps(body)
+
+        resp = 'HTTP/1.0 200 OK\r\nServer: BaseHTTP/0.3 Python/2.7.14+\r\nContent-type: text/xml\r\nContent-length: {}\r\n\r\n'.format(len(body_str))
+        resp += '<methodResponse><params><param><value><string>{}</string></value></param></params></methodResponse>'.format(body_str)
+        return resp
 
 
     def success_response(self, method_resp, **kw):
@@ -2070,35 +2004,7 @@ class BlockstackdAPIServer( threading.Thread, object ):
                 log.warning("Failed to shut down API server socket")
 
             self.api_server.shutdown()
-
-
-class GCThread( threading.Thread ):
-    """
-    Optimistic GC thread
-    """
-    def __init__(self, event_threshold=GC_EVENT_THRESHOLD):
-        threading.Thread.__init__(self)
-        self.running = True
-        self.event_count = 0
-        self.event_threshold = event_threshold
-
-    def run(self):
-        deadline = time.time() + 60
-        while self.running:
-            time.sleep(1.0)
-            if time.time() > deadline or self.event_count > self.event_threshold:
-                gc.collect()
-                deadline = time.time() + 60
-                self.event_count = 0
-
-
-    def signal_stop(self):
-        self.running = False
-
-
-    def gc_event(self):
-        self.event_count += 1
-
+            
 
 def rpc_start( working_dir, port, subdomain_index=None, thread=True ):
     """
@@ -2168,6 +2074,14 @@ def gc_stop():
         gc_thread = None
     else:
         log.info("GC thread already joined")
+
+
+def get_gc_thread():
+    """
+    Get the global GC thread
+    """
+    global gc_thread
+    return gc_thread
 
 
 def api_start(working_dir, host, port, thread=True):
@@ -2949,6 +2863,8 @@ def run_blockstackd():
         '--port', action='store',
         help='peer network port to bind on')
     parser.add_argument(
+        '--api-port', action='store')
+    parser.add_argument(
         '--api_port', action='store',
         help='RESTful API port to bind on')
     parser.add_argument(
@@ -2958,7 +2874,9 @@ def run_blockstackd():
         '--no-indexer', action='store_true',
         help='Do not start the indexer component')
     parser.add_argument(
-        '--indexer_url', action='store',
+        '--indexer_url', action='store'),
+    parser.add_argument(
+        '--indexer-url', action='store',
         help='URL to the indexer-enabled blockstackd instance to use')
     parser.add_argument(
         '--no-api', action='store_true',
