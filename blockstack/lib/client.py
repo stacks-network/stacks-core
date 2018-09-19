@@ -40,7 +40,7 @@ import socket
 from .util import url_to_host_port, url_protocol, parse_DID
 from .config import MAX_RPC_LEN, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG, RPC_SERVER_PORT, RPC_SERVER_TEST_PORT, LENGTHS, RPC_DEFAULT_TIMEOUT, BLOCKSTACK_TEST, get_blockstack_api_opts, TOKEN_TYPE_STACKS
 from .schemas import *
-from .scripts import is_name_valid, is_subdomain
+from .scripts import is_name_valid, is_subdomain, check_name, check_subdomain
 from .storage import verify_zonefile
 
 import virtualchain
@@ -2872,6 +2872,10 @@ def get_name_history_page(name, page, hostport=None, proxy=None):
     if proxy is None:
         proxy = connect_hostport(hostport)
 
+    name_required = ['op', 'opcode', 'txid', 'vtxindex']
+    subdomain_required = ['txid']
+    required = name_required if check_name(name) else subdomain_required
+
     hist_schema = {
         'type': 'object',
         'patternProperties': {
@@ -2880,12 +2884,7 @@ def get_name_history_page(name, page, hostport=None, proxy=None):
                 'items': {
                     'type': 'object',
                     'properties': OP_HISTORY_SCHEMA['properties'],
-                    'required': [
-                        'op',
-                        'opcode',
-                        'txid',
-                        'vtxindex',
-                    ],
+                    'required': required
                 },
             },
         },
@@ -3333,6 +3332,62 @@ def get_nameops_hash_at(block_id, hostport=None, proxy=None):
         return resp
 
     return resp['ops_hash']
+
+
+def is_name_zonefile_hash(name, zonefile_hash, hostport=None, proxy=None):
+    """
+    Determine if a name set a given zone file hash.
+    Return {'result': True/False} if so
+    Return {'error': ...} on error
+    """
+    assert hostport or proxy, 'Need hostport or proxy'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    zonefile_check_schema = {
+        'type': 'object',
+        'properties': {
+            'result': {
+                'type': 'boolean'
+            }
+        },
+        'required': [ 'result' ]
+    }
+
+    schema = json_response_schema(zonefile_check_schema)
+    resp = {}
+    try:
+        resp = proxy.is_name_zonefile_hash(name, zonefile_hash)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
+        return resp
+
+    return {'result': resp['result']}
 
 
 def get_JWT(url, address=None):
