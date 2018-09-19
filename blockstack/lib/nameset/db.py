@@ -221,6 +221,10 @@ CREATE INDEX value_hash_names_index on name_records( value_hash, name );
 """
 
 BLOCKSTACK_DB_SCRIPT += """
+CREATE INDEX addr_names_index ON name_records( address, name );
+"""
+
+BLOCKSTACK_DB_SCRIPT += """
 -- turn on foreign key constraints 
 PRAGMA foreign_keys = ON;
 """
@@ -372,13 +376,8 @@ def namedb_create(path, genesis_block):
 
     con.row_factory = namedb_row_factory
 
-    # add user-defined functions
-    con.create_function("namespace_lifetime_multiplier", 2, namedb_get_namespace_lifetime_multiplier)
-    con.create_function("namespace_lifetime_grace_period", 2, namedb_get_namespace_lifetime_grace_period)
-
     # create genesis block 
     namedb_create_token_genesis(con, genesis_block['rows'], genesis_block['history'])
-
     return con
 
 
@@ -388,10 +387,6 @@ def namedb_open( path ):
     """
     con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
     con.row_factory = namedb_row_factory
-
-    # add user-defined functions
-    con.create_function("namespace_lifetime_multiplier", 2, namedb_get_namespace_lifetime_multiplier)
-    con.create_function("namespace_lifetime_grace_period", 2, namedb_get_namespace_lifetime_grace_period)
     return con
 
 
@@ -432,6 +427,8 @@ def namedb_get_namespace_lifetime_multiplier( block_height, namespace_id ):
     """
     User-defined sqlite3 function that gets the namespace
     lifetime multiplier at a particular block height.
+
+    OBSOLETE
     """
     try:
         namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( block_height, namespace_id )
@@ -450,6 +447,8 @@ def namedb_get_namespace_lifetime_grace_period( block_height, namespace_id ):
     """
     User-defined sqlite3 function that gets the namespace
     lifetime grace period at a particular block height.
+
+    OBSOLETE
     """
     try:
         namespace_lifetime_grace_period = get_epoch_namespace_lifetime_grace_period( block_height, namespace_id )
@@ -1957,12 +1956,15 @@ def namedb_select_where_unexpired_names(current_block, only_registered=True):
     If only_registered is False, then as long as current_block is before the expire block, then the name will be returned (but the name may not have existed at that block)
     """
 
+    ns_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier(current_block, '*')
+    ns_grace_period = get_epoch_namespace_lifetime_grace_period(current_block, '*')
+
     unexpired_query_fragment =  "(" + \
                                     "(" + \
                                         "namespaces.op = ? AND " + \
                                         "(" + \
-                                            "(namespaces.ready_block + ((namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) + namespace_lifetime_grace_period(?, namespaces.namespace_id)) > ?) OR " + \
-                                            "(name_records.last_renewed + ((namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) + namespace_lifetime_grace_period(?, namespaces.namespace_id)) >= ?)" + \
+                                            "(namespaces.ready_block + ((namespaces.lifetime * {}) + {}) > ?) OR ".format(ns_lifetime_multiplier, ns_grace_period) + \
+                                            "(name_records.last_renewed + ((namespaces.lifetime * {}) + {}) >= ?)".format(ns_lifetime_multiplier, ns_grace_period) + \
                                         ")" + \
                                     ") OR " + \
                                     "(" + \
@@ -1971,8 +1973,8 @@ def namedb_select_where_unexpired_names(current_block, only_registered=True):
                                 ")"
 
     unexpired_query_args = (NAMESPACE_READY, 
-                                current_block, current_block, current_block, 
-                                current_block, current_block, current_block,
+                                current_block,
+                                current_block,
                             NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
 
     if only_registered:
@@ -2229,7 +2231,7 @@ def namedb_get_names_owned_by_address( cur, address, current_block ):
 
     unexpired_fragment, unexpired_args = namedb_select_where_unexpired_names( current_block )
 
-    select_query = "SELECT * FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id " + \
+    select_query = "SELECT name FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id " + \
                    "WHERE name_records.address = ? AND name_records.revoked = 0 AND " + unexpired_fragment + ";"
     args = (address,) + unexpired_args
 
@@ -2817,6 +2819,24 @@ def namedb_get_num_block_vtxs( cur, block_number ):
         count += 1
 
     return count
+
+
+def namedb_is_name_zonefile_hash(cur, name, zonefile_hash):
+    """
+    Determine if a zone file hash was sent by a name.
+    Return True if so, false if not
+    """
+    select_query = 'SELECT COUNT(value_hash) FROM history WHERE history_id = ? AND value_hash = ?'.format(name, zonefile_hash)
+    select_args = (name,zonefile_hash)
+
+    rows = namedb_query_execute(cur, select_query, select_args)
+    count = None
+
+    for r in rows:
+        count = r['COUNT(value_hash)']
+        break
+
+    return count > 0
 
 
 if __name__ == "__main__":
