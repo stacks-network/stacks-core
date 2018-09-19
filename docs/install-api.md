@@ -1,14 +1,22 @@
+---
+layout: core
+permalink: /:collection/:path.html
+---
 # Blockstack API 
+{:.no_toc}
+* TOC
+{:toc}
 
-Step-by-step instructions for deploying a Blockstack API node on Debian or 
+
+Step-by-step instructions for deploying a Blockstack API node on Debian or
 Ubuntu are below.
 
-- **Step 1:** Make sure you have Blockstack Core running locally (see [instructions](https://github.com/blockstack/blockstack-core/blob/master/README.md#quick-start)). 
+- **Step 1:** Make sure you have Blockstack Core running locally (see [instructions](https://github.com/blockstack/blockstack-core/blob/master/README.md#quick-start)).
 
-- **Step 2:** Make sure you have [virtualenv installed](http://docs.python-guide.org/en/latest/dev/virtualenvs/). 
+- **Step 2:** Make sure you have [virtualenv installed](http://docs.python-guide.org/en/latest/dev/virtualenvs/).
 Then, setup the API:
-``` 
-$ sudo apt-get install -y python-pip memcached rng-tools python-dev libmemcached-dev zlib1g-dev libgmp-dev libffi-dev libssl-dev 
+```
+$ sudo apt-get install -y python-pip memcached rng-tools python-dev libmemcached-dev zlib1g-dev libgmp-dev libffi-dev libssl-dev
 $ sudo service memcached start
 $ sudo pip install virtualenv
 $ sudo npm -g install aglio
@@ -41,7 +49,7 @@ $ sudo pip install uwsgi
 
 > /etc/nginx/sites-available/blockstack_api
 
-and edit the paths depending on the uwsgi blockstack_api socket directory (defaults to /tmp/blockstack_api.sock) 
+and edit the paths depending on the uwsgi blockstack_api socket directory (defaults to /tmp/blockstack_api.sock)
 You can test your nginx settings:
 ```
 $ sudo nginx -t
@@ -50,8 +58,8 @@ $ sudo nginx -t
 
 > /etc/systemd/system/blockstack_api.service
 
-and edit the service user and blockstack paths depending on where your blockstack repo is located, and 
-where your virtualenv is located. 
+and edit the service user and blockstack paths depending on where your blockstack repo is located, and
+where your virtualenv is located.
 
 Note: The following sed commands will work if the virtualenv is currently active and your shell is in the repo's root directory.
 
