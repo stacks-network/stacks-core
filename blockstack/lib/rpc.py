@@ -412,7 +412,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         page = qs_values.get('page', None)
 
         if page is None:
-            return self._reply_json({'error': 'page argument required'}, status_code=400)
+            page = "0" # compatibility
 
         try:
             assert len(page) < 10
