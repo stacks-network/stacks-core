@@ -132,6 +132,35 @@ def get_fixtures():
             'status': 200,
             'body': [],
         },
+        {
+            'route': '/v1/accounts/ST938N61X0VR/tokens',
+            'status': 200,
+            'body': {'tokens': []}
+        },
+        {
+            'route': '/v1/accounts/ST938N61X0VR/STACKS/status',
+            'status': 404,
+        },
+        {
+            'route': '/v1/accounts/ST938N61X0VR/STACKS/balance',
+            'status': 200,
+            'body': {'balance': '0'}
+        },
+        {
+            'route': '/v1/accounts/ST938N61X0VR/history',
+            'status': 200,
+            'body': [],
+        },
+        {
+            'route': '/v1/accounts/ST938N61X0VR/history/688',
+            'status': 200,
+            'body': [],
+        },
+        {
+            'route': '/v1/accounts/ST938N61X0VR/history?page=0',
+            'status': 200,
+            'body': [],
+        },
     ]
     
     return fixtures
