@@ -1396,6 +1396,7 @@ def get_account_tokens(address, hostport=None, proxy=None):
         resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
         return resp
 
+    resp['token_types'].sort()
     return resp['token_types']
 
 
