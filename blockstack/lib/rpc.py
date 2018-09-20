@@ -684,39 +684,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return self._reply_json({'status': True, 'servers': [blockstackd_url]}, status_code=200)
 
 
-    def get_name_zonefile_hashes(self, name):
-        """
-        List all zonefile hashes of a name, in historic order.
-        Return a list of hashes on success.
-        Return {'error': ...} on failure
-        """
-        blockstack_hostport = get_blockstackd_url()
-        name_rec = blockstackd_client.get_name_record(name, include_history=True, hostport=blockstack_hostport)
-        if 'error' in name_rec:
-            log.error("Failed to get name record for {}: {}".format(name, name_rec['error']))
-            return {'error': 'Failed to get name record for {}: {}'.format(name, name_rec['error'])}
-
-        name_history = name_rec['history']
-        all_update_hashes = []
-
-        block_ids = name_history.keys()
-        block_ids.sort()
-        for block_id in block_ids:
-            history_items = name_history[block_id]
-            for history_item in history_items:
-                value_hash = history_item.get('value_hash', None)
-                if value_hash is None:
-                    continue
-
-                if len(all_update_hashes) > 0 and all_update_hashes[-1] == value_hash:
-                    continue
-
-                # changed
-                all_update_hashes.append(value_hash)
-
-        return all_update_hashes
-
-
     def GET_name_zonefile_by_hash( self, path_info, name, zonefile_hash ):
         """
         Get a historic zonefile for a name
@@ -737,13 +704,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         raw = (raw.lower() in ['1', 'true'])
 
         blockstack_hostport = get_blockstackd_url()
+        was_set = blockstackd_client.is_name_zonefile_hash(name, zonefile_hash, hostport=blockstack_hostport)
+        if json_is_error(was_set):
+            return self._reply_json({'error': was_set['error']}, status_code=was_set.get('http_status', 502))
 
-        historic_zonefiles = self.get_name_zonefile_hashes(name)
-        if json_is_error(historic_zonefiles):
-            self._reply_json({'error': historic_zonefiles['error']}, status_code=historic_zonefiles.get('http_status', 502))
-            return
-
-        if zonefile_hash not in historic_zonefiles:
+        if not was_set['result']:
             self._reply_json({'error': 'No such zonefile'}, status_code=404)
             return
 

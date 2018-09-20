@@ -1328,6 +1328,29 @@ class SubdomainDB(object):
         return subrec
 
 
+    def is_subdomain_zonefile_hash(self, fqn, zonefile_hash, cur=None):
+        """
+        Does this zone file hash belong to this subdomain?
+        """
+        sql = 'SELECT COUNT(zonefile_hash) FROM {} WHERE fully_qualified_subdomain = ? and zonefile_hash = ?;'.format(self.subdomain_table)
+        args = (fqn,zonefile_hash)
+
+        cursor = None
+        if cur is None:
+            cursor = self.conn.cursor()
+        else:
+            cursor = cur
+
+        rows = db_query_execute(cursor, sql, args)
+        
+        count = None
+        for row in rows:
+            count = row['COUNT(zonefile_hash)']
+            break
+
+        return (count > 0)
+
+
     def get_subdomain_history(self, fqn, start_sequence=None, end_sequence=None, start_zonefile_index=None, end_zonefile_index=None, include_unaccepted=False, offset=None, count=None, cur=None):
         """
         Get the subdomain's history over a block range.
@@ -1357,13 +1380,13 @@ class SubdomainDB(object):
         if end_sequence is not None:
             args += (end_sequence,)
         
-        if offset is not None:
-            sql += ' OFFSET ?'
-            args += (offset,)
-            
         if count is not None:
             sql += ' LIMIT ?'
             args += (count,)
+        
+        if offset is not None:
+            sql += ' OFFSET ?'
+            args += (offset,)    
         
         sql += ';'
 
@@ -1956,7 +1979,26 @@ def get_DID_subdomain(did, db_path=None, zonefiles_dir=None, atlasdb_path=None, 
     return subrec
 
 
-def get_subdomain_history(fqn, db_path=None, zonefiles_dir=None, json=False):
+def is_subdomain_zonefile_hash(fqn, zonefile_hash, db_path=None, zonefiles_dir=None):
+    """
+    Static method for getting all historic zone file hashes for a subdomain
+    """
+    opts = get_blockstack_opts()
+    if not is_subdomains_enabled(opts):
+        return []
+
+    if db_path is None:
+        db_path = opts['subdomaindb_path']
+    
+    if zonefiles_dir is None:
+        zonefiles_dir = opts['zonefiles']
+
+    db = SubdomainDB(db_path, zonefiles_dir)
+    zonefile_hashes = db.is_subdomain_zonefile_hash(fqn, zonefile_hash)
+    return zonefile_hashes
+
+
+def get_subdomain_history(fqn, offset=None, count=None, reverse=False, db_path=None, zonefiles_dir=None, json=False):
     """
     Static method for getting all historic operations on a subdomain
     """
@@ -1971,7 +2013,7 @@ def get_subdomain_history(fqn, db_path=None, zonefiles_dir=None, json=False):
         zonefiles_dir = opts['zonefiles']
 
     db = SubdomainDB(db_path, zonefiles_dir)
-    recs = db.get_subdomain_history(fqn)
+    recs = db.get_subdomain_history(fqn, offset=offset, count=count)
 
     if json:
         recs = [rec.to_json() for rec in recs]
@@ -1982,6 +2024,13 @@ def get_subdomain_history(fqn, db_path=None, zonefiles_dir=None, json=False):
 
             ret[rec['block_number']].append(rec)
 
+        if reverse:
+            for block_height in ret:
+                ret[block_height].sort(lambda r1, r2: -1 if r1['parent_zonefile_index'] > r2['parent_zonefile_index'] or 
+                                                           (r1['parent_zonefile_index'] == r2['parent_zonefile_index'] and r1['zonefile_offset'] > r2['zonefile_offset']) else
+                                                       1 if r1['parent_zonefile_index'] < r2['parent_zonefile_index'] or 
+                                                           (r1['parent_zonefile_index'] == r2['parent_zonefile_index'] and r1['zonefile_offset'] < r2['zonefile_offset']) else
+                                                       0)
         return ret
 
     else:

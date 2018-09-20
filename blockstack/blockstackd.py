@@ -67,7 +67,7 @@ from lib.fast_sync import *
 from lib.rpc import BlockstackAPIEndpoint
 from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history,
                             get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info,
-                            get_all_subdomains, get_subdomains_count, get_subdomain_resolver)
+                            get_all_subdomains, get_subdomains_count, get_subdomain_resolver, is_subdomain_zonefile_hash)
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
@@ -816,13 +816,13 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
 
     def rpc_get_name_history_page(self, name, page, **con_info):
         """
-        Get the list of history entries for a name's history, paginated.
+        Get the list of history entries for a name or subdomain's history, paginated.
         Small pages correspond to later history (page = 0 is the page of last updates)
         Page size is 20 rows.
         Return {'status': True, 'history': [...]} on success
         Return {'error': ...} on error
         """
-        if not check_name(name):
+        if not check_name(name) and not check_subdomain(name):
             return {'error': 'invalid name', 'http_status': 400}
 
         if not check_count(page):
@@ -830,12 +830,47 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
 
         offset = page * 20
         count = (page + 1) * 20
+        history_data = None
 
-        db = get_db_state(self.working_dir)
-        history_data = db.get_name_history(name, offset, count, reverse=True)
-        db.close()
+        if check_name(name):
+            # on-chain name
+            db = get_db_state(self.working_dir)
+            history_data = db.get_name_history(name, offset, count, reverse=True)
+            db.close()
+
+        else:
+            # off-chain name
+            history_data = get_subdomain_history(name, offset=offset, count=count, json=True, reverse=True)
+
+        if len(history_data) == 0:
+            # name didn't exist 
+            return {'error': 'Not found', 'http_status': 404}
+
         return self.success_response({'history': history_data})
-       
+      
+
+    def rpc_is_name_zonefile_hash(self, name, zonefile_hash, **con_info):
+        """
+        Was a zone file hash issued by a name?  Return {'result': True/False}
+        """
+        if not check_name(name) and not check_subdomain(name):
+            return {'error': 'invalid name', 'http_status': 400}
+
+        if not check_string(zonefile_hash, min_length=LENGTHS['value_hash']*2, max_length=LENGTHS['value_hash']*2, pattern=OP_HEX_PATTERN):
+            return {'error': 'invalid zone file hash', 'http_status': 400}
+        
+        was_set = None
+        if check_name(name):
+            # on-chain name 
+            db = get_db_state(self.working_dir)
+            was_set = db.is_name_zonefile_hash(name, zonefile_hash)
+            db.close()
+        else:
+            # off-chain name 
+            was_set = is_subdomain_zonefile_hash(name, zonefile_hash)
+
+        return self.success_response({'result': was_set})
+
 
     def rpc_get_name_at( self, name, block_height, **con_info ):
         """
@@ -2652,7 +2687,9 @@ def run_blockstackd():
         '--foreground', action='store_true',
         help='start blockstackd in foreground')
     parser.add_argument(
-        '--expected-snapshots', action='store',
+        '--expected-snapshots', action='store')
+    parser.add_argument(
+        '--expected_snapshots', action='store',
         help='path to a .snapshots file with the expected consensus hashes')
     parser.add_argument(
         '--port', action='store',

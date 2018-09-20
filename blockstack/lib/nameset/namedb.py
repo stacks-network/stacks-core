@@ -848,7 +848,15 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         name_hist = namedb_get_history( cur, name, offset=offset, count=count, reverse=reverse )
         return name_hist
-    
+   
+
+    def is_name_zonefile_hash(self, name, zonefile_hash):
+        """
+        Was a zone file sent by a name?
+        """
+        cur = self.db.cursor()
+        return namedb_is_name_zonefile_hash(cur, name, zonefile_hash)
+
 
     def get_all_nameops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
         """
