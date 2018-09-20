@@ -1,9 +1,11 @@
 /v1/names?page=0
-/v1/names?page=1000
+/v1/names?page=100
+/v1/names?page=190
 /v1/names               # should fail
 
 /v1/subdomains?page=0
-/v1/subdomains?page=1000
+/v1/subdomains?page=100
+/v1/subdomains?page=670
 /v1/subdomains          # should fail
 
 /v1/names/judecn.id
@@ -21,13 +23,20 @@
 /v1/names/jude.personal.id/history
 /v1/names/asdfaslasdflaskjfasldkfj.personal.id/history  # should fail
 
-/v1/names/judecn.id/dbbdedc2b81d875403cc76486625a19f1e3b3c6f
-/v1/names/judecn.id/dbbdedc2b81d875403cc76486625a19f1e3b3c60    # should fail
-/v1/names/judecn.none/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d6  # should fail
+/v1/names/judecn.id/zonefile
+/v1/names/jude.personal.id/zonefile
+/v1/names/not.found/zonefile        # should fail
+/v1/names/not.found.id/zonefile     # should fail
 
-/v1/names/jude.personal.id/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d6
-/v1/names/jude.personal.id/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d0 # should fail
-/v1/names/asdlfkasdflkjasdlfjk.personal.id/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d6     # should fail
+/v1/names/judecn.id/zonefile/dbbdedc2b81d875403cc76486625a19f1e3b3c6f
+/v1/names/judecn.id/zonefile/dbbdedc2b81d875403cc76486625a19f1e3b3c60    # should fail
+/v1/names/judecn.none/zonefile/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d6  # should fail
+
+/v1/names/id.blockstack/zonefile/eb638f9a2ce5d05b3c185644c8c158f1e277b0b3   # expensive
+
+/v1/names/jude.personal.id/zonefile/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d6
+/v1/names/jude.personal.id/zonefile/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d0 # should fail
+/v1/names/asdlfkasdflkjasdlfjk.personal.id/zonefile/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d6     # should fail
 
 /v1/addresses/bitcoin/16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg        # judecn.id
 /v1/addresses/bitcoin/1Pwbo3enKDAqZq7T1SSY5T9JatuYbyonGo        # jude.personal.id
@@ -55,7 +64,8 @@
 /v1/namespaces
 
 /v1/namespaces/id/names?page=0
-/v1/namespaces/id/names?page=1000
+/v1/namespaces/id/names?page=100
+/v1/namespaces/id/names?page=180
 /v1/namespaces/id/names             # should fail
 /v1/namespaces/ID/names?page=0      # should fail
 
