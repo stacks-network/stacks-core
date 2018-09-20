@@ -70,6 +70,8 @@ from lib.rpc import BlockstackAPIEndpoint
 from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history,
                             get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info,
                             get_all_subdomains, get_subdomains_count, get_subdomain_resolver)
+from lib.scripts import address_as_b58, is_c32_address
+from lib.c32 import c32ToB58
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
@@ -1273,6 +1275,10 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         if not check_account_address(address):
             return {'error': 'Invalid address', 'http_status': 400}
 
+        # must be b58
+        if is_c32_address(address):
+            address = c32ToB58(address)
+
         db = get_db_state(self.working_dir)
         token_list = db.get_account_tokens(address)
         db.close()
@@ -1290,6 +1296,10 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
 
         if not check_token_type(token_type):
             return {'error': 'Invalid token type', 'http_status': 400}
+
+        # must be b58
+        if is_c32_address(address):
+            address = c32ToB58(address)
 
         db = get_db_state(self.working_dir)
         account = db.get_account(address, token_type)
@@ -1330,6 +1340,10 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         if not check_token_type(token_type):
             return {'error': 'Invalid token type', 'http_status': 400}
 
+        # must be b58
+        if is_c32_address(address):
+            address = c32ToB58(address)
+
         db = get_db_state(self.working_dir)
         account = db.get_account(address, token_type)
         db.close()
@@ -1351,6 +1365,10 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
 
         if not check_count(page):
             return {'error': 'Invalid page', 'http_status': 400}
+
+        # must be b58
+        if is_c32_address(address):
+            address = c32ToB58(address)
 
         db = get_db_state(self.working_dir)
         page_size = 20
@@ -1374,6 +1392,10 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         if not check_block(block_height):
             return {'error': 'Invalid start block', 'http_status': 400}
 
+        # must be b58
+        if is_c32_address(address):
+            address = c32ToB58(address)
+    
         db = get_db_state(self.working_dir)
         account_states = db.get_account_at(address, block_height)
         db.close()
