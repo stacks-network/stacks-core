@@ -29,6 +29,7 @@ import traceback
 
 from .config import *
 from .b40 import *
+from .c32 import *
 from .schemas import *
 
 def is_name_valid(fqn):
@@ -655,7 +656,7 @@ def check_string(value, min_length=None, max_length=None, pattern=None):
 
 def check_address(address):
     """
-    verify that a string is an address
+    verify that a string is a base58check address
 
     >>> check_address('16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg')
     True
@@ -691,7 +692,7 @@ def check_address(address):
 def check_account_address(address):
     """
     verify that a string is a valid account address.
-    Can be a b58-check address, as well as the string "treasury" or "unallocated" or a string starting with 'not_distributed_'
+    Can be a b58-check address, a c32-check address, as well as the string "treasury" or "unallocated" or a string starting with 'not_distributed_'
 
     >>> check_account_address('16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg')
     True
@@ -709,12 +710,23 @@ def check_account_address(address):
     False
     >>> check_account_address('not_distributed_asdfasdfasdfasdf')
     True
+    >>> check_account_address('SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7')
+    True
+    >>> check_account_address('SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ8')
+    False
     """
     if address == 'treasury' or address == 'unallocated':
         return True
 
     if address.startswith('not_distributed_') and len(address) > len('not_distributed_'):
         return True
+
+    if re.match(OP_C32CHECK_PATTERN, address):
+        try:
+            c32addressDecode(address)
+            return True
+        except:
+            pass
 
     return check_address(address)
 
@@ -754,6 +766,31 @@ def check_tx_sender_types(senders, block_height):
 
     return True
 
+
+def address_as_b58(addr):
+    """
+    Given a b58check or c32check address,
+    return the b58check encoding
+    """
+    if is_c32_address(addr):
+        return c32ToB58(addr)
+
+    else:
+        if check_address(addr):
+            return addr
+        else:
+            raise ValueError('Address {} is not b58 or c32'.format(addr))
+
+
+def is_c32_address(addr):
+    """
+    Is this a c32check address?
+    """
+    try:
+        c32addressDecode(addr)
+        return True
+    except:
+        return False
 
 if __name__ == '__main__':
     import doctest
