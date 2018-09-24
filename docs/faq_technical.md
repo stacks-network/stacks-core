@@ -97,7 +97,7 @@ Blockstack, like Linux, is an open-source project with a GPLv3 license for the c
 
 ## Where is my data stored and how do I control who access it?
 
-You control where your data is stored (you could run your own server, or use your own cloud storage - Dropbox, Amazon S3, and keep backups across all). You then use those places as locations pointed to by the URLs in your Blockstack ID's zone file. You can get the zone file with `blockstack lookup` in the CLI (Check out the install video in our [CLI video tutorial series](https://www.youtube.com/playlist?list=PLXS8JJHIn4nGCU2uW85dHXpkQJ7QA5JkX). _need help on how users control who accesses the data_
+You control where your data is stored (you could run your own server, or use your own cloud storage - Dropbox, Amazon S3, and keep backups across all). You then use those places as locations pointed to by the URLs in your Blockstack ID's zone file. 
 
 ## Why should I trust the information, like name ownership or public key mappings, read from Blockstack?
 
