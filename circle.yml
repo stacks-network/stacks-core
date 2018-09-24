@@ -3,25 +3,7 @@ jobs:
   build:
     working_directory: ~/blockstack
     docker:
-      - image: circleci/python:2.7
-        environment:
-          PIPENV_VENV_IN_PROJECT: true
-    steps:
-      - checkout
-      - restore_cache:
-          key: deps9-{{ .Branch }}-{{ checksum "setup.py" }}-{{ checksum "integration_tests/setup.py" }}
-      - run:
-          command: |
-            python -m virtualenv venv
-            source venv/bin/activate
-            pip install ./integration_tests --upgrade --upgrade-strategy only-if-needed
-            pip install . --upgrade --upgrade-strategy only-if-needed
-      - save_cache:
-          key: deps9-{{ .Branch }}-{{ checksum "setup.py" }}-{{ checksum "integration_tests/setup.py" }}
-          paths:
-            - "venv"
-services:
-  blockstack-core:
+      blockstack-core:
     image: 'quay.io/blockstack/blockstack-core:master'
     command: 'blockstack-core start --foreground --debug'
     volumes:
@@ -61,4 +43,19 @@ networks:
              ./docker-tools.sh init-api
 
 # This docker-compose file is for spinning up a blockstack-core node and api
-version: '2'
+version: '2
+    steps:
+      - checkout
+      - restore_cache:
+          key: deps9-{{ .Branch }}-{{ checksum "setup.py" }}-{{ checksum "integration_tests/setup.py" }}
+      - run:
+          command: |
+            python -m virtualenv venv
+            source venv/bin/activate
+            pip install ./integration_tests --upgrade --upgrade-strategy only-if-needed
+            pip install . --upgrade --upgrade-strategy only-if-needed
+      - save_cache:
+          key: deps9-{{ .Branch }}-{{ checksum "setup.py" }}-{{ checksum "integration_tests/setup.py" }}
+          paths:
+            - "venv"
+  '
