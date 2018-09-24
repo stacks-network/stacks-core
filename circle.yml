@@ -41,9 +41,6 @@ networks:
             cd tools/docker
             ./docker-tools.sh init-core
              ./docker-tools.sh init-api
-
-# This docker-compose file is for spinning up a blockstack-core node and api
-version: '2
     steps:
       - checkout
       - restore_cache:
