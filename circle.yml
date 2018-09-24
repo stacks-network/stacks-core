@@ -27,6 +27,9 @@ jobs:
             blockstack api start -y --password Zhc6ikare
             python -m blockstack_integration_tests.live_tests.api_tests
             blockstack api stop -y
+            cd tools/docker
+            ./docker-tools.sh init-core
+             ./docker-tools.sh init-api
 
 # This docker-compose file is for spinning up a blockstack-core node and api
 version: '2'
