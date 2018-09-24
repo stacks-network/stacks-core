@@ -23,7 +23,8 @@ jobs:
       - run:
           command: |
             source venv/bin/activate
-            blockstack setup -y --password PASSWORD
-            blockstack api start -y --password PASSWORD
+            blockstack setup -y --password Zhc6ikare
+            blockstack api start -y --password Zhc6ikare
             python -m blockstack_integration_tests.live_tests.api_tests
             blockstack api stop -y
+
