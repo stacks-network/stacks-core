@@ -1,0 +1,3 @@
+$ORIGIN naval.id
+$TTL 3600
+_http._tcp IN URI 10 1 "https://mq9.s3.amazonaws.com/naval.id/profile.json"

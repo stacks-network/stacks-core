@@ -1,0 +1,24 @@
+{
+  "$origin": "naval.id",
+  "$ttl": 3600,
+  "uri": [
+    {
+      "name": "_http._tcp",
+      "priority": 10,
+      "weight": 1,
+      "target": "https://mq9.s3.amazonaws.com/naval.id/profile.json"
+    }
+  ],
+  "txt": [
+    {
+      "name": "created_equal",
+      "ttl": 15,
+      "txt": [
+        "owner=1AYddAnfHbw6bPNvnsQFFrEuUdhMhf2XG9",
+        "seqn=0",
+        "parts=1",
+        "zf0=JE9SSUdJTiBjcmVhdGVkX2VxdWFsCiRUVEwgMzYwMApfaHR0cHMuX3RjcCBVUkkgMTAgMSAiaHR0cHM6Ly93d3cuY3MucHJpbmNldG9uLmVkdS9+YWJsYW5rc3QvY3JlYXRlZF9lcXVhbC5qc29uIgpfZmlsZSBVUkkgMTAgMSAiZmlsZTovLy90bXAvY3JlYXRlZF9lcXVhbC5qc29uIgo="
+      ]
+    }
+  ]
+}

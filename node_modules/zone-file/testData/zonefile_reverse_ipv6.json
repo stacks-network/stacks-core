@@ -1,0 +1,21 @@
+{
+    "$origin": "0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.",
+    "$ttl": 3600,
+    "soa": {
+        "mname": "NS1.NAMESERVER.NET.",
+        "rname": "HOSTMASTER.MYDOMAIN.COM.",
+        "serial": "{time}",
+        "refresh": 3600,
+        "retry": 600,
+        "expire": 604800,
+        "minimum": 86400
+    },
+    "ns": [
+        { "host": "NS1.NAMESERVER.NET." },
+        { "host": "NS2.NAMESERVER.NET." }
+    ],
+    "ptr":[
+        { "name": 1, "host": "HOST1.MYDOMAIN.COM." },
+        { "name": 2, "host": "HOST2.MYDOMAIN.COM." }
+    ]
+}

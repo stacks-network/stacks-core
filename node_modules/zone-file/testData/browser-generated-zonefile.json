@@ -1,0 +1,7 @@
+{ "$origin": "fork_party.id",
+  "$ttl": 3600,
+  "uri":
+   [ { "name": "_http._tcp",
+       "target": "https://blockstakuserstorage.blob.core.windows.net/productionuserstorage/user_1P4AkXeLcp2rfUiX8UXnERYGhnYo7tZUSs/fork_party.id.json",
+       "priority": 10,
+       "weight": 1 } ] }

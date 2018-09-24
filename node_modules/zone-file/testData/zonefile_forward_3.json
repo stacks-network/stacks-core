@@ -1,0 +1,12 @@
+{
+  "$origin": "naval.id",
+  "$ttl": 3600,
+  "uri": [
+    {
+      "name": "_http._tcp",
+      "priority": 10,
+      "weight": 1,
+      "target": "https://mq9.s3.amazonaws.com/naval.id/profile.json"
+    }
+  ]
+}
