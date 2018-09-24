@@ -20,19 +20,6 @@ jobs:
           key: deps9-{{ .Branch }}-{{ checksum "setup.py" }}-{{ checksum "integration_tests/setup.py" }}
           paths:
             - "venv"
-      - run:
-          command: |
-            source venv/bin/activate
-            blockstack setup -y --password Zhc6ikare
-            blockstack api start -y --password Zhc6ikare
-            python -m blockstack_integration_tests.live_tests.api_tests
-            blockstack api stop -y
-            cd tools/docker
-            ./docker-tools.sh init-core
-             ./docker-tools.sh init-api
-
-# This docker-compose file is for spinning up a blockstack-core node and api
-version: '2'
 services:
   blockstack-core:
     image: 'quay.io/blockstack/blockstack-core:master'
@@ -61,3 +48,17 @@ services:
       
 networks:
   api: null
+
+      - run:
+          command: |
+            source venv/bin/activate
+            blockstack setup -y --password Zhc6ikare
+            blockstack api start -y --password Zhc6ikare
+            python -m blockstack_integration_tests.live_tests.api_tests
+            blockstack api stop -y
+            cd tools/docker
+            ./docker-tools.sh init-core
+             ./docker-tools.sh init-api
+
+# This docker-compose file is for spinning up a blockstack-core node and api
+version: '2'
