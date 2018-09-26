@@ -1,0 +1,3 @@
+$ORIGIN aaron.id
+$TTL 3600
+_http._tcp URI 10 1 "https://gaia.blockstack.org/hub/34bNQUVgyhSrA8XpM4HkerHUUdNmLpiyj7/0/profile.json"

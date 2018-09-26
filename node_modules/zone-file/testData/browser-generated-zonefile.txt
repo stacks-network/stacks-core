@@ -1,0 +1,3 @@
+$ORIGIN fork_party.id
+$TTL 3600
+_http._tcp URI 10 1 "https://blockstakuserstorage.blob.core.windows.net/productionuserstorage/user_1P4AkXeLcp2rfUiX8UXnERYGhnYo7tZUSs/fork_party.id.json"

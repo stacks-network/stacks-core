@@ -1,0 +1,96 @@
+{
+  "$origin": "MYDOMAIN.COM.",
+  "$ttl": 3600,
+  "soa": {
+    "name": "@",
+    "minimum": 86400,
+    "expire": 604800,
+    "retry": 600,
+    "refresh": 3600,
+    "serial": 1454537194,
+    "rname": "HOSTMASTER.MYDOMAIN.COM.",
+    "mname": "NS1.NAMESERVER.NET."
+  },
+  "ns": [
+    {
+      "name": "@",
+      "host": "NS1.NAMESERVER.NET."
+    },
+    {
+      "name": "@",
+      "host": "NS2.NAMESERVER.NET."
+    }
+  ],
+  "mx": [
+    {
+      "name": "@",
+      "preference": 0,
+      "host": "mail1"
+    },
+    {
+      "name": "@",
+      "preference": 10,
+      "host": "mail2"
+    }
+  ],
+  "a": [
+    {
+      "name": "@",
+      "ip": "127.0.0.1"
+    },
+    {
+      "name": "www",
+      "ip": "127.0.0.1"
+    },
+    {
+      "name": "mail",
+      "ip": "127.0.0.1"
+    }
+  ],
+  "aaaa": [
+    {
+      "name": "@",
+      "ip": "::1"
+    },
+    {
+      "name": "mail",
+      "ip": "2001:db8::1"
+    }
+  ],
+  "cname": [
+    {
+      "name": "mail1",
+      "alias": "mail"
+    },
+    {
+      "name": "mail2",
+      "alias": "mail"
+    }
+  ],
+  "txt": [
+    {
+      "name": "txt1",
+      "txt": "hello"
+    },
+    {
+      "name": "txt2",
+      "txt": "world"
+    }
+  ],
+  "srv": [
+    {
+      "name": "_xmpp-client._tcp",
+      "target": "jabber",
+      "priority": 10,
+      "weight": 0,
+      "port": 5222
+    },
+    {
+      "name": "_xmpp-server._tcp",
+      "target": "jabber",
+      "priority": 10,
+      "weight": 0,
+      "port": 5269
+    }
+  ]
+}

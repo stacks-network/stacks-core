@@ -1,0 +1,14 @@
+{ "$origin": "ablankstein.id",
+  "$ttl": 3600,
+  "txt":
+  [ { "name": "pubkey",
+      "txt": "pubkey:data:045a501e341fbf1b403ce3a6e66836a3a40a06d76f62ee46d22f39b280b3eb0e6a9c44f7a06645bac259fcf7703a74b794dd805559db30f780e5cf4c63e5646730" } ],
+  "uri":
+  [ { "name": "_https._tcp",
+      "target": "https://blockstack.s3.amazonaws.com/ablankstein.id",
+      "priority": 10,
+      "weight": 1 },
+    { "name": "_https._tcp",
+      "target": "https://www.cs.princeton.edu/~ablankst/profile.json",
+      "priority": 10,
+      "weight": 1 } ] }

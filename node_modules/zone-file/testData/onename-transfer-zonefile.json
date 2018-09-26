@@ -1,0 +1,7 @@
+{ "$origin": "aaron.id",
+  "$ttl": 3600,
+  "uri":
+   [ { "name": "_http._tcp",
+       "target": "https://gaia.blockstack.org/hub/34bNQUVgyhSrA8XpM4HkerHUUdNmLpiyj7/0/profile.json",
+       "priority": 10,
+       "weight": 1 } ] }

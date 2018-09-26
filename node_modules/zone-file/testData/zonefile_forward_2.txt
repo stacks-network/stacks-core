@@ -1,0 +1,44 @@
+$ORIGIN MYDOMAIN.COM.
+$TTL 3600
+
+; SOA Record
+@           IN  SOA NS1.NAMESERVER.NET. HOSTMASTER.MYDOMAIN.COM.    (
+1454537194   ;serial
+3600     ;refresh
+600  ;retry
+604800   ;expire
+86400    ;minimum ttl
+)
+
+; NS Records
+@   IN  NS  NS1.NAMESERVER.NET.
+@   IN  NS  NS2.NAMESERVER.NET.
+
+; MX Records
+@   IN  MX  0   mail1
+@   IN  MX  10  mail2
+
+; A Records
+@   IN  A   127.0.0.1
+www IN  A   127.0.0.1
+mail    IN  A   127.0.0.1
+
+; AAAA Records
+@   IN  AAAA    ::1
+mail    IN  AAAA    2001:db8::1
+
+; CNAME Records
+mail1   IN  CNAME   mail
+mail2   IN  CNAME   mail
+
+; PTR Records
+
+; TXT Records
+txt1    IN  TXT "hello"
+txt2    IN  TXT "world"
+
+; SRV Records
+_xmpp-client._tcp   IN  SRV 10  0   5222    jabber
+_xmpp-server._tcp   IN  SRV 10  0   5269    jabber
+
+; SPF Records
