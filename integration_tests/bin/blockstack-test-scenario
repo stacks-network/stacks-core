@@ -33,6 +33,7 @@ import requests
 import posixpath
 from datetime import datetime
 from influxdb import InfluxDBClient
+import pkgutil
 
 blockstack = None
 blockstackd = None
@@ -571,16 +572,13 @@ def load_scenario( scenario_name ):
 
     # identify the file's path
     log.debug("Identifying scenario path")
-    p = subprocess.Popen( "python -c 'import %s; print %s.__file__'" % (scenario_name, scenario_name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE )
-    path_buf, err = p.communicate()
+    p = subprocess.Popen("python -c 'import pkgutil; print pkgutil.get_loader(\"{}\").filename'".format(scenario_name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = p.communicate()
+    rc = p.returncode
+    if rc != 0:
+        raise Exception("Failed to find {}".format(scenario_name))
 
-    if p.returncode is not None and p.returncode != 0:
-        print >> sys.stderr, err
-        raise Exception("Failed to load %s, exit code %s" % (scenario_name, p.returncode))
-
-    path = path_buf.strip().split("\n")[-1].strip()
-    if path.endswith(".pyc"):
-        path = path[:-4] + ".py"
+    path = out.strip().split('\n')[-1].strip()
 
     log.debug("Path of %s is %s" % (scenario_name, path))
 
@@ -1333,10 +1331,11 @@ def fill_wallet( bitcoind, wallet, value ):
         testnet_wif = virtualchain.BitcoinPrivateKey(virtualchain.get_singlesig_privkey(wallet.privkey)).to_wif()
         addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
 
-        log.debug("Fill %s (%s) with %s" % (addr, testnet_wif, value ))
+        if value > 0:
+            log.debug("Fill %s (%s) with %s" % (addr, testnet_wif, value ))
 
-        bitcoind.importprivkey(testnet_wif, "")
-        bitcoind.sendtoaddress( addr, value )
+            bitcoind.importprivkey(testnet_wif, "")
+            bitcoind.sendtoaddress( addr, value )
 
         # also do the token grant
         fill_genesis_block(addr, wallet._token_grant, wallet._vesting_schedule)
@@ -1346,14 +1345,15 @@ def fill_wallet( bitcoind, wallet, value ):
         testnet_wif = virtualchain.BitcoinPrivateKey(virtualchain.get_singlesig_privkey(wallet.privkey)).to_wif()
         addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
 
-        bitcoind.importprivkey(testnet_wif, "")
+        if value > 0:
+            bitcoind.importprivkey(testnet_wif, "")
 
-        segwit_wallet = virtualchain.make_segwit_info(testnet_wif)
-        p2sh_p2wpkh_addr = bitcoind.addwitnessaddress(addr)
-        assert p2sh_p2wpkh_addr == segwit_wallet['address'], 'bitcoind.addwitnessaddress({}) == {}, expected {}'.format(addr, p2sh_p2wpkh_addr, segwit_wallet['address'])
+            segwit_wallet = virtualchain.make_segwit_info(testnet_wif)
+            p2sh_p2wpkh_addr = bitcoind.addwitnessaddress(addr)
+            assert p2sh_p2wpkh_addr == segwit_wallet['address'], 'bitcoind.addwitnessaddress({}) == {}, expected {}'.format(addr, p2sh_p2wpkh_addr, segwit_wallet['address'])
 
-        log.debug("Fill p2sh-p2wpkh %s (%s) with %s" % (segwit_wallet['address'], testnet_wif, value ))
-        bitcoind.sendtoaddress( segwit_wallet['address'], value )
+            log.debug("Fill p2sh-p2wpkh %s (%s) with %s" % (segwit_wallet['address'], testnet_wif, value ))
+            bitcoind.sendtoaddress( segwit_wallet['address'], value )
         
         # also do the token grant
         fill_genesis_block(segwit_wallet['address'], wallet._token_grant, wallet._vesting_schedule)
@@ -1375,11 +1375,13 @@ def fill_wallet( bitcoind, wallet, value ):
 
         # have bitcoin track the p2sh-p2wsh equivalent address
         segwit_wallet = virtualchain.make_multisig_segwit_info( wallet.m, testnet_wifs )
-        p2sh_p2wsh_addr = bitcoind.addwitnessaddress(multisig_info['address'])
-        assert p2sh_p2wsh_addr == segwit_wallet['address'], 'bitcoind.addwitnessaddress({}) == {}, expected {}'.format(multisig_info['address'], p2sh_p2wsh_addr, segwit_wallet['address'])
 
-        log.debug("Fill p2sh-p2wsh %s with %s" % (segwit_wallet['address'], value ))
-        bitcoind.sendtoaddress( segwit_wallet['address'], value )
+        if value > 0:
+            p2sh_p2wsh_addr = bitcoind.addwitnessaddress(multisig_info['address'])
+            assert p2sh_p2wsh_addr == segwit_wallet['address'], 'bitcoind.addwitnessaddress({}) == {}, expected {}'.format(multisig_info['address'], p2sh_p2wsh_addr, segwit_wallet['address'])
+
+            log.debug("Fill p2sh-p2wsh %s with %s" % (segwit_wallet['address'], value ))
+            bitcoind.sendtoaddress( segwit_wallet['address'], value )
 
         # also do the token grant
         fill_genesis_block(segwit_wallet['address'], wallet._token_grant, wallet._vesting_schedule)
@@ -1396,11 +1398,13 @@ def fill_wallet( bitcoind, wallet, value ):
             testnet_pubks.append( virtualchain.BitcoinPrivateKey(pk).public_key().to_hex() )
 
         multisig_info = virtualchain.make_multisig_info( wallet.m, testnet_wifs )
-        bitcoind.addmultisigaddress( wallet.m, testnet_pubks )
-        bitcoind.importaddress( multisig_info['address'] )
 
-        log.debug("Fill %s with %s" % (multisig_info['address'], value ))
-        bitcoind.sendtoaddress( multisig_info['address'], value )
+        if value > 0:
+            bitcoind.addmultisigaddress( wallet.m, testnet_pubks )
+            bitcoind.importaddress( multisig_info['address'] )
+
+            log.debug("Fill %s with %s" % (multisig_info['address'], value ))
+            bitcoind.sendtoaddress( multisig_info['address'], value )
         
         # also do the token grant
         fill_genesis_block(multisig_info['address'], wallet._token_grant, wallet._vesting_schedule)
@@ -1419,7 +1423,7 @@ def get_wallet_addr( wallet ):
         return wallet.addr
 
 
-def bitcoin_regtest_fill_wallets( working_dir, wallets, default_payment_wallet=None ):
+def bitcoin_regtest_fill_wallets( working_dir, wallets, default_payment_wallet=None, amount_per_wallet=50 ):
     """
     Given a set of wallets, make sure they each have 50 btc.
     If given, fill the default payment walet with 250 btc
@@ -1430,7 +1434,7 @@ def bitcoin_regtest_fill_wallets( working_dir, wallets, default_payment_wallet=N
 
     for wallet in wallets:
         # fill each wallet
-        fill_wallet( bitcoind, wallet, 50 )
+        fill_wallet( bitcoind, wallet, amount_per_wallet )
 
     if default_payment_wallet is not None:
         # fill optional default payment address
@@ -1843,7 +1847,11 @@ if __name__ == "__main__":
     default_payment_wallet = testlib.Wallet('5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', 1000000000)
 
     # load wallets
-    bitcoin_regtest_fill_wallets( working_dir, scenario.wallets, default_payment_wallet=default_payment_wallet )
+    amount_per_wallet = 50
+    if os.environ.get('BLOCKSTACK_TEST_AMOUNT_PER_WALLET'):
+        amount_per_wallet = int(os.environ['BLOCKSTACK_TEST_AMOUNT_PER_WALLET'])
+
+    bitcoin_regtest_fill_wallets( working_dir, scenario.wallets, default_payment_wallet=default_payment_wallet, amount_per_wallet=amount_per_wallet )
     testlib.set_default_payment_wallet( default_payment_wallet )
     testlib.set_wallets( scenario.wallets )
     
