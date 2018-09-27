@@ -860,7 +860,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
     def get_all_blockstack_ops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
         """
-        Get all name, namespace, and account records affected at a particular block,
+        Get all name and namespace records affected at a particular block,
         in the state they were at the given block number.
         
         Paginate if offset, count are given.
