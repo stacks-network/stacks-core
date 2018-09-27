@@ -2642,7 +2642,7 @@ def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
     # how many nameops?
     num_nameops = None
     try:
-        num_nameops = proxy.get_num_nameops_at(block_id)
+        num_nameops = proxy.get_num_blockstack_ops_at(block_id)
         num_nameops = json_validate(count_schema, num_nameops)
         if json_is_error(num_nameops):
             return num_nameops
@@ -2680,7 +2680,7 @@ def get_blockstack_transactions_at(block_id, proxy=None, hostport=None):
     while len(all_nameops) < num_nameops:
         resp = {}
         try:
-            resp = proxy.get_nameops_at(block_id, len(all_nameops), page_size)
+            resp = proxy.get_blockstack_ops_at(block_id, len(all_nameops), page_size)
             resp = json_validate(nameop_schema, resp)
             if json_is_error(resp):
                 return resp
@@ -3275,7 +3275,7 @@ def get_name_at(name, block_id, include_expired=False, hostport=None, proxy=None
     return resp['records']
 
 
-def get_nameops_hash_at(block_id, hostport=None, proxy=None):
+def get_blockstack_ops_hash_at(block_id, hostport=None, proxy=None):
     """
     Get the hash of a set of records as they were at a particular block.
     Return the hash on success.
@@ -3301,7 +3301,7 @@ def get_nameops_hash_at(block_id, hostport=None, proxy=None):
     schema = json_response_schema( hash_schema )
     resp = {}
     try:
-        resp = proxy.get_nameops_hash_at(block_id)
+        resp = proxy.get_blockstack_ops_hash_at(block_id)
         resp = json_validate(schema, resp)
         if json_is_error(resp):
             return resp

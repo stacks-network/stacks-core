@@ -168,7 +168,7 @@ CREATE TABLE name_records( name TEXT NOT NULL,
 # rows get inserted under the following rules:
 # * if the user buys a name or namespace (or transfers in Phase 2+), a row is inserted that *debits* the account (by increasing the debit_value)
 # * if the user receives tokens through vesting, or through a transfer (phase 2+), or pay-to-namespace payment (phase 2+), a row is inserted that *credits* the account (by increasing the credit_value)
-BLOCKSTACK_DB_SCRIPT += """
+BLOCKSTACK_DB_ACCOUNTS_TABLE_SCRIPT = """
 CREATE TABLE accounts( address TEXT NOT NULL,
                        type TEXT NOT NULL,           -- what kind of token? STACKs, etc.
 
@@ -190,15 +190,17 @@ CREATE TABLE accounts( address TEXT NOT NULL,
 
                        PRIMARY KEY(address,block_id,txid,vtxindex,type) );
 """
+BLOCKSTACK_DB_SCRIPT += BLOCKSTACK_DB_ACCOUNTS_TABLE_SCRIPT
 
-BLOCKSTACK_DB_SCRIPT += """
+BLOCKSTACK_DB_ADDRESS_ACCOUNTS_INDEX_SCRIPT = """
 CREATE INDEX address_accounts ON accounts(address, type);
 """
+BLOCKSTACK_DB_SCRIPT += BLOCKSTACK_DB_ADDRESS_ACCOUNTS_INDEX_SCRIPT
 
 # extra time-locked credits to an account.
 # vesting_value will always be positive.
 # when the system reaches a block that vests, a "credit" operation will be generated and inserted into the accounts table to reflect it.
-BLOCKSTACK_DB_SCRIPT += """
+BLOCKSTACK_DB_ACCOUNT_VESTING_TABLE_SCRIPT = """
 CREATE TABLE account_vesting( address TEXT NOT NULL,            -- account address
                               type TEXT NOT NULL,               -- type of token (e.g. STACKS, GENESIS)
                               vesting_value TEXT NOT NULL,      -- value to vest, encoded as a TEXT to avoid overflow (unit value, e.g. microSTACKs)
@@ -207,6 +209,7 @@ CREATE TABLE account_vesting( address TEXT NOT NULL,            -- account addre
                               PRIMARY KEY(address,type,block_id,type)
                               );
 """
+BLOCKSTACK_DB_SCRIPT += BLOCKSTACK_DB_ACCOUNT_VESTING_TABLE_SCRIPT
 
 BLOCKSTACK_DB_SCRIPT += """
 CREATE INDEX hash_names_index ON name_records( name_hash128, name );
@@ -2329,9 +2332,9 @@ def namedb_select_count_rows( cur, query, args, count_column='COUNT(*)' ):
     return count
 
 
-def namedb_get_all_nameops_at(db, block_id, offset=None, count=None):
+def namedb_get_all_blockstack_ops_at(db, block_id, offset=None, count=None):
     """
-    Get the states that each name and namespace record
+    Get the states that each name, namespace, and account record
     passed through in the given block.  Note that this only concerns
     operations written on-chain, for use in SNV and database verification
     (i.e. does not include implicit account debits and account vesting).
@@ -2346,7 +2349,6 @@ def namedb_get_all_nameops_at(db, block_id, offset=None, count=None):
     # how many preorders at this block?
     offset_count_query, offset_count_args = namedb_offset_count_predicate(offset=offset, count=count)
 
-    # preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? " + " " + offset_count_query + ";"
     preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? ORDER BY vtxindex " + " " + offset_count_query + ";"
     preorder_count_rows_args = (block_id,) + offset_count_args
 
@@ -2382,7 +2384,7 @@ def namedb_get_all_nameops_at(db, block_id, offset=None, count=None):
             # done!
             return ret
 
-    # get all other operations at this block
+    # get all other operations at this block (name ops, namespace ops, token ops)
     offset_count_query, offset_count_args = namedb_offset_count_predicate(offset=offset, count=count)
     query = "SELECT history_data FROM history WHERE block_id = ? ORDER BY vtxindex " + offset_count_query + ";"
     args = (block_id,) + offset_count_args
@@ -2410,9 +2412,9 @@ def namedb_get_all_nameops_at(db, block_id, offset=None, count=None):
     return ret
 
 
-def namedb_get_num_nameops_at( db, block_id ):
+def namedb_get_num_blockstack_ops_at( db, block_id ):
     """
-    Get the number of name/namespace operations that occurred at a particular block.
+    Get the number of name/namespace/token operations that occurred at a particular block.
     """
     cur = db.cursor()
 

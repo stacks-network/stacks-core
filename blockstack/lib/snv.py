@@ -26,7 +26,7 @@ import time
 
 from client import (
     connect_hostport, get_blockstackd_url, create_bitcoind_service_proxy,
-    get_nameops_hash_at, get_consensus_hashes, get_blockstack_transactions_at,
+    get_blockstack_ops_hash_at, get_consensus_hashes, get_blockstack_transactions_at,
     get_block_from_consensus, get_consensus_at)
 
 import virtualchain
@@ -304,7 +304,7 @@ def get_consensus_hash_from_tx(tx):
     return None
 
 
-def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None):
+def snv_get_blockstack_ops_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None):
     """
     Simple name verification (snv) lookup:
     Use a known-good "current" consensus hash and block ID to
@@ -323,31 +323,31 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
     # by blockstackd over the set of consensus hashes.
     next_block_id = current_block_id
 
-    prev_nameops_hashes = {}
+    prev_blockstack_ops_hashes = {}
     prev_consensus_hashes = {
         next_block_id: current_consensus_hash
     }
 
     # print 'next_block_id = {}, block_id = {}'.format(next_block_id, block_id)
     while next_block_id >= block_id:
-        # get nameops_at[ next_block_id ], and all consensus_hash[ next_block_id - 2^i ]
+        # get blockstack_ops_at[ next_block_id ], and all consensus_hash[ next_block_id - 2^i ]
         # such that block_id - 2*i > block_id (start at i = 1)
         i = 0
-        nameops_hash = None
+        blockstack_ops_hash = None
 
-        if next_block_id in prev_nameops_hashes:
-            nameops_hash = prev_nameops_hashes[next_block_id]
+        if next_block_id in prev_blockstack_ops_hashes:
+            blockstack_ops_hash = prev_blockstack_ops_hashes[next_block_id]
         else:
-            nameops_resp = get_nameops_hash_at(next_block_id, proxy=proxy)
+            blockstack_ops_resp = get_blockstack_ops_hash_at(next_block_id, proxy=proxy)
 
-            if 'error' in nameops_resp:
-                log.error('get_nameops_hash_at: {}'.format(nameops_resp['error']))
-                return {'error': 'Failed to get nameops: {}'.format(nameops_resp['error'])}
+            if 'error' in blockstack_ops_resp:
+                log.error('get_blockstack_ops_hash_at: {}'.format(blockstack_ops_resp['error']))
+                return {'error': 'Failed to get nameops: {}'.format(blockstack_ops_resp['error'])}
 
-            nameops_hash = str(nameops_resp)
-            prev_nameops_hashes[next_block_id] = nameops_hash
+            blockstack_ops_hash = str(blockstack_ops_resp)
+            prev_blockstack_ops_hashes[next_block_id] = blockstack_ops_hash
 
-        log.debug('nameops hash at {}: {}'.format(next_block_id, nameops_hash))
+        log.debug('nameops hash at {}: {}'.format(next_block_id, blockstack_ops_hash))
 
         # find out which consensus hashes we'll need
         to_fetch = []
@@ -397,13 +397,13 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
 
         # calculate the snapshot, and see if it matches
         ch = virtualchain.StateEngine.make_snapshot_from_ops_hash(
-            nameops_hash, prev_consensus_hashes_list
+            blockstack_ops_hash, prev_consensus_hashes_list
         )
 
         expected_ch = prev_consensus_hashes[next_block_id]
         if ch != expected_ch:
             msg = 'Consensus hash mismatch at {}: expected {}, got {} (from {}, {})'
-            log.error(msg.format(next_block_id, expected_ch, ch, nameops_hash, prev_consensus_hashes))
+            log.error(msg.format(next_block_id, expected_ch, ch, blockstack_ops_hash, prev_consensus_hashes))
             return {'error': 'Consensus hash mismatch'}
 
         # advance!
@@ -448,17 +448,17 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         ) for op in historic_nameops
     ]
 
-    historic_nameops_hash = virtualchain.StateEngine.make_ops_snapshot(serialized_historic_nameops)
+    historic_blockstack_ops_hash = virtualchain.StateEngine.make_ops_snapshot(serialized_historic_nameops)
 
-    if block_id not in prev_nameops_hashes:
+    if block_id not in prev_blockstack_ops_hashes:
         return {'error': 'Previous block/consensus hash is unreachable from trusted block/consensus hash'}
 
-    if historic_nameops_hash != prev_nameops_hashes[block_id]:
-        log.error("historic nameops hash at {}: {}".format(block_id, historic_nameops_hash))
-        log.error("prev_nameops_hashes:\n{}".format(json.dumps(prev_nameops_hashes, indent=4, sort_keys=True)))
+    if historic_blockstack_ops_hash != prev_blockstack_ops_hashes[block_id]:
+        log.error("historic nameops hash at {}: {}".format(block_id, historic_blockstack_ops_hash))
+        log.error("prev_blockstack_ops_hashes:\n{}".format(json.dumps(prev_blockstack_ops_hashes, indent=4, sort_keys=True)))
         return {
             'error': 'Hash mismatch: failed to get operations at {}-{} from {}-{} ({} != {})'.format(
-                block_id, consensus_hash, current_block_id, current_consensus_hash, historic_nameops_hash, prev_nameops_hashes[block_id]
+                block_id, consensus_hash, current_block_id, current_consensus_hash, historic_blockstack_ops_hash, prev_blockstack_ops_hashes[block_id]
             )
         }
 
@@ -487,7 +487,7 @@ def snv_name_verify(name, current_block_id, current_consensus_hash, block_id,
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    historic_nameops = snv_get_nameops_at(
+    historic_nameops = snv_get_blockstack_ops_at(
         current_block_id, current_consensus_hash,
         block_id, consensus_hash, proxy=proxy
     )
@@ -535,7 +535,7 @@ def snv_lookup(verify_name, verify_block_id,
 
     Basically, use the trust root to derive a "current" block ID and consensus hash, and
     use the untrusted (name, block_id) pair to derive an earlier untrusted block ID and
-    consensus hash.  Then, use the snv_get_nameops_at() method to verify that the name
+    consensus hash.  Then, use the snv_get_blockstack_ops_at() method to verify that the name
     existed at the given block ID.
 
     The Blockstack node is not trusted.  This algorithm prevents a malicious Blockstack node

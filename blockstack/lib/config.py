@@ -100,12 +100,12 @@ NAMESPACE_23_CHAR_COST_STACKS = int((9600.0 * MICROSTACKS_PER_STACKS) / STACKS_P
 NAMESPACE_4567_CHAR_COST_STACKS = int((960.0 * MICROSTACKS_PER_STACKS) / STACKS_PRICE)
 NAMESPACE_8UP_CHAR_COST_STACKS = int((96.0 * MICROSTACKS_PER_STACKS) / STACKS_PRICE)
 
-# converting from BTC to STACKs
-# 1 BTC == $260 (September 2015); 1 STACK = $0.15 (strike price)
-# 1 satoshi = 2.6e-6 (Sept 2015); 1 microStack = 1.5e-7
-# 1 microStacks/satoshi = 2.6e-6 / 1.5e-7 = 260 / 15
+# converting from BTC to STACKs for v1 and v2 namespaces
+# 1 BTC = $6500 (October 2018); 1 STACK = $0.15 (strike price)
+# 1 satoshi = 6.5e-5 (Sept 2015); 1 microStack = 1.5e-7
+# 1 microStacks/satoshi = 6.5e-5 / 1.5e-7 = 650 / 15
 # Record separate numerator and denominator so we can do integer math.
-MICROSTACKS_PER_SATOSHI_NUM = 260
+MICROSTACKS_PER_SATOSHI_NUM = 650
 MICROSTACKS_PER_SATOSHI_DEN = 15
 
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
@@ -301,7 +301,7 @@ EPOCH_FEATURE_INT_DIVISION = "BLOCKSTACK_INT_DIVISION"
 EPOCH_NOW = -1
 EPOCH_1_END_BLOCK = 436650      # F-Day 2016
 EPOCH_2_END_BLOCK = 488500      # F-day 2017
-EPOCH_3_END_BLOCK = 999999   # undecided
+EPOCH_3_END_BLOCK = 545761      # F-day 2018
 EPOCH_4_END_BLOCK = EPOCH_NOW
 
 EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id = 1

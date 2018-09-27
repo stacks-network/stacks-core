@@ -938,7 +938,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         return self.success_response( {'records': ret} )
 
     
-    def rpc_get_num_nameops_at(self, block_id, **con_info):
+    def rpc_get_num_blockstack_ops_at(self, block_id, **con_info):
         """
         Get the number of Blockstack transactions that occured at the given block.
         Returns {'count': ..} on success
@@ -948,14 +948,14 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
             return {'error': 'Invalid block height', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
-        count = db.get_num_nameops_at( block_id )
+        count = db.get_num_blockstack_ops_at( block_id )
         db.close()
 
         log.debug("{} name operations at {}".format(count, block_id))
         return self.success_response({'count': count})
 
 
-    def rpc_get_nameops_at(self, block_id, offset, count, **con_info):
+    def rpc_get_blockstack_ops_at(self, block_id, offset, count, **con_info):
         """
         Get the name operations that occured in the given block.
         Does not include account operations.
@@ -973,7 +973,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
             return {'error': 'Invalid count', 'http_status': 400}
 
         db = get_db_state(self.working_dir)
-        nameops = db.get_all_nameops_at(block_id, offset=offset, count=count)
+        nameops = db.get_all_blockstack_ops_at(block_id, offset=offset, count=count)
         db.close()
 
         log.debug("{} name operations at block {}, offset {}, count {}".format(len(nameops), block_id, offset, count))
@@ -1026,7 +1026,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         pass
 
 
-    def rpc_get_nameops_hash_at( self, block_id, **con_info ):
+    def rpc_get_blockstack_ops_hash_at( self, block_id, **con_info ):
         """
         Get the hash over the sequence of names and namespaces altered at the given block.
         Used by SNV clients.
@@ -1873,7 +1873,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
             random.shuffle(peer_list)
             peer_list = peer_list[:atlas_max_neighbors()]
 
-        log.debug("Enqueue remote peer {}:{}".format(peer_host, peer_port))
+        log.info("Enqueue remote peer {}:{}".format(peer_host, peer_port))
         atlas_peer_enqueue( "%s:%s" % (peer_host, peer_port))
 
         log.debug("Live peers reply to %s:%s: %s" % (peer_host, peer_port, peer_list))
@@ -3051,6 +3051,20 @@ def run_blockstackd():
         '--working-dir', action='store',
         help='Directory with the chain state to use')
 
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'audit',
+        help='audit the genesis block')
+    parser.add_argument(
+        'genesis_block_history', action='store',
+        help='a JSON file that encodes the list of public key authors and its git commit history')
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
+    parser.add_argument(
+        '--gpghome', action='store',
+        help='GPG key directory to use (defaults to a temporary directory)')
+
     args, _ = argparser.parse_known_args(new_argv[1:])
 
     if args.action == 'version':
@@ -3263,5 +3277,4 @@ def run_blockstackd():
         print "Node synchronized!  Node state written to {}".format(working_dir)
         print "Start your node with `blockstack-core start`"
         print "Pass `--debug` for extra output."
-
 
