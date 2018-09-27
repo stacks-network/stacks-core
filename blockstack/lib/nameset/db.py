@@ -156,7 +156,6 @@ CREATE TABLE name_records( name STRING NOT NULL,
                            );
 """
 
-
 BLOCKSTACK_DB_SCRIPT += """
 CREATE INDEX hash_names_index ON name_records( name_hash128, name );
 """
@@ -1803,7 +1802,7 @@ def namedb_select_count_rows( cur, query, args, count_column='COUNT(*)' ):
     return count
 
 
-def namedb_get_all_nameops_at(db, block_id, offset=None, count=None):
+def namedb_get_all_blockstack_ops_at(db, block_id, offset=None, count=None):
     """
     Get the states that each name and namespace record
     passed through in the given block.  Note that this only concerns
@@ -1855,7 +1854,7 @@ def namedb_get_all_nameops_at(db, block_id, offset=None, count=None):
             # done!
             return ret
 
-    # get all other operations at this block
+    # get all other operations at this block (name ops, namespace ops, token ops)
     offset_count_query, offset_count_args = namedb_offset_count_predicate(offset=offset, count=count)
     query = "SELECT history_data FROM history WHERE block_id = ? ORDER BY vtxindex " + offset_count_query + ";"
     args = (block_id,) + offset_count_args
@@ -1883,9 +1882,9 @@ def namedb_get_all_nameops_at(db, block_id, offset=None, count=None):
     return ret
 
 
-def namedb_get_num_nameops_at( db, block_id ):
+def namedb_get_num_blockstack_ops_at( db, block_id ):
     """
-    Get the number of name/namespace operations that occurred at a particular block.
+    Get the number of name/namespace/token operations that occurred at a particular block.
     """
     cur = db.cursor()
 

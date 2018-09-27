@@ -858,9 +858,9 @@ class BlockstackDB( virtualchain.StateEngine ):
         return namedb_is_name_zonefile_hash(cur, name, zonefile_hash)
 
 
-    def get_all_nameops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
+    def get_all_blockstack_ops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
         """
-        Get all name records affected at a particular block,
+        Get all name, namespace, and account records affected at a particular block,
         in the state they were at the given block number.
         
         Paginate if offset, count are given.
@@ -871,8 +871,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         if restore_history is not None:
             log.warn("DEPRECATED use of restore_history")
 
-        log.debug("Get all nameops at %s in %s" % (block_number, self.db_filename))
-        recs = namedb_get_all_nameops_at( self.db, block_number, offset=offset, count=count )
+        log.debug("Get all accepted operations at %s in %s" % (block_number, self.db_filename))
+        recs = namedb_get_all_blockstack_ops_at( self.db, block_number, offset=offset, count=count )
 
         # include opcode 
         for rec in recs:
@@ -882,11 +882,11 @@ class BlockstackDB( virtualchain.StateEngine ):
         return recs
        
 
-    def get_num_nameops_at( self, block_number ):
+    def get_num_blockstack_ops_at( self, block_number ):
         """
-        Get the number of name operations at a particular block.
+        Get the number of blockstack operations accepted at a particular block.
         """
-        count = namedb_get_num_nameops_at( self.db, block_number )
+        count = namedb_get_num_blockstack_ops_at( self.db, block_number )
         return count
 
 
@@ -1155,7 +1155,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         Return [{'name': name, 'value_hash': value_hash, 'txid': txid}]
         """
-        nameops = self.get_all_nameops_at( block_id )
+        nameops = self.get_all_blockstack_ops_at( block_id )
         ret = []
         for nameop in nameops:
             if nameop.has_key('op') and op_get_opcode_name(nameop['op']) in ['NAME_UPDATE', 'NAME_IMPORT', 'NAME_REGISTRATION', 'NAME_RENEWAL']:
@@ -1740,6 +1740,12 @@ class BlockstackDB( virtualchain.StateEngine ):
         
         return canonical_op
    
+
+    def get_block_ops_hash( self, block_id ):
+        """
+        Get the block's operations hash
+        """
+        return self.get_ops_hash_at(block_id)
 
     def get_block_ops_hash( self, block_id ):
         """
