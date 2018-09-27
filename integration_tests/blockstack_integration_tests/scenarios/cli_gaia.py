@@ -192,7 +192,7 @@ def scenario( wallets, **kw ):
 
     # dump the gaia hub and make sure they're all there
     dump_dir = os.path.join(os.environ['BLOCKSTACK_WORKING_DIR'], 'gaia-dump')
-    res = testlib.blockstack_gaia_dump_bucket(app_privkey, GAIA_WRITE_URL, dump_dir)
+    res = testlib.blockstack_gaia_dump_bucket('foo.test', 'http://www.testapp.com', GAIA_WRITE_URL, mnemonic, dump_dir)
     if 'error' in res:
         print res
         return False
@@ -232,7 +232,7 @@ def scenario( wallets, **kw ):
     os.makedirs(app_storage_path)
 
     # restore the gaia dump
-    res = testlib.blockstack_gaia_restore_bucket(app_privkey, GAIA_WRITE_URL, dump_dir)
+    res = testlib.blockstack_gaia_restore_bucket('foo.test', 'http://www.testapp.com', GAIA_WRITE_URL, mnemonic, dump_dir)
     if 'error' in res:
         print res
         return False
