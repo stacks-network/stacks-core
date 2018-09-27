@@ -63,7 +63,7 @@ def make_xml_call(msg_len, gzipped=False):
                      "Content-Type: " + content_type + "\r\n" + content_encoding_str + \
                      "Content-Length: {}\r\n\r\n")
 
-    xml_part_header = "<?xml version='1.0'?><methodCall><methodName>get_nameops_hash_at</methodName><params><param><value><integer>"
+    xml_part_header = "<?xml version='1.0'?><methodCall><methodName>get_blockstack_ops_hash_at</methodName><params><param><value><integer>"
     xml_part_trailer = "</integer></param></params></methodCall></xml>"
     xml_part_payload = '0' * msg_len
     
