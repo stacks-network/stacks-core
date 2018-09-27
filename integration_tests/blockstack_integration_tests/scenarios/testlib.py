@@ -1445,12 +1445,12 @@ def blockstack_gaia_listfiles(privkey, gaia_hub):
     return filenames[:-1]
 
 
-def blockstack_gaia_dump_bucket(privkey, gaia_hub, dumpdir):
+def blockstack_gaia_dump_bucket(name_or_idaddr, app_origin, gaia_hub, mnemonic, dumpdir):
     """
     Dump a gaia hub bucket
     """
     assert has_nodejs_cli()
-    res = nodejs_cli('gaia_dump_bucket', gaia_hub, privkey, dumpdir, full_output=True)
+    res = nodejs_cli('gaia_dump_bucket', name_or_idaddr, app_origin, gaia_hub, mnemonic, dumpdir, full_output=True)
     print res
 
     try:
@@ -1463,12 +1463,12 @@ def blockstack_gaia_dump_bucket(privkey, gaia_hub, dumpdir):
     return {'status': True}
 
 
-def blockstack_gaia_restore_bucket(privkey, gaia_hub, dumpdir):
+def blockstack_gaia_restore_bucket(name_or_idaddr, app_origin, gaia_hub, mnemonic, dumpdir):
     """
     Restore a gaia dump
     """
     assert has_nodejs_cli()
-    res = nodejs_cli('gaia_restore_bucket', gaia_hub, privkey, dumpdir)
+    res = nodejs_cli('gaia_restore_bucket', name_or_idaddr, app_origin, gaia_hub, mnemonic, dumpdir)
     print res
 
     if 'error' in res:
