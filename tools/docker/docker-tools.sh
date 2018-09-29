@@ -44,6 +44,9 @@ init-core)
 test-core)
   test-core $2 $3
   ;;
+test-api)
+  test-api $2 $3
+  ;;
 *)
   commands
   ;;
