@@ -69,7 +69,7 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack-core',
         'git': 'https://github.com/blockstack/blockstack-core',
-        'branch': 'feature/async-subdomains',
+        'branch': 'develop',
         'type': 'python',
         'subpackages': ['integration_tests'],
     },
@@ -104,7 +104,7 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack-transaction-broadcaster',
         'git': 'https://github.com/blockstack/transaction-broadcaster',
-        'branch': 'master',
+        'branch': 'develop',
         'type': 'node.js',
         'npm_link_packages': ['blockstack'],
         'npm_build_commands': ['build'],
