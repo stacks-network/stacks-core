@@ -185,7 +185,7 @@ def get_fixtures():
         {
             'route': '/v1/prices/namespaces/id',
             'status': 200,
-            'body': {"satoshis": 400000000},
+            'body': {"satoshis": 400000000, "units": "BTC", "amount": "400000000"},
         },
         {
             'route': '/v1/prices/namespaces/ID',
@@ -198,7 +198,7 @@ def get_fixtures():
         {
             'route': '/v1/prices/names/foo.test',
             'status': 200,
-            'body': {"name_price": {"satoshis": 640000}},
+            'body': {"name_price": {"satoshis": 640000, "units": "BTC", "amount": "640000"}},
         },
         {
             'route': '/v1/prices/names/hello.foo.test',
