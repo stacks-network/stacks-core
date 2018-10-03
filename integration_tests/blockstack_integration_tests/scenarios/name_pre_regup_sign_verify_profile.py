@@ -125,7 +125,7 @@ def scenario( wallets, **kw ):
 
             if res['profile'] != profile:
                 print 'profile mismatch:'
-                print res
+                print res['profile']
                 print profile
                 return False
 
