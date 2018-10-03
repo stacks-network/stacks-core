@@ -596,6 +596,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if blockstackd_scripts.is_subdomain(name):
             # subdomain
+            address = name_rec['address']
+            if address:
+                address = virtualchain.address_reencode(str(address))
+
             log.debug("{} is registered_subdomain".format(name))
             ret = {
                 'status': 'registered_subdomain',
@@ -878,60 +882,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self._reply_json(resp['profile'])
         return
 
-
-    def GET_prices_namespace_v1( self, path_info, namespace_id ):
-        """
-        Get the price for a namespace (legacy v1 endpoint; only supports satoshis)
-        Reply the price for the namespace as {'satoshis': price in satoshis}
-        Reply 502 if we can't reach the namespace for whatever reason
-        """
-        if not check_namespace(namespace_id):
-            return self._reply_json({'error': 'Invalid namespace'}, status_code=400)
-
-        blockstackd_url = get_blockstackd_url()
-        price_info = blockstackd_client.get_namespace_cost(namespace_id, hostport=blockstackd_url)
-        if json_is_error(price_info):
-            # error
-            status_code = price_info.get('http_status', 502)
-            return self._reply_json({'error': price_info['error']}, status_code=status_code)
-
-        if price_info['units'] != 'BTC':
-            # not supported in v1
-            return self._reply_json({'error': 'Not priced in BTC.  Try /v2/prices/namespace/{}'.format(namespace_id)}, status_code=400)
-
-        ret = {
-            'satoshis': int(price_info['amount'])
-        }
-        return self._reply_json(ret)
-
-
-    def GET_prices_name_v1( self, path_info, name ):
-        """
-        Get the price for a name in a namespace (legacy endpoint for /v1/prices; only supports BTC)
-        Reply the price as {'name_price': {'satoshis': price}}
-        Reply 404 if the namespace doesn't exist
-        Reply 502 if we can't reach the server for whatever reason
-        """
-        if not check_name(name):
-            return self._reply_json({'error': 'Invalid name'}, status_code=400)
-
-        blockstackd_url = get_blockstackd_url()
-        price_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
-        if json_is_error(price_info):
-            # error
-            status_code = price_info.get('http_status', 502)
-            return self._reply_json({'error': price_info['error']}, status_code=status_code)
-
-        if price_info['units'] != 'BTC':
-            # not supported by this endpoint
-            return self._reply_json({'error': 'Not priced in BTC.  Try /v2/prices/names/{}'.format(name)}, status_code=400)
-
-        ret = {
-            'satoshis': int(price_info['amount'])
-        }
-        return self._reply_json({'name_price': ret})
-
-
+    
     def GET_prices_namespace( self, path_info, namespace_id ):
         """
         Get the price for a namespace
@@ -952,8 +903,10 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             'amount': str(price_info['amount']),        # helps JS clients that can't parse big ints
             'units': price_info['units'],
         }
-        if 'satoshis' in price_info:
-            ret['satoshis'] = price_info['satoshis']
+
+        if ret['units'] == 'BTC':
+            # v1 compat
+            ret['satoshis'] = price_info['amount']
 
         return self._reply_json(ret)
 
@@ -979,8 +932,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             'amount': str(price_info['amount']),        # helps JS clients that can't parse big ints
             'units': price_info['units'],
         }
-        if 'satoshis' in price_info:
-            ret['satoshis'] = price_info['satoshis']
+        if ret['units'] == 'BTC':
+            # v1 compat
+            ret['satoshis'] = price_info['amount']
 
         return self._reply_json({'name_price': ret})
 
@@ -1426,12 +1380,12 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             },
             r'^/v1/prices/namespaces/({}{{1,40}})$'.format(URLENCODING_CLASS): {
                 'routes': {
-                    'GET': self.GET_prices_namespace_v1,
+                    'GET': self.GET_prices_namespace,
                 },
             },
             r'^/v1/prices/names/({}{{1,256}})$'.format(URLENCODING_CLASS): {
                 'routes': {
-                    'GET': self.GET_prices_name_v1,
+                    'GET': self.GET_prices_name,
                 },
             },
             r'^/v2/prices/namespaces/({}{{1,40}})$'.format(URLENCODING_CLASS): {
