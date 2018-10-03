@@ -193,8 +193,7 @@ Generally, domain endpoints are not aware of subdomains (only endpoints
 aware of subdomains is `/v1/users/<foo.bar.tld>`,
 `/v1/names/<foo.bar.tld>`, and `/v1/addresses/bitcoin/<foo.bar.tld>`)
 The endpoints which *are* subdomain aware are marked as such in
-[api-specs.md], the cli command `blockstack lookup` is subdomain
-aware.
+[api-specs.md].
 
 This means that search is *not* yet supported.
 
