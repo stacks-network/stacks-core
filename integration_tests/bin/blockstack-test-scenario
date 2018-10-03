@@ -425,7 +425,6 @@ class GaiaServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             self.end_headers()
             return 
 
-        path = posixpath.normpath(self.path).strip('/')
         path = path[len('hub/'):]
 
         file_path = os.path.join(self.server.storage_root, path.strip('/'))
