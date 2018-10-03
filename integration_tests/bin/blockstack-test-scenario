@@ -165,7 +165,7 @@ DEFAULT_GAIA_HUB_CONFIG_TEMPLATE = """
   "servername": "localhost",
   "port": 4001,
   "driver": "disk",
-  "readURL": "http://localhost:4000/hub",
+  "readURL": "http://localhost:4000/hub/",
   "proofsConfig": {
     "proofsRequired" : 0
   },
@@ -1634,6 +1634,7 @@ if __name__ == "__main__":
     os.environ["BLOCKSTACK_SERVER_CONFIG"] = config_file
     os.environ['BLOCKSTACK_GAIA_CONFIG'] = gaia_config_file
     os.environ['BSK_TRANSACTION_BROADCAST_CONFIG'] = transaction_broadcaster_config_file
+    os.environ['BSK_TRANSACTION_BROADCAST_DEVELOP'] = '1'
     os.environ['BLOCKSTACK_SEGWIT_TEST'] = '1'
     os.environ['BLOCKSTACK_TEST_NAME'] = scenario_module
     os.environ['BLOCKSTACK_WORKING_DIR'] = working_dir
