@@ -8,7 +8,7 @@ Go to the appropriate directory e.g.,
 
 ```
 $ cd docker/api
-$ sudo docker build --no-cache . -t Dockerfile
+$ sudo docker build --no-cache . -t blockstack-core-api
 ```
 
 This will output something like:
