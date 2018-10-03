@@ -9,8 +9,8 @@ RUN git clone https://github.com/blockstack/blockstack-core /usr/local/blockstac
 
 WORKDIR /usr/local/blockstack-core
 
-#RUN git fetch origin
-#RUN git checkout -b api origin/api
+RUN git fetch origin
+RUN git checkout -b api origin/api
 RUN apt-get install -y libmemcached-dev zlib1g-dev
 RUN pip install --upgrade -r api/requirements.txt
 
