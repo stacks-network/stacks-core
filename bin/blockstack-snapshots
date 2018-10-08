@@ -360,8 +360,11 @@ def make_snapshot(working_dir, snapshots_dir, private_key, block_number):
         if os.path.exists('snapshot.bsk'):
             os.unlink('snapshot.bsk')
 
-        # copy it in
-        shutil.copy('snapshot.bsk.{}'.format(block_number), 'snapshot.bsk')
+        # copy it in.
+        # do in two steps, so we can watch the directory and be assured that when the move completes,
+        # the file has been completely written.
+        shutil.copy('snapshot.bsk.{}'.format(block_number), '.snapshot.bsk')
+        shutil.move('.snapshot.bsk', 'snapshot.bsk')
     except Exception as e:
         log.exception(e)
         return {'error': 'Failed to copy {} to {}'.format('snapshot.bsk.{}'.format(block_number), 'snapshot.bsk')}
