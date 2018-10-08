@@ -910,9 +910,10 @@ Get the current Blockstack consensus hash on a blockchain.
                 },
             }
 
-## Get total names on Blockchain [GET /v1/blockchains/{blockchainName}/name_count{?all}]
+## Get total names on blockchain [GET /v1/blockchains/{blockchainName}/name_count{?all}]
 
-Get a count of the number of names on a blockchain.
+Get a count of the number of names on a blockchain.  This does not include
+subdomains.
 + Public Endpoint
 + Parameters
   + blockchainName: bitcoin (string) - the given blockchain
@@ -951,7 +952,7 @@ Get a count of the number of names on a blockchain.
             },
 
 
-## Get number of subdomains on blockchain [GET /v1/blockchains/{blockchainName}/subdomains_count]
+## Get total subdomains on blockchain [GET /v1/blockchains/{blockchainName}/subdomains_count]
 Get the number of subdomains on a blockchain.
 + Public Endpoint
 + Parameters
