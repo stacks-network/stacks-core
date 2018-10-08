@@ -176,7 +176,7 @@ if os.environ.get("BLOCKSTACK_CORE_NUM_CONFS", None) is not None:
 """
 RPC_SERVER_TEST_PORT = 16264
 RPC_SERVER_PORT = None      # non-HTTPS port
-RPC_SERVER_IP = None        # looked up via STUN
+RPC_SERVER_IP = None        # looked up via STUN, config file, or getaddrinfo
 if BLOCKSTACK_TEST is not None:
     RPC_SERVER_PORT = RPC_SERVER_TEST_PORT
 else:
@@ -1351,13 +1351,39 @@ def store_announcement( working_dir, announcement_hash, announcement_text, force
    log.debug("Stored announcement to %s" % (announcement_text_path))
 
 
+def get_atlas_hostname_stun():
+    log.debug("Using STUN servers to discover my public IP (set 'atlas_hostname' to a valid DNS name or IP address in the config file to override)")
+    _, real_atlas_hostname, _ = stun.get_ip_info()
+    log.debug("Atlas host IP is {}".format(real_atlas_hostname))
+    return real_atlas_hostname
+
+
+def get_atlas_hostname_addrinfo(rpc_port):
+    log.debug("Using getnameinfo and getaddrinfo to get my assigned IP address (set 'atlas_hostname' to a valid DNS name or IP address in the config to override)")
+    hostn = socket.gethostname()
+    addr_infos = socket.getaddrinfo(hostn, rpc_port)
+    real_atlas_hostname = None
+    for addr_info in addr_infos:
+        # addr_info[0] == ai_family
+        # addr_info[1] == ai_socktype
+        # addr_info[2] == ai_protocol
+        # addr_info[3] == ai_cannonname
+        # addr_info[4] == (hostname, port) (ai_sockaddr)
+        if addr_info[0] in (socket.AF_INET, socket.AF_INET6) and addr_info[1] == socket.SOCK_STREAM and addr_info[2] == socket.IPPROTO_TCP:
+            # tcp/ip, either IPv4 or IPv6
+            real_atlas_hostname = addr_info[4][0]
+
+    log.debug("Atlas host IP is {}".format(real_atlas_hostname))
+    return real_atlas_hostname
+
+
 def default_blockstack_opts( working_dir, config_file=None ):
    """
    Get our default blockstack opts from a config file
    or from sane defaults.
    """
 
-   global RPC_SERVER_IP
+   global RPC_SERVER_IP, RPC_SERVER_PORT
 
    from .util import url_to_host_port
    from .scripts import is_name_valid
@@ -1383,6 +1409,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
    atlasdb_path = os.path.join( os.path.dirname(config_file), "atlas.db" )
    atlas_blacklist = ""
    atlas_hostname = RPC_SERVER_IP
+   real_atlas_hostname = None       # if we need to look it up on-the-fly
    atlas_port = RPC_SERVER_PORT
    subdomaindb_path = os.path.join( os.path.dirname(config_file), "subdomains.db" )
    run_indexer = True
@@ -1483,12 +1510,33 @@ def default_blockstack_opts( working_dir, config_file=None ):
        except:
            pass
 
-   if atlas_hostname is None:
-       log.debug("Using STUN servers to discover my public IP (set 'atlas_hostname' in the config file to skip this step)")
-       _, atlas_hostname, _ = stun.get_ip_info()
-       log.debug("Atlas host IP is {}".format(atlas_hostname))
+   if RPC_SERVER_IP is None:
+       if atlas_hostname is None or atlas_hostname.lower() == '<stun>':
+           real_atlas_hostname = get_atlas_hostname_stun()
+           RPC_SERVER_IP = real_atlas_hostname
 
-   RPC_SERVER_IP = atlas_hostname
+       elif atlas_hostname.lower() == '<host>':
+           real_atlas_hostname = get_atlas_hostname_addrinfo(rpc_port)
+           RPC_SERVER_IP = real_atlas_hostname
+       
+       else:
+           log.debug('Using configuration-given Atlas hostname')
+           real_atlas_hostname = atlas_hostname
+           RPC_SERVER_IP = atlas_hostname
+
+       if atlas_hostname is None and real_atlas_hostname is None:
+           log.warning('No Atlas hostname given, assuming 127.0.0.1')
+           real_atlas_hostname = '127.0.0.1'
+           RPC_SERVER_IP = real_atlas_hostname
+   
+       log.info('Atlas IP address is ({}, {})'.format(RPC_SERVER_IP, rpc_port))
+
+   else:
+       # already set
+       real_atlas_hostname = RPC_SERVER_IP
+
+   atlas_hostname = real_atlas_hostname
+   RPC_SERVER_PORT = rpc_port
 
    blockstack_opts = {
        'rpc_port': rpc_port,
