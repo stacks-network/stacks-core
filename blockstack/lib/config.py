@@ -1361,7 +1361,14 @@ def get_atlas_hostname_stun():
 def get_atlas_hostname_addrinfo(rpc_port):
     log.debug("Using getnameinfo and getaddrinfo to get my assigned IP address (set 'atlas_hostname' to a valid DNS name or IP address in the config to override)")
     hostn = socket.gethostname()
-    addr_infos = socket.getaddrinfo(hostn, rpc_port)
+
+    try:
+        addr_infos = socket.getaddrinfo(hostn, rpc_port)
+    except socket.gaierror as gaie:
+        # hostname doesn't match /etc/hosts, or similar (can happen in chroots)
+        log.warning('Unable to get addr info for {}: {}.  Defaulting to 127.0.0.1'.format(hostn, gaie))
+        return '127.0.0.1'
+        
     real_atlas_hostname = None
     for addr_info in addr_infos:
         # addr_info[0] == ai_family
@@ -1525,7 +1532,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
            RPC_SERVER_IP = atlas_hostname
 
        if atlas_hostname is None and real_atlas_hostname is None:
-           log.warning('No Atlas hostname given, assuming 127.0.0.1')
+           log.warning('No Atlas hostname could be determined, assuming 127.0.0.1')
            real_atlas_hostname = '127.0.0.1'
            RPC_SERVER_IP = real_atlas_hostname
    
