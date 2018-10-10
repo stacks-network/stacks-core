@@ -19,13 +19,14 @@ The consensus-breaking releases are:
 Notes on Consensus
 ==================
 
-The Blockstack Developers do their best to avoid consensus-breaking releases whenever possible.
+The Blockstack Core developers do their best to avoid consensus-breaking releases whenever possible.
 However, certain improvements and bugfixes cannot be done without them.
-As such, the project tries to limit consensus-breaking releases to one per year (around mid-September), and only with extensive testing.
-Consensus-breaking changes are documented in the release notes, and will be publicly documented in the version's wish list file whenever possible.
+As such, the project tries to limit consensus-breaking releases to one per year (in Q4), and only with extensive testing.
+Consensus-breaking changes are documented in the release notes, and will be publicly documented beforehand whenever possible.
 
 If a critical consensus-breaking bug or security vulnerability is found, a new consensus-breaking release may be made on the spot.
-If this happens, it will be documented here and announced publicly.
+If this happens, it will be documented here and announced publicly on the
+[Blockstack Forum](https://forum.blockstack.org) and on [Twitter](https://twitter.com/blockstack).
 
 A yearly consensus-breaking release is required in order to keep name and namespace prices reasonable.
 When Blockstack was first deployed, namespace prices were determined on a 1 BTC == $230 USD exchange.
