@@ -174,36 +174,18 @@ Another way to run `blockstack-core` is through docker. We provide per-commit im
 The common workflow for running in docker is to `--fast_sync` a `blockstack-core` node's data to a location on the host and then start up a container on top of that data. You will need at least ~5GB of disk to run each instance. There is a sample implementation of running `blockstack-core` in the [`tools/docker`](/tools/docker) folder. The instructions below show how to use that implementation:
 
 ```shell
-# Clone the repo and navigate to the tools/docker dir:
-git clone git@github.com:blockstack/blockstack-core.git
-cd blockstack-core/tools/docker
+$ git clone git@github.com:blockstack/blockstack-core.git
+$ cd blockstack-core
+$ docker build -t blockstack-core:master .
 
-# Initialize the core node
-./docker-tools.sh init-core
-
-# Wait for the core node to initialize (~15-20 min)
-# Check if job is still running:
-docker ps -f name=blockstack-core-init
-
-# Once job finishes start the containers with docker-compose
-docker-compose up -d
-
-# OR
-
-# Once the job finishes start the container
-docker run -d \
-  -v './data/core/server/:/root/.blockstack-server' \ 
-  -p '6264:6264' \ 
-  -p '6270:6270' \
-  --restart 'always' \
-  --name 'blockstack-core' \
-  quay.io/blockstack/blockstack-core:master \
-  blockstack-core start --foreground --debug
-
-# Test connectivity for the blockstack-core container
-# NOTE: It can take some time (~1-5 min) before the API
-# becomes available
-./docker-tools.sh test-core localhost 6264
+# create directory to store Blockstack Core state
+$ export BLOCKSTACK_DIR="/var/blockstack-core-data"
+$ mkdir -p "$BLOCKSTACK_DIR"
+$ docker run \
+   -v $BLOCKSTACK_DIR:/root/.blockstack-server
+   -p 6264:6264
+   -p 6270:6270
+   blockstack-core:master
 ```
 
 Notes:
