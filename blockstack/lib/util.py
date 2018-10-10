@@ -119,7 +119,7 @@ class BoundedThreadingMixIn(object):
 
     def overloaded(self, request, client_addr):
         # subclass must override
-        raise NotImplemented
+        raise NotImplementedError('Subclass must implement an overloaded() callback')
 
     
     def get_request(self):
@@ -127,6 +127,7 @@ class BoundedThreadingMixIn(object):
         Accept a request, up to the given number of allowed threads.
         Defer to self.overloaded if there are already too many pending requests.
         """
+        # Note that this class must be mixed with another class that implements get_request()
         request, client_addr = super(BoundedThreadingMixIn, self).get_request()
         overload = False
         with self._thread_guard:
