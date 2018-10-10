@@ -178,7 +178,7 @@ $ docker build -t blockstack-core:master .
 
 # create directory to store Blockstack Core state
 $ export BLOCKSTACK_DIR="/var/blockstack-core-data"
-$ mkdir -p $BLOCKSTACK_DIR
+$ mkdir -p "$BLOCKSTACK_DIR"
 $ docker run \
    -v $BLOCKSTACK_DIR:/root/.blockstack-server
    -p 6264:6264
