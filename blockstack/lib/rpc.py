@@ -728,7 +728,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Reply the zonefile as application/octet-stream
         Reply 404 if not found
         """
-        if not check_string(zonefile_hash, OP_ZONEFILE_HASH_PATTERN):
+        if not check_string(zonefile_hash, pattern=OP_ZONEFILE_HASH_PATTERN):
             return self._reply_json({'error': 'Invalid zone file hash'}, status_code=400)
 
         blockstackd_url = get_blockstackd_url()
