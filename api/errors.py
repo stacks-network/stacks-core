@@ -112,7 +112,7 @@ class InvalidProfileDataError(APIError):
     message = ("A valid JSON object has not been found. The data is "
                "likely malformed, but if you check another source for the "
                "data and it seems there is nothing wrong with it, please "
-               "report this to support@onename.com, as there might have been "
+               "report this to support@blockstack.org, as there might have been "
                "an error with the way the data was handled.")
 
 
@@ -144,32 +144,32 @@ class UsernameNotRegisteredError(APIError):
 class DatabaseSaveError(APIError):
     status_code = 500
     message = ("There was a problem saving to the database. Please report "
-               "this error to support@onename.com.")
+               "this error to support@blockstack.org.")
 
 
 class DatabaseLookupError(APIError):
     status_code = 500
     message = ("There was a problem performing a lookup in the database. "
-               "Please report this error to support@onename.com.")
+               "Please report this error to support@blockstack.org.")
 
 
 class InternalProcessingError(APIError):
     status_code = 500
     message = ("There was a problem processing the request. Please report "
-               "this error to support@onename.com.")
+               "this error to support@blockstack.org.")
 
 
 class InternalSSLError(APIError):
     status_code = 500
     message = ("There was a problem processing the request with an internal "
-               "SSL error. Please report this error to support@onename.com.")
+               "SSL error. Please report this error to support@blockstack.org.")
 
 
 class ResolverConnectionError(APIError):
     status_code = 500
     message = ("There was a problem processing the request. It seems that the "
                "name system resolver could not be reached. Please report "
-               "this error to support@onename.com.")
+               "this error to support@blockstack.org.")
 
 
 class DKIMPubkeyError(APIError):
