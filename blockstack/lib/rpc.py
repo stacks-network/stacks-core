@@ -471,10 +471,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if 'zonefile' in name_rec:
             zonefile_txt = base64.b64decode(name_rec['zonefile'])
-            res = decode_name_zonefile(name, zonefile_txt)
-            if res is None:
-                log.error("Failed to parse zone file for {}".format(name))
-                zonefile_txt = {'error': 'Non-standard zone file'}
 
         ret = {}
 
@@ -488,7 +484,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             ret = {
                 'status': 'registered_subdomain',
                 'zonefile': zonefile_txt,
-                'zonefile_hash': name_rec['zonefile_hash'],
+                'zonefile_hash': name_rec['value_hash'],
                 'address': name_rec['address'],
                 'blockchain': 'bitcoin',
                 'last_txid': name_rec['txid'],
