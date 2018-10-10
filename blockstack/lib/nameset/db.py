@@ -2298,7 +2298,7 @@ def namedb_is_name_zonefile_hash(cur, name, zonefile_hash):
     Determine if a zone file hash was sent by a name.
     Return True if so, false if not
     """
-    select_query = 'SELECT COUNT(value_hash) FROM history WHERE history_id = ? AND value_hash = ?'.format(name, zonefile_hash)
+    select_query = 'SELECT COUNT(value_hash) FROM history WHERE history_id = ? AND value_hash = ?'
     select_args = (name,zonefile_hash)
 
     rows = namedb_query_execute(cur, select_query, select_args)
