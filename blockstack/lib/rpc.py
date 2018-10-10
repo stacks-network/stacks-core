@@ -604,7 +604,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             ret = {
                 'status': 'registered_subdomain',
                 'zonefile': zonefile_txt,
-                'zonefile_hash': storage.get_zonefile_data_hash(zonefile_txt),
+                'zonefile_hash': name_rec['zonefile_hash'],
                 'address': name_rec['address'],
                 'blockchain': 'bitcoin',
                 'last_txid': name_rec['txid'],
