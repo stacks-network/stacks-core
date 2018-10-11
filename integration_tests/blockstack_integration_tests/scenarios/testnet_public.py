@@ -213,6 +213,18 @@ class TestnetRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 self.error_page(400, "Invalid request: missing addr or value")
                 return
 
+            # addr can be either base58check or c32check
+            if re.match('^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]+$', addr[0]):
+                # c32check 
+                try:
+                    res = testlib.nodejs_cli('convert_address', addr[0])
+                    res = json.loads(res)
+                    addr = [res['BTC']]
+                except:
+                    self.error_page(500, 'Failed to convert {} to a Stacks address'.format(addr[0]))
+                    self.end_headers()
+                    return
+
             try:
                 value = int(value[0])
                 addr = virtualchain.address_reencode(addr[0])
