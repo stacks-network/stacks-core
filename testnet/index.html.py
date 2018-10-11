@@ -187,7 +187,7 @@ hello_world = div(
                     p('Welcome to the Blockstack blockchain testnet.  Here\'s how to get started:') +
                     ul(
                         li('Install the <code>feature/stacks-transactions</code> branch of <a href="https://github.com/blockstack/blockstack.js/tree/feature/stacks-transactions">blockstack.js</a>') +
-                        li('Install the new <a href="https://github.com/jcnelson/cli-blockstack">Blockstack CLI</a>')
+                        li('Install the new <a href="https://github.com/blockstack/cli-blockstack">Blockstack CLI</a>')
                     ) +
                     p('<b>Basic Usage</b>' +
                         p('Here\'s how you can get started with registering names and subdomains:') +
