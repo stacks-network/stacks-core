@@ -87,55 +87,55 @@ def check(state_engine, nameop, block_id, checked_ops ):
     # deny updates if we exceed quota--the only legal operations are to revoke or transfer.
     sender_names = state_engine.get_names_owned_by_sender( sender )
     if len(sender_names) > MAX_NAMES_PER_SENDER:
-        log.debug("Sender '%s' has exceeded quota: only transfers or revokes are allowed" % (sender))
+        log.warning("Sender '%s' has exceeded quota: only transfers or revokes are allowed" % (sender))
         return False
 
     name, consensus_hash = state_engine.get_name_from_name_consensus_hash( name_consensus_hash, sender, block_id )
 
     # name must exist
     if name is None or consensus_hash is None:
-       log.debug("Unable to resolve name consensus hash '%s' to a name owned by '%s'" % (name_consensus_hash, sender))
-       # nothing to do--write is stale or on a fork
-       return False
+        log.warning("Unable to resolve name consensus hash '%s' to a name owned by '%s'" % (name_consensus_hash, sender))
+        # nothing to do--write is stale or on a fork
+        return False
 
     namespace_id = get_namespace_from_name( name )
     name_rec = state_engine.get_name( name )
 
     if name_rec is None:
-       log.debug("Name '%s' does not exist" % name)
-       return False
+        log.warning("Name '%s' does not exist" % name)
+        return False
 
     # namespace must be ready
     if not state_engine.is_namespace_ready( namespace_id ):
-       # non-existent namespace
-       log.debug("Namespace '%s' is not ready" % (namespace_id))
-       return False
+        # non-existent namespace
+        log.warning("Namespace '%s' is not ready" % (namespace_id))
+        return False
 
     # name must not be revoked
     if state_engine.is_name_revoked( name ):
-        log.debug("Name '%s' is revoked" % name)
+        log.warning("Name '%s' is revoked" % name)
         return False
 
     # name must not be expired as of the *last block processed*
     if state_engine.is_name_expired( name, state_engine.lastblock ):
-        log.debug("Name '%s' is expired" % name)
+        log.warning("Name '%s' is expired" % name)
         return False
 
     # name must not be in grace period in *this* block 
     if state_engine.is_name_in_grace_period(name, block_id):
-        log.debug("Name '{}' is in the renewal grace period.  It can only be renewed at this time.".format(name))
+        log.warning("Name '{}' is in the renewal grace period.  It can only be renewed at this time.".format(name))
         return False
 
     # the name must be registered
     if not state_engine.is_name_registered( name ):
         # doesn't exist
-        log.debug("Name '%s' is not registered" % name )
+        log.warning("Name '%s' is not registered" % name )
         return False
 
     # the name must be owned by the same person who sent this nameop
     if not state_engine.is_name_owner( name, sender ):
         # wrong owner
-        log.debug("Name '%s' is not owned by '%s'" % (name, sender))
+        log.warning("Name '%s' is not owned by '%s'" % (name, sender))
         return False
 
     # remember the name and consensus hash, so we don't have to re-calculate it...
