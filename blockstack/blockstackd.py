@@ -987,45 +987,6 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         return self.success_response({'nameops': ret})
 
 
-    def rpc_get_num_account_ops_at(self, block_id, **con_info):
-        """
-        Get the number of account operations that occured at the given block.
-        Returns {'count': ...} on success
-        Returns {'error': ...} on error
-        """
-        if not check_block(block_id):
-            return {'error': 'Invalid block height', 'http_status': 400}
-
-        db = get_db_state(self.working_dir)
-        count = db.get_num_account_ops_at(self, block_id)
-        db.close()
-
-        log.debug('{} account operations at {}'.format(count, block_id))
-        return self.success_response({'count': count})
-
-
-    def rpc_get_account_ops_at(self, block_id, offset, count, **con_info):
-        """
-        Get the account operations that occured at a given block.
-        This includes account vesting, account debits and credits
-        as a result of name operations, and token transfers.
-
-        Returns {'account_ops': [...]} on success
-        Returns {'error': ...} on error
-        """
-        if not check_block(block_id):
-            return {'error': 'Invalid block height', 'http_status': 400}
-
-        if not check_offset(offset):
-            return {'error': 'Invalid offset', 'http_status': 400}
-
-        if not check_count(count, 10):
-            return {'error': 'Invalid count', 'http_status': 400}
-
-        db = get_db_state(self.working_dir)
-        pass
-
-
     def rpc_get_blockstack_ops_hash_at( self, block_id, **con_info ):
         """
         Get the hash over the sequence of names and namespaces altered at the given block.
