@@ -69,7 +69,7 @@ FAST_SYNC_PUBLIC_KEYS = [
     '022052f827a2a3cb130c9abdbbfb133adc237f3ffc305ca891f49701a9e4794d2a',
 ]
 
-FAST_SYNC_DEFAULT_URL = 'http://fast-sync.blockstack.org/snapshot.bsk'
+FAST_SYNC_DEFAULT_URL = 'http://fast-sync-19.blockstack.org/snapshot.bsk'
 
 """ name price configs
 """
