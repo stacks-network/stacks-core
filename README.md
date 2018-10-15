@@ -141,6 +141,7 @@ $ yum install python-pip python-devel openssl-devel libffi-devel rng-tools gmp-d
 
 # Install blockstack
 $ sudo pip install blockstack --upgrade
+```
 
 You will need to open ports TCP:6264 and TCP:6270.  If you have trouble starting
 `blockstack-core`, you can try disabling SELinux and/or `firewalld` as follows:
