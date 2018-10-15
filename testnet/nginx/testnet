@@ -1,0 +1,36 @@
+upstream testFramework {
+  server localhost:30001;
+}
+
+server {
+  listen       80;
+  listen       [::]:80;
+  server_name  testnet;
+
+  index index.html index.htm;
+
+  location ~ ^/.+/ {
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Host $http_host;
+    proxy_redirect off;
+    proxy_pass http://testFramework;
+    break;
+  }
+
+  location / {
+    try_files $uri $uri/ =404;
+  }
+
+  # listen 443 ssl; # managed by Certbot
+  # ssl_certificate /etc/letsencrypt/live/twitter.technofractal.com/fullchain.pem; # managed by Certbot
+  # ssl_certificate_key /etc/letsencrypt/live/twitter.technofractal.com/privkey.pem; # managed by Certbot
+  # include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+  # ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+
+  #  if ($scheme != "https") {
+  #      return 301 https://$host$request_uri;
+  #  } # managed by Certbot
+
+}

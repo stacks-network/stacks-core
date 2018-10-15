@@ -27,6 +27,7 @@ import blockstack
 import binascii
 import sys
 import base58
+import keylib
 import traceback
 from blockstack import OPCODE_NAMES
 
@@ -64,7 +65,19 @@ def compile_test( opcode, tests ):
         result[ test_name ] = compile_script( opcode, test_payload )
     return result
 
-def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_address=None, import_update_hash=None, burn_address=None, reveal_address=None ):
+
+def addr_to_p2wpkh(addr):
+    """
+    Convert a p2pkh address into a p2wpkh script
+    """
+    if not virtualchain.btc_is_p2pkh_address(addr):
+        raise ValueError("Not a valid p2pkh address: {}".format(addr))
+
+    hash160 = keylib.b58check_decode(addr)
+    return '0014' + hash160.encode('hex')
+
+
+def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_address=None, import_update_hash=None, burn_address=None, reveal_address=None, use_bech32=False ):
 
     opcode_name = OPCODE_NAMES[opcode]
     pubk = virtualchain.BitcoinPublicKey(fake_pubkey)
@@ -99,7 +112,12 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
 
     if recipient_address is not None:
         script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % binascii.hexlify( virtualchain.lib.hashing.bin_double_sha256( fake_pubkey ) )
-        scripthex = virtualchain.make_payment_script( recipient_address )
+
+        if use_bech32:
+            scripthex = addr_to_p2wpkh(recipient_address)
+        else:
+            scripthex = virtualchain.make_payment_script( recipient_address )
+
         outputs.append( {
             'script': scripthex,
             "value": 10000000
@@ -107,21 +125,36 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
 
     if import_update_hash is not None:
         script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % import_update_hash
-        scripthex = virtualchain.make_payment_script( virtualchain.hex_hash160_to_address( import_update_hash ) )
+
+        if use_bech32:
+            scripthex = '0014' + import_update_hash
+        else:
+            scripthex = virtualchain.make_payment_script( virtualchain.hex_hash160_to_address( import_update_hash ) )
+
         outputs.append( {
             "script": scripthex,
             "value": 10000000
         })
 
     elif burn_address is not None:
-        scripthex = virtualchain.make_payment_script( burn_address )
+
+        if use_bech32:
+            scripthex = addr_to_p2wpkh(burn_address)
+        else:
+            scripthex = virtualchain.make_payment_script( burn_address )
+
         outputs.append( {
             "script": scripthex,
             "value": 10000000
         })
     
     elif reveal_address is not None:
-        scripthex = virtualchain.make_payment_script( reveal_address )
+        
+        if use_bech32:
+            scripthex = addr_to_p2wpkh(reveal_address)
+        else:
+            scripthex = virtualchain.make_payment_script( reveal_address )
+
         outputs.append( {
             "script": scripthex,
             "value": 10000000
@@ -348,6 +381,19 @@ def check( state_engine ):
 
             elif opcode == '&':
                 reveal_addr = fake_reveal_address
+
+            # make sure this *always* fails for bech32 outputs (for transactions that can have non-nulldata outputs)
+            if opcode not in ['#', '!', '+', '~']:
+                try:
+                    parsed_op = parse_nameop( opcode, bin_testscript, fake_pubkey, \
+                            recipient=fake_recipient, recipient_address=fake_recipient_address, import_update_hash=import_hash, burn_address=burn_addr, reveal_address=reveal_addr, use_bech32=True)
+
+                    print >> sys.stderr, 'Parsed non-standard output without an exception'
+                    print parsed_op
+                    return False
+
+                except Exception:
+                    pass
 
             parsed_op = parse_nameop( opcode, bin_testscript, fake_pubkey, \
                     recipient=fake_recipient, recipient_address=fake_recipient_address, import_update_hash=import_hash, burn_address=burn_addr, reveal_address=reveal_addr )

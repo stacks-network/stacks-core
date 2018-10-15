@@ -195,8 +195,18 @@ Notes:
 - This method is currently only fully supported on Linux.
 - You will need `sudo` access to run the above scripts, and/or be a member of the `docker` group.
 - You can run more than one instance of this setup per host. Allow at least 1 CPU core for each container
+- To configure a different `bitcoind` node, you must edit your `blockstack-server.ini` file before running the `./docker-tools.sh init-*` commands. After `init-*` has been run you must edit the `data/core/server/blockstack-server.ini` to change those settings. 
 
 ## Running a Blockstack Core Node
+
+Before doing anything, you should configure your Blockstack Core node.
+
+```bash
+$ blockstack-core configure
+```
+
+It is safe to accept all defaults.  It will generate some configuration state in
+`~/.blockstack-server/`.
 
 Because each Blockstack Core node maintains a full copy of the network state
 locally, it will need to synchronize its state with the Bitcoin blockchain when
@@ -235,7 +245,7 @@ To check that your API endpoint is up, you can ping it with:
 
 ```
 $ curl http://localhost:6270/v1/ping
-{"status": "alive", "version": "0.19.0"}
+{"status": "alive", "version": "20.0.0.0"}
 ```
 
 You can confirm that your API endpoint can contact the `blockstack-core` daemon
@@ -271,7 +281,7 @@ $ blockstack-core --debug start --foreground
 
 ## Developer Resources
 
-**v0.19.0** is the current stable release of Blockstack Core.  It available on the `master` branch.
+**v20.0.0.0** is the current stable release of Blockstack Core.  It available on the `master` branch.
 
 The next release is being built on the [develop](https://github.com/blockstack/blockstack-core/tree/develop). Please submit all
 pull requests to the `develop` branch.

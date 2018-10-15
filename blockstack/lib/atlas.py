@@ -98,7 +98,8 @@ if os.environ.get("BLOCKSTACK_ATLAS_MIN_PEER_HEALTH") is not None:
 if os.environ.get("BLOCKSTACK_ATLAS_NUM_NEIGHBORS") is not None:
     NUM_NEIGHBORS = int(os.environ.get("BLOCKSTACK_ATLAS_NUM_NEIGHBORS"))
 
-if BLOCKSTACK_TEST:
+if BLOCKSTACK_TEST and not BLOCKSTACK_PUBLIC_TESTNET:
+    # speed up Atlas
     PEER_CRAWL_NEIGHBOR_WORK_INTERVAL = 1
     PEER_HEALTH_NEIGHBOR_WORK_INTERVAL = 1
     PEER_CRAWL_ZONEFILE_WORK_INTERVAL = 1
@@ -1649,13 +1650,19 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
             res = {'error': 'Remote peer {} is well behind the chain tip'.format(peer_hostport)}
 
         if 'testnet' in res:
-            if (res['testnet'] and not BLOCKSTACK_TEST and not BLOCKSTACK_TESTNET) or (not res['testnet'] and (BLOCKSTACK_TEST or BLOCKSTACK_TESTNET)):
-                if BLOCKSTACK_TEST or BLOCKSTACK_TESTNET:
+            if (res['testnet'] and not BLOCKSTACK_TEST and not BLOCKSTACK_PUBLIC_TESTNET) or (not res['testnet'] and (BLOCKSTACK_TEST or BLOCKSTACK_PUBLIC_TESTNET)):
+                if BLOCKSTACK_TEST or BLOCKSTACK_PUBLIC_TESTNET:
                     log.error("Remote host {} is a mainnet host, and we're testnet".format(peer_hostport))
                     res = {'error': 'Remote peer {} is a mainnet host, and we\'re testnet'.format(peer_hostport)}
                 else:
                     log.error("Remote host {} is a testnet host".format(peer_hostport))
                     res = {'error': 'Remote peer {} is a testnet host'.format(peer_hostport)}
+
+        else:
+            # assume mainnet 
+            if BLOCKSTACK_TEST or BLOCKSTACK_PUBLIC_TESTNET:
+                log.error("Remote host {} is a mainnet host, and we're testnet".format(peer_hostport))
+                res = {'error': 'Remote peer {} is a mainnet host, and we\'re testnet'.format(peer_hostport)}
 
     except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
         atlas_log_socket_error( "getinfo(%s)" % peer_hostport, peer_hostport, se )
@@ -2786,8 +2793,9 @@ class AtlasPeerCrawler( threading.Thread ):
                 filtered.append(peer)
                 continue
 
-            if semver_newer(res['server_version'], MIN_ATLAS_VERSION):
-                # too old to be a valid atlas node for this network version
+            if (BLOCKSTACK_PUBLIC_TESTNET and res['server_version'] != MIN_ATLAS_VERSION) or (not BLOCKSTACK_PUBLIC_TESTNET and semver_newer(res['server_version'], MIN_ATLAS_VERSION)):
+                # mainnet: too old to be a valid atlas node for this network version
+                # testnet: not the same version == don't connect
                 filtered.append(peer)
                 log.debug("%s is too old to be an atlas node (version %s)" % (peer, res['server_version']))
 

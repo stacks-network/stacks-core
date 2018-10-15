@@ -3,3 +3,7 @@ integration_tests/test-out/
 api/data
 .venv
 .git
+.dockerignore
+testnet/index.html
+testnet.log
+testnet-logs*

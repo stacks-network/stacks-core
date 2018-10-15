@@ -176,7 +176,7 @@ def scenario( wallets, **kw ):
         return False
 
     # should be rejected
-    res = testlib.blockstack_name_register( "foo_fail.test", wallets[4].privkey, wallets[0].addr )
+    res = testlib.blockstack_name_register( "foo_fail.test", wallets[4].privkey, wallets[0].addr, safety_checks=False )
     if 'error' in res:
         print res
         return False

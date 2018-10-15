@@ -1,0 +1,161 @@
+#!/bin/bash
+
+# This script will take a directory containing genesis block information and extract
+# the signed commit history for it.  It will output a JSON object in the format of:
+# 
+# {
+#    "keys": {
+#       "$KEY_ID": "$GPG_KEY"
+#    },
+#    "commits": [
+#        {
+#          "hash": "$HASH_OF_COMMIT",       # the sha1 of the commit
+#          "object": "$COMMIT_TEXT",        # the git commit object text
+#          "trusted": "$WHITELISTED"        # 0 or 1.  Will be 1 if the commit is whitelisted
+#        },
+#        ...
+#    ]
+# }
+#  
+# Prereq: you need the genesis block signers' keys in your ~/.gnupg directory.
+
+function usage() {
+    echo "Usage: $0 GENESIS_BLOCK_DIR_OR_REPO [WHITELISTED_COMMITS]"
+    exit 1
+}
+
+GENESIS_BLOCK_REPO="$1"
+if ! [ "$GENESIS_BLOCK_REPO" ]; then 
+    usage
+fi
+
+WHITELISTED_COMMITS="$2"
+if [ -n "$WHITELISTED_COMMITS" ]; then 
+   WHITELISTED_COMMITS="$(realpath "$WHITELISTED_COMMITS")"
+fi
+
+# if this is the genesis block directory, then just cd to it
+# otherwise, go clone the repo and cd to it.
+GENESIS_DIR=
+if [ -d "$GENESIS_BLOCK_REPO" ]; then 
+   GENESIS_DIR="$(realpath "$GENESIS_BLOCK_REPO")"
+else
+   WORKDIR="$(mktemp -d)"
+
+   pushd "$WORKDIR" >/dev/null
+   git clone "$GENESIS_BLOCK_REPO" genesis-block >/dev/null 2>&1
+   popd
+
+   GENESIS_DIR="$WORKDIR/genesis-block"
+fi
+
+pushd "$GENESIS_DIR" >/dev/null
+
+if [ -d "../.sigcheck" ]; then 
+   rm -rf "../.sigcheck"
+fi
+
+mkdir -p ../.sigcheck
+KEY_IDS="../.sigcheck/key_ids"
+
+# verify each signature
+git log --pretty='%H' | \
+while IFS= read COMMIT_HASH; do
+   # store data on each commit
+   COMMIT_DIR="../.sigcheck/$COMMIT_HASH"
+   mkdir -p "$COMMIT_DIR"
+   git cat-file commit "$COMMIT_HASH" > "$COMMIT_DIR/signed-commit" 2>/dev/null
+
+   # trusted commit?
+   if [ -f "$WHITELISTED_COMMITS" ] && [ -n "$(grep "$COMMIT_HASH" "$WHITELISTED_COMMITS")" ]; then 
+      continue
+   fi
+
+   HAS_GPG="$(git cat-file commit "$COMMIT_HASH" | grep 'BEGIN PGP SIGNATURE-----')"
+   if [ -z "$HAS_GPG" ]; then 
+      echo >&2 "Commit $COMMIT_HASH has no signature"
+      exit 1
+   fi
+
+   git verify-commit "$COMMIT_HASH" >/dev/null 2>&1
+   RC=$?
+
+   if [ "$RC" -ne "0" ]; then 
+      echo >&2 "Commit $COMMIT_HASH signature verification failure (git)"
+      exit 1
+   fi
+
+   # extract signature and strip from commit
+   # https://stackoverflow.com/questions/42436081/how-does-commit-signing-work
+   grep -B 9999 'BEGIN PGP SIGNATURE-----' "$COMMIT_DIR/signed-commit" | head -n -1 > "$COMMIT_DIR/signed-commit.stripped"
+   grep -A 9999 'END PGP SIGNATURE-----' "$COMMIT_DIR/signed-commit" | tail -n +2 >> "$COMMIT_DIR/signed-commit.stripped"
+   sed 's/^gpgsig //' "$COMMIT_DIR/signed-commit" | sed 's/^ //' > "$COMMIT_DIR/signed-commit.sig"
+
+   # verify signature
+   gpg --verify "$COMMIT_DIR/signed-commit.sig" "$COMMIT_DIR/signed-commit.stripped" >/dev/null 2>&1
+   RC="$?"
+
+   if [ "$RC" -ne "0" ]; then
+      echo >&2 "Commit $COMMIT_HASH signature verification failure (gpg)"
+      exit 1
+   fi
+
+   # get the gpg key ID
+   KEY_ID=$(git verify-commit "$COMMIT_HASH" 2>&1 | grep 'using [R|D]SA key' | awk '{print $NF}')
+   if [ -z "$KEY_ID" ]; then 
+      echo "No key ID for $COMMIT_HASH"
+      exit 1
+   fi
+
+   # make sure we can get the gpg key and save it
+   gpg --export -a "$KEY_ID" > "$COMMIT_DIR/signing-key-${KEY_ID}.pub" 2>/dev/null
+   RC="$?"
+
+   if [ "$RC" -ne "0" ]; then 
+      echo >&2 "Failed to export key $KEY_ID"
+      exit 1
+   fi
+
+   echo "$KEY_ID" >> "$KEY_IDS"
+done
+
+RC="$?"
+if [ "$RC" -ne "0" ]; then 
+   echo "Failed to verify all signatures"
+   exit 1
+fi
+
+JSON_OUT='{ "keys": { '
+
+if [ -f "$KEY_IDS" ]; then
+    # get all of the (unique) keys
+    while IFS= read KEY_ID; do
+       KEY="$(gpg --export -a "$KEY_ID" | sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g')"
+       JSON_OUT="$JSON_OUT \"$KEY_ID\": \"$KEY\","
+    done <<EOF
+$(cat "$KEY_IDS" | sort | uniq)
+EOF
+else 
+   JSON_OUT="$JSON_OUT,"
+fi
+
+JSON_OUT="${JSON_OUT%%,} }, \"commits\": [ "
+
+# get the commit history of the genesis block as a JSON blob 
+while IFS= read COMMIT_HASH; do
+   COMMIT_DIR="../.sigcheck/$COMMIT_HASH"
+   COMMIT="$(sed -e ':a' -e 'N' -e '$!ba' -e 's/\n/\\n/g' -e 's/"/\\"/g' "$COMMIT_DIR/signed-commit")"
+   TRUSTED="false"
+   if [ -f "$WHITELISTED_COMMITS" ] && [ -n "$(grep "$COMMIT_HASH" "$WHITELISTED_COMMITS")" ]; then 
+      TRUSTED="true"
+   fi
+   
+   JSON_OUT="$JSON_OUT { \"hash\": \"$COMMIT_HASH\", \"object\": \"$COMMIT\", \"trusted\": \"$TRUSTED\" },"
+done <<EOF
+$(git log --pretty='%H')
+EOF
+
+JSON_OUT="${JSON_OUT%%,} ] }"
+
+echo "$JSON_OUT" | jq -SMc .
+

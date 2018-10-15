@@ -1,0 +1,102 @@
+#!/usr/bin/env python2
+
+import json
+import os
+import sys
+import csv
+
+def create_unlock_schedule(start_block, total, interval, increments):
+    """
+    Create a token unlock schedule based on 
+    how many tokens will be unlocked in total,
+    over how long they will unlock, and how
+    frequently an unlock occurs.
+
+    The unlock schedule will cause one interval
+    of tokens to unlock immediately.
+    """
+    ret = {}
+    accounted = 0
+    unlock_per_interval = total / (interval / increments)
+    i = 0
+    while i + increments < interval:
+        accounted += unlock_per_interval
+        ret[start_block + i] = unlock_per_interval
+        i += increments
+
+    if accounted < total:
+        # distribute remainder across the earlier intervals
+        remainder = total - accounted
+        for k in sorted(ret.keys()):
+            ret[k] += 1
+            remainder -= 1
+            if remainder == 0:
+                break
+
+    # sanity check 
+    sanity_check = 0
+    for k in ret.keys():
+        sanity_check += ret[k]
+
+    assert sanity_check == total, '{} != {}'.format(sanity_check, total)
+    return ret
+
+
+def expand_genesis_block_shareholders(genesis_block_json, start_block, lock_time, unlock_increments):
+    """
+    Expand the genesis block rows for the Blockstack PBC shareholders.
+    These genesis block rows have the format:
+    "stack_token_allocations": [
+        {
+           "tokens": ...,   # the allocation 
+           "owner": ...,    # the hash of the legal document
+        }, ...
+    ]
+
+    Expand this data into the genesis block format
+    expected by blockstack-core
+    """
+    assert 'stack_token_allocations' in genesis_block_json
+    assert isinstance(genesis_block_json['stack_token_allocations'], list)
+    for entry in genesis_block_json['stack_token_allocations']:
+        assert 'tokens' in entry
+        assert isinstance(entry['tokens'], (int,long))
+        assert 'owner' in entry
+        assert isinstance(entry['owner'], (str,unicode))
+
+    ret = []
+    for entry in genesis_block_json['stack_token_allocations']:
+        row = {
+            'address': entry.get('address', ''),
+            'type': 'STACKS',
+            'value': 0,
+            'vesting': create_unlock_schedule(start_block, entry['tokens'], lock_time, unlock_increments),
+            'vesting_total': entry['tokens'],
+            'lock_send': 0,
+            'receive_whitelisted': False,
+            'metadata': entry['owner'],
+        }
+        ret.append(row)
+
+    return ret
+
+
+def expand_genesis_block_coinlist(genesis_block_json
+
+if __name__ == "__main__":
+    try:
+        start_block = int(sys.argv[1])
+        lock_time = int(sys.argv[2])
+        unlock_increments = int(sys.argv[3])
+    except:
+        print "Usage: {} START_BLOCK LOCK_TIME UNLOCK_INCREMENTS < GENESIS_BLOCK_SHAREHOLDERS".format(sys.argv[0])
+        sys.exit(1)
+
+    assert lock_time > unlock_increments, 'Invalid input: lock time must be greater than the unlock increments'
+
+    genesis_block_txt = sys.stdin.read().strip()
+    genesis_block = json.loads(genesis_block_txt)
+    res = expand_genesis_block(genesis_block, start_block, lock_time, unlock_increments)
+    print json.dumps(res, sort_keys=True, separators=(',',':'))
+    # print json.dumps(res, sort_keys=True, indent=4)
+    sys.exit(0)

@@ -44,8 +44,8 @@ from decimal import Decimal
 import client as blockstackd_client
 from client import get_blockstackd_url
 import scripts as blockstackd_scripts
-from scripts import check_name, check_namespace, check_subdomain, check_block, check_offset, \
-        check_count, check_string, check_address
+from scripts import check_name, check_namespace, check_token_type, check_subdomain, check_block, check_offset, \
+        check_count, check_string, check_address, check_account_address
 
 from util import BoundedThreadingMixIn
 
@@ -303,7 +303,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     def GET_names_owned_by_address( self, path_info, blockchain, address ):
         """
-        Get all names owned by an address (including subdomains)
+        Get all names owned by an address
         Returns the list on success
         Return 404 on unsupported blockchain
         Return 502 on failure to get names for any non-specified reason
@@ -337,6 +337,122 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         self._reply_json({'names': res + subdomain_names})
         return
+
+    
+    def GET_account_tokens(self, path_info, account_addr):
+        """
+        Get all token types that an address owns
+        Returns {'tokens': [...]}
+        """
+        if not check_account_address(account_addr):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
+        blockstackd_url = get_blockstackd_url()
+        res = blockstackd_client.get_account_tokens(account_addr, hostport=blockstackd_url)
+        if json_is_error(res):
+            log.error("Failed to load tokens for {}: {}".format(account_addr, res['error']))
+            return self._reply_json({'error': 'Failed to load tokens for {}: {}'.format(account_addr, res['error'])}, status_code=res.get('http_status', 500))
+
+        self._reply_json({'tokens': res})
+        return 
+
+
+    def GET_account_record(self, path_info, account_addr, token_type):
+        """
+        Get the state of a particular token account
+        Returns the account
+        """
+        if not check_account_address(account_addr):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
+        if not check_token_type(token_type):
+            return self._reply_json({'error': 'Invalid token type'}, status_code=400)
+
+        blockstackd_url = get_blockstackd_url()
+        res = blockstackd_client.get_account_record(account_addr, token_type, hostport=blockstackd_url)
+        if json_is_error(res):
+            log.error("Failed to get account state for {} {}: {}".format(account_addr, token_type, res['error']))
+            return self._reply_json({'error': 'Failed to get account record for {} {}: {}'.format(token_type, account_addr, res['error'])}, status_code=res.get('http_status', 500))
+
+        self._reply_json(res)
+        return
+
+
+    def GET_account_balance(self, path_info, account_addr, token_type):
+        """
+        Get the balance of a particular token
+        Returns {'balance': ...}
+        """
+        if not check_account_address(account_addr):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
+        if not check_token_type(token_type):
+            return self._reply_json({'error': 'Invalid token type'}, status_code=400)
+
+        blockstackd_url = get_blockstackd_url()
+        res = blockstackd_client.get_account_balance(account_addr, token_type, hostport=blockstackd_url)
+        if json_is_error(res):
+            log.error("Failed to get account balance for {} {}: {}".format(account_addr, token_type, res['error']))
+            return self._reply_json({'error': 'Failed to get balance of {} for {}: {}'.format(token_type, account_addr, res['error'])}, status_code=res.get('http_status', 500))
+
+        self._reply_json({'balance': str(res)})     # NOTE: use a string, since this can be too big for js clients to parse
+        return
+
+
+    def GET_account_history(self, path_info, account_addr):
+        """
+        Get the history of an account at a given page.
+        Returns [{...}]
+        """
+        if not check_account_address(account_addr):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
+        qs_values = path_info['qs_values']
+        page = qs_values.get('page', None)
+
+        if page is None:
+            page = "0" # compatibility
+
+        try:
+            assert len(page) < 10
+            page = int(page)
+
+            assert page >= 0
+        except:
+            return self._reply_json({'error': 'Invalid start block or end block or invalid page'}, status_code=400)
+
+        blockstackd_url = get_blockstackd_url()
+        res = blockstackd_client.get_account_history_page(account_addr, page, hostport=blockstackd_url)
+        if json_is_error(res):
+            log.error("Failed to list account history for {} at page {}: {}".format(account_addr, page, res['error']))
+            return self._reply_json({'error': 'Failed to list account history for {} at page {}'.format(account_addr, page)}, status_code=res.get('http_status', 500))
+
+        self._reply_json(res)
+        return
+
+    
+    def GET_account_at(self, path_info, account_addr, block_height):
+        """
+        Get the state(s) of an account at a particular point in history
+        Returns [{...}]
+        """
+        if not check_account_address(account_addr):
+            return self._reply_json({'error': 'Invalid address'}, status_code=400)
+
+        try:
+            block_height = int(block_height)
+            assert check_block(block_height)
+        except:
+            return self._reply_json({'error': 'Invalid block height'}, status_code=400)
+
+        blockstackd_url = get_blockstackd_url()
+        res = blockstackd_client.get_account_at(account_addr, block_height, hostport=blockstackd_url)
+        if json_is_error(res):
+            log.error("Failed to list account history for {} at {}: {}".format(account_addr, block_height, res['error']))
+            return self._reply_json({'error': 'Failed to get account state for {} at {}'.format(account_addr, block_height)}, status_code=res.get('http_status', 500))
+
+        self._reply_json(res)
+        return 
 
 
     def GET_names( self, path_info ):
@@ -504,7 +620,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'address': address,
                 'last_txid': name_rec['txid'],
                 'blockchain': 'bitcoin',
-                'expire_block': name_rec['expire_block'],      # expires_block is what blockstack.js expects
+                'expire_block': name_rec['expire_block'],      # expire_block is what blockstack.js expects
                 'renewal_deadline': name_rec['renewal_deadline'],
                 'grace_period': name_rec.get('grace_period', False),
                 'resolver': name_rec.get('resolver', None)
@@ -650,13 +766,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         zonefile_json = self._read_json(schema=request_schema)
         if zonefile_json is None:
             return self._reply_json({'error': 'Invalid request'}, status_code=400)
-        
+
         elif 'error' in zonefile_json:
             log.error("Failed to parse JSON")
             return self._reply_json({'error': 'Invalid request'}, status_code=400)
         
-        zonefile_hash = None
         zonefile_str = zonefile_json.get('zonefile', False)
+        zonefile_hash = None 
+
         if zonefile_str:
             # base64-encode 
             zonefile_hash = storage.get_zonefile_data_hash(zonefile_str)
@@ -669,7 +786,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 # neither given
                 return self._reply_json({'error': 'Invalid request'}, status_code=400)
 
-            zonefile_hash = storage.get_zonefile_data_hash(base64.b64decode(zonefile_str))
+            zonefile_hash = storage.get_zonefile_data_hash(base64.b64decode(zonefile_json['zonefile_b64']))
 
         zonefiles_b64 = [zonefile_str]
         resp = blockstackd_client.put_zonefiles(blockstackd_url, zonefiles_b64)
@@ -1139,20 +1256,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self._reply_json({'status': 'alive', 'version': VERSION})
         return
 
-    
-    def GET_getinfo(self, path_info):
-        """
-        getinfo
-        """
-        blockstackd_url = get_blockstackd_url()
-        info = blockstackd_client.getinfo(hostport=blockstackd_url)
-        if json_is_error(info):
-            # error
-            status_code = info.get('http_status', 502)
-            return self._reply_json({'error': info['error']}, status_code=status_code)
-
-        return self._reply_json(info)
-
 
     def _dispatch(self, method_name):
         """
@@ -1166,15 +1269,35 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_ping,
                 },
             },
-            r'^/v1/info$': {
-                'routes': {
-                    'GET': self.GET_getinfo,
-                },
-            },
             r'^/v1/addresses/({}{{1,256}})/({}{{1,40}})$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_names_owned_by_address,
                 },
+            },
+            r'^/v1/accounts/({}{{1,256}})/tokens$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'GET': self.GET_account_tokens,
+                },
+            },
+            r'^/v1/accounts/({}{{1,256}})/({}{{1,40}})/status$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
+                'routes': {
+                    'GET': self.GET_account_record,
+                },
+            },
+            r'^/v1/accounts/({}{{1,256}})/({}{{1,40}})/balance$'.format(URLENCODING_CLASS, URLENCODING_CLASS): {
+                'routes': {
+                    'GET': self.GET_account_balance,
+                },
+            },
+            r'^/v1/accounts/({}{{1,256}})/history/([0-9]+)$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'GET': self.GET_account_at,
+                },
+            },
+            r'^/v1/accounts/({}{{1,256}})/history$'.format(URLENCODING_CLASS): {
+                'routes': {
+                    'GET': self.GET_account_history,
+                 },
             },
             r'^/v1/blockchains/({}{{1,40}})/name_count'.format(URLENCODING_CLASS) : {
                 'routes': {
@@ -1307,6 +1430,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 },
             },
             r'^/v1/.*$': {
+                'routes': {
+                    'OPTIONS': self.OPTIONS_preflight,
+                },
+            },
+            r'^/v2/.*$': {
                 'routes': {
                     'OPTIONS': self.OPTIONS_preflight,
                 },

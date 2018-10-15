@@ -33,7 +33,7 @@ import requests
 import posixpath
 from datetime import datetime
 from influxdb import InfluxDBClient
-from decimal import Decimal 
+import pkgutil
 
 blockstack = None
 blockstackd = None
@@ -51,6 +51,10 @@ TEST_RPC_PORT = 16264
 TEST_CLIENT_RPC_PORT = int(os.environ.get("BLOCKSTACK_TEST_CLIENT_RPC_PORT", 16268))
 TEST_CLIENT_BIND = os.environ.get("BLOCKSTACK_TEST_CLIENT_BIND", "localhost")
 WEB_TEST_BIND = os.environ.get('BLOCKSTACK_WEB_TEST_BIND', 'localhost')
+
+START_GAIA_HUB = int(os.environ.get('BLOCKSTACK_TEST_START_GAIA', 1))
+START_BROADCASTER = int(os.environ.get('BLOCKSTACK_TEST_START_BROADCASTER', 1))
+CHECK_SUBDOMAIN_REGISTRAR = int(os.environ.get('BLOCKSTACK_TEST_CHECK_SUBDOMAIN_REGISTRAR', 1))
 
 BITCOIND_RPC_ALLOW_IP = os.environ.get("BLOCKSTACK_TEST_BITCOIND_ALLOWIP", False)
 
@@ -70,7 +74,7 @@ TRANSACTION_BROADCASTER_SUBPROCESS = None
 
 NET_LOG_PATH = "/tmp/blockstack-test-netlog.log"
 
-SATOSHIS_PER_COIN = 10**8
+TEST_GENESIS_BLOCK = []
 
 DEFAULT_SERVER_INI_TEMPLATE = """
 [bitcoind]
@@ -100,10 +104,10 @@ atlas_hostname = localhost
 enabled = true
 server_version = 0.19.0
 api_port = %s
-api_host = localhost
+api_host = %s
 api_protocol = http
 indexer_url = http://localhost:%s
-""" % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_RPC_PORT)
+""" % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_CLIENT_BIND, TEST_RPC_PORT)
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
 [blockstack-client]
@@ -162,15 +166,16 @@ resolving_subdomains = True
 
 DEFAULT_GAIA_HUB_CONFIG_TEMPLATE = """
 {
-  "servername": "localhost",
+  "servername": "%s",
   "port": 4001,
   "driver": "disk",
-  "readURL": "http://localhost:4000/hub/",
+  "readURL": "http://%s:4000/hub/",
   "proofsConfig": {
     "proofsRequired" : 0
   },
   "diskSettings": {
-     "storageRootDirectory": "@WORKING_DIR@/gaia-hub"
+     "storageRootDirectory": "@WORKING_DIR@/gaia-hub",
+     "readURL": "http://%s:4000/hub/"
   },
   "argsTransport": {
     "level": "debug",
@@ -181,8 +186,9 @@ DEFAULT_GAIA_HUB_CONFIG_TEMPLATE = """
     "json": true
   }
 }
-"""
+""" % (os.environ.get("BLOCKSTACK_TESTNET_PUBLIC_HOST", "localhost"), os.environ.get("BLOCKSTACK_TESTNET_PUBLIC_HOST", 'localhost'), os.environ.get("BLOCKSTACK_TESTNET_PUBLIC_HOST", 'localhost'))
 
+# check once per second
 DEFAULT_TRANSACTION_BROADCASTER_TEMPLATE = """
 {
   "winstonConsoleTransport": {
@@ -191,9 +197,10 @@ DEFAULT_TRANSACTION_BROADCASTER_TEMPLATE = """
       "timestamp": true,
       "stringify": true,
       "colorize": false,
-      "json": false
+      "json": false,
+      "stderrLevels": ["debug", "info", "warning", "error"]
   },
-  "checkTransactionPeriod": 0.1,
+  "checkTransactionPeriod": 0.0166666667,
   "dbLocation": "@WORKING_DIR@/transaction-broadcaster.db",
   "regtest": true,
   "stalenessDeadline": 3600,
@@ -203,6 +210,7 @@ DEFAULT_TRANSACTION_BROADCASTER_TEMPLATE = """
     "utxo": "http://localhost:%s"
   }
 }""" % (TEST_TRANSACTION_BROADCASTER_PORT, TEST_CLIENT_RPC_PORT, TEST_CLIENT_RPC_PORT)
+
 
 class Pinger(threading.Thread):
     """
@@ -404,6 +412,7 @@ class GaiaServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
                 self.send_header(h, res.headers[h])
 
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.send_header('Content-Length', '{}'.format(len(res.text)))
             self.end_headers()
             self.wfile.write(res.text)
@@ -412,21 +421,23 @@ class GaiaServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         if not self.path.startswith('/hub/'):
             log.error("Invalid request path '{}'".format(self.path))
             self.send_response(401, 'Invalid request path')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             return 
 
-        path = posixpath.normpath(self.path).strip('/')
         path = path[len('hub/'):]
 
         file_path = os.path.join(self.server.storage_root, path.strip('/'))
         if not os.path.exists(file_path):
             log.error("No such file or directory: '{}'".format(file_path))
             self.send_response(404, 'No such file or directory')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             return 
 
         sb = os.stat(file_path)
         self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Content-Type', 'application/octet-stream')
         self.send_header('Content-Length', '{}'.format(sb.st_size))
         self.end_headers()
@@ -461,9 +472,16 @@ class GaiaServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         return
 
 
+    def do_OPTONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        return
+
+
 class GaiaServer(BaseHTTPServer.HTTPServer):
     def __init__(self, storage_root, port, upstream_gaia_url):
-        BaseHTTPServer.HTTPServer.__init__(self, ('localhost', port), GaiaServerRequestHandler)
+        BaseHTTPServer.HTTPServer.__init__(self, (TEST_CLIENT_BIND, port), GaiaServerRequestHandler)
         self.storage_root = storage_root
         self.done = False
         self.upstream_gaia_url = upstream_gaia_url
@@ -553,16 +571,13 @@ def load_scenario( scenario_name ):
 
     # identify the file's path
     log.debug("Identifying scenario path")
-    p = subprocess.Popen( "python -c 'import %s; print %s.__file__'" % (scenario_name, scenario_name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE )
-    path_buf, err = p.communicate()
+    p = subprocess.Popen("python -c 'import pkgutil; print pkgutil.get_loader(\"{}\").filename'".format(scenario_name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = p.communicate()
+    rc = p.returncode
+    if rc != 0:
+        raise Exception("Failed to find {}".format(scenario_name))
 
-    if p.returncode is not None and p.returncode != 0:
-        print >> sys.stderr, err
-        raise Exception("Failed to load %s, exit code %s" % (scenario_name, p.returncode))
-
-    path = path_buf.strip().split("\n")[-1].strip()
-    if path.endswith(".pyc"):
-        path = path[:-4] + ".py"
+    path = out.strip().split('\n')[-1].strip()
 
     log.debug("Path of %s is %s" % (scenario_name, path))
 
@@ -700,7 +715,7 @@ def gaia_hub_start(gaia_config_path):
     gaia_config = json.loads(open(gaia_config_path, 'r').read())
 
     # start read gateway 
-    gaia_http = GaiaServer(gaia_config['diskSettings']['storageRootDirectory'], urlparse.urlparse(gaia_config['readURL']).port, 'http://{}:{}'.format(gaia_config['servername'], gaia_config['port']))
+    gaia_http = GaiaServer(gaia_config['diskSettings']['storageRootDirectory'], urlparse.urlparse(gaia_config['readURL']).port, 'http://localhost:{}'.format(gaia_config['port']))
     gaia_thread = GaiaServerThread(gaia_http)
     gaia_thread.start()
 
@@ -744,15 +759,9 @@ def transaction_broadcaster_start(config_path):
     """
     Start the transaction broadcaster
     """
-    print 'Starting transaction broadcaster'
     global TRANSACTION_BROADCASTER_SUBPROCESS
 
     TRANSACTION_BROADCASTER_SUBPROCESS = None
-
-    rc = os.system("which blockstack-transaction-broadcaster")
-    if rc != 0:
-        print 'blockstack-transaction-broadcaster is not installed'
-        return 
 
     p = subprocess.Popen('which blockstack-transaction-broadcaster', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = p.communicate()
@@ -767,6 +776,10 @@ def transaction_broadcaster_start(config_path):
     txb_stdout = open(txb_logfile_path, 'w')
     txb_stderr = open(txb_logfile_path, 'w')
 
+    print 'Starting transaction broadcaster at {}'.format(txb_path)
+
+    os.environ['BSK_TRANSACTION_BROADCAST_DEVELOP'] = '1'
+    os.environ['BSK_TRANSACTION_BROADCAST_CONFIG'] = config_path
     p = subprocess.Popen([txb_path], shell=False, stdout=txb_stdout, stderr=txb_stderr)
 
     TRANSACTION_BROADCASTER_SUBPROCESS = p
@@ -810,6 +823,8 @@ def atexit_cleanup( spv_headers_path, stop_bitcoind ):
     if stop_bitcoind:
         bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
         os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
+
+    testlib.cleanup()
 
 
 def sync_virtualchain_upcall(server_state):
@@ -904,16 +919,19 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     print "working_dir: %s" % working_dir
 
     # set up test environment
+    blockstackd.genesis_block_setup()
     db = get_blockstack_db(virtualchain_working_dir, disposition=blockstackd.DISPOSITION_RW)
     testlib.set_utxo_opts( utxo_opts )
     testlib.set_bitcoind( bitcoind )
     testlib.set_state_engine( db )
 
-    # start Gaia hub 
-    gaia_hub_start(gaia_config_file)
+    # start Gaia hub
+    if START_GAIA_HUB == 1:
+        gaia_hub_start(gaia_config_file)
 
-    # start transaction broadcaster 
-    transaction_broadcaster_start(transaction_broadcaster_config_file)
+    # start transaction broadcaster
+    if START_BROADCASTER == 1:
+        transaction_broadcaster_start(transaction_broadcaster_config_file)
 
     # Start server
     server_state = blockstackd.server_setup(working_dir)
@@ -1201,7 +1219,7 @@ def bitcoin_regtest_reset(working_dir):
 
     os.makedirs(bitcoin_dir)
     with open(bitcoin_conf, "w") as f:
-        f.write("rpcuser=%s\nrpcpassword=%s\nregtest=1\ntxindex=1\nlisten=1\nserver=1\ndatadir=%s\ndebug=1\nrpcserialversion=0" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
+        f.write("server=1\nregtest=1\nbind=0.0.0.0:18444\nrpcbind=0.0.0.0:18332\nrpcallowip=0.0.0.0/0\nrpcallowip=::/0\nrpcuser=%s\nrpcpassword=%s\ntxindex=1\nlisten=1\ndatadir=%s\ndebug=1\nrpcserialversion=0" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
         if BITCOIND_RPC_ALLOW_IP:
             f.write("\nrpcallowip=%s\n" % BITCOIND_RPC_ALLOW_IP)
         f.flush()
@@ -1249,6 +1267,56 @@ def bitcoin_regtest_reset(working_dir):
     return True
 
 
+def fill_genesis_block(address, token_grant, vesting_schedule):
+    """
+    Add an entry to the genesis block for the given address, with an initial amount and a vesting schedule
+    NOTE: vesting_schedule is a grabbag of {'block height': 'amount'} pairs as well as {'lock_send': ...}, {'receive_whitelisted': ...}
+    """
+    global TEST_GENESIS_BLOCK
+   
+    log.debug("Grant {} {} {}-tokens".format(address, token_grant, testlib.TOKEN_TYPE_STACKS))
+
+    vesting = {}
+    for k in vesting_schedule.get('STACKS', []):
+        try:
+            ki = int(k)
+            vesting[ki] = vesting_schedule['STACKS'][k]
+        except Exception as e:
+            pass
+
+    TEST_GENESIS_BLOCK.append({
+        'address': address,
+        'type': testlib.TOKEN_TYPE_STACKS,
+        'value': token_grant,
+        'vesting': vesting,
+        'vesting_total': sum(vesting.values()),
+        'lock_send': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).get('lock_send', 0),
+        'receive_whitelisted': vesting_schedule.get(testlib.TOKEN_TYPE_STACKS, {}).get('receive_whitelisted', True)  # for testing, all addresses can receive unless otherwise noted
+    })
+
+    for token_type in vesting_schedule:
+        if token_type == testlib.TOKEN_TYPE_STACKS:
+            continue
+
+        vesting = {}
+        for k in vesting_schedule.get(token_type, []):
+            try:
+                ki = int(k)
+                vesting[ki] = vesting_schedule[token_type][k]
+            except:
+                pass
+
+        TEST_GENESIS_BLOCK.append({
+            'address': address,
+            'type': token_type,
+            'value': 0,
+            'vesting': vesting,
+            'vesting_total': sum(vesting.values()),
+            'lock_send': vesting_schedule[token_type].get('lock_send', 0),
+            'receive_whitelisted': vesting_schedule[token_type].get('receive_whitelisted', True) # for testing, all addresses can receive unless otherwise noted
+        })
+
+
 def fill_wallet( bitcoind, wallet, value ):
     """
     Fill a test wallet on a regtest bitcoind.
@@ -1262,25 +1330,33 @@ def fill_wallet( bitcoind, wallet, value ):
         testnet_wif = virtualchain.BitcoinPrivateKey(virtualchain.get_singlesig_privkey(wallet.privkey)).to_wif()
         addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
 
-        log.debug("Fill %s (%s) with %s" % (addr, testnet_wif, value ))
+        if value > 0:
+            log.debug("Fill %s (%s) with %s" % (addr, testnet_wif, value ))
 
-        bitcoind.importprivkey(testnet_wif, "")
-        bitcoind.sendtoaddress( addr, value )
+            bitcoind.importprivkey(testnet_wif, "")
+            bitcoind.sendtoaddress( addr, value )
+
+        # also do the token grant
+        fill_genesis_block(addr, wallet._token_grant, wallet._vesting_schedule)
 
     elif wallet.segwit and len(wallet.privkey['private_keys']) == 1:
         # single private key, p2sh-p2wpkh
         testnet_wif = virtualchain.BitcoinPrivateKey(virtualchain.get_singlesig_privkey(wallet.privkey)).to_wif()
         addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
 
-        bitcoind.importprivkey(testnet_wif, "")
+        if value > 0:
+            bitcoind.importprivkey(testnet_wif, "")
 
-        segwit_wallet = virtualchain.make_segwit_info(testnet_wif)
-        p2sh_p2wpkh_addr = bitcoind.addwitnessaddress(addr)
-        assert p2sh_p2wpkh_addr == segwit_wallet['address'], 'bitcoind.addwitnessaddress({}) == {}, expected {}'.format(addr, p2sh_p2wpkh_addr, segwit_wallet['address'])
+            segwit_wallet = virtualchain.make_segwit_info(testnet_wif)
+            p2sh_p2wpkh_addr = bitcoind.addwitnessaddress(addr)
+            assert p2sh_p2wpkh_addr == segwit_wallet['address'], 'bitcoind.addwitnessaddress({}) == {}, expected {}'.format(addr, p2sh_p2wpkh_addr, segwit_wallet['address'])
 
-        log.debug("Fill p2sh-p2wpkh %s (%s) with %s" % (segwit_wallet['address'], testnet_wif, value ))
-        bitcoind.sendtoaddress( segwit_wallet['address'], value )
+            log.debug("Fill p2sh-p2wpkh %s (%s) with %s" % (segwit_wallet['address'], testnet_wif, value ))
+            bitcoind.sendtoaddress( segwit_wallet['address'], value )
         
+        # also do the token grant
+        fill_genesis_block(segwit_wallet['address'], wallet._token_grant, wallet._vesting_schedule)
+
     elif wallet.segwit and len(wallet.privkey['private_keys']) > 1:
         # multisig p2sh-p2wsh
         testnet_wifs = []
@@ -1298,11 +1374,16 @@ def fill_wallet( bitcoind, wallet, value ):
 
         # have bitcoin track the p2sh-p2wsh equivalent address
         segwit_wallet = virtualchain.make_multisig_segwit_info( wallet.m, testnet_wifs )
-        p2sh_p2wsh_addr = bitcoind.addwitnessaddress(multisig_info['address'])
-        assert p2sh_p2wsh_addr == segwit_wallet['address'], 'bitcoind.addwitnessaddress({}) == {}, expected {}'.format(multisig_info['address'], p2sh_p2wsh_addr, segwit_wallet['address'])
 
-        log.debug("Fill p2sh-p2wsh %s with %s" % (segwit_wallet['address'], value ))
-        bitcoind.sendtoaddress( segwit_wallet['address'], value )
+        if value > 0:
+            p2sh_p2wsh_addr = bitcoind.addwitnessaddress(multisig_info['address'])
+            assert p2sh_p2wsh_addr == segwit_wallet['address'], 'bitcoind.addwitnessaddress({}) == {}, expected {}'.format(multisig_info['address'], p2sh_p2wsh_addr, segwit_wallet['address'])
+
+            log.debug("Fill p2sh-p2wsh %s with %s" % (segwit_wallet['address'], value ))
+            bitcoind.sendtoaddress( segwit_wallet['address'], value )
+
+        # also do the token grant
+        fill_genesis_block(segwit_wallet['address'], wallet._token_grant, wallet._vesting_schedule)
 
     else:
         # multisig address
@@ -1316,12 +1397,17 @@ def fill_wallet( bitcoind, wallet, value ):
             testnet_pubks.append( virtualchain.BitcoinPrivateKey(pk).public_key().to_hex() )
 
         multisig_info = virtualchain.make_multisig_info( wallet.m, testnet_wifs )
-        bitcoind.addmultisigaddress( wallet.m, testnet_pubks )
-        bitcoind.importaddress( multisig_info['address'] )
 
-        log.debug("Fill %s with %s" % (multisig_info['address'], value ))
-        bitcoind.sendtoaddress( multisig_info['address'], value )
+        if value > 0:
+            bitcoind.addmultisigaddress( wallet.m, testnet_pubks )
+            bitcoind.importaddress( multisig_info['address'] )
+
+            log.debug("Fill %s with %s" % (multisig_info['address'], value ))
+            bitcoind.sendtoaddress( multisig_info['address'], value )
         
+        # also do the token grant
+        fill_genesis_block(multisig_info['address'], wallet._token_grant, wallet._vesting_schedule)
+
     return True
 
 
@@ -1336,7 +1422,7 @@ def get_wallet_addr( wallet ):
         return wallet.addr
 
 
-def bitcoin_regtest_fill_wallets( working_dir, wallets, default_payment_wallet=None ):
+def bitcoin_regtest_fill_wallets( working_dir, wallets, default_payment_wallet=None, amount_per_wallet=50 ):
     """
     Given a set of wallets, make sure they each have 50 btc.
     If given, fill the default payment walet with 250 btc
@@ -1347,11 +1433,67 @@ def bitcoin_regtest_fill_wallets( working_dir, wallets, default_payment_wallet=N
 
     for wallet in wallets:
         # fill each wallet
-        fill_wallet( bitcoind, wallet, 50 )
+        fill_wallet( bitcoind, wallet, amount_per_wallet )
 
     if default_payment_wallet is not None:
         # fill optional default payment address
         fill_wallet( bitcoind, default_payment_wallet, 250 )
+
+    # fake treasury and unallocated 
+    TEST_GENESIS_BLOCK.append({
+        'address': 'not_distributed_{}'.format('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'),
+        'type': testlib.TOKEN_TYPE_STACKS,
+        'value': 0,
+        'vesting': {
+            TEST_FIRST_BLOCK_HEIGHT+7: 2084166667,  # block 689 
+            TEST_FIRST_BLOCK_HEIGHT+8: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+9: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+10: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+11: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+12: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+13: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+14: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+15: 2084166667, 
+            TEST_FIRST_BLOCK_HEIGHT+16: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+17: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+18: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+19: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+20: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+21: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+22: 2084166666, 
+            TEST_FIRST_BLOCK_HEIGHT+23: 2084166666,
+            TEST_FIRST_BLOCK_HEIGHT+24: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+25: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+26: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+27: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+28: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+29: 2084166667,
+            TEST_FIRST_BLOCK_HEIGHT+30: 2084166667,
+        },
+        'vesting_total': 50020000000,
+        'lock_send': 0,
+        'receive_whitelisted': False,
+    })
+        
+    TEST_GENESIS_BLOCK.append({
+        'address': 'treasury',
+        'type': testlib.TOKEN_TYPE_STACKS,
+        'value': 110000000000000,
+        'vesting': {},
+        'vesting_total': 0,
+        'lock_send': 0,
+        'receive_whitelisted': False,
+    })
+
+    TEST_GENESIS_BLOCK.append({
+        'address': 'unallocated',
+        'type': testlib.TOKEN_TYPE_STACKS,
+        'value': 2222222222222222,
+        'vesting': {},
+        'vesting_total': 0,
+        'lock_send': 0,
+        'receive_whitelisted': False,
+    })
 
     bitcoind.generate(6)
 
@@ -1507,14 +1649,28 @@ if __name__ == "__main__":
     test_end = None
 
     if len(sys.argv) < 2:
-        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [--force-segwit] [--output PATH] [scenario.import.path] [OPTIONAL: working dir]"
+        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [--interactive-web port] [--influx] [--force-segwit] [--output PATH] scenario.import.path [working dir]"
         sys.exit(1)
 
-    # basic sanity checks---need some tools to exist 
-    for tool in ['sqlite3', 'blockstack-cli', 'blockstack-gaia-hub', 'blockstack-transaction-broadcaster']:
+    tools_required = [('sqlite3', None), \
+                      ('blockstack-cli', 'https://github.com/blockstack/jcnelson/cli-blockstack')]
+
+    if START_GAIA_HUB:
+        tools_required.append(('blockstack-gaia-hub', 'https://github.com/blockstack/gaia/tree/master/hub'))
+    if START_BROADCASTER:
+        tools_required.append(('blockstack-transaction-broadcaster', 'https://github.com/blockstack/transaction-broadcaster'))
+    if CHECK_SUBDOMAIN_REGISTRAR:
+        tools_required.append(('blockstack-subdomain-registrar', 'https://github.com/blockstack/blockstack-subdomain-registrar'))
+
+    # basic sanity checks---need some tools to exist
+    for tool, repo in tools_required:
+
         rc = os.system('which {}'.format(tool))
         if rc != 0:
             print >> sys.stderr, '\n\nERROR! Missing {}.\n'.format(tool)
+            if repo:
+                print >> sys.stderr, 'Go to {} and follow the instructions to install {}\n'.format(repo, tool)
+
             sys.exit(1)
 
     args = parse_args(sys.argv)
@@ -1688,13 +1844,28 @@ if __name__ == "__main__":
         os.unlink("/tmp/blockstack-test-scenario-spv.dat")
 
     # set up default payment wallet
-    # default_payment_wallet = testlib.MultisigWallet( 2, '5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', '5Kfg4xkZ1gGN5ozgDZ37Mn3EH9pXSuWZnQt1pzax4cLax8PetNs', '5JXB7rNxZa8yQtpuKtwy1nWUUTgdDEYTDmaEqQvKKC8HCWs64bL' )
     default_payment_wallet = testlib.Wallet('5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', 1000000000)
 
     # load wallets
-    bitcoin_regtest_fill_wallets( working_dir, scenario.wallets, default_payment_wallet=default_payment_wallet )
+    amount_per_wallet = 50
+    if os.environ.get('BLOCKSTACK_TEST_AMOUNT_PER_WALLET'):
+        amount_per_wallet = int(os.environ['BLOCKSTACK_TEST_AMOUNT_PER_WALLET'])
+
+    bitcoin_regtest_fill_wallets( working_dir, scenario.wallets, default_payment_wallet=default_payment_wallet, amount_per_wallet=amount_per_wallet )
     testlib.set_default_payment_wallet( default_payment_wallet )
     testlib.set_wallets( scenario.wallets )
+    
+    # preserve genesis block
+    genesis_block_data = { 'history': [], 'rows': TEST_GENESIS_BLOCK }
+    genesis_block_path = os.path.join(working_dir, 'genesis_block.py')
+    with open(genesis_block_path, 'w') as f:
+        f.write('# automatically generated\n')
+        f.write('import json\n')
+        f.write('false = False\n')
+        f.write('true = True\n')
+        f.write('GENESIS_BLOCK = {}'.format(json.dumps(genesis_block_data)))
+
+    os.environ['BLOCKSTACK_GENESIS_BLOCK_PATH'] = genesis_block_path 
 
     # did the scenario change the storage drivers?
     storage_drivers = BLOCKSTACK_STORAGE_DRIVERS

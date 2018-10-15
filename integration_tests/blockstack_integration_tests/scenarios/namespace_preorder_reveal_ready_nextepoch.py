@@ -98,15 +98,15 @@ def scenario( wallets, **kw ):
 def check( state_engine ):
 
     fees = {
-        't': blockstack.price_namespace('t', 0),
-        'te': blockstack.price_namespace('te', 0),
-        'test': blockstack.price_namespace('test', 0),
-        'testtest': blockstack.price_namespace('testtest', 0),
+        't': blockstack.price_namespace('t', 0, 'BTC'),
+        'te': blockstack.price_namespace('te', 0, 'BTC'),
+        'test': blockstack.price_namespace('test', 0, 'BTC'),
+        'testtest': blockstack.price_namespace('testtest', 0, 'BTC'),
 
-        'a': blockstack.price_namespace('a', 691),
-        'as': blockstack.price_namespace('as', 691),
-        'asdf': blockstack.price_namespace('asdf', 691),
-        'asdfasdf': blockstack.price_namespace('asdfasdf', 691),
+        'a': blockstack.price_namespace('a', 691, 'BTC'),
+        'as': blockstack.price_namespace('as', 691, 'BTC'),
+        'asdf': blockstack.price_namespace('asdf', 691, 'BTC'),
+        'asdfasdf': blockstack.price_namespace('asdfasdf', 691, 'BTC'),
     }
 
     # not revealed, but ready 

@@ -1,0 +1,7 @@
+table { border-collapse: separate; border-spacing: 6pt; border-style: hidden hidden; } 
+.code { font-family: monospace; line-height: 100%; } 
+.not-given { font-style: italic; color: rgb(128,128,128); }
+.panel-default > .panel-heading-custom {
+    background: #41294e; 
+    color: #fff; 
+ }

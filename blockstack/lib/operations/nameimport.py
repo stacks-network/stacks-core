@@ -89,7 +89,7 @@ def get_import_update_hash_from_outputs( outputs ):
         update_addr = virtualchain.script_hex_to_address(outputs[2]['script'])
         assert update_addr
     except:
-        log.error("Invalid update output: {}".format(outputs[2]['script']))
+        log.warning("Invalid update output: {}".format(outputs[2]['script']))
         raise Exception("No update hash found")
 
     return hexlify(keylib.b58check.b58check_decode(update_addr))
@@ -99,18 +99,7 @@ def get_prev_imported( state_engine, checked_ops, name ):
     """
     See if a name has been imported previously--either in 
     this block, or in the last operation on this name.
-    Check the DB *and* current ops.
-    Make sure the returned record has the name history
     """
-    '''
-    imported = find_by_opcode( checked_ops, "NAME_IMPORT" )
-    for opdata in reversed(imported):
-        if opdata['name'] == name:
-            hist = state_engine.get_name_history(name)
-            ret = copy.deepcopy(opdata)
-            ret['history'] = hist
-            return ret
-    '''
     name_rec = state_engine.get_name( name )
     return name_rec
 
@@ -156,12 +145,12 @@ def check( state_engine, nameop, block_id, checked_ops ):
     # transfer_send_block_id = None
 
     if not nameop.has_key('sender_pubkey'):
-        log.debug("Name import requires a sender_pubkey (i.e. use of a p2pkh transaction)")
+        log.warning("Name import requires a sender_pubkey (i.e. use of a p2pkh transaction)")
         return False
 
     # name must be well-formed
     if not is_name_valid( name ):
-        log.debug("Malformed name '%s'" % name)
+        log.warning("Malformed name '%s'" % name)
         return False
 
     name_without_namespace = get_name_from_fq_name( name )
@@ -169,7 +158,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # namespace must be revealed, but not ready
     if not state_engine.is_namespace_revealed( namespace_id ):
-        log.debug("Namespace '%s' is not revealed" % namespace_id )
+        log.warning("Namespace '%s' is not revealed" % namespace_id )
         return False
 
     namespace = state_engine.get_namespace_reveal( namespace_id )
@@ -184,17 +173,17 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
         # the first name imported must be the revealer's address
         if sender_address != namespace['recipient_address']:
-            log.debug("First NAME_IMPORT must come from the namespace revealer's address")
+            log.warning("First NAME_IMPORT must come from the namespace revealer's address")
             return False
 
         # need to generate a keyring from the revealer's public key
-        log.debug("Generating %s-key keychain for '%s'" % (NAME_IMPORT_KEYRING_SIZE, namespace_id))
+        log.warning("Generating %s-key keychain for '%s'" % (NAME_IMPORT_KEYRING_SIZE, namespace_id))
         import_addresses = BlockstackDB.build_import_keychain( state_engine.working_dir, namespace['namespace_id'], sender_pubkey_hex )
 
     # sender must be the same as the the person who revealed the namespace
     # (i.e. sender's address must be from one of the valid import addresses)
     if sender_address not in import_addresses:
-        log.debug("Sender address '%s' is not in the import keychain" % (sender_address))
+        log.warning("Sender address '%s' is not in the import keychain" % (sender_address))
         return False
 
     # we can overwrite, but emit a warning
@@ -220,11 +209,32 @@ def check( state_engine, nameop, block_id, checked_ops ):
     del nameop['recipient']
     del nameop['recipient_address']
 
+    # set op_fee for BTC
+    # set token_fee otherwise
+    bitcoin_price = 0
+    stacks_price = 0
+
+    if namespace['version'] == NAMESPACE_VERSION_PAY_WITH_STACKS:
+        # make sure we're in the right epoch 
+        epoch_features = get_epoch_features(block_id)
+        if EPOCH_FEATURE_STACKS_BUY_NAMESPACES not in epoch_features or EPOCH_FEATURE_NAMEOPS_COST_TOKENS not in epoch_features:
+            log.fatal('Have a namespace with STACKs enabled, but we\'re in the wrong epoch!')
+            os.abort()
+
+        stacks_price = price_name(name_without_namespace, namespace, block_id)
+        stacks_price = int(stacks_price)
+
+    else:
+        # QUIRK: keep this as a float due to backwards-compatibility
+        bitcoin_price = price_name(name_without_namespace, namespace, block_id)
+        bitcoin_price = float(bitcoin_price)
+
     nameop['sender'] = recipient
     nameop['address'] = recipient_address
     nameop['importer'] = sender
     nameop['importer_address'] = sender_address
-    nameop['op_fee'] = price_name( name_without_namespace, namespace, block_id )
+    nameop['op_fee'] = bitcoin_price
+    nameop['token_fee'] = '{}'.format(stacks_price)
     nameop['namespace_block_number'] = namespace['block_number']
     nameop['consensus_hash'] = None 
     nameop['preorder_hash'] = preorder_hash
@@ -236,7 +246,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # not required for consensus, but for SNV
     nameop['last_creation_op'] = NAME_IMPORT
-
+    
     # good!
     return True
 
@@ -252,8 +262,6 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     recipient:  the script_pubkey (as a hex string) of the principal that is meant to receive the name
     recipient_address:  the address from the recipient script
     import_update_hash:  the hash of the data belonging to the recipient
-
-    Optional:
     sender_pubkey_hex: the public key of the sender
     """
   
@@ -267,13 +275,15 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     import_update_hash = None
 
     try:
+       # first three outputs matter to us
+       assert check_tx_output_types(outputs[:3], block_id)
+
        recipient = get_import_recipient_from_outputs( outputs )
        recipient_address = virtualchain.script_hex_to_address( recipient )
 
        assert recipient is not None 
        assert recipient_address is not None
        
-       # import_update_hash = get_import_update_hash_from_outputs( outputs, recipient )
        import_update_hash = get_import_update_hash_from_outputs( outputs )
        assert import_update_hash is not None
        assert is_hex( import_update_hash )
@@ -330,7 +340,7 @@ def parse(bin_payload, recipient, update_hash ):
     
     fqn = bin_payload
     if not is_name_valid( fqn ): 
-        log.error("Name '%s' is invalid" % fqn)
+        log.warning("Name '%s' is invalid" % fqn)
         return None 
 
     return {

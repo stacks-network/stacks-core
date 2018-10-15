@@ -38,6 +38,7 @@ import binascii
 import urllib
 import urlparse
 import subprocess
+import threading
 import signal
 import atexit
 import re
@@ -47,7 +48,8 @@ from decimal import Decimal
 import blockstack.blockstackd as blockstackd
 import blockstack.lib.client as blockstackd_client
 import blockstack.lib.snv as snv_client
-
+from blockstack.lib.nameset.namedb import BlockstackDB
+import traceback
 import blockstack
 import keylib
 
@@ -56,6 +58,7 @@ import virtualchain
 log = virtualchain.get_logger("testlib")
 
 SATOSHIS_PER_COIN = 10**8
+TOKEN_TYPE_STACKS = 'STACKS'
 
 TX_MIN_CONFIRMATIONS = 6
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
@@ -69,11 +72,13 @@ if os.environ.get("BLOCKSTACK_MIN_CONFIRMATIONS", None) is not None:
 
 
 class Wallet(object):
-    def __init__(self, pk_wif, ignored):
+    def __init__(self, pk_wif, tokens_granted, vesting={} ):
 
         pk = virtualchain.BitcoinPrivateKey( pk_wif )
 
         self._pk = pk
+        self._token_grant = tokens_granted
+        self._vesting_schedule = vesting
 
         if pk_wif.startswith("c"):
             # already a private key 
@@ -108,6 +113,8 @@ class MultisigWallet(object):
         self.n = len(pks)
         self.pks = pks
         self.segwit = False
+        self._token_grant = kwargs.get('tokens_granted', 0)
+        self._vesting_schedule = kwargs.get('vesting', {})
 
         self.addr = self.privkey['address']
 
@@ -121,13 +128,18 @@ class MultisigWallet(object):
 
 
 class SegwitWallet(object):
-    def __init__(self, pk_wif ):
+    def __init__(self, pk_wif, tokens_granted=0, vesting={}, native=False ):
 
         self.privkey = virtualchain.make_segwit_info( pk_wif )
         pk = virtualchain.BitcoinPrivateKey( pk_wif )
 
         self._pk = pk
         self.segwit = True
+        self._token_grant = tokens_granted
+        self._vesting_schedule = vesting
+        self.segwit_native = native
+        if self.segwit_native:
+            self.privkey['segwit_native'] = True
 
         self.pubkey_hex = pk.public_key().to_hex()
         self.addr = self.privkey['address']
@@ -136,13 +148,19 @@ class SegwitWallet(object):
 
 
 class MultisigSegwitWallet(object):
-    def __init__(self, m, *pks ):
+    def __init__(self, m, *pks, **kwargs ):
 
         self.privkey = virtualchain.make_multisig_segwit_info( m, pks )
         self.m = m
         self.n = len(pks)
         self.pks = pks
         self.segwit = True
+        self.segwit_native = kwargs.get('native', False)
+        if self.segwit_native:
+            self.privkey['segwit_native'] = True
+
+        self._token_grant = kwargs.get('tokens_granted', 0)
+        self._vesting_schedule = kwargs.get('vesting', {})
 
         self.addr = self.privkey['address']
 
@@ -150,14 +168,63 @@ class MultisigSegwitWallet(object):
        
 
 class APICallRecord(object):
-    def __init__(self, method, name, address, result):
+    def __init__(self, method, name, address, result, token_record=None):
         self.block_id = max(all_consensus_hashes.keys()) + 1
         self.name = name
         self.method = method
         self.result = result
         self.address = address
+        self.token_record = token_record
         self.success = True
         assert 'transaction_hash' in result.keys() or 'error' in result.keys()
+
+
+# for auditing expenditures
+class TokenOperation(object):
+    def __init__(self, opcode, token_type, token_cost, account_addr):
+        self.opcode = opcode
+        self.token_type = token_type
+        self.token_cost = token_cost
+        self.account_addr = account_addr
+
+class TokenNamespacePreorder(TokenOperation):
+    def __init__(self, namespace_id, payment_addr, price=None):
+        blockstackd_url = 'http://localhost:16264'
+        
+        namespace_cost_info = price
+        if not namespace_cost_info:
+            namespace_cost_info = blockstackd_client.get_namespace_cost(namespace_id, hostport=blockstackd_url)
+
+        super(TokenNamespacePreorder, self).__init__("NAMESPACE_PREORDER", namespace_cost_info['units'], namespace_cost_info['amount'], payment_addr)
+
+
+class TokenNamePreorder(TokenOperation):
+    def __init__(self, name, preorder_addr, price=None):
+        blockstackd_url = 'http://localhost:16264'
+
+        name_cost_info = price
+        if not name_cost_info:
+            name_cost_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
+
+        super(TokenNamePreorder, self).__init__('NAME_PREORDER', name_cost_info['units'], name_cost_info['amount'], preorder_addr)
+
+
+class TokenNameRenewal(TokenOperation):
+    def __init__(self, name, owner_addr, price=None):
+        blockstackd_url = 'http://localhost:16264'
+
+        name_cost_info = price
+        if not name_cost_info:
+            name_cost_info = blockstackd_client.get_name_cost(name, hostport=blockstackd_url)
+
+        super(TokenNameRenewal, self).__init__('NAME_RENEWAL', name_cost_info['units'], name_cost_info['amount'], owner_addr)
+
+
+class TokenTransfer(TokenOperation):
+    def __init__(self, recipient_addr, token_type, token_amount, privatekey):
+        sender_addr = virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey))
+        self.recipient_addr = recipient_addr
+        super(TokenTransfer, self).__init__('TOKEN_TRANSFER', token_type, token_amount, sender_addr)
 
 
 # store the database after each block, under this directory
@@ -204,6 +271,11 @@ test_running = True
 
 # where's the node.js CLI?
 NODEJS_CLI_PATH = None
+
+# list of cleanup methods to be called
+CLEANUP_METHODS = []
+
+AUDIT_ACCOUNTS = True
 
 class CLIArgs(object):
     pass
@@ -257,6 +329,17 @@ def blockstack_get_name_cost(name, config_path=None):
     return int(name_cost_info['amount'])
 
 
+def blockstack_get_name_token_cost(name):
+    """
+    Get the token price of a name.  Use the CLI.
+    """
+    assert has_nodejs_cli()
+    info = nodejs_cli('price', name)
+    info = json.loads(info)
+    info['amount'] = int(info['amount'])
+    return info
+
+
 def has_nodejs_cli():
     """
     Do we have the node.js CLI installed, which uses blockstack.js?
@@ -278,7 +361,7 @@ def has_nodejs_cli():
 def nodejs_cli(*args, **kw):
     """
     Run the node.js CLI tool
-    Returns the last line of output
+    Returns the last line of output, unless otherwise specified
     """
     safety_checks = kw.get('safety_checks', True)
     consensus_hash = kw.get('consensus_hash', None)
@@ -392,7 +475,7 @@ def nodejs_cli(*args, **kw):
     return ret
 
 
-def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn_addr=None, consensus_hash=None, tx_fee=None, tx_only=False, safety_checks=True, price=None, expect_fail=False, config_path=None ):
+def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn_addr=None, consensus_hash=None, tx_fee=None, tx_only=False, safety_checks=True, price=None, expect_fail=False, expect_success=False, config_path=None ):
 
     global api_call_history 
 
@@ -401,6 +484,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
      
     resp = None
     if has_nodejs_cli():
+        print privatekey
         txid = nodejs_cli('tx_preorder', name, 'ID-' + register_addr, serialize_privkey_info(privatekey), burn_addr=burn_addr, consensus_hash=consensus_hash,
                           tx_fee=tx_fee, tx_only=tx_only, price=price, safety_checks=safety_checks, expect_fail=expect_fail, pattern='^[0-9a-f]{64}$')
 
@@ -421,8 +505,16 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
     else:
         raise Exception("No Node.js CLI found")
 
-    if not tx_only:
-        api_call_history.append( APICallRecord( "preorder", name, payment_addr, resp ) )
+    if not tx_only or expect_success:
+        token_record = None
+        if not expect_fail:
+            token_record = TokenNamePreorder(name, payment_addr, price=price)
+
+        if tx_only:
+            transaction_hash = virtualchain.btc_tx_get_hash(resp['transaction'])
+            resp['transaction_hash'] = transaction_hash
+
+        api_call_history.append( APICallRecord( "preorder", name, payment_addr, resp, token_record=token_record ) )
 
     return resp
 
@@ -531,7 +623,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, consensus_has
     return resp
 
 
-def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, zonefile_hash=None, tx_fee=None, tx_only=False, price=None, expect_fail=False, tx_fee_per_byte=None, use_cli=True):
+def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None, safety_checks=True, config_path=None, zonefile_hash=None, tx_fee=None, tx_only=False, price=None, expect_fail=False, expect_success=False, tx_fee_per_byte=None, use_cli=True):
     
     global api_call_history
     
@@ -543,15 +635,18 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
         txid = None
         if recipient_addr is not None:
             if zonefile_hash is not None:
-                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 'ID-' + recipient_addr, 'ignored', zonefile_hash, safety_checks=safety_checks, tx_only=tx_only, price=price, burn_addr=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
+                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 'ID-' + recipient_addr, 'ignored', zonefile_hash, 
+                        safety_checks=safety_checks, tx_only=tx_only, price=price, burn_addr=burn_addr, tx_fee=tx_fee, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
             else:
-                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 'ID-' + recipient_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
+                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 'ID-' + recipient_addr, 
+                        safety_checks=safety_checks, burn_addr=burn_addr, tx_only=tx_only, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
         else:
             if zonefile_hash is not None:
                 # txid = nodejs_cli('renew', name, privatekey, payment_key, owner_addr, safety_checks=safety_checks, burn_addr=burn_addr, tx_fee=tx_fee, price=price, pattern='^[0-9a-f]{64}$')
                 raise Exception("Cannot set a zone file hash without a destination address")
             else:
-                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), safety_checks=safety_checks, burn_addr=burn_addr, price=price, tx_fee=tx_fee, expect_fail=expect_fail)
+                txid = nodejs_cli('renew', name, serialize_privkey_info(privatekey), serialize_privkey_info(payment_key), 
+                        safety_checks=safety_checks, burn_addr=burn_addr, tx_only=tx_only, price=price, tx_fee=tx_fee, expect_fail=expect_fail)
 
         if 'error' in txid:
             return txid
@@ -570,8 +665,16 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
     else:
         raise Exception("No Node.js CLI found")
 
-    if not tx_only:
-        api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp ) )
+    if not tx_only or expect_success:
+        token_record = None
+        if not expect_fail:
+            token_record = TokenNameRenewal(name, owner_addr, price=price)
+
+        if tx_only:
+            transaction_hash = virtualchain.btc_tx_get_hash(resp['transaction'])
+            resp['transaction_hash'] = transaction_hash
+
+        api_call_history.append( APICallRecord( "renew", name, virtualchain.address_reencode(recipient_addr) if recipient_addr is not None else None, resp, token_record=token_record) )
 
     return resp
 
@@ -609,7 +712,7 @@ def blockstack_name_revoke( name, privatekey, safety_checks=True, config_path=No
     return resp
 
 
-def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=True, tx_only=False, config_path=None, expect_fail=False ):
+def blockstack_name_import( name, recipient_address, update_hash, privatekey, safety_checks=True, tx_only=False, config_path=None, expect_fail=False):
     
     global api_call_history
     
@@ -640,7 +743,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     return resp
 
 
-def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, consensus_hash=None, safety_checks=True, config_path=None, tx_fee=None, tx_only=False, price=None, expect_fail=False, use_cli=True, burn_addr=None):
+def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, burn_addr=None, consensus_hash=None, safety_checks=True, config_path=None, tx_only=False, tx_fee=None, price=None, expect_fail=False, use_cli=True):
     
     global api_call_history
     resp = None
@@ -668,12 +771,16 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
         raise Exception("No Node.js CLI found")
 
     if not tx_only:
-        api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp ) )
+        token_record = None
+        if not expect_fail:
+            token_record = TokenNamespacePreorder(namespace_id, payment_addr, price=price)
+
+        api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp, token_record=token_record) )
 
     return resp
 
 
-def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, tx_only=False, config_path=None, use_cli=True, expect_fail=False):
+def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, version_bits=1, safety_checks=True, tx_only=False, tx_fee=None, config_path=None, use_cli=True, expect_fail=False):
     
     global api_call_history
     resp = None
@@ -683,8 +790,8 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
         txid = {}
         try:
             txid = nodejs_cli('namespace_reveal', namespace_id, register_addr, '{}'.format(version_bits), '{}'.format(lifetime), '{}'.format(coeff), '{}'.format(base), 
-                    ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), serialize_privkey_info(privatekey), 
-                    safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only, expect_fail=expect_fail)
+                    ','.join(['{}'.format(bucket) for bucket in bucket_exponents]), '{}'.format(nonalpha_discount), '{}'.format(no_vowel_discount), 
+                    serialize_privkey_info(privatekey), safety_checks=safety_checks, pattern='^[0-9a-f]{64}$', tx_only=tx_only, tx_fee=tx_fee, expect_fail=expect_fail)
         
         except:
             if expect_fail:
@@ -720,7 +827,7 @@ def blockstack_namespace_ready( namespace_id, privatekey, safety_checks=True, tx
     global api_call_history
     resp = None
 
-    if use_cli and has_nodejs_cli() and virtualchain.is_singlesig(privatekey):
+    if has_nodejs_cli():
         txid = nodejs_cli('namespace_ready', namespace_id, serialize_privkey_info(privatekey), safety_checks=safety_checks, tx_only=tx_only, pattern='^[0-9a-f]{64}$', expect_fail=expect_fail)
 
         if 'error' in txid:
@@ -773,6 +880,43 @@ def blockstack_announce( message, privatekey, safety_checks=True, tx_only=False,
     return resp
 
 
+def blockstack_send_tokens(recipient_address, token_type, token_amount, privkey, consensus_hash=None, safety_checks=True, tx_only=False, expect_fail=False):
+    global api_call_history
+
+    assert has_nodejs_cli()
+
+    # re-encode the address to stacks format
+    res = nodejs_cli('convert_address', recipient_address)
+    res = json.loads(res)
+    if 'error' in res:
+        return res
+
+    stacks_recipient_address = res['STACKS']
+
+    txid = nodejs_cli('send_tokens', stacks_recipient_address, token_type, token_amount, serialize_privkey_info(privkey), safety_checks=safety_checks, tx_only=tx_only, consensus_hash=consensus_hash, expect_fail=expect_fail)
+    if 'error' in txid:
+        return txid
+
+    if tx_only:
+        resp = {
+            'status': True,
+            'transaction': txid
+        }
+    else:
+        resp = {
+            'status': True,
+            'transaction_hash': txid
+        }
+
+    token_record = None
+    if not expect_fail:
+        token_record = TokenTransfer(recipient_address, token_type, token_amount, privkey)
+
+    # TODO: expand SNV to cover token records
+    api_call_history.append( APICallRecord( "token_transfer", recipient_address, virtualchain.address_reencode(virtualchain.get_privkey_address(privkey)), resp, token_record=token_record) )
+    return resp
+
+
 def expect_api_call_failure():
     """
     Expect the last API call to fail
@@ -794,9 +938,12 @@ def serialize_privkey_info(payment_privkey):
     else:
         if payment_privkey['segwit']:
             m = payment_privkey['m']
+            n = len(payment_privkey['private_keys'])
+
             payment_privkey_str = 'segwit:p2sh:{},{}'.format(m, ','.join(payment_privkey['private_keys']))
         else:
             m, pubks = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
+            n = len(payment_privkey['private_keys'])
             payment_privkey_str = '{},{}'.format(m, ','.join(payment_privkey['private_keys']))
 
     return payment_privkey_str
@@ -1037,7 +1184,8 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
 
     Generates 2 blocks
     """
-    gaia_host = kw.get('gaia_host', 'http://localhost:4001')
+    gaia_host = kw.get('gaia_host', 'localhost:4001')
+    profile_name = kw.get('profile_name', 'profile.json')
 
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
 
@@ -1049,7 +1197,14 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
     blockstack_name_preorder(name, privkey, addr)
     next_block(**kw)
 
-    zonefile_txt = make_empty_zonefile(name, addr)
+    hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
+    gaia_read_prefix = hub_config['read_url_prefix']
+
+    if gaia_read_prefix[-1] != '/':
+        gaia_read_prefix += '/'
+
+    urls = ['{}{}/{}'.format(gaia_read_prefix, virtualchain.address_reencode(addr, network='mainnet'), profile_name)]
+    zonefile_txt = make_empty_zonefile(name, addr, urls=urls)
     zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
 
     blockstack_name_register(name, privkey, addr, zonefile_hash=zonefile_hash)
@@ -1057,7 +1212,7 @@ def blockstack_register_user(name, privkey, owner_privkey, **kw):
 
     blockstack_put_zonefile(zonefile_txt)
     profile_data = blockstack_make_profile(profile, owner_privkey)
-    blockstack_put_profile(name, profile_data, owner_privkey, gaia_host)
+    blockstack_put_profile(name, profile_data, owner_privkey, 'http://' + gaia_host)
     return True
 
 
@@ -1068,17 +1223,22 @@ def blockstack_import_user(name, privkey, owner_privkey, **kw):
 
     Generates 1 block
     """
-    gaia_host = kw.get('gaia_host', 'http://localhost:4001')
-
+    gaia_host = kw.get('gaia_host', 'localhost:4001')
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
     
     addr = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()   # make it match the wallet
     owner_privkey = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
 
-    profile = kw.get('profile', DEFAULT_PROFILE)
-    profile_url = 'http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(addr, network='mainnet'))
-    zonefile_txt = "$ORIGIN {}\n$TTL 3600\n_http URI 10 1 {}".format(name, profile_url)
+    hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
+    gaia_read_prefix = hub_config['read_url_prefix']
 
+    if gaia_read_prefix[-1] != '/':
+        gaia_read_prefix += '/'
+
+    profile = kw.get('profile', DEFAULT_PROFILE)
+
+    urls = ['{}{}/profile.json'.format(gaia_read_prefix, virtualchain.address_reencode(addr, network='mainnet'))]
+    zonefile_txt = make_empty_zonefile(name, addr, urls=urls)
     zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
 
     blockstack_name_import(name, addr, zonefile_hash, privkey)
@@ -1086,7 +1246,7 @@ def blockstack_import_user(name, privkey, owner_privkey, **kw):
 
     blockstack_put_zonefile(zonefile_txt)
     profile_data = blockstack_make_profile(profile, owner_privkey)
-    blockstack_put_profile(name, profile_data, owner_privkey, gaia_host)
+    blockstack_put_profile(name, profile_data, owner_privkey, 'http://' + gaia_host)
     return True
 
 
@@ -1097,17 +1257,22 @@ def blockstack_renew_user(name, privkey, owner_privkey, **kw):
 
     Generates 1 block
     """
-    gaia_host = kw.get('gaia_host', 'http://localhost:4001')
-
+    gaia_host = kw.get('gaia_host', 'localhost:4001')
     DEFAULT_PROFILE = {'type': '@Person', 'account': []}
     
     addr = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()   # make it match the wallet
     owner_privkey = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
 
-    profile = kw.get('profile', DEFAULT_PROFILE)
-    profile_url = 'http://localhost:4000/hub/{}/profile.json'.format(virtualchain.address_reencode(addr, network='mainnet'))
-    zonefile_txt = "$ORIGIN {}\n$TTL 3600\n_http URI 10 1 {}".format(name, profile_url)
+    hub_config = requests.get('http://{}/hub_info'.format(gaia_host)).json()
+    gaia_read_prefix = hub_config['read_url_prefix']
 
+    if gaia_read_prefix[-1] != '/':
+        gaia_read_prefix += '/'
+
+    profile = kw.get('profile', DEFAULT_PROFILE)
+
+    urls = ['{}{}/profile.json'.format(gaia_read_prefix, virtualchain.address_reencode(addr, network='mainnet'))]
+    zonefile_txt = make_empty_zonefile(name, addr, urls=urls)
     zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
 
     blockstack_name_renew(name, privkey, recipient_addr=addr, zonefile_hash=zonefile_hash)
@@ -1115,7 +1280,7 @@ def blockstack_renew_user(name, privkey, owner_privkey, **kw):
 
     blockstack_put_zonefile(zonefile_txt)
     profile_data = blockstack_make_profile({'type': '@Person', 'account': []}, owner_privkey)
-    blockstack_put_profile(name, profile_data, owner_privkey, gaia_host)
+    blockstack_put_profile(name, profile_data, owner_privkey, 'http://' + gaia_host)
     return True
 
 
@@ -1240,6 +1405,78 @@ def blockstack_get_profile( name, config_path=None ):
         raise Exception("blockstack_cli is required")
 
 
+def blockstack_gaia_getfile(username, origin, gaia_path, privkey=None, decrypt=False, verify=False):
+    """
+    Get a file from Gaia
+    """
+    assert has_nodejs_cli()
+    res = None
+    if privkey:
+        res = nodejs_cli('gaia_getfile', username, origin, gaia_path, privkey, '1' if decrypt else '0', '1' if verify else '0', full_output=True)
+    else:
+        res = nodejs_cli('gaia_getfile', username, origin, gaia_path, full_output=True)
+
+    return res
+
+
+def blockstack_gaia_putfile(privkey, data_path, gaia_path, gaia_hub, encrypt=False, sign=False):
+    """
+    Store a file to Gaia
+    """
+    assert has_nodejs_cli()
+    res = nodejs_cli('gaia_putfile', gaia_hub, privkey, data_path, gaia_path, '1' if encrypt else '0', '1' if sign else '0')
+    try:
+        return json.loads(res)
+    except:
+        print res
+        return {'error': 'failed to store {} to {}'.format(data_path, gaia_path)}
+
+
+def blockstack_gaia_listfiles(privkey, gaia_hub):
+    """
+    List gaia hub files
+    Returns an array of file names
+    """
+    assert has_nodejs_cli()
+    res = nodejs_cli('gaia_listfiles', gaia_hub, privkey, full_output=True)
+
+    # listfiles output is a newline-separated list of names, plus the number of files at the end 
+    filenames = filter(lambda s: len(s) > 0, res.split('\n'))
+    return filenames[:-1]
+
+
+def blockstack_gaia_dump_bucket(name_or_idaddr, app_origin, gaia_hub, mnemonic, dumpdir):
+    """
+    Dump a gaia hub bucket
+    """
+    assert has_nodejs_cli()
+    res = nodejs_cli('gaia_dump_bucket', name_or_idaddr, app_origin, gaia_hub, mnemonic, dumpdir, full_output=True)
+    print res
+
+    try:
+        res_json = json.loads(res.strip())
+        if 'error' in res_json:
+            return res_json
+    except:
+        pass
+
+    return {'status': True}
+
+
+def blockstack_gaia_restore_bucket(name_or_idaddr, app_origin, gaia_hub, mnemonic, dumpdir):
+    """
+    Restore a gaia dump
+    """
+    assert has_nodejs_cli()
+    res = nodejs_cli('gaia_restore_bucket', name_or_idaddr, app_origin, gaia_hub, mnemonic, dumpdir)
+    print res
+
+    if 'error' in res:
+        return res
+
+    return {'status': True}
+
+
 def blockstack_REST_call( method, route, api_pass=None, data=None, raw_data=None, config_path=None, allow_redirects=True, **query_fields ):
     """
     Low-level call to an API route
@@ -1299,8 +1536,8 @@ def blockstack_test_setenv(key, value):
     return res
 
 
-def blockstack_verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, working_db_path=None, start_block=None ):
-    return blockstackd.verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, start_block=start_block )
+def blockstack_verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, working_db_path=None, start_block=None):
+    return blockstackd.verify_database( consensus_hash, consensus_block_id, untrusted_db_dir, new_db_dir, start_block=start_block)
 
 
 def blockstack_export_db( snapshots_dir, block_height, **kw ):
@@ -1372,6 +1609,7 @@ def get_utxos( addr ):
     """
     Get the address balance
     """
+    global bitcoind
     return get_unspents(addr)
 
 
@@ -1470,6 +1708,196 @@ def getbalance( addr, **kw ):
     return bitcoind.getbalance( addr )
 
 
+def check_account_debits(state_engine, api_call_history):
+    """
+    Verify that each account has been debited the appropriate amount.
+    """
+    # don't do this if we're running in interactive mode, and the test is over
+    if not is_test_running():
+        return True
+    
+    addrs = state_engine.get_all_account_addresses()
+    token_types = filter(lambda tt: tt != 'BTC',
+                         list(set([api_call.token_record.token_type for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)])))
+
+    expected_expenditures = dict([
+        (addr, dict([
+            (token_type, sum([api_call.token_record.token_cost for api_call in
+                filter(lambda ac: ac.token_record is not None and ac.success and ac.token_record.account_addr == addr and ac.token_record.token_type == token_type, api_call_history)]))
+            for token_type in token_types]))
+        for addr in addrs])
+
+    accounts = dict([
+        (addr, dict([
+            (token_type, 0 if state_engine.get_account(addr, token_type) is None else state_engine.get_account(addr, token_type)['debit_value'])
+            for token_type in token_types]))
+        for addr in addrs])
+
+    log.debug("account debits = \n{}".format(json.dumps(accounts, indent=4, sort_keys=True)))
+    log.debug("expected expenditures =\n{}".format(json.dumps(expected_expenditures, indent=4, sort_keys=True)))
+
+    for addr in addrs:
+        for token_type in token_types:
+            if accounts[addr][token_type] != expected_expenditures[addr][token_type]:
+                log.error("mismatch: {}'s {}: {} != {}".format(addr, token_type, accounts[addr][token_type], expected_expenditures[addr][token_type]))
+                return False
+
+    return True
+
+
+def check_account_credits(state_engine, api_call_history):
+    """
+    Verify that each account has been credited the appropriate amount.
+    """
+    # don't do this if we're running in interactive mode, and the test is over
+    if not is_test_running():
+        return True
+    
+    addrs = state_engine.get_all_account_addresses()
+    token_types = filter(lambda tt: tt != 'BTC',
+                         list(set([api_call.token_record.token_type for api_call in filter(lambda ac: ac.token_record is not None, api_call_history)])))
+
+    # tokens received from all prior blocks from TokenTransfer
+    block_credits = dict([
+        (addr, dict([
+            (token_type, sum([api_call.token_record.token_cost for api_call in
+                filter(lambda ac: ac.success and isinstance(ac.token_record, TokenTransfer) and ac.token_record.recipient_addr == addr and ac.token_record.token_type == token_type, api_call_history)]))
+            for token_type in token_types]))
+        for addr in addrs])
+
+    # tokens given at genesis
+    genesis_tokens = dict([
+        (addr, dict([
+            (token_type, sum([blk['value'] for blk in filter(lambda g: g['address'] == addr and g['type'] == token_type, state_engine.genesis_block['rows'])]))
+            for token_type in token_types]))
+        for addr in addrs])
+
+    # tokens received through vesting
+    vesting_schedules = dict([
+        (addr, dict([
+            (token_type, [blk['vesting'] for blk in filter(lambda g: g['address'] == addr and g['type'] == token_type, state_engine.genesis_block['rows'])])
+            for token_type in token_types]))
+        for addr in addrs])
+
+    log.debug("Vesting schedule = \n{}".format(vesting_schedules))
+
+    vested_tokens = {}
+    for addr in addrs:
+        vested_tokens[addr] = {}
+        for token_type in token_types:
+            vested_tokens[addr][token_type] = 0
+            vested_token_sum = 0
+
+            assert len(vesting_schedules[addr][token_type]) <= 1, vesting_schedules[addr]
+            if len(vesting_schedules[addr][token_type]) == 0:
+                continue
+
+            vest_token_blocks = vesting_schedules[addr][token_type][0]
+
+            for block_height_key in vest_token_blocks:
+                block_height = int(block_height_key)
+                amount = vest_token_blocks[block_height_key]
+                
+                if block_height > state_engine.lastblock+1:
+                    continue
+                
+                print >> sys.stderr, '{} receives {} {} at {}'.format(addr, amount, token_type, block_height)
+                vested_token_sum += amount
+
+            vested_tokens[addr][token_type] = vested_token_sum
+
+    # total expected tokens
+    expected_credits = dict([
+        (addr, dict([
+            (token_type, genesis_tokens[addr][token_type] + vested_tokens[addr][token_type] + block_credits[addr][token_type])
+            for token_type in token_types]))
+        for addr in addrs])
+
+    # accounts from the db
+    accounts = dict([
+        (addr, dict([
+            (token_type, 0 if state_engine.get_account(addr, token_type) is None else state_engine.get_account(addr, token_type)['credit_value'])
+            for token_type in token_types]))
+        for addr in addrs])
+
+    log.debug("account credits = \n{}".format(json.dumps(accounts, indent=4, sort_keys=True)))
+    log.debug("vested credits = \n{}".format(json.dumps(vested_tokens, indent=4, sort_keys=True)))
+    log.debug("expected credits =\n{}".format(json.dumps(expected_credits, indent=4, sort_keys=True)))
+
+    for addr in addrs:
+        for token_type in token_types:
+            if accounts[addr][token_type] != expected_credits[addr][token_type]:
+                log.error("mismatch: {}'s {}: {} != {}".format(addr, token_type, accounts[addr][token_type], expected_credits[addr][token_type]))
+                return False
+
+    return True
+
+
+def check_account_vesting(state_engine):
+    """
+    Verify that each account has been credited the appropriate amount
+    according to its vesting schedule
+    """
+    global wallets
+
+    # don't do this if we're running in interactive mode, and the test is over
+    if not is_test_running():
+        return True
+     
+    vesting_schedules = dict([(wallet.addr, wallet._vesting_schedule) for wallet in wallets])
+    account_states = dict([(wallet.addr, state_engine.get_account_at(wallet.addr, state_engine.lastblock+1)) for wallet in wallets])
+    account_states_prior = dict([(wallet.addr, state_engine.get_account_at(wallet.addr, state_engine.lastblock)) for wallet in wallets])
+    
+    for addr in account_states:
+        account_states[addr].sort(cmp=lambda a1, a2: -1 if a1['vtxindex'] < a2['vtxindex'] else 0 if a1['vtxindex'] == a2['vtxindex'] else 1)
+
+    for addr in account_states_prior:
+        account_states_prior[addr].sort(cmp=lambda a1, a2: -1 if a1['vtxindex'] < a2['vtxindex'] else 0 if a1['vtxindex'] == a2['vtxindex'] else 1)
+
+    all_vestings = []
+    for addr in [wallet.addr for wallet in wallets]:
+        present = {}
+        for token_type in vesting_schedules[addr]:
+            if state_engine.lastblock+1 not in vesting_schedules[addr][token_type]:
+                continue
+
+            present[addr] = {token_type: vesting_schedules[addr][token_type]}
+
+        if len(present) > 0:
+            all_vestings.append(present)
+
+    if len(all_vestings) > 0:
+        log.debug("Expected vestings at {}:\n{}".format(state_engine.lastblock+1, json.dumps(all_vestings, indent=4, sort_keys=True)))
+
+    for addr in [wallet.addr for wallet in wallets]:
+        for token_type in vesting_schedules[addr]:
+            if state_engine.lastblock+1 not in vesting_schedules[addr][token_type]:
+                continue
+
+            expected_vesting = vesting_schedules[addr][token_type][state_engine.lastblock+1]
+           
+            # select account states by token type
+            account_token_states = filter(lambda a: a['type'] == token_type, account_states[addr])
+            account_token_states_prior = filter(lambda a: a['type'] == token_type, account_states_prior[addr])
+
+            # the state-transition at vtxindex == 0 on the account should have bumped the 'credit_value' by the vesting amount 
+            if len(account_token_states) == 0:
+                log.error("No account states for {} on token type {} at {}".format(addr, token_type, state_engine.lastblock+1))
+                return False
+
+            if len(account_token_states_prior) == 0:
+                raise Exception("BUG: could not query account state of {}".format(addr))
+
+            if account_token_states[0]['vtxindex'] != 0:
+                raise Exception("BUG: first account state of {} at {} is not at vtxindex 0".format(addr, state_engine.lastblock+1))
+
+            if account_token_states_prior[-1]['credit_value'] + expected_vesting != account_token_states[0]['credit_value']:
+                log.error("Account {} changed from {} to {} at {}: expected {}".format(addr, account_token_states_prior[-1]['credit_value'], account_token_states[0]['credit_value'], state_engine.lastblock+1, expected_vesting))
+                return False
+
+    return True
+
+
 def next_block( **kw ):
     """
     Advance the mock blockchain by one block.
@@ -1492,7 +1920,18 @@ def next_block( **kw ):
     blockstack_export_db( snapshots_dir, get_current_block(**kw), **kw )
     log_consensus( **kw )
 
+    # check all account balances against the database
+    if AUDIT_ACCOUNTS:
+        assert check_account_debits(state_engine, api_call_history), "Account debit mismatch"
+        assert check_account_credits(state_engine, api_call_history), "Account credit mismatch"
+        assert check_account_vesting(state_engine), 'Account vesting error'
 
+
+def set_account_audits(value):
+    global AUDIT_ACCOUNTS
+    AUDIT_ACCOUNTS = value
+
+   
 def get_consensus_at( block_id, **kw ):
     """
     Get the consensus hash at a particular block id.
@@ -1892,6 +2331,9 @@ def check_historic_names_by_address( state_engine ):
 
         if name not in final_name_states:
             final_name_states[name] = state_engine.get_name(name, include_expired=True)
+            if final_name_states[name] is None:
+                log.error("No final name states for {}".format(name))
+                return False
 
             # coerse string values
             final_name_states[name] = dict(map(lambda (k, v): (k, str(v)) if isinstance(v, unicode) else (k, v), final_name_states[name].items()))
@@ -1962,6 +2404,7 @@ def check_historic_names_by_address( state_engine ):
 
                         else:
                             # DID we expected refers to a different name.  It had better be in the same block
+                            log.warning('{} != {}, so {} must be in the same block'.format(old_name_rec['name'], name, block_id))
                             assert old_name_rec['last_renewed'] == block_id, 'Name record for {} (DID {}) comes from a different block than {}:\n{}'.format(old_name_rec['name'], expected_did, block_id, old_name_rec)
 
                     except Exception as e:
@@ -2227,6 +2670,8 @@ def peer_start( global_working_dir, working_dir, port=None, command='start', arg
     args += ['--expected-snapshots', os.path.join(global_working_dir, 'blockstack-server.snapshots')]
     env = {}
 
+    BlockstackDB.get_readwrite_instance(working_dir).close()
+
     # preserve test environment variables
     for envar in os.environ.keys():
         if envar.startswith("BLOCKSTACK_") and envar not in ['BLOCKSTACK_SERVER_CONFIG']:
@@ -2339,7 +2784,7 @@ def peer_working_dir( base_working_dir, index ):
 def peer_setup( base_working_dir, index ):
     """
     Set up the ith peer
-    Return {'working_dir': ...}
+    Return {'working_dir': ...} on success
     Return {'error': ...} on error 
     """
     # set up a new peer
@@ -2369,4 +2814,55 @@ def list_working_dirs(base_working_dir):
             ret.append(os.path.join(working_dir, name))
 
     return ret
+
+
+def get_wallet_balances(wallets):
+    """
+    Get the balances of all tokens for a list of walelts
+    """
+    if not isinstance(wallets, list):
+        wallets = [wallets]
+
+    balances = {}
+    for w in wallets:
+       balance_info = json.loads(nodejs_cli('balance', w.addr))
+       for token_type in balance_info:
+           balance_info[token_type] = int(balance_info[token_type])
+
+       balances[w.addr] = balance_info
+
+    return balances
+
+
+def get_addr_balances(addrs):
+    """
+    Get the balances of all tokens for a list of walelts
+    """
+    if not isinstance(addrs, list):
+        addrs = [addrs]
+
+    balances = {}
+    for addr in addrs:
+       balance_info = json.loads(nodejs_cli('balance', addr))
+       for token_type in balance_info:
+           balance_info[token_type] = int(balance_info[token_type])
+
+       balances[addr] = balance_info
+
+    return balances
+
+
+def add_cleanup(m):
+    """
+    A poor man's atexit.register
+    """
+    global CLEANUP_METHODS
+    CLEANUP_METHODS.append(m)
+
+def cleanup():
+    global CLEANUP_METHODS
+
+    print 'testlib cleanup'
+    for cleanup_method in CLEANUP_METHODS:
+        cleanup_method()
 

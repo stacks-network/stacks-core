@@ -201,6 +201,10 @@ def db_parse( block_id, txid, vtxindex, op, data, senders, inputs, outputs, fee,
    if len(senders) == 0:
        raise Exception("No senders given")
 
+   if not check_tx_sender_types(senders, block_id):
+       log.warning('Invalid senders for {}'.format(txid))
+       return None
+
    # this virtualchain instance must give the 'raw_tx' hint
    assert 'raw_tx' in virtualchain_hints, 'BUG: incompatible virtualchain: requires raw_tx support'
 

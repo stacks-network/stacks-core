@@ -39,6 +39,7 @@ import blockstack_zones
 import keylib
 import base64
 import gc
+import imp
 import argparse
 import jsonschema
 from jsonschema import ValidationError
@@ -64,11 +65,14 @@ from lib import *
 from lib.storage import *
 from lib.atlas import *
 from lib.fast_sync import *
+from lib.schemas import GENESIS_BLOCK_SCHEMA
 from lib.rpc import BlockstackAPIEndpoint
 from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history,
                             get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info,
                             get_all_subdomains, get_subdomains_count, get_subdomain_resolver, is_subdomain_zonefile_hash)
 
+from lib.scripts import address_as_b58, is_c32_address
+from lib.c32 import c32ToB58
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
 
@@ -84,7 +88,7 @@ api_server = None
 gc_thread = None
 
 
-def get_bitcoind(new_bitcoind_opts=None, reset=False, new=False):
+def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
    Get or instantiate our bitcoind client.
    Optionally re-set the bitcoind options.
@@ -223,10 +227,15 @@ def get_name_cost( db, name ):
         return None
 
     name_fee = price_name( get_name_from_fq_name( name ), namespace, lastblock )
-    name_fee_units = 'BTC'
+    name_fee_units = None
+
+    if namespace['version'] == NAMESPACE_VERSION_PAY_WITH_STACKS:
+        name_fee_units = TOKEN_TYPE_STACKS
+    else:
+        name_fee_units = 'BTC'
 
     name_fee = int(math.ceil(name_fee))
-    log.debug("Cost of '%s' at %s is %s %s" % (name, lastblock, name_fee, name_fee_units))
+    log.debug("Cost of '%s' at %s is %s units of %s" % (name, lastblock, name_fee, name_fee_units))
 
     return {'amount': name_fee, 'units': name_fee_units}
 
@@ -237,13 +246,14 @@ def get_namespace_cost( db, namespace_id ):
     Returns {'amount': ..., 'units': ..., 'namespace': ...}
     """
     lastblock = db.lastblock
-    namespace_fee = price_namespace( namespace_id, lastblock )
+    namespace_units = get_epoch_namespace_price_units(lastblock)
+    namespace_fee = price_namespace( namespace_id, lastblock, namespace_units )
     
     # namespace might exist
     namespace = db.get_namespace( namespace_id )
     namespace_fee = int(math.ceil(namespace_fee))
 
-    return {'amount': namespace_fee, 'units': 'BTC', 'namespace': namespace}
+    return {'amount': namespace_fee, 'units': namespace_units, 'namespace': namespace}
 
 
 class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
@@ -537,6 +547,10 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         for f in quirk_fields:
             if f in canonical_op:
                 del canonical_op[f]
+
+        # if we have a 'token_fee', make it a string
+        if 'token_fee' in canonical_op:
+            canonical_op['token_fee'] = str(canonical_op['token_fee'])
 
         canonical_op['opcode'] = opcode
         return canonical_op
@@ -944,6 +958,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
     def rpc_get_blockstack_ops_at(self, block_id, offset, count, **con_info):
         """
         Get the name operations that occured in the given block.
+        Does not include account operations.
 
         Returns {'nameops': [...]} on success.
         Returns {'error': ...} on error
@@ -970,6 +985,45 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
             ret.append(canonical_op)
         
         return self.success_response({'nameops': ret})
+
+
+    def rpc_get_num_account_ops_at(self, block_id, **con_info):
+        """
+        Get the number of account operations that occured at the given block.
+        Returns {'count': ...} on success
+        Returns {'error': ...} on error
+        """
+        if not check_block(block_id):
+            return {'error': 'Invalid block height', 'http_status': 400}
+
+        db = get_db_state(self.working_dir)
+        count = db.get_num_account_ops_at(self, block_id)
+        db.close()
+
+        log.debug('{} account operations at {}'.format(count, block_id))
+        return self.success_response({'count': count})
+
+
+    def rpc_get_account_ops_at(self, block_id, offset, count, **con_info):
+        """
+        Get the account operations that occured at a given block.
+        This includes account vesting, account debits and credits
+        as a result of name operations, and token transfers.
+
+        Returns {'account_ops': [...]} on success
+        Returns {'error': ...} on error
+        """
+        if not check_block(block_id):
+            return {'error': 'Invalid block height', 'http_status': 400}
+
+        if not check_offset(offset):
+            return {'error': 'Invalid offset', 'http_status': 400}
+
+        if not check_count(count, 10):
+            return {'error': 'Invalid count', 'http_status': 400}
+
+        db = get_db_state(self.working_dir)
+        pass
 
 
     def rpc_get_blockstack_ops_hash_at( self, block_id, **con_info ):
@@ -1247,6 +1301,145 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         return self.success_response( ret )
 
 
+    def rpc_get_account_tokens(self, address, **con_info):
+        """
+        Get the types of tokens that an account owns
+        Returns the list on success
+        """
+        if not check_account_address(address):
+            return {'error': 'Invalid address', 'http_status': 400}
+
+        # must be b58
+        if is_c32_address(address):
+            address = c32ToB58(address)
+
+        db = get_db_state(self.working_dir)
+        token_list = db.get_account_tokens(address)
+        db.close()
+        return self.success_response({'token_types': token_list})
+
+
+    def rpc_get_account_balance(self, address, token_type, **con_info):
+        """
+        Get the balance of an address for a particular token type
+        Returns the value on success
+        Returns 0 if the balance is 0, or if there is no address
+        """
+        if not check_account_address(address):
+            return {'error': 'Invalid address', 'http_status': 400}
+
+        if not check_token_type(token_type):
+            return {'error': 'Invalid token type', 'http_status': 400}
+
+        # must be b58
+        if is_c32_address(address):
+            address = c32ToB58(address)
+
+        db = get_db_state(self.working_dir)
+        account = db.get_account(address, token_type)
+        if account is None:
+            return self.success_response({'balance': 0})
+
+        balance = db.get_account_balance(account)
+        if balance is None:
+            balance = 0
+
+        db.close()
+        return self.success_response({'balance': balance})
+
+    
+    def export_account_state(self, account_state):
+        """
+        Make an account state presentable to external consumers
+        """
+        return {
+            'address': account_state['address'],
+            'type': account_state['type'],
+            'credit_value': '{}'.format(account_state['credit_value']),
+            'debit_value': '{}'.format(account_state['debit_value']),
+            'lock_transfer_block_id': account_state['lock_transfer_block_id'],
+            'block_id': account_state['block_id'],
+            'vtxindex': account_state['vtxindex'],
+            'txid': account_state['txid'],
+        }
+
+
+    def rpc_get_account_record(self, address, token_type, **con_info):
+        """
+        Get the current state of an account
+        """
+        if not check_account_address(address):
+            return {'error': 'Invalid address', 'http_status': 400}
+
+        if not check_token_type(token_type):
+            return {'error': 'Invalid token type', 'http_status': 400}
+
+        # must be b58
+        if is_c32_address(address):
+            address = c32ToB58(address)
+
+        db = get_db_state(self.working_dir)
+        account = db.get_account(address, token_type)
+        db.close()
+
+        if account is None:
+            return {'error': 'No such account', 'http_status': 404}
+
+        state = self.export_account_state(account)
+        return self.success_response({'account': state})
+
+
+    def rpc_get_account_history(self, address, page, **con_info):
+        """
+        Get the history of an account, pagenated over a block range.
+        Returns the sequence of history states on success (can be empty)
+        """
+        if not check_account_address(address):
+            return {'error': 'Invalid address', 'http_status': 400}
+
+        if not check_count(page):
+            return {'error': 'Invalid page', 'http_status': 400}
+
+        # must be b58
+        if is_c32_address(address):
+            address = c32ToB58(address)
+
+        db = get_db_state(self.working_dir)
+        page_size = 20
+        account_history = db.get_account_history(address, offset=(page * page_size), count=page_size)
+        db.close()
+
+        # return credit_value and debit_value as strings, so the unwitting JS developer doesn't get confused
+        # as to why large balances get mysteriously converted to doubles.
+        ret = [self.export_account_state(hist) for hist in account_history]
+        return self.success_response({'history': ret})
+
+    
+    def rpc_get_account_at(self, address, block_height, **con_info):
+        """
+        Get the account's statuses at a particular block height.
+        Returns the sequence of history states on success
+        """
+        if not check_account_address(address):
+            return {'error': 'Invalid address', 'http_status': 400}
+
+        if not check_block(block_height):
+            return {'error': 'Invalid start block', 'http_status': 400}
+
+        # must be b58
+        if is_c32_address(address):
+            address = c32ToB58(address)
+    
+        db = get_db_state(self.working_dir)
+        account_states = db.get_account_at(address, block_height)
+        db.close()
+
+        # return credit_value and debit_value as strings, so the unwitting JS developer doesn't get confused
+        # as to why large balances get mysteriously converted to doubles.
+        ret = [self.export_account_state(hist) for hist in account_states]
+        return self.success_response({'history': ret})
+
+
     def rpc_get_namespace_blockchain_record( self, namespace_id, **con_info ):
         """ 
         Return the namespace with the given namespace_id
@@ -1496,7 +1689,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         Return None on error
         """
         # check cache
-        atlas_zonefile_data = get_atlas_zonefile_data( zonefile_hash, zonefile_dir )
+        atlas_zonefile_data = get_atlas_zonefile_data( zonefile_hash, zonefile_dir, check=False )
         if atlas_zonefile_data is not None:
             # check hash
             zfh = get_zonefile_data_hash( atlas_zonefile_data )
@@ -2221,12 +2414,45 @@ def blockstack_signal_handler( sig, frame ):
     set_running(False)
 
 
+def genesis_block_setup():
+    """
+    Make sure the genesis block is good to go.
+    """
+    if os.environ.get('BLOCKSTACK_GENESIS_BLOCK_PATH'):
+        genesis_block_path = os.environ['BLOCKSTACK_GENESIS_BLOCK_PATH']
+        try:
+            genesis_block_mod = imp.load_source('genesis_block', genesis_block_path)
+            set_genesis_block(genesis_block_mod.GENESIS_BLOCK)
+
+            if BLOCKSTACK_TEST:
+                print ''
+                print 'genesis block'
+                print json.dumps(get_genesis_block(), indent=4, sort_keys=True)
+                print ''
+
+        except Exception as e:
+            log.exception(e)
+            log.fatal('Failed to load genesis block')
+            os.abort()
+
+    try:
+        jsonschema.validate(GENESIS_BLOCK_SCHEMA, get_genesis_block())
+    except Exception as e:
+        log.exception(e)
+        log.fatal("Invalid genesis block")
+        os.abort()
+
+    return True
+
+
 def server_setup(working_dir, port=None, api_port=None, indexer_enabled=None, indexer_url=None, api_enabled=None):
     """
     Set up the server.
     Start all subsystems, write pid file, set up signal handlers, set up DB.
     Returns a server instance.
     """
+    genesis_block_setup()
+
     blockstack_opts = get_blockstack_opts()
     blockstack_api_opts = get_blockstack_api_opts()
     pid_file = get_pidfile_path(working_dir)
@@ -2824,6 +3050,20 @@ def run_blockstackd():
     parser.add_argument(
         '--working-dir', action='store',
         help='Directory with the chain state to use')
+
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'audit',
+        help='audit the genesis block')
+    parser.add_argument(
+        'genesis_block_history', action='store',
+        help='a JSON file that encodes the list of public key authors and its git commit history')
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
+    parser.add_argument(
+        '--gpghome', action='store',
+        help='GPG key directory to use (defaults to a temporary directory)')
 
     args, _ = argparser.parse_known_args(new_argv[1:])
 

@@ -67,6 +67,8 @@ def start_subdomain_registrar():
     fd = open('/tmp/subdomain_registrar.log', 'w+')
     SUBDOMAIN_PROC = Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION], stdout=fd, stderr=fd, env = env)
 
+    testlib.add_cleanup(lambda: SUBDOMAIN_PROC.kill())
+
 
 def scenario( wallets, **kw ):
 

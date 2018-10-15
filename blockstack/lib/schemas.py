@@ -21,7 +21,7 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from .config import LENGTHS, NAME_OPCODES, NAME_TRANSFER, TRANSFER_KEEP_DATA, TRANSFER_REMOVE_DATA, NAME_REGISTRATION
+from .config import LENGTHS, NAME_OPCODES, NAME_TRANSFER, TRANSFER_KEEP_DATA, TRANSFER_REMOVE_DATA, NAME_REGISTRATION, TOKEN_TYPE_STACKS
 
 # schema constants
 OP_HEX_PATTERN = r'^([0-9a-fA-F]+)$'
@@ -29,8 +29,13 @@ OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTHS['consensus_h
 OP_ZONEFILE_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTHS['value_hash'] * 2)
 OP_BASE64_EMPTY_PATTERN = '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$'    # base64 with empty string
 OP_BASE58CHECK_CLASS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]'
+OP_C32CHECK_CLASS = r'[0123456789ABCDEFGHJKMNPQRSTVWXYZ]'
 OP_BASE58CHECK_PATTERN = r'^({}+)$'.format(OP_BASE58CHECK_CLASS)
+OP_C32CHECK_PATTERN = r'^({}+)$'.format(OP_C32CHECK_CLASS)
 OP_ADDRESS_PATTERN = r'^({}{{1,35}})$'.format(OP_BASE58CHECK_CLASS)
+OP_ACCOUNT_ADDRESS_PATTERN = r'^({}{{1,35}})$|^unallocated$|^treasury$|^not_distributed_[0-9a-f]+$'.format(OP_BASE58CHECK_CLASS)
+OP_STACKS_ADDRESS_PATTERN = r'^({}+)$'.format(OP_C32CHECK_CLASS)
+OP_GENESIS_ADDRESS_PATTERN = r'^({}{{1,35}})$|^unallocated$|^treasury$|^not_distributed_[0-9a-f]+$'.format(OP_BASE58CHECK_CLASS)
 OP_NAME_CHARS = r'a-z0-9\-_.+'
 OP_NAME_CHARS_NOPERIOD = r'a-z0-9\-_+'
 OP_NAMESPACE_CLASS = r'[{}]{{{},{}}}'.format(OP_NAME_CHARS, 1, LENGTHS['namespace_id'])
@@ -336,6 +341,14 @@ OP_HISTORY_SCHEMA = {
                 },
             ],
         },
+        'token_fee': {
+            'type': 'string',
+            'pattern': '^[0-9]+$',
+        },
+        'token_units': {
+            'type': 'string',
+            'pattern': '^{}$|^BTC$|{}'.format(TOKEN_TYPE_STACKS, OP_NAMESPACE_PATTERN)
+        },
         'txid': {
             'type': 'string',
             'pattern': OP_TXID_PATTERN,
@@ -495,6 +508,40 @@ NAMESPACE_SCHEMA_PROPERTIES = {
     'vtxindex': OP_HISTORY_SCHEMA['properties']['vtxindex'],
 }
 
+ACCOUNT_SCHEMA_PROPERTIES = {
+    'address': {
+        'type': 'string',
+        'pattern': OP_ACCOUNT_ADDRESS_PATTERN,
+     },
+    'type': {
+        'type': 'string',
+        'pattern': '^BTC$|^{}$|{}'.format(TOKEN_TYPE_STACKS, OP_NAMESPACE_PATTERN),
+    },
+    'credit_value': {
+        'type': 'string',
+        'pattern': '^[0-9]+',
+    },
+    'debit_value': {
+        'type': 'string',
+        'pattern': '^[0-9]+',
+    },
+    'lock_transfer_block_id': {
+        'type': 'integer',
+        'minimum': 0,
+    },
+    'block_id': {
+        'type': 'integer',
+        'minimum': 0,
+    },
+    'txid': {
+        'type': 'string',
+    },
+    'vtxindex': {
+        'type': 'integer',
+        'minimum': 0
+    }
+}
+
 NAMEOP_SCHEMA_REQUIRED = [
     'address',
     'block_number',
@@ -537,4 +584,118 @@ SUBDOMAIN_SCHEMA_REQUIRED = [
     'txid',
     'value_hash',
 ]
+
+ACCOUNT_SCHEMA_REQUIRED = [
+    'address',
+    'type',
+    'credit_value',
+    'debit_value',
+    'lock_transfer_block_id',
+    'block_id',
+    'txid',
+    'vtxindex',
+]
+
+GENESIS_BLOCK_VESTING_SCHEDULE = {
+    'type': 'object',
+    'patternProperties': {
+        '^[0-9]+$': {
+            'type': 'integer',
+            'minimum': 0
+        },
+    },
+}
+
+GENESIS_BLOCK_ROW_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'address': {
+            'type': 'string',
+            'pattern': OP_GENESIS_ADDRESS_PATTERN,
+        },
+        'lock_send': {
+            'type': 'integer',
+            'minimum': 0,
+        },
+        'metadata': {
+            'type': 'string',
+        },
+        'receive_whitelisted': {
+            'type': 'boolean',
+        },
+        'type': {
+            'type': 'string',
+            'pattern': 'STACKS',
+        },
+        'value': {
+            'type': 'integer',
+            'minimum': 0,
+        },
+        'vesting': GENESIS_BLOCK_VESTING_SCHEDULE,
+        'vesting_total': {
+            'type': 'integer',
+            'minimum': 0,
+        },
+    },
+    'required': [
+        'address',
+        'lock_send',
+        'metadata',
+        'receive_whitelisted',
+        'type',
+        'value',
+        'vesting',
+        'vesting_total',
+    ],
+}
+
+GENESIS_BLOCK_HISTORY_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'keys': {
+            'type': 'object',
+            'patternProperties': {
+                '^[0-9A-Fa-f]+': '.+',
+            },
+        },
+        'commits': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'hash': {
+                        'type': 'string',
+                        'pattern': '^[0-9a-fA-F]$',
+                    },
+                    'body': {
+                        'type': 'string',
+                    },
+                },
+                'required': [
+                    'hash',
+                    'body',
+                ],
+            },
+        },
+    },
+    'required': [
+        'keys',
+        'commits'
+    ],
+}
+
+GENESIS_BLOCK_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'history': GENESIS_BLOCK_HISTORY_SCHEMA,
+        'rows': {
+            'type': 'array',
+            'items': GENESIS_BLOCK_ROW_SCHEMA,
+        },
+    },
+    'required': [
+        'history',
+        'rows',
+    ],
+}
 

@@ -29,6 +29,7 @@ import traceback
 
 from .config import *
 from .b40 import *
+from .c32 import *
 from .schemas import *
 
 def is_name_valid(fqn):
@@ -209,11 +210,28 @@ def is_subdomain(fqn):
     return is_address_subdomain(fqn)[0]
 
 
-def price_name( name, namespace, block_height ):
+def price_name(name, namespace, block_height):
     """
     Calculate the price of a name (without its namespace ID), given the
     namespace parameters.
+
+    The minimum price is NAME_COST_UNIT (or NAME_COST_UNIT_STACKS)
+
+    This method returns an integer in the *current* epoch,
+    but it will return a float in previous epochs for backwards
+    compatibility.  The units are determined by the given namespace.
     """
+    units = None
+    cost_unit = None
+    epoch_features = get_epoch_features(block_height)
+
+    if namespace['version'] == NAMESPACE_VERSION_PAY_WITH_STACKS:
+        units = 'STACKS'
+        cost_unit = NAME_COST_UNIT_STACKS
+    else:
+        units = 'BTC'
+        cost_unit = NAME_COST_UNIT
+    
     base = namespace['base']
     coeff = namespace['coeff']
     buckets = namespace['buckets']
@@ -236,21 +254,67 @@ def price_name( name, namespace, block_height ):
         # non-alpha!
         discount = max( discount, namespace['nonalpha_discount'] )
 
-    price = (float(coeff * (base ** bucket_exponent)) / float(discount)) * NAME_COST_UNIT
-    if price < NAME_COST_UNIT:
-        price = NAME_COST_UNIT
+    price = None
+    final_price = None
 
-    price_multiplier = get_epoch_price_multiplier( block_height, namespace['namespace_id'] )
-    return price * price_multiplier
+    if EPOCH_FEATURE_INT_DIVISION in epoch_features:
+        # post-Stacks, we can have arbitrarily high prices and valuations.  Use integer division
+        price = long(coeff * (base ** bucket_exponent) * cost_unit) / int(discount)
+
+        if price < cost_unit:
+            price = long(cost_unit)
+
+        # we're using price divisors in this epoch 
+        price_divisor = get_epoch_price_divisor(block_height, namespace['namespace_id'], units)
+        final_price = price / price_divisor
+
+        assert isinstance(final_price, (int,long))
+
+    else:
+        # pre-Stacks, this was float, since it was deemed "safe" for the size of the numbers we were using.
+        # (wish we knew better then)
+        price = (float(coeff * (base ** bucket_exponent)) / float(discount)) * cost_unit
+        
+        if price < cost_unit:
+            price = cost_unit
+
+        # in this epoch, the price_multiplier is a float coefficient
+        price_multiplier = get_epoch_price_multiplier(block_height, namespace['namespace_id'], units)
+        final_price = price * price_multiplier
+
+    return final_price
 
 
-def price_namespace( namespace_id, block_height ):
+def price_name_stacks(name, namespace, block_height):
+    """
+    Get a name's price in Stacks, regardless of whether or not
+    the namespace it was created in was created before Stacks
+    existed.  This is because any name can be purchased with 
+    Stacks.  If the namespace price curve was meant for BTC
+    (per its version bits), then the BTC price will be converted
+    to the Stacks price.
+
+    Returns an integer (microStacks)
+    """
+    if namespace['version'] in [NAMESPACE_VERSION_PAY_WITH_STACKS]:
+        # price curve already reflects Stacks prices
+        return price_name(name, namespace, block_height)
+
+    else:
+        # price curve reflects Bitcoin prices.
+        # convert to Stacks prices with (MICROSTACKS_PER_SATOSHI_NUM / MICROSTACKS_PER_SATOSHI_DEN) ratio
+        btc_price = price_name(name, namespace, block_height)
+        btc_price = int(btc_price)
+        return (btc_price * MICROSTACKS_PER_SATOSHI_NUM) / MICROSTACKS_PER_SATOSHI_DEN
+
+
+def price_namespace( namespace_id, block_height, units ):
     """
     Calculate the cost of a namespace.
     Returns the price on success
-    Returns None if the namespace is invalid
+    Returns None if the namespace is invalid or if the units are invalid
     """
-    price_table = get_epoch_namespace_prices( block_height )
+    price_table = get_epoch_namespace_prices( block_height, units )
     if price_table is None:
         return None
 
@@ -390,6 +454,22 @@ def check_namespace(namespace_id):
         return False
 
     return True
+
+
+def check_token_type(token_type):
+    """
+    Verify that a token type is well-formed
+
+    >>> check_token_type('STACKS')
+    True
+    >>> check_token_type('BTC')
+    False
+    >>> check_token_type('abcdabcdabcd')
+    True
+    >>> check_token_type('abcdabcdabcdabcdabcd')
+    False
+    """
+    return check_string(token_type, min_length=1, max_length=LENGTHS['namespace_id'], pattern='^{}$|{}'.format(TOKEN_TYPE_STACKS, OP_NAMESPACE_PATTERN))
 
 
 def check_subdomain(fqn):
@@ -576,7 +656,7 @@ def check_string(value, min_length=None, max_length=None, pattern=None):
 
 def check_address(address):
     """
-    verify that a string is an address
+    verify that a string is a base58check address
 
     >>> check_address('16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg')
     True
@@ -604,6 +684,110 @@ def check_address(address):
 
     try:
         keylib.b58check_decode(address)
+        return True
+    except:
+        return False
+
+
+def check_account_address(address):
+    """
+    verify that a string is a valid account address.
+    Can be a b58-check address, a c32-check address, as well as the string "treasury" or "unallocated" or a string starting with 'not_distributed_'
+
+    >>> check_account_address('16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg')
+    True
+    >>> check_account_address('16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJh')
+    False
+    >>> check_account_address('treasury')
+    True
+    >>> check_account_address('unallocated')
+    True
+    >>> check_account_address('neither')
+    False
+    >>> check_account_address('not_distributed')
+    False
+    >>> check_account_address('not_distributed_')
+    False
+    >>> check_account_address('not_distributed_asdfasdfasdfasdf')
+    True
+    >>> check_account_address('SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7')
+    True
+    >>> check_account_address('SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ8')
+    False
+    """
+    if address == 'treasury' or address == 'unallocated':
+        return True
+
+    if address.startswith('not_distributed_') and len(address) > len('not_distributed_'):
+        return True
+
+    if re.match(OP_C32CHECK_PATTERN, address):
+        try:
+            c32addressDecode(address)
+            return True
+        except:
+            pass
+
+    return check_address(address)
+
+
+def check_tx_output_types(outputs, block_height):
+    """
+    Verify that the list of transaction outputs are acceptable
+    """
+    # for now, we do not allow nonstandard outputs (all outputs must be p2pkh or p2sh outputs)
+    # this excludes bech32 outputs, for example.
+    supported_output_types = get_epoch_btc_script_types(block_height)
+    for out in outputs:
+        out_type = virtualchain.btc_script_classify(out['script'])
+        if out_type not in supported_output_types:
+            log.warning('Unsupported output type {} ({})'.format(out_type, out['script']))
+            return False
+
+    return True
+
+
+def check_tx_sender_types(senders, block_height):
+    """
+    Verify that the list of transaction senders are acceptable
+    * a sender should have 1 address
+    * that address should match the epoch's supported sender types
+    """
+    supported_sender_types = get_epoch_btc_sender_types(block_height)
+    for sender in senders:
+        if len(sender['addresses']) != 1:
+            log.warning('Sender has {} addresses'.format(sender['addresses']))
+            return False
+
+        out_type = virtualchain.btc_script_classify(sender['script_pubkey'])
+        if out_type not in supported_sender_types:
+            log.warning('Unsupported sender output type {} ({})'.format(out_type, sender['script_pubkey']))
+            return False
+
+    return True
+
+
+def address_as_b58(addr):
+    """
+    Given a b58check or c32check address,
+    return the b58check encoding
+    """
+    if is_c32_address(addr):
+        return c32ToB58(addr)
+
+    else:
+        if check_address(addr):
+            return addr
+        else:
+            raise ValueError('Address {} is not b58 or c32'.format(addr))
+
+
+def is_c32_address(addr):
+    """
+    Is this a c32check address?
+    """
+    try:
+        c32addressDecode(addr)
         return True
     except:
         return False

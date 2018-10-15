@@ -56,7 +56,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw ) # 692
 
     '''
-    # DEPRECATED---the CLI is no longer aware of this epoch shift
+    # no longer a relevant test, since we're in epoch 3 now
     # should fail (safety checks stop it)
     resp = testlib.blockstack_name_register('foo.test', wallets[2].privkey, wallets[3].addr, zonefile_hash='22' * 20, expect_fail=True)
     if 'error' not in resp:
