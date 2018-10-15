@@ -179,6 +179,8 @@ See the [Method Glossary](#method-glossary) below.
 
 Example: `hash128("jude.id" + "8d8762c37d82360b84cf4d87f32f7754") == "d1062edb9ec9c85ad1aca6d37f2f5793"`.
 
+The 20 byte zone file hash is computed from zone file data by using `ripemd160(sha56(zone file data))`
+
 Inputs:
 * owner `scriptSig`
 * payment `scriptSig`'s
