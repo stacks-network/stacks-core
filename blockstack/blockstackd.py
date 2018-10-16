@@ -67,7 +67,8 @@ from lib.fast_sync import *
 from lib.rpc import BlockstackAPIEndpoint
 from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history,
                             get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info,
-                            get_all_subdomains, get_subdomains_count, get_subdomain_resolver, is_subdomain_zonefile_hash)
+                            get_all_subdomains, get_subdomains_count, get_subdomain_resolver, is_subdomain_zonefile_hash,
+                            get_subdomain_ops_at_txid)
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
@@ -1431,6 +1432,19 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         db.close()
 
         return self.success_response( {'names': res} )
+
+
+    def rpc_get_subdomain_ops_at_txid(self, txid, **con_info):
+        """
+        Return the list of subdomain operations accepted within a given txid.
+        Return {'status': True, 'subdomain_ops': [{...}]} on success
+        Return {'error': ...} on error
+        """
+        if not check_string(txid, min_length=64, max_length=64, pattern='^[0-9a-fA-F]{64}$'):
+            return {'error': 'Not a valid txid', 'http_status': 400}
+       
+        subdomain_ops = get_subdomain_ops_at_txid(txid)
+        return self.success_response( {'subdomain_ops': subdomain_ops} )
 
 
     def rpc_get_consensus_at( self, block_id, **con_info ):

@@ -375,11 +375,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         res = blockstackd_client.get_all_names(offset, count, include_expired=include_expired, hostport=blockstackd_url)
         if json_is_error(res):
             log.error("Failed to list all names (offset={}, count={}): {}".format(offset, count, res['error']))
-            self._reply_json({'error': 'Failed to list all names'}, status_code=res.get('http_status', 502))
-            return
+            return self._reply_json({'error': 'Failed to list all names'}, status_code=res.get('http_status', 502))
 
-        self._reply_json(res)
-        return
+        return self._reply_json(res)
 
 
     def GET_subdomains( self, path_info ):
@@ -411,11 +409,29 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if json_is_error(res):
             log.error("Failed to list all subdomains (offset={}, count={}): {}".format(offset, count, res['error']))
-            self._reply_json({'error': 'Failed to list all names'}, status_code=406)
-            return
+            return self._reply_json({'error': 'Failed to list all names'}, status_code=res.get('http_status', 406))
 
-        self._reply_json(res)
-        return
+        return self._reply_json(res)
+
+
+    def GET_subdomain_ops(self, path_info, txid):
+        """
+        Get all subdomain operations processed in a given transaction.
+        Returns the list of subdomains on success (can be empty)
+        Returns 502 on failure to get subdomains
+        """
+        blockstackd_url = get_blockstackd_url()
+        subdomain_ops = None
+        try:
+            subdomain_ops = blockstackd_client.get_subdomain_ops_at_txid(txid, hostport=blockstackd_url)
+        except ValueError:
+            return self._reply_json({'error': 'Invalid argument: not a well-formed txid'}, status_code=400)
+
+        if json_is_error(subdomain_ops):
+            log.error('Failed to get subdomain operations at {}: {}'.format(txid, subdomain_ops['error']))
+            return self._reply_json({'error': 'Failed to get subdomain operations'}, status_code=subdomain_ops.get('http_status', 500))
+
+        return self._reply_json(subdomain_ops)
 
 
     def GET_name_info( self, path_info, name ):
@@ -1274,6 +1290,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             r'^/v1/subdomains$': {
                 'routes': {
                     'GET': self.GET_subdomains
+                },
+            },
+            r'^/v1/subdomains/([0-9a-fA-F]{64})$': {
+                'routes': {
+                    'GET': self.GET_subdomain_ops,
                 },
             },
             r'^/v1/users/({}{{1,256}})$'.format(URLENCODING_CLASS): {

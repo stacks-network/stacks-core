@@ -2064,6 +2064,38 @@ def check_subdomain_db(firstblock=None, **kw):
 
         assert subrec_did == subrec, 'At ({}, {}): Did not resolve to {}, but instead to {}'.format(subd, addr, subrec, subrec_did)
 
+    # make sure we can get all historic states of each subdomain 
+    for subd in all_subdomains:
+        p = subprocess.Popen('sqlite3 "{}" \'select txid,accepted from subdomain_records where fully_qualified_subdomain = "{}" order by parent_zonefile_index, zonefile_offset\''
+                .format(blockstack_opts['subdomaindb_path'], subd), shell=True, stdout=subprocess.PIPE)
+
+        all_txids_and_accepted, _ = p.communicate()
+
+        all_txids_and_accepted = all_txids_and_accepted.strip().split('\n')
+        all_txids_and_accepted = [tuple(ataa.strip().split('|')) for ataa in all_txids_and_accepted]
+
+        assert len(all_txids_and_accepted) > 0, 'no subdomain rows for {}'.format(subd)
+
+        for txid_and_accepted in all_txids_and_accepted:
+            txid = txid_and_accepted[0]
+            accepted = txid_and_accepted[1]
+
+            res = requests.get('http://localhost:16268/v1/subdomains/{}'.format(txid))
+            items = res.json()
+            zfh = None
+            
+            for (i, subdomain_op) in enumerate(items):
+                assert subdomain_op['txid'] == txid, subdomain_op
+                assert subdomain_op['zonefile_offset'] >= i, subdomain_op
+                assert subdomain_op['accepted'] == int(accepted), subdomain_op
+                assert subdomain_op['domain'] == subd.split('.', 1)[-1], subdomain_op
+
+                if zfh is None:
+                    zfh = subdomain_op['parent_zonefile_hash']
+
+                assert zfh == subdomain_op['parent_zonefile_hash'], subdomain_op
+
+        
     print '\nend auditing the subdomain db\n'
 
     return True
