@@ -236,7 +236,7 @@ To check that your API endpoint is up, you can ping it with:
 
 ```
 $ curl http://localhost:6270/v1/ping
-{"status": "alive", "version": "19.0.0.0"}
+{"status": "alive", "version": "19.0.1.0"}
 ```
 
 You can confirm that your API endpoint can contact the `blockstack-core` daemon
@@ -272,7 +272,7 @@ $ blockstack-core --debug start --foreground
 
 ## Developer Resources
 
-**v19.0.0.0** is the current stable release of Blockstack Core.  It available on the `master` branch.
+**v19.0.1.0** is the current stable release of Blockstack Core.  It available on the `master` branch.
 
 The next release is being built on the [develop](https://github.com/blockstack/blockstack-core/tree/develop). Please submit all
 pull requests to the `develop` branch.
