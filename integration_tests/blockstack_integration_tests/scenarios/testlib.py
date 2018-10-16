@@ -2074,6 +2074,8 @@ def check_subdomain_db(firstblock=None, **kw):
         all_txids_and_accepted = all_txids_and_accepted.strip().split('\n')
         all_txids_and_accepted = [tuple(ataa.strip().split('|')) for ataa in all_txids_and_accepted]
 
+        assert len(all_txids_and_accepted) > 0, 'no subdomain rows for {}'.format(subd)
+
         for txid_and_accepted in all_txids_and_accepted:
             txid = txid_and_accepted[0]
             accepted = txid_and_accepted[1]
