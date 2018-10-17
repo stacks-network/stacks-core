@@ -47,7 +47,7 @@ import scripts as blockstackd_scripts
 from scripts import check_name, check_namespace, check_subdomain, check_block, check_offset, \
         check_count, check_string, check_address
 
-from util import BoundedThreadingMixIn
+from util import BoundedThreadingMixIn, parse_DID
 
 import storage
 
@@ -60,7 +60,7 @@ from virtualchain import AuthServiceProxy, JSONRPCException
 
 import blockstack_zones
 
-from schemas import OP_BASE64_EMPTY_PATTERN, OP_ZONEFILE_HASH_PATTERN
+from schemas import OP_BASE64_EMPTY_PATTERN, OP_ZONEFILE_HASH_PATTERN, OP_BASE58CHECK_CLASS
 
 log = virtualchain.get_logger()
 
@@ -779,10 +779,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockstackd_url = get_blockstackd_url()
         resp = blockstackd_client.resolve_DID(did, hostport=blockstackd_url)
         if json_is_error(resp):
-            self._reply_json({'error': resp['error']}, status_code=404)
-            return
+            return self._reply_json({'error': resp['error']}, status_code=404)
 
-        return self._reply_json({'public_key': resp['public_key'], 'document': resp['document'})
+        return self._reply_json({'public_key': resp['public_key'], 'document': resp['document']})
 
 
     def GET_user_profile( self, path_info, user_id ):
