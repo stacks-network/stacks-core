@@ -504,6 +504,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'address': name_rec['address'],
                 'blockchain': 'bitcoin',
                 'last_txid': name_rec['txid'],
+                'did': name_rec.get('did', {'error': 'Not supported for this name'})
             }
 
         else:
@@ -523,7 +524,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'expire_block': name_rec['expire_block'],      # expires_block is what blockstack.js expects
                 'renewal_deadline': name_rec['renewal_deadline'],
                 'grace_period': name_rec.get('grace_period', False),
-                'resolver': name_rec.get('resolver', None)
+                'resolver': name_rec.get('resolver', None),
+                'did': name_rec.get('did', {'error': 'Not supported for this name'})
             }
 
         return self._reply_json(ret)
@@ -757,6 +759,30 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'zonefile': zonefile_txt})
 
         return
+
+    
+    def GET_did(self, path_info, did):
+        """
+        Get a user profile.
+        Reply the profile on success
+        Return 404 on failure to load
+        """
+        try:
+            did_info = parse_DID(did)
+            assert did_info['name_type'] in ('name', 'subdomain')
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            return self._reply_json({'error': 'Invalid DID'}, status_code=400)
+
+        blockstackd_url = get_blockstackd_url()
+        resp = blockstackd_client.resolve_DID(did, hostport=blockstackd_url)
+        if json_is_error(resp):
+            self._reply_json({'error': resp['error']}, status_code=404)
+            return
+
+        return self._reply_json({'public_key': resp['public_key'], 'document': resp['document'})
 
 
     def GET_user_profile( self, path_info, user_id ):
@@ -1215,6 +1241,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             r'^/v1/blockchains/({}{{1,40}})/consensus$'.format(URLENCODING_CLASS): {
                 'routes': {
                     'GET': self.GET_blockchain_consensus,
+                },
+            },
+            r'^/v1/dids/(did:stack:v0:{}+-[0-9]+)$'.format(OP_BASE58CHECK_CLASS): {
+                'routes': {
+                    'GET': self.GET_did,
                 },
             },
             r'^/v1/names$': {
