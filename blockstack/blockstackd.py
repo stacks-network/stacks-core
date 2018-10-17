@@ -675,6 +675,20 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         if 'error' in res:
             return {'error': res['error'], 'http_status': 404}
 
+        # also get a DID
+        did_info = None
+        did = None
+        if check_name(name):
+            did_info = self.get_name_DID_info(name)
+        elif check_subdomain(name):
+            did_info = self.get_subdomain_DID_info(name)
+        else:
+            return {'error': 'Invalid name or subdomain', 'http_status': 400}
+
+        if did_info is not None:
+            did = make_DID(did_info['name_type'], did_info['address'], did_info['index'])
+            res['record']['did'] = did
+
         return self.success_response({'record': res['record']})
 
 
