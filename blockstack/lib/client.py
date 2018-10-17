@@ -3182,7 +3182,7 @@ def resolve_DID(did, hostport=None, proxy=None):
     4. fetch and authenticate the JWT at each URL (abort if there are none)
     5. extract the public key from the JWT and return that.
 
-    Return {'public_key': ...} on success
+    Return {'public_key': ..., 'document': ...} on success
     Return {'error': ...} on error
     """
     assert hostport or proxy, 'Need hostport or proxy'
@@ -3224,9 +3224,41 @@ def resolve_DID(did, hostport=None, proxy=None):
         if not jwt:
             continue
 
+        if 'payload' not in jwt:
+            log.error('Invalid JWT at {}: no payload'.format(url))
+            continue
+
+        if 'issuer' not in jwt['payload']:
+            log.error('Invalid JWT at {}: no issuer'.format(url))
+            continue
+
+        if 'publicKey' not in jwt['payload']['issuer']:
+            log.error('Invalid JWT at {}: no public key'.format(url))
+            continue
+
+        if 'claim' not in jwt['payload']:
+            log.error('Invalid JWT at {}: no claim'.format(url))
+            continue
+
+        if not isinstance(jwt['payload'], dict):
+            log.error('Invalid JWT at {}: claim is malformed'.format(url))
+            continue
+
         # found!
         public_key = str(jwt['payload']['issuer']['publicKey'])
-        return {'public_key': public_key}
+        document = jwt['payload']['claim']
+
+        # make sure it's a well-formed DID
+        document['@context'] = 'https://w3id.org/did/v1'
+        document['publicKey'] = [
+            {
+                'id': did,
+                'type': 'secp256k1',
+                'publicKeyHex': public_key
+            }
+        ]
+
+        return {'public_key': public_key, 'document': document}
 
     log.error("No zone file URLs resolved to a JWT with the public key whose address is {}".format(did_rec['address']))
     return {'error': 'No public key found for the given DID', 'http_status': 404}
