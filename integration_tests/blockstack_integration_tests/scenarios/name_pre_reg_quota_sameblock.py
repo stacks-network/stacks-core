@@ -66,7 +66,14 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     testlib.expect_snv_fail_at('foo26.test', testlib.get_current_block(**kw))
 
-    resp = testlib.blockstack_name_preorder( "bar.test", wallets[2].privkey, wallets[3].addr )
+    # safety checks should prohibit this
+    resp = testlib.blockstack_name_preorder( "bar.test", wallets[2].privkey, wallets[3].addr, expect_fail=True)
+    if 'error' not in resp:
+        print 'safety check failure on preorder'
+        print json.dumps( resp, indent=4 )
+        return False
+
+    resp = testlib.blockstack_name_preorder( "bar.test", wallets[2].privkey, wallets[3].addr, safety_checks=False)
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
         return False
@@ -74,13 +81,10 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # safety checks should prohibit this
-    # TODO: they don't
-    '''
-    resp = testlib.blockstack_name_register( "bar.test", wallets[2].privkey, wallets[3].addr)
+    resp = testlib.blockstack_name_register( "bar.test", wallets[2].privkey, wallets[3].addr, expect_fail=True)
     if 'error' not in resp:
         print 'safety check failure'
         return False
-    '''
 
     # should fail
     resp = testlib.blockstack_name_register( "bar.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )

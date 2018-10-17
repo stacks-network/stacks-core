@@ -24,7 +24,6 @@
 import testlib 
 import json
 import blockstack
-import blockstack_client
 import virtualchain
 import binascii
 import socket

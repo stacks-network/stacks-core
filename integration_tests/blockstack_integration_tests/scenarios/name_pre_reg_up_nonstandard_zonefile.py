@@ -24,8 +24,7 @@
 import testlib
 import virtualchain
 import json
-import blockstack_client
-import blockstack_profiles
+import blockstack
 import time
 import sys
 import binascii
@@ -93,13 +92,7 @@ error = False
 
 def scenario( wallets, **kw ):
 
-    global put_result, wallet_keys, legacy_profile, zonefile_hash, zonefile_hash_2, error
-
-    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[8].privkey, wallets[3].privkey, wallets[4].privkey )
-
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-
+    global put_result, legacy_profile, zonefile_hash, zonefile_hash_2, error
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -116,36 +109,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    # set up legacy profile hash
-    legacy_txt = json.dumps(legacy_profile,sort_keys=True)
-    legacy_hash = virtualchain.lib.hashing.hex_hash160( legacy_txt )
-    
-    result_1 = testlib.blockstack_cli_update("foo.test", legacy_txt, '0123456789abcdef') 
-    if 'error' in result_1:
-        print json.dumps(result_1, indent=4, sort_keys=True)
-        return False
-
-    # wait for it to go through...
-    for i in xrange(0, 12):
-        testlib.next_block(**kw)
-
-    print "wait 10 seconds for update to go through"
-    time.sleep(10)
-
-    rc = blockstack_client.storage.put_immutable_data( legacy_txt, result_1['transaction_hash'], data_hash=legacy_hash )
-    assert rc is not None
-
-    testlib.next_block( **kw )
-
-    # migrate profiles to standard zonefiles
-    res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
-    if 'error' in res:
-        res['test'] = 'Failed to initialize foo.test profile'
-        print json.dumps(res, indent=4, sort_keys=True)
-        return False 
-
-    testlib.next_block( **kw )
-
     # give foo.test a nonstandard zonefile (as something that serializes to JSON)
     nonstandard_zonefile_json = {'nonstandard': 'true', 'error': 'nonstandard'}
     nonstandard_zonefile_txt = json.dumps(nonstandard_zonefile_json, sort_keys=True)
@@ -154,126 +117,32 @@ def scenario( wallets, **kw ):
     zf_data = [nonstandard_zonefile_txt, nonstandard_zonefile_raw]
     for zi in xrange(0, len(zf_data)):
         nonstandard_zonefile = zf_data[zi]
-
-        resp = testlib.blockstack_cli_update( "foo.test", nonstandard_zonefile, "0123456789abcdef", nonstandard=True )
+        nonstandard_hash = blockstack.lib.storage.get_zonefile_data_hash(zf_data[i])
+        resp = testlib.blockstack_name_update("foo.test", nonstandard_hash, wallets[3].privkey)
         if 'error' in resp:
             print "failed to put nonstandard zonefile '%s'" % nonstandard_zonefile
             print json.dumps(resp, indent=4, sort_keys=True)
             return False
 
-        testlib.expect_atlas_zonefile(resp['zonefile_hash'])
-
-        # wait for it to take effect
-        for i in xrange(0, 12):
-            testlib.next_block( **kw )
-
-        time.sleep(10)
+        testlib.next_block(**kw)
+        testlib.blockstack_put_zonefile(nonstandard_zonefile)
 
         # getting zonefile should still work...
-        resp = testlib.blockstack_cli_get_name_zonefile( "foo.test", json=True, raw=False)
+        resp = testlib.blockstack_cli_get_name_zonefile( "foo.test")
         if 'error' in resp:
             print "failed to get zonefile %s" % zi
             print json.dumps(resp, indent=4, sort_keys=True)
             return False 
 
-        if resp['zonefile'] != nonstandard_zonefile:
+        if resp != nonstandard_zonefile:
             print "failed to load nonstandard zonefile json"
-            print "expected:\n%s\n\ngot:\n%s" % (nonstandard_zonefile, resp['zonefile'])
+            print "expected:\n%s\n\ngot:\n%s" % (nonstandard_zonefile.encode('hex'), resp.encode('hex'))
             return False
-
-        # the following should all fail
-        dataplane_funcs = [
-            ("lookup",        lambda: testlib.blockstack_cli_lookup( "foo.test" )),
-            ("put_immutable", lambda: testlib.blockstack_cli_put_immutable( "foo.test", "fail", '{"Fail": "Yes"}', password='0123456789abcdef' )),
-            ("get_immutable", lambda: testlib.blockstack_cli_get_immutable( "foo.test", "fail" )),
-            ("put_mutable",   lambda: testlib.blockstack_cli_put_mutable( "foo.test", "fail", '{"fail": "yes"}', password='0123456789abcdef' )),
-            ("get_mutable",   lambda: testlib.blockstack_cli_get_mutable( "foo.test", "fail" )),
-            ("delete_immutable", lambda: testlib.blockstack_cli_delete_immutable( "foo.test", "00" * 32, password='0123456789abcdef' )),
-            ("delete_mutable", lambda: testlib.blockstack_cli_delete_mutable( "foo.test", "fail", password='0123456789abcdef' ))
-        ]
-
-        for data_func_name, data_func in dataplane_funcs:
-            resp = data_func()
-            if 'error' not in resp:
-                if data_func_name != 'lookup':
-                    print "%s succeeded when it should not have:\n%s" % (data_func_name, json.dumps(resp, indent=4, sort_keys=True))
-                    return False
-                elif 'error' not in resp['profile']:
-                    print "%s succeeded when it should not have:\n%s" % (data_func_name, json.dumps(resp, indent=4, sort_keys=True))
-                    return False
-      
-        # this should succeed
-        zf_hist = testlib.blockstack_cli_list_zonefile_history( "foo.test" )
-        if len(zf_hist) != 2*(zi+1)+1:
-            print "missing zonefile history: %s (expected %s items, got %s)" % (zf_hist, zi+3, len(zf_hist))
-            return False
-
-        update_hist = testlib.blockstack_cli_list_update_history( "foo.test" )
-        if len(update_hist) != 2*(zi+1)+1:
-            print 'missing zonefile history: %s (expected %s items, got %s)' % (zf_hist, zi+3, len(zf_hist))
-            return False
-
-        name_hist = testlib.blockstack_cli_get_name_blockchain_history("foo.test")
-        
-        if zf_hist[-1] != nonstandard_zonefile:
-            print "invalid zonefile: expected\n%s\ngot\n%s\n" % (nonstandard_zonefile, zf_hist[-1])
-            return False
-
-        # this should work, but with "non-standard zonefiles"
-        hist = testlib.blockstack_cli_list_immutable_data_history("foo.test", "fail")
-        if len(hist) != 2*(zi+1)+1:
-            print "missing immutable data history: %s (expected %s items, got %s)" % (hist, zi+3, len(hist))
-            return False
-
-        if hist[-1] != 'non-standard zonefile':
-            print "not a non-standard zonefile: %s" % hist[-1]
-            return False 
-
-        # verify that we can migrate it back
-        resp = testlib.blockstack_cli_migrate( "foo.test", "0123456789abcdef", force=True, interactive=False )
-        if 'error' in resp:
-            print "failed to migrate"
-            print json.dumps(resp, indent=4, sort_keys=True)
-            return False
-
-        zonefile_hash = resp['zonefile_hash']
-
-        # wait for it to take effect
-        for i in xrange(0, 12):
-            testlib.next_block( **kw )
-
-        time.sleep(10)
-
-    # see that put_immutable works
-    put_result = testlib.blockstack_cli_put_immutable("foo.test", "hello_world_immutable", json.dumps({'hello': 'world'}), password='0123456789abcdef')
-    if 'error' in put_result:
-        print json.dumps(put_result, indent=4, sort_keys=True )
-        return False
-
-    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
-
-    # tell serialization-checker that value_hash can be ignored here
-    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
-    sys.stdout.flush()
-    
-    # wait for confirmation
-    for i in xrange(0, 12):
-        testlib.next_block( **kw )
-
-    print "waiting for confirmation"
-    time.sleep(10)
-
-    # see that put_mutable works
-    put_result = testlib.blockstack_cli_put_mutable("foo.test", "hello_world_mutable", json.dumps({'hello': 'world'}), password='0123456789abcdef')
-    if 'error' in put_result:
-        print json.dumps(put_result, indent=4, sort_keys=True )
-    
-    testlib.next_block( **kw )
      
 
 def check( state_engine ):
 
-    global wallet_keys, datasets, zonefile_hash
+    global datasets, zonefile_hash
 
     if error:
         return False
@@ -313,60 +182,6 @@ def check( state_engine ):
     # owned 
     if name_rec['address'] != wallets[wallet_owner].addr or name_rec['sender'] != virtualchain.make_payment_script(wallets[wallet_owner].addr):
         print "name has wrong owner"
-        return False 
-
-    # zonefile is NOT legacy 
-    user_zonefile = blockstack_client.zonefile.load_name_zonefile( name, zonefile_hash )
-    if 'error' in user_zonefile:
-        print json.dumps(user_zonefile, indent=4, sort_keys=True)
-        return False 
-
-    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
-        print "legacy still"
-        print json.dumps(user_zonefile, indent=4, sort_keys=True)
-        return False
-
-    # still have a profile with data
-    user_profile = blockstack_client.profile.get_profile( name, user_zonefile=user_zonefile )
-    if user_profile is None or 'error' in user_profile:
-        if user_profile is not None:
-            print json.dumps(user_profile, indent=4, sort_keys=True)
-        else:
-            print "\n\nprofile is None\n\n"
-                    
-        return False
-
-    # still have immutable data
-    immutable_data_by_name = testlib.get_immutable_by_name('foo.test', 'hello_world_immutable')
-    if immutable_data_by_name is None:
-        print "No data received by name for dataset %s" % i
-        return False 
-
-    if 'error' in immutable_data_by_name:
-        print "No data received for dataset hello_world_immutable"
-        return False 
-
-    if not immutable_data_by_name.has_key('data'):
-        print "Misisng data\n%s" % json.dumps(immutable_data_by_name, indent=4, sort_keys=True)
-        return False 
-
-    data_json = json.loads(immutable_data_by_name['data'])
-    if data_json != {'hello': 'world'}:
-        print "did not get dataset hello_world_immutable\ngot %s\nexpected %s" % (data_json, {'hello': 'world'})
-        return False 
-
-    # still have mutable data
-    dat = testlib.blockstack_cli_get_mutable( 'foo.test', 'hello_world_mutable' )
-    if dat is None:
-        print "No hello_world_mutable"
-        return False 
-
-    if 'error' in dat:
-        print json.dumps(dat, indent=4, sort_keys=True)
-        return False 
-
-    if json.loads(dat['data']) != {'hello': 'world'}:
-        print "did not get mutable dataset"
         return False
 
     return True

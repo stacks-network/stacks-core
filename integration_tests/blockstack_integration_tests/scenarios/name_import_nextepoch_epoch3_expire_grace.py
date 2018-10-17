@@ -163,7 +163,7 @@ def scenario( wallets, **kw ):
     # begin epoch 3 (grace period)
     testlib.next_block(**kw) # end of 697
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -187,7 +187,7 @@ def scenario( wallets, **kw ):
         print 'accidentally registered'
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False
@@ -210,7 +210,7 @@ def scenario( wallets, **kw ):
         print 'accidentally registered'
         return False
 
-    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20)
+    resp = testlib.blockstack_name_register("foo.test", wallets[1].privkey, wallets[2].addr, zonefile_hash='44' * 20, expect_fail=True)
     if 'error' not in resp:
         print resp
         return False

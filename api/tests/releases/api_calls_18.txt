@@ -1,0 +1,78 @@
+/v1/names?page=0
+/v1/names?page=100
+/v1/names?page=190
+/v1/names               # should fail
+
+/v1/subdomains?page=0
+/v1/subdomains?page=100
+/v1/subdomains?page=670
+/v1/subdomains          # should fail
+
+/v1/names/judecn.id
+/v1/names/admin.graphite
+/v1/names/judecn.none   # should fail
+/v1/names/judecnjudecnjudecn.id     # should fail
+
+/v1/names/jude.personal.id
+/v1/names/jude.personal.none        # should fail
+/v1/names/asdflasdflaksaslsflakd.personal.id    # should fail
+
+/v1/names/judecn.id/history
+/v1/names/judecn.none/history           # should fail
+
+/v1/names/jude.personal.id/history
+/v1/names/asdfaslasdflaskjfasldkfj.personal.id/history  # should fail
+
+/v1/names/judecn.id/zonefile
+/v1/names/jude.personal.id/zonefile
+/v1/names/not.found/zonefile        # should fail
+/v1/names/not.found.id/zonefile     # should fail
+
+/v1/names/judecn.id/zonefile/dbbdedc2b81d875403cc76486625a19f1e3b3c6f
+/v1/names/judecn.id/zonefile/dbbdedc2b81d875403cc76486625a19f1e3b3c60    # should fail
+/v1/names/judecn.none/zonefile/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d6  # should fail
+
+/v1/names/id.blockstack/zonefile/eb638f9a2ce5d05b3c185644c8c158f1e277b0b3   # expensive
+
+/v1/names/jude.personal.id/zonefile/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d6
+/v1/names/jude.personal.id/zonefile/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d0 # should fail
+/v1/names/asdlfkasdflkjasdlfjk.personal.id/zonefile/16ebbb1cadb18a90deb8f1a6beb22e42ffef19d6     # should fail
+
+/v1/addresses/bitcoin/16EMaNw3pkn3v6f2BgnSSs53zAKH4Q8YJg        # judecn.id
+/v1/addresses/bitcoin/1Pwbo3enKDAqZq7T1SSY5T9JatuYbyonGo        # jude.personal.id
+/v1/addresses/bitcoin/1DUvxueAQwkjx1z57hEVwUta8KqygoHtNZ        # should fail
+
+/v1/prices/namespaces/id
+/v1/prices/namespaces/ID    # should fail
+/v1/prices/namespaces/asdlfkjasdlfkjasdlfkjasdlfkjasdlkfjasdlfkjasdlfkj     # should fail
+
+/v1/prices/names/judecn.id
+/v1/prices/names/jude.personal.id       # should fail
+/v1/prices/names/asdfljkasdfljkasdflkajsdflkjsdasdflkjasdflkjadf.id     # should fail
+
+/v1/blockchains/bitcoin/consensus
+/v1/blockchains/bitcoin2/consensus      # should fail
+
+/v1/blockchains/bitcoin/name_count
+/v1/blockchains/bitcoin2/name_count     # should fail
+/v1/blockchains/bitcoin/name_count?all=1
+/v1/blockchains/bitcoin2/name_count?all=1   # should fail
+
+/v1/blockchains/bitcoin/subdomains_count
+/v1/blockchains/bitcoin2/subdomains_count   # should fail
+
+/v1/namespaces
+
+/v1/namespaces/id/names?page=0
+/v1/namespaces/id/names?page=100
+/v1/namespaces/id/names?page=180
+/v1/namespaces/id/names             # should fail
+/v1/namespaces/ID/names?page=0      # should fail
+
+/v1/users/judecn.id
+/v1/users/jude.personal.id
+/v1/users/judecn.none               # should fail
+/v1/users/aldfkjasdlkfjalskdjfalskfjasldkfjaoialsdkfjlaksjflkjs.id      # should fail
+/v1/users/aldkfjalsdkfjalskdjf.personal.id                              # should fail
+
+

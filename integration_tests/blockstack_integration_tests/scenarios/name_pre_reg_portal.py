@@ -33,7 +33,7 @@ import testlib
 
 import testlib
 import virtualchain
-import blockstack_client
+import blockstack
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -46,12 +46,6 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
-
-    # save the wallet 
-    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey, start_rpc=True )
-    if 'error' in wallet:
-        print 'failed to set wallet: {}'.format(wallet)
-        return False
 
     testlib.blockstack_namespace_preorder( "id", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )

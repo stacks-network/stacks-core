@@ -35,22 +35,24 @@ from api.config import (
 from .utils import validUsername
 from .utils import get_json, config_log
 
-from blockstack_client import proxy, subdomains
-from blockstack_client.profile import get_profile
+import blockstack
+
 from api.utils import profile_log
 import logging
 
 log = config_log(__name__)
+
+blockstack_working_dir = blockstack.lib.config.default_working_dir()
+blockstack_config = blockstack.lib.load_configuration(blockstack_working_dir)
+blockstack_indexer_url = blockstack_config['blockstack-api']['indexer_url']
 
 def fetch_namespace():
     """
         Fetch all names in a namespace that should be indexed.
         Data is saved in data/ directory
     """
-    resp = proxy.get_all_names()
-
-    subdomaindb = subdomains.SubdomainDB()
-    subdomain_names = subdomaindb.get_all_subdomains()
+    resp = blockstack.lib.client.get_all_names(hostport=blockstack_indexer_url)
+    subdomain_names = blockstack.lib.subdomains.get_all_subdomains()
 
     all_names = list(resp) + list(subdomain_names)
 
@@ -74,7 +76,7 @@ def update_profiles():
     last_full_index = search_indexer_info['last_full_index']
     last_subdomain_seq = search_indexer_info['last_subdomain_seq']
 
-    info_resp = proxy.getinfo()
+    info_resp = blockstack.lib.client.getinfo(hostport=blockstack_indexer_url)
     try:
         new_block_height = info_resp['last_block_processed']
     except:
@@ -88,17 +90,17 @@ def update_profiles():
     if last_block_processed - 1 > new_block_height:
         return {'status' : True, 'message' : 'No new blocks since last indexing'}
 
-    subdomaindb = subdomains.SubdomainDB()
     subdomain_names = [ name for name in
-                        subdomaindb.get_all_subdomains(above_seq = last_subdomain_seq)
+                        blockstack.lib.subdomains.get_all_subdomains(min_sequence=last_subdomain_seq)
                         if name not in existing_names ]
-    last_subdomain_seq = subdomaindb.get_last_index()
+
+    last_subdomain_seq = blockstack.lib.subdomains.get_sudomain_last_sequence()
 
     # aaron: note, sometimes it may take a little while for
     #  new zonefiles to have propagated to the network, so
     #  we over-fetch a little bit
-    zonefiles_resp = proxy.get_zonefiles_by_block(
-        last_block_processed - 1, new_block_height)
+    zonefiles_resp = blockstack.lib.client.get_zonefiles_by_block(
+        last_block_processed - 1, new_block_height, hostport=blockstack_indexer_url)
     zonefiles_updated = zonefiles_resp['zonefile_info']
     names_updated = [ zf_info['name'] for zf_info in zonefiles_updated
                       if 'name' in zf_info ]
@@ -113,7 +115,7 @@ def update_profiles():
         profile_entry = {}
         profile_entry['fqu'] = name
         try:
-            profile_resp = get_profile(name, use_legacy = True)
+            profile_resp = blockstack.lib.client.resolve_profile(name, hostport=blockstack_indexer_url)
             profile_entry['profile'] = profile_resp['profile']
             updated_profiles[name] = (profile_entry)
             actually_updated_names.add(name)
@@ -165,7 +167,7 @@ def fetch_profiles(max_to_fetch = None, just_test_set = False):
     with open(SEARCH_BLOCKCHAIN_DATA_FILE, 'r') as fin:
         all_names = json.load(fin)
 
-    info_resp = proxy.getinfo()
+    info_resp = blockstack.lib.client.getinfo(hostport=blockstack_indexer_url)
     last_block_processed = info_resp['last_block_processed']
 
     all_profiles = []
@@ -187,7 +189,9 @@ def fetch_profiles(max_to_fetch = None, just_test_set = False):
         resp['fqu'] = fqu
 
         try:
-            resp['profile'] = get_profile(fqu, use_legacy = True)['profile']
+            resp['profile'] = blockstack.lib.client.resolve_profile(
+                    fqu, hostport=blockstack_indexer_url)['profile']
+
             all_profiles.append(resp)
         except KeyboardInterrupt as e:
             raise e
@@ -202,8 +206,7 @@ def fetch_profiles(max_to_fetch = None, just_test_set = False):
             print "ERROR! Could not obtain lockfile"
             return
 
-    subdomaindb = subdomains.SubdomainDB()
-    last_subdomain_seq = subdomaindb.get_last_index()
+    last_subdomain_seq = blockstack.lib.subdomains.get_subdomain_last_sequence()
 
     with open(SEARCH_PROFILE_DATA_FILE, 'w') as fout:
         json.dump(all_profiles, fout)
@@ -251,6 +254,27 @@ if __name__ == "__main__":
         exit(0)
 
     option = sys.argv[1]
+
+    # wait for blockstack-core to come alive 
+    # wait for up to an hour 
+    start_time = time.time()
+    alive = False
+    while time.time() < start_time + 3600:
+        info_resp = {}
+        try:
+            info_resp = blockstack.lib.client.getinfo(hostport=blockstack_indexer_url)
+            assert 'error' not in info_resp
+            alive = True
+            break
+        except:
+            if 'error' in info_resp:
+                time.sleep(5.0)
+                continue
+            else:
+                raise
+
+    if not alive:
+        raise Exception("Could not contact blockstack-core")
 
     if(option == '--fetch_namespace'):
         # Step 1

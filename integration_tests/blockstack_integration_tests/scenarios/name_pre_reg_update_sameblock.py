@@ -98,7 +98,7 @@ def check( state_engine ):
         print 'got updated'
         return False
 
-    num_ops = state_engine.get_num_ops_at(update_block)
+    num_ops = state_engine.get_num_blockstack_ops_at(update_block)
     if num_ops != 2:
         print 'wrong number of ops at {}'.format(update_block)
         return False

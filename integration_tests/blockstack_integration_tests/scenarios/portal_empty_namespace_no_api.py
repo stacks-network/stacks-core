@@ -36,7 +36,6 @@ import virtualchain
 import time
 import json
 import sys
-import blockstack_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),

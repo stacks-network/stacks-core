@@ -74,26 +74,42 @@ DEFAULT_DEPS = [
         'subpackages': ['integration_tests'],
     },
     {
-        'name': 'clean_scrypt',
-        'git': None,
-        'branch': None,
-        'type': 'shell',
-        'command': 'pip uninstall -y scrypt; pip install scrypt; if [ -f /usr/local/lib/python2.7/dist-packages/_scrypt.so ]; then cp -a /usr/local/lib/python2.7/dist-packages/_scrypt.so "$VIRTUAL_ENV"/lib/python2.7/site-packages; elif [ -f /usr/lib/python2.7/site-packages/_scrypt.so ]; then cp -a /usr/lib/python2.7/site-packages/_scrypt.so "$VIRTUAL_ENV"/lib/python2.7/site-packages; fi'
-    },
-    {
-        'name': 'blockstack-storage.js',
-        'git': 'https://github.com/blockstack/blockstack-storage-js',
-        'branch': 'hotfix/integration-test-origin-header',
-        'type': 'node.js',
-        'npm_build_commands': ['dev-build'],
-        'npm_deps': ['bigi', 'jsonify', 'promise'],     # TODO: add these to package.json
-    },
-    {
         'name': 'blockstack.js',
         'git': 'https://github.com/blockstack/blockstack.js',
-        'branch': 'hotfix/integration-test-origin-header',
+        'branch': 'feature/stacks-transactions',
         'type': 'node.js',
+        'npm_link': True,
     },
+#    {
+#        'name': 'cli-blockstack',
+#        'git': 'https://github.com/jcnelson/cli-blockstack',
+#        'branch': 'master',
+#        'type': 'node.js',
+#        'npm_link_packages': ['blockstack'],
+#        'npm_link_packages_pre': ['blockstack'],
+#        'npm_build_commands': ['build'],
+#        'npm_link': True,
+#        'npm_install_g': False,
+#    },
+#    {
+#        'name': 'blockstack-gaia-hub',
+#        'git': 'https://github.com/blockstack/gaia',
+#        'branch': 'master',
+#        'type': 'node.js',
+#        'package_dir': './hub',
+#        'npm_link_packages': ['blockstack'],
+#        'npm_build_commands': ['build'],
+#        'npm_link': True,
+#    },
+    {
+        'name': 'blockstack-transaction-broadcaster',
+        'git': 'https://github.com/blockstack/transaction-broadcaster',
+        'branch': 'develop',
+        'type': 'node.js',
+        'npm_link_packages': ['blockstack'],
+        'npm_build_commands': ['build'],
+        'npm_link': True,
+    }
 ]
 
 
@@ -148,7 +164,6 @@ def enter_venv(venv_dir):
     
     os.environ['VIRTUAL_ENV'] = venv_dir
     os.environ['_OLD_VIRTUAL_PATH'] = os.environ['PATH']
-    os.environ['PATH'] = '{}/bin:{}'.format(venv_dir, os.environ['PATH'])
 
     # also turn on node.js envars
     node_path = ''
@@ -163,6 +178,7 @@ def enter_venv(venv_dir):
         os.makedirs(virtual_node_path)
 
     os.environ['NODE_PATH'] = virtual_node_path
+    os.environ['PATH'] = '{}/bin:{}/bin:{}'.format(venv_dir, virtual_npm_config_prefix, os.environ['PATH'])
 
     if os.environ.get('NPM_CONFIG_PREFIX') is not None:
         os.environ['_OLD_VIRTUAL_NPM_CONFIG_PREFIX'] = os.environ['NPM_CONFIG_PREFIX']
@@ -329,6 +345,9 @@ def install_dependencies(src_dir, deps, venv_dir=None):
         log.error("Stderr:\n{}".format('   \n'.join(err.strip().split('\n'))))
         log.error("Env:\n{}".format("\n".join(["{}={}".format(k,v) for (k,v) in os.environ.items()])))
 
+    # where's a good bin directory for installing stuff?
+    os.environ['BLOCKSTACK_TESTBOX_DEFAULT_BIN'] = os.path.join(os.environ['VIRTUAL_ENV']) + '/bin'
+
     for dep in deps:
         name = dep['name']
         giturl = dep.get('git', None)
@@ -368,6 +387,17 @@ def install_dependencies(src_dir, deps, venv_dir=None):
 
             if pak != '.':
                 log.debug("Subpackage {}".format(pak))
+
+            # change directory first?
+            if dep.has_key('package_dir'):
+                if not os.path.exists(os.path.join(pakdir, dep['package_dir'])):
+                    log.error('No such file or directory: {}/{}'.format(pakdir, dep['package_dir']))
+                    return False
+
+                pakdir = os.path.join(pakdir, dep['package_dir'])
+
+            # expose this to shell
+            os.environ['BLOCKSTACK_TESTBOX_PACKAGE_DIR'] = pakdir
 
             if pkgtype == 'python':
                 # setup.py needs to be there
@@ -414,6 +444,21 @@ def install_dependencies(src_dir, deps, venv_dir=None):
                 cwd = os.getcwd()
                 os.chdir(pakdir)
 
+                # npm-specific deps
+                if dep.has_key('npm_link_packages_pre'):
+                    for link_package in dep['npm_link_packages_pre']:
+                        cmd = "npm link '{}'".format(link_package)
+                        log.debug("$ {}".format(cmd))
+
+                        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                        out, err = p.communicate()
+                        retval = p.returncode
+
+                        if retval != 0:
+                            os.chdir(cwd)
+                            log_err(cmd, retval, err)
+                            return False
+
                 cmd = 'npm install'
                 log.debug('$ {}'.format(cmd))
 
@@ -425,6 +470,21 @@ def install_dependencies(src_dir, deps, venv_dir=None):
                     os.chdir(cwd)
                     log_err(cmd, retval, err)
                     return False
+
+                # npm-specific deps
+                if dep.has_key('npm_link_packages'):
+                    for link_package in dep['npm_link_packages']:
+                        cmd = "npm link '{}'".format(link_package)
+                        log.debug("$ {}".format(cmd))
+
+                        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                        out, err = p.communicate()
+                        retval = p.returncode
+
+                        if retval != 0:
+                            os.chdir(cwd)
+                            log_err(cmd, retval, err)
+                            return False
 
                 # extra deps not in package.json?
                 if dep.has_key('npm_deps'):
@@ -456,14 +516,34 @@ def install_dependencies(src_dir, deps, venv_dir=None):
                             log_err(cmd, retval, err)
                             return False
 
-                # npm install -g
-                cmd = 'npm install -g'
-                log.debug('$ {}'.format(cmd))
+                # need to link first?
+                if dep.has_key('npm_link') and dep['npm_link']:
+                    cmd = "npm link"
+                    log.debug("$ {}".format(cmd))
 
-                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-                out, err = p.communicate()
-                retval = p.returncode
-                
+                    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                    out, err = p.communicate()
+                    retval = p.returncode
+
+                    if retval != 0:
+                        os.chdir(cwd)
+                        log_err(cmd, retval, err)
+                        return False
+
+                # npm install -g, unless we shouldn't
+                if not dep.has_key('npm_install_g') or dep['npm_install_g']:
+                    cmd = 'npm install -g'
+                    log.debug('$ {}'.format(cmd))
+
+                    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                    out, err = p.communicate()
+                    retval = p.returncode
+
+                    if retval != 0:
+                        os.chdir(cwd)
+                        log_err(cmd, retval, err)
+                        return False
+
                 os.chdir(cwd)
 
                 if retval != 0:
@@ -997,14 +1077,24 @@ def main_test_runner(testname, hostinfo, testinfo, ssh_id_path=None, dependencie
 
     bootstrap_threads = []
 
-    for nodeinfo in all_nodes:
+    for i, nodeinfo in enumerate(all_nodes):
         t = threading.Thread(target=host_bootstrap, args=(nodeinfo['user'], nodeinfo['host']))
         t.start()
         bootstrap_threads.append(t)
 
-    for t in bootstrap_threads:
+    for i, t in enumerate(bootstrap_threads):
         t.join()
-    
+
+    bootstrapped = True
+    for host in bootstrap_results:
+        if not bootstrap_results[host]:
+            log.error("Failed to bootstrap {}".format(host))
+            bootstrapped = False
+
+    if not bootstrapped:
+        log.error("Aborting test")
+        return False
+
     os.system('stty sane')
     log.debug("All nodes bootstrapped; running tests")
 

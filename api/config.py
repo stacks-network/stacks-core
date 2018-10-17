@@ -59,6 +59,9 @@ MONGODB_URI = os.getenv('MONGODB_URI', "mongodb://localhost")
 # BASE_API_URL sets the blockstack api connection string
 BASE_API_URL = os.getenv('BASE_API_URL', "http://localhost:6270")
 
+# INDEXER_API_URL sets the blockstack indexer daemon connection string (used only for testing at the moment)
+BASE_INDEXER_API_URL = os.getenv('BASE_INDEXER_API_URL', 'http://localhost:6264')
+
 # PUBLIC_NODE_URL controls the what hostname is returned to clients
 PUBLIC_NODE_URL = os.getenv('PUBLIC_NODE_URL', 'https://core.example.org')
 

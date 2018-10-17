@@ -23,7 +23,7 @@
 
 import testlib
 import virtualchain
-import blockstack_client
+import blockstack
 import blockstack_zones
 import os
 import sys
@@ -71,11 +71,7 @@ def restore( working_dir, snapshot_path, restore_dir, pubkeys, num_required ):
     
     global value_hashes
 
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
-    assert config_path
-
     os.makedirs(restore_dir)
-    shutil.copy(config_path, os.path.join(restore_dir, os.path.basename(config_path)))
 
     rc = blockstack.fast_sync_import( restore_dir, "file://{}".format(snapshot_path), public_keys=pubkeys, num_required=num_required )
     if not rc:
@@ -143,10 +139,8 @@ logfile = {}
     
     assert take_snapshot(config_file, virtualchain_dir, snapshot_dir, 3)
 
-    zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo.test", wallets[0].pubkey_hex )
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile )
-    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
-    
+    zonefile_txt = testlib.make_empty_zonefile( "foo1.test", wallets[3].addr)
+    zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
     value_hashes.append(zonefile_hash)
 
     namespace_ids.append('test')
@@ -179,10 +173,8 @@ logfile = {}
 
     assert take_snapshot(config_file, virtualchain_dir, snapshot_dir, 3)
 
-    zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo.test", wallets[0].pubkey_hex )
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile )
-    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
- 
+    zonefile_txt = testlib.make_empty_zonefile( "foo2.test", wallets[3].addr)
+    zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(zonefile_txt)
     value_hashes.append(zonefile_hash)
     
     testlib.blockstack_name_update('foo.test', zonefile_hash, wallets[3].privkey)

@@ -492,6 +492,11 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
             os.abort()
         
         try:
+            atlas_state = None
+            if hasattr(db_state, 'atlas_state') and db_state.atlas_state is not None:
+                # normal course of action 
+                atlas_state = db_state.atlas_state
+
             # sync block data to atlas, if enabled
             if is_atlas_enabled(blockstack_opts):
                 log.debug("Synchronize Atlas DB for {}".format(block_height))
@@ -500,7 +505,7 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
 
                 # NOTE: set end_block explicitly since db_state.lastblock still points to the previous block height
                 gc.collect()
-                new_zonefile_infos = atlasdb_sync_zonefiles(db_state, block_height, zonefile_dir, path=atlasdb_path, end_block=block_height+1)
+                new_zonefile_infos = atlasdb_sync_zonefiles(db_state, block_height, zonefile_dir, atlas_state, path=atlasdb_path, end_block=block_height+1)
                 gc.collect()
 
         except Exception as e:
@@ -523,7 +528,7 @@ def db_save( block_height, consensus_hash, ops_hash, accepted_ops, virtualchain_
                     log.warning("Instantiating subdomain index")
                     subdomain_index = SubdomainIndex(blockstack_opts['subdomaindb_path'], blockstack_opts=blockstack_opts)
                     instantiated = True
-                
+               
                 log.debug("Synchronize subdomain index for {}".format(block_height))
 
                 gc.collect()
@@ -564,13 +569,16 @@ def db_continue( block_id, consensus_hash ):
     return is_running() or os.environ.get("BLOCKSTACK_TEST") == "1"
 
 
-def sync_blockchain( working_dir, bt_opts, last_block, subdomain_index=None, expected_snapshots={}, **virtualchain_args ):
+def sync_blockchain( working_dir, bt_opts, last_block, server_state, expected_snapshots={}, **virtualchain_args ):
     """
     synchronize state with the blockchain.
     Return True on success
     Return False if we're supposed to stop indexing
     Abort on error
     """
+    
+    subdomain_index = server_state['subdomains']
+    atlas_state = server_state['atlas']
     
     # make this usable even if we haven't explicitly configured virtualchain 
     impl = sys.modules[__name__]
@@ -579,7 +587,10 @@ def sync_blockchain( working_dir, bt_opts, last_block, subdomain_index=None, exp
     # NOTE: this is the only place where a read-write handle should be created,
     # since this is the only place where the db should be modified.
     new_db = BlockstackDB.borrow_readwrite_instance(working_dir, last_block, expected_snapshots=expected_snapshots)
+
+    # propagate runtime state to virtualchain callbacks
     new_db.subdomain_index = subdomain_index
+    new_db.atlas_state = atlas_state
     
     rc = virtualchain.sync_virtualchain(bt_opts, last_block, new_db, expected_snapshots=expected_snapshots, **virtualchain_args)
     

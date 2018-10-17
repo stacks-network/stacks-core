@@ -34,7 +34,6 @@ import shutil
 import testlib
 import virtualchain
 import blockstack
-import blockstack_client
 import blockstack_zones
 import virtualchain
 import json
@@ -58,14 +57,10 @@ def restore( working_dir, snapshot_path, restore_dir, pubkeys, num_required ):
     
     global value_hashes
 
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
-    assert config_path
-
     if os.path.exists(restore_dir):
         shutil.rmtree(restore_dir)
 
     os.makedirs(restore_dir)
-    shutil.copy(config_path, os.path.join(restore_dir, os.path.basename(config_path)))
 
     rc = blockstack.fast_sync_import( restore_dir, "file://{}".format(snapshot_path), public_keys=pubkeys, num_required=num_required )
     if not rc:
@@ -73,7 +68,7 @@ def restore( working_dir, snapshot_path, restore_dir, pubkeys, num_required ):
         return False
 
     # database must be identical 
-    db_filenames = ['blockstack-server.db', 'blockstack-server.snapshots', 'atlas.db', 'subdomains.db']
+    db_filenames = ['blockstack-server.db', 'blockstack-server.snapshots', 'atlas.db', 'subdomains.db', 'subdomains.db.queue']
     src_paths = [os.path.join(working_dir, fn) for fn in db_filenames]
     backup_paths = [os.path.join(restore_dir, fn) for fn in db_filenames]
 
@@ -99,12 +94,6 @@ def restore( working_dir, snapshot_path, restore_dir, pubkeys, num_required ):
             print 'Missing import keychain {}'.format(import_keychain_path)
             return False
 
-    # all subdomains are present
-    subds = ['bar.foo_{}.test'.format(i) for i in range(0,10)]
-    subdomain_db = blockstack.lib.subdomains.SubdomainDB(os.path.join(restore_dir, 'subdomains.db'), os.path.join(restore_dir, 'zonefiles'))
-    for subd in subds:
-        rec = subdomain_db.get_subdomain_entry(subd)
-        
     return True
 
 
@@ -155,119 +144,189 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
  
-    # propagate 
-    for name in zonefiles:
+    # propagate the first five subdomains 
+    for i in range(0,5):
+        name = 'foo_{}.test'.format(i)
         assert testlib.blockstack_put_zonefile(zonefiles[name])
-
-    # process subdomains
+    
+    # process the first five subdomains
     testlib.next_block( **kw )
+
+    # propagate the last five subdomains, but don't process them
+    for i in range(5,10):
+        name = 'foo_{}.test'.format(i)
+        assert testlib.blockstack_put_zonefile(zonefiles[name])
 
     print 'waiting for all zone files to replicate'
     time.sleep(10)
 
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG")
-    assert config_path
-    restore_dir = os.path.join(os.path.dirname(config_path), "snapshot_dir")
+    working_dir = os.environ.get('BLOCKSTACK_WORKING_DIR')
+    restore_dir = os.path.join(working_dir, "snapshot_dir")
 
-    # snapshot the latest backup
-    snapshot_path = os.path.join( os.path.dirname(config_path), "snapshot.bsk" )
-    rc = blockstack.fast_sync_snapshot(kw['working_dir'], snapshot_path, wallets[3].privkey, None )
-    if not rc:
-        print "Failed to fast_sync_snapshot"
-        return False
-   
-    if not os.path.exists(snapshot_path):
-        print "Failed to create snapshot {}".format(snapshot_path)
-        return False
+    # make a backup 
+    db = testlib.get_state_engine()
 
-    # sign with more keys 
-    for i in xrange(4, 6):
-        rc = blockstack.fast_sync_sign_snapshot( snapshot_path, wallets[i].privkey )
+    print 'begin make backups of state from {}'.format(testlib.get_current_block(**kw) - 1)
+    for name in os.listdir(os.path.join(working_dir, 'backups')):
+        if name.endswith('.{}'.format(testlib.get_current_block(**kw) - 1)):
+            os.unlink(os.path.join(working_dir, 'backups', name))
+
+    db.make_backups(testlib.get_current_block(**kw))
+    print 'end make backups'
+
+    def _backup_and_restore():
+        # snapshot the latest backup
+        snapshot_path = os.path.join(working_dir, "snapshot.bsk" )
+        rc = blockstack.fast_sync_snapshot(working_dir, snapshot_path, wallets[3].privkey, None )
         if not rc:
-            print "Failed to sign with key {}".format(i)
+            print "Failed to fast_sync_snapshot"
+            return False
+       
+        if not os.path.exists(snapshot_path):
+            print "Failed to create snapshot {}".format(snapshot_path)
             return False
 
-    # restore!
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex, wallets[5].pubkey_hex], 3 )
-    if not rc:
-        print "failed to restore snapshot {}".format(snapshot_path)
+        # sign with more keys 
+        for i in xrange(4, 6):
+            rc = blockstack.fast_sync_sign_snapshot( snapshot_path, wallets[i].privkey )
+            if not rc:
+                print "Failed to sign with key {}".format(i)
+                return False
+
+        # restore!
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex, wallets[5].pubkey_hex], 3 )
+        if not rc:
+            print "1 failed to restore snapshot {}".format(snapshot_path)
+            return False
+
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[5].pubkey_hex, wallets[4].pubkey_hex, wallets[3].pubkey_hex], 3 )
+        if not rc:
+            print "2 failed to restore snapshot {}".format(snapshot_path)
+            return False
+
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex], 2 )
+        if not rc:
+            print "3 failed to restore snapshot {}".format(snapshot_path)
+            return False
+
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[5].pubkey_hex], 2 )
+        if not rc:
+            print "4 failed to restore snapshot {}".format(snapshot_path)
+            return False
+
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[4].pubkey_hex, wallets[5].pubkey_hex], 2 )
+        if not rc:
+            print "5 failed to restore snapshot {}".format(snapshot_path)
+            return False
+
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex], 1 )
+        if not rc:
+            print "6 failed to restore snapshot {}".format(snapshot_path)
+            return False
+
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[4].pubkey_hex, wallets[0].pubkey_hex], 1 )
+        if not rc:
+            print "7 failed to restore snapshot {}".format(snapshot_path)
+            return False
+
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[1].pubkey_hex, wallets[5].pubkey_hex], 1 )
+        if not rc:
+            print "8 failed to restore snapshot {}".format(snapshot_path)
+            return False
+
+        shutil.move(restore_dir, restore_dir + '.bak')
+
+        # should fail
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex], 2 )
+        if rc:
+            print "restored insufficient signatures snapshot {}".format(snapshot_path)
+            return False
+
+        shutil.rmtree(restore_dir)
+
+        # should fail
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex], 3 )
+        if rc:
+            print "restored insufficient signatures snapshot {}".format(snapshot_path)
+            return False
+
+        shutil.rmtree(restore_dir)
+
+        # should fail
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex], 1 )
+        if rc:
+            print "restored wrongly-signed snapshot {}".format(snapshot_path)
+            return False
+
+        shutil.rmtree(restore_dir)
+
+        # should fail
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[3].pubkey_hex], 2 )
+        if rc:
+            print "restored wrongly-signed snapshot {}".format(snapshot_path)
+            return False
+
+        shutil.rmtree(restore_dir)
+
+        # should fail
+        rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[3].pubkey_hex, wallets[4].pubkey_hex], 3 )
+        if rc:
+            print "restored wrongly-signed snapshot {}".format(snapshot_path)
+            return False
+
+        shutil.rmtree(restore_dir)
+        shutil.move(restore_dir + '.bak', restore_dir)
+        return True
+
+    # test backup and restore
+    res = _backup_and_restore()
+    if not res:
+        return res
+
+    # first five subdomains are all present in the subdomain DB 
+    subds = ['bar.foo_{}.test'.format(i) for i in range(0,5)]
+    subdomain_db = blockstack.lib.subdomains.SubdomainDB(os.path.join(restore_dir, 'subdomains.db'), os.path.join(restore_dir, 'zonefiles'))
+    for subd in subds:
+        rec = subdomain_db.get_subdomain_entry(subd)
+        if not rec:
+            print 'not found: {}'.format(subd)
+            return False
+        
+    # last 5 subdomains are queued in the subdomain DB queue 
+    queued_zfinfos = blockstack.lib.queue.queuedb_findall(os.path.join(restore_dir, 'subdomains.db.queue'), 'zonefiles')
+    if len(queued_zfinfos) != 5:
+        print 'only {} zonefiles queued'.format(queued_zfinfos)
+        print queued_zfinfos
         return False
 
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[5].pubkey_hex, wallets[4].pubkey_hex, wallets[3].pubkey_hex], 3 )
-    if not rc:
-        print "failed to restore snapshot {}".format(snapshot_path)
-        return False
+    # process the last five subdomains
+    testlib.next_block( **kw )
 
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex], 2 )
-    if not rc:
-        print "failed to restore snapshot {}".format(snapshot_path)
-        return False
+    shutil.rmtree(restore_dir)
+    os.unlink(os.path.join(working_dir, "snapshot.bsk"))
 
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[5].pubkey_hex], 2 )
-    if not rc:
-        print "failed to restore snapshot {}".format(snapshot_path)
-        return False
+    # test backup and restore
+    res = _backup_and_restore()
+    if not res:
+        return res
+    
+    # all subdomains are all present in the subdomain DB 
+    subds = ['bar.foo_{}.test'.format(i) for i in range(0,10)]
+    subdomain_db = blockstack.lib.subdomains.SubdomainDB(os.path.join(restore_dir, 'subdomains.db'), os.path.join(restore_dir, 'zonefiles'))
+    for subd in subds:
+        rec = subdomain_db.get_subdomain_entry(subd)
+        if not rec:
+            print 'not found: {}'.format(subd)
+            return False
 
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[4].pubkey_hex, wallets[5].pubkey_hex], 2 )
-    if not rc:
-        print "failed to restore snapshot {}".format(snapshot_path)
-        return False
-
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex], 1 )
-    if not rc:
-        print "failed to restore snapshot {}".format(snapshot_path)
-        return False
-
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[4].pubkey_hex, wallets[0].pubkey_hex], 1 )
-    if not rc:
-        print "failed to restore snapshot {}".format(snapshot_path)
-        return False
-
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[1].pubkey_hex, wallets[5].pubkey_hex], 1 )
-    if not rc:
-        print "failed to restore snapshot {}".format(snapshot_path)
-        return False
-
-    # should fail
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex], 2 )
-    if rc:
-        print "restored insufficient signatures snapshot {}".format(snapshot_path)
+    # nothing queued
+    queued_zfinfos = blockstack.lib.queue.queuedb_findall(os.path.join(restore_dir, 'subdomains.db.queue'), 'zonefiles')
+    if len(queued_zfinfos) != 0:
+        print '{} zonefiles queued'.format(queued_zfinfos)
+        print queued_zfinfos
         return False
 
     shutil.rmtree(restore_dir)
-
-    # should fail
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[3].pubkey_hex, wallets[4].pubkey_hex], 3 )
-    if rc:
-        print "restored insufficient signatures snapshot {}".format(snapshot_path)
-        return False
-
-    shutil.rmtree(restore_dir)
-
-    # should fail
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex], 1 )
-    if rc:
-        print "restored wrongly-signed snapshot {}".format(snapshot_path)
-        return False
-
-    shutil.rmtree(restore_dir)
-
-    # should fail
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[3].pubkey_hex], 2 )
-    if rc:
-        print "restored wrongly-signed snapshot {}".format(snapshot_path)
-        return False
-
-    shutil.rmtree(restore_dir)
-
-    # should fail
-    rc = restore( kw['working_dir'], snapshot_path, restore_dir, [wallets[0].pubkey_hex, wallets[3].pubkey_hex, wallets[4].pubkey_hex], 3 )
-    if rc:
-        print "restored wrongly-signed snapshot {}".format(snapshot_path)
-        return False
-
-    shutil.rmtree(restore_dir)
-
 
 def check( state_engine ):
 

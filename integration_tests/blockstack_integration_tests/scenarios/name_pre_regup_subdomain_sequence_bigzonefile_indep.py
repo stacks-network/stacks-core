@@ -147,11 +147,10 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
     
     # query each subdomain
-    proxy = testlib.make_proxy()
     for domain in zonefiles:
         for i in range(0, 100):
             fqn = 'bar{}.{}'.format(i, domain)
-            res = client.get_name_record(fqn, proxy=proxy)
+            res = client.get_name_record(fqn, hostport='http://localhost:16264')
             if 'error' in res:
                 print res
                 return False

@@ -25,7 +25,6 @@ import testlib
 import virtualchain
 import json
 import time
-import blockstack_client
 import blockstack
 import blockstack_zones
 import virtualchain
@@ -78,12 +77,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    # set up RPC daemon
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey, payment_privkey=wallets[5].privkey )
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] )
-
     # register 10 names
     for i in xrange(0, 10):
         res = testlib.blockstack_name_preorder( "foo_{}.test".format(i), wallets[2].privkey, wallets[3].addr )
@@ -103,10 +96,8 @@ def scenario( wallets, **kw ):
     
     # make 10 empty zonefiles and propagate them 
     for i in xrange(0, 10):
-        data_pubkey = virtualchain.BitcoinPrivateKey(wallet_keys['data_privkey']).public_key().to_hex()
-        empty_zonefile = blockstack_client.zonefile.make_empty_zonefile( "foo_{}.test".format(i), data_pubkey, urls=["file:///tmp/foo_{}.test".format(i)] )
-        empty_zonefile_str = blockstack_zones.make_zone_file( empty_zonefile )
-        value_hash = blockstack_client.hash_zonefile( empty_zonefile )
+        empty_zonefile_str = testlib.make_empty_zonefile( "foo_{}.test".format(i), wallets[3].addr)
+        value_hash = blockstack.lib.storage.get_zonefile_data_hash(empty_zonefile_str)
 
         res = testlib.blockstack_name_update( "foo_{}.test".format(i), value_hash, wallets[3].privkey )
         if 'error' in res:
@@ -195,25 +186,6 @@ def check( state_engine ):
         name = 'foo_{}.test'.format(i)
         value_hash = value_hashes[i]
 
-        '''
-        # atlas logic tried storage (either this node or the atlas peer)
-        zfinfo = blockstack.atlasdb_get_zonefile( value_hash, path=atlasdb_path )
-        if not zfinfo['tried_storage']:
-
-            zfinfo2 = blockstack.atlasdb_get_zonefile( value_hash, path=os.path.join(atlas_dir, "localhost:17000/atlas.db") )
-            if not zfinfo2['tried_storage']:
-                print "didn't get zonefile from storage: test node: %s, atlas peer: %s" % (zfinfo, zfinfo2)
-                return False
-        '''
-        '''
-        # zonefile stored to disk?
-        zfdata = blockstack_client.zonefile.load_name_zonefile(name, value_hash, storage_drivers=['disk'])
-        if zfdata is None:
-            print "failed to load zonefile %s from disk" % value_hash
-            return False
-        '''
-
-        # zonefile cached?
         cached_zonefile_txt = blockstack.lib.storage.get_atlas_zonefile_data( value_hash, zonefile_dir )
         if cached_zonefile_txt is None:
             print "no cached zonefile %s in %s" % (value_hash, zonefile_dir)

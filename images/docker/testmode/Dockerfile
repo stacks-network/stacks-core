@@ -23,7 +23,7 @@ RUN curl -o /usr/local/bin/gosu -fSL https://github.com/tianon/gosu/releases/dow
     && rm /usr/local/bin/gosu.asc \
     && chmod +x /usr/local/bin/gosu
 
-ENV BITCOIN_VERSION=0.13.2
+ENV BITCOIN_VERSION=0.16.1
 ENV BITCOIN_DATA=/home/bitcoin/.bitcoin \
   PATH=/opt/bitcoin-${BITCOIN_VERSION}/bin:$PATH
 
@@ -47,7 +47,8 @@ RUN cd integration-tests/
 RUN ./setup.py build && sudo ./setup.py install
  
 EXPOSE 6264
+EXPOSE 6270
 
 # Run one of the scenarios in "interactive" mode to populate the blockchain, 
 # with 10-second block times once it finishes
-CMD blockstack-test-scenario --interactive 10 blockstack_integration_tests.scenarios.rpc_register
+CMD blockstack-test-scenario --interactive 10 blockstack_integration_tests.scenarios.name_pre_reg_stacks

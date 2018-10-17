@@ -30,7 +30,7 @@ TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 1
 
 import testlib
 import virtualchain
-import blockstack_client
+import blockstack
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -43,9 +43,6 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
-
-    test_proxy = testlib.make_proxy()
-    blockstack_client.set_default_proxy( test_proxy )
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw ) # 689
@@ -71,13 +68,13 @@ def scenario( wallets, **kw ):
     namespace_costs = {}
 
     for n in names + names_novowel + names_nonalpha:
-        name_cost_info = test_proxy.get_name_cost( n )
-        price_satoshis = name_cost_info['satoshis']
+        name_cost_info = blockstack.lib.client.get_name_cost( n, hostport='http://localhost:16264')
+        price_satoshis = name_cost_info['amount']
         name_costs[n] = price_satoshis
 
     for ns in namespaces:
-        namespace_cost_info = test_proxy.get_namespace_cost(ns)
-        namespace_price_satoshis = namespace_cost_info['satoshis']
+        namespace_cost_info = blockstack.lib.client.get_namespace_cost(ns, hostport='http://localhost:16264')
+        namespace_price_satoshis = namespace_cost_info['amount']
         namespace_costs[ns] = namespace_price_satoshis
 
     
@@ -88,13 +85,13 @@ def scenario( wallets, **kw ):
     new_namespace_costs = {}
 
     for n in names + names_novowel + names_nonalpha:
-        name_cost_info = test_proxy.get_name_cost( n )
-        price_satoshis = name_cost_info['satoshis']
+        name_cost_info = blockstack.lib.client.get_name_cost( n, hostport='http://localhost:16264')
+        price_satoshis = name_cost_info['amount']
         new_name_costs[n] = price_satoshis
 
     for ns in namespaces:
-        namespace_cost_info = test_proxy.get_namespace_cost(ns)
-        namespace_price_satoshis = namespace_cost_info['satoshis']
+        namespace_cost_info = blockstack.lib.client.get_namespace_cost(ns, hostport='http://localhost:16264')
+        namespace_price_satoshis = namespace_cost_info['amount']
         new_namespace_costs[ns] = namespace_price_satoshis
 
     for n in names + names_novowel + names_nonalpha:

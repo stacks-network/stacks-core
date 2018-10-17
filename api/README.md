@@ -11,12 +11,7 @@ Instructions for deploying your own (public) node are [here](https://github.com/
 This directory contains the necessary components for running this API in docker for development purposes. To do so run the following commands:
 
 ```bash
-# First run the init steps for each service:
-$ ./ops init-core
-$ ./ops init-api
-$ ./ops init-indexer
-
-# Then build the docker images and run them
+# Build the docker images and run them
 # NOTE: this build step takes quite a bit of time
 $ docker-compose up --build -d 
 ```

@@ -98,7 +98,7 @@ def check( state_engine ):
         return False
 
     # only 2 nameops
-    num_ops = state_engine.get_num_ops_at(revoke_block)
+    num_ops = state_engine.get_num_blockstack_ops_at(revoke_block)
     if num_ops != 2:
         print 'wrong number of ops at {}'.format(revoke_block)
         return False

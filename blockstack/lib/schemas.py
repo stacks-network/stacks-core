@@ -1,24 +1,24 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
-    Blockstack-client
+    Blockstack
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
-    copyright: (c) 2016 by Blockstack.org
+    copyright: (c) 2016-2018 by Blockstack.org
 
-    This file is part of Blockstack-client.
+    This file is part of Blockstack.
 
-    Blockstack-client is free software: you can redistribute it and/or modify
+    Blockstack is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstack-client is distributed in the hope that it will be useful,
+    Blockstack is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
 from .config import LENGTHS, NAME_OPCODES, NAME_TRANSFER, TRANSFER_KEEP_DATA, TRANSFER_REMOVE_DATA, NAME_REGISTRATION
@@ -38,7 +38,7 @@ OP_NAME_CLASS = r'[{}]{{{},{}}}\.{}'.format(OP_NAME_CHARS_NOPERIOD, 1, LENGTHS['
 OP_NAMESPACE_PATTERN = r'^({})$'.format(OP_NAMESPACE_CLASS)
 OP_NAMESPACE_ID_HASH_PATTERN = r'^([0-9a-fA-F]{40})$'
 OP_NAME_PATTERN = r'^({})$'.format(OP_NAME_CLASS)
-OP_SUBDOMAIN_NAME_PATTERN = r'^([{}]+){{1,{}}}\.({})$'.format(OP_NAME_CHARS_NOPERIOD, LENGTHS['fqn_max'], OP_NAME_CLASS)
+OP_SUBDOMAIN_NAME_PATTERN = r'^([{}]+){{1,{}}}\.({})$'.format(OP_NAME_CHARS_NOPERIOD, LENGTHS['fqn_max'], OP_NAME_CLASS)    # FIXME: this encodes arbitrary length subdomains
 OP_NAME_OR_SUBDOMAIN_FRAGMENT = r'({})|({})'.format(OP_NAME_PATTERN, OP_SUBDOMAIN_NAME_PATTERN)
 OP_NAME_OR_SUBDOMAIN_PATTERN = r'^{}$'.format(OP_NAME_OR_SUBDOMAIN_FRAGMENT)
 OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/=]+)$'
@@ -150,6 +150,11 @@ USER_ZONEFILE_SCHEMA = {
 OP_HISTORY_SCHEMA = {
     'type': 'object',
     'properties': {
+        'accepted': {
+            'type': 'integer',
+            'minimum': 0,
+            'maximum': 1,
+        },
         'address': {
             'type': 'string',
             'pattern': OP_ADDRESS_PATTERN,
@@ -179,6 +184,10 @@ OP_HISTORY_SCHEMA = {
             ],
         },
         'block_number': {
+            'type': 'integer',
+            'minimum': 0,
+        },
+        'block_height': {
             'type': 'integer',
             'minimum': 0,
         },
@@ -220,6 +229,10 @@ OP_HISTORY_SCHEMA = {
             'type': 'integer',
             'minimum': 0,
         },
+        'fully_qualified_subdomain': {
+            'type': 'string',
+            'pattern': OP_SUBDOMAIN_NAME_PATTERN,
+        },
         'history_snapshot': {
             'type': 'boolean',
         },
@@ -249,6 +262,24 @@ OP_HISTORY_SCHEMA = {
             'type': 'integer',
             'minimum': 0,
         },
+        'missing': {
+            'anyOf': [
+                {
+                    'type': 'string',
+                },
+                {
+                    'type': 'null',
+                },
+            ],
+        },
+        'name': {
+            'type': 'string',
+            'pattern': OP_NAME_OR_SUBDOMAIN_PATTERN,
+        },
+        'namespace_id': {
+            'type': 'string',
+            'pattern': OP_NAMESPACE_PATTERN,
+        },
         'op': {
             'type': 'string',
             'pattern': OP_CODE_PATTERN,
@@ -259,6 +290,18 @@ OP_HISTORY_SCHEMA = {
         'opcode': {
             'type': 'string',
             'pattern': OP_CODE_NAME_PATTERN,
+        },
+        'owner': {
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN,
+        },
+        'parent_zonefile_hash': {
+            'type': 'string',
+            'pattern': OP_ZONEFILE_HASH_PATTERN,
+        },
+        'parent_zonefile_index': {
+            'type': 'integer',
+            'minimum': 0,
         },
         'pending': {
             'type': 'boolean'
@@ -284,6 +327,10 @@ OP_HISTORY_SCHEMA = {
         'sequence': {
             'type': 'integer',
             'minimum': 0,
+        },
+        'signature': {
+            'type': 'string',
+            'pattern': OP_BASE64_EMPTY_PATTERN,
         },
         'recipient': {
             'anyOf': [
@@ -318,6 +365,16 @@ OP_HISTORY_SCHEMA = {
                 },
             ],
         },
+        'resolver': {
+            'anyOf': [
+                {
+                    'type': 'string',
+                },
+                {
+                    'type': 'null',
+                },
+            ],
+        },
         'txid': {
             'type': 'string',
             'pattern': OP_TXID_PATTERN,
@@ -340,6 +397,14 @@ OP_HISTORY_SCHEMA = {
         'zonefile': {
             'type': 'string',
             'pattern': OP_BASE64_EMPTY_PATTERN,
+        },
+        'zonefile_hash': {
+            'type': 'string',
+            'pattern': OP_ZONEFILE_HASH_PATTERN,
+        },
+        'zonefile_offset': {
+            'type': 'integer',
+            'minimum': 0,
         },
     },
     'required': [
@@ -390,6 +455,16 @@ NAMEOP_SCHEMA_PROPERTIES = {
     'op_fee': OP_HISTORY_SCHEMA['properties']['op_fee'],
     'opcode': OP_HISTORY_SCHEMA['properties']['opcode'],
     'revoked': OP_HISTORY_SCHEMA['properties']['revoked'],
+    'resolver': {
+        'anyOf': [
+            {
+                'type': 'string',
+            },
+            {
+                'type': 'null',
+            },
+        ],
+    },
     'sender': OP_HISTORY_SCHEMA['properties']['sender'],
     'sender_pubkey': OP_HISTORY_SCHEMA['properties']['sender_pubkey'],
     'sequence': OP_HISTORY_SCHEMA['properties']['sequence'],
@@ -509,4 +584,19 @@ SUBDOMAIN_SCHEMA_REQUIRED = [
     'txid',
     'value_hash',
 ]
- 
+
+SUBDOMAIN_HISTORY_REQUIRED = [
+    'fully_qualified_subdomain',
+    'domain',
+    'sequence',
+    'owner',
+    'zonefile_hash',
+    'signature',
+    'block_height',
+    'parent_zonefile_hash',
+    'parent_zonefile_index',
+    'zonefile_offset',
+    'txid',
+    'missing',
+    'resolver',
+]

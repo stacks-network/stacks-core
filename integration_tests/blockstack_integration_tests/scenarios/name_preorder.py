@@ -23,6 +23,7 @@
 
 import testlib
 import virtualchain
+import blockstack
 import blockstack.blockstackd as blockstackd
 
 wallets = [
@@ -69,10 +70,8 @@ def check( state_engine ):
         return False
     
     # paid fee 
-    proxy = testlib.make_proxy()
-
-    if preorder['op_fee'] < proxy.get_name_cost( 'foo.test' )['satoshis']:
-        print "{} < {}".format(preorder['op_fee'], proxy.get_name_cost( 'foo.test' ))
+    if preorder['op_fee'] < blockstack.lib.client.get_name_cost('foo.test', hostport='http://localhost:16264'):
+        print "{} < {}".format(preorder['op_fee'], blockstack.lib.client.get_name_cost('foo.test', hostport='http://localhost:16264'))
         print "Insufficient fee"
         return False 
 

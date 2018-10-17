@@ -34,7 +34,7 @@ TEST ENV BLOCKSTACK_EPOCH_3_NAMESPACE_RECEIVE_FEES_PERIOD 17
 
 import testlib
 import virtualchain
-import blockstack_client
+import blockstack
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -63,9 +63,9 @@ def scenario( wallets, **kw ):
         return False
 
     namespace_balance = testlib.get_balance(namespace_rec['address'])
-    burn_balance = testlib.get_balance(blockstack_client.constants.BLOCKSTACK_BURN_ADDRESS)
+    burn_balance = testlib.get_balance(blockstack.lib.config.BLOCKSTACK_BURN_ADDRESS)
 
-    res = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+    res = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr ) # +name_cost
     if 'error' in res:
         print res
         return False
@@ -83,7 +83,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     testlib.next_block( **kw ) # expired
     
-    res = testlib.blockstack_name_preorder( "foo.test", wallets[3].privkey, wallets[4].addr )
+    res = testlib.blockstack_name_preorder( "foo.test", wallets[3].privkey, wallets[4].addr )  # +name_cost
     if 'error' in res:
         print res
         return False
@@ -98,7 +98,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     testlib.next_block( **kw )
 
-    res = testlib.blockstack_name_renew("foo.test", wallets[4].privkey)
+    res = testlib.blockstack_name_renew("foo.test", wallets[4].privkey)     # +name_cost
     if 'error' in res:
         print res
         return False
@@ -109,7 +109,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     testlib.next_block( **kw ) # expired
 
-    res = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+    res = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )       # +name_cost
     if 'error' in res:
         print res
         return False
@@ -138,18 +138,18 @@ def scenario( wallets, **kw ):
         return False
 
     # preorder should send to the null burn address now.
-    res = testlib.blockstack_name_preorder( "foo2.test", wallets[4].privkey, wallets[0].addr )
+    res = testlib.blockstack_name_preorder( "foo2.test", wallets[4].privkey, wallets[0].addr )  # does not pay to namespace
     if 'error' in res:
         print res
         return False
 
     # try forcing it to the namespace burn address, to verify that it fails
-    res = testlib.blockstack_name_preorder( "foo_fail.test", wallets[4].privkey, wallets[0].addr, burn_addr=namespace_rec['address'] )
+    res = testlib.blockstack_name_preorder( "foo_fail.test", wallets[4].privkey, wallets[0].addr, burn_addr=namespace_rec['address'], expect_fail=True)
     if 'error' not in res:
         print res
         return False
 
-    res = testlib.blockstack_name_preorder( "foo_fail.test", wallets[4].privkey, wallets[0].addr, burn_addr=namespace_rec['address'], safety_checks=False, tx_fee=10000*5 )
+    res = testlib.blockstack_name_preorder( "foo_fail.test", wallets[4].privkey, wallets[0].addr, burn_addr=namespace_rec['address'], price={'units': 'BTC', 'amount': name_cost}, safety_checks=False, tx_fee=10000*5 ) # +name_cost
     if 'error' in res:
         print res
         return False
@@ -177,15 +177,15 @@ def scenario( wallets, **kw ):
         print whois
         return False
 
-    new_burn_balance = testlib.get_balance(blockstack_client.constants.BLOCKSTACK_BURN_ADDRESS)
+    new_burn_balance = testlib.get_balance(blockstack.lib.config.BLOCKSTACK_BURN_ADDRESS)
     new_namespace_balance = testlib.get_balance(namespace_rec['address'])
     name_rec_2 = testlib.get_name_blockchain_record('foo2.test')
     name_cost_2 = name_rec_2['op_fee']
 
     # namespace should NOT have gotten the fee for foo_fail.  It should only have gotten it for foo.test
-    if new_namespace_balance - namespace_balance != 4*name_cost + 3*5500:
+    if new_namespace_balance - namespace_balance < 5*name_cost or new_namespace_balance - namespace_balance > 6*name_cost:
         print 'address {} got credited after fee capture period'.format(namespace_rec['address'])
-        print '{} != {} + 4*{}'.format(new_namespace_balance, namespace_balance, name_cost)
+        print '{} != {} + 5*{}'.format(new_namespace_balance, namespace_balance, name_cost)
         return False
 
     # burn address should have received the fee for the second name

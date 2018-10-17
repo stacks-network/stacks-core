@@ -77,7 +77,7 @@ def parse_pubkey_from_data(data):
 
 
 if __name__ == '__main__':
-    test_domain = DKIM_RECORD_PREFIX + 'onename.com'
+    test_domain = DKIM_RECORD_PREFIX + 'blockstack.org'
     dns_data = dns_resolver(test_domain)
     public_key = parse_pubkey_from_data(dns_data)
 

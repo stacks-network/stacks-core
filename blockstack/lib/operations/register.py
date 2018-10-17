@@ -192,6 +192,10 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         log.debug("No recipient script given")
         return False
 
+    if not is_name_valid(name):
+        log.debug('Invalid name')
+        return False
+
     epoch_features = get_epoch_features(block_id)
 
     name_fee = None
@@ -424,6 +428,10 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     recipient = nameop.get('recipient', None)
     if recipient is None:
         log.debug("No recipient given")
+        return False
+
+    if not is_name_valid(name):
+        log.debug('Invalid name')
         return False
 
     # pre F-day 2017, on renewal, the sender and recipient must be the same 

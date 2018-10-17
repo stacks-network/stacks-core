@@ -270,7 +270,11 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         Get the paths to the relevant db files to back up
         """
-        return super(BlockstackDB, cls).get_state_paths(impl, working_dir) + [os.path.join(working_dir, 'atlas.db'), os.path.join(working_dir, 'subdomains.db')]
+        return super(BlockstackDB, cls).get_state_paths(impl, working_dir) + [
+                os.path.join(working_dir, 'atlas.db'), 
+                os.path.join(working_dir, 'subdomains.db'),
+                os.path.join(working_dir, 'subdomains.db.queue')
+            ]
 
 
     def get_db_path( self ):
@@ -290,11 +294,11 @@ class BlockstackDB( virtualchain.StateEngine ):
             self.db = None
 
         return
-    
+
+
     def export_db(self, dirpath):
         """
-        Copy all database info to a given directory.  This does NOT include the atlas state.
-
+        Copy all database info to a given directory.
         Used primarily for testing; production users
         should just pull a backup db from ~/.blockstack-server/backups
         (or whatever the working directory is)
@@ -306,10 +310,26 @@ class BlockstackDB( virtualchain.StateEngine ):
         
         db_path = os.path.join(dirpath, os.path.basename(self.get_db_path()))
         snapshots_path = os.path.join(dirpath, os.path.basename(virtualchain.get_snapshots_filename(virtualchain_hooks, self.working_dir)))
+        atlas_path = os.path.join(dirpath, 'atlas.db')
+        subdomain_path = os.path.join(dirpath, 'subdomains.db')
+        subdomain_queue_path = os.path.join(dirpath, 'subdomains.db.queue')
 
+        src_atlas_path = os.path.join(self.working_dir, 'atlas.db')
+        src_subdomain_path = os.path.join(self.working_dir, 'subdomains.db')
+        src_subdomain_queue_path = os.path.join(self.working_dir, 'subdomains.db.queue')
+        
         virtualchain.sqlite3_backup(self.get_db_path(), db_path)
         virtualchain.sqlite3_backup(virtualchain.get_snapshots_filename(virtualchain_hooks, self.working_dir), snapshots_path)
-   
+
+        if os.path.exists(src_atlas_path):
+            virtualchain.sqlite3_backup(src_atlas_path, atlas_path)
+
+        if os.path.exists(src_subdomain_path):
+            virtualchain.sqlite3_backup(src_subdomain_path, subdomain_path)
+
+        if os.path.exists(src_subdomain_queue_path):
+            virtualchain.sqlite3_backup(src_subdomain_queue_path, subdomain_queue_path)
+  
 
     @classmethod
     def get_import_keychain_path( cls, keychain_dir, namespace_id ):
@@ -606,7 +626,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         if block_id in self.collisions:
             del self.collisions[block_id]
-        
+       
 
     def check_collision( self, history_id_key, history_id, block_id, checked_ops, affected_opcodes ):
         """
@@ -808,7 +828,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                 name_rec_latest = state
 
         return name_rec_latest
-       
+     
 
     def get_name_at( self, name, block_number, include_expired=False ):
         """
@@ -837,21 +857,19 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         name_hist = namedb_get_history( cur, name, offset=offset, count=count, reverse=reverse )
         return name_hist
+   
 
-
-    def get_name_history_blocks( self, name ):
+    def is_name_zonefile_hash(self, name, zonefile_hash):
         """
-        Get the blocks at which this name was affected
-        Returns [block heights]
+        Was a zone file sent by a name?
         """
         cur = self.db.cursor()
-        update_points = namedb_get_blocks_with_ops( cur, name, FIRST_BLOCK_MAINNET, self.lastblock )
-        return update_points
+        return namedb_is_name_zonefile_hash(cur, name, zonefile_hash)
 
 
-    def get_all_ops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
+    def get_all_blockstack_ops_at( self, block_number, offset=None, count=None, include_history=None, restore_history=None ):
         """
-        Get all records affected at a particular block,
+        Get all name and namespace records affected at a particular block,
         in the state they were at the given block number.
         
         Paginate if offset, count are given.
@@ -862,8 +880,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         if restore_history is not None:
             log.warn("DEPRECATED use of restore_history")
 
-        log.debug("Get all ops at %s in %s" % (block_number, self.db_filename))
-        recs = namedb_get_all_ops_at( self.db, block_number, offset=offset, count=count )
+        log.debug("Get all accepted operations at %s in %s" % (block_number, self.db_filename))
+        recs = namedb_get_all_blockstack_ops_at( self.db, block_number, offset=offset, count=count )
 
         # include opcode 
         for rec in recs:
@@ -873,11 +891,11 @@ class BlockstackDB( virtualchain.StateEngine ):
         return recs
        
 
-    def get_num_ops_at( self, block_number ):
+    def get_num_blockstack_ops_at( self, block_number ):
         """
-        Get the number of name operations at a particular block.
+        Get the number of blockstack operations accepted at a particular block.
         """
-        count = namedb_get_num_ops_at( self.db, block_number )
+        count = namedb_get_num_blockstack_ops_at( self.db, block_number )
         return count
 
 
@@ -1146,7 +1164,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         Return [{'name': name, 'value_hash': value_hash, 'txid': txid}]
         """
-        nameops = self.get_all_ops_at( block_id )
+        nameops = self.get_all_blockstack_ops_at( block_id )
         ret = []
         for nameop in nameops:
             if nameop.has_key('op') and op_get_opcode_name(nameop['op']) in ['NAME_UPDATE', 'NAME_IMPORT', 'NAME_REGISTRATION', 'NAME_RENEWAL']:
@@ -1525,9 +1543,9 @@ class BlockstackDB( virtualchain.StateEngine ):
             history_id = accepted_nameop[history_id_key]
             canonical_op = self.commit_state_transition( accepted_nameop, current_block_number )
             op_type_str = "state_transition"
-        
+       
         else:
-            raise Exception("Unknown operation '%s'" % opcode)
+            raise Exception("Unknown operation {}".format(opcode))
 
         if canonical_op is None:
             log.error("FATAL: no canonical op generated (for {})".format(op_type_str))
@@ -1536,7 +1554,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         log.debug("Extract consensus fields for {} in {}, as part of a {}".format(opcode, current_block_number, op_type_str))
         consensus_op = self.extract_consensus_op(opcode, input_op_data, canonical_op, current_block_number)
         return consensus_op
-
 
     def commit_state_preorder( self, nameop, current_block_number ):
         """
@@ -1549,6 +1566,15 @@ class BlockstackDB( virtualchain.StateEngine ):
         if self.disposition != DISPOSITION_RW:
             log.error("FATAL: borrowing violation: not a read-write connection")
             traceback.print_stack()
+            os.abort()
+        
+        opcode = None
+        try:
+            opcode = nameop.get('opcode')
+            assert opcode is not None, 'BUG: no preorder opcode'
+        except Exception as e:
+            log.exception(e)
+            log.error("FATAL: no opcode in preorder")
             os.abort()
 
         cur = self.db.cursor()
@@ -1722,8 +1748,14 @@ class BlockstackDB( virtualchain.StateEngine ):
             os.abort()
         
         return canonical_op
+   
 
-    
+    def get_block_ops_hash( self, block_id ):
+        """
+        Get the block's operations hash
+        """
+        return self.get_ops_hash_at(block_id)
+
     def get_block_ops_hash( self, block_id ):
         """
         Get the block's operations hash

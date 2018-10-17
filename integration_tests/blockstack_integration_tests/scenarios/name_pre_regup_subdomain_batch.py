@@ -37,7 +37,6 @@ import blockstack.lib.storage as storage
 import blockstack.lib.client as client
 import blockstack_zones
 import base64
-import blockstack_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -50,10 +49,6 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
-    wallet_keys = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-    test_proxy = testlib.TestAPIProxy()
-    blockstack_client.set_default_proxy( test_proxy )
-
     zonefile_batches = []
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
@@ -111,10 +106,9 @@ def scenario( wallets, **kw ):
     testlib.next_block(**kw)
     
     # query each subdomain
-    proxy = testlib.make_proxy()
     for i in xrange(1, 4):
         fqn = 'bar.foo{}.test'.format(i)
-        res = client.get_name_record(fqn, proxy=proxy)
+        res = client.get_name_record(fqn, hostport='http://localhost:16264')
         if 'error' in res:
             print res
             return False
@@ -177,7 +171,7 @@ def check( state_engine ):
             return False
 
 
-    res = testlib.blockstack_REST_call("GET", "/v1/subdomains?page=0", None,
+    res = testlib.blockstack_REST_call("GET", "/v1/subdomains?page=0",
                                        api_pass='blockstack_integration_test_api_password')
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name bar.test'
@@ -192,7 +186,7 @@ def check( state_engine ):
         return False
 
     print names
-    res = testlib.blockstack_REST_call("GET", "/v1/blockchains/bitcoin/subdomains_count", None,
+    res = testlib.blockstack_REST_call("GET", "/v1/blockchains/bitcoin/subdomains_count",
                                        api_pass='blockstack_integration_test_api_password')
     if 'error' in res or res['http_status'] != 200:
         res['test'] = 'Failed to get name bar.test'

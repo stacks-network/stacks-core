@@ -27,7 +27,6 @@ TEST ENV BLOCKSTACK_TEST_MAX_RPC_LEN 81920
 import testlib 
 import json
 import blockstack
-import blockstack_client
 import virtualchain
 import binascii
 import socket
@@ -64,7 +63,7 @@ def make_xml_call(msg_len, gzipped=False):
                      "Content-Type: " + content_type + "\r\n" + content_encoding_str + \
                      "Content-Length: {}\r\n\r\n")
 
-    xml_part_header = "<?xml version='1.0'?><methodCall><methodName>get_nameops_hash_at</methodName><params><param><value><integer>"
+    xml_part_header = "<?xml version='1.0'?><methodCall><methodName>get_blockstack_ops_hash_at</methodName><params><param><value><integer>"
     xml_part_trailer = "</integer></param></params></methodCall></xml>"
     xml_part_payload = '0' * msg_len
     
@@ -170,7 +169,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    zonefile_hash = blockstack_client.get_zonefile_data_hash(big_zonefile)
+    zonefile_hash = blockstack.lib.storage.get_zonefile_data_hash(big_zonefile)
     testlib.blockstack_name_update("foo.test", zonefile_hash, wallets[3].privkey)
     testlib.next_block(**kw)
 
@@ -190,7 +189,7 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    zonefile_hash_2 = blockstack_client.get_zonefile_data_hash(big_zonefile_2)
+    zonefile_hash_2 = blockstack.lib.storage.get_zonefile_data_hash(big_zonefile_2)
     testlib.blockstack_name_update("foo.test", zonefile_hash_2, wallets[3].privkey)
     testlib.next_block(**kw)
 
@@ -209,7 +208,7 @@ def scenario( wallets, **kw ):
         print res
         return False
 
-    zonefile_hash_nack = blockstack_client.get_zonefile_data_hash(big_zonefile_nack)
+    zonefile_hash_nack = blockstack.lib.storage.get_zonefile_data_hash(big_zonefile_nack)
     testlib.blockstack_name_update("foo.test", zonefile_hash_nack, wallets[3].privkey)
     testlib.next_block(**kw)
 

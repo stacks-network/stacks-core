@@ -50,6 +50,7 @@ log = virtualchain.get_logger("blockstack-server")
 BLOCKSTACK_DB_SCRIPT = ""
 
 BLOCKSTACK_DB_SCRIPT += """
+-- Blockchain history table---stores points in time at which every *on-chain* operation occurs.
 -- NOTE: history_id is a fully-qualified name or namespace ID.
 -- NOTE: creator_address is the address that owned the name or namespace ID at the time of insertion
 -- NOTE: value_hash is the associated value hash for this history entry at the time of insertion.
@@ -155,19 +156,16 @@ CREATE TABLE name_records( name STRING NOT NULL,
                            );
 """
 
-'''
-BLOCKSTACK_DB_SCRIPT += """
-CREATE TABLE ops_hashes( block_id INTEGER PRIMARY KEY NOT NULL,
-                         ops_hash STRING NOT NULL );
-"""
-'''
-
 BLOCKSTACK_DB_SCRIPT += """
 CREATE INDEX hash_names_index ON name_records( name_hash128, name );
 """
 
 BLOCKSTACK_DB_SCRIPT += """
 CREATE INDEX value_hash_names_index on name_records( value_hash, name );
+"""
+
+BLOCKSTACK_DB_SCRIPT += """
+CREATE INDEX addr_names_index ON name_records( address, name );
 """
 
 BLOCKSTACK_DB_SCRIPT += """
@@ -194,10 +192,6 @@ def namedb_create( path ):
         db_query_execute(con, line, ())
 
     con.row_factory = namedb_row_factory
-
-    # add user-defined functions
-    con.create_function("namespace_lifetime_multiplier", 2, namedb_get_namespace_lifetime_multiplier)
-    con.create_function("namespace_lifetime_grace_period", 2, namedb_get_namespace_lifetime_grace_period)
     return con
 
 
@@ -207,10 +201,6 @@ def namedb_open( path ):
     """
     con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
     con.row_factory = namedb_row_factory
-
-    # add user-defined functions
-    con.create_function("namespace_lifetime_multiplier", 2, namedb_get_namespace_lifetime_multiplier)
-    con.create_function("namespace_lifetime_grace_period", 2, namedb_get_namespace_lifetime_grace_period)
     return con
 
 
@@ -221,7 +211,7 @@ def namedb_row_factory( cursor, row ):
     """
     d = {}
     for idx, col in enumerate( cursor.description ):
-        if col[0] == 'revoked':
+        if col[0] in ['revoked']:
             if row[idx] == 0:
                 d[col[0]] = False
             elif row[idx] == 1:
@@ -241,6 +231,8 @@ def namedb_get_namespace_lifetime_multiplier( block_height, namespace_id ):
     """
     User-defined sqlite3 function that gets the namespace
     lifetime multiplier at a particular block height.
+
+    OBSOLETE
     """
     try:
         namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( block_height, namespace_id )
@@ -259,6 +251,8 @@ def namedb_get_namespace_lifetime_grace_period( block_height, namespace_id ):
     """
     User-defined sqlite3 function that gets the namespace
     lifetime grace period at a particular block height.
+
+    OBSOLETE
     """
     try:
         namespace_lifetime_grace_period = get_epoch_namespace_lifetime_grace_period( block_height, namespace_id )
@@ -984,13 +978,18 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
         if prev_rec is not None:
             exists = True
     
+    # the record we insert into the history table
+    preorder_record_history = {}
+    preorder_record_history.update(preorder_record)
+
     try:
-        assert 'op' in preorder_record.keys(), 'BUG: no preorder op'
-        assert 'preorder_hash' in preorder_record.keys(), "BUG: no preorder hash"
-        assert 'block_number' in preorder_record.keys(), "BUG: preorder has no block number"
-        assert 'vtxindex' in preorder_record.keys(), "BUG: preorder has no vtxindex"
-        assert 'txid' in preorder_record.keys(), "BUG: preorder has no txid"
-        assert 'burn_address' in preorder_record.keys(), 'BUG: preorder has no burn address'
+        assert 'op' in preorder_record_history.keys(), 'BUG: no preorder op'
+        assert 'preorder_hash' in preorder_record_history.keys(), "BUG: no preorder hash"
+        assert 'block_number' in preorder_record_history.keys(), "BUG: preorder has no block number"
+        assert 'vtxindex' in preorder_record_history.keys(), "BUG: preorder has no vtxindex"
+        assert 'txid' in preorder_record_history.keys(), "BUG: preorder has no txid"
+        assert 'burn_address' in preorder_record_history.keys(), 'BUG: preorder has no burn address'
+        assert 'op_fee' in preorder_record_history.keys(), 'BUG: preorder has no op fee'
 
         if prev_rec is not None:
             # block_number cannot change
@@ -1020,7 +1019,7 @@ def namedb_state_create( cur, opcode, new_record, block_id, vtxindex, txid, hist
         os.abort()
 
     # save the preorder as history.
-    rc = namedb_history_save(cur, preorder_record['opcode'], history_id, None, None, preorder_record['block_number'], preorder_record['vtxindex'], preorder_record['txid'], preorder_record)
+    rc = namedb_history_save(cur, preorder_record['opcode'], history_id, None, None, preorder_record['block_number'], preorder_record['vtxindex'], preorder_record['txid'], preorder_record_history)
     if not rc:
         log.error("FATAL: failed to save preorder for {} at ({}, {})".format(history_id, preorder_record['block_number'], preorder_record['vtxindex']))
         os.abort()
@@ -1225,6 +1224,8 @@ def namedb_is_history_snapshot( history_snapshot ):
 
 def namedb_history_save( cur, opcode, history_id, creator_address, value_hash, block_id, vtxindex, txid, accepted_rec, history_snapshot=False ):
     """
+    Insert data into the state engine's history.
+    It must be for a never-before-seen (txid,block_id,vtxindex) set.
     @history_id is either the name or namespace ID
 
     Return True on success
@@ -1259,30 +1260,6 @@ def namedb_history_save( cur, opcode, history_id, creator_address, value_hash, b
 
     namedb_query_execute( cur, query, values )
     return True
-
-
-def namedb_get_blocks_with_ops( cur, history_id, start_block_id, end_block_id ):
-    """
-    Get the block heights at which a name was affected by an operation.
-    Returns the list of heights.
-    Returns [] if there is no history for this item.
-    """
-    select_query = "SELECT DISTINCT name_records.block_number,history.block_id FROM history JOIN name_records ON history.history_id = name_records.name " + \
-                   "WHERE name_records.name = ? AND ((name_records.block_number >= ? OR history.block_id >= ?) AND (name_records.block_number < ? OR history.block_id < ?));"
-    args = (history_id, start_block_id, start_block_id, end_block_id, end_block_id)
-
-    history_rows = namedb_query_execute( cur, select_query, args )
-    ret = []
-
-    for r in history_rows:
-        if r['block_number'] not in ret:
-            ret.append(r['block_number'])
-
-        if r['block_id'] not in ret:
-            ret.append(r['block_id'])
-
-    ret.sort()
-    return ret
 
 
 def namedb_get_history_rows( cur, history_id, offset=None, count=None, reverse=False ):
@@ -1504,12 +1481,15 @@ def namedb_select_where_unexpired_names(current_block, only_registered=True):
     If only_registered is False, then as long as current_block is before the expire block, then the name will be returned (but the name may not have existed at that block)
     """
 
+    ns_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier(current_block, '*')
+    ns_grace_period = get_epoch_namespace_lifetime_grace_period(current_block, '*')
+
     unexpired_query_fragment =  "(" + \
                                     "(" + \
                                         "namespaces.op = ? AND " + \
                                         "(" + \
-                                            "(namespaces.ready_block + ((namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) + namespace_lifetime_grace_period(?, namespaces.namespace_id)) > ?) OR " + \
-                                            "(name_records.last_renewed + ((namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) + namespace_lifetime_grace_period(?, namespaces.namespace_id)) >= ?)" + \
+                                            "(namespaces.ready_block + ((namespaces.lifetime * {}) + {}) > ?) OR ".format(ns_lifetime_multiplier, ns_grace_period) + \
+                                            "(name_records.last_renewed + ((namespaces.lifetime * {}) + {}) >= ?)".format(ns_lifetime_multiplier, ns_grace_period) + \
                                         ")" + \
                                     ") OR " + \
                                     "(" + \
@@ -1518,10 +1498,10 @@ def namedb_select_where_unexpired_names(current_block, only_registered=True):
                                 ")"
 
     unexpired_query_args = (NAMESPACE_READY, 
-                                current_block, current_block, current_block, 
-                                current_block, current_block, current_block,
+                                current_block,
+                                current_block,
                             NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
-
+    
     if only_registered:
         # also limit to only names registered before this block
         unexpired_query_fragment = '(name_records.first_registered <= ? AND {})'.format(unexpired_query_fragment)
@@ -1626,7 +1606,7 @@ def namedb_get_record_states_at(cur, history_id, block_number):
         # record changed in this block
         return ret
     
-    # if the name did not change in this block, then find the last version of the name
+    # if the record did not change in this block, then find the last version of the record
     query = 'SELECT block_id,history_data FROM history WHERE history_id = ? AND block_id < ? ORDER BY block_id DESC,vtxindex DESC LIMIT 1'
     args = (history_id, block_number)
     history_rows = namedb_query_execute(cur, query, args)
@@ -1724,7 +1704,7 @@ def namedb_get_names_owned_by_address( cur, address, current_block ):
 
     unexpired_fragment, unexpired_args = namedb_select_where_unexpired_names( current_block )
 
-    select_query = "SELECT * FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id " + \
+    select_query = "SELECT name FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id " + \
                    "WHERE name_records.address = ? AND name_records.revoked = 0 AND " + unexpired_fragment + ";"
     args = (address,) + unexpired_args
 
@@ -1822,10 +1802,11 @@ def namedb_select_count_rows( cur, query, args, count_column='COUNT(*)' ):
     return count
 
 
-def namedb_get_all_ops_at(db, block_id, offset=None, count=None):
+def namedb_get_all_blockstack_ops_at(db, block_id, offset=None, count=None):
     """
     Get the states that each name and namespace record
-    passed through in the given block.
+    passed through in the given block.  Note that this only concerns
+    operations written on-chain, for use in SNV and database verification
 
     Return the list of prior record states, ordered by vtxindex.
     """
@@ -1837,7 +1818,8 @@ def namedb_get_all_ops_at(db, block_id, offset=None, count=None):
     # how many preorders at this block?
     offset_count_query, offset_count_args = namedb_offset_count_predicate(offset=offset, count=count)
 
-    preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? " + " " + offset_count_query + ";"
+    # be sure to order by vtxindex for database verification and SNV
+    preorder_count_rows_query = "SELECT COUNT(*) FROM preorders WHERE block_number = ? ORDER BY vtxindex " + " " + offset_count_query + ";"
     preorder_count_rows_args = (block_id,) + offset_count_args
 
     # log.debug(namedb_format_query(preorder_count_rows_query, preorder_count_rows_args))
@@ -1872,7 +1854,7 @@ def namedb_get_all_ops_at(db, block_id, offset=None, count=None):
             # done!
             return ret
 
-    # get all other operations at this block
+    # get all other operations at this block (name ops, namespace ops, token ops)
     offset_count_query, offset_count_args = namedb_offset_count_predicate(offset=offset, count=count)
     query = "SELECT history_data FROM history WHERE block_id = ? ORDER BY vtxindex " + offset_count_query + ";"
     args = (block_id,) + offset_count_args
@@ -1900,9 +1882,9 @@ def namedb_get_all_ops_at(db, block_id, offset=None, count=None):
     return ret
 
 
-def namedb_get_num_ops_at( db, block_id ):
+def namedb_get_num_blockstack_ops_at( db, block_id ):
     """
-    Get the number of operations that occurred at a particular block.
+    Get the number of name/namespace/token operations that occurred at a particular block.
     """
     cur = db.cursor()
 
@@ -2309,6 +2291,24 @@ def namedb_get_num_block_vtxs( cur, block_number ):
         count += 1
 
     return count
+
+
+def namedb_is_name_zonefile_hash(cur, name, zonefile_hash):
+    """
+    Determine if a zone file hash was sent by a name.
+    Return True if so, false if not
+    """
+    select_query = 'SELECT COUNT(value_hash) FROM history WHERE history_id = ? AND value_hash = ?'
+    select_args = (name,zonefile_hash)
+
+    rows = namedb_query_execute(cur, select_query, select_args)
+    count = None
+
+    for r in rows:
+        count = r['COUNT(value_hash)']
+        break
+
+    return count > 0
 
 
 if __name__ == "__main__":

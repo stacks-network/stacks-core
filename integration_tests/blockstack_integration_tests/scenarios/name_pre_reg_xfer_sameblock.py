@@ -94,7 +94,7 @@ def check( state_engine ):
         return False 
     
     # transfer did not go through
-    num_ops = state_engine.get_num_ops_at(transfer_block)
+    num_ops = state_engine.get_num_blockstack_ops_at(transfer_block)
     if num_ops != 2:
         print 'wrong number of ops at {}'.format(transfer_block)
         return False

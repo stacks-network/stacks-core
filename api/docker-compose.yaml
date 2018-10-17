@@ -8,20 +8,6 @@ services:
       - api
     restart: always
 
-  blockstack-api:
-    build:
-        context: ../
-        dockerfile: ../Dockerfile
-    command: blockstack api start-foreground -y --debug --password dummywalletpassword
-    volumes:
-      - './data/blockstack-api:/root/.blockstack'
-      - './data/blockstack-api/tmp:/tmp'
-    networks:
-      - api
-    environment:
-      - BLOCKSTACK_CLIENT_INTERACTIVE_YES=0
-    restart: always
-
   search-indexer:
     build:
       context: ../
@@ -36,11 +22,10 @@ services:
     restart: always
     links:
       - mongodb
-      - blockstack-api
+      - blockstack-core
     volumes:
       - "./data/search-api:/var/blockstack-search"
       - "/etc/localtime:/etc/localtime:ro"
-      - "./deployment/client.ini:/root/.blockstack/client.ini"
 
   search-api:
     build:
@@ -53,8 +38,7 @@ services:
       - BSK_API_TMPLTDIR=/src/blockstack/api/templates
       - DEFAULT_CACHE_TIMEOUT=1800
       - MONGODB_URI=mongodb://mongodb
-      - BSK_API_TMPLTDIR=/src/blockstack/api/templates
-      - BASE_API_URL=http://blockstack-api:6270
+      - BASE_API_URL=http://blockstack-core:6270
       - DEBUG=True
     networks:
       - api
@@ -63,21 +47,18 @@ services:
     restart: always
     links:
       - mongodb
-      - blockstack-api
     volumes:
       - "./data/search-api:/var/blockstack-search"
-      
+ 
   blockstack-core:
     build:
       context: ../
       dockerfile: Dockerfile
-    command: 'blockstack-core start --foreground --debug'
     volumes:
       - './blockstack-core/server/:/root/.blockstack-server/'
-      - './blockstack-core/api/:/root/.blockstack/'
     restart: always
     networks: 
       - api
-
+  
 networks:
   api: null
