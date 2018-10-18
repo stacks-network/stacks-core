@@ -37,6 +37,11 @@ CONSENSUS_FIELDS_REQUIRED = [
     'vtxindex'
 ]
 
+# fields that *must* be present in token operations,
+# *in addition* to CONSENSUS_FIELDS_REQUIRED above
+CONSENSUS_FIELDS_REQUIRED_TOKENS = [
+    'address'
+]
 
 # all fields common to a name record
 # NOTE: this order must be preserved for all eternity
@@ -74,7 +79,9 @@ def state_preorder_invariant_tags():
     """
     Get a list of state-preorder invariant tags
     """
-    return []
+    return [
+        '__account_payment_info__'
+    ]
 
 
 def state_create_invariant_tags():
@@ -220,7 +227,7 @@ def state_transition_invariant_tags():
 
 
 # sanity check decorator for state-transition operations 
-def state_transition(history_id_key, table_name, always_set=[]):
+def state_transition(history_id_key, table_name, always_set=[], may_spend_tokens=False):
     """
     Decorator for the check() method on state-transition operations.
     Make sure that:
@@ -242,6 +249,12 @@ def state_transition(history_id_key, table_name, always_set=[]):
                 nameop['__state_transition__'] = True
                 nameop['__always_set__'] = always_set
 
+                if not may_spend_tokens:
+                    state_transition_put_account_payment_info(nameop, None, None, None)
+
+                elif '__account_payment_info__' not in nameop:
+                    raise Exception('Operation spends tokens, but no payment account information is set')
+
                 # sanity check
                 invariant_tags = state_transition_invariant_tags()
                 for tag in invariant_tags:
@@ -256,11 +269,72 @@ def state_transition(history_id_key, table_name, always_set=[]):
     return wrap
 
 
+def token_operation_invariant_tags():
+    """
+    Get a list of possible token transfer invariant tags
+    """
+    return [
+        '__table__',
+        '__account_payment_info__',
+        '__account_credit_info__',
+    ]
+
+
+# sanity check decorator for token operations
+def token_operation(table_name):
+    """
+    Decorator for the check() method on token operations.
+    Make sure that there is a __account_payment_info__ and __account_credit_info__ set.
+    """
+    def wrap( check ):
+        def wrapped_check( state_engine, token_op, block_id, checked_ops ):
+            rc = check( state_engine, token_op, block_id, checked_ops )
+            if rc:
+                token_op['__table__'] = table_name
+                invariant_tags = token_operation_invariant_tags()
+                for tag in invariant_tags:
+                    assert tag in token_op, 'BUG: missing token operation invariant tag {}'.format(tag)
+
+                # sanity check---all required consensus fields must be present
+                for required_field in CONSENSUS_FIELDS_REQUIRED:
+                    assert required_field in token_op, 'BUG: missing required consensus field {}'.format(required_field)
+
+                # sanity check---all required consensus fields for tokens must be present
+                for required_field in CONSENSUS_FIELDS_REQUIRED_TOKENS:
+                    assert required_field in token_op, 'BUG: missing token-specific required consensus field {}'.format(required_field)
+
+            return rc
+        return wrapped_check
+    return wrap
+
+
 def get_state_invariant_tags():
     """
     Get the set of state invariant tags for a given opcode
     """
-    return list(set( state_create_invariant_tags() + state_transition_invariant_tags() + state_preorder_invariant_tags() ))
+    return list(set( state_create_invariant_tags() + state_transition_invariant_tags() + state_preorder_invariant_tags() + token_operation_invariant_tags() ))
+
+
+def state_preorder_get_account_payment_info( nameop ):
+    """
+    Get the payment information for an account.  Can be None if no account payments are needed
+    """
+    return nameop['__account_payment_info__']
+
+
+def state_preorder_put_account_payment_info( nameop, account_addr, token_type, amount ):
+    """
+    Call this in a @state_create-decorated method.
+    Identifies the account that must be debited.
+    """
+    assert amount is None or isinstance(amount, (int,long)), 'Amount is {} (type {})'.format(amount, type(amount))
+    assert account_addr is None or isinstance(account_addr, (str,unicode))
+    assert token_type is None or isinstance(token_type, (str,unicode))
+    nameop['__account_payment_info__'] = {
+            'address': str(account_addr) if account_addr is not None else None,
+            'type': str(token_type) if token_type is not None else None,
+            'amount': int(amount) if amount is not None else None
+    }
 
 
 def state_create_put_preorder( nameop, preorder ):
@@ -325,8 +399,24 @@ def state_transition_is_valid( nameop ):
     assert history_id_key in ["name", "namespace_id"], "Invalid history ID key '%s'" % history_id_key
     assert '__table__' in nameop, "Missing __table__"
     assert '__always_set__' in nameop, "No always-set fields given"
+    assert '__account_payment_info__' in nameop, 'No account payment information present'
 
     return True
+
+
+def state_transition_put_account_payment_info( nameop, account_addr, token_type, amount ):
+    """
+    Call this in a @state_create-decorated method.
+    Identifies the account that must be debited.
+    """
+    assert amount is None or isinstance(amount, (int,long)), 'BUG: amount is {} (type {})'.format(amount, type(amount))
+    assert account_addr is None or isinstance(account_addr, (str,unicode))
+    assert token_type is None or isinstance(token_type, (str,unicode))
+    nameop['__account_payment_info__'] = {
+            'address': str(account_addr) if account_addr is not None else None,
+            'type': str(token_type) if token_type is not None else None,
+            'amount': int(amount) if amount is not None else None
+    }
 
 
 def state_transition_get_table( nameop ):
@@ -334,6 +424,13 @@ def state_transition_get_table( nameop ):
     Get the table of a state-transition operation
     """
     return nameop['__table__']
+
+
+def state_transition_get_account_payment_info( nameop ):
+    """
+    Get the payment information for an account.  Can be None if no account payments are needed
+    """
+    return nameop['__account_payment_info__']
 
 
 def state_transition_get_history_id_key( nameop ):
@@ -348,6 +445,73 @@ def state_transition_get_always_set( nameop ):
     Get thie list of fields we will always set on state transition
     """
     return nameop['__always_set__']
+
+
+def token_operation_put_account_payment_info(token_op, account_addr, token_type, amount):
+    """
+    Call this in a @token_operation-decorated method.
+    Identifies the account to be debited
+    """
+    assert isinstance(amount, (int,long)), "BUG: amount is {} (type {})".format(amount, type(amount))
+    assert isinstance(account_addr, (str,unicode)), 'BUG: account is {} (type {})'.format(account_addr, type(account_addr))
+    assert isinstance(token_type, (str,unicode)), 'BUG: token_type is {} (type {})'.format(token_type, type(token_type))
+    token_op['__account_payment_info__'] = {
+            'address': str(account_addr),
+            'type': str(token_type),
+            'amount': int(amount)
+    }
+
+
+def token_operation_put_account_credit_info(token_op, account_addr, token_type, amount):
+    """
+    Call this in a @token_operation-decorated method.
+    Identifies the account to be credited
+    """
+    assert isinstance(amount, (int,long)), 'BUG: amount is {} (type {})'.format(amount, type(amount))
+    assert isinstance(account_addr, (str,unicode)), 'BUG: amount is {} (type {})'.format(account_addr, type(account_addr))
+    assert isinstance(token_type, (str,unicode)), 'BUG: token_type is {} (type {})'.format(token_type, type(token_type))
+    token_op['__account_credit_info__'] = {
+            'address': str(account_addr),
+            'type': str(token_type),
+            'amount': int(amount)
+    }
+
+
+def token_operation_is_valid(token_op):
+    """
+    Is a token operation well-formed?
+    """
+    for tag in token_operation_invariant_tags() + ['opcode']:
+        assert tag in token_op, 'Missing {}'.format(tag)
+
+    return True
+
+
+def token_operation_get_account_payment_info(token_op):
+    """
+    Get the payment information for an account.
+    """
+    ret = token_op['__account_payment_info__']
+    assert ret is not None, 'BUG: no account payment info set'
+    return ret
+
+
+def token_operation_get_account_credit_info(token_op):
+    """
+    Get the credit information from a token op
+    """
+    ret = token_op['__account_credit_info__']
+    assert ret is not None, 'BUG: no account credit info set'
+    return ret
+
+
+def token_operation_get_table(token_op):
+    """
+    Get the table affected
+    """
+    ret = token_op['__table__']
+    assert ret is not None, 'BUG: no table set'
+    return ret
 
 
 import namedb 
