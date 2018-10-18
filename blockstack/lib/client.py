@@ -2332,7 +2332,7 @@ def get_subdomains_owned_by_address(address, proxy=None, hostport=None):
         if BLOCKSTACK_DEBUG:
             log.exception(e)
 
-        resp = {'error': 'Server response included an invalid subdomain'}
+        resp = {'error': 'Server response included an invalid subdomain', 'http_status': 500}
         return resp
 
     except socket.timeout:
@@ -2354,6 +2354,79 @@ def get_subdomains_owned_by_address(address, proxy=None, hostport=None):
         return resp
 
     return resp['subdomains']
+
+
+def get_subdomain_ops_at_txid(txid, proxy=None, hostport=None):
+    """
+    Get the list of subdomain operations added by a txid
+    Returns the list of operations ([{...}]) on success
+    Returns {'error': ...} on failure
+    """
+    assert proxy or hostport, 'Need proxy or hostport'
+    if proxy is None:
+        proxy = connect_hostport(hostport)
+
+    subdomain_ops_schema = {
+        'type': 'object',
+        'properties': {
+            'subdomain_ops': {
+                'type': 'array',
+                'items': {
+                    'type': 'object',
+                    'properties': OP_HISTORY_SCHEMA['properties'],
+                    'required': SUBDOMAIN_HISTORY_REQUIRED,
+                },
+            },
+        },
+        'required': ['subdomain_ops'],
+    }
+
+    schema = json_response_schema(subdomain_ops_schema)
+
+    resp = {}
+    try:
+        resp = proxy.get_subdomain_ops_at_txid(txid)
+        resp = json_validate(schema, resp)
+        if json_is_error(resp):
+            return resp
+
+        # names must be valid
+        for op in resp['subdomain_ops']:
+            assert is_subdomain(str(op['fully_qualified_subdomain'])), ('Invalid subdomain "{}"'.format(op['fully_qualified_subdomain']))
+
+    except ValidationError as ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        resp = {'error': 'Server response did not match expected schema.  You are likely communicating with an out-of-date Blockstack node.', 'http_status': 502}
+        return resp
+
+    except AssertionError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
+        resp = {'error': 'Server response included an invalid subdomain', 'http_status': 500}
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
+        return resp
+
+    except Exception as ee:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ee)
+
+        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
+        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.', 'http_status': 500}
+        return resp
+
+    return resp['subdomain_ops']
 
 
 def get_name_DID(name, proxy=None, hostport=None):
@@ -3586,7 +3659,7 @@ def resolve_DID(did, hostport=None, proxy=None):
     4. fetch and authenticate the JWT at each URL (abort if there are none)
     5. extract the public key from the JWT and return that.
 
-    Return {'public_key': ...} on success
+    Return {'public_key': ..., 'document': ...} on success
     Return {'error': ...} on error
     """
     assert hostport or proxy, 'Need hostport or proxy'
@@ -3628,9 +3701,41 @@ def resolve_DID(did, hostport=None, proxy=None):
         if not jwt:
             continue
 
+        if 'payload' not in jwt:
+            log.error('Invalid JWT at {}: no payload'.format(url))
+            continue
+
+        if 'issuer' not in jwt['payload']:
+            log.error('Invalid JWT at {}: no issuer'.format(url))
+            continue
+
+        if 'publicKey' not in jwt['payload']['issuer']:
+            log.error('Invalid JWT at {}: no public key'.format(url))
+            continue
+
+        if 'claim' not in jwt['payload']:
+            log.error('Invalid JWT at {}: no claim'.format(url))
+            continue
+
+        if not isinstance(jwt['payload'], dict):
+            log.error('Invalid JWT at {}: claim is malformed'.format(url))
+            continue
+
         # found!
         public_key = str(jwt['payload']['issuer']['publicKey'])
-        return {'public_key': public_key}
+        document = jwt['payload']['claim']
+
+        # make sure it's a well-formed DID
+        document['@context'] = 'https://w3id.org/did/v1'
+        document['publicKey'] = [
+            {
+                'id': did,
+                'type': 'secp256k1',
+                'publicKeyHex': public_key
+            }
+        ]
+
+        return {'public_key': public_key, 'document': document}
 
     log.error("No zone file URLs resolved to a JWT with the public key whose address is {}".format(did_rec['address']))
     return {'error': 'No public key found for the given DID', 'http_status': 404}

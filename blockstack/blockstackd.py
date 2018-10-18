@@ -69,7 +69,8 @@ from lib.schemas import GENESIS_BLOCK_SCHEMA
 from lib.rpc import BlockstackAPIEndpoint
 from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_info, get_subdomain_history,
                             get_DID_subdomain, get_subdomains_owned_by_address, get_subdomain_DID_info,
-                            get_all_subdomains, get_subdomains_count, get_subdomain_resolver, is_subdomain_zonefile_hash)
+                            get_all_subdomains, get_subdomains_count, get_subdomain_resolver, is_subdomain_zonefile_hash,
+                            get_subdomain_ops_at_txid)
 
 from lib.scripts import address_as_b58, is_c32_address
 from lib.c32 import c32ToB58
@@ -687,6 +688,20 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
 
         if 'error' in res:
             return {'error': res['error'], 'http_status': 404}
+
+        # also get a DID
+        did_info = None
+        did = None
+        if check_name(name):
+            did_info = self.get_name_DID_info(name)
+        elif check_subdomain(name):
+            did_info = self.get_subdomain_DID_info(name)
+        else:
+            return {'error': 'Invalid name or subdomain', 'http_status': 400}
+
+        if did_info is not None:
+            did = make_DID(did_info['name_type'], did_info['address'], did_info['index'])
+            res['record']['did'] = did
 
         return self.success_response({'record': res['record']})
 
@@ -1585,6 +1600,19 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         db.close()
 
         return self.success_response( {'names': res} )
+
+
+    def rpc_get_subdomain_ops_at_txid(self, txid, **con_info):
+        """
+        Return the list of subdomain operations accepted within a given txid.
+        Return {'status': True, 'subdomain_ops': [{...}]} on success
+        Return {'error': ...} on error
+        """
+        if not check_string(txid, min_length=64, max_length=64, pattern='^[0-9a-fA-F]{64}$'):
+            return {'error': 'Not a valid txid', 'http_status': 400}
+       
+        subdomain_ops = get_subdomain_ops_at_txid(txid)
+        return self.success_response( {'subdomain_ops': subdomain_ops} )
 
 
     def rpc_get_consensus_at( self, block_id, **con_info ):

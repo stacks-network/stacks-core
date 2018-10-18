@@ -275,7 +275,11 @@ class BlockstackDB(virtualchain.StateEngine):
         """
         Get the paths to the relevant db files to back up
         """
-        return super(BlockstackDB, cls).get_state_paths(impl, working_dir) + [os.path.join(working_dir, 'atlas.db'), os.path.join(working_dir, 'subdomains.db')]
+        return super(BlockstackDB, cls).get_state_paths(impl, working_dir) + [
+                os.path.join(working_dir, 'atlas.db'), 
+                os.path.join(working_dir, 'subdomains.db'),
+                os.path.join(working_dir, 'subdomains.db.queue')
+            ]
 
 
     def get_db_path( self ):
@@ -313,9 +317,11 @@ class BlockstackDB(virtualchain.StateEngine):
         snapshots_path = os.path.join(dirpath, os.path.basename(virtualchain.get_snapshots_filename(virtualchain_hooks, self.working_dir)))
         atlas_path = os.path.join(dirpath, 'atlas.db')
         subdomain_path = os.path.join(dirpath, 'subdomains.db')
+        subdomain_queue_path = os.path.join(dirpath, 'subdomains.db.queue')
 
         src_atlas_path = os.path.join(self.working_dir, 'atlas.db')
         src_subdomain_path = os.path.join(self.working_dir, 'subdomains.db')
+        src_subdomain_queue_path = os.path.join(self.working_dir, 'subdomains.db.queue')
         
         virtualchain.sqlite3_backup(self.get_db_path(), db_path)
         virtualchain.sqlite3_backup(virtualchain.get_snapshots_filename(virtualchain_hooks, self.working_dir), snapshots_path)
@@ -325,6 +331,9 @@ class BlockstackDB(virtualchain.StateEngine):
 
         if os.path.exists(src_subdomain_path):
             virtualchain.sqlite3_backup(src_subdomain_path, subdomain_path)
+
+        if os.path.exists(src_subdomain_queue_path):
+            virtualchain.sqlite3_backup(src_subdomain_queue_path, subdomain_queue_path)
   
 
     @classmethod

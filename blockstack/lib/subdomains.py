@@ -1198,6 +1198,31 @@ class SubdomainDB(object):
         return self._extract_subdomain(rowdata)
 
 
+    def get_subdomain_ops_at_txid(self, txid, cur=None):
+        """
+        Given a txid, get all subdomain operations at that txid.
+        Include unaccepted operations.
+        Order by zone file index
+        """
+        get_cmd = 'SELECT * FROM {} WHERE txid = ? ORDER BY zonefile_offset'.format(self.subdomain_table)
+
+        cursor = None
+        if cur is None:
+            cursor = self.conn.cursor()
+        else:
+            cursor = cur
+
+        db_query_execute(cursor, get_cmd, (txid,))
+
+        try:
+            return [x for x in cursor.fetchall()]
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            return []
+
+
     def get_subdomains_owned_by_address(self, owner, cur=None):
         """
         Get the list of subdomain names that are owned by a given address.
@@ -2053,6 +2078,25 @@ def get_all_subdomains(offset=None, count=None, min_sequence=None, db_path=None,
 
     db = SubdomainDB(db_path, zonefiles_dir)
     return db.get_all_subdomains(offset=offset, count=count, min_sequence=None)
+
+
+def get_subdomain_ops_at_txid(txid, db_path=None, zonefiles_dir=None):
+    """
+    Static method for getting the list of subdomain operations accepted at a given txid.
+    Includes unaccepted subdomain operations
+    """
+    opts = get_blockstack_opts()
+    if not is_subdomains_enabled(opts):
+        return []
+
+    if db_path is None:
+        db_path = opts['subdomaindb_path']
+
+    if zonefiles_dir is None:
+        zonefiles_dir = opts['zonefiles']
+
+    db = SubdomainDB(db_path, zonefiles_dir)
+    return db.get_subdomain_ops_at_txid(txid)
 
 
 def get_subdomains_owned_by_address(address, db_path=None, zonefiles_dir=None):

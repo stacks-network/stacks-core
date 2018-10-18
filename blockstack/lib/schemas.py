@@ -155,6 +155,11 @@ USER_ZONEFILE_SCHEMA = {
 OP_HISTORY_SCHEMA = {
     'type': 'object',
     'properties': {
+        'accepted': {
+            'type': 'integer',
+            'minimum': 0,
+            'maximum': 1,
+        },
         'address': {
             'type': 'string',
             'pattern': OP_ADDRESS_PATTERN,
@@ -184,6 +189,10 @@ OP_HISTORY_SCHEMA = {
             ],
         },
         'block_number': {
+            'type': 'integer',
+            'minimum': 0,
+        },
+        'block_height': {
             'type': 'integer',
             'minimum': 0,
         },
@@ -225,6 +234,10 @@ OP_HISTORY_SCHEMA = {
             'type': 'integer',
             'minimum': 0,
         },
+        'fully_qualified_subdomain': {
+            'type': 'string',
+            'pattern': OP_SUBDOMAIN_NAME_PATTERN,
+        },
         'history_snapshot': {
             'type': 'boolean',
         },
@@ -254,6 +267,16 @@ OP_HISTORY_SCHEMA = {
             'type': 'integer',
             'minimum': 0,
         },
+        'missing': {
+            'anyOf': [
+                {
+                    'type': 'string',
+                },
+                {
+                    'type': 'null',
+                },
+            ],
+        },
         'name': {
             'type': 'string',
             'pattern': OP_NAME_OR_SUBDOMAIN_PATTERN,
@@ -272,6 +295,18 @@ OP_HISTORY_SCHEMA = {
         'opcode': {
             'type': 'string',
             'pattern': OP_CODE_NAME_PATTERN,
+        },
+        'owner': {
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN,
+        },
+        'parent_zonefile_hash': {
+            'type': 'string',
+            'pattern': OP_ZONEFILE_HASH_PATTERN,
+        },
+        'parent_zonefile_index': {
+            'type': 'integer',
+            'minimum': 0,
         },
         'pending': {
             'type': 'boolean'
@@ -297,6 +332,10 @@ OP_HISTORY_SCHEMA = {
         'sequence': {
             'type': 'integer',
             'minimum': 0,
+        },
+        'signature': {
+            'type': 'string',
+            'pattern': OP_BASE64_EMPTY_PATTERN,
         },
         'recipient': {
             'anyOf': [
@@ -371,6 +410,14 @@ OP_HISTORY_SCHEMA = {
         'zonefile': {
             'type': 'string',
             'pattern': OP_BASE64_EMPTY_PATTERN,
+        },
+        'zonefile_hash': {
+            'type': 'string',
+            'pattern': OP_ZONEFILE_HASH_PATTERN,
+        },
+        'zonefile_offset': {
+            'type': 'integer',
+            'minimum': 0,
         },
     },
     'required': [
@@ -583,6 +630,22 @@ SUBDOMAIN_SCHEMA_REQUIRED = [
     'sequence',
     'txid',
     'value_hash',
+]
+
+SUBDOMAIN_HISTORY_REQUIRED = [
+    'fully_qualified_subdomain',
+    'domain',
+    'sequence',
+    'owner',
+    'zonefile_hash',
+    'signature',
+    'block_height',
+    'parent_zonefile_hash',
+    'parent_zonefile_index',
+    'zonefile_offset',
+    'txid',
+    'missing',
+    'resolver',
 ]
 
 ACCOUNT_SCHEMA_REQUIRED = [

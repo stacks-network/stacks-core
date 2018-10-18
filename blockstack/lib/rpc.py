@@ -47,7 +47,7 @@ import scripts as blockstackd_scripts
 from scripts import check_name, check_namespace, check_token_type, check_subdomain, check_block, check_offset, \
         check_count, check_string, check_address, check_account_address
 
-from util import BoundedThreadingMixIn
+from util import BoundedThreadingMixIn, parse_DID
 
 import storage
 
@@ -60,7 +60,7 @@ from virtualchain import AuthServiceProxy, JSONRPCException
 
 import blockstack_zones
 
-from schemas import OP_BASE64_EMPTY_PATTERN, OP_ZONEFILE_HASH_PATTERN
+from schemas import OP_BASE64_EMPTY_PATTERN, OP_ZONEFILE_HASH_PATTERN, OP_BASE58CHECK_CLASS
 
 log = virtualchain.get_logger()
 
@@ -491,11 +491,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         res = blockstackd_client.get_all_names(offset, count, include_expired=include_expired, hostport=blockstackd_url)
         if json_is_error(res):
             log.error("Failed to list all names (offset={}, count={}): {}".format(offset, count, res['error']))
-            self._reply_json({'error': 'Failed to list all names'}, status_code=res.get('http_status', 502))
-            return
+            return self._reply_json({'error': 'Failed to list all names'}, status_code=res.get('http_status', 502))
 
-        self._reply_json(res)
-        return
+        return self._reply_json(res)
 
 
     def GET_subdomains( self, path_info ):
@@ -527,11 +525,29 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         if json_is_error(res):
             log.error("Failed to list all subdomains (offset={}, count={}): {}".format(offset, count, res['error']))
-            self._reply_json({'error': 'Failed to list all names'}, status_code=406)
-            return
+            return self._reply_json({'error': 'Failed to list all names'}, status_code=res.get('http_status', 406))
 
-        self._reply_json(res)
-        return
+        return self._reply_json(res)
+
+
+    def GET_subdomain_ops(self, path_info, txid):
+        """
+        Get all subdomain operations processed in a given transaction.
+        Returns the list of subdomains on success (can be empty)
+        Returns 502 on failure to get subdomains
+        """
+        blockstackd_url = get_blockstackd_url()
+        subdomain_ops = None
+        try:
+            subdomain_ops = blockstackd_client.get_subdomain_ops_at_txid(txid, hostport=blockstackd_url)
+        except ValueError:
+            return self._reply_json({'error': 'Invalid argument: not a well-formed txid'}, status_code=400)
+
+        if json_is_error(subdomain_ops):
+            log.error('Failed to get subdomain operations at {}: {}'.format(txid, subdomain_ops['error']))
+            return self._reply_json({'error': 'Failed to get subdomain operations'}, status_code=subdomain_ops.get('http_status', 500))
+
+        return self._reply_json(subdomain_ops)
 
 
     def GET_name_info( self, path_info, name ):
@@ -604,6 +620,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'address': name_rec['address'],
                 'blockchain': 'bitcoin',
                 'last_txid': name_rec['txid'],
+                'did': name_rec.get('did', {'error': 'Not supported for this name'})
             }
 
         else:
@@ -623,7 +640,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'expire_block': name_rec['expire_block'],      # expire_block is what blockstack.js expects
                 'renewal_deadline': name_rec['renewal_deadline'],
                 'grace_period': name_rec.get('grace_period', False),
-                'resolver': name_rec.get('resolver', None)
+                'resolver': name_rec.get('resolver', None),
+                'did': name_rec.get('did', {'error': 'Not supported for this name'})
             }
 
         return self._reply_json(ret)
@@ -858,6 +876,29 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             self._reply_json({'zonefile': zonefile_txt})
 
         return
+
+    
+    def GET_did(self, path_info, did):
+        """
+        Get a user profile.
+        Reply the profile on success
+        Return 404 on failure to load
+        """
+        try:
+            did_info = parse_DID(did)
+            assert did_info['name_type'] in ('name', 'subdomain')
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            return self._reply_json({'error': 'Invalid DID'}, status_code=400)
+
+        blockstackd_url = get_blockstackd_url()
+        resp = blockstackd_client.resolve_DID(did, hostport=blockstackd_url)
+        if json_is_error(resp):
+            return self._reply_json({'error': resp['error']}, status_code=404)
+
+        return self._reply_json({'public_key': resp['public_key'], 'document': resp['document']})
 
 
     def GET_user_profile( self, path_info, user_id ):
@@ -1324,6 +1365,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                     'GET': self.GET_blockchain_consensus,
                 },
             },
+            r'^/v1/dids/(did:stack:v0:{}+-[0-9]+)$'.format(OP_BASE58CHECK_CLASS): {
+                'routes': {
+                    'GET': self.GET_did,
+                },
+            },
             r'^/v1/names$': {
                 'routes': {
                     'GET': self.GET_names,
@@ -1397,6 +1443,11 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
             r'^/v1/subdomains$': {
                 'routes': {
                     'GET': self.GET_subdomains
+                },
+            },
+            r'^/v1/subdomains/([0-9a-fA-F]{64})$': {
+                'routes': {
+                    'GET': self.GET_subdomain_ops,
                 },
             },
             r'^/v1/users/({}{{1,256}})$'.format(URLENCODING_CLASS): {
