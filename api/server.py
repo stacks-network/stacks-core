@@ -38,7 +38,7 @@ from flask_crossdomain import crossdomain
 
 from .parameters import parameters_required
 from .utils import get_api_calls, cache_control
-from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL, DEFAULT_CACHE_TIMEOUT
+from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL, BASE_INDEXER_API_URL, DEFAULT_CACHE_TIMEOUT
 from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED
 
 # hack around absolute paths
@@ -50,9 +50,12 @@ sys.path.insert(0, parent_dir)
 import blockstack
 import virtualchain
 
-blockstack_working_dir = blockstack.lib.config.default_working_dir()
-blockstack_config = blockstack.lib.load_configuration(blockstack_working_dir)
-blockstack_indexer_url = blockstack_config['blockstack-api']['indexer_url']
+blockstack_indexer_url = BASE_INDEXER_API_URL
+
+if blockstack_indexer_url is None:
+    blockstack_working_dir = blockstack.lib.config.default_working_dir()
+    blockstack_config = blockstack.lib.load_configuration(blockstack_working_dir)
+    blockstack_indexer_url = blockstack_config['blockstack-api']['indexer_url']
 
 log = virtualchain.get_logger()
 
