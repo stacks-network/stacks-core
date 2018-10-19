@@ -62,6 +62,11 @@ else:
 
 blockstack_indexer_url = BASE_INDEXER_API_URL
 
+if blockstack_indexer_url is None:
+    blockstack_working_dir = blockstack.lib.config.default_working_dir()
+    blockstack_config = blockstack.lib.load_configuration(blockstack_working_dir)
+    blockstack_indexer_url = blockstack_config['blockstack-api']['indexer_url']
+
 # copied and patched from proofs.py
 def site_data_to_fixed_proof_url(account, zonefile):
     service = account['service']
