@@ -783,6 +783,22 @@ def transaction_broadcaster_start(config_path):
     p = subprocess.Popen([txb_path], shell=False, stdout=txb_stdout, stderr=txb_stderr)
 
     TRANSACTION_BROADCASTER_SUBPROCESS = p
+
+    print 'Waiting for transaction broadcaster to start up...'
+    attempts = 10
+    while attempts > 0:
+        time.sleep(2)
+        try:
+            res = requests.get('http://localhost:{}/v1/status'.format(TEST_TRANSACTION_BROADCASTER_PORT))
+            assert res.status_code == 200
+            break
+        except:
+            print 'Transaction broadcaster did not respond...'
+            attempts -= 1
+
+    if attempts == 0:
+        raise Exception('Failed to launch transaction broadcaster')
+
     return 
 
 
