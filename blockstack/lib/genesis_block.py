@@ -21,9 +21,21 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-# this is a place-holder
-GENESIS_BLOCK = {
-    'history': [],
-    'rows': [],
-}
+# for the sake of interpreting a JSON string as Python
+true = True
+false = False
+
+# TODO: fill in 
+GENESIS_BLOCK_STAGES = [
+    {
+        'history': [],
+        'rows': [],
+    }
+]
+
+# TODO: fill in -- map key ID to ASCII armored public key
+GENESIS_BLOCK_SIGNING_KEYS = {}
+
+# genesis block is the final stage of the genesis block's evolution
+GENESIS_BLOCK = GENESIS_BLOCK_STAGES[-1]
 
