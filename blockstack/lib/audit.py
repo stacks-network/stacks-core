@@ -76,7 +76,7 @@ def check_gpg2_keys(gpg2_path, key_ids):
             line_parts = line.split()
             for part in line_parts:
                 # look for rsaXXXX/{:key_id} or dsaXXXX/{:key_id}
-                if part.endswith('/0x{}'.format(key_id.upper())):
+                if part.endswith('{}'.format(key_id.upper())):
                     found = True
                     break
 
