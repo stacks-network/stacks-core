@@ -713,38 +713,23 @@ GENESIS_BLOCK_ROW_SCHEMA = {
 }
 
 GENESIS_BLOCK_HISTORY_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'keys': {
-            'type': 'object',
-            'patternProperties': {
-                '^[0-9A-Fa-f]+': '.+',
+    'type': 'array',
+    'items': {
+        'type': 'object',
+        'properties': {
+            'hash': {
+                'type': 'string',
+                'pattern': '^[0-9a-fA-F]$',
+            },
+            'signature': {
+                'type': 'string',
             },
         },
-        'commits': {
-            'type': 'array',
-            'items': {
-                'type': 'object',
-                'properties': {
-                    'hash': {
-                        'type': 'string',
-                        'pattern': '^[0-9a-fA-F]$',
-                    },
-                    'body': {
-                        'type': 'string',
-                    },
-                },
-                'required': [
-                    'hash',
-                    'body',
-                ],
-            },
-        },
-    },
-    'required': [
-        'keys',
-        'commits'
-    ],
+        'required': [
+            'hash',
+            'signature',
+        ],
+    }
 }
 
 GENESIS_BLOCK_SCHEMA = {
