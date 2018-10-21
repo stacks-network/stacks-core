@@ -935,7 +935,7 @@ def run_scenario( virtualchain_working_dir, scenario, config_file, client_config
     print "working_dir: %s" % working_dir
 
     # set up test environment
-    blockstackd.genesis_block_setup()
+    blockstackd.genesis_block_load()
     db = get_blockstack_db(virtualchain_working_dir, disposition=blockstackd.DISPOSITION_RW)
     testlib.set_utxo_opts( utxo_opts )
     testlib.set_bitcoind( bitcoind )
@@ -1879,7 +1879,8 @@ if __name__ == "__main__":
         f.write('import json\n')
         f.write('false = False\n')
         f.write('true = True\n')
-        f.write('GENESIS_BLOCK = {}'.format(json.dumps(genesis_block_data)))
+        f.write('GENESIS_BLOCK_STAGES = [{}]\n'.format(json.dumps(genesis_block_data)))
+        f.write('GENESIS_BLOCK = GENESIS_BLOCK_STAGES[-1]')
 
     os.environ['BLOCKSTACK_GENESIS_BLOCK_PATH'] = genesis_block_path 
 
