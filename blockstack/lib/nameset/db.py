@@ -328,7 +328,7 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
 
         if 'metadata' in account_info and account_info['metadata'] is not None:
             metadata = account_info['metadata']
-            log.debug('Grant {} to {} (metadata: {})'.format(account_info['value'], address, metadata))
+            log.debug('Grant {} to {} (originally: {}, metadata: {})'.format(account_info['value'], address, account_info['address'], metadata))
 
         else:
             log.debug('Grant {} to {}'.format(account_info['value'], address))
@@ -352,7 +352,7 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
             assert 'vesting_total' in account_info, 'BUG: vesting is present but vesting_total is not'
 
             vesting_sum = sum([account_info['vesting'][h] for h in account_info['vesting']]) 
-            assert vesting_sum == account_info['vesting_total'], 'BUG: vesting mismatch on {}: {} != {}'.format(address, vesting_sum, account_info['vesting'])
+            assert vesting_sum == account_info['vesting_total'], 'BUG: vesting mismatch on {}: {} != {} ({})'.format(address, vesting_sum, account_info['vesting_total'], account_info['vesting'])
 
             for block_height in account_info['vesting']:
                 sql = 'INSERT INTO account_vesting VALUES (?,?,?,?);'
