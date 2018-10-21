@@ -315,7 +315,11 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
         address = None
 
         try:
-            address = virtualchain.address_reencode(account_info['address'])
+            address = account_info['address']
+            if is_c32_address(address):
+                address = address_as_b58(address)
+
+            address = virtualchain.address_reencode(address)
         except ValueError:
             assert account_info.get('receive_whitelisted') == False, 'Unspendable address "{}" must be explicitly marked as not receive-whitelisted'.format(account_info['address'])
 
