@@ -239,11 +239,15 @@ GENESIS_SNAPSHOT = {
 }
 
 GENESIS_BLOCK = None
+GENESIS_BLOCK_STAGES = None
+GENESIS_BLOCK_INSTANTIATED = False
+GENESIS_BLOCK_STAGES_INSTANTIATED = False
 
 try:
     # use built-in one 
     import genesis_block
     GENESIS_BLOCK = genesis_block.GENESIS_BLOCK
+    GENESIS_BLOCK_STAGES = genesis_block.GENESIS_BLOCK_STAGES
 except:
     if not BLOCKSTACK_TEST:
         print >> sys.stderr, 'FATAL: no genesis block defined'
@@ -255,10 +259,28 @@ except:
 def get_genesis_block():
     return GENESIS_BLOCK
 
+def get_genesis_block_stages():
+    return GENESIS_BLOCK_STAGES
+
 def set_genesis_block(new_genesis_block):
-    global GENESIS_BLOCK
-    assert BLOCKSTACK_TEST, 'Cannot set the genesis block in production mode'
+    global GENESIS_BLOCK, GENESIS_BLOCK_INSTANTIATED
+    if GENESIS_BLOCK_INSTANTIATED:
+        assert BLOCKSTACK_TEST, 'Cannot set the genesis block in production mode'
+
     GENESIS_BLOCK = new_genesis_block
+    GENESIS_BLOCK_INSTANTIATED = True
+
+def set_genesis_block_stages(new_genesis_block_stages):
+    global GENESIS_BLOCK_STAGES, GENESIS_BLOCK_STAGES_INSTANTIATED
+    if GENESIS_BLOCK_STAGES_INSTANTIATED:
+        assert BLOCKSTACK_TEST, 'Cannot set the genesis block stages in production mode'
+
+    GENESIS_BLOCK_STAGES = new_genesis_block_stages
+    GENESIS_BLOCK_STAGES_INSTANTIATED = True
+
+def is_genesis_block_instantiated():
+    return GENESIS_BLOCK_INSTANTIATED
+
 
 """
 Epoch constants govern externally-adjusted behaviors over different time intervals.
