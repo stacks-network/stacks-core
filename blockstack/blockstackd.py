@@ -3152,7 +3152,7 @@ def run_blockstackd():
             log.info('Using alternative genesis block {}'.format(args.genesis_block))
             if args.signing_key:
                 # audit it
-                res = do_genesis_block_audit(genesis_block_path=genesis_block_path, key_id=key_id)
+                res = do_genesis_block_audit(genesis_block_path=args.genesis_block, key_id=args.signing_key)
                 if not res:
                     print >> sys.stderr, 'Genesis block {} is INVALID'.format(args.genesis_block)
                     sys.exit(1)
