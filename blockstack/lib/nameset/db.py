@@ -32,6 +32,7 @@ import copy
 import time
 import random
 import hashlib
+import jsonschema
 
 # hack around absolute paths
 curr_dir = os.path.abspath( os.path.join( os.path.dirname(__file__), ".." ) )
@@ -268,6 +269,16 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
     Create the initial account balances.
     All accounts will be locked, and will have been created at the genesis date
     for Blockstack (i.e. FIRST_BLOCK_MAINNET)
+
+    The genesis block has multiple "stages" that encode the transfer of tokens from
+    Blockstack Token LLC to the various investors, GPs, etc.  For the initial genesis
+    block for the accredited token sale, there should be four such stages.
+
+    @initial_account_balances is the final genesis block stage that encodes the
+    token allocations and unlock periods for each initial account holder (i.e. the
+    initial investors)
+
+    @genesis_block_history is a sequence of signed hashes over each stage.
     
     @initial_count_balances is a list of dicts:
     [
@@ -286,19 +297,12 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
         {...}
     ]
     @genesis_block_history this structure:
-    {
-        "keys": {
-            key_id: key data,
-            ...
+    [
+        {
+            "hash": ...,
+            "signature": ...
         },
-        "commits": [
-            {
-                "hash": ...,
-                "body": ...
-            },
-            { ... }
-        ],
-    }
+    ]
     We'll store the genesis block history's canonical hash as the first transaction.
     """
     namedb_query_execute(con, "BEGIN", ())
