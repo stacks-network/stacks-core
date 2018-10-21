@@ -43,6 +43,7 @@ import imp
 import argparse
 import jsonschema
 from jsonschema import ValidationError
+import subprocess
 import BaseHTTPServer
 
 import xmlrpclib
@@ -62,6 +63,7 @@ from lib.client import OP_HEX_PATTERN, OP_CONSENSUS_HASH_PATTERN, OP_ADDRESS_PAT
 from lib.config import REINDEX_FREQUENCY, BLOCKSTACK_TEST, default_bitcoind_opts, is_subdomains_enabled
 from lib.util import url_to_host_port, atlas_inventory_to_string, daemonize, make_DID, parse_DID, BoundedThreadingMixIn, GCThread
 from lib import *
+from lib.audit import find_gpg2, GENESIS_BLOCK_SIGNING_KEYS, genesis_block_audit
 from lib.storage import *
 from lib.atlas import *
 from lib.fast_sync import *
@@ -2403,20 +2405,30 @@ def blockstack_signal_handler( sig, frame ):
     set_running(False)
 
 
-def genesis_block_setup():
+def genesis_block_load(module_path=None):
     """
     Make sure the genesis block is good to go.
+    Load and instantiate it.
     """
-    if os.environ.get('BLOCKSTACK_GENESIS_BLOCK_PATH'):
-        genesis_block_path = os.environ['BLOCKSTACK_GENESIS_BLOCK_PATH']
+    if os.environ.get('BLOCKSTACK_GENESIS_BLOCK_PATH') is not None:
+        log.warning('Using envar-given genesis block')
+        module_path = os.environ['BLOCKSTACK_GENESIS_BLOCK_PATH']
+
+    genesis_block = None
+    genesis_block_stages = None
+
+    if module_path:
+        log.debug('Load genesis block from {}'.format(module_path))
+        genesis_block_path = module_path
         try:
             genesis_block_mod = imp.load_source('genesis_block', genesis_block_path)
-            set_genesis_block(genesis_block_mod.GENESIS_BLOCK)
+            genesis_block = genesis_block_mod.GENESIS_BLOCK
+            genesis_block_stages = genesis_block_mod.GENESIS_BLOCK_STAGES
 
             if BLOCKSTACK_TEST:
                 print ''
                 print 'genesis block'
-                print json.dumps(get_genesis_block(), indent=4, sort_keys=True)
+                print json.dumps(genesis_block, indent=4, sort_keys=True)
                 print ''
 
         except Exception as e:
@@ -2424,10 +2436,24 @@ def genesis_block_setup():
             log.fatal('Failed to load genesis block')
             os.abort()
 
+    else:
+        log.debug('Load built-in genesis block')
+        genesis_block = get_genesis_block()
+
     try:
-        jsonschema.validate(GENESIS_BLOCK_SCHEMA, get_genesis_block())
+        for stage in genesis_block_stages:
+            jsonschema.validate(GENESIS_BLOCK_SCHEMA, stage)
+
+        jsonschema.validate(GENESIS_BLOCK_SCHEMA, genesis_block)
+
+        set_genesis_block(genesis_block)
+        set_genesis_block_stages(genesis_block_stages)
+
+        log.debug('Genesis block has {} stages'.format(len(genesis_block_stages)))
+        for i, stage in enumerate(genesis_block_stages):
+            log.debug('Stage {} has {} row(s)'.format(i+1, len(stage['rows'])))
+
     except Exception as e:
-        log.exception(e)
         log.fatal("Invalid genesis block")
         os.abort()
 
@@ -2440,7 +2466,9 @@ def server_setup(working_dir, port=None, api_port=None, indexer_enabled=None, in
     Start all subsystems, write pid file, set up signal handlers, set up DB.
     Returns a server instance.
     """
-    genesis_block_setup()
+    if not is_genesis_block_instantiated():
+        # default genesis block
+        genesis_block_load()
 
     blockstack_opts = get_blockstack_opts()
     blockstack_api_opts = get_blockstack_api_opts()
@@ -2869,7 +2897,36 @@ def load_expected_snapshots( snapshots_path ):
         log.debug("{} does not appear to be a chainstate DB".format(snapshots_path))
 
     return None
+   
+
+def do_genesis_block_audit(genesis_block_path=None, key_id=None):
+    """
+    Loads and audits the genesis block, optionally using an alternative key
+    """
+    signing_keys = GENESIS_BLOCK_SIGNING_KEYS
+    if genesis_block_path is not None:
+        # alternative genesis block
+        genesis_block_load(genesis_block_path)
     
+    if key_id is not None:
+        # alternative signing key
+        gpg2_path = find_gpg2()
+        assert gpg2_path, 'You need to install gpg2'
+        p = subprocess.Popen([gpg2_path, '-a', '--export', key_id], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = p.communicate()
+        if p.returncode != 0:
+            log.error('Failed to load key {}\n{}'.format(key_id, err))
+            return False
+
+        signing_keys = { key_id: out.strip() }
+        
+    res = genesis_block_audit(get_genesis_block_stages(), key_bundle=signing_keys)
+    if not res:
+        log.error('Genesis block is NOT signed by {}'.format(', '.join(signing_keys.keys())))
+        return False
+
+    return True
+
 
 def run_blockstackd():
     """
@@ -2928,6 +2985,12 @@ def run_blockstackd():
     parser.add_argument(
         '--no-api', action='store_true',
         help='Do not start the RESTful API component')
+    parser.add_argument(
+        '--genesis_block', action='store',
+        help='Path to an alternative genesis block source file')
+    parser.add_argument(
+        '--signing_key', action='store',
+        help='GPG key ID for an alternative genesis block')
 
     # -------------------------------------
     parser = subparsers.add_parser(
@@ -3045,14 +3108,14 @@ def run_blockstackd():
         'audit',
         help='audit the genesis block')
     parser.add_argument(
-        'genesis_block_history', action='store',
-        help='a JSON file that encodes the list of public key authors and its git commit history')
+        '--path', action='store',
+        help='Alternative path to a genesis block')
+    parser.add_argument(
+        '--signing_key', action='store',
+        help='GPG key ID that signed the genesis block')
     parser.add_argument(
         '--working-dir', action='store',
         help='Directory with the chain state to use')
-    parser.add_argument(
-        '--gpghome', action='store',
-        help='GPG key directory to use (defaults to a temporary directory)')
 
     args, _ = argparser.parse_known_args(new_argv[1:])
 
@@ -3083,6 +3146,20 @@ def run_blockstackd():
         if still_running:
            log.error("Blockstackd appears to be running already.  If not, please run '{} stop'".format(sys.argv[0]))
            sys.exit(1)
+
+        # alternative genesis block?
+        if args.genesis_block:
+            log.info('Using alternative genesis block {}'.format(args.genesis_block))
+            if args.signing_key:
+                # audit it
+                res = do_genesis_block_audit(genesis_block_path=genesis_block_path, key_id=key_id)
+                if not res:
+                    print >> sys.stderr, 'Genesis block {} is INVALID'.format(args.genesis_block)
+                    sys.exit(1)
+
+            else:
+                # don't audit it, but instantiate it
+                genesis_block_load(args.genesis_block)
 
         # unclean shutdown?
         is_indexing = BlockstackDB.db_is_indexing(virtualchain_hooks, working_dir)
@@ -3267,3 +3344,15 @@ def run_blockstackd():
         print "Start your node with `blockstack-core start`"
         print "Pass `--debug` for extra output."
 
+    elif args.action == 'audit':
+        # audit the built-in genesis block 
+        key_id = args.signing_key
+        genesis_block_path = args.path
+
+        res = do_genesis_block_audit(genesis_block_path=genesis_block_path, key_id=key_id)
+        if not res:
+            print >> sys.stderr, 'Genesis block is INVALID'
+            sys.exit(1)
+
+        print 'Genesis block is valid'
+        sys.exit(0)
