@@ -2910,6 +2910,13 @@ def run_blockstackd():
 
            blockstack_backup_restore(working_dir, None)
 
+           # reset atlas/subdomain state so we will reprocess it
+           atlasdb_path = os.path.join(working_dir, 'atlas.db')
+           db = get_db_state(working_dir)
+           restore_block = db.get_current_block()
+           _, current_block = get_index_range(working_dir)
+           atlasdb_recover_reset_zonefile_state(atlasdb_path, restore_block, current_block)
+
            # make sure we "stop"
            set_indexing(working_dir, False)
            BlockstackDB.db_set_indexing(False, virtualchain_hooks, working_dir)
@@ -2975,6 +2982,13 @@ def run_blockstackd():
            sys.exit(1)
 
         blockstack_backup_restore(working_dir, args.block_number)
+
+        # reset atlas/subdomain state so we will reprocess it
+        atlasdb_path = os.path.join(working_dir, 'atlas.db')
+        db = get_db_state(working_dir)
+        restore_block = db.get_current_block()
+        _, current_block = get_index_range(working_dir)
+        atlasdb_recover_reset_zonefile_state(atlasdb_path, restore_block, current_block)
 
         # make sure we're "stopped"
         set_indexing(working_dir, False)
