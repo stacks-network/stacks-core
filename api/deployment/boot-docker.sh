@@ -12,18 +12,49 @@ function exit_error() {
    exit 1
 }
 
-# santiy check
+function abort_container() { 
+   echo "$1" >&2
+   kill -9 1
+   exit 1       # for good measure
+}
+
+if [ "$BLOCKSTACK_DEPLOYMENT_ASSERT_FAULTY" = "1" ]; then 
+   abort_container "Exiting in error due to fault injection"
+fi
+
+# sanity check
 which blockstack-core >/dev/null || exit_error "blockstack-core not found"
+
+if [ "$BLOCKSTACK_DEPLOYMENT_ASSERT_NO_BINARY" = "1" ]; then 
+   # make the container fail by moving blockstack-core out of the path 
+   mv "$(which blockstack-core)" /tmp/blockstack-core
+fi
 
 if ! [ -f "$STATE_DIR/blockstack-server.db" ]; then 
    # no state yet
-   # TODO: remove arguments once in master
-   blockstack-core --debug fast_sync http://testnet.blockstack.org/snapshot.bsk 04874e5e95e9da7662de351c967c1edcaccf902536cbb0d4e00e6d22038034628700ae6b360c2cf10c3c834863c9c98f33e9bd07fc0c349e7c14f07f8b0e5a7421
+   blockstack-core --debug fast_sync
    sed -i -e 's/api_host = localhost/api_host = 0.0.0.0/' "$STATE_DIR/blockstack-server.ini"
 fi
 
-# start daemon and wait forever
+# start daemon
 touch "$STATE_DIR/blockstack-server.log"
 blockstack-core --debug start
 
+if [ "$BLOCKSTACK_DEPLOYMENT_ASSERT_FAST_SYNC" = "1" ]; then 
+    # wait for the daemon to come up
+    sleep 15
+
+    # make sure the daemon is *not* starting from scratch
+    API_PORT="$(grep "api_port" "$STATE_DIR/blockstack-server.ini" | sed -r 's/([^=]+)=[ ]*([^ ]+)/\2/g')"
+    if [ -z "$API_PORT" ]; then 
+       abort_container "Could not determine api_port from config file"
+    fi
+
+    BLOCK_HEIGHT="$(curl -sL "http://localhost:$API_PORT/v1/info" | jq '.last_block_processed')"
+    if [ $BLOCK_HEIGHT -lt 500000 ]; then 
+       abort_container "Node is trying to boot from scratch when we asked it not to"
+    fi
+fi
+
+# wait forever
 tail -f "$STATE_DIR/blockstack-server.log"

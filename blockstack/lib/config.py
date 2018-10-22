@@ -183,9 +183,17 @@ else:
     RPC_SERVER_PORT = 6264
 
 DEFAULT_API_HOST = 'localhost'
+if os.environ.get('BLOCKSTACK_API_HOST'):
+    DEFAULT_API_HOST = os.environ.get('BLOCKSTACK_API_HOST')
+    log.debug('BLOCKSTACK_API_HOST = {}'.format(DEFAULT_API_HOST))
+
 DEFAULT_API_PORT = 6270  # API endpoint port
 if BLOCKSTACK_TEST:
     DEFAULT_API_PORT = 16268
+
+if os.environ.get('BLOCKSTACK_API_PORT'):
+    DEFAULT_API_PORT = int(os.environ.get('BLOCKSTACK_API_PORT'))
+    log.debug('BLOCKSTACK_API_PORT = {}'.format(DEFAULT_API_PORT))
 
 RPC_DEFAULT_TIMEOUT = 30  # in secs
 RPC_MAX_ZONEFILE_LEN = 40960     # 40KB
