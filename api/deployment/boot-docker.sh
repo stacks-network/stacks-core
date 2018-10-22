@@ -22,8 +22,13 @@ if [ "$BLOCKSTACK_DEPLOYMENT_ASSERT_FAULTY" = "1" ]; then
    abort_container "Exiting in error due to fault injection"
 fi
 
-# santiy check
+# sanity check
 which blockstack-core >/dev/null || exit_error "blockstack-core not found"
+
+if [ "$BLOCKSTACK_DEPLOYMENT_ASSERT_NO_BINARY" = "1" ]; then 
+   # make the container fail by moving blockstack-core out of the path 
+   mv "$(which blockstack-core)" /tmp/blockstack-core
+fi
 
 if ! [ -f "$STATE_DIR/blockstack-server.db" ]; then 
    # no state yet
