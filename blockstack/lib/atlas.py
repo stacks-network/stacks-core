@@ -816,7 +816,7 @@ def atlasdb_get_zonefiles_by_hash(zonefile_hash, block_height=None, con=None, pa
         return ret
 
 
-def atlasdb_set_zonefile_present( zonefile_hash, present, con=None, path=None ):
+def atlasdb_set_zonefile_present( zonefile_hash, present, block_height=None, con=None, path=None ):
     """
     Mark a zonefile as present (i.e. we stored it).
     Keep our in-RAM zonefile inventory coherent.
@@ -836,8 +836,14 @@ def atlasdb_set_zonefile_present( zonefile_hash, present, con=None, path=None ):
             else:
                 present = 0
 
-            sql = "UPDATE zonefiles SET present = ? WHERE zonefile_hash = ?;"
+            sql = "UPDATE zonefiles SET present = ? WHERE zonefile_hash = ?"
             args = (present, zonefile_hash)
+
+            if block_height is not None:
+                sql += " AND block_height = ?"
+                args += (block_height,)
+
+            sql += ";"
 
             cur = dbcon.cursor()
             res = atlasdb_query_execute( cur, sql, args )
@@ -934,6 +940,28 @@ def atlasdb_get_zonefile_bits( zonefile_hash, con=None, path=None ):
             ret.append( r['inv_index'] - 1 )
 
     return ret
+
+
+def atlasdb_recover_reset_zonefile_state(atlasdb_path, start_block, end_block):
+    """
+    Mark a range of zone files as absent so they'll get re-processed.
+    ONLY CALL THIS ON RECOVERY
+    """
+    con = atlasdb_open(atlasdb_path)
+
+    for block_height in range(start_block, end_block+1):
+        zonefile_info = db.get_atlas_zonefile_info_at( block_height )
+        for name_txid_zfhash in zonefile_info:
+
+            log.debug("Recovery: mark {} at {} as absent again".format(zfhash, block_height))
+
+            # mark this zone file as absent at this block height
+            zfhash = str(name_txid_zfhash['value_hash'])
+            atlasdb_set_zonefile_present(zfhash, False, block_height=block_height, con=con)
+
+    con.commit()
+    con.close()
+    return True
 
 
 def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir, validate=True, end_block=None ):
