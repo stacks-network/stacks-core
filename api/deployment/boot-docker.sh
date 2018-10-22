@@ -15,6 +15,7 @@ function exit_error() {
 function abort_container() { 
    echo "$1" >&2
    kill -9 1
+   exit 1       # for good measure
 }
 
 if [ "$BLOCKSTACK_DEPLOYMENT_ASSERT_FAULTY" = "1" ]; then 
