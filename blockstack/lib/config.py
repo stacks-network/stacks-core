@@ -950,6 +950,15 @@ def set_recovery_range(working_dir, start_block, end_block):
         os.fsync(f.fileno())
 
 
+def clear_recovery_range(working_dir):
+    """
+    Clear out our recovery hint
+    """
+    recovery_range_path = os.path.join(working_dir, '.recovery')
+    if os.path.exists(recovery_range_path):
+        os.unlink(recovery_range_path)
+
+
 def is_atlas_enabled(blockstack_opts):
     """
     Can we do atlas operations?
