@@ -2705,6 +2705,26 @@ def setup_recovery(working_dir):
     return True
 
 
+def check_recovery(working_dir):
+    """
+    Do we need to recover on start-up?
+    """
+    recovery_start_block, recovery_end_block = get_recovery_range(working_dir)
+    if recovery_start_block is not None and recovery_end_block is not None:
+        local_current_block = virtualchain_hooks.get_last_block(working_dir)
+        if local_current_block <= recovery_end_block:
+            return True
+
+        # otherwise, we're outside the recovery range and we can clear it
+        log.debug('Chain state is at block {}, and is outside the recovery window {}-{}'.format(recovery_start_block, recovery_end_block))
+        clear_recovery_range(working_dir)
+        return False
+
+    else:
+        # not recovering
+        return False
+
+
 def run_blockstackd():
     """
     run blockstackd
@@ -2937,7 +2957,6 @@ def run_blockstackd():
            BlockstackDB.db_set_indexing(False, virtualchain_hooks, working_dir)
 
            # just did a recovery; act accordingly
-           recover = True
            setup_recovery(working_dir)
 
         # use snapshots?
@@ -2971,6 +2990,7 @@ def run_blockstackd():
         else:
             args.api_port = None
 
+        recover = check_recovery(working_dir)
         exit_status = run_server(working_dir, foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port, api_port=args.api_port, use_api=use_api, use_indexer=use_indexer, indexer_url=args.indexer_url, recover=recover)
         if args.foreground:
            log.info("Service endpoint exited with status code %s" % exit_status )
