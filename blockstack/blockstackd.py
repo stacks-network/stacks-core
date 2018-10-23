@@ -1643,15 +1643,20 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
             was_present = atlasdb_set_zonefile_present(zonefile_hash, True, path=conf['atlasdb_path'])
             if was_present:
                 # we already got this zone file
-                log.debug("Already have zonefile {}".format(zonefile_hash))
-                saved.append(1)
-                continue
+                # only process it if it's outside our recovery range 
+                recovery_start, recovery_end = get_recovery_range(self.working_dir)
+                current_block = virtualchain_hooks.get_last_block(self.working_dir)
+
+                if recovery_start is not None and recovery_end is not None and recovery_end < current_block:
+                    # no need to process
+                    log.debug("Already have zonefile {}".format(zonefile_hash))
+                    saved.append(1)
+                    continue
 
             if self.subdomain_index:
                 # got new zonefile
                 # let the subdomain indexer know, along with giving it the minimum block height
                 min_block_height = min([zfi['block_height'] for zfi in zfinfos])
-
                 log.debug("Enqueue {} from {} for subdomain processing".format(zonefile_hash, min_block_height))
                 self.subdomain_index.enqueue_zonefile(zonefile_hash, min_block_height)
 
@@ -2005,7 +2010,7 @@ def api_stop(server_state):
     server_state['api'] = None
 
 
-def atlas_init(blockstack_opts, db, port=None):
+def atlas_init(blockstack_opts, db, recover=False, port=None):
     """
     Start up atlas functionality
     """
@@ -2021,7 +2026,7 @@ def atlas_init(blockstack_opts, db, port=None):
         my_hostname = blockstack_opts['atlas_hostname']
         my_port = blockstack_opts['atlas_port']
 
-        initial_peer_table = atlasdb_init(blockstack_opts['atlasdb_path'], zonefile_dir, db, atlas_seed_peers, atlas_blacklist, validate=True)
+        initial_peer_table = atlasdb_init(blockstack_opts['atlasdb_path'], zonefile_dir, db, atlas_seed_peers, atlas_blacklist, validate=True, recover=recover)
         atlas_peer_table_init(initial_peer_table)
 
         atlas_state = atlas_node_init(my_hostname, my_port, blockstack_opts['atlasdb_path'], zonefile_dir, db.working_dir)
@@ -2249,7 +2254,7 @@ def blockstack_signal_handler( sig, frame ):
     set_running(False)
 
 
-def server_setup(working_dir, port=None, api_port=None, indexer_enabled=None, indexer_url=None, api_enabled=None):
+def server_setup(working_dir, port=None, api_port=None, indexer_enabled=None, indexer_url=None, api_enabled=None, recover=False):
     """
     Set up the server.
     Start all subsystems, write pid file, set up signal handlers, set up DB.
@@ -2312,7 +2317,7 @@ def server_setup(working_dir, port=None, api_port=None, indexer_enabled=None, in
         db = get_or_instantiate_db_state(working_dir)
     
         # set up atlas state, if we're an indexer
-        atlas_state = atlas_init(blockstack_opts, db, port=port)
+        atlas_state = atlas_init(blockstack_opts, db, port=port, recover=recover)
         db.close()
 
         # set up subdomains state
@@ -2399,7 +2404,7 @@ def server_shutdown(server_state):
     return True
 
 
-def run_server(working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None, api_port=None, use_api=None, use_indexer=None, indexer_url=None):
+def run_server(working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None, api_port=None, use_api=None, use_indexer=None, indexer_url=None, recover=False):
     """
     Run blockstackd.  Optionally daemonize.
     Return 0 on success
@@ -2427,7 +2432,7 @@ def run_server(working_dir, foreground=False, expected_snapshots=GENESIS_SNAPSHO
             log.debug("Running in the background as PID {}".format(child_pid))
             sys.exit(0)
     
-    server_state = server_setup(working_dir, port=port, api_port=api_port, indexer_enabled=use_indexer, indexer_url=indexer_url, api_enabled=use_api)
+    server_state = server_setup(working_dir, port=port, api_port=api_port, indexer_enabled=use_indexer, indexer_url=indexer_url, api_enabled=use_api, recover=recover)
     atexit.register(server_shutdown, server_state)
 
     rpc_server = server_state['rpc']
@@ -2682,7 +2687,43 @@ def load_expected_snapshots( snapshots_path ):
         log.debug("{} does not appear to be a chainstate DB".format(snapshots_path))
 
     return None
-    
+   
+
+def setup_recovery(working_dir):
+    """
+    Set up the recovery metadata so we can fully recover secondary state,
+    like subdomains.
+    """
+    db = get_db_state(working_dir)
+    bitcoind_session = get_bitcoind(new=True)
+    assert bitcoind_session is not None
+
+    _, current_block = virtualchain.get_index_range('bitcoin', bitcoind_session, virtualchain_hooks, working_dir)
+    assert current_block, 'Failed to connect to bitcoind'
+
+    set_recovery_range(working_dir, db.lastblock, current_block - NUM_CONFIRMATIONS)
+    return True
+
+
+def check_recovery(working_dir):
+    """
+    Do we need to recover on start-up?
+    """
+    recovery_start_block, recovery_end_block = get_recovery_range(working_dir)
+    if recovery_start_block is not None and recovery_end_block is not None:
+        local_current_block = virtualchain_hooks.get_last_block(working_dir)
+        if local_current_block <= recovery_end_block:
+            return True
+
+        # otherwise, we're outside the recovery range and we can clear it
+        log.debug('Chain state is at block {}, and is outside the recovery window {}-{}'.format(recovery_start_block, recovery_end_block))
+        clear_recovery_range(working_dir)
+        return False
+
+    else:
+        # not recovering
+        return False
+
 
 def run_blockstackd():
     """
@@ -2888,6 +2929,7 @@ def run_blockstackd():
         if is_indexing:
             log.warning('Unclean shutdown detected!  Will attempt to restore from backups')
 
+        recover = False
         if pid is not None and use_indexer is not False or is_indexing:
            # The server didn't shut down properly.
            # restore from back-up before running
@@ -2913,6 +2955,9 @@ def run_blockstackd():
            # make sure we "stop"
            set_indexing(working_dir, False)
            BlockstackDB.db_set_indexing(False, virtualchain_hooks, working_dir)
+
+           # just did a recovery; act accordingly
+           setup_recovery(working_dir)
 
         # use snapshots?
         if args.expected_snapshots is not None:
@@ -2945,7 +2990,8 @@ def run_blockstackd():
         else:
             args.api_port = None
 
-        exit_status = run_server(working_dir, foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port, api_port=args.api_port, use_api=use_api, use_indexer=use_indexer, indexer_url=args.indexer_url)
+        recover = check_recovery(working_dir)
+        exit_status = run_server(working_dir, foreground=args.foreground, expected_snapshots=expected_snapshots, port=args.port, api_port=args.api_port, use_api=use_api, use_indexer=use_indexer, indexer_url=args.indexer_url, recover=recover)
         if args.foreground:
            log.info("Service endpoint exited with status code %s" % exit_status )
 
@@ -2980,6 +3026,9 @@ def run_blockstackd():
         set_indexing(working_dir, False)
         if os.path.exists(get_pidfile_path(working_dir)):
            os.unlink(get_pidfile_path(working_dir))
+
+        # remember some recovery metadata the next time we start
+        setup_recovery(working_dir)
 
     elif args.action == 'verifydb':
         expected_snapshots = None
@@ -3061,6 +3110,9 @@ def run_blockstackd():
         if not rc:
            print 'fast_sync failed'
            sys.exit(1)
+
+        # treat this as a recovery
+        setup_recovery(working_dir)
 
         print "Node synchronized!  Node state written to {}".format(working_dir)
         print "Start your node with `blockstack-core start`"
