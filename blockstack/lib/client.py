@@ -35,6 +35,7 @@ import random
 import json
 import traceback
 import re
+import urllib
 import urllib2
 import socket
 from .util import url_to_host_port, url_protocol, parse_DID
@@ -64,11 +65,41 @@ class TimeoutHTTPConnection(httplib.HTTPConnection):
         httplib.HTTPConnection.connect(self)
         self.sock.settimeout(self.timeout)
 
+    def putheader(self, header, argument, *args, **kw):
+        if header.lower() == 'host':
+            if hasattr(self, '_sent_host') and self._sent_host:
+                # don't re-send 
+                return 
+            
+            self._sent_host = True
+
+        httplib.HTTPConnection.putheader(self, header, argument, *args, **kw)
+
+    def putrequest(self, request, selector, **kw):
+        # handled in the Transport
+        kw['skip_host'] = True
+        httplib.HTTPConnection.putrequest(self, request, selector, **kw)
+
 
 class TimeoutHTTPSConnection(httplib.HTTPSConnection):
     def connect(self):
         httplib.HTTPSConnection.connect(self)
         self.sock.settimeout(self.timeout)
+
+    def putheader(self, header, argument, *args, **kw):
+        if header.lower() == 'host':
+            if hasattr(self, '_sent_host') and self._sent_host:
+                # don't re-send 
+                return 
+            
+            self._sent_host = True
+
+        httplib.HTTPSConnection.putheader(self, header, argument, *args, **kw)
+
+    def putrequest(self, request, selector, **kw):
+        # handled in the Transport
+        kw['skip_host'] = True
+        httplib.HTTPSConnection.putrequest(self, request, selector, **kw)
 
 
 class TimeoutHTTP(httplib.HTTP):
@@ -107,6 +138,16 @@ class TimeoutTransport(Transport):
 
         conn.set_timeout(self.timeout)
         return conn
+
+    def send_host(self, connection, host):
+        # NOTE: this is a no-op these days, so we have to send the Host header ourselves
+        Transport.send_host(self, connection, host)
+
+        auth, hostname = urllib.splituser(host)
+        if ':' in hostname:
+            hostname = hostname.split(':')[0]
+
+        connection.putheader('Host', hostname)
 
 
 class TimeoutServerProxy(ServerProxy):
