@@ -1249,6 +1249,54 @@ def is_running():
     return running
 
 
+def get_recovery_range(working_dir):
+    """
+    Get the range of blocks for which we are reprocessing
+    transactions on recovery.
+    Returns (start_block, end_block) tu↵ple, which will be
+    (None, None) if we're not recovering
+    """
+    recovery_range_path = os.path.join(working_dir, '.recovery')
+    if not os.path.exists(recovery_range_path):
+        return (None, None)
+
+    with open(recovery_range_path) as f:
+        data = f.read()
+
+    lines = filter(lambda l: len(l) > 0, map(lambda l2: l2.strip(), data.split()))
+    assert len(lines) == 2, 'Invalid .recovery file'
+    try:
+        start_block = int(lines[0])
+        end_block = int(lines[1])
+    except:
+        raise ValueError('Failed to parse {}'.format(recovery_range_path))
+
+    return (start_block, end_block)
+
+
+def set_recovery_range(working_dir, start_block, end_block):
+    """
+    Set the recovery block range if we're restoring and reporcessing
+    transactions from a backup.
+
+    Writes the recovery range to the working directory if the working directory is given and persist is True
+    """
+    recovery_range_path = os.path.join(working_dir, '.recovery')
+    with open(recovery_range_path, 'w') as f:
+        f.write('{}\n{}\n'.format(start_block, end_block))
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def clear_recovery_range(working_dir):
+    """
+    Clear out our recovery hint
+    """
+    recovery_range_path = os.path.join(working_dir, '.recovery')
+    if os.path.exists(recovery_range_path):
+        os.unlink(recovery_range_path)
+
+
 def is_atlas_enabled(blockstack_opts):
     """
     Can we do atlas operations?

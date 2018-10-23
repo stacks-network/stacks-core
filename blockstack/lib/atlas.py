@@ -937,7 +937,7 @@ def atlasdb_get_zonefile_bits( zonefile_hash, con=None, path=None ):
     return ret
 
 
-def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir, validate=True, end_block=None ):
+def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir, recover=False, validate=True, end_block=None ):
     """
     Queue all zonefile hashes in the BlockstackDB
     to the zonefile queue
@@ -967,6 +967,10 @@ def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir, validate=True, 
             zfinfo = atlasdb_get_zonefile( zfhash, con=con )
             if zfinfo is not None:
                 tried_storage = zfinfo['tried_storage']
+
+            if recover and present:
+                log.debug('Recover: assume that {} is absent so we will reprocess it'.format(zfhash))
+                present = False
 
             log.debug("Add %s %s %s at %s (present: %s, tried_storage: %s)" % (name, zfhash, txid, block_height, present, tried_storage) )
             atlasdb_add_zonefile_info( name, zfhash, txid, present, tried_storage, block_height, con=con )
@@ -1253,7 +1257,7 @@ def atlasdb_load_peer_table( con=None, path=None ):
     return peer_table
 
 
-def atlasdb_init( path, zonefile_dir, db, peer_seeds, peer_blacklist, validate=False):
+def atlasdb_init( path, zonefile_dir, db, peer_seeds, peer_blacklist, recover=False, validate=False):
     """
     Set up the atlas node:
     * create the db if it doesn't exist
@@ -1281,7 +1285,7 @@ def atlasdb_init( path, zonefile_dir, db, peer_seeds, peer_blacklist, validate=F
 
         log.debug("Synchronize zonefiles from %s to %s" % (atlasdb_last_block, db.lastblock) )
 
-        atlasdb_queue_zonefiles( con, db, atlasdb_last_block, zonefile_dir, validate=validate)
+        atlasdb_queue_zonefiles( con, db, atlasdb_last_block, zonefile_dir, recover=recover, validate=validate)
 
         log.debug("Refreshing seed peers")
         for peer in peer_seeds:
@@ -1313,7 +1317,7 @@ def atlasdb_init( path, zonefile_dir, db, peer_seeds, peer_blacklist, validate=F
 
         # populate from db
         log.debug("Queuing all zonefiles")
-        atlasdb_queue_zonefiles( con, db, FIRST_BLOCK_MAINNET, zonefile_dir, validate=validate)
+        atlasdb_queue_zonefiles( con, db, FIRST_BLOCK_MAINNET, zonefile_dir, recover=recover, validate=validate)
 
         log.debug("Adding seed peers")
         for peer in peer_seeds:
