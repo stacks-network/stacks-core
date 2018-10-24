@@ -2959,7 +2959,7 @@ def check_recovery(working_dir):
             return True
 
         # otherwise, we're outside the recovery range and we can clear it
-        log.debug('Chain state is at block {}, and is outside the recovery window {}-{}'.format(recovery_start_block, recovery_end_block))
+        log.debug('Chain state is at block {}, and is outside the recovery window {}-{}'.format(local_current_block, recovery_start_block, recovery_end_block))
         clear_recovery_range(working_dir)
         return False
 
