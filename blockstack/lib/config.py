@@ -2009,6 +2009,23 @@ def semver_newer(v1, v2):
     return True
 
 
+def semver_equal(v1, v2):
+    """
+    Verify (as semantic versions) if v1 == v2
+    Patch versions can be different
+    """
+    v1_parts = v1.split('.')
+    v2_parts = v2.split('.')
+    if len(v1_parts) < 3 or len(v2_parts) < 3:
+        # one isn't a semantic version
+        return False
+
+    v1_major, v1_minor, v1_patch = get_version_parts(v1_parts, int)
+    v2_major, v2_minor, v2_patch = get_version_parts(v2_parts, int)
+
+    return v1_major == v2_major and v1_minor == v2_minor
+
+
 def versions_need_upgrade(v_from, v_to):
     version_upgrades = [
         # all semver mismatches before "0.17" require upgrade
