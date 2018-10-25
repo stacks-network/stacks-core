@@ -2445,6 +2445,7 @@ def genesis_block_load(module_path=None):
     else:
         log.debug('Load built-in genesis block')
         genesis_block = get_genesis_block()
+        genesis_block = get_genesis_block_stages()
 
     try:
         for stage in genesis_block_stages:
