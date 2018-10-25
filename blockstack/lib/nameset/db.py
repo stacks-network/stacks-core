@@ -233,6 +233,10 @@ BLOCKSTACK_DB_SCRIPT += """
 PRAGMA foreign_keys = ON;
 """
 
+BLOCKSTACK_DB_SCRIPT += """
+CREATE TABLE db_version( version TEXT NOT NULL );
+INSERT INTO db_version VALUES ("{}");
+""".format(VERSION)
 
 def namedb_genesis_txid(address, metadata):
     """
@@ -368,6 +372,43 @@ def namedb_create_token_genesis(con, initial_account_balances, genesis_block_his
     namedb_query_execute(con, "END", ())
 
 
+def namedb_get_version(con):
+    """
+    Get the db version
+    """
+    sql = 'SELECT version FROM db_version;'
+    args = ()
+
+    try:
+        rowdata = namedb_query_execute(con, sql, args, abort=False)
+        row = rowdata.fetchone()
+        return row['version']
+    except:
+        # no version defined
+        return '0.0.0.0'
+
+
+def namedb_read_version(path):
+    """
+    Get the db version
+    """
+    con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
+    con.row_factory = namedb_row_factory
+
+    sql = 'SELECT version FROM db_version;'
+    args = ()
+
+    try:
+        rowdata = namedb_query_execute(con, sql, args, abort=False)
+        row = rowdata.fetchone()
+        return row['version']
+    except:
+        # no version defined
+        return '0.0.0.0'
+    finally:
+        con.close()
+
+
 def namedb_create(path, genesis_block):
     """
     Create a sqlite3 db at the given path.
@@ -398,6 +439,12 @@ def namedb_open( path ):
     """
     con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
     con.row_factory = namedb_row_factory
+
+    version = namedb_get_version(con)
+    if not semver_equal(version, VERSION):
+        # wrong version 
+        raise Exception('Database has version {}, but this node is version {}.  Please update your node database (such as with fast_sync).'.format(version, VERSION))
+
     return con
 
 
@@ -689,13 +736,13 @@ def namedb_format_query( query, values ):
     return db_format_query(query, values)
 
 
-def namedb_query_execute( cur, query, values ):
+def namedb_query_execute( cur, query, values, abort=True):
     """
     Execute a query.  If it fails, abort.  Retry with timeouts on lock
 
     DO NOT CALL THIS DIRECTLY.
     """
-    return db_query_execute(cur, query, values)
+    return db_query_execute(cur, query, values, abort=abort)
 
 
 def namedb_preorder_insert( cur, preorder_rec ):
