@@ -77,6 +77,7 @@ from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_in
 from lib.scripts import address_as_b58, is_c32_address
 from lib.c32 import c32ToB58
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
+import lib.nameset.db as chainstate
 import lib.config as config
 
 # stop common XML attacks
@@ -3157,12 +3158,38 @@ def run_blockstackd():
         '--working-dir', action='store',
         help='Directory with the chain state to use')
 
+    # -------------------------------------
+    parser = subparsers.add_parser(
+        'db_version',
+        help='Get the chain state database version.  Exit 0 if the database is compatible with this node, and exit 1 if not.')
+    parser.add_argument(
+        '--working-dir', action='store',
+        help='Directory with the chain state to use')
+
     args, _ = argparser.parse_known_args(new_argv[1:])
 
     if args.action == 'version':
         print "Blockstack version: %s" % VERSION
+        sys.exit(0)
+
+    if args.action == 'db_version':
+        db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
+        ver = chainstate.namedb_read_version(db_path)
+        print "{}".format(ver)
+
+        if semver_equal(ver, VERSION):
+            sys.exit(0)
+        else:
+            sys.exit(1)
 
     elif args.action == 'start':
+        # db state must be compatible
+        db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
+        ver = chainstate.namedb_read_version(db_path)
+        if not semver_equal(ver, VERSION):
+            print >> sys.stderr, 'FATAL: this node is version {}, but the chainstate db is version {}.  Please upgrade your chainstate db by either using the `fast_sync` command or re-indexing the blockchain.'.format(VERSION, ver)
+            sys.exit(1)
+
         expected_snapshots = {}
 
         pid = read_pid_file(get_pidfile_path(working_dir))
