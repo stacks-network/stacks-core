@@ -30,9 +30,18 @@ if [ "$BLOCKSTACK_DEPLOYMENT_ASSERT_NO_BINARY" = "1" ]; then
    mv "$(which blockstack-core)" /tmp/blockstack-core
 fi
 
+if [ -f "$STATE_DIR/blockstack-server.db" ]; then 
+   # make sure it matches *this* version
+   DB_VERSION="$(blockstack-core db_version)"
+   if [ $? -ne 0 ]; then 
+      # obsolete
+      rm -f "$STATE_DIR/*.db*"
+   fi
+fi
+
 if ! [ -f "$STATE_DIR/blockstack-server.db" ]; then 
-   # no state yet
-   blockstack-core --debug fast_sync
+   # no state
+   blockstack-core --debug fast_sync "$BLOCKSTACK_DEPLOYMENT_FAST_SYNC_URL" "$BLOCKSTACK_DEPLOYMENT_FAST_SYNC_PUBLIC_KEY"
    sed -i -e 's/api_host = localhost/api_host = 0.0.0.0/' "$STATE_DIR/blockstack-server.ini"
 fi
 
