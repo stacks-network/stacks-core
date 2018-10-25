@@ -3174,21 +3174,27 @@ def run_blockstackd():
 
     if args.action == 'db_version':
         db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
-        ver = chainstate.namedb_read_version(db_path)
-        print "{}".format(ver)
+        if os.path.exists(db_path):
+            ver = chainstate.namedb_read_version(db_path)
+            print "{}".format(ver)
 
-        if semver_equal(ver, VERSION):
-            sys.exit(0)
+            if semver_equal(ver, VERSION):
+                sys.exit(0)
+            else:
+                sys.exit(1)
+
         else:
+            print "No chainstate db found at {}".format(db_path)
             sys.exit(1)
 
     elif args.action == 'start':
         # db state must be compatible
         db_path = virtualchain.get_db_filename(virtualchain_hooks, working_dir)
-        ver = chainstate.namedb_read_version(db_path)
-        if not semver_equal(ver, VERSION):
-            print >> sys.stderr, 'FATAL: this node is version {}, but the chainstate db is version {}.  Please upgrade your chainstate db by either using the `fast_sync` command or re-indexing the blockchain.'.format(VERSION, ver)
-            sys.exit(1)
+        if os.path.exists(db_path):
+            ver = chainstate.namedb_read_version(db_path)
+            if not semver_equal(ver, VERSION):
+                print >> sys.stderr, 'FATAL: this node is version {}, but the chainstate db is version {}.  Please upgrade your chainstate db by either using the `fast_sync` command or re-indexing the blockchain.'.format(VERSION, ver)
+                sys.exit(1)
 
         expected_snapshots = {}
 
