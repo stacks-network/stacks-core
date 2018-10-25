@@ -45,9 +45,18 @@ if ! [ -f "$STATE_DIR/blockstack-server.db" ]; then
    sed -i -e 's/api_host = localhost/api_host = 0.0.0.0/' "$STATE_DIR/blockstack-server.ini"
 fi
 
-# start daemon
 touch "$STATE_DIR/blockstack-server.log"
-blockstack-core --debug start
+
+# start daemon
+if [ -n "$BLOCKSTACK_DEPLOYMENT_GENESIS_BLOCK_URL" ] && [ -n "$BLOCKSTACK_DEPLOYMENT_GENESIS_BLOCK_KEY_ID" ]; then 
+   apt-get install -y gnupg2 curl
+   gpg2 --recv-keys "$BLOCKSTACK_DEPLOYMENT_GENESIS_BLOCK_KEY_ID"
+   curl -sL "$BLOCKSTACK_DEPLOYMENT_GENESIS_BLOCK_URL" > /tmp/genesis_block.py
+
+   blockstack-core --debug start --signing_key "$BLOCKSTACK_DEPLOYMENT_GENESIS_BLOCK_KEY_ID" --genesis_block /tmp/genesis_block.py
+else
+   blockstack-core --debug start
+fi
 
 if [ "$BLOCKSTACK_DEPLOYMENT_ASSERT_FAST_SYNC" = "1" ]; then 
     # wait for the daemon to come up
