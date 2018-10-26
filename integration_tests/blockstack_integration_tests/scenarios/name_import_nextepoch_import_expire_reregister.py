@@ -105,7 +105,7 @@ def scenario( wallets, **kw ):
         return False
 
     # wait for expiration (with multipler)...
-    for i in xrange(0, 5 * blockstack.config.get_epoch_namespace_lifetime_multiplier( testlib.get_current_block(**kw), "test", 'BTC' ) ):
+    for i in xrange(0, 5 * blockstack.config.get_epoch_namespace_lifetime_multiplier( testlib.get_current_block(**kw), "test" ) ):
         testlib.next_block( **kw )
 
     # name should definitely be expired 
