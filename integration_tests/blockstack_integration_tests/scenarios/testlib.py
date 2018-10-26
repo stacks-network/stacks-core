@@ -891,7 +891,7 @@ def blockstack_send_tokens(recipient_address, token_type, token_amount, privkey,
     if 'error' in res:
         return res
 
-    stacks_recipient_address = res['STACKS']
+    stacks_recipient_address = res['testnet']['STACKS']
 
     txid = nodejs_cli('send_tokens', stacks_recipient_address, token_type, token_amount, serialize_privkey_info(privkey), safety_checks=safety_checks, tx_only=tx_only, consensus_hash=consensus_hash, expect_fail=expect_fail)
     if 'error' in txid:
@@ -2505,7 +2505,8 @@ def check_subdomain_db(firstblock=None, **kw):
         assert subrec_did
         assert 'error' not in subrec_did, subrec_did
 
-        assert subrec_did == subrec, 'At ({}, {}): Did not resolve to {}, but instead to {}'.format(subd, addr, subrec, subrec_did)
+        for rec_name in subrec_did:
+            assert rec_name in subrec and subrec[rec_name] == subrec_did[rec_name], 'At ({}, {}): Did not resolve to {}, but instead to {}'.format(subd, addr, subrec, subrec_did)
 
     # make sure we can get all historic states of each subdomain 
     for subd in all_subdomains:
