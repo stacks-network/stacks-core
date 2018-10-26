@@ -75,7 +75,7 @@ from lib.subdomains import (subdomains_init, SubdomainNotFound, get_subdomain_in
                             get_subdomain_ops_at_txid)
 
 from lib.scripts import address_as_b58, is_c32_address
-from lib.c32 import c32ToB58
+from lib.c32 import c32ToB58, b58ToC32
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.nameset.db as chainstate
 import lib.config as config
@@ -1332,7 +1332,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         Make an account state presentable to external consumers
         """
         return {
-            'address': account_state['address'],
+            'address': b58ToC32(account_state['address']),
             'type': account_state['type'],
             'credit_value': '{}'.format(account_state['credit_value']),
             'debit_value': '{}'.format(account_state['debit_value']),
