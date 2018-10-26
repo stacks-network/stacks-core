@@ -38,6 +38,8 @@ import blockstack.lib.client as client
 import blockstack_zones
 import base64
 import requests
+import os
+import subprocess
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -81,7 +83,13 @@ subdomain_registrar_config = """
 """ % (base_name, wallets[3].privkey, wallets[2].privkey, os.environ.get('BLOCKSTACK_WORKING_DIR'), registrar_port, registrar_port)
 
 
+SUBDOMAIN_PROC = None
+
+SUBDOMAIN_REGISTRAR_LOCATION = os.environ.get('BSK_SUBDOMAIN_REGISTRAR_LOCATION',
+                                              '/usr/bin/blockstack-subdomain-registrar')
+
 def start_subdomain_registrar():
+    global SUBDOMAIN_PROC
     # needs to exist 
 
     # write out config file
@@ -94,8 +102,25 @@ def start_subdomain_registrar():
 
     os.environ['BSK_SUBDOMAIN_CONFIG'] = config_path
 
+    try:
+        os.rename('/tmp/subdomain_registrar.db', '/tmp/subdomain_registrar.last')
+        os.rename('/tmp/subdomain_registrar.log', '/tmp/subdomain_registrar.log.bak')
+    except OSError:
+        pass
+
+    env = {'BSK_SUBDOMAIN_REGTEST' : '1'}
+    if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
+        env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
+
+    fd = open('/tmp/subdomain_registrar.log', 'w+')
+    SUBDOMAIN_PROC = subprocess.Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION], stdout=fd, stderr=fd, env = env)
+
+    testlib.add_cleanup(lambda: SUBDOMAIN_PROC.kill())
+
 
 def scenario( wallets, **kw ):
+
+    start_subdomain_registrar()
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -127,7 +152,7 @@ def scenario( wallets, **kw ):
 
         req_json = {
             'name': 'hello_{}.personal.test'.format(i+1),
-            'owner_address': wallets[4].address,
+            'owner_address': wallets[4].addr,
             'zonefile': sub_zf,
         }
 
