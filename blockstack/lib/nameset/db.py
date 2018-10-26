@@ -207,7 +207,7 @@ CREATE TABLE account_vesting( address TEXT NOT NULL,            -- account addre
                               vesting_value TEXT NOT NULL,      -- value to vest, encoded as a TEXT to avoid overflow (unit value, e.g. microSTACKs)
                               block_id INTEGER NOT NULL,        -- block at which these tokens are credited
 
-                              PRIMARY KEY(address,type,block_id,type)
+                              PRIMARY KEY(address,type,block_id)
                               );
 """
 BLOCKSTACK_DB_SCRIPT += BLOCKSTACK_DB_ACCOUNT_VESTING_TABLE_SCRIPT
