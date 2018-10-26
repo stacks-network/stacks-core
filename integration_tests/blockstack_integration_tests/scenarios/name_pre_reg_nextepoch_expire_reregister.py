@@ -74,7 +74,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # actually expire
-    for i in xrange(0, 5 * blockstack_server.config.get_epoch_namespace_lifetime_multiplier( testlib.get_current_block(**kw), "test", "BTC") - 5):
+    for i in xrange(0, 5 * blockstack_server.config.get_epoch_namespace_lifetime_multiplier( testlib.get_current_block(**kw), "test") - 5):
         testlib.next_block( **kw )
 
     # should work now
