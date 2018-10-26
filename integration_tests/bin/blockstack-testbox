@@ -69,24 +69,17 @@ DEFAULT_DEPS = [
     {
         'name': 'blockstack-core',
         'git': 'https://github.com/blockstack/blockstack-core',
-        'branch': 'feature/token-v1',
+        'branch': 'develop',
         'type': 'python',
         'subpackages': ['integration_tests'],
     },
-    {
-        'name': 'clean_scrypt',
-        'git': None,
-        'branch': None,
-        'type': 'shell',
-        'command': 'pip uninstall -y scrypt; pip install scrypt; if [ -f /usr/local/lib/python2.7/dist-packages/_scrypt.so ]; then cp -a /usr/local/lib/python2.7/dist-packages/_scrypt.so "$VIRTUAL_ENV"/lib/python2.7/site-packages; elif [ -f /usr/lib/python2.7/site-packages/_scrypt.so ]; then cp -a /usr/lib/python2.7/site-packages/_scrypt.so "$VIRTUAL_ENV"/lib/python2.7/site-packages; fi'
-    },
-    {
-        'name': 'blockstack.js',
-        'git': 'https://github.com/blockstack/blockstack.js',
-        'branch': 'feature/stacks-transactions',
-        'type': 'node.js',
-        'npm_link': True,
-    },
+#    {
+#        'name': 'blockstack.js',
+#        'git': 'https://github.com/blockstack/blockstack.js',
+#        'branch': 'develop',
+#        'type': 'node.js',
+#        'npm_link': True,
+#    },
 #    {
 #        'name': 'cli-blockstack',
 #        'git': 'https://github.com/jcnelson/cli-blockstack',
@@ -98,25 +91,25 @@ DEFAULT_DEPS = [
 #        'npm_link': True,
 #        'npm_install_g': False,
 #    },
-    {
-        'name': 'blockstack-gaia-hub',
-        'git': 'https://github.com/blockstack/gaia',
-        'branch': 'master',
-        'type': 'node.js',
-        'package_dir': './hub',
-        'npm_link_packages': ['blockstack'],
-        'npm_build_commands': ['build'],
-        'npm_link': True,
-    },
-    {
-        'name': 'blockstack-transaction-broadcaster',
-        'git': 'https://github.com/blockstack/transaction-broadcaster',
-        'branch': 'master',
-        'type': 'node.js',
-        'npm_link_packages': ['blockstack'],
-        'npm_build_commands': ['build'],
-        'npm_link': True,
-    }
+#    {
+#        'name': 'blockstack-gaia-hub',
+#        'git': 'https://github.com/blockstack/gaia',
+#        'branch': 'master',
+#        'type': 'node.js',
+#        'package_dir': './hub',
+#        'npm_link_packages': ['blockstack'],
+#        'npm_build_commands': ['build'],
+#        'npm_link': True,
+#    },
+#    {
+#        'name': 'blockstack-transaction-broadcaster',
+#        'git': 'https://github.com/blockstack/transaction-broadcaster',
+#        'branch': 'master',
+#        'type': 'node.js',
+#        'npm_link_packages': ['blockstack'],
+#        'npm_build_commands': ['build'],
+#        'npm_link': True,
+#    }
 ]
 
 
