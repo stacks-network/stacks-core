@@ -268,7 +268,8 @@ def scenario( wallets, **kw ):
     print ''
     
     res = testlib.nodejs_cli('register', 'hello.test', wallets[3].privkey, wallets[2].privkey, 'http://localhost:4001')
-    if 'error' in res:
+    res = json.loads(res)
+    if 'error' in res and res['error']:
         print res
         return False
 
@@ -285,6 +286,7 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
     res = testlib.nodejs_cli('register_addr', 'hello2.test', 'ID-{}'.format(wallets[3].addr), wallets[2].privkey, 'http://localhost:4000')
+    res = json.loads(res)
     if 'error' in res:
         print res
         return False
@@ -303,7 +305,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_put_profile('hello2.test', profile_data, wallets[3].privkey, 'http://localhost:4001')
     
     stop_subdomain_registrar()
-
 
 def check( state_engine ):
 
