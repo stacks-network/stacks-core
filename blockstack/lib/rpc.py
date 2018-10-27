@@ -677,6 +677,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         blockstackd_url = get_blockstackd_url()
         res = blockstackd_client.get_name_history_page(name, page, hostport=blockstackd_url)
         if json_is_error(res):
+            log.error('Failed to get name history for {}: {}'.format(name, res['error']))
             return self._reply_json({'error': res['error']}, status_code=res.get('http_status', 502))
 
         return self._reply_json(res['history'])
