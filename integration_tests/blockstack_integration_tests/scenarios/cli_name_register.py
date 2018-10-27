@@ -191,7 +191,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # import a name with the CLI 
-    res = testlib.nodejs_cli('name_import', 'hello_imports.test', 'ID-{}'.format(wallets[3].addr), 'http://localhost:4000', wallets[1].privkey)
+    res = testlib.nodejs_cli('name_import', 'hello_imports.test', 'ID-{}'.format(wallets[3].addr), 'http://localhost:4000/hub', wallets[1].privkey)
     if 'error' in res:
         print res
         return False
@@ -285,7 +285,7 @@ def scenario( wallets, **kw ):
     print ''
     time.sleep(10)
 
-    res = testlib.nodejs_cli('register_addr', 'hello2.test', 'ID-{}'.format(wallets[3].addr), wallets[2].privkey, 'http://localhost:4000')
+    res = testlib.nodejs_cli('register_addr', 'hello2.test', 'ID-{}'.format(wallets[3].addr), wallets[2].privkey, 'http://localhost:4000/hub')
     res = json.loads(res)
     if 'error' in res:
         print res
