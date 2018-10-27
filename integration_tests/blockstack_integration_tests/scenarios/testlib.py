@@ -507,7 +507,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, burn
 
     if not tx_only or expect_success:
         token_record = None
-        if not expect_fail:
+        if not expect_fail and (price is None or price['units'] != 'BTC'):
             token_record = TokenNamePreorder(name, payment_addr, price=price)
 
         if tx_only:
@@ -667,7 +667,7 @@ def blockstack_name_renew( name, privatekey, recipient_addr=None, burn_addr=None
 
     if not tx_only or expect_success:
         token_record = None
-        if not expect_fail:
+        if not expect_fail and (price is None or price['units'] != 'BTC'):
             token_record = TokenNameRenewal(name, owner_addr, price=price)
 
         if tx_only:
@@ -743,7 +743,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, sa
     return resp
 
 
-def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, burn_addr=None, consensus_hash=None, safety_checks=True, config_path=None, tx_only=False, tx_fee=None, price=None, expect_fail=False, use_cli=True):
+def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, burn_addr=None, consensus_hash=None, safety_checks=True, config_path=None, tx_only=False, tx_fee=None, price=None, expect_fail=False, expect_reject=False, use_cli=True):
     
     global api_call_history
     resp = None
@@ -772,7 +772,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, burn
 
     if not tx_only:
         token_record = None
-        if not expect_fail:
+        if not expect_fail and not expect_reject and (price is None or price['units'] != 'BTC'):
             token_record = TokenNamespacePreorder(namespace_id, payment_addr, price=price)
 
         api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, virtualchain.address_reencode(virtualchain.get_privkey_address(privatekey)), resp, token_record=token_record) )
@@ -2532,7 +2532,6 @@ def check_subdomain_db(firstblock=None, **kw):
                 assert subdomain_op['txid'] == txid, subdomain_op
                 assert subdomain_op['zonefile_offset'] >= i, subdomain_op
                 assert subdomain_op['accepted'] == int(accepted), subdomain_op
-                assert subdomain_op['domain'] == subd.split('.', 1)[-1], subdomain_op
 
                 if zfh is None:
                     zfh = subdomain_op['parent_zonefile_hash']
