@@ -46,13 +46,14 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
 
-    namespace_price_stacks_too_early_1 = blockstack.lib.client.get_namespace_cost('stacks_too_early', hostport='http://localhost:6264')
-    namespace_price_old_btc_2 = blockstack.lib.client.get_namespace_cost('old_btc_2', hostport='http://localhost:6264')
+    namespace_price_old_btc_2 = {'units': 'BTC', 'amount': blockstack.lib.scripts.price_namespace('old_btc_2', 694, 'BTC')}
+    namespace_price_stacks_too_early_1_btc = {'units': 'BTC', 'amount': blockstack.lib.scripts.price_namespace('stacks_too_early_1', 690, 'BTC')}
+    namespace_price_stacks_too_early_2_stacks = {'units': 'STACKS', 'amount': blockstack.lib.scripts.price_namespace('stacks_too_early_1', 694, 'STACKS')}
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
-    testlib.blockstack_namespace_preorder( "stacks_too_early_1", wallets[1].addr, wallets[0].privkey, safety_checks=False, price=namespace_price_stacks_too_early_1, tx_fee=50000)
+    testlib.blockstack_namespace_preorder( "stacks_too_early_1", wallets[1].addr, wallets[0].privkey, safety_checks=False, price=namespace_price_stacks_too_early_1_btc, tx_fee=50000)
     testlib.blockstack_namespace_preorder( "old_btc_1", wallets[1].addr, wallets[0].privkey )
-    btc_too_late_tx = testlib.blockstack_namespace_preorder( 'btc_too_late', wallets[1].addr, wallets[0].privkey, tx_only=True )
+    btc_too_late_tx = testlib.blockstack_namespace_preorder( 'btc_too_late', wallets[1].addr, wallets[2].privkey, tx_only=True )
 
     print ''
     print btc_too_late_tx
@@ -84,16 +85,17 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw ) # end of 691
     testlib.next_block( **kw ) # end of 692
 
-    # should succeed (last block a preorder/reveal paid in BTC will be sent before the epoch change)
-    testlib.blockstack_namespace_reveal( "old_btc_1", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
-   
     # should succeed---last block we can pay in BTC
     testlib.blockstack_namespace_preorder( "old_btc_2", wallets[1].addr, wallets[0].privkey, price=namespace_price_old_btc_2)
 
     # should be rejected---this is one block early
-    testlib.blockstack_namespace_preorder( "stacks_too_early_2", wallets[1].addr, wallets[0].privkey, safety_checks=False, price=namespace_price_stacks_too_early_1, tx_fee=50000)
+    testlib.blockstack_namespace_preorder( "stacks_too_early_2", wallets[1].addr, wallets[0].privkey, safety_checks=False, price=namespace_price_stacks_too_early_2_stacks, tx_fee=50000, expect_reject=True)
     testlib.next_block( **kw ) # end of 693
+    testlib.expect_snv_fail_at('stacks_too_early_2', testlib.get_current_block(**kw))
 
+    # should succeed even though preordered with BTC
+    testlib.blockstack_namespace_reveal( "old_btc_1", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
+   
     # should fail -- no preorder
     testlib.blockstack_namespace_reveal( "stacks_too_early_2", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS, safety_checks=False, tx_fee=50000)
 
@@ -109,11 +111,17 @@ def scenario( wallets, **kw ):
         print res
         return False
 
+    res = testlib.blockstack_cli_get_namespace_blockchain_record('old_btc_1')
+    if 'error' in res:
+        print 'old_btc_1 not revealed'
+        print res
+        return False
+
     # should succeed, even though we're in the STACKS epoch
     testlib.blockstack_namespace_reveal( "old_btc_2", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
     
     # should fail, since the preorer for btc_too_late was sent too late
-    testlib.blockstack_namespace_reveal( "btc_too_late", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
+    testlib.blockstack_namespace_reveal( "btc_too_late", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[2].privkey, version_bits=blockstack.NAMESPACE_VERSION_PAY_WITH_STACKS )
     testlib.next_block( **kw ) # end of 695
     testlib.expect_snv_fail_at('btc_too_late', testlib.get_current_block(**kw))
 
