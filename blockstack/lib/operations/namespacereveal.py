@@ -190,22 +190,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
         log.warning("Unsupported namespace version {:x}".format(namespace_version_bits))
         return False
 
-    '''
-    if EPOCH_FEATURE_NAMESPACE_BURN_TO_CREATOR in epoch_features:
-        # post F-day 2017
-        # can send to burn address or namespace preorder address
-        if namespace_version_bits not in [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]:
-            log.warning("Namespace '%s' requires version %s or %s" % (namespace_id, [NAMESPACE_VERSION_PAY_TO_BURN, NAMESPACE_VERSION_PAY_TO_CREATOR]))
-            return False
-    
-    else:
-        # pre F-day 2017
-        # can only send to burn address
-        if namespace_version_bits != NAMESPACE_VERSION_PAY_TO_BURN:
-           log.warning("Namespace '%s' requires version %s, but this blockstack is version %s" % (namespace_id, nameop['version'], NAMESPACE_VERSION_PAY_TO_BURN))
-           return False
-    '''
-
     # what units did the namespace preorderer pay?
     units = namespace_preorder['token_units']
     tokens_paid = 0
