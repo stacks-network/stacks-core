@@ -1332,7 +1332,7 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         Make an account state presentable to external consumers
         """
         return {
-            'address': b58ToC32(str(account_state['address'])),
+            'address': account_state['address'],
             'type': account_state['type'],
             'credit_value': '{}'.format(account_state['credit_value']),
             'debit_value': '{}'.format(account_state['debit_value']),
