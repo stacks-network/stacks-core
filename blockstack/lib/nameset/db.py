@@ -481,46 +481,6 @@ def namedb_row_factory( cursor, row ):
     return d
 
 
-def namedb_get_namespace_lifetime_multiplier( block_height, namespace_id ):
-    """
-    User-defined sqlite3 function that gets the namespace
-    lifetime multiplier at a particular block height.
-
-    OBSOLETE
-    """
-    try:
-        namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( block_height, namespace_id )
-        return namespace_lifetime_multiplier
-    except Exception, e:
-        try:
-            with open("/tmp/blockstack_db_exception.txt", "w") as f:
-                f.write(traceback.format_exc())
-        except:
-            raise
-
-        raise
-
-
-def namedb_get_namespace_lifetime_grace_period( block_height, namespace_id ):
-    """
-    User-defined sqlite3 function that gets the namespace
-    lifetime grace period at a particular block height.
-
-    OBSOLETE
-    """
-    try:
-        namespace_lifetime_grace_period = get_epoch_namespace_lifetime_grace_period( block_height, namespace_id )
-        return namespace_lifetime_grace_period
-    except Exception, e:
-        try:
-            with open("/tmp/blockstack_db_exception.txt", "w") as f:
-                f.write(traceback.format_exc())
-        except:
-            raise
-
-        raise
-
-
 def namedb_find_missing_and_extra(cur, record, table_name):
     """
     Find the set of fields missing from record, and set of extra fields from record, based on the db schema.
@@ -1861,7 +1821,7 @@ def namedb_get_account_history(cur, address, offset=None, count=None):
     """
     Get the history of an account's tokens
     """
-    sql = 'SELECT * FROM accounts WHERE address = ? ORDER BY block_id, vtxindex'
+    sql = 'SELECT * FROM accounts WHERE address = ? ORDER BY block_id DESC, vtxindex DESC'
     args = (address,)
 
     if count is not None:
@@ -2159,7 +2119,7 @@ def namedb_get_account_at(cur, address, block_number):
 
     Returns an array of states
     """
-    query = 'SELECT * FROM accounts WHERE address = ? AND block_id = ? ORDER BY block_id, vtxindex'
+    query = 'SELECT * FROM accounts WHERE address = ? AND block_id = ? ORDER BY block_id DESC, vtxindex DESC'
     args = (address, block_number)
     history_rows = namedb_query_execute(cur, query, args)
     ret = []
