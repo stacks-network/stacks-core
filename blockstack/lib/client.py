@@ -2988,7 +2988,13 @@ def get_name_history_page(name, page, hostport=None, proxy=None):
 
     name_required = ['op', 'opcode', 'txid', 'vtxindex']
     subdomain_required = ['txid']
-    required = name_required if check_name(name) else subdomain_required
+    required = None
+    if check_subdomain(name):
+        log.debug('Subdomain: {}'.format(name))
+        required = subdomain_required
+    else:
+        log.debug('Name: {}'.format(name))
+        required = name_required
 
     hist_schema = {
         'type': 'object',
@@ -3027,7 +3033,20 @@ def get_name_history_page(name, page, hostport=None, proxy=None):
         indexing = _resp['indexing']
 
     except ValidationError as e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+
         resp = json_traceback(resp.get('error'))
+        return resp
+
+    except socket.timeout:
+        log.error("Connection timed out")
+        resp = {'error': 'Connection to remote host timed out.', 'http_status': 503}
+        return resp
+
+    except socket.error as se:
+        log.error("Connection error {}".format(se.errno))
+        resp = {'error': 'Connection to remote host failed.', 'http_status': 502}
         return resp
 
     except Exception as ee:
@@ -3141,72 +3160,6 @@ def get_name_and_history(name, include_expired=False, include_grace=True, hostpo
 
     rec['history'] = hist['history']
     return {'status': True, 'record': rec, 'lastblock': hist['lastblock'], 'indexing': hist['indexing']}
-
-
-def get_name_history_page(name, page, hostport=None, proxy=None):
-    """
-    Get a page of the name's history
-    Returns {'status': True, 'history': ..., 'indexing': ..., 'lastblock': ...} on success
-    Returns {'error': ...} on error
-    """
-    assert hostport or proxy, 'Need hostport or proxy'
-    if proxy is None:
-        proxy = connect_hostport(hostport)
-
-    hist_schema = {
-        'type': 'object',
-        'patternProperties': {
-            '^[0-9]+$': {
-                'type': 'array',
-                'items': {
-                    'type': 'object',
-                    'properties': OP_HISTORY_SCHEMA['properties'],
-                    'required': [
-                        'op',
-                        'opcode',
-                        'txid',
-                        'vtxindex',
-                    ],
-                },
-            },
-        },
-    }
-
-    hist_resp_schema = {
-        'type': 'object',
-        'properties': {
-            'history': hist_schema,
-        },
-        'required': [ 'history' ],
-    }
-
-    resp_schema = json_response_schema(hist_resp_schema)
-    resp = {}
-    lastblock = None
-    indexin = None
-
-    try:
-        _resp = proxy.get_name_history_page(name, page)
-        resp = json_validate(resp_schema, _resp)
-        if json_is_error(resp):
-            return resp
-
-        lastblock = _resp['lastblock']
-        indexing = _resp['indexing']
-
-    except ValidationError as e:
-        resp = json_traceback(resp.get('error'))
-        return resp
-
-    except Exception as ee:
-        if BLOCKSTACK_DEBUG:
-            log.exception(ee)
-
-        log.error("Caught exception while connecting to Blockstack node: {}".format(ee))
-        resp = {'error': 'Failed to contact Blockstack node.  Try again with `--debug`.'}
-        return resp
-
-    return {'status': True, 'history': resp['history'], 'lastblock': lastblock, 'indexing': indexing}
 
 
 def name_history_merge(h1, h2):
