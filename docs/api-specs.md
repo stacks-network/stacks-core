@@ -1716,6 +1716,352 @@ Fetch a list of names from the namespace.
                 },
             }
 
+# Group Account Operations
+
+The set of methods in this section correspond to querying the states of
+Blockstack token accounts.  Each token account is represented by an account
+address, which is a [Crockford base-32](https://en.wikipedia.org/wiki/Base32#Crockford's_Base32)
+encoding of the RIPEMD160 hash of the SHA256 hash of one or more keys,
+plus a version byte and a 4-byte SHA256 checksum.
+Internally, Blockstack account addresses are generated and represented in the
+same way as p2pkh and p2sh Bitcoin addresses -- that is, a Blockstack account addresses
+are in 1-to-1 correspondance with Bitcoin addresses (Blockstack account addresses
+simply use a different encoding alphabet).
+We have a [reference library](http://github.com/blockstack/c32check) for
+helping developers generate and convert between Bitcoin and Blockstack addresses.
+
+Right now, an account can only own Stacks tokens (designiated in the API
+as having a toke type `STACKS`).  However, in the future
+Blockstack may be upgraded to support owning many different kinds of
+app-specific tokens.  The API presented here is designed to accomodate this
+possible development.
+
+## Get account status [GET /v1/accounts/{address}/{tokenType}/status]
+
+Get the status of an account's current token allocation.  The current number of
+tokens held by the account's address is equal to the difference between the
+`credit_value` and `debit_value`.  These two numbers always increase and are
+accounted in the smallest possible unit of the token type (e.g. microStacks for
+the `STACKS` token).  Programs that parse these values should be aware of this,
+and should use an appropriate numeric representation like `BigInteger` when
+parsing them.
+
+The last transaction's ID (`txid`) and transaction offset (`vtxindex`) are given.
+If `vtxindex` is 0, then the transaction ID corresponds to a "sentinal" transaction
+in Blockstack Core that indicates tokens getting generated or unlocked.  These
+transaction IDs will not appear in any block explorer, since they do not correspond
+to "real" transactions.
+
++ Public Endpoint
+* Parameters
+  + address: SP1T1F14QX4KZYFZH8A5286Z4AK9S7GY93KZ4ZZD7 (string) - address to query.  Can be either a base58check address or a c32check address
+  + tokenType: STACKS (string) - type of token to query (only `STACKS` is
+    supported right now).
++ Response 200 (application/json)
+  + Body
+
+            {
+              "address": "1BaqZJqwt2dcdxt6oa3mwSK4DiEyfXCgnZ",
+              "block_id": 589689,
+              "credit_value": "100000000000",
+              "debit_value": "6400000000",
+              "lock_transfer_block_id": 0,
+              "txid": "65e99765cb332b1026049527ecf297223612a12cd6adec9aeb555105f655428b",
+              "type": "STACKS",
+              "vtxindex": 1
+            }
+
+  + Schema
+
+            {
+              'type': 'object',
+              'properties': {
+                 'address': {
+                    'type': 'string',
+                    'pattern': "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$",
+                 },
+                 'block_id': { 'type': 'integer', 'minimum': 0 },
+                 'credit_value': { 'type': 'string', 'pattern': '^[0-9]+$' },
+                 'debit_value': { 'type': 'string', 'pattern': '^[0-9]+$' },
+                 'lock_transfer_block_id': { 'type': 'integer', 'minimum': 0 },
+                 'txid': { 'type': 'string', 'pattern': '^[0-9a-fA-F]{64}$' },
+                 'type': { 'type': 'string' },
+                 'vtxindex': { 'type': 'integer', 'minimum': 0 }
+              },
+              'required': [ 'address, 'block_id', 'credit_value', 'debit_value', 
+                            'lock_transfer_block_id', 'txid', 'type', 'vtxindex' ]
+            }
+
++ Response 400 (application/json)
+  + Body
+
+            { "error": "Invalid address" }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            }
+
++ Response 404 (application/json)
+  + Body
+
+            { "error": "Failed to get account record for STACKS ST3S24N1NK9JVGK6T06PR3E6HE7SBAH7VSG6C950F: No such account"}
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            }
+
+## Get account tokens [GET /v1/accounts/{address}/tokens]
+
+Get the types of tokens held by a particular account, given its address.  For
+now, this can only be `STACKS` tokens.
+
++ Public Endpoint
+* Parameters
+  + address: SP1T1F14QX4KZYFZH8A5286Z4AK9S7GY93KZ4ZZD7 (string) - address to query.  Can be either a base58check address or a c32check address
++ Response 200 (application/json)
+  + Body
+
+            {
+              "tokens": [
+                  "STACKS"
+              ]
+            }
+
+  + Schema
+
+            {
+              'type': 'object',
+              'properties': {
+                'tokens': {
+                   'type': 'array',
+                   'items': { 'type': 'string' }
+                },
+                'required': [ 'tokens' ]
+              }
+            }
+
++ Response 400 (application/json)
+  + Body
+
+            { "error": "Invalid address" }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            }
+
+## Get account balance [GET /v1/accounts/{address}/{tokenType}/balance]
+
+Get the number of tokens held by a particular account, given the account's
+address and the token type.
+
+Note that the value returned by this endpoint can be very large, since the token
+balances are integers that represent the number of smallest units of the token
+(e.g. microStacks for the `STACKS` token).
+
+This endpoint returns a zero balance for accounts and token types that do not
+exist.
+
++ Public Endpoint
++ Parameters
+  + address: SP1T1F14QX4KZYFZH8A5286Z4AK9S7GY93KZ4ZZD7 (string) - address to query.  Can be either a base58check address or a c32check address
+  + tokenType: STACKS (string) - type of token to query (only `STACKS` is
+    supported right now).
++ Response 200 (application/json)
+  + Body
+
+            {
+              "balance": "936000000"
+            }
+
+  + Schema
+
+            {
+              'type': 'object',
+              'properties': {
+                 'balance' { 'type': 'string', 'pattern': '^[0-9+]$' }
+              }
+              'required': [ 'balance' ]
+            }
+     
+
++ Response 400 (application/json)
+  + Body
+
+            { "error": "Invalid address" }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            }
+
+## Get account history [GET /v1/accounts/{address}/history?page={pageNum}]
+
+Get a page of an account's transaction history.  Each entry in the history
+corresponds to the status of the account at a particular transaction.
+The history will be returned in reverse order -- the first item will be the
+latest transaction.
+
+Queries on addresses that do not correspond to an existing account will simply
+return an empty list.
+
++ Public Endpoint
++ Parameters
+  + address: SP1T1F14QX4KZYFZH8A5286Z4AK9S7GY93KZ4ZZD7 (string) - address to query.  Can be either a base58check address or a c32check address
+  + pageNum: 0 (integer) - page of the history to query
++ Response 200 (application/json)
+  + Body
+
+            [
+              {
+                "address": "1BaqZJqwt2dcdxt6oa3mwSK4DiEyfXCgnZ",
+                "block_id": 589689,
+                "credit_value": "100000000000",
+                "debit_value": "6400000000",
+                "lock_transfer_block_id": 0,
+                "txid": "65e99765cb332b1026049527ecf297223612a12cd6adec9aeb555105f655428b",
+                "type": "STACKS",
+                "vtxindex": 1
+              },
+              {
+                "address": "1BaqZJqwt2dcdxt6oa3mwSK4DiEyfXCgnZ",
+                "block_id": 589688,
+                "credit_value": "100000000000",
+                "debit_value": "0",
+                "lock_transfer_block_id": 0,
+                "txid": "c28d44fde97dbe59856fa62a4aa99b49c37291577a3e664621a6f03c77c08f47",
+                "type": "STACKS",
+                "vtxindex": 0
+              }
+            ]
+
+  + Schema
+
+            {
+              'type': 'array'
+              'items': {
+                 'type': 'object',
+                 'properties': {
+                    'address': {
+                       'type': 'string',
+                       'pattern': "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$",
+                    },
+                    'block_id': { 'type': 'integer', 'minimum': 0 },
+                    'credit_value': { 'type': 'string', 'pattern': '^[0-9]+$' },
+                    'debit_value': { 'type': 'string', 'pattern': '^[0-9]+$' },
+                    'lock_transfer_block_id': { 'type': 'integer', 'minimum': 0 },
+                    'txid': { 'type': 'string', 'pattern': '^[0-9a-fA-F]{64}$' },
+                    'type': { 'type': 'string' },
+                    'vtxindex': { 'type': 'integer', 'minimum': 0 }
+                 },
+                 'required': [ 'address, 'block_id', 'credit_value', 'debit_value', 
+                               'lock_transfer_block_id', 'txid', 'type', 'vtxindex' ]
+               }
+            }
+
++ Response 400 (application/json)
+  + Body
+
+            { "error": "Invalid address" }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            }
+
+## Get account statuses at block [GET /v1/accounts/{address}/history/{blockNum}]
+
+Get the status(es) of an account at a particular block height.  If the account
+was affected by a transaction at the given block height, the states the
+account passed through will be returned (i.e. at least two entries).  If the
+account was not affected at this block height, then the last state the account
+was in at that block height will be returned.
+
+If there is more than one state, then the states will be listed in reverse order
+chronologically, with the latest state as the first entry.
+
+If the account does not exist, then an empty list will be returned.
+
++ Public Endpoint
++ Parameters
+  + address: SP1T1F14QX4KZYFZH8A5286Z4AK9S7GY93KZ4ZZD7 (string) - address to query.  Can be either a base58check address or a c32check address
+  + blockNum: 589688 (integer) - page of the history to query
++ Response 200 (application/json)
+  + Body
+
+            [
+              {
+                "address": "1BaqZJqwt2dcdxt6oa3mwSK4DiEyfXCgnZ",
+                "block_id": 589688,
+                "credit_value": "100000000000",
+                "debit_value": "0",
+                "lock_transfer_block_id": 0,
+                "txid": "c28d44fde97dbe59856fa62a4aa99b49c37291577a3e664621a6f03c77c08f47",
+                "type": "STACKS",
+                "vtxindex": 0
+              }
+            ]
+
+  + Schema
+
+            {
+              'type': 'array'
+              'items': {
+                 'type': 'object',
+                 'properties': {
+                    'address': {
+                       'type': 'string',
+                       'pattern': "^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$",
+                    },
+                    'block_id': { 'type': 'integer', 'minimum': 0 },
+                    'credit_value': { 'type': 'string', 'pattern': '^[0-9]+$' },
+                    'debit_value': { 'type': 'string', 'pattern': '^[0-9]+$' },
+                    'lock_transfer_block_id': { 'type': 'integer', 'minimum': 0 },
+                    'txid': { 'type': 'string', 'pattern': '^[0-9a-fA-F]{64}$' },
+                    'type': { 'type': 'string' },
+                    'vtxindex': { 'type': 'integer', 'minimum': 0 }
+                 },
+                 'required': [ 'address, 'block_id', 'credit_value', 'debit_value', 
+                               'lock_transfer_block_id', 'txid', 'type', 'vtxindex' ]
+               }
+            }
+
++ Response 400 (application/json)
+  + Body
+
+            { "error": "Invalid address" }
+
+  + Schema
+
+            {
+                'type': 'object',
+                'properties': {
+                    'error': { 'type': 'string' },
+                },
+            }
+
 # Group Resolver Endpoints
 
 ## Lookup User [GET /v1/users/{username}]
