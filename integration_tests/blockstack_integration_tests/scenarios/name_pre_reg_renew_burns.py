@@ -121,10 +121,10 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_renew( "foo.test2", wallets[3].privkey, burn_addr=wallets[1].addr, safety_checks=False, expect_fail=True )
     testlib.blockstack_name_renew( "foo.test3", wallets[3].privkey, burn_addr=wallets[0].addr, safety_checks=False, expect_fail=True )
     testlib.next_block( **kw )
-    testlib.expect_snv_fail_at('foo_fail.test1', testlib.get_current_block(**kw))
-    testlib.expect_snv_fail_at('bar_fail.test1', testlib.get_current_block(**kw))
-    testlib.expect_snv_fail_at('foo_fail.test2', testlib.get_current_block(**kw))
-    testlib.expect_snv_fail_at('foo_fail.test3', testlib.get_current_block(**kw))
+    testlib.expect_snv_fail_at('foo.test1', testlib.get_current_block(**kw))
+    testlib.expect_snv_fail_at('bar.test1', testlib.get_current_block(**kw))
+    testlib.expect_snv_fail_at('foo.test2', testlib.get_current_block(**kw))
+    testlib.expect_snv_fail_at('foo.test3', testlib.get_current_block(**kw))
 
 
 def check( state_engine ):
