@@ -130,7 +130,7 @@ def scenario( wallets, **kw ):
                 return False
 
         else:
-            if 'zonefile' not in res or 'error' not in res['zonefile']:
+            if 'zonefile' not in res:
                 print res
                 return False
 
