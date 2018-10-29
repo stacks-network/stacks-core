@@ -87,7 +87,7 @@ wallets = [
                 725: 100000,
                 726: 100000,
                 "lock_send": 694}})
-   for _ in range(0, 6000)
+   for _ in range(0, 2000)
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
