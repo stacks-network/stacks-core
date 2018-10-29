@@ -110,6 +110,16 @@ def scenario( wallets, **kw ):
     assert balances[wallets[1].addr][STACKS] == 100000
     assert balances[wallets[2].addr][STACKS] == 0
 
+    # send to a new address
+    new_addr = 'n17Wp3qk9WNGESLHHey18dcgQAn5aDDPuE'
+    testlib.blockstack_send_tokens(new_addr, 'STACKS', 123456, wallets[0].privkey, safety_checks=False)
+    testlib.next_block(**kw) # end of 696
+
+    balance_info = json.loads(testlib.nodejs_cli('balance', new_addr))
+    assert int(balance_info['STACKS']) == 123456
+
+    balance_info = json.loads(testlib.nodejs_cli('balance', wallets[0].addr))
+    assert int(balance_info['STACKS']) == 500000 - 123456
 
 def check( state_engine ):
     return True
