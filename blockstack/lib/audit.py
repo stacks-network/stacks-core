@@ -70,6 +70,9 @@ def check_gpg2_keys(gpg2_path, key_ids):
 
     missing = []
     for key_id in key_ids:
+        if key_id.startswith('0x'):
+            key_id = key_id[2:]
+
         found = False
         for line in out.split('\n'):
             line = line.strip()
