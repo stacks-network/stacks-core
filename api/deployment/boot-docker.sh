@@ -4,7 +4,6 @@
 # your container should have a sensible init that will keep the container alive,
 # since this script exits once blockstack-core starts.
 
-set -e
 STATE_DIR="/root/.blockstack-server"
 
 function exit_error() {
@@ -38,6 +37,8 @@ if [ -f "$STATE_DIR/blockstack-server.db" ]; then
       rm -f "$STATE_DIR/*.db*" "$STATE_DIR/*.snapshots"
    fi
 fi
+
+set -e
 
 if ! [ -f "$STATE_DIR/blockstack-server.db" ]; then 
    # no state
