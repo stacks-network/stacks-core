@@ -1527,7 +1527,9 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
         route_info = self._route_match( method_name, path_info, routes )
         if route_info is None:
-            log.warning("Unmatched route: {} '{}'".format(method_name, path_info['path']))
+            if BLOCKSTACK_DEBUG and BLOCKSTACK_TEST:
+                log.warning("Unmatched route: {} '{}'".format(method_name, path_info['path']))
+
             routes = routes.keys()
             routes.sort()
             log.debug(json.dumps(routes, sort_keys=True, indent=4))
