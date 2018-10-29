@@ -84,13 +84,12 @@ def scenario( wallets, **kw ):
        
         if addr in always_vesting:
             assert len(history) == 3, 'should only be two history items for {}\n{}'.format(addr, history)
-            assert history[2] == status, 'history[2] should match status:\n{}\n{}'.format(history[2], status)
         elif addr not in addrs_special:
             assert len(history) == 2, 'should only be two history items for {}\n{}'.format(addr, history)
-            assert history[1] == status, 'history[1] should match status:\n{}\n{}'.format(history[1], status)
         else:
-            assert len(history) == 1, 'should only be two history items for {}\n{}'.format(addr, history)
-            assert history[0] == status, 'history[0] should match status:\n{}\n{}'.format(history[0], status)
+            assert len(history) == 1, 'should only be one history item for {}\n{}'.format(addr, history)
+            
+        assert history[0] == status, 'history[0] should match status:\n{}\n{}'.format(history[0], status)
         
         at = requests.get('http://localhost:16268/v1/accounts/{}/history/690'.format(addr)).json()
         assert len(at) == 1, 'should only have one update at 690 for {}\n{}'.format(addr, at)
