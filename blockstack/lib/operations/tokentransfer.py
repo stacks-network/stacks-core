@@ -103,10 +103,9 @@ def check( state_engine, token_op, block_id, checked_ops ):
         log.warning('Account {} has {} {}; tried to send {}'.format(address, account_balance, token_type, token_value))
         return False
     
-    # receiver must exist and be white-listed (for now).
     receiver_account = state_engine.get_account(recipient_address, token_type)
     if receiver_account is not None:
-        if not isinstance(receiver_account['receive_whitelisted'], bool) or not receiver_account['receive_whitelisted']:
+        if not receiver_account['receive_whitelisted']:
             log.warning('Receiver account {} is not whitelisted'.format(recipient_address))
             return False
 
