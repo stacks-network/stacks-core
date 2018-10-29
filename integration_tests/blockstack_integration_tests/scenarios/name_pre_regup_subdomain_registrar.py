@@ -40,6 +40,9 @@ import base64
 import requests
 import os
 import subprocess
+import time
+import sys
+import traceback
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -74,9 +77,9 @@ subdomain_registrar_config = """
   "dbLocation": "%s/subdomain_registrar.db",
   "adminPassword": "hello_world",
   "domainUri": "http://localhost:%s",
-  "port": %s
+  "port": %s,
   "ipLimit": 1,
-  "apiKeys": [],
+  "apiKeys": ['test_registrar'],
   "proofsRequired": 0,
   "disableRegistrationsWithoutKey": false
 }
@@ -108,12 +111,27 @@ def start_subdomain_registrar():
     except OSError:
         pass
 
-    env = {'BSK_SUBDOMAIN_REGTEST' : '1'}
+    env = {'BSK_SUBDOMAIN_REGTEST' : '1', 'BSK_SUBDOMAIN_CONFIG': config_path}
     if os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT', False):
         env['BLOCKSTACK_TEST_CLIENT_RPC_PORT'] = os.environ.get('BLOCKSTACK_TEST_CLIENT_RPC_PORT')
 
     fd = open('/tmp/subdomain_registrar.log', 'w+')
     SUBDOMAIN_PROC = subprocess.Popen(['node', SUBDOMAIN_REGISTRAR_LOCATION], stdout=fd, stderr=fd, env = env)
+
+    is_up = False
+    for i in range(0, 3):
+        time.sleep(5)
+        try:
+            res = requests.get("http://localhost:{}/index".format(registrar_port))
+            is_up = True
+            break
+        except Exception as e:
+            traceback.print_exc()
+            print >> sys.stderr, 'Subdomain registrar is not responding on localhost:{}, trying again...'.format(registrar_port)
+            continue
+
+    if not is_up:
+        raise Exception('Subdomain registrar failed to start')
 
     testlib.add_cleanup(lambda: SUBDOMAIN_PROC.kill())
 
@@ -151,14 +169,15 @@ def scenario( wallets, **kw ):
         sub_zf = zf_template.format(sub_name, zf_default_url)
 
         req_json = {
-            'name': 'hello_{}.personal.test'.format(i+1),
-            'owner_address': wallets[4].addr,
+            'name': 'hello_{}'.format(i+1),
+            'owner_address': virtualchain.address_reencode(wallets[i].addr, network='mainnet'),
             'zonefile': sub_zf,
         }
 
-        resp = requests.post('http://localhost:{}/register'.format(registrar_port), json=req_json)
+        resp = requests.post('http://localhost:{}/register'.format(registrar_port), json=req_json, headers={'Authorization': 'bearer test_registrar'})
         if resp.status_code != 202:
             print 'did not accept {}'.format(sub_name)
+            print resp.text
             return False
 
     # try to resolve each name on the subdomain registrar
