@@ -1080,18 +1080,16 @@ def blockstack_cli_get_namespace_blockchain_record( namespace_id, config_path=No
 
 
 
-def blockstack_cli_get_name_zonefile( name, config_path=None, json=False, raw=True):
+def blockstack_cli_get_name_zonefile( name ):
     """
     get name zonefile
     """
     if not has_nodejs_cli():
         raise Exception("Missing blockstack-cli")
 
-    resp = nodejs_cli('get_zonefile', name, full_output=True)
-    if json or not raw:
-        return json.loads(resp.strip().split('\n')[-1])
-    
-    return resp
+    resp = nodejs_cli('whois', name)
+    resp = json.loads(resp)
+    return resp['zonefile']
 
 
 def blockstack_cli_get_names_owned_by_address( address, config_path=None):
