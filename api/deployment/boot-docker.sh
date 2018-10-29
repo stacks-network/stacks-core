@@ -42,7 +42,11 @@ set -e
 
 if ! [ -f "$STATE_DIR/blockstack-server.db" ]; then 
    # no state
-   blockstack-core --debug fast_sync "$BLOCKSTACK_DEPLOYMENT_FAST_SYNC_URL" "$BLOCKSTACK_DEPLOYMENT_FAST_SYNC_PUBLIC_KEY"
+   if [ -n "$BLOCKSTACK_DEPLOYMENT_FAST_SYNC_URL" ] && [ -n "$BLOCKSTACK_DEPLOYMENT_FAST_SYNC_PUBLIC_KEY" ]; then 
+       blockstack-core --debug fast_sync "$BLOCKSTACK_DEPLOYMENT_FAST_SYNC_URL" "$BLOCKSTACK_DEPLOYMENT_FAST_SYNC_PUBLIC_KEY"
+   else
+       blockstack-core --debug fast_sync
+   fi
    sed -i -e 's/api_host = localhost/api_host = 0.0.0.0/' "$STATE_DIR/blockstack-server.ini"
 fi
 
