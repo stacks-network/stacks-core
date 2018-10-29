@@ -73,10 +73,10 @@ NAME_PREORDER_EXPIRE = BLOCKS_PER_DAY
 AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 
 FAST_SYNC_PUBLIC_KEYS = [
-    '0211f4f997efa0fb018082a2ed3a0af8ba1b042da03f655d953b75642fce395e9e',
+    '038ff7796a927f31707924b41ed6587475d26d3f7a19bc47941d1c2b017f64780c'
 ]
 
-FAST_SYNC_DEFAULT_URL = 'http://fast-sync.blockstack.org/snapshot.bsk'
+FAST_SYNC_DEFAULT_URL = 'http://fast-sync-20.blockstack.org/snapshot.bsk'
 
 """ name price configs
 """
