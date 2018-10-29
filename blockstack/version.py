@@ -2,4 +2,4 @@
 __version_major__ = '20'
 __version_minor__ = '0'
 __version_patch__ = '8'
-__version__ = '{}.{}.{}.1'.format(__version_major__, __version_minor__, __version_patch__)
+__version__ = '{}.{}.{}.4'.format(__version_major__, __version_minor__, __version_patch__)
