@@ -34,7 +34,7 @@ if [ -f "$STATE_DIR/blockstack-server.db" ]; then
    DB_VERSION="$(blockstack-core db_version)"
    if [ $? -ne 0 ]; then 
       # obsolete
-      rm -f "$STATE_DIR/*.db*" "$STATE_DIR/*.snapshots"
+      rm -f "$STATE_DIR"/*.db* "$STATE_DIR"/*.snapshots
    fi
 fi
 
