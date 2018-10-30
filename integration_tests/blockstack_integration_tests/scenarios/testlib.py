@@ -372,10 +372,14 @@ def nodejs_cli(*args, **kw):
     full_output = kw.get('full_output', False)
     price = kw.get('price', None)
     expect_fail = kw.get('expect_fail', False)
+    magic_bytes = None
 
     if NODEJS_CLI_PATH is None:
         if not has_nodejs_cli():
             raise Exception("No node.js CLI found")
+
+    if os.environ.get('BLOCKSTACK_TESTNET_ID'):
+        magic_bytes = os.environ['BLOCKSTACK_TESTNET_ID']
 
     base_cmd = [NODEJS_CLI_PATH, '-i']
     if not safety_checks:
@@ -393,6 +397,9 @@ def nodejs_cli(*args, **kw):
 
     if price:
         base_cmd += ['-P', '{}'.format(price['amount']), '-D', '{}'.format(price['units'])]
+
+    if magic_bytes:
+        base_cmd += ['-m', magic_bytes]
 
     grace_period = blockstack.lib.config.get_epoch_namespace_lifetime_grace_period(state_engine.get_current_block(), '*')
     fees_period = blockstack.lib.config.get_epoch_namespace_receive_fees_period(state_engine.get_current_block(), '*')
