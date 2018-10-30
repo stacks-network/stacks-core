@@ -33,7 +33,6 @@ from flask_crossdomain import crossdomain
 
 from api.config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, DEFAULT_CACHE_TIMEOUT
 from api.config import SEARCH_DEFAULT_LIMIT as DEFAULT_LIMIT
-from api.utils import cache_control
 
 from .substring_search import search_people_by_name, search_people_by_twitter
 from .substring_search import search_people_by_username, search_people_by_bio
@@ -101,7 +100,6 @@ def test_alphanumeric(query):
 
 @searcher.route('/search', methods = ["GET", "POST"], strict_slashes = False)
 @crossdomain(origin='*')
-@cache_control(DEFAULT_CACHE_TIMEOUT)
 def search_by_name():
 
     query = request.args.get('query')
@@ -159,7 +157,13 @@ def search_by_name():
     results = {}
     results['results'] = results_people[:new_limit]
 
-    return jsonify(results)
+    resp = make_response(jsonify(results))
+    if len(results['results']) > 0:
+        cache_timeout = DEFAULT_CACHE_TIMEOUT)
+    else:
+        cache_timeout = 60
+
+    resp.headers['Cache-Control'] = 'public, max-age={:d}'.format(cache_timeout)
 
 
 def search_proofs_index(query):
