@@ -1844,6 +1844,9 @@ if __name__ == "__main__":
 
     import blockstack_integration_tests.scenarios.testlib as testlib
 
+    # set up magic 
+    if os.environ.get('BLOCKSTACK_TESTNET_ID'):
+        blockstack.lib.config.set_blockstack_magic_bytes(os.environ['BLOCKSTACK_TESTNET_ID'])
 
     # set up bitcoind
     bitcoin_regtest_reset(working_dir)
