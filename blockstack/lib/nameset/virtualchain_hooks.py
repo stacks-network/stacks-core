@@ -76,7 +76,7 @@ def get_magic_bytes():
    
     Get the magic byte sequence for our OP_RETURNs
     """
-    return MAGIC_BYTES
+    return blockstack_magic_bytes()
 
 
 def get_first_block_id():
