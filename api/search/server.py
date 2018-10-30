@@ -165,6 +165,7 @@ def search_by_name():
 
     resp.headers['Cache-Control'] = 'public, max-age={:d}'.format(cache_timeout)
 
+    return resp
 
 def search_proofs_index(query):
 
