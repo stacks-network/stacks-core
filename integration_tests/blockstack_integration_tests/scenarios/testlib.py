@@ -1632,7 +1632,7 @@ def serialize_tx(inputs, outputs):
     return txstr
 
 
-def send_funds_tx( privkey, satoshis, payment_addr ):
+def send_funds_tx( privkey, satoshis, payment_addr, change=True ):
     """
     Make a signed transaction that will send the given number
     of satoshis to the given payment address
@@ -1654,13 +1654,22 @@ def send_funds_tx( privkey, satoshis, payment_addr ):
     send_addr = virtualchain.get_privkey_address(privkey)
     
     inputs = get_utxos(send_addr)
-    outputs = [
-        {"script": virtualchain.make_payment_script(payment_addr),
-         "value": satoshis},
-        
-        {"script": virtualchain.make_payment_script(send_addr),
-         "value": virtualchain.calculate_change_amount(inputs, satoshis, 5500)},
-    ]
+    outputs = None
+
+    if change:
+        outputs = [
+            {"script": virtualchain.make_payment_script(payment_addr),
+             "value": satoshis},
+            {"script": virtualchain.make_payment_script(send_addr),
+             "value": virtualchain.calculate_change_amount(inputs, satoshis, 5500)},
+        ]
+    else:
+        outputs = [
+            {"script": virtualchain.make_payment_script(payment_addr),
+             "value": satoshis}
+        ]
+        # everything else is a tx fee
+
     prev_outputs = [{'out_script': inp['out_script'], 'value': inp['value']} for inp in inputs]
 
     serialized_tx = serialize_tx(inputs, outputs)
@@ -1668,11 +1677,11 @@ def send_funds_tx( privkey, satoshis, payment_addr ):
     return signed_tx
 
 
-def send_funds( privkey, satoshis, payment_addr ):
+def send_funds( privkey, satoshis, payment_addr, change=True ):
     """
     Send funds from a private key (in satoshis) to an address
     """
-    signed_tx = send_funds_tx(privkey, satoshis, payment_addr)
+    signed_tx = send_funds_tx(privkey, satoshis, payment_addr, change=change)
     txid = sendrawtransaction(signed_tx)
     return {'txid': txid}
 
