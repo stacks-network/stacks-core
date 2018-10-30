@@ -35,9 +35,9 @@ from virtualchain.lib.hashing import is_hex
 
 from config import (
     FIRST_BLOCK_MAINNET, NAME_OPCODES,
-    MAGIC_BYTES, NAME_PREORDER,
+    NAME_PREORDER,
     NAME_TRANSFER, NAMESPACE_PREORDER,
-    get_bitcoin_opts
+    get_bitcoin_opts, blockstack_magic_bytes
 )
 
 import json
@@ -264,7 +264,7 @@ def parse_tx_op_return(tx):
     # [0] is OP_RETURN, [1] is the length; [2:4] are 'id', [4] is opcode
     magic = op_return[2:4]
 
-    if magic != MAGIC_BYTES:
+    if magic != blockstack_magic_bytes():
         # not a blockchain ID operation
         msg = 'OP_RETURN output does not encode a blockchain ID operation'
         log.error(msg)
