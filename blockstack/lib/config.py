@@ -121,9 +121,7 @@ BLOCKSTACK_DEBUG = os.environ.get('BLOCKSTACK_DEBUG', None)
 BLOCKSTACK_TEST_FIRST_BLOCK = os.environ.get('BLOCKSTACK_TEST_FIRST_BLOCK', None)
 BLOCKSTACK_TESTNET = os.environ.get("BLOCKSTACK_TESTNET", None)     # changes encoding of addresses
 BLOCKSTACK_TESTNET3 = os.environ.get("BLOCKSTACK_TESTNET3", None)   # changes bitcoin protocol
-BLOCKSTACK_TESTNET_FIRST_BLOCK = os.environ.get("BLOCKSTACK_TESTNET_FIRST_BLOCK", None)
-BLOCKSTACK_PUBLIC_TESTNET = os.environ.get("BLOCKSTACK_PUBLIC_TESTNET", None)   # set if we're running in test mode, but publicly
-BLOCKSTACK_DRY_RUN = os.environ.get('BLOCKSTACK_DRY_RUN', None)
+BLOCKSTACK_PUBLIC_TESTNET = os.environ.get("BLOCKSTACK_PUBLIC_TESTNET", None)   # set if we're running on the testnet
 BLOCKSTACK_TEST_SUBDOMAINS_FIRST_BLOCK = os.environ.get('BLOCKSTACK_TEST_SUBDOMAINS_FIRST_BLOCK', None)
 
 if BLOCKSTACK_TEST:
@@ -173,6 +171,7 @@ if os.environ.get("BLOCKSTACK_CORE_NUM_CONFS", None) is not None:
 
 
 """ RPC server configs
+    Note that these can get overwritten if BLOCKSTACK_TESTNET_ACTIVE is set!  See below
 """
 RPC_SERVER_TEST_PORT = 16264
 RPC_SERVER_PORT = None      # non-HTTPS port
@@ -225,11 +224,13 @@ if BLOCKSTACK_TEST is not None:
 
 FIRST_BLOCK_MAINNET = 373601
 
-if BLOCKSTACK_TEST and BLOCKSTACK_TEST_FIRST_BLOCK:
-    FIRST_BLOCK_MAINNET = int(BLOCKSTACK_TEST_FIRST_BLOCK)
+if BLOCKSTACK_TEST:
+    if BLOCKSTACK_TEST_FIRST_BLOCK:
+        FIRST_BLOCK_MAINNET = int(BLOCKSTACK_TEST_FIRST_BLOCK)
 
-elif BLOCKSTACK_TEST and BLOCKSTACK_TESTNET_FIRST_BLOCK:
-    FIRST_BLOCK_MAINNET = int(BLOCKSTACK_TESTNET_FIRST_BLOCK)
+else:
+    if os.environ.get('BLOCKSTACK_TESTNET_START_BLOCK'):
+        FIRST_BLOCK_MAINNET = int(os.environ['BLOCKSTACK_TESTNET_START_BLOCK'])
 
 SUBDOMAINS_FIRST_BLOCK = 478872
 
@@ -655,6 +656,32 @@ del nsid
 """
 
 MAGIC_BYTES = 'id'
+BLOCKSTACK_TESTNET_ID = None
+BLOCKSTACK_TESTNET_ACTIVE = False
+if os.environ.get('BLOCKSTACK_TESTNET_ID'):
+    assert len(os.environ['BLOCKSTACK_TESTNET_ID']) == 2, 'Invalid testnet ID "{}": must have exactly 2 characters'.format(os.environ['BLOCKSTACK_TESTNET_ID'])
+    assert os.environ['BLOCKSTACK_TESTNET_ID'] != MAGIC_BYTES, 'Invalid testnet ID "{}": must *not* equal "{}"'.format(os.environ['BLOCKSTACK_TESTNET_ID'], MAGIC_BYTES)
+
+    MAGIC_BYTES = os.environ['BLOCKSTACK_TESTNET_ID']
+    BLOCKSTACK_TESTNET_ID = MAGIC_BYTES
+    BLOCKSTACK_TESTNET_ACTIVE = True
+
+    if not os.environ.get('BLOCKSTACK_API_PORT'):
+        # new default
+        DEFAULT_API_PORT = 16268
+
+    if not BLOCKSTACK_TEST:
+        # new default
+        RPC_SERVER_PORT = RPC_SERVER_TEST_PORT
+
+    print >> sys.stderr, 'Overriding magic byte sequence to "{}"'.format(MAGIC_BYTES)
+
+def blockstack_magic_bytes():
+    return MAGIC_BYTES
+
+def set_blockstack_magic_bytes(b):
+    assert len(b) == 2, 'Invalid magic bytes'
+    MAGIC_BYTES = b
 
 """ name operation data configs
 """
@@ -1490,7 +1517,7 @@ def default_blockstack_opts( working_dir, config_file=None ):
    zonefile_dir = os.path.join( os.path.dirname(config_file), "zonefiles")
    server_version = VERSION
    atlas_enabled = True
-   atlas_seed_peers = "node.blockstack.org:%s" % RPC_SERVER_PORT
+   atlas_seed_peers = "node.blockstack.org:%s" % RPC_SERVER_PORT if not BLOCKSTACK_TESTNET_ACTIVE else ""
    atlasdb_path = os.path.join( os.path.dirname(config_file), "atlas.db" )
    atlas_blacklist = ""
    atlas_hostname = RPC_SERVER_IP
