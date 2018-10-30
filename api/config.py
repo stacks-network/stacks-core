@@ -41,6 +41,8 @@ MAX_PROFILE_LIMIT = int(os.getenv('MAX_PROFILE_LIMIT','8142'))           # (8 * 
 # DEFAULT_CACHE_TIMEOUT determines the
 DEFAULT_CACHE_TIMEOUT = int(os.getenv('DEFAULT_CACHE_TIMEOUT','43200'))  # 12 hours in seconds
 
+EMPTY_CACHE_TIMEOUT = int(os.getenv('EMPTY_CACHE_TIMEOUT','60'))  # 1 minute
+
 # DEBUG increases logging verbosity
 DEBUG = str2bool(os.getenv('DEBUG','False'))
 
