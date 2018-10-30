@@ -1142,7 +1142,24 @@ class BlockstackdRPC(BoundedThreadingMixIn, SimpleXMLRPCServer):
         reply['last_block_processed'] = cinfo['block_height']
         reply['server_alive'] = True
         reply['indexing'] = config.is_indexing(self.working_dir)
-        reply['testnet'] = BLOCKSTACK_TEST or BLOCKSTACK_TESTNET
+
+        # this is a bit janky, but the logic is as follows:
+        # * BLOCKSTACK_TESTNET_ACTIVE means that we've explicitly set an alternative magic bytes, so we should report this.
+        # * BLOCKSTACK_PUBLIC_TESTNET means that we're on the default hosted testnet (e.g. testnet.blockstack.org)
+        # * BLOCKSTACK_TEST or BLOCKSTACK_TESTNET usually means we're running inside an integration test
+        if BLOCKSTACK_TESTNET_ACTIVE:
+            reply['testnet'] = MAGIC_BYTES
+
+        elif BLOCKSTACK_PUBLIC_TESTNET:
+            reply['testnet'] = 'hosted'
+
+        elif BLOCKSTACK_TEST or BLOCKSTACK_TESTNET:
+            reply['testnet'] = True
+
+        else:
+            reply['testnet'] = False
+
+        reply['first_block'] = FIRST_BLOCK_MAINNET
 
         if conf.get('atlas', False):
             # return zonefile inv length
@@ -2335,7 +2352,7 @@ def blockstack_tx_filter( tx ):
         return False
 
     payload = binascii.unhexlify( tx['nulldata'] )
-    if payload.startswith("id"):
+    if payload.startswith(blockstack_magic_bytes()):
         return True
 
     else:
@@ -2763,14 +2780,14 @@ def check_and_set_envars( argv ):
             'envar': 'BLOCKSTACK_DEBUG',
             'exec': True,
         },
-        '--testnet': {
-            'arg': False,
-            'envar': 'BLOCKSTACK_TESTNET',
+        '--testnet-id': {
+            'arg': True,
+            'envar': 'BLOCKSTACK_TESTNET_ID',
             'exec': True,
         },
-        '--testnet3': {
-            'arg': False,
-            'envar': 'BLOCKSTACK_TESTNET3',
+        '--testnet-start-block': {
+            'arg': True,
+            'envar': 'BLOCKSTACK_TESTNET_START_BLOCK',
             'exec': True,
         },
         '--working_dir': {
@@ -2979,6 +2996,11 @@ def run_blockstackd():
     if working_dir is None:
         working_dir = os.path.expanduser('~/.{}'.format(virtualchain_hooks.get_virtual_chain_name()))
         
+    # if we're in a testnet, then make sure we're in the testnet-specific working directory 
+    if BLOCKSTACK_TESTNET_ID is not None:
+        working_dir = os.path.join(working_dir, 'testnet', BLOCKSTACK_TESTNET_ID)
+        log.info('Using testnet {}, chain state in {}'.format(BLOCKSTACK_TESTNET_ID, working_dir))
+
     setup(working_dir)
 
     # need sqlite3
