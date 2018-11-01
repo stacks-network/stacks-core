@@ -28,7 +28,7 @@ $ blockstack-core stop
 $ mv ~/.blockstack-server ~/.blockstack-server.19
 
 # start the new node
-$ blockstack-core fast-sync
+$ blockstack-core fast_sync
 $ blockstack-core start
 ```
 
