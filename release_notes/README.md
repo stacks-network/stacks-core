@@ -12,6 +12,7 @@ For this reason, **it is strongly recommended to run the latest Blockstack Core 
 
 The consensus-breaking releases are:
 
+* [20.0](changelog-20.md): hard fork of 2018
 * [0.17](changelog-0.17.md): hard fork of 2017
 * [0.14](changelog-0.14.md): hard fork of 2016
 * initial release: hardfork of 2015; migration from Namecoin to Bitcoin
