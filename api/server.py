@@ -33,7 +33,6 @@ from collections import OrderedDict
 from flask import Flask, jsonify, request, make_response
 from flask import render_template, send_from_directory
 
-from flask_https import RequireHTTPS
 from flask_crossdomain import crossdomain
 
 from .parameters import parameters_required
