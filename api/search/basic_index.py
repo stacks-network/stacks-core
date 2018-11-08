@@ -169,7 +169,7 @@ def optimize_db():
 
     search_profiles.ensure_index('name')
     search_profiles.ensure_index('twitter_handle')
-    search_profiles.ensure_index('username')
+    search_profiles.ensure_index('fullyQualifiedName')
 
     log.debug("Optimized DB")
 
