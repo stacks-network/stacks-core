@@ -33,6 +33,9 @@ from binascii import hexlify
 import blockstack.lib.schemas as schemas
 import blockstack.lib.storage
 
+from blockstack.lib.config import load_configuration
+from blockstack.blockstackd import api_start as api_start_blockstack
+
 BASE_URL = 'http://localhost:5000'
 
 DEFAULT_WALLET_ADDRESS = "1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP"
@@ -263,7 +266,7 @@ class Prices(APITestCase):
     def test_ns_price(self):
         data = self.get_request("/v1/prices/namespaces/id",
                                 headers = {} , status_code=200)
-        check_data(self, data, {'satoshis':0})
+        check_data(self, data, {'amount': '64000000000', 'units': 'STACKS'})
 
 class BlockChains(APITestCase):
     def test_consensus(self):
@@ -327,4 +330,12 @@ def test_main(args = []):
             sys.exit(1)
 
 if __name__ == '__main__':
-    test_main(sys.argv[1:])
+    wdir = os.path.expanduser('~/.blockstack-server')
+    load_configuration(wdir)
+    try:
+        server = api_start_blockstack(wdir, 'localhost', 6270)
+        test_main(sys.argv[1:])
+    finally:
+        server.stop_server()
+        server.join()
+
