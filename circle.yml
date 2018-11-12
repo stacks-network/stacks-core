@@ -23,7 +23,6 @@ jobs:
       - run:
           command: |
             source venv/bin/activate
-            blockstack setup -y --password PASSWORD
-            blockstack api start -y --password PASSWORD
+            yes '' | blockstack-core configure || true
+            sed -i -e 's#http://localhost:6264#https://node.blockstack.org:6263#' ~/.blockstack-server/blockstack-server.ini
             python -m blockstack_integration_tests.live_tests.api_tests
-            blockstack api stop -y
