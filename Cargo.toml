@@ -1,0 +1,19 @@
+[package]
+name = "blockstack-core"
+version = "0.0.1"
+authors = ["Jude Nelson <judecn@gmail.com>"]
+license = "GPLv3"
+homepage = "https://github.com/jcnelson/blockstack-ng"
+repository = "https://github.com/jcnelson/blockstack-ng"
+description = "Reference implementation of Blockstack Core"
+keywords = [ "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
+readme = "README.md"
+
+[dependencies]
+bitcoin = "0.14.2"
+jsonrpc = "0.10.2"
+rust-ini = "0.13"
+log = "0.4"
+rand = "0.3.14"
+serde = "1"
+serde_derive = "1"
