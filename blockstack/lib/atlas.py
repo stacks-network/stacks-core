@@ -1073,7 +1073,7 @@ def atlasdb_add_peer( peer_hostport, discovery_time=None, peer_table=None, con=N
                 # is this other peer still alive?
                 # is this other peer part of the same mainnet history?
                 # res = atlas_peer_ping( old_hostport )
-                res = atlas_peer_getinfo(working_dir, old_hostport)
+                res = atlas_peer_getinfo(working_dir, old_hostport, path=path, con=con)
                 if res:
                     log.debug("Peer %s is still alive; will not replace" % (old_hostport))
                     return False
@@ -1623,7 +1623,7 @@ def atlas_peer_ping( peer_hostport, timeout=None, peer_table=None ):
     return ret
 
 
-def atlas_peer_getinfo( working_dir, peer_hostport, timeout=None, peer_table=None ):
+def atlas_peer_getinfo( working_dir, peer_hostport, timeout=None, peer_table=None, path=None, con=None ):
     """
     Get host info
     Return the rpc_getinfo() response on success
@@ -1641,6 +1641,7 @@ def atlas_peer_getinfo( working_dir, peer_hostport, timeout=None, peer_table=Non
 
     log.debug("getinfo %s" % peer_hostport)
     res = None
+    remove = False
 
     try:
         res = blockstack_getinfo( proxy=rpc )
@@ -1689,6 +1690,7 @@ def atlas_peer_getinfo( working_dir, peer_hostport, timeout=None, peer_table=Non
                     if consensus_hash != our_consensus_hashes[block_height]:
                         log.error('Remote host {} is following a different set of rules: their CH({}) != our CH({}) at block {}'.format(consensus_hash, our_consensus_hashes[block_height], block_height))
                         res = {'error': 'Remote peer {} is using a different set of consensus rules'}
+                        remove = True
 
     except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
         atlas_log_socket_error( "getinfo(%s)" % peer_hostport, peer_hostport, se )
@@ -1722,6 +1724,10 @@ def atlas_peer_getinfo( working_dir, peer_hostport, timeout=None, peer_table=Non
     with AtlasPeerTableLocked(peer_table) as ptbl:
         if ptbl.has_key(peer_hostport):
             atlas_peer_update_health( peer_hostport, (res is not None), peer_table=ptbl )
+
+    # we may need to remove this peer outright
+    if remove:
+        atlasdb_remove_peer(peer_hostport, peer_table=peer_table, path=path, con=con)
 
     return res
 
@@ -1806,7 +1812,7 @@ def atlas_revalidate_peers( working_dir, con=None, path=None, now=None, peer_tab
 
     old_peer_infos = atlasdb_get_old_peers( now, con=con, path=path )
     for old_peer_info in old_peer_infos:
-        res = atlas_peer_getinfo( working_dir, old_peer_info['peer_hostport'] )
+        res = atlas_peer_getinfo( working_dir, old_peer_info['peer_hostport'], path=path, con=con )
         if not res:
             log.debug("Failed to revalidate %s" % (old_peer_info['peer_hostport']))
             if atlas_peer_is_whitelisted( old_peer_info['peer_hostport'], peer_table=peer_table ):
@@ -2808,7 +2814,7 @@ class AtlasPeerCrawler( threading.Thread ):
             cnt += 1
 
             # test the peer before adding
-            res = atlas_peer_getinfo( self.working_dir, peer, timeout=self.ping_timeout, peer_table=peer_table )
+            res = atlas_peer_getinfo( self.working_dir, peer, timeout=self.ping_timeout, peer_table=peer_table, path=path, con=con )
             if res is None:
                 # didn't respond successfully
                 filtered.append(peer)
