@@ -1,0 +1,14 @@
+version: 2
+jobs:
+  build:
+    working_directory: ~/blockstack
+    docker:
+      - image: circleci/rust
+    steps:
+      - checkout
+      - run:
+          command: |
+            cargo build
+      - run:
+          command: |
+            cargo test
