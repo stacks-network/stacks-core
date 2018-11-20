@@ -252,6 +252,7 @@ def get_users(username):
     """
     reply = {}
 
+    log.debug('Begin /v[x]/users/' + username)
 
     if username is None:
         reply['error'] = "No username given"
