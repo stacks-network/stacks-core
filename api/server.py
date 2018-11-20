@@ -125,6 +125,7 @@ def catch_all_get(path):
     API_URL = BASE_API_URL + '/' + path
     params = dict(request.args)
 
+    log.debug('Begin ' + path)
     inner_resp = forwarded_get(API_URL, params = params)
     resp = make_response(inner_resp[:2])
 
