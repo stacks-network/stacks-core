@@ -20,6 +20,9 @@
 // This module is concerned with the implementation of the BitcoinIndexer
 // structure and its methods and traits.
 
+pub mod bits;
+pub mod blocks;
+pub mod keys;
 pub mod messages;
 pub mod indexer;
 pub mod network;
@@ -29,6 +32,7 @@ pub mod spv;
 use std::fmt;
 use std::io;
 use std::error;
+use std::sync;
 
 use bitcoin::network::serialize::Error as btc_serialize_error;
 use bitcoin::util::hash::HexError as btc_hex_error;
@@ -70,7 +74,9 @@ pub enum Error {
     /// Invalid target 
     InvalidPoW,
     /// RPC error with bitcoin 
-    JSONRPCError(jsonrpc_error)
+    JSONRPCError(jsonrpc_error),
+    /// Thread pipeline error (i.e. a receiving thread died)
+    PipelineError
 }
 
 impl fmt::Display for Error {
@@ -90,7 +96,8 @@ impl fmt::Display for Error {
             Error::NoncontiguousHeader => f.write_str(error::Error::description(self)),
             Error::MissingHeader => f.write_str(error::Error::description(self)),
             Error::InvalidPoW => f.write_str(error::Error::description(self)),
-            Error::JSONRPCError(ref e) => fmt::Display::fmt(e, f)
+            Error::JSONRPCError(ref e) => fmt::Display::fmt(e, f),
+            Error::PipelineError => f.write_str(error::Error::description(self))
         }
     }
 }
@@ -112,7 +119,8 @@ impl error::Error for Error {
             Error::NoncontiguousHeader => None,
             Error::MissingHeader => None,
             Error::InvalidPoW => None,
-            Error::JSONRPCError(ref e) => Some(e)
+            Error::JSONRPCError(ref e) => Some(e),
+            Error::PipelineError => None
         }
     }
 
@@ -133,7 +141,8 @@ impl error::Error for Error {
             Error::NoncontiguousHeader => "Non-contiguous header",
             Error::MissingHeader => "Missing header",
             Error::InvalidPoW => "Invalid proof of work",
-            Error::JSONRPCError(ref e) => e.description()
+            Error::JSONRPCError(ref e) => e.description(),
+            Error::PipelineError => "Pipeline broken"
         }
     }
 }
