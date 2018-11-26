@@ -21,16 +21,18 @@ extern crate rand;
 extern crate bitcoin;
 extern crate ini;
 extern crate jsonrpc;
+extern crate secp256k1;
 extern crate serde;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate log;
 
+#[macro_use] mod util;
 mod burnchains;
-mod util;
 
 use burnchains::indexer::BurnchainIndexer;
 use burnchains::bitcoin::indexer::sync_block_headers;
 use burnchains::bitcoin::Error as btc_error;
+
 use util::log as logger;
 
 fn main() {
