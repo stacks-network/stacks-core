@@ -17,29 +17,11 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-pub struct BurnchainTxOutput {
-    script: String,
-    units: u64
-}
+use burnchains::*;
 
-pub struct BurnchainTxInput {
-    sender: BurnchainTxOutput,
-    keys: Vec<String>
-}
-
-pub struct BurnchainTransaction {
-    block_height: u64,
-    txid: String,
-    vtxindex: u64,
-    op: u8,
-    data: String,
-    inputs: Vec<BurnchainTxInput>,
-    outputs: Vec<BurnchainTxOutput>
-}
-
-pub trait BurnchainIndexer {
+pub trait BurnchainIndexer<K: PublicKey> {
     fn setup(&mut self, working_directory: &str) -> Result<(), &'static str>;
     fn connect(&mut self, &str) -> Result<(), &'static str>;
     fn get_block_hash(&mut self, block_height: u64) -> Result<String, &'static str>;
-    fn get_block_txs(&mut self, block_hash: &str) -> Result<Box<Vec<BurnchainTransaction>>, &'static str>;
+    fn get_block_txs(&mut self, block_hash: &str) -> Result<Box<Vec<BurnchainTransaction<K>>>, &'static str>;
 }
