@@ -54,7 +54,8 @@ use burnchains::{
     AddressType, 
     Address, 
     PublicKey, 
-    Txid, 
+    Txid,
+    BlockHash,
     MagicBytes, 
     Hash160, 
     MAGIC_BYTES_LENGTH
@@ -354,7 +355,7 @@ impl BitcoinBlockParser {
 
         BurnchainBlock {
             block_height: block_height,
-            block_hash: block.bitcoin_hash()[..].to_vec(),
+            block_hash: BlockHash::from_vec_be(&block.bitcoin_hash().as_bytes().to_vec()).unwrap(),    // block hashes are little-endian in Blockstack, and this *should* panic if it fails
             txs: accepted_txs
         }
     }
@@ -364,7 +365,7 @@ impl BitcoinBlockParser {
     ///
     /// Return false if the block we got did not match the next expected block's header
     /// (in which case, we should re-start the conversation with the peer and try again).
-    fn process_block(&mut self, block: &Block, header: &LoneBlockHeader, height: u64) -> Option<BurnchainBlock<BitcoinPublicKey>> {
+    fn process_block(&self, block: &Block, header: &LoneBlockHeader, height: u64) -> Option<BurnchainBlock<BitcoinPublicKey>> {
         // block header contents must match
         if header.header.bitcoin_hash() != block.bitcoin_hash() {
             error!("Expected block {} does not match received block {}", header.header.bitcoin_hash(), block.bitcoin_hash());
@@ -395,7 +396,9 @@ mod tests {
     use util::hash::hex_bytes;
 
     use bitcoin::network::serialize::deserialize;
+    use bitcoin::network::encodable::VarInt;
     use bitcoin::blockdata::transaction::Transaction;
+    use bitcoin::blockdata::block::{Block, LoneBlockHeader};
 
     use burnchains::{
         BurnchainBlock, 
@@ -405,7 +408,8 @@ mod tests {
         AddressType, 
         Address, 
         PublicKey, 
-        Txid, 
+        Txid,
+        BlockHash,
         MagicBytes, 
         Hash160, 
         MAGIC_BYTES_LENGTH
@@ -420,11 +424,35 @@ mod tests {
         result: T
     }
 
+    struct BlockFixture<T> {
+        block: String,
+        header: String,
+        height: u64,
+        result: T
+    }
+
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
         let tx_bin = hex_bytes(hex_str)?;
         let tx = deserialize(&tx_bin.to_vec())
             .map_err(|_e| "failed to deserialize")?;
         Ok(tx)
+    }
+
+    fn make_block(hex_str: &str) -> Result<Block, &'static str> {
+        let block_bin = hex_bytes(hex_str)?;
+        let block = deserialize(&block_bin.to_vec())
+            .map_err(|_e| "failed to deserialize block")?;
+        Ok(block)
+    }
+
+    fn make_block_header(hex_str: &str) -> Result<LoneBlockHeader, &'static str> {
+        let header_bin = hex_bytes(hex_str)?;
+        let header = deserialize(&header_bin.to_vec())
+            .map_err(|_e| "failed to deserialize header")?;
+        Ok(LoneBlockHeader {
+            header: header,
+            tx_count: VarInt(0)
+        })
     }
     
     fn to_hash160(inp: &Vec<u8>) -> Hash160 {
@@ -439,6 +467,13 @@ mod tests {
         let bytes = &inp[..inp.len()];
         ret.copy_from_slice(bytes);
         Txid(ret)
+    }
+    
+    fn to_block_hash(inp: &Vec<u8>) -> BlockHash {
+        let mut ret = [0; 32];
+        let bytes = &inp[..inp.len()];
+        ret.copy_from_slice(bytes);
+        BlockHash(ret)
     }
 
     #[test]
@@ -647,17 +682,261 @@ mod tests {
         }
     }
 
-    /*
     #[test]
     fn parse_tx_strange() {
-        let tx_fixtures_strange : Vec<TxFixture<Option<BurnchainTransaction>>> = {
+        let vtxindex = 4;
+        let tx_fixtures_strange : Vec<TxFixture<Option<BurnchainTransaction<BitcoinPublicKey>>>> = vec![
             TxFixture {
-                // NAMESPACE_REVEAL with a segwit p2wph script pubkey
+                // NAMESPACE_REVEAL with a segwit p2wpkh script pubkey (shouldn't parse)
                 txstr: "0100000001fde2146ec3ecf037ad515c0c1e2ba8abee348bd2b3c6a576bf909d78b0b18cd2010000006a47304402203ec06f11bc5b7e79fad54b2d69a375ba78576a2a0293f531a082fcfe13a9e9e802201afcf0038d9ccb9c88113248faaf812321b65d7b09b4a6e2f04f463d2741101e012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3ffffffff0300000000000000001a6a186964260000cd73fa046543210000000000aa0001746573747c1500000000000016001482093b62a3699282d926981bed7665e8384caa552076fd29010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac00000000".to_owned(),
                 result: None
             },
-        };
+            TxFixture {
+                // coinbase 
+                txstr: "02000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0502b7020101ffffffff024023b71200000000232103ecfa5bcaa0d2b7dd3a705342be2e144f66293be99488c8e5c9bc3d843036f1bfac0000000000000000266a24aa21a9ed620a2609f2f58ea62134d1c54bf73cb6e0cf194cfbdf25ae32b55dd167ee64bb00000000".to_owned(),
+                result: None
+            },
+        ];
+
+        let parser = BitcoinBlockParser::new(MagicBytes([105, 100]));   // "id"
+        for tx_fixture in tx_fixtures_strange {
+            let tx = make_tx(&tx_fixture.txstr).unwrap();
+            let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize);
+            assert!(burnchain_tx.is_none());
+        }
     }
-    */
+
+    #[test]
+    fn parse_block() {
+        let block_fixtures = vec![
+            BlockFixture {
+                // block with one NAME_REGISTRATION and one coinbase 
+                block: "000000209cef4ccd19f4294dd5c762aab6d9577fb4412cd4c0a662a953a8b7969697bc1ddab52e6f053758022fb92f04388eb5fdd87046776e9c406880e728b48e6930aff462fc5bffff7f200000000002020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff0502b5020101ffffffff024018a41200000000232103f51f0c868fd99a4a3a14fe2153fba3c5f635c31bf0a588545627134b49609097ac0000000000000000266a24aa21a9ed18a09ae86261d6802bff7fa705afa558764ed3750c2273bfae5b5136c44d14d6012000000000000000000000000000000000000000000000000000000000000000000000000001000000000101a7ef2b09722ad786c569c0812005a731ce19290bb0a2afc16cb91056c2e4c19e0100000017160014393ffec4f09b38895b8502377693f23c6ae00f19ffffffff0300000000000000000d6a0b69643a666f6f2e746573747c1500000000000017a9144b85301ba8e42bf98472b8ed4939d5f76b98fcea87144d9c290100000017a91431f8968eb1730c83fb58409a9a560a0a0835027f8702483045022100fc82815edf1c0ef0c601cf1e26494626d7b01597be5ab83df025ff1ee67730130220016c4c29d77aadb5ff57c0c9272a43950ca29b84d8adfaed95ac69db90b35d5b012102d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e8100000000".to_owned(),
+                header: "000000209cef4ccd19f4294dd5c762aab6d9577fb4412cd4c0a662a953a8b7969697bc1ddab52e6f053758022fb92f04388eb5fdd87046776e9c406880e728b48e6930aff462fc5bffff7f2000000000".to_owned(),
+                height: 32,
+                result: Some(BurnchainBlock {
+                    block_height: 32,
+                    block_hash: to_block_hash(&hex_bytes("7483b1104341d596c1d0d2499cb1821b0e078329deabc4e7504c016a5b393e08").unwrap()),
+                    txs: vec![
+                        BurnchainTransaction {
+                            // NAME_REGISTRATION with segwit p2wpkh-p2sh input
+                            txid: to_txid(&hex_bytes("b908952b30ccfdfa59985dc1ffdd2a22ef054d20fa253510d2af7797dddee459").unwrap()),
+                            vtxindex: 1,
+                            opcode: ':' as u8,
+                            data: hex_bytes("666f6f2e74657374").unwrap(),
+                            inputs: vec![
+                                BurnchainTxInput {
+                                    keys: vec![
+                                        BitcoinPublicKey::from_hex("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap()
+                                    ],
+                                    num_required: 1,
+                                }
+                            ],
+                            outputs: vec![
+                                BurnchainTxOutput {
+                                    units: 5500,
+                                    address: Address {
+                                        addrtype: AddressType::ScriptHash,
+                                        bytes: to_hash160(&hex_bytes("4b85301ba8e42bf98472b8ed4939d5f76b98fcea").unwrap()),
+                                    }
+                                },
+                                BurnchainTxOutput {
+                                    units: 4993076500,
+                                    address: Address {
+                                        addrtype: AddressType::ScriptHash,
+                                        bytes: to_hash160(&hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()),
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            },
+            BlockFixture {
+                // a block with 5 TOKEN_TRANSFERs and a bunch of non-OP_RETURN transactions
+                block: "00000020ad98a2888b7c69f4187ef5ee1b5921a6fb62803aa8bd35826f7fb751714baf250cb5ef03478d35ed7f6582ab40232ee39744471b2bcb40b91db0f29102d695123379fc5bffff7f20020000001402000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0502b7020101ffffffff024023b71200000000232103ecfa5bcaa0d2b7dd3a705342be2e144f66293be99488c8e5c9bc3d843036f1bfac0000000000000000266a24aa21a9ed620a2609f2f58ea62134d1c54bf73cb6e0cf194cfbdf25ae32b55dd167ee64bb00000000010000000169cdf5fb51781758c7e77dc8e86c99248bb4decd3dd39ac782270b120a77d5d2000000006a47304402201db67a44a12472e8e555efbe826927fd1b67cbc5db42ba43a31edd2177fc32cc02206ee9c8f42629fbd988dc6091f46c1f7921cd58366531529ea2b91a36b2cbba9a012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffff0220a10700000000001976a91441a349571d89decfac52ffecd92300b6a97b284188ac74a73729010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac000000000100000001c517ff49a374f8a41dd7a5d4028315374f875bd483a4e56bf946d76a0ec441f7010000006a473044022079f4cf76c0ce6da1c01beff79521817561f98dff27f63ce394a22fa645aa2c6502204343f6f7ed1a06e01a8b1d379ae11e5a4a6214c8056d68cde1946458960d5a46012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3ffffffff030000000000000000306a2e6964247c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b5300000000000000647c150000000000001976a91441a349571d89decfac52ffecd92300b6a97b284188ac80403329010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac00000000010000000128877bb55365102a106d3150dec58e23c4e38fa6d19f6cedd6d4e3bb4dc5f213020000006a4730440220515a2ad1c809a519edd17103bdb53578366b44b56983576e2bb96eab7571a54f02201b86aa94a34374e20a1d3f50d257e4da91a59e91af385bd7672f4866b2d2d65b012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffff0220a10700000000001976a91441a349571d89decfac52ffecd92300b6a97b284188ace4892b29010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac0000000001000000019311d3968c1529d7c88df93518af051a28967c2e40f7a9d71581d1b3d5c153ba000000008a4730440220491ed78e9b5b6654d811d4d2586b95488b04914cdcde68ab5b3320e946fce23f02202bf2d772438b777008a0107c5ce5aff252bc96f613febb6eaa1997007c0afcb1014104ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385ffffffff030000000000000000306a2e6964247c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b5300000000000000647c150000000000001976a914e1762290e3f035ea4e7f8cbf72a9d9386c4020ab88ac2c3a0300000000001976a91441a349571d89decfac52ffecd92300b6a97b284188ac0000000001000000019311d3968c1529d7c88df93518af051a28967c2e40f7a9d71581d1b3d5c153ba010000006a4730440220707c69e458fe9e2325fd5861d66f71d79226466999a96e9c10184fd8c14830ae02207165850443badce9957b10e967bdd1e0eb6b47bb9f3e30ef4e1d7dfc762b40c6012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffff0220a10700000000001976a914e1762290e3f035ea4e7f8cbf72a9d9386c4020ab88ac48d32329010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac000000000100000001ca544deb6c248c68a56d86e3e9fa2f93fcf35d6055acb116962421eb4041e896010000006a47304402206218d746f7d4b788362ba33557c1a57de815fe1d024b3a7cf2a45c12595db4a502205bc66b5817530820e5b572e9f8ce702b3c2beae89c836aac297b727b4f2fef79012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffff0220a10700000000001976a914e1762290e3f035ea4e7f8cbf72a9d9386c4020ab88acac1c1c29010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac000000000100000001f433cac39fa99d6621e10148fdba962a98c0647214fb6a050c742cc423528cbb000000008b483045022100d27598ea9e8fde498f94d645e6ee805cc58c256163dd7e0bcb074b6f3498fd4d02204582fc8f281707f2229606d7c7287309addb6f21b44cbe1b846f3a447d78238f01410479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637ffffffff030000000000000000306a2e6964247c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b5300000000000000647c150000000000001976a914f3c49407d41b82f30636f5180718bb658ce7fe9488ac2c3a0300000000001976a914e1762290e3f035ea4e7f8cbf72a9d9386c4020ab88ac000000000100000001f433cac39fa99d6621e10148fdba962a98c0647214fb6a050c742cc423528cbb010000006a473044022043cbd8b3a1a7f3eb6add66c3af952d27556afc700c48719792ea16c0b553b7ca02204c9c7254d64a58f3bf8b1820bcb97a177ced97f9458fbe3e1039110560d2da7e012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffff0220a10700000000001976a914f3c49407d41b82f30636f5180718bb658ce7fe9488ac10661429010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac0000000001000000012ee074f816ebb800d5b3e8497498a8be0b7a578d831b7a4617090f224d20387c010000006a473044022037a59ae75fd04216cf466b49aa22b2f13b9138009d2a399199a1add8dcedc102022032d50e8fe0b0004dd191686fe4e7b15e523a1816616ef9cf1362059941d8cdfd012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffff0220a10700000000001976a914f3c49407d41b82f30636f5180718bb658ce7fe9488ac74af0c29010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac000000000100000001b4963d5c40a849f865a884e68a837d7629cfbdca449f53131ee1f54c8517e3a8000000008a473044022057c1bb8264ea497db03388d6ffd7db0e0e9649b9c26c38b0fac52384b8d0582102201520db2bc33b3dfa850e2d53f82495cdbfb4fc48f7fa3f30182ed17b397effd5014104447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebcffffffff030000000000000000306a2e6964247c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b5300000000000000647c150000000000001976a914afc75a8f8fbcb922248a663dec927b33dccaed3788ac2c3a0300000000001976a914f3c49407d41b82f30636f5180718bb658ce7fe9488ac000000000100000001b4963d5c40a849f865a884e68a837d7629cfbdca449f53131ee1f54c8517e3a8010000006a47304402207d0349a5ef65a42694fedc2baff5baab8154466c8e8942787c6b1476fddbbba902204f6147a332adaa1313195e6a2ca9e545d00d233e5365ff4e7476c6b69a1808bb012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffff0220a10700000000001976a914afc75a8f8fbcb922248a663dec927b33dccaed3788acd8f80429010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac0000000001000000011420e72c7cf93746e3a51c79798dfc3d92efcc5c035bfb6e25c573b34651fd2d010000006a473044022011d7c5e4326e3f1d469c93795627473b78a7db9fd2a0ef5a89c1640a7cd35c9b0220573811fb6831fa031ea5396c39e3a8bf72ec90accbcc22e63e07c3c197894eeb012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffff0220a10700000000001976a914afc75a8f8fbcb922248a663dec927b33dccaed3788ac3c42fd28010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac00000000010000000104c89617c9100361301adc113cc8420f0a2884465879612e2c3e7702c18e8bbe000000008b483045022100c83dc003151b3dfec89c1d6a51be38f226754c57139fbdd01bbd73db06fece19022047a130601c35db08603c0e28c8ad0bee6f69b881a61cf5285ffd816d09d53889014104a96a8355b6c3597bb9425c2ef264ab8179ca8acd3032b62980d2067261b37666b66510983e6d60d49bbd28129f0bae4dbcaa97c2bc61a6b2e48ca1625ce81335ffffffff030000000000000000306a2e6964247c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b5300000000000000647c150000000000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac2c3a0300000000001976a914afc75a8f8fbcb922248a663dec927b33dccaed3788ac00000000010000000104c89617c9100361301adc113cc8420f0a2884465879612e2c3e7702c18e8bbe010000006a4730440220577b2b6b1fd42425e6cb6d10076c3312253c0ba4d511a253d252474fb4f13e3f022013b0404d190e7d1b13c3d9003425ac80dc5b0f80375cbc3a71ebff849fed4b63012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffff0220a10700000000001976a91474178497e927ff3ff1428a241be454d393c3c91c88aca08bf528010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac000000000100000003738deab0751512cd7c580f748a56e801a88e4b929efbe1944a51304f0f416989000000006a47304402205675beb7b57e0b97a8688dedd291a553fa189d018e4ce4b781aed9736578c4f402207849244e504863fb80904da0de12a76a409c827cc70af8a537389f7c11299ec6012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffff738deab0751512cd7c580f748a56e801a88e4b929efbe1944a51304f0f416989010000006b4830450221008bb5d50aac7becf4a6b2207778c2061e54bc99648d9afb28bde4f6789d417f1002202359a08ec2bc1f56807f4c25996fe4d0f282b9e266631b6026f544620259d9f7012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffffe863dfc5fbf69280d9f9c93d861440d2e1eee329eccf5545213f73a809560378010000006a473044022037c9f5df920dbf550c7cc92ad1aa1627851bb9af492563716bd0da060cecb5590220715b5d0b73e108fdc6264e67fb56a77d409e6ec185b93de5219695368ee4292f012103d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3feffffff01c02cfd28010000001976a91474178497e927ff3ff1428a241be454d393c3c91c88ac0000000001000000031420e72c7cf93746e3a51c79798dfc3d92efcc5c035bfb6e25c573b34651fd2d000000008a47304402202c963a8bd001257aefc0853e0dfda571dcde127be9b7a1221c352776b411032e022009d154b93ee42d8c2ca9c24a5cf9e0185d097240c7f7986ea3eb527ca92d78f2014104a96a8355b6c3597bb9425c2ef264ab8179ca8acd3032b62980d2067261b37666b66510983e6d60d49bbd28129f0bae4dbcaa97c2bc61a6b2e48ca1625ce81335feffffffbdb21912e44ba0d0219b15fb1ba735ea2c698930a13575a8db352a48dbd1fe12010000008a47304402201e084a2b11eed752ac476f31f92a979936f7f2915d644bd9485dc06fa1b80d9e02202b3e288ff9501938882ed932280f06204eead8aa41b8ecb5c4d3eecbe25192c6014104a96a8355b6c3597bb9425c2ef264ab8179ca8acd3032b62980d2067261b37666b66510983e6d60d49bbd28129f0bae4dbcaa97c2bc61a6b2e48ca1625ce81335feffffffc1918a15bce400ef116e57af1142857ce2e652d73314628d07cbec67793599c1000000008b483045022100eeebccac3625b93f9c1b404599b02f57868a62b49184c0818125fcff6775ca9f0220768cae6e58346127a85e38ba031a2f7732d1c051d9afed0d3a6c53fcc9d15b55014104a96a8355b6c3597bb9425c2ef264ab8179ca8acd3032b62980d2067261b37666b66510983e6d60d49bbd28129f0bae4dbcaa97c2bc61a6b2e48ca1625ce81335feffffff0190f22700000000001976a914afc75a8f8fbcb922248a663dec927b33dccaed3788ac0000000001000000041c18a687e19c484387daff4b136d2e35f8a4ff74e9901a985f422316e0d33789020000008a47304402202c36873b52b4c042326562fc6442b94f03078ac62cb15c79849fd62ac4abb2a20220022333118b124beda77fa54e07d785d57f2603f9517d4980cf26d4f4ce680140014104ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385feffffff28877bb55365102a106d3150dec58e23c4e38fa6d19f6cedd6d4e3bb4dc5f213010000008a47304402204f6cab3fce36ea750538ffe165713bdedc44e8ea5089420634954f9efb8022ff022006c2812283b40fd6e8f26be8ac7261333b90b76c1722df1f9485e3e1e0795053014104ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385feffffffc517ff49a374f8a41dd7a5d4028315374f875bd483a4e56bf946d76a0ec441f7000000008b483045022100b74cfc519a6ce6510143072b5bd879fac7eed1415d0df52620a54a40f17470fa022072ffaa0216a9d57d59714e0f01c173097bf9d9558cbdcc77d19152ed8a328932014104ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385feffffffe77c28db26558695fbc66172878412cb2694db40ff360b55d3740a44ba2b3238000000008a47304402203e427cc1990a299295554579f30974f83ba05ddf187482140928018e4938d96602204799d8c12cb696eacfd951198d35f0c6a65ecb67b717f55a20afa6677f4bafc4014104ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385feffffff0104332800000000001976a91441a349571d89decfac52ffecd92300b6a97b284188ac0000000001000000042ee074f816ebb800d5b3e8497498a8be0b7a578d831b7a4617090f224d20387c000000008a47304402207d9b6519328111fb1ccbf64632a404bd000fbd4e0086204f4853297ddc119fb202206e2b52c5a5c96376a0f95dba0bd086e6bade504c13af7a79aba33e1bd3024193014104447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebcfeffffff58ac7561601d65f73a329c291970d755da1923458a8197de4dc9d47061fe5cc4020000008a47304402205c742445dac4de43bc5568b8f00e855fdc454b33ecae730c4be8d01a4479e7ba022061d0d274ba1fdecff47a9d0e1614d710c0e746ab22b5d0bd0ae4fab921e64e99014104447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebcfeffffff6c1828ac45acb5040e9a8eb3f228942d562bde81923158da6425276b27e62155000000008b483045022100cb803162888cb25f25c2f1fa7340b27ffc50c2aba869e9bddcb97b43c3feed470220501807396b9d48508cf31efaa212358615b241493134811dac43e6a372987c51014104447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebcfeffffffb4a2a1a056cddf86c811ab41f4b2dfd8f29feec73d34c796ea28cf12b8f81cae010000008b483045022100d0711f0295c01fe8856e8e38b37fd922b8aa0352b6d13616c621fa0f7d4b5ff1022059aafb91eea435e797d0d27477a63f06454c470a0d8ef8e5e8d496fb62c1efd3014104447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebcfeffffff0104332800000000001976a914f3c49407d41b82f30636f5180718bb658ce7fe9488ac000000000100000004910223cea04cb252e6e6699bb38e77e63336680f1da01d35ebda1786ae607c7c010000008b483045022100961a28548fc3e53962e1b4039b383b0cf441c3ff76433e7652840c5cc8f711fd022074f177613090d1d1d8149eaa71f1f72531c4b0b8136be4bdb852e0ebf94fdeda01410479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637feffffff9e3b6d11ace91dab509d257da4f54a637a38f188b13f8fe4a3a5b0fce6af2ac5020000008b483045022100a0c9d78f7b3db154d8c9c437b087be2e8f1adb01c40148307e8c986c0855192402201f9cfa8a422f39125cd5e90b0128558f30daa6e339da95d93673ed8331bdceab01410479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637feffffffca544deb6c248c68a56d86e3e9fa2f93fcf35d6055acb116962421eb4041e896000000008a47304402202274c0b8b6634494b65309d4e2a0a91d6a55051000485c427d1c05d5cca810f002204f5eeb5c202b2e7c4ef1b1f61e3a9928fa8b2014f09a2735305ec1a2a1cb2dd501410479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637feffffffd3600cc4caa4d7719a1f7b78f8d66e09cd84a6e4e7ee4cceff44921a314502ec000000008b4830450221008b7a7d15efa590a750ac917cad343abbaf432858de0df37bd3d0e660bcd515800220360cb45eb1a77cb4ad90d595f91f4018aa5662e36add18b7131ea99b3dd9071101410479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637feffffff0104332800000000001976a914e1762290e3f035ea4e7f8cbf72a9d9386c4020ab88ac00000000".to_owned(),
+                header: "00000020ad98a2888b7c69f4187ef5ee1b5921a6fb62803aa8bd35826f7fb751714baf250cb5ef03478d35ed7f6582ab40232ee39744471b2bcb40b91db0f29102d695123379fc5bffff7f2002000000".to_owned(),
+                height: 32,
+                result: Some(BurnchainBlock {
+                    block_height: 32,
+                    block_hash: to_block_hash(&hex_bytes("4f3757bc236e58b87d6208aa795115002b739bf39268cf69640f0b092e8cdafe").unwrap()),
+                    txs: vec![
+                        BurnchainTransaction {
+                            // TOKEN_TRANSFER
+                            txid: to_txid(&hex_bytes("13f2c54dbbe3d4d6ed6c9fd1a68fe3c4238ec5de50316d102a106553b57b8728").unwrap()),
+                            vtxindex: 2,
+                            opcode: '$' as u8,
+                            data: hex_bytes("7c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b530000000000000064").unwrap(),
+                            inputs: vec![
+                                BurnchainTxInput {
+                                    keys: vec![
+                                        BitcoinPublicKey::from_hex("03d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3").unwrap()
+                                    ],
+                                    num_required: 1,
+                                }
+                            ],
+                            outputs: vec![
+                                BurnchainTxOutput {
+                                    units: 5500,
+                                    address: Address {
+                                        addrtype: AddressType::PublicKeyHash,
+                                        bytes: to_hash160(&hex_bytes("41a349571d89decfac52ffecd92300b6a97b2841").unwrap()),
+                                    }
+                                },
+                                BurnchainTxOutput {
+                                    units: 4986192000,
+                                    address: Address {
+                                        addrtype: AddressType::PublicKeyHash,
+                                        bytes: to_hash160(&hex_bytes("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()),
+                                    }
+                                }
+                            ]
+                        },
+                        BurnchainTransaction {
+                            // TOKEN_TRANSFER 
+                            txid: to_txid(&hex_bytes("7c7c60ae8617daeb351da01d0f683633e6778eb39b69e6e652b24ca0ce230291").unwrap()),
+                            vtxindex: 4,
+                            opcode: '$' as u8,
+                            data: hex_bytes("7c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b530000000000000064").unwrap(),
+                            inputs: vec![
+                                BurnchainTxInput {
+                                    keys: vec![
+                                        BitcoinPublicKey::from_hex("04ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385").unwrap()
+                                    ],
+                                    num_required: 1,
+                                }
+                            ],
+                            outputs: vec![
+                                BurnchainTxOutput {
+                                    units: 5500,
+                                    address: Address {
+                                        addrtype: AddressType::PublicKeyHash,
+                                        bytes: to_hash160(&hex_bytes("e1762290e3f035ea4e7f8cbf72a9d9386c4020ab").unwrap()),
+                                    }
+                                },
+                                BurnchainTxOutput {
+                                    units: 211500,
+                                    address: Address {
+                                        addrtype: AddressType::PublicKeyHash,
+                                        bytes: to_hash160(&hex_bytes("41a349571d89decfac52ffecd92300b6a97b2841").unwrap()),
+                                    }
+                                }
+                            ]
+                        },
+                        BurnchainTransaction {
+                            // TOKEN_TRANSFER 
+                            txid: to_txid(&hex_bytes("ae1cf8b812cf28ea96c7343dc7ee9ff2d8dfb2f441ab11c886dfcd56a0a1a2b4").unwrap()),
+                            vtxindex: 7,
+                            opcode: '$' as u8,
+                            data: hex_bytes("7c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b530000000000000064").unwrap(),
+                            inputs: vec![
+                                BurnchainTxInput {
+                                    keys: vec![
+                                        BitcoinPublicKey::from_hex("0479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637").unwrap()
+                                    ],
+                                    num_required: 1,
+                                }
+                            ],
+                            outputs: vec![
+                                BurnchainTxOutput {
+                                    units: 5500,
+                                    address: Address {
+                                        addrtype: AddressType::PublicKeyHash,
+                                        bytes: to_hash160(&hex_bytes("f3c49407d41b82f30636f5180718bb658ce7fe94").unwrap()),
+                                    }
+                                },
+                                BurnchainTxOutput {
+                                    units: 211500,
+                                    address: Address {
+                                        addrtype: AddressType::PublicKeyHash,
+                                        bytes: to_hash160(&hex_bytes("e1762290e3f035ea4e7f8cbf72a9d9386c4020ab").unwrap()),
+                                    }
+                                }
+                            ]
+                        },
+                        BurnchainTransaction {
+                            // TOKEN_TRANSFER
+                            txid: to_txid(&hex_bytes("12fed1db482a35dba87535a13089692cea35a71bfb159b21d0a04be41219b2bd").unwrap()),
+                            vtxindex: 10,
+                            opcode: '$' as u8,
+                            data: hex_bytes("7c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b530000000000000064").unwrap(),
+                            inputs: vec![
+                                BurnchainTxInput {
+                                    keys: vec![
+                                        BitcoinPublicKey::from_hex("04447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebc").unwrap()
+                                    ],
+                                    num_required: 1,
+                                }
+                            ],
+                            outputs: vec![
+                                BurnchainTxOutput {
+                                    units: 5500,
+                                    address: Address {
+                                        addrtype: AddressType::PublicKeyHash,
+                                        bytes: to_hash160(&hex_bytes("afc75a8f8fbcb922248a663dec927b33dccaed37").unwrap()),
+                                    }
+                                },
+                                BurnchainTxOutput {
+                                    units: 211500,
+                                    address: Address {
+                                        addrtype: AddressType::PublicKeyHash,
+                                        bytes: to_hash160(&hex_bytes("f3c49407d41b82f30636f5180718bb658ce7fe94").unwrap()),
+                                    }
+                                }
+                            ]
+                        },
+                        BurnchainTransaction {
+                            // TOKEN_TRANSFER 
+                            txid: to_txid(&hex_bytes("78035609a8733f214555cfec29e3eee1d24014863dc9f9d98092f6fbc5df63e8").unwrap()),
+                            vtxindex: 13,
+                            opcode: '$' as u8,
+                            data: hex_bytes("7c503a2e30a905cb515cfbc291766dfa00000000000000000000000000535441434b530000000000000064").unwrap(),
+                            inputs: vec![
+                                BurnchainTxInput {
+                                    keys: vec![
+                                        BitcoinPublicKey::from_hex("04a96a8355b6c3597bb9425c2ef264ab8179ca8acd3032b62980d2067261b37666b66510983e6d60d49bbd28129f0bae4dbcaa97c2bc61a6b2e48ca1625ce81335").unwrap()
+                                    ],
+                                    num_required: 1,
+                                }
+                            ],
+                            outputs: vec![
+                                BurnchainTxOutput {
+                                    units: 5500,
+                                    address: Address {
+                                        addrtype: AddressType::PublicKeyHash,
+                                        bytes: to_hash160(&hex_bytes("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()),
+                                    }
+                                },
+                                BurnchainTxOutput {
+                                    units: 211500,
+                                    address: Address {
+                                        addrtype: AddressType::PublicKeyHash,
+                                        bytes: to_hash160(&hex_bytes("afc75a8f8fbcb922248a663dec927b33dccaed37").unwrap()),
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            },
+            BlockFixture {
+                // invalid data -- merkle root won't match transactions (so header won't match)
+                block: "000000209cef4ccd19f4294dd5c762aab6d9577fb4412cd4c0a662a953a8b7969697bc1ddab52e6f053758022fb92f04388eb5fdd87046776e9c406880e728b48e6930aff462fc5bffff7f200000000002020000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff0502b5020101ffffffff024018a41200000000232103f51f0c868fd99a4a3a14fe2153fba3c5f635c31bf0a588545627134b49609097ac0000000000000000266a24aa21a9ed18a09ae86261d6802bff7fa705afa558764ed3750c2273bfae5b5136c44d14d6012000000000000000000000000000000000000000000000000000000000000000000000000001000000000101a7ef2b09722ad786c569c0812005a731ce19290bb0a2afc16cb91056c2e4c19e0100000017160014393ffec4f09b38895b8502377693f23c6ae00f19ffffffff0300000000000000000d6a0b69643a666f6f2e746573747c1500000000000017a9144b85301ba8e42bf98472b8ed4939d5f76b98fcea87144d9c290100000017a91431f8968eb1730c83fb58409a9a560a0a0835027f8702483045022100fc82815edf1c0ef0c601cf1e26494626d7b01597be5ab83df025ff1ee67730130220016c4c29d77aadb5ff57c0c9272a43950ca29b84d8adfaed95ac69db90b35d5b012102d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e8100000000".to_owned(),
+                header: "000000209cef4ccd19f4294dd5c762aab6d9577fb4412cd4c0a662a953a8b7969697bc1ddab52e6f053758022fb92f04388eb5fdd87046776e9c406880e728b48e6931aff462fc5bffff7f2000000000".to_owned(),
+                height: 32,
+                result: None,
+            }
+        ];
+
+        let parser = BitcoinBlockParser::new(MagicBytes([105, 100]));   // "id"
+        for block_fixture in block_fixtures {
+            let block = make_block(&block_fixture.block).unwrap();
+            let header = make_block_header(&block_fixture.header).unwrap();
+            let height = block_fixture.height;
+
+            let parsed_block_opt = parser.process_block(&block, &header, height);
+            assert_eq!(parsed_block_opt, block_fixture.result);
+        }
+    }
 }
 
