@@ -23,6 +23,8 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::time;
 use std::thread;
+use std::sync::Arc;
+use std::ops::Deref;
 
 use rand::{Rng, thread_rng};
 
@@ -42,6 +44,8 @@ use burnchains::bitcoin::indexer::BitcoinIndexer;
 use burnchains::bitcoin::spv;
 use burnchains::indexer::BurnchainIndexer;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
+
+pub type PeerMessage = Arc<btc_message::NetworkMessage>;
 
 // Borrowed from Andrew Poelstra's rust-bitcoin library.
 /// Lock the socket in the BitcoinIndexer's runtime state and do something with it.
@@ -88,7 +92,7 @@ impl BitcoinIndexer {
 
     /// Receive a Bitcoin protocol message on the wire
     /// If this method returns Err(ConnectionBroken), then the caller should attempt to re-connect.
-    pub fn recv_message(&mut self) -> Result<btc_message::NetworkMessage, btc_error> {
+    pub fn recv_message(&mut self) -> Result<PeerMessage, btc_error> {
         let magic = self.runtime.magic;
 
         with_socket!(self, sock, {
@@ -118,7 +122,7 @@ impl BitcoinIndexer {
                 return Err(btc_error::InvalidMagic);
             }
 
-            Ok(decoded.payload)
+            Ok(PeerMessage::new(decoded.payload))
         })
     }
 
@@ -152,9 +156,9 @@ impl BitcoinIndexer {
 
     /// Handle a message we received, if we can.
     /// Returns UnhandledMessage if we can't handle the given message.
-    pub fn handle_message<T: BitcoinMessageHandler>(&mut self, message: &btc_message::NetworkMessage, handler: Option<&mut T>) -> Result<bool, btc_error> {
-        match *message {
-            btc_message::NetworkMessage::Version(ref msg_body) => {
+    pub fn handle_message<T: BitcoinMessageHandler>(&mut self, message: &PeerMessage, handler: Option<&mut T>) -> Result<bool, btc_error> {
+        match message.deref() {
+            btc_message::NetworkMessage::Version(ref _msg_body) => {
                 self.handle_version(message)
                     .and_then(|_r| Ok(true))
             }
@@ -162,7 +166,7 @@ impl BitcoinIndexer {
                 self.handle_verack(message)
                     .and_then(|_r| Ok(true))
             }
-            btc_message::NetworkMessage::Ping(ref nonce) => {
+            btc_message::NetworkMessage::Ping(ref _nonce) => {
                 self.handle_ping(message)
                     .and_then(|_r| Ok(true))
             }
@@ -279,7 +283,7 @@ impl BitcoinIndexer {
     /// Receive a Version message and reply with a Verack
     pub fn handle_version(&mut self, version_message: &btc_message::NetworkMessage) -> Result<(), btc_error> {
         match *version_message {
-            btc_message::NetworkMessage::Version(ref msg_body) => {
+            btc_message::NetworkMessage::Version(ref _msg_body) => {
                 debug!("Handle version");
                 return self.send_verack();
             }
@@ -365,6 +369,17 @@ impl BitcoinIndexer {
         let payload = btc_message::NetworkMessage::GetHeaders(getheaders);
 
         debug!("Send GetHeaders {} to {}:{}", prev_block_hash.be_hex_string(), self.config.peer_host, self.config.peer_port);
+        return self.send_message(payload);
+    }
+
+    /// Send a GetBlocks message
+    /// The last block hash in the given block_hashes vector will be the stop_hash field in the request.
+    pub fn send_getblocks(&mut self, block_hashes: &Vec<Sha256dHash>) -> Result<(), btc_error> {
+        assert!(block_hashes.len() > 0);
+        let getblocks = btc_message_blockdata::GetBlocksMessage::new(block_hashes.to_vec(), block_hashes[block_hashes.len() - 1]);
+        let payload = btc_message::NetworkMessage::GetBlocks(getblocks);
+
+        debug!("Send GetBlocks {}-{} to {}:{}", block_hashes[0].be_hex_string(), block_hashes[block_hashes.len() - 1].be_hex_string(), self.config.peer_host, self.config.peer_port);
         return self.send_message(payload);
     }
 }
