@@ -46,6 +46,28 @@ impl Txid {
     }
 }
 
+pub struct BlockHash([u8; 32]);
+impl_array_newtype!(BlockHash, u8, 32);
+impl_array_hexstring_fmt!(BlockHash);
+
+impl BlockHash {
+    // from big-endian vector (useful for BTC compatibility)
+    pub fn from_vec_be(b: &Vec<u8>) -> Option<BlockHash> {
+        match b.len() {
+            32 => {
+                let mut ret = [0; 32];
+                let bytes = &b[0..b.len()];
+                for i in 0..32 {
+                    // flip endian to le
+                    ret[31 - i] = bytes[i];
+                }
+                Some(BlockHash(ret))
+            }
+            _ => None
+        }
+    }
+}
+
 pub struct Hash160([u8; 20]);
 impl_array_newtype!(Hash160, u8, 20);
 impl_array_hexstring_fmt!(Hash160);
@@ -104,7 +126,7 @@ pub struct BurnchainTransaction<T: PublicKey> {
 #[derive(Debug, PartialEq)]
 pub struct BurnchainBlock<T: PublicKey> {
     block_height: u64,
-    block_hash: Vec<u8>,
+    block_hash: BlockHash,
     txs: Vec<BurnchainTransaction<T>>
 }
 
