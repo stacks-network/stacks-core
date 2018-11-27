@@ -110,13 +110,15 @@ def search_people():
 
 CACHE_SPECIFIC = [ re.compile(regex) for regex in
                    [r'^/v1/node/ping/?$',
+                    r'^/v1/accounts/[\w\.]+/history/?$',
                     r'^/v1/blockchains/bitcoin/consensus/?$',
                     r'^/v1/names/[\w\.]+/?$'] ]
 
 SPECIFIED = {
     0 : 'public, max-age=30',
-    1 : 'public, max-age=30',
-    2 : 'public, max-age=300' }
+    1 : 'public, max-age=60',
+    2 : 'public, max-age=30',
+    3 : 'public, max-age=300' }
 
 
 @app.route('/<path:path>', methods=['GET'])
