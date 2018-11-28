@@ -32,22 +32,20 @@ use util::hash::hex_bytes;
 use std::cell::RefCell;
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct BitcoinPublicKey {
     key: Secp256k1PublicKey,
     compressed: bool
 }
 
-impl PublicKey for BitcoinPublicKey {
-    type Keybits = BitcoinPublicKey;
-
-    fn from_hex(hex_string: &str) -> Result<BitcoinPublicKey, &'static str> {
+impl BitcoinPublicKey {
+    pub fn from_hex(hex_string: &str) -> Result<BitcoinPublicKey, &'static str> {
         hex_bytes(hex_string)
             .and_then(|vec_bytes| BitcoinPublicKey::from_slice(&vec_bytes[..]))
             .map_err(|_e| "Invalid hex string")
     }
     
-    fn from_slice(data: &[u8]) -> Result<BitcoinPublicKey, &'static str> {
+    pub fn from_slice(data: &[u8]) -> Result<BitcoinPublicKey, &'static str> {
         _secp256k1.with(|ctx| {
             match Secp256k1PublicKey::from_slice(&ctx, data) {
                 Ok(pubkey_res) => 
@@ -59,7 +57,9 @@ impl PublicKey for BitcoinPublicKey {
             }
         })
     }
+}
 
+impl PublicKey for BitcoinPublicKey {
     fn to_bytes(&self) -> Vec<u8> {
         if self.compressed {
             self.key.serialize().to_vec()
