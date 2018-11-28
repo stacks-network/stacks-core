@@ -33,7 +33,8 @@ use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
 
-use burnchains::{AddressType, BurnchainTransaction};
+use burnchains::BurnchainTransaction;
+use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
 
 use bitcoin::network::constants as bitcoin_constants;
 
@@ -64,12 +65,12 @@ pub fn network_id_to_name(network_id: u32) -> &'static str {
     }
 }
 
-pub fn address_version_to_type(address_version: u8) -> Option<AddressType> {
+pub fn address_version_to_type(address_version: u8) -> Option<BitcoinAddressType> {
     match address_version {
-        ADDRESS_VERSION_MAINNET_SINGLESIG => Some(AddressType::PublicKeyHash),
-        ADDRESS_VERSION_TESTNET_SINGLESIG => Some(AddressType::PublicKeyHash),
-        ADDRESS_VERSION_MAINNET_MULTISIG => Some(AddressType::ScriptHash),
-        ADDRESS_VERSION_TESTNET_MULTISIG => Some(AddressType::ScriptHash),
+        ADDRESS_VERSION_MAINNET_SINGLESIG => Some(BitcoinAddressType::PublicKeyHash),
+        ADDRESS_VERSION_TESTNET_SINGLESIG => Some(BitcoinAddressType::PublicKeyHash),
+        ADDRESS_VERSION_MAINNET_MULTISIG => Some(BitcoinAddressType::ScriptHash),
+        ADDRESS_VERSION_TESTNET_MULTISIG => Some(BitcoinAddressType::ScriptHash),
         _ => None
     }
 }
@@ -333,7 +334,7 @@ impl BitcoinIndexer {
 }
 
 
-impl BurnchainIndexer<BitcoinPublicKey> for BitcoinIndexer {
+impl BurnchainIndexer<BitcoinAddress, BitcoinPublicKey> for BitcoinIndexer {
     /// Instantiate the Bitcoin indexer, but don't connect to the peer network.
     /// Instead, load our configuration state and sanity-check it.
     /// Call connect() next.
@@ -380,7 +381,7 @@ impl BurnchainIndexer<BitcoinPublicKey> for BitcoinIndexer {
         return Err("not implemented");
     }
 
-    fn get_block_txs(&mut self, block_hash: &str) -> Result<Box<Vec<BurnchainTransaction<BitcoinPublicKey>>>, &'static str> {
+    fn get_block_txs(&mut self, block_hash: &str) -> Result<Box<Vec<BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>>>, &'static str> {
         return Err("not implemented");
     }
 }
