@@ -67,22 +67,22 @@ invalid, and the transaction will have _no effect_ on the smart
 contract's state, except for a transaction fee debit (in the case of
 on-chain transactions).
 
-## Verifying Signing Principles
+## Verifying Signing Principals
 
 The language provides a primitive for checking whether or not the
 smart contract transaction was signed by a particular
-_principle_. Principles are a representation of a signing entity
+_principal_. Principals are a representation of a signing entity
 (roughly equivalent to a Stacks address). The signature itself is
 not checked by the smart contract, but by the VM. To check whether a
-given principle has signed the transaction, a transaction may call
+given principal has signed the transaction, a transaction may call
 
 ```scheme
-(signed-by? principle)
+(signed-by? principal)
 ```
 
 This returns `true` or `false`. Importantly, to support inter-contract
 calls, this function returns `true` if the _outermost_ transaction was
-signed by the given principle. A key benefit of the static
+signed by the given principal. A key benefit of the static
 analyzability of this smart contracting language is that _all_
 transactions that can possibly be called from the outermost
 transaction can be known _a priori_ so that a user can be warned about
@@ -92,9 +92,9 @@ all side effects before signing a transaction.
 
 To interact with Stacks balances, smart contracts may call the
 `(stacks-transfer!)` function. This function will attempt to transfer
-from a given principle to another principle. This function itself
+from a given principal to another principal. This function itself
 _requires_ that the operation have been signed by the transfering
-principle. The `integer` type in our smart contracting language is
+principal. The `integer` type in our smart contracting language is
 8-bytes, which allows it to specify the maximum amount of microstacks
 spendable in a single Stacks transfer.
 
@@ -267,7 +267,7 @@ practice, a buffer would probably be used.
   ((paid integer)))
 
 (define (tx-preorder 
-           (buyer-principal principle)
+           (buyer-principal principal)
            (name-hash (buffer 20))
            (name-price integer))
   (if (stacks-transfer!
@@ -279,8 +279,8 @@ practice, a buffer would probably be used.
       false))
 
 (define (tx-register 
-           (buyer-principal principle)
-           (recipient-principal principle)
+           (buyer-principal principal)
+           (recipient-principal principal)
            (name integer)
            (salt integer)
   (if (signed-by? buyer-principal)
