@@ -251,6 +251,7 @@ and _register_. The requirements of the system are as follows:
 4. A preorder must have paid at least the price of the name. Names
    are represented as integers, and any name less than 100000 costs
    1000 microstacks, while all other names cost 100 microstacks.
+5. Preorder hashs are _globally_ unique.
 
 In this simple scheme, names are represented by integers, but in
 practice, a buffer would probably be used.
@@ -263,8 +264,8 @@ practice, a buffer would probably be used.
 (defmap name-map 
   ((name integer)) ((buyer principal)))
 (defmap preorder-map
-  ((name-hash (buffer 160)) (buyer principal))
-  ((paid integer)))
+  ((name-hash (buffer 160)))
+  ((buyer principal) (paid integer)))
 
 (define (tx-preorder 
            (buyer-principal principal)
@@ -273,9 +274,9 @@ practice, a buffer would probably be used.
   (if (stacks-transfer!
         buyer-principal name-price burn-address name-price)
       (insert-entry! preorder-map
-        (tuple #name-hash name-hash
-               #buyer buyer-principal)
-        (tuple #paid name-price))
+        (tuple #name-hash name-hash)
+        (tuple #paid name-price
+               #buyer buyer-principal))
       false))
 
 (define (tx-register 
@@ -284,11 +285,9 @@ practice, a buffer would probably be used.
            (name integer)
            (salt integer)
   (if (signed-by? buyer-principal)
-    (let ((preorder-lookup
-            (tuple #name-hash (hash160 name salt) 
-                   #buyer      buyer-principal))
-          (preorder-entry 
-            (fetch-entry preorder-map preorder-lookup))
+    (let ((preorder-entry
+            (fetch-entry preorder-map
+                         (tuple #name-hash (hash160 name salt))))
           (name-entry 
             (fetch-entry name-map (tuple #name name))))
       (if (and
@@ -298,12 +297,22 @@ practice, a buffer would probably be used.
            (eq? name-entry 'null)
            ;; preorder must have paid enough
            (<= (price-funcion name) 
-               (get #paid preorder-entry)))
+               (get #paid preorder-entry))
+           ;; preorder must have been buyer-principle
+           (eq? buyer-principle
+                (get #buyer preorder-entry)))
           (begin
-            (delete-entry! preorder-lookup)
             (insert-entry! name-table
               (tuple #name name)
               (tuple #owner recipient)))
           false))
     false)))
 ```
+
+
+Note that Blockstack PBC intends to supply a full BNS (Blockstack
+Naming System) smart contract, as well as formal proofs that certain
+desirable properties hold (e.g. "names are globally unique", "a
+revoked name cannot be updated or transferred", "names cost stacks
+based on their namespace price function", "only the principal can
+reveal a name on registration", etc.).
