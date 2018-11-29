@@ -10,5 +10,8 @@ jobs:
           command: |
             cargo build
       - run:
+          environment:
+            RUST_BACKTRACE: 1
+            BLOCKSTACK_DEBUG: 1
           command: |
-            cargo test
+            cargo test -- --nocapture --test-threads=1
