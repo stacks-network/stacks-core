@@ -17,11 +17,16 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use burnchains::*;
 
-pub trait BurnchainIndexer<A: Address, K: PublicKey> {
-    fn setup(&mut self, working_directory: &str) -> Result<(), &'static str>;
-    fn connect(&mut self, &str) -> Result<(), &'static str>;
-    fn get_block_hash(&mut self, block_height: u64) -> Result<String, &'static str>;
-    fn get_block_txs(&mut self, block_hash: &str) -> Result<Box<Vec<BurnchainTransaction<A, K>>>, &'static str>;
+use chainstate::operations::{BlockstackOperation, BlockstackOperationType};
+use chainstate::operations::Error as op_error;
+
+use chainstate::db::namedb::NameDB;
+
+use burnchains::bitcoin::keys::BitcoinPublicKey;
+
+#[derive(Debug)]
+pub struct TokenTransferOp {
+
 }
+

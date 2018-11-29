@@ -20,6 +20,7 @@
 // This module is concerned with the implementation of the BitcoinIndexer
 // structure and its methods and traits.
 
+pub mod address;
 pub mod bits;
 pub mod blocks;
 pub mod keys;
@@ -76,7 +77,9 @@ pub enum Error {
     /// RPC error with bitcoin 
     JSONRPCError(jsonrpc_error),
     /// Thread pipeline error (i.e. a receiving thread died)
-    PipelineError
+    PipelineError,
+    /// Wrong number of bytes for constructing an address
+    InvalidByteSequence
 }
 
 impl fmt::Display for Error {
@@ -97,7 +100,8 @@ impl fmt::Display for Error {
             Error::MissingHeader => f.write_str(error::Error::description(self)),
             Error::InvalidPoW => f.write_str(error::Error::description(self)),
             Error::JSONRPCError(ref e) => fmt::Display::fmt(e, f),
-            Error::PipelineError => f.write_str(error::Error::description(self))
+            Error::PipelineError => f.write_str(error::Error::description(self)),
+            Error::InvalidByteSequence => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -120,7 +124,8 @@ impl error::Error for Error {
             Error::MissingHeader => None,
             Error::InvalidPoW => None,
             Error::JSONRPCError(ref e) => Some(e),
-            Error::PipelineError => None
+            Error::PipelineError => None,
+            Error::InvalidByteSequence => None
         }
     }
 
@@ -142,7 +147,8 @@ impl error::Error for Error {
             Error::MissingHeader => "Missing header",
             Error::InvalidPoW => "Invalid proof of work",
             Error::JSONRPCError(ref e) => e.description(),
-            Error::PipelineError => "Pipeline broken"
+            Error::PipelineError => "Pipeline broken",
+            Error::InvalidByteSequence => "Invalid sequence of bytes",
         }
     }
 }

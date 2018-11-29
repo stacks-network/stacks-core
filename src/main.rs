@@ -23,11 +23,13 @@ extern crate ini;
 extern crate jsonrpc;
 extern crate secp256k1;
 extern crate serde;
+extern crate crypto;
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate log;
 
 #[macro_use] mod util;
 mod burnchains;
+mod chainstate;
 
 use burnchains::indexer::BurnchainIndexer;
 use burnchains::bitcoin::indexer::sync_block_headers;

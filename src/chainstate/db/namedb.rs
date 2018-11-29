@@ -17,11 +17,21 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use burnchains::*;
+use chainstate::db::ChainstateDB;
+use chainstate::db::Error as db_error;
 
-pub trait BurnchainIndexer<A: Address, K: PublicKey> {
-    fn setup(&mut self, working_directory: &str) -> Result<(), &'static str>;
-    fn connect(&mut self, &str) -> Result<(), &'static str>;
-    fn get_block_hash(&mut self, block_height: u64) -> Result<String, &'static str>;
-    fn get_block_txs(&mut self, block_hash: &str) -> Result<Box<Vec<BurnchainTransaction<A, K>>>, &'static str>;
+pub struct NameDB {
+
+}
+
+impl NameDB {
+    pub fn connect(path: &String) -> Result<NameDB, db_error> {
+        return Err(db_error::NotImplemented);
+    }
+}
+
+impl ChainstateDB for NameDB {
+    fn backup(backup_path: &String) -> Result<(), db_error> {
+        return Err(db_error::NotImplemented);
+    }
 }
