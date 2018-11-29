@@ -27,8 +27,9 @@ use bitcoin::network::serialize::Error as btc_serialize_error;
 
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::indexer::BitcoinIndexer;
+use burnchains::bitcoin::network::PeerMessage;
 
 pub trait BitcoinMessageHandler {
     fn begin_session(&mut self, indexer: &mut BitcoinIndexer) -> Result<bool, btc_error>;
-    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: &btc_message::NetworkMessage) -> Result<bool, btc_error>;
+    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: &PeerMessage) -> Result<bool, btc_error>;
 }

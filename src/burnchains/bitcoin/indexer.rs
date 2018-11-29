@@ -24,11 +24,17 @@ use rand::{Rng, thread_rng};
 use std::path::{PathBuf};
 
 use ini::Ini;
+
+use burnchains::PublicKey;
 use burnchains::indexer::*;
 use burnchains::bitcoin::spv::*;
 use burnchains::bitcoin::rpc::BitcoinRPC;
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
+use burnchains::bitcoin::keys::BitcoinPublicKey;
+
+use burnchains::BurnchainTransaction;
+use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
 
 use bitcoin::network::constants as bitcoin_constants;
 
@@ -42,6 +48,12 @@ pub const BITCOIN_MAINNET_NAME: &'static str = "mainnet";
 pub const BITCOIN_TESTNET_NAME: &'static str = "testnet";
 pub const BITCOIN_REGTEST_NAME: &'static str = "regtest";
 
+pub const ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 0;
+pub const ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 5;
+pub const ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 111;
+pub const ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 196;
+
+// maybe change this
 pub const FIRST_BLOCK_MAINNET: u64 = 373601;
 
 pub fn network_id_to_name(network_id: u32) -> &'static str {
@@ -50,6 +62,16 @@ pub fn network_id_to_name(network_id: u32) -> &'static str {
         BITCOIN_TESTNET => BITCOIN_TESTNET_NAME,
         BITCOIN_REGTEST => BITCOIN_REGTEST_NAME,
         _ => "unknown"
+    }
+}
+
+pub fn address_version_to_type(address_version: u8) -> Option<BitcoinAddressType> {
+    match address_version {
+        ADDRESS_VERSION_MAINNET_SINGLESIG => Some(BitcoinAddressType::PublicKeyHash),
+        ADDRESS_VERSION_TESTNET_SINGLESIG => Some(BitcoinAddressType::PublicKeyHash),
+        ADDRESS_VERSION_MAINNET_MULTISIG => Some(BitcoinAddressType::ScriptHash),
+        ADDRESS_VERSION_TESTNET_MULTISIG => Some(BitcoinAddressType::ScriptHash),
+        _ => None
     }
 }
 
@@ -312,7 +334,7 @@ impl BitcoinIndexer {
 }
 
 
-impl BurnchainIndexer for BitcoinIndexer {
+impl BurnchainIndexer<BitcoinAddress, BitcoinPublicKey> for BitcoinIndexer {
     /// Instantiate the Bitcoin indexer, but don't connect to the peer network.
     /// Instead, load our configuration state and sanity-check it.
     /// Call connect() next.
@@ -359,7 +381,7 @@ impl BurnchainIndexer for BitcoinIndexer {
         return Err("not implemented");
     }
 
-    fn get_block_txs(&mut self, block_hash: &str) -> Result<Box<Vec<BurnchainTransaction>>, &'static str> {
+    fn get_block_txs(&mut self, block_hash: &str) -> Result<Box<Vec<BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>>>, &'static str> {
         return Err("not implemented");
     }
 }

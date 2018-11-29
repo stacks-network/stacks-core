@@ -17,8 +17,21 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-pub mod hash;
-pub mod log;
-#[macro_use] pub mod macros;
-pub mod pair;
-pub mod pipeline;
+use chainstate::db::ChainstateDB;
+use chainstate::db::Error as db_error;
+
+pub struct NameDB {
+
+}
+
+impl NameDB {
+    pub fn connect(path: &String) -> Result<NameDB, db_error> {
+        return Err(db_error::NotImplemented);
+    }
+}
+
+impl ChainstateDB for NameDB {
+    fn backup(backup_path: &String) -> Result<(), db_error> {
+        return Err(db_error::NotImplemented);
+    }
+}

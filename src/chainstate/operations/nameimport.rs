@@ -17,8 +17,16 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-pub mod hash;
-pub mod log;
-#[macro_use] pub mod macros;
-pub mod pair;
-pub mod pipeline;
+
+use chainstate::operations::{BlockstackOperation, BlockstackOperationType};
+use chainstate::operations::Error as op_error;
+
+use chainstate::db::namedb::NameDB;
+
+use burnchains::bitcoin::keys::BitcoinPublicKey;
+
+#[derive(Debug)]
+pub struct NameImportOp {
+
+}
+

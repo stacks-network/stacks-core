@@ -20,6 +20,7 @@
 use std::fs;
 use std::cmp;
 use std::io::{Read, Seek, Write, SeekFrom};
+use std::ops::Deref;
 
 use bitcoin::blockdata::block::{LoneBlockHeader, BlockHeader};
 use bitcoin::network::encodable::{ConsensusEncodable, ConsensusDecodable, VarInt};
@@ -32,6 +33,7 @@ use bitcoin::util::uint::Uint256;
 use burnchains::bitcoin::indexer::{BitcoinIndexer, BITCOIN_MAINNET, BITCOIN_TESTNET, BITCOIN_REGTEST};
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
+use burnchains::bitcoin::network::PeerMessage;
 
 const BLOCK_HEADER_SIZE: u64 = 81;
 
@@ -64,12 +66,19 @@ impl SpvClient {
         }
     }
 
+    // are headers ready and available?
+    pub fn is_initialized(&self) -> Result<(), btc_error> {
+        fs::metadata(&self.headers_path)
+            .map_err(btc_error::FilesystemError)
+            .and_then(|_m| Ok(()))
+    }
+
     // go get all the headers.
     // keep trying forever.
     pub fn run(&mut self, indexer: &mut BitcoinIndexer) -> Result<(), btc_error> {
         let network_id = self.network_id;
 
-        if !fs::metadata(&self.headers_path).is_ok() {
+        if !self.is_initialized().is_ok() {
             match SpvClient::init_block_headers(&self.headers_path, network_id) {
                 Ok(()) => {},
                 Err(e) => {
@@ -272,7 +281,7 @@ impl SpvClient {
         let headers_path = self.headers_path.clone();
         let network_id = self.network_id;
 
-        if !fs::metadata(&headers_path).is_ok() {
+        if !self.is_initialized().is_ok() {
             // damn borrow checker
             let headers_path = self.headers_path.clone();
             SpvClient::init_block_headers(&headers_path, network_id)?;
@@ -382,8 +391,8 @@ impl BitcoinMessageHandler for SpvClient {
 
     /// Trait message handler
     /// Take headers, validate them, and ask for more
-    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: &btc_message::NetworkMessage) -> Result<bool, btc_error> {
-        match *msg {
+    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: &PeerMessage) -> Result<bool, btc_error> {
+        match msg.deref() {
             btc_message::NetworkMessage::Headers(ref block_headers) => {
 
                 if self.cur_block_height >= self.end_block_height {
@@ -402,7 +411,7 @@ impl BitcoinMessageHandler for SpvClient {
                 
                 let acceptable_headers = &block_headers[0..header_range as usize].to_vec();
 
-                let handle_res = self.handle_headers(acceptable_headers)?;
+                self.handle_headers(acceptable_headers)?;
                 self.cur_block_height += acceptable_headers.len() as u64;
 
                 // ask for the next batch
@@ -412,7 +421,7 @@ impl BitcoinMessageHandler for SpvClient {
                 let res = self.send_next_getheaders(indexer, block_height);
                 match res {
                     Ok(()) => Ok(true),
-                    Err(e) => {
+                    Err(_e) => {
                         panic!(format!("BUG: could not read block header at {} that we just stored", block_height));
                     }
                 }

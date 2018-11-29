@@ -23,7 +23,7 @@ use log::{Record, Level, Metadata, Log, SetLoggerError, LevelFilter};
 pub struct SimpleLogger;
 
 impl log::Log for SimpleLogger {
-    fn enabled(&self, metadata: &Metadata) -> bool {
+    fn enabled(&self, _metadata: &Metadata) -> bool {
         true
     }
 

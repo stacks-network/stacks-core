@@ -17,8 +17,18 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-pub mod hash;
-pub mod log;
-#[macro_use] pub mod macros;
-pub mod pair;
-pub mod pipeline;
+use std::fs;
+use std::cmp;
+use std::sync::Arc;
+use std::sync::mpsc::{SyncSender, sync_channel};
+use std::thread;
+use std::thread::JoinHandle;
+
+/*
+pub trait ThreadPipelineStage {
+    pub fn get_input(&self) -> Result<SyncSender, Error>;
+    pub fn get_output(&self) -> Result<
+
+    // pub fn connect<T: ThreadPipelineStage>(&next_stage: T) -> Result<(), &'static str>;
+}
+*/

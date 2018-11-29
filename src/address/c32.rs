@@ -16,9 +16,3 @@
  You should have received a copy of the GNU General Public License
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
-
-pub mod hash;
-pub mod log;
-#[macro_use] pub mod macros;
-pub mod pair;
-pub mod pipeline;
