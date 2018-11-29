@@ -94,9 +94,9 @@ To interact with Stacks balances, smart contracts may call the
 `(stacks-transfer!)` function. This function will attempt to transfer
 from a given principal to another principal. This function itself
 _requires_ that the operation have been signed by the transfering
-principal. The `integer` type in our smart contracting language is
-8-bytes, which allows it to specify the maximum amount of microstacks
-spendable in a single Stacks transfer.
+principal. The `integer` type in our smart contracting language is an
+8-byte unsigned integer, which allows it to specify the maximum amount
+of microstacks spendable in a single Stacks transfer.
 
 Like any other smart contract transaction, this function call returns
 true if the transfer was successful, and false otherwise.
@@ -223,7 +223,7 @@ Smart contracts on the Stacks blockchain will be deployed directly as
 source code. The goal of the smart contracting language is that the
 code of the contract defines the _ground truth_ about the intended
 functionality of the contract. While seemingly banal, many systems
-chose instead to use a a compiler to translate from a a friendly
+chose instead to use a compiler to translate from a friendly
 high-level language to a lower-level language deployed on the
 blockchain. Such an architecture is needlessly dangerous. A bug in
 such a compiler could lead to a bug in a deployed smart contract when
