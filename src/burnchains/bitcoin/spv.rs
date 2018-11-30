@@ -30,7 +30,7 @@ use bitcoin::network::message as btc_message;
 use bitcoin::util::hash::Sha256dHash;
 use bitcoin::util::uint::Uint256;
 
-use burnchains::bitcoin::indexer::{BitcoinIndexer, BITCOIN_MAINNET, BITCOIN_TESTNET, BITCOIN_REGTEST};
+use burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinNetworkType};
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
 use burnchains::bitcoin::network::PeerMessage;
@@ -52,11 +52,11 @@ pub struct SpvClient {
     start_block_height: u64,
     end_block_height: u64,
     cur_block_height: u64,
-    network_id: u32,
+    network_id: BitcoinNetworkType,
 }
 
 impl SpvClient {
-    pub fn new(headers_path: &str, start_block: u64, end_block: u64, network_id: u32) -> SpvClient {
+    pub fn new(headers_path: &str, start_block: u64, end_block: u64, network_id: BitcoinNetworkType) -> SpvClient {
         SpvClient {
             headers_path: headers_path.to_owned(),
             start_block_height: start_block,
@@ -194,19 +194,17 @@ impl SpvClient {
     }
 
     /// Initialize the block headers file with the genesis block hash 
-    fn init_block_headers(headers_path: &str, network_id: u32) -> Result<(), btc_error> {
+    fn init_block_headers(headers_path: &str, network_id: BitcoinNetworkType) -> Result<(), btc_error> {
         let genesis_merkle_root_str = match network_id {
-            BITCOIN_MAINNET => GENESIS_BLOCK_MERKLE_ROOT_MAINNET,
-            BITCOIN_TESTNET => GENESIS_BLOCK_MERKLE_ROOT_TESTNET,
-            BITCOIN_REGTEST => GENESIS_BLOCK_MERKLE_ROOT_TESTNET,
-            _ => panic!("Unrecognized network magic")
+            BitcoinNetworkType::mainnet => GENESIS_BLOCK_MERKLE_ROOT_MAINNET,
+            BitcoinNetworkType::testnet => GENESIS_BLOCK_MERKLE_ROOT_TESTNET,
+            BitcoinNetworkType::regtest => GENESIS_BLOCK_MERKLE_ROOT_TESTNET
         };
 
         let genesis_block_hash_str = match network_id {
-            BITCOIN_MAINNET => GENESIS_BLOCK_HASH_MAINNET,
-            BITCOIN_TESTNET => GENESIS_BLOCK_HASH_TESTNET,
-            BITCOIN_REGTEST => GENESIS_BLOCK_HASH_TESTNET,
-            _ => panic!("Unrecognized network magic")
+            BitcoinNetworkType::mainnet => GENESIS_BLOCK_HASH_MAINNET,
+            BitcoinNetworkType::testnet => GENESIS_BLOCK_HASH_TESTNET,
+            BitcoinNetworkType::regtest => GENESIS_BLOCK_HASH_TESTNET,
         };
 
         let genesis_prev_blockhash = Sha256dHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
