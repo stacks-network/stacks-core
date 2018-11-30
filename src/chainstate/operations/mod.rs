@@ -33,11 +33,13 @@ pub mod tokentransfer;
 use std::fmt;
 use std::error;
 
-use burnchains::{BurnchainTransaction, PublicKey};
+use burnchains::{BurnchainTransaction, PublicKey, Txid, Hash160, ConsensusHash};
 use chainstate::db::namedb;
 
 use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
+
+use util::hash::to_hex;
 
 use self::announce::AnnounceOp;
 use self::nameimport::NameImportOp;
@@ -106,6 +108,9 @@ pub enum BlockstackOperationType {
     TokenTransfer(TokenTransferOp),
 }
 
+#[derive(Debug)]
+pub struct Opcode(u8);
+
 impl fmt::Display for BlockstackOperationType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -127,6 +132,55 @@ impl fmt::Display for BlockstackOperationType {
 
 pub trait BlockstackOperation {
     fn check(&self, db: &namedb::NameDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool;
-    fn consensus_serialize(&self) -> String;
+    fn consensus_serialize(&self) -> Vec<u8>;
 }
 
+// consensus serializations for the types that make up a BlockstackOperation 
+pub trait ConsensusField {
+    fn consensus_serialize(&self) -> Vec<u8>;
+}
+
+impl ConsensusField for u8 {
+    fn consensus_serialize(&self) -> Vec<u8> {
+        let fmtstr = format!("{}", self);
+        return format!("{}:{}", fmtstr.len(), fmtstr).into_bytes();
+    }
+}
+
+impl ConsensusField for u64 {
+    fn consensus_serialize(&self) -> Vec<u8> {
+        let fmtstr = format!("{}", self);
+        return format!("{}:{}", fmtstr.len(), fmtstr).into_bytes();
+    }
+}
+
+impl ConsensusField for Opcode {
+    fn consensus_serialize(&self) -> Vec<u8> {
+        let fmtstr = format!("{}", self.0 as char);
+        return fmtstr.into_bytes();
+    }
+}
+
+impl ConsensusField for Txid {
+    fn consensus_serialize(&self) -> Vec<u8> {
+        let hexstr = to_hex(self.as_bytes());
+        let fmtstr = format!("{}:{}", hexstr.len(), hexstr);
+        return fmtstr.into_bytes();
+    }
+}
+
+impl ConsensusField for ConsensusHash {
+    fn consensus_serialize(&self) -> Vec<u8> {
+        let hexstr = to_hex(self.as_bytes());
+        let fmtstr = format!("{}:{}", hexstr.len(), hexstr);
+        return fmtstr.into_bytes();
+    }
+}
+
+impl ConsensusField for BitcoinAddress {
+    fn consensus_serialize(&self) -> Vec<u8> {
+        let b58addr = self.to_b58();
+        let fmtstr = format!("{}:{}", b58addr.len(), b58addr);
+        return fmtstr.into_bytes();
+    }
+}
