@@ -36,6 +36,7 @@ use burnchains::{
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+use burnchains::bitcoin::indexer::BitcoinNetworkType;
 
 use util::hash::to_hex;
 
@@ -500,19 +501,46 @@ impl BurnchainTxInput<BitcoinPublicKey> {
             }
         }
     }
+
+    /// Get the address from the sender scriptpubkey
+    /// Returns None if the sender_scriptpubkey does not encode a p2pkh or p2sh script
+    pub fn address(&self, network_id: BitcoinNetworkType) -> Option<BitcoinAddress> {
+        // p2pkh?
+        if self.sender_scriptpubkey.len() == 25 && 
+           self.sender_scriptpubkey[0..3] == [0x76, 0xa9, 0x14] &&
+           self.sender_scriptpubkey[23..25] == [0x88, 0xac] {
+
+            let addrbits = self.sender_scriptpubkey[3..23].to_vec();
+            let addr = BitcoinAddress::from_bytes(network_id, BitcoinAddressType::PublicKeyHash, &addrbits).unwrap();       // NOTE: should always succeed
+            return Some(addr);
+        }
+        // p2sh?
+        else if self.sender_scriptpubkey.len() == 23 &&
+            self.sender_scriptpubkey[0..2] == [0xa9, 0x14] &&
+            self.sender_scriptpubkey[22] == 0x87 {
+
+            let addrbits = self.sender_scriptpubkey[2..22].to_vec();
+            let addr = BitcoinAddress::from_bytes(network_id, BitcoinAddressType::ScriptHash, &addrbits).unwrap();          // NOTE: should always succeed
+            return Some(addr);
+        }
+        // unrecognized
+        else {
+            return None;
+        }
+    }
 }
 
 impl BurnchainTxOutput<BitcoinAddress> {
 
     /// Parse a BurnchainTxOutput from a Bitcoin scriptpubkey and its value in satoshis
-    pub fn from_bitcoin_script_pubkey(script_pubkey: &Script, amount: u64) -> Option<BurnchainTxOutput<BitcoinAddress>> {
+    pub fn from_bitcoin_script_pubkey(network_id: BitcoinNetworkType, script_pubkey: &Script, amount: u64) -> Option<BurnchainTxOutput<BitcoinAddress>> {
         let script_bytes = script_pubkey.to_bytes();
         let address = 
             if script_pubkey.is_p2pkh() {
-                BitcoinAddress::from_bytes(BitcoinAddressType::PublicKeyHash, &script_bytes[3..23].to_vec())
+                BitcoinAddress::from_bytes(network_id, BitcoinAddressType::PublicKeyHash, &script_bytes[3..23].to_vec())
             }
             else if script_pubkey.is_p2sh() {
-                BitcoinAddress::from_bytes(BitcoinAddressType::ScriptHash, &script_bytes[2..22].to_vec())
+                BitcoinAddress::from_bytes(network_id, BitcoinAddressType::ScriptHash, &script_bytes[2..22].to_vec())
             }
             else {
                 Err(btc_error::InvalidByteSequence)
@@ -530,8 +558,8 @@ impl BurnchainTxOutput<BitcoinAddress> {
     }
 
     /// Parse a burnchain tx output from a bitcoin output 
-    pub fn from_bitcoin_txout(txout: &BtcTxOut) -> Option<BurnchainTxOutput<BitcoinAddress>> {
-        BurnchainTxOutput::from_bitcoin_script_pubkey(&txout.script_pubkey, txout.value)
+    pub fn from_bitcoin_txout(network_id: BitcoinNetworkType, txout: &BtcTxOut) -> Option<BurnchainTxOutput<BitcoinAddress>> {
+        BurnchainTxOutput::from_bitcoin_script_pubkey(network_id, &txout.script_pubkey, txout.value)
     }
 }
 
@@ -556,6 +584,7 @@ mod tests {
     };
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
+    use burnchains::bitcoin::indexer::BitcoinNetworkType;
 
     use util::log as logger;
 
@@ -934,20 +963,20 @@ mod tests {
                 script: Builder::from(hex_bytes("76a914395f3643cea07ec4eec73b4d9a973dcce56b9bf188ac").unwrap()).into_script(),
                 result: BurnchainTxOutput {
                     units: amount,
-                    address: BitcoinAddress::from_bytes(BitcoinAddressType::PublicKeyHash, &hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap()
+                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::mainnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap()
                 }
             },
             ScriptFixture {
                 script: Builder::from(hex_bytes("76a914000000000000000000000000000000000000000088ac").unwrap()).into_script(),
                 result: BurnchainTxOutput {
                     units: amount,
-                    address: BitcoinAddress::from_bytes(BitcoinAddressType::PublicKeyHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
+                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::mainnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
                 }
             }
         ];
 
         for script_fixture in tx_fixtures_p2pkh {
-            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(&script_fixture.script, amount);
+            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::mainnet, &script_fixture.script, amount);
             assert!(tx_output_opt.is_some());
             assert_eq!(tx_output_opt.unwrap(), script_fixture.result);
         }
@@ -963,20 +992,20 @@ mod tests {
                 script: Builder::from(hex_bytes("a914eb1881fb0682c2eb37e478bf918525a2c61bc40487").unwrap()).into_script(),
                 result: BurnchainTxOutput {
                     units: amount,
-                    address: BitcoinAddress::from_bytes(BitcoinAddressType::ScriptHash, &hex_bytes("eb1881fb0682c2eb37e478bf918525a2c61bc404").unwrap()).unwrap()
+                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::mainnet, BitcoinAddressType::ScriptHash, &hex_bytes("eb1881fb0682c2eb37e478bf918525a2c61bc404").unwrap()).unwrap()
                 }
             },
             ScriptFixture {
                 script: Builder::from(hex_bytes("a914000000000000000000000000000000000000000087").unwrap()).into_script(),
                 result: BurnchainTxOutput {
                     units: amount,
-                    address: BitcoinAddress::from_bytes(BitcoinAddressType::ScriptHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
+                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::mainnet, BitcoinAddressType::ScriptHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
                 }
             }
         ];
 
         for script_fixture in tx_fixtures_p2sh {
-            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(&script_fixture.script, amount);
+            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::mainnet, &script_fixture.script, amount);
             assert!(tx_output_opt.is_some());
             assert_eq!(tx_output_opt.unwrap(), script_fixture.result);
         }
@@ -1000,7 +1029,7 @@ mod tests {
         ];
 
         for script_fixture in tx_fixtures_strange {
-            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(&script_fixture.script, 123);
+            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::mainnet, &script_fixture.script, 123);
             assert!(tx_output_opt.is_none());
         }
     }
