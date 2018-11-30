@@ -208,6 +208,58 @@ macro_rules! impl_array_hexstring_fmt {
     }
 }
 
+macro_rules! impl_byte_array_newtype {
+    ($thing:ident, $ty:ty, $len:expr) => {
+        impl $thing {
+            /// Instantiates from a hex string 
+            pub fn from_hex(hex_str: &str) -> Option<$thing> {
+                use util::hash::hex_bytes;
+                let _hex_len = $len * 2;
+                match (hex_str.len(), hex_bytes(hex_str)) {
+                    (_hex_len, Ok(bytes)) => {
+                        assert!(bytes.len() == $len);
+                        let mut ret = [0; $len];
+                        ret.copy_from_slice(&bytes);
+                        Some($thing(ret))
+                    },
+                    (_, _) => {
+                        None
+                    }
+                }
+            }
+
+            /// Instantiates from a (little-endian) vector of bytes
+            pub fn from_vec(inp: &Vec<u8>) -> Option<$thing> {
+                match inp.len() {
+                    $len => {
+                        let mut ret = [0; $len];
+                        let bytes = &inp[..inp.len()];
+                        ret.copy_from_slice(&bytes);
+                        Some($thing(ret))
+                    },
+                    _ => None
+                }
+            }
+
+            /// Instantiates from a big-endian vector of bytes
+            pub fn from_vec_be(b: &Vec<u8>) -> Option<$thing> {
+                match b.len() {
+                    $len => {
+                        let mut ret = [0; $len];
+                        let bytes = &b[0..b.len()];
+                        for i in 0..$len {
+                            // flip endian to le
+                            ret[$len - 1 - i] = bytes[i];
+                        }
+                        Some($thing(ret))
+                    }
+                    _ => None
+                }
+            }
+        }
+    }
+}
+
 // print debug statements while testing
 macro_rules! test_debug {
     ($($arg:tt)*) => ({
