@@ -40,7 +40,7 @@ use bitcoin::network::serialize::{RawEncoder, RawDecoder, BitcoinHash};
 use bitcoin::util::hash::Sha256dHash;
 
 use burnchains::bitcoin::Error as btc_error;
-use burnchains::bitcoin::indexer::BitcoinIndexer;
+use burnchains::bitcoin::indexer::{BitcoinIndexer, network_id_to_magic};
 use burnchains::bitcoin::spv;
 use burnchains::indexer::BurnchainIndexer;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
@@ -79,7 +79,7 @@ impl BitcoinIndexer {
     /// Send a Bitcoin protocol message on the wire
     pub fn send_message(&mut self, payload: btc_message::NetworkMessage) -> Result<(), btc_error> {
         let message = btc_message::RawNetworkMessage {
-            magic: self.runtime.magic,
+            magic: network_id_to_magic(self.runtime.network_id),
             payload: payload 
         };
 
@@ -93,7 +93,7 @@ impl BitcoinIndexer {
     /// Receive a Bitcoin protocol message on the wire
     /// If this method returns Err(ConnectionBroken), then the caller should attempt to re-connect.
     pub fn recv_message(&mut self) -> Result<PeerMessage, btc_error> {
-        let magic = self.runtime.magic;
+        let magic = network_id_to_magic(self.runtime.network_id);
 
         with_socket!(self, sock, {
             // read the message off the wire
