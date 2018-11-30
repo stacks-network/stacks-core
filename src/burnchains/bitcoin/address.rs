@@ -19,22 +19,51 @@
 
 use burnchains::Address;
 use burnchains::Hash160;
+use burnchains::bitcoin::indexer::BitcoinNetworkType;
+
 use burnchains::bitcoin::Error as btc_error;
 
-#[derive(Debug, PartialEq)]
+use bitcoin::util::base58;
+
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum BitcoinAddressType {
     PublicKeyHash,
     ScriptHash
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct BitcoinAddress {
     addrtype: BitcoinAddressType,
+    network_id: BitcoinNetworkType,
     bytes: Hash160
 }
 
+pub const ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 0;
+pub const ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 5;
+pub const ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 111;
+pub const ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 196;
+
+fn address_type_to_version_byte(addrtype: BitcoinAddressType, network_id: BitcoinNetworkType) -> u8 {
+    match (addrtype, network_id) {
+        (BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::mainnet) => ADDRESS_VERSION_MAINNET_SINGLESIG,
+        (BitcoinAddressType::ScriptHash, BitcoinNetworkType::mainnet) => ADDRESS_VERSION_MAINNET_MULTISIG,
+        (BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::testnet) | (BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::regtest) => ADDRESS_VERSION_TESTNET_SINGLESIG,
+        (BitcoinAddressType::ScriptHash, BitcoinNetworkType::testnet) | (BitcoinAddressType::ScriptHash, BitcoinNetworkType::regtest) => ADDRESS_VERSION_TESTNET_MULTISIG,
+    }
+}
+
+fn version_byte_to_address_type(version: u8) -> Option<(BitcoinAddressType, BitcoinNetworkType)> {
+    match version {
+        ADDRESS_VERSION_MAINNET_SINGLESIG => Some((BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::mainnet)),
+        ADDRESS_VERSION_MAINNET_MULTISIG => Some((BitcoinAddressType::ScriptHash, BitcoinNetworkType::mainnet)),
+        ADDRESS_VERSION_TESTNET_SINGLESIG => Some((BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::testnet)),
+        ADDRESS_VERSION_TESTNET_MULTISIG => Some((BitcoinAddressType::ScriptHash, BitcoinNetworkType::testnet)),
+        _ => None
+    }
+}
+
 impl BitcoinAddress {
-    pub fn from_bytes(addrtype: BitcoinAddressType, bytes: &Vec<u8>) -> Result<BitcoinAddress, btc_error> {
+    pub fn from_bytes(network_id: BitcoinNetworkType, addrtype: BitcoinAddressType, bytes: &Vec<u8>) -> Result<BitcoinAddress, btc_error> {
         if bytes.len() != 20 {
             return Err(btc_error::InvalidByteSequence);
         }
@@ -44,9 +73,69 @@ impl BitcoinAddress {
         my_bytes.copy_from_slice(b);
 
         Ok(BitcoinAddress {
+            network_id: network_id,
             addrtype: addrtype,
             bytes: Hash160(my_bytes)
         })
+    }
+
+    /// Instantiate an address from a b58check string
+    /// Note that the network type will be 'testnet' if there is a testnet or regtest version byte
+    pub fn from_b58(addrb58: &str) -> Result<BitcoinAddress, btc_error> {
+        let bytes = base58::from_check(addrb58)
+            .map_err(|_e| btc_error::InvalidByteSequence)?;
+
+        if bytes.len() != 21 {
+            test_debug!("Invalid address: {} bytes", bytes.len());
+            return Err(btc_error::InvalidByteSequence);
+        }
+
+        let version = bytes[0];
+        
+        let typeinfo_opt = version_byte_to_address_type(version);
+        if typeinfo_opt.is_none() {
+            test_debug!("Invalid address: unrecognized version {}", version);
+            return Err(btc_error::InvalidByteSequence);
+        }
+
+        let mut payload_bytes = [0; 20];
+        let b = &bytes[1..21];
+        payload_bytes.copy_from_slice(b);
+
+        let (addrtype, network_id) = typeinfo_opt.unwrap();
+
+        Ok(BitcoinAddress {
+            network_id: network_id,
+            addrtype: addrtype,
+            bytes: Hash160(payload_bytes)
+        })
+    }
+
+    fn to_versioned_bytes(&self) -> [u8; 21] {
+        let mut ret = [0; 21];
+        let addrtype = self.addrtype;
+        let network_id = self.network_id;
+        let version_byte = address_type_to_version_byte(addrtype, network_id);
+
+        ret[0] = version_byte;
+        for i in 0..20 {
+            ret[i+1] = self.bytes[i];
+        }
+        return ret;
+    }
+
+    pub fn to_b58(&self) -> String {
+        let versioned_bytes = self.to_versioned_bytes();
+        base58::check_encode_slice(&versioned_bytes)
+    }
+
+    pub fn to_c32(&self) -> String {
+        // TODO
+        String::from("")
+    }
+
+    pub fn get_type(&self) -> BitcoinAddressType {
+        return self.addrtype;
     }
 }
 
@@ -55,3 +144,95 @@ impl Address for BitcoinAddress {
         self.bytes.as_bytes().to_vec()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{BitcoinAddress, BitcoinAddressType};
+    use burnchains::bitcoin::indexer::BitcoinNetworkType;
+    use burnchains::Address;
+    use burnchains::Hash160;
+    use util::log as logger;
+
+    struct AddressFixture {
+        addr: String,
+        result: Option<BitcoinAddress>
+    }
+
+    #[test]
+    fn test_from_b58() {
+        logger::init();
+
+        let fixtures = vec![
+            AddressFixture {
+                addr: "mr6nrMvvh44sR5MiX929mMXP5hqgaTr6fx".to_owned(),
+                result: Some(BitcoinAddress {
+                    network_id: BitcoinNetworkType::testnet,
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    bytes: Hash160::from_hex("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()
+                })
+            },
+            AddressFixture {
+                addr: "1B5xoFjSwAB3DUum7dxXgj3brnYsXibLbc".to_owned(),
+                result: Some(BitcoinAddress {
+                    network_id: BitcoinNetworkType::mainnet,
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    bytes: Hash160::from_hex("6ea17fc39169cdd9f2414a893aa5ce0c4b4c8934").unwrap()
+                })
+            },
+            AddressFixture {
+                addr: "2Mxh5a9QxP5jgABfzATLpmFVofbzDeFRJyt".to_owned(),
+                result: Some(BitcoinAddress {
+                    network_id: BitcoinNetworkType::testnet,
+                    addrtype: BitcoinAddressType::ScriptHash,
+                    bytes: Hash160::from_hex("3bbc6b200412398dc98c6eb49d20c6b01715c2c1").unwrap()
+                })
+            },
+            AddressFixture {
+                addr: "35idohuiQNndP1xR3FhNVHXgKF9YYPhWo4".to_owned(),
+                result: Some(BitcoinAddress {
+                    network_id: BitcoinNetworkType::mainnet,
+                    addrtype: BitcoinAddressType::ScriptHash,
+                    bytes: Hash160::from_hex("2c2edf39b098e05cf770e6b5a2fcedb54ee4fe05").unwrap()
+                })
+            },
+            AddressFixture {
+                // too long
+                addr: "1R37rTejZ9zhAhuJcgdpSwnzqGY4AoREGYw".to_owned(),
+                result: None,
+            },
+            AddressFixture {
+                // bad checksum 
+                addr: "1B5xoFjSwAB3DUum7dxXgj3brnYsXibLbd".to_owned(),
+                result: None,
+            },
+            AddressFixture {
+                // unrecognized version byte 
+                addr: "u84Z5b4e5qhW6dBR4izgvhBZk1DmR2bhG".to_owned(),
+                result: None,
+            },
+            AddressFixture {
+                // too short
+                addr: "Couv2wqrdtpEqrS1vQZZ9zb7WgUf6Z3e".to_owned(),
+                result: None,
+            }
+        ];
+
+        for fixture in fixtures {
+            let addr_opt = BitcoinAddress::from_b58(&fixture.addr);
+
+            match (addr_opt, fixture.result) {
+                (Ok(addr), Some(res)) => assert_eq!(addr, res),
+                (Err(_e), None) => {},
+                (Ok(_a), None) => {
+                    test_debug!("Decoded an address when we should not have");
+                    assert!(false);
+                }
+                (Err(_e), Some(res)) => {
+                    test_debug!("Failed to decode when we should have: {}", fixture.addr);
+                    assert!(false);
+                }
+            }
+        }
+    }
+}
+
