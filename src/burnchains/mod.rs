@@ -27,87 +27,29 @@ use crypto::ripemd160::Ripemd160;
 use crypto::sha2::Sha256;
 use crypto::digest::Digest;
 
-pub struct ConsensusHash([u8; 20]);
-impl_array_newtype!(ConsensusHash, u8, 20);
-impl_array_hexstring_fmt!(ConsensusHash);
+use util::hash::hex_bytes;
 
-impl ConsensusHash {
-    // from little-endian vector 
-    pub fn from_vec(inp: &Vec<u8>) -> Option<ConsensusHash> {
-        match inp.len() {
-            20 => {
-                let mut ret = [0; 20];
-                let bytes = &inp[..inp.len()];
-                ret.copy_from_slice(bytes);
-                Some(ConsensusHash(ret))
-            },
-            _ => None
-        }
-    }
-}
+pub struct ConsensusHash([u8; 16]);
+impl_array_newtype!(ConsensusHash, u8, 16);
+impl_array_hexstring_fmt!(ConsensusHash);
+impl_byte_array_newtype!(ConsensusHash, u8, 16);
 
 pub struct Txid([u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
 impl_array_hexstring_fmt!(Txid);
-
-impl Txid {
-    // from big-endian vector (useful for BTC compatibility)
-    pub fn from_vec_be(b: &Vec<u8>) -> Option<Txid> {
-        match b.len() {
-            32 => {
-                let mut ret = [0; 32];
-                let bytes = &b[0..b.len()];
-                for i in 0..32 {
-                    // flip endian to le
-                    ret[31 - i] = bytes[i];
-                }
-                Some(Txid(ret))
-            }
-            _ => None
-        }
-    }
-}
+impl_byte_array_newtype!(Txid, u8, 32);
 
 pub struct BlockHash([u8; 32]);
 impl_array_newtype!(BlockHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHash);
-
-impl BlockHash {
-    // from big-endian vector (useful for BTC compatibility)
-    pub fn from_vec_be(b: &Vec<u8>) -> Option<BlockHash> {
-        match b.len() {
-            32 => {
-                let mut ret = [0; 32];
-                let bytes = &b[0..b.len()];
-                for i in 0..32 {
-                    // flip endian to le
-                    ret[31 - i] = bytes[i];
-                }
-                Some(BlockHash(ret))
-            }
-            _ => None
-        }
-    }
-}
+impl_byte_array_newtype!(BlockHash, u8, 32);
 
 pub struct Hash160([u8; 20]);
 impl_array_newtype!(Hash160, u8, 20);
 impl_array_hexstring_fmt!(Hash160);
+impl_byte_array_newtype!(Hash160, u8, 20);
 
 impl Hash160 {
-    // from little-endian vector 
-    pub fn from_vec(inp: &Vec<u8>) -> Option<Hash160> {
-        match inp.len() {
-            20 => {
-                let mut ret = [0; 20];
-                let bytes = &inp[..inp.len()];
-                ret.copy_from_slice(bytes);
-                Some(Hash160(ret))
-            },
-            _ => None
-        }
-    }
-
     /// Create a hash by hashing some data
     /// (borrwed from Andrew Poelstra)
     pub fn from_data(data: &[u8]) -> Hash160 {
@@ -126,6 +68,8 @@ impl Hash160 {
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 pub struct MagicBytes([u8; MAGIC_BYTES_LENGTH]);
 impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
+
+pub const BLOCKSTACK_MAGIC_MAINNET : MagicBytes = MagicBytes([105, 100]);  // 'id'
 
 pub trait PublicKey {
     fn to_bytes(&self) -> Vec<u8>;
@@ -146,8 +90,8 @@ pub struct BurnchainTxOutput<A: Address> {
 pub struct BurnchainTxInput<K: PublicKey> {
     pub keys: Vec<K>,
     pub num_required: usize,
-    pub sender_scriptpubkey: Vec<u8>,             // LEGACY: required for consensus in Bitcoin for some operations -- this is the sender's scriptpubkey
-    pub sender_pubkey: Option<K>                  // LEGACY: required for consensus in Bitcoin for some operations -- this is the sender's public key (only defined if this spends a p2pkh)
+    pub sender_scriptpubkey: Vec<u8>,             // LEGACY: required for consensus in Bitcoin for some operations -- this is the sender's deduced scriptpubkey (derived from the transaction scriptsig)
+    pub sender_pubkey: Option<K>                  // LEGACY: required for consensus in Bitcoin for some operations -- this is the sender's public key extracted from the scriptsig (but only if this spends a p2pkh)
 }
 
 
