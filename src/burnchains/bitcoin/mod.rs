@@ -23,8 +23,8 @@
 pub mod address;
 pub mod bits;
 pub mod blocks;
-pub mod keys;
 pub mod messages;
+pub mod keys;
 pub mod indexer;
 pub mod network;
 pub mod rpc;
