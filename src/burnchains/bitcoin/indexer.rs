@@ -40,6 +40,13 @@ use bitcoin::network::constants as bitcoin_constants;
 
 pub const USER_AGENT: &'static str = "Blockstack Core v21";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BitcoinNetworkType {
+    mainnet,
+    testnet,
+    regtest
+}
+
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;
 pub const BITCOIN_TESTNET: u32 = 0x0709110B;
 pub const BITCOIN_REGTEST: u32 = 0xDAB5BFFA;
@@ -48,30 +55,22 @@ pub const BITCOIN_MAINNET_NAME: &'static str = "mainnet";
 pub const BITCOIN_TESTNET_NAME: &'static str = "testnet";
 pub const BITCOIN_REGTEST_NAME: &'static str = "regtest";
 
-pub const ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 0;
-pub const ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 5;
-pub const ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 111;
-pub const ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 196;
-
 // maybe change this
 pub const FIRST_BLOCK_MAINNET: u64 = 373601;
 
-pub fn network_id_to_name(network_id: u32) -> &'static str {
+pub fn network_id_to_name(network_id: BitcoinNetworkType) -> &'static str {
     match network_id {
-        BITCOIN_MAINNET => BITCOIN_MAINNET_NAME,
-        BITCOIN_TESTNET => BITCOIN_TESTNET_NAME,
-        BITCOIN_REGTEST => BITCOIN_REGTEST_NAME,
-        _ => "unknown"
+        BitcoinNetworkType::mainnet => BITCOIN_MAINNET_NAME,
+        BitcoinNetworkType::testnet => BITCOIN_TESTNET_NAME,
+        BitcoinNetworkType::regtest => BITCOIN_REGTEST_NAME
     }
 }
 
-pub fn address_version_to_type(address_version: u8) -> Option<BitcoinAddressType> {
-    match address_version {
-        ADDRESS_VERSION_MAINNET_SINGLESIG => Some(BitcoinAddressType::PublicKeyHash),
-        ADDRESS_VERSION_TESTNET_SINGLESIG => Some(BitcoinAddressType::PublicKeyHash),
-        ADDRESS_VERSION_MAINNET_MULTISIG => Some(BitcoinAddressType::ScriptHash),
-        ADDRESS_VERSION_TESTNET_MULTISIG => Some(BitcoinAddressType::ScriptHash),
-        _ => None
+pub fn network_id_to_magic(network_id: BitcoinNetworkType) -> u32 {
+    match network_id {
+        BitcoinNetworkType::mainnet => BITCOIN_MAINNET,
+        BitcoinNetworkType::testnet => BITCOIN_TESTNET,
+        BitcoinNetworkType::regtest => BITCOIN_REGTEST,
     }
 }
 
@@ -93,7 +92,7 @@ pub struct BitcoinIndexerRuntime {
     pub services: u64,
     pub user_agent: String,
     pub version_nonce: u64,
-    pub magic: u32
+    pub network_id: BitcoinNetworkType
 }
 
 pub struct BitcoinIndexer {
@@ -192,14 +191,14 @@ impl BitcoinIndexerConfig {
 
 
 impl BitcoinIndexerRuntime {
-    pub fn default(network_id: u32) -> BitcoinIndexerRuntime {
+    pub fn default(network_id: BitcoinNetworkType) -> BitcoinIndexerRuntime {
         let mut rng = thread_rng();
         return BitcoinIndexerRuntime {
             sock: Arc::new(Mutex::new(None)),
             services: 0,
             user_agent: USER_AGENT.to_owned(),
             version_nonce: rng.gen(),
-            magic: network_id
+            network_id: network_id
         };
     }
 }
@@ -210,7 +209,7 @@ impl BitcoinIndexer {
         let default_config = BitcoinIndexerConfig::default();
         return BitcoinIndexer {
             config: default_config,
-            runtime: BitcoinIndexerRuntime::default(BITCOIN_MAINNET)
+            runtime: BitcoinIndexerRuntime::default(BitcoinNetworkType::mainnet)
         };
     }
 
@@ -258,8 +257,8 @@ impl BitcoinIndexer {
         while keep_going {
             if do_handshake {
                 debug!("(Re)establish peer connection");
-                let magic = self.runtime.magic;
-                let handshake_result = self.connect_handshake_backoff(network_id_to_name(magic));
+                let network_id = self.runtime.network_id;
+                let handshake_result = self.connect_handshake_backoff(network_id_to_name(network_id));
                 match handshake_result {
                     Ok(()) => {
                         // connection established!
@@ -362,9 +361,9 @@ impl BurnchainIndexer<BitcoinAddress, BitcoinPublicKey> for BitcoinIndexer {
     /// Pass "mainnet", "testnet", or "regtest" as the network name
     fn connect(&mut self, network_name: &str) -> Result<(), &'static str> {
         let network_id_opt = match network_name.as_ref() {
-            "mainnet" => Some(BITCOIN_MAINNET),
-            "testnet" => Some(BITCOIN_TESTNET),
-            "regtest" => Some(BITCOIN_REGTEST),
+            "mainnet" => Some(BitcoinNetworkType::mainnet),
+            "testnet" => Some(BitcoinNetworkType::testnet),
+            "regtest" => Some(BitcoinNetworkType::regtest),
             _ => None
         };
 
@@ -423,7 +422,7 @@ pub fn sync_block_headers(indexer: &mut BitcoinIndexer, end_block: Option<u64>) 
     }
 
     debug!("Sync headers for blocks {} - {}", first_block, last_block);
-    let mut spv_client = SpvClient::new(&indexer.config.spv_headers_path, first_block, last_block, indexer.runtime.magic);
+    let mut spv_client = SpvClient::new(&indexer.config.spv_headers_path, first_block, last_block, indexer.runtime.network_id);
     let spv_res = spv_client.run(indexer)
         .and_then(|_r| Ok(last_block - 1 - first_block));
 
