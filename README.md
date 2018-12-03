@@ -181,9 +181,9 @@ $ docker build -t blockstack-core:master .
 $ export BLOCKSTACK_DIR="/var/blockstack-core-data"
 $ mkdir -p "$BLOCKSTACK_DIR"
 $ docker run \
-   -v $BLOCKSTACK_DIR:/root/.blockstack-server
-   -p 6264:6264
-   -p 6270:6270
+   -v $BLOCKSTACK_DIR:/root/.blockstack-server \
+   -p 6264:6264 \
+   -p 6270:6270 \
    blockstack-core:master
 ```
 
