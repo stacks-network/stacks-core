@@ -385,6 +385,19 @@ be designed by collecting real benchmarking data from something close
 to a real system (such measurements will likely be collected through
 a combination of hand-crafted benchmarks and fuzzing test suites).
 
+### Maximum Operation Costs and Object Sizes
+
+Even with a cost metric, it is a good idea to set maximums for the
+cost of an operation, and the size of objects (like
+buffers). Developing good values for constants such as maximum number
+of database reads or writes per transaction, maximum size of buffers,
+maximum number of arguments to a tuple, maximum size of a smart
+contract definition, etc. is a process much like developing a
+cost metric--- this is something best done in tandem with the 
+production of a prototype. However, we should note that we do intend
+to set such limits.
+
+
 # Example: Simple Naming System
 
 To demonstrate the expressiveness of this smart contracting language,
