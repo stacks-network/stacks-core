@@ -59,12 +59,13 @@ following limitations:
 7. Transactions are specified via `define-tx` statement with function
    names. Arguments to the function must specify their types.
 
-If a transaction returns `true`, then it is considered valid, and any
-changes made to the blockchain state will be materialized. If a
-transaction returns `false`, the transaction will be considered
-invalid, and the transaction will have _no effect_ on the smart
-contract's state, except for a transaction fee debit (in the case of
-on-chain transactions).
+Transactions return a boolean result. If the transaction returns
+`true`, then it is considered valid, and any changes made to the
+blockchain state will be materialized. If a transaction returns
+`false`, the transaction will be considered invalid, and the
+transaction will have _no effect_ on the smart contract's state,
+except for a transaction fee debit (in the case of on-chain
+transactions).
 
 ## Inter-Contract Calls
 
@@ -84,6 +85,12 @@ you would use:
     'register-name
     name-to-register)
 ```
+
+This function returns a boolean-- the return value of the called smart
+contract function. Note that if a called smart contract returns
+`false`, it is guaranteed to not alter any smart contract state
+whatsoever. Of course, any transaction fees paid for the execution
+of that function will not be returned.
 
 The following limitations are imposed on contract calls:
 
@@ -146,7 +153,9 @@ own principal, smart contracts may use the special function:
 
 This function will execute the commands passed as an argument with the
 `tx-sender` set to the _contract's_ principal, rather than the current
-sender. It returns the return value of the provided commands.
+sender. It returns the return value of the provided commands. A smart
+contract may use the special variable `contract-principal` to refer to
+its own principal.
 
 ## Stacks Transaction Primitives
 
@@ -228,6 +237,19 @@ data maps where the keys and values are themselves named tuples. To
 access a named value of a given tuple, the function `(get #name
 tuple)` will return that item from the tuple.
 
+### Reading from Other Smart Contracts
+
+While a smart contract may not _modify_ other smart contracts' data
+directly, it _can_ read data stored in those smart contracts' maps.
+(Note: this does not alter any confidentiality guarantees of the smart
+contracting language. All data in the smart contracts is inherently
+public, and will be readable through querying the underlying database
+in any case.) In order to do so, a contract may use the
+`(fetch-contract-entry)` function, which behaves identically to
+`(fetch-entry)`, though it accepts a contract principal as an argument
+in addition to the map name. Just as with the `(contract-call)` function,
+the map name and contract principal arguments must be constants, specified
+at the time of publishing.
 
 # Static Analysis
 
@@ -293,7 +315,15 @@ itself present a more clear case for a hard fork: the smart contract
 was defined correctly, as everyone can see directly on the chain, but
 illegal transactions were incorrectly marked as valid.
 
-## Measuring Transaction Costs for Fee Collection
+# Virtual Machine API
+
+From the perspective of other components of `blockstack-core`, the
+smart contracting VM will provide the following interface:
+
+```
+```
+
+# Measuring Transaction Costs for Fee Collection
 
 
 # Example: Simple Naming System
