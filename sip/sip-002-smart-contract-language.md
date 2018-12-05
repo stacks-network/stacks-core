@@ -56,9 +56,8 @@ following limitations:
 6. Defining of constants and functions are allowed for simplifying
    code. However, these are purely syntactic. If a definition cannot be
    inlined, the contract will be rejected as illegal.
-7. Transactions are specified via `define` statement with function
-   names beginning with `tx-`. Arguments to the function must specify
-   their types.
+7. Transactions are specified via `define-tx` statement with function
+   names. Arguments to the function must specify their types.
 
 If a transaction returns `true`, then it is considered valid, and any
 changes made to the blockchain state will be materialized. If a
@@ -67,32 +66,102 @@ invalid, and the transaction will have _no effect_ on the smart
 contract's state, except for a transaction fee debit (in the case of
 on-chain transactions).
 
-## Verifying Signing Principals
+## Inter-Contract Calls
+
+A smart contract may call functions from other smart contracts using a
+`(contract-call)` function. This function accepts a function name and
+the smart contract's _identifier_ as input.  A smart contract's
+identifier is a hash of the smart contract's definition, represented
+as a Stacks address with a specific "smart contract" version byte. The
+smart contract identifier is a _principal_.
+
+For example, to call the function `register-name` in a smart contract,
+you would use:
+
+```scheme
+(contract-call
+    'SC3H92H297DX3YDPFHZGH90G8Z4NPH4VE8E83YWAQ
+    'register-name
+    name-to-register)
+```
+
+The following limitations are imposed on contract calls:
+
+1. No dynamic dispatch. At the time of the smart contract creation,
+   any contracts being called must be specified. Future designs may
+   enable this by allowing contract principals to be supplied as
+   transaction arguments, however, on initial release, we believe
+   dynamic invocation to be too dangerous to support.
+2. Called smart contracts _must_ exist at the time of creation.
+3. No cycles may exist in the call graph of a smart contract. This
+   prevents recursion (and re-entrancy bugs). Such structures can
+   be detected with static analysis of the call graph, and will be
+   rejected by the network.
+
+A key benefit of the static analyzability of this smart contracting
+language is that _all_ transactions that can possibly be called from
+the outermost transaction can be known _a priori_ so that a user can
+be warned about all side effects before signing a transaction.
+
+## Principals and Transaction Verification
 
 The language provides a primitive for checking whether or not the
 smart contract transaction was signed by a particular
-_principal_. Principals are a representation of a signing entity
-(roughly equivalent to a Stacks address). The signature itself is
-not checked by the smart contract, but by the VM. To check whether a
-given principal has signed the transaction, a transaction may call
+_principal_. Principals are a specific type in the smart contracting
+language which represent a signing entity (roughly equivalent to a
+Stacks address). The signature itself is not checked by the smart
+contract, but by the VM. A smart contract function can use a globally
+defined variable to obtain the current transaction's signer:
 
 ```scheme
-(signed-by? principal)
+tx-sender
 ```
 
-This returns `true` or `false`. Importantly, to support inter-contract
-calls, this function returns `true` if the _outermost_ transaction was
-signed by the given principal. A key benefit of the static
-analyzability of this smart contracting language is that _all_
-transactions that can possibly be called from the outermost
-transaction can be known _a priori_ so that a user can be warned about
-all side effects before signing a transaction.
+Importantly, the `tx-sender` variable does not change during
+inter-contract calls. This means that if you call a transaction in a
+given smart contract, that transaction is able to make calls into
+other smart contracts on your behalf. This enables a wide variety of
+applications, but it comes with some dangers for users of smart
+contracts. However, as mentioned before, the static analysis
+guarantees of our smart contracting language allow clients to know a
+priori which transactions a given smart contract will ever call. Good
+clients should always warn users about any potential side effects
+of a given transaction.
+
+Note that most assets in the smart contracting language and blockchain
+will be "owned" by objects of the principal type, meaning that any
+object of the principal type may own an asset. For the case of
+public-key hash and multi-signature Stacks addresses, a given
+principal can operate on their assets by issuing a signed transaction
+on the blockchain. _Smart contracts_ may also be principals
+(reprepresented by the smart contract's identifier), however, there is
+no private key associated with the smart contract, and it cannot
+broadcast a signed transaction on the blockchain. In order to allow
+smart contracts to authorize transactions with the smart contract's
+own principal, smart contracts may use the special function:
+
+```scheme
+(contract-send-tx (...))
+```
+
+This function will execute the commands passed as an argument with the
+`tx-sender` set to the _contract's_ principal, rather than the current
+sender. It returns the return value of the provided commands.
 
 ## Stacks Transaction Primitives
 
 To interact with Stacks balances, smart contracts may call the
 `(stacks-transfer!)` function. This function will attempt to transfer
-from a given principal to another principal. This function itself
+from the current principal to another principal:
+
+
+```scheme
+(stacks-transfer!
+  to-send-amount
+  recipient-principal)
+```
+
+This function itself
 _requires_ that the operation have been signed by the transfering
 principal. The `integer` type in our smart contracting language is an
 8-byte unsigned integer, which allows it to specify the maximum amount
@@ -158,19 +227,7 @@ This allows for creating named tuples on the fly, which is useful for
 data maps where the keys and values are themselves named tuples. To
 access a named value of a given tuple, the function `(get #name
 tuple)` will return that item from the tuple.
-\subsection{Principals for Signature Validation}
 
-We provide an additional primitive function \texttt{signed-by?} for
-performing signature validation. This function returns true if the
-given \textit{principal} signed the top-level transaction. A principal
-is a string representation of an entity capable of producing a
-verifiable signature. For example, in Bitcoin, principals are Bitcoin
-addresses, and they could be a RIPEMD-160 hash of a public-key, or a
-script-hash. We use the notion of principals to enable support at the
-protocol level for many different kinds of signatories. For example,
-if we want to continue to support multi-signature principals, the
-protocol could support the standard Bitcoin p2sh multi-sig addresses,
-and support for this would seamlessly be included in any contract.
 
 # Static Analysis
 
@@ -236,6 +293,9 @@ itself present a more clear case for a hard fork: the smart contract
 was defined correctly, as everyone can see directly on the chain, but
 illegal transactions were incorrectly marked as valid.
 
+## Measuring Transaction Costs for Fee Collection
+
+
 # Example: Simple Naming System
 
 To demonstrate the expressiveness of this smart contracting language,
@@ -267,46 +327,42 @@ practice, a buffer would probably be used.
   ((name-hash (buffer 160)))
   ((buyer principal) (paid integer)))
 
-(define (tx-preorder 
-           (buyer-principal principal)
+(define-tx (preorder 
            (name-hash (buffer 20))
            (name-price integer))
   (if (stacks-transfer!
-        buyer-principal name-price burn-address name-price)
+        name-price burn-address)
       (insert-entry! preorder-map
         (tuple #name-hash name-hash)
         (tuple #paid name-price
-               #buyer buyer-principal))
+               #buyer tx-sender))
       false))
 
-(define (tx-register 
-           (buyer-principal principal)
+(define-tx (register 
            (recipient-principal principal)
            (name integer)
-           (salt integer)
-  (if (signed-by? buyer-principal)
-    (let ((preorder-entry
-            (fetch-entry preorder-map
+           (salt integer))
+  (let ((preorder-entry
+          (fetch-entry preorder-map
                          (tuple #name-hash (hash160 name salt))))
-          (name-entry 
-            (fetch-entry name-map (tuple #name name))))
-      (if (and
-           ;; must be preordered
-           (not (eq? preorder-entry) 'null)
-           ;; name shouldn't *already* exist
-           (eq? name-entry 'null)
-           ;; preorder must have paid enough
-           (<= (price-funcion name) 
-               (get #paid preorder-entry))
-           ;; preorder must have been buyer-principle
-           (eq? buyer-principle
-                (get #buyer preorder-entry)))
-          (begin
-            (insert-entry! name-table
-              (tuple #name name)
-              (tuple #owner recipient)))
-          false))
-    false)))
+        (name-entry 
+          (fetch-entry name-map (tuple #name name))))
+    (if (and
+         ;; must be preordered
+         (not (eq? preorder-entry) 'null)
+         ;; name shouldn't *already* exist
+         (eq? name-entry 'null)
+         ;; preorder must have paid enough
+         (<= (price-funcion name) 
+             (get #paid preorder-entry))
+         ;; preorder must have been the current principal
+         (eq? tx-sender
+              (get #buyer preorder-entry)))
+         (begin
+           (insert-entry! name-table
+             (tuple #name name)
+             (tuple #owner recipient)))
+         false)))
 ```
 
 
