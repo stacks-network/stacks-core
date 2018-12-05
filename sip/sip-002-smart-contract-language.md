@@ -251,6 +251,23 @@ in addition to the map name. Just as with the `(contract-call)` function,
 the map name and contract principal arguments must be constants, specified
 at the time of publishing.
 
+## Library Support and Syntactic Sugar
+
+There are a number of ways that the developer experience can be
+improved through the careful addition of improved syntax. For example,
+while the only atomic types supported by the smart contract language
+are integers, buffers, booleans, and principals, so if a developer
+wishes to use a buffer to represent a fixed length string, we should
+support syntax for representing a buffer literal using something like
+an ASCII string. Such support should also be provided by transaction
+generation libraries, where buffer arguments may be supplied strings
+which are then automatically converted to buffers. There are many
+possible syntactic improvements and we expect that over the course
+of developing the prototype, we will have a better sense for which
+of those improvements we should support. Any such synactic changes
+will appear in an eventual language specification, but we believe
+them to be out of scope for this proposal.
+
 # Static Analysis
 
 One of the design goals of our smart contracting language was the
