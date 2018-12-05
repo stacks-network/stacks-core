@@ -321,17 +321,76 @@ From the perspective of other components of `blockstack-core`, the
 smart contracting VM will provide the following interface:
 
 ```
+connect-to-database(db)
+
+publish-contract(
+  contract-source-code)
+
+  returns: contract-identifier
+
+execute-contract-transaction(
+  contract-identifier,
+  transaction-name,
+  sender-principal,
+  transaction-arguments)
+
+  returns: true or false if the transaction executed successfully
 ```
+
+
+### Database Requirements and Transaction Accounting
+
+The smart contract VM needs to interact with a database somewhat
+directly: the effects of an `insert-entry!` or `set-entry!` call are
+realized later in the execution of the same transaction. The database
+will need to support fairly fine-grained rollbacks as some contract
+calls within a transaction's execution may fail, triggering a
+rollback, while the transaction execution continues and successfully
+completes other database operations.
+
+The database API provided to the smart contract VM, therefore, must be
+capable of (1) quickly responding to `fetch-entry` queries, which are
+essentially simply key-value _gets_ on the materialized view of the
+operation log. The operation log itself is simply a log of the
+`insert-entry!` and `set-entry!` calls. In addition to these
+operations, the smart contract VM will be making token transfer calls.
+The databasse log should track those operations as well.
+
+In order to aid in accounting for the database operations created by
+a given transaction, the underlying database should store, with each
+operation entry, the corresponding transaction identifier.
 
 # Measuring Transaction Costs for Fee Collection
 
+Our smart contracting language admits static analysis to determine
+many properties of transactions _before_ executing those
+transactions. In particular, it allows for the VM to count the total
+number of runtime operations required, the maximum amount of database
+writes, and the maximum number of calls to any expensive primitive
+functions like database reads or hash computations. Translating that
+information into transaction costs, however, requires more than simply
+counting those operations. It requires translating the operations into
+a single cost metric (something like gas in Ethereum). Then, clients
+can set the fee rate for that metric, and pay the corresponding
+transaction fee. Notably, unlike Turing-complete smart contracting
+languages, any such fees are known _before_ executing the transaction,
+such that clients will no longer need to estimate gas fees.
+
+Developing such a cost metric is an important task that has
+significant consequences. If the metric is a bad one, it could open up
+the possibility of denial-of-service attacks against nodes in the
+Stacks network. We leave the development of a cost metric to another
+Stacks Improvement Proposal, as we believe that such a metric should
+be designed by collecting real benchmarking data from something close
+to a real system (such measurements will likely be collected through
+a combination of hand-crafted benchmarks and fuzzing test suites).
 
 # Example: Simple Naming System
 
 To demonstrate the expressiveness of this smart contracting language,
 let's look at an example smart contract which implements a simple
-naming system with just two kinds of transactions: _preorder_
-and _register_. The requirements of the system are as follows:
+naming system with just two kinds of transactions: _preorder_ and
+_register_. The requirements of the system are as follows:
 
 1. Names may only be owned by one principal
 2. A register is only allowed if there is a corresponding preorder
