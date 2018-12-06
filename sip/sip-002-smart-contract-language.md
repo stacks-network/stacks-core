@@ -389,9 +389,12 @@ operation log. The operation log itself is simply a log of the
 operations, the smart contract VM will be making token transfer calls.
 The databasse log should track those operations as well.
 
-In order to aid in accounting for the database operations created by
-a given transaction, the underlying database should store, with each
-operation entry, the corresponding transaction identifier.
+In order to aid in accounting for the database operations created by a
+given transaction, the underlying database should store, with each
+operation entry, the corresponding transaction identifier. This will
+be expanded in a future SIP to require the database to store enough
+information to reconstruct each block, such that the blocks can be
+relayed to bootstrapping peers.
 
 # Measuring Transaction Costs for Fee Collection
 
