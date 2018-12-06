@@ -247,9 +247,25 @@ public, and will be readable through querying the underlying database
 in any case.) In order to do so, a contract may use the
 `(fetch-contract-entry)` function, which behaves identically to
 `(fetch-entry)`, though it accepts a contract principal as an argument
-in addition to the map name. Just as with the `(contract-call)` function,
-the map name and contract principal arguments must be constants, specified
-at the time of publishing.
+in addition to the map name:
+
+```
+(fetch-contract-entry
+  'contract-principal
+  'map-name
+  'key-tuple) -> value tuple or null
+
+Example:
+
+(fetch-contract-entry
+ 'SC3H92H297DX3YDPFHZGH90G8Z4NPH4VE8E83YWAQ
+ 'name-map
+ 12234) -> returns owner principal of name represent by integer 12234
+```
+
+Just as with the `(contract-call)` function, the map name and contract
+principal arguments must be constants, specified at the time of
+publishing.
 
 ## Library Support and Syntactic Sugar
 
