@@ -54,8 +54,11 @@ following limitations:
 5. Variables may only be created via `let` binding and there
    is no support for mutating functions like `set`.
 6. Defining of constants and functions are allowed for simplifying
-   code. However, these are purely syntactic. If a definition cannot be
-   inlined, the contract will be rejected as illegal.
+   code using `define` statement. However, these are purely
+   syntactic. If a definition cannot be inlined, the contract will be
+   rejected as illegal. These definitions are also _private_, in that
+   functions defined this way may only be called by transactions
+   defined the given smart contract.
 7. Transactions are specified via `define-tx` statement with function
    names. Arguments to the function must specify their types.
 
