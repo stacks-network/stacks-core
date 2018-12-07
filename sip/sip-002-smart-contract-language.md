@@ -163,7 +163,7 @@ For example, a smart contract that implements something like a "token
 faucet" could be implemented as so:
 
 ```scheme
-(deftx (claim-from-faucet)
+(define-tx (claim-from-faucet)
   (if (isnull? (fetch-entry claimed-before (tuple #sender tx-sender)))
       (let ((requester tx-sender)) ;; set a local variable requester = tx-sender
         (insert-entry! claimed-before (tuple #sender requester) (tuple #claimed 'true))
