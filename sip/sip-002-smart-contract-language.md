@@ -115,7 +115,7 @@ be warned about all side effects before signing a transaction.
 The language provides a primitive for checking whether or not the
 smart contract transaction was signed by a particular
 _principal_. Principals are a specific type in the smart contracting
-language which represent a signing entity (roughly equivalent to a
+language which represent a spending entity (roughly equivalent to a
 Stacks address). The signature itself is not checked by the smart
 contract, but by the VM. A smart contract function can use a globally
 defined variable to obtain the current transaction's signer:
