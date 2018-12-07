@@ -143,19 +143,42 @@ principal can operate on their assets by issuing a signed transaction
 on the blockchain. _Smart contracts_ may also be principals
 (reprepresented by the smart contract's identifier), however, there is
 no private key associated with the smart contract, and it cannot
-broadcast a signed transaction on the blockchain. In order to allow
-smart contracts to authorize transactions with the smart contract's
-own principal, smart contracts may use the special function:
+broadcast a signed transaction on the blockchain.
+
+In order to allow smart contracts to authorize transactions with the
+smart contract's own principal, smart contracts may use the special
+function:
 
 ```scheme
-(contract-send-tx (...))
+(as-contract (...))
 ```
 
-This function will execute the commands passed as an argument with the
+This function will execute the closure (passed as an argument) with the
 `tx-sender` set to the _contract's_ principal, rather than the current
-sender. It returns the return value of the provided commands. A smart
+sender. It returns the return value of the provided closure. A smart
 contract may use the special variable `contract-principal` to refer to
 its own principal.
+
+For example, a smart contract that implements something like a "token
+faucet" could be implemented as so:
+
+```scheme
+(deftx (claim-from-faucet)
+  (if (isnull? (fetch-entry claimed-before (tuple #sender tx-sender)))
+      (let ((requester tx-sender)) ;; set a local variable requester = tx-sender
+        (insert-entry! claimed-before (tuple #sender requester) (tuple #claimed 'true))
+        (as-contract (stacks-transfer! requester 1)))))
+```
+
+Here, the transaction `claim-from-faucet`:
+
+1. Checks if the sender has claimed from the faucet before
+2. Assigns the tx sender to a requester variable
+3. Adds an entry to the tracking map
+4. Uses `as-contract` to send 1 microstack
+
+The primitive function `is-contract?` can be used to determine
+whether a given principal corresponds to a smart contract.
 
 ## Stacks Transaction Primitives
 
