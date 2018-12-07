@@ -25,9 +25,12 @@ A smart contract is composed of two parts:
 
 1. A data-space, which is a set of tables of data which only the
    smart contract may modify
-2. A set of transactions which operate within the data-space of the
-   smart contract, though they may call transactions from other smart
+2. A set of functions which operate within the data-space of the
+   smart contract, though they may call public functions from other smart
    contracts.
+
+Users call smart contracts' public functions by broadcasting a
+transaction on the blockchain which invokes the public function.
 
 This smart contracting language differs from most other smart
 contracting languages in two important ways:
@@ -38,7 +41,7 @@ contracting languages in two important ways:
    that static analysis of programs to determine properties like
    runtime cost and data usage can complete successfully.
 
-## Specifying Transactions
+## Specifying Contracts
 
 A smart contract definition is specified in a LISP language with the
 following limitations:
@@ -47,28 +50,26 @@ following limitations:
 2. Looping may only be performed via `map`, `filter`, or `fold`
 3. The only atomic types are booleans, integers, fixed length
    buffers, and principals
-4. There is additional support for lists of the atomic types,
-   however the only variable length lists in the language appear as
-   transaction inputs (i.e., there is no support for list operations
-   like append or join).
+4. There is additional support for lists of the atomic types, however
+   the only variable length lists in the language appear as function
+   inputs (i.e., there is no support for list operations like append
+   or join).
 5. Variables may only be created via `let` binding and there
    is no support for mutating functions like `set`.
 6. Defining of constants and functions are allowed for simplifying
    code using `define` statement. However, these are purely
    syntactic. If a definition cannot be inlined, the contract will be
    rejected as illegal. These definitions are also _private_, in that
-   functions defined this way may only be called by transactions
-   defined the given smart contract.
-7. Transactions are specified via `define-tx` statement with function
-   names. Arguments to the function must specify their types.
+   functions defined this way may only be called by other functions
+   defined in the given smart contract.
+7. Functions specified via `define-public` statements are _public_
+   functions. Arguments to these functions must specify their types.
 
-Transactions return a boolean result. If the transaction returns
+Public functions return a boolean result. If the function returns
 `true`, then it is considered valid, and any changes made to the
-blockchain state will be materialized. If a transaction returns
-`false`, the transaction will be considered invalid, and the
-transaction will have _no effect_ on the smart contract's state,
-except for a transaction fee debit (in the case of on-chain
-transactions).
+blockchain state will be materialized. If the function returns
+`false`, it will be considered invalid, and will have _no effect_ on
+the smart contract's state, except for a transaction fee debit.
 
 ## Inter-Contract Calls
 
@@ -100,7 +101,7 @@ The following limitations are imposed on contract calls:
 1. No dynamic dispatch. At the time of the smart contract creation,
    any contracts being called must be specified. Future designs may
    enable this by allowing contract principals to be supplied as
-   transaction arguments, however, on initial release, we believe
+   function arguments, however, on initial release, we believe
    dynamic invocation to be too dangerous to support.
 2. Called smart contracts _must_ exist at the time of creation.
 3. No cycles may exist in the call graph of a smart contract. This
@@ -109,11 +110,11 @@ The following limitations are imposed on contract calls:
    rejected by the network.
 
 A key benefit of the static analyzability of this smart contracting
-language is that _all_ transactions that can possibly be called from
-the outermost transaction can be known _a priori_ so that a user can
+language is that _all_ functions that can possibly be called from
+a given transaction can be known _a priori_ so that a user can
 be warned about all side effects before signing a transaction.
 
-## Principals and Transaction Verification
+## Principals and Owner Verification
 
 The language provides a primitive for checking whether or not the
 smart contract transaction was signed by a particular
@@ -121,36 +122,35 @@ _principal_. Principals are a specific type in the smart contracting
 language which represent a spending entity (roughly equivalent to a
 Stacks address). The signature itself is not checked by the smart
 contract, but by the VM. A smart contract function can use a globally
-defined variable to obtain the current transaction's signer:
+defined variable to obtain the current principal:
 
 ```scheme
 tx-sender
 ```
 
 Importantly, the `tx-sender` variable does not change during
-inter-contract calls. This means that if you call a transaction in a
-given smart contract, that transaction is able to make calls into
-other smart contracts on your behalf. This enables a wide variety of
-applications, but it comes with some dangers for users of smart
-contracts. However, as mentioned before, the static analysis
+inter-contract calls. This means that if a transaction invokes a
+function in a given smart contract, that function is able to make
+calls into other smart contracts on your behalf. This enables a wide
+variety of applications, but it comes with some dangers for users of
+smart contracts. However, as mentioned before, the static analysis
 guarantees of our smart contracting language allow clients to know a
-priori which transactions a given smart contract will ever call. Good
-clients should always warn users about any potential side effects
-of a given transaction.
+priori which functions a given smart contract will ever call. Good
+clients should always warn users about any potential side effects of a
+given transaction.
 
-Note that most assets in the smart contracting language and blockchain
-will be "owned" by objects of the principal type, meaning that any
-object of the principal type may own an asset. For the case of
-public-key hash and multi-signature Stacks addresses, a given
-principal can operate on their assets by issuing a signed transaction
-on the blockchain. _Smart contracts_ may also be principals
-(reprepresented by the smart contract's identifier), however, there is
-no private key associated with the smart contract, and it cannot
-broadcast a signed transaction on the blockchain.
+Assets in the smart contracting language and blockchain will be
+"owned" by objects of the principal type, meaning that any object of
+the principal type may own an asset. For the case of public-key hash
+and multi-signature Stacks addresses, a given principal can operate on
+their assets by issuing a signed transaction on the blockchain. _Smart
+contracts_ may also be principals (reprepresented by the smart
+contract's identifier), however, there is no private key associated
+with the smart contract, and it cannot broadcast a signed transaction
+on the blockchain.
 
-In order to allow smart contracts to authorize transactions with the
-smart contract's own principal, smart contracts may use the special
-function:
+In order to allow smart contracts to operate on assets it owns, smart
+contracts may use the special function:
 
 ```scheme
 (as-contract (...))
@@ -166,14 +166,14 @@ For example, a smart contract that implements something like a "token
 faucet" could be implemented as so:
 
 ```scheme
-(define-tx (claim-from-faucet)
+(define-public (claim-from-faucet)
   (if (isnull? (fetch-entry claimed-before (tuple #sender tx-sender)))
       (let ((requester tx-sender)) ;; set a local variable requester = tx-sender
         (insert-entry! claimed-before (tuple #sender requester) (tuple #claimed 'true))
         (as-contract (stacks-transfer! requester 1)))))
 ```
 
-Here, the transaction `claim-from-faucet`:
+Here, the public function `claim-from-faucet`:
 
 1. Checks if the sender has claimed from the faucet before
 2. Assigns the tx sender to a requester variable
@@ -183,7 +183,7 @@ Here, the transaction `claim-from-faucet`:
 The primitive function `is-contract?` can be used to determine
 whether a given principal corresponds to a smart contract.
 
-## Stacks Transaction Primitives
+## Stacks Transfer Primitives
 
 To interact with Stacks balances, smart contracts may call the
 `(stacks-transfer!)` function. This function will attempt to transfer
@@ -196,14 +196,13 @@ from the current principal to another principal:
   recipient-principal)
 ```
 
-This function itself
-_requires_ that the operation have been signed by the transfering
-principal. The `integer` type in our smart contracting language is an
-8-byte unsigned integer, which allows it to specify the maximum amount
-of microstacks spendable in a single Stacks transfer.
+This function itself _requires_ that the operation have been signed by
+the transfering principal. The `integer` type in our smart contracting
+language is an 8-byte unsigned integer, which allows it to specify the
+maximum amount of microstacks spendable in a single Stacks transfer.
 
-Like any other smart contract transaction, this function call returns
-true if the transfer was successful, and false otherwise.
+Like any other public smart contract function, this function call
+returns true if the transfer was successful, and false otherwise.
 
 ## Data-Space Primitives
 
@@ -227,17 +226,16 @@ value. Values in a given mapping are set or fetched using:
 We chose to use data maps as opposed to other data structures for two
 reasons:
 
-1. The simplicity of data maps allows for both a simple
-implementation within the VM, and easier reasoning about
-transactions. By inspecting a given transaction definition, it is
-clear which maps will be modified and even within those maps, which
-keys are affected by a given transaction.
+1. The simplicity of data maps allows for both a simple implementation
+within the VM, and easier reasoning about functions. By inspecting a
+given function definition, it is clear which maps will be modified and
+even within those maps, which keys are affected by a given invocation.
 2. The interface of data maps ensures that the return types of map
 operations are _fixed length_, which is a requirement for static
 analysis of smart contracts' runtime, costs, and other properties.
 
 A smart contract defines the data schema of a data map with the
-`defmap` call. The `defmap` function may only be called in the
+`define-map` call. The `define-map` function may only be called in the
 top-level of the smart-contract (similar to `define`). This
 function accepts a name for the map, and a definition of the structure
 of the key and value types. Each of these is a list of `(name, type)`
@@ -313,21 +311,32 @@ them to be out of scope for this proposal.
 # Static Analysis
 
 One of the design goals of our smart contracting language was the
-ability to statically analyze smart contract transactions to get
-accurate upper-bound estimates of transaction costs (i.e., runtime and
-storage requirements) as a function of input lengths. By limiting the
-types supported, the ability to recurse, and the ability to iterate,
-we believe that the language as presented is amenable to such static
+ability to statically analyze smart contracts to obtain accurate
+upper-bound estimates of transaction costs (i.e., runtime and storage
+requirements) as a function of input lengths. By limiting the types
+supported, the ability to recurse, and the ability to iterate, we
+believe that the language as presented is amenable to such static
 analysis based on initial investigations.
 
-The essential step in demonstrating the possibility of
-accurate and useful analysis of our smart contract definitions is
-demonstrating that any function within the language specification has
-an output length bounded by a constant factor of the input length. If
-we can demonstrate this, then statically computing runtime or space
+The essential step in demonstrating the possibility of accurate and
+useful analysis of our smart contract definitions is demonstrating
+that any function within the language specification has an output
+length bounded by a constant factor of the input length. If we can
+demonstrate this, then statically computing runtime or space
 requirements involves merely associating each function in the language
 specification with a way to statically determine cost as a function of
 input length.
+
+Notably, the fact that the cost functions produced by static analysis
+are functions of _input length_ means the following things:
+
+1. The cost of a cross-contract call can be "memoized", such
+   that a static analyzer _does not_ need to recompute any
+   static analysis on the callee when analyzing a caller.
+2. The cost of a given public function on a given input size
+   _is always the same_, meaning that smart contract developers
+   do not need to reason about different cases in which a given
+   function may cost more or less to execute.
 
 ## Bounding Function Output Length
 
@@ -387,7 +396,7 @@ publish-contract(
 
   returns: contract-identifier
 
-execute-contract-transaction(
+execute-contract(
   contract-identifier,
   transaction-name,
   sender-principal,
@@ -396,8 +405,61 @@ execute-contract-transaction(
   returns: true or false if the transaction executed successfully
 ```
 
+## Invocation and Static Analysis
 
-### Database Requirements and Transaction Accounting
+When processing a client transaction, a `blockstack-core` node will do
+one of two things, depending on whether that transaction is a contract
+function invocation, or is attempting to publish a new smart contract.
+
+### Contract function invocation
+
+Any transaction which invokes a smart contract will be included in the
+blockchain, so long as it pays a Stacks fee greater than the minimum
+fee. This is true even for transactions which are _invalid_. This is
+because _validating_ an invalid transaction is not a free operation.
+
+1. Get the balance of the sender's account. If it's less than the tx fee,
+then `RETURN INVALID`.
+2. Otherwise, debit the user's account by the tx fee.
+3. Look up the contract by hash. If it does not exist, then `RETURN INVALID`.
+4. Look up the contract's `define-public` function and compare the
+   tx's arguments against it. If the tx does not call an existing
+   method, or supplies invalid arguments, then `RETURN INVALID`.
+5. Look up the cost to execute the given function, and if it is greater
+   than the paid tx fee, `RETURN INVALID`.
+6. Execute the public function code and commit the effects of running the code and `RETURN OK`
+
+### Publish contract
+
+A transaction which creates a new smart contract must pay a fee which
+funds the static analysis required to determine the cost of the new
+smart contract's public functions. To process such a transaction,
+`blockstack-core` will:
+
+1. Check the sender's account balance. If zero, then `RETURN INVALID`
+2. Check the tx fee against the user's balance. If it's higher, then `RETURN INVALID`
+3. Debit the tx fee from the user's balance.
+4. Check the syntax, calculating the fee of verifying each code
+   item. If the cost of checking the next item exceeds the tx fee, or
+   if the syntax is invalid, then `RETURN INVALID`.
+5. Build the AST, and assign a fee for adding each AST item. If the
+   cost of adding the next item to the tree exceeds the tx fee (or if
+   the AST gets too big), then `RETURN INVALID`.
+6. Walk the AST. Each step in the walk incurs a small fee. Do the
+   following while the tx fee is higher than the total cost incurred
+   by walking to the next node in the AST:
+   a. If the next node calls a contract method, then verify that
+      the contract exists and the method arguments match the contract's
+      `define-public` signature. If not, then `RETURN INVALID`.
+   b. Compute the runtime cost of each node in the AST, adding it
+      to the function's cost analysis.
+7. Find all `define-map` calls to find all tables that need to
+   exist. Each step in this incurs a small fee.
+8. Create all the tables if the cost of creating them is smaller than
+   the remaining tx fee. If not, then RETURN INVALID.
+9. `RETURN OK`
+
+## Database Requirements and Transaction Accounting
 
 The smart contract VM needs to interact with a database somewhat
 directly: the effects of an `insert-entry!` or `set-entry!` call are
@@ -485,9 +547,9 @@ practice, a buffer would probably be used.
 (define (price-function name)
   (if (< name 1e5) 1000 100))
 
-(defmap name-map 
+(define-map name-map 
   ((name integer)) ((buyer principal)))
-(defmap preorder-map
+(define-map preorder-map
   ((name-hash (buffer 160)))
   ((buyer principal) (paid integer)))
 
