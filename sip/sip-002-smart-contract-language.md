@@ -69,13 +69,12 @@ Public functions return a boolean result. If the function returns
 `true`, then the function call is considered valid, and any changes
 made to the blockchain state will be materialized. If the function
 returns `false`, it will be considered invalid, and will have _no
-effect_ on the smart contract's state, except for a transaction fee
-debit. So if function `foo.A` calls `bar.B`, and `bar.B` returns true,
-but `foo.A` returns false, no effects from calling `foo.A`
-materialize--- including effects from `bar.B`. If, however, `bar.B`
-returns false and `foo.A` returns true, there may be some database
-effects which are materialized from `foo.A`, but _no_ effects from
-calling `bar.B` will materialize.
+effect_ on the smart contract's state. So if function `foo.A` calls
+`bar.B`, and `bar.B` returns true, but `foo.A` returns false, no
+effects from calling `foo.A` materialize--- including effects from
+`bar.B`. If, however, `bar.B` returns false and `foo.A` returns true,
+there may be some database effects which are materialized from
+`foo.A`, but _no_ effects from calling `bar.B` will materialize.
 
 ## Inter-Contract Calls
 
