@@ -206,7 +206,7 @@ from the current principal to another principal:
 ```
 
 This function itself _requires_ that the operation have been signed by
-the transfering principal. The `integer` type in our smart contracting
+the transferring principal. The `integer` type in our smart contracting
 language is an 8-byte unsigned integer, which allows it to specify the
 maximum amount of microstacks spendable in a single Stacks transfer.
 
@@ -252,6 +252,10 @@ pairs, and they specify the input and output type of `fetch-entry`.
 Types are either the values `'principal`, `'integer`, `'bool` or
 the output of a call to `(buffer n)`, which defines an n-byte
 fixed-length buffer. 
+
+This interface, as described, disallows range-queries and
+queries-by-prefix on data maps. Within a smart contract function,
+you cannot iterate over an entire map.
 
 ### Record Type Syntax
 
@@ -423,20 +427,28 @@ function invocation, or is attempting to publish a new smart contract.
 ### Contract function invocation
 
 Any transaction which invokes a smart contract will be included in the
-blockchain, so long as it pays a Stacks fee greater than the minimum
-fee. This is true even for transactions which are _invalid_. This is
-because _validating_ an invalid transaction is not a free operation.
+blockchain. This is true even for transactions which are
+_invalid_. This is because _validating_ an invalid transaction is not
+a free operation. The only exceptions to this are transactions which
+do not pay more than either a minimum fee or a storage fee
+corresponding to the length of the transaction. Transactions which do
+not pay a storage fee and clear the minimum transaction fee are
+dropped from the mempool.
+
+To process a function invocation, `blockstack-core` does the following:
 
 1. Get the balance of the sender's account. If it's less than the tx fee,
 then `RETURN INVALID`.
 2. Otherwise, debit the user's account by the tx fee.
-3. Look up the contract by hash. If it does not exist, then `RETURN INVALID`.
+3. Look up the contract by hash. If it does not exist, then `RETURN
+   INVALID`.
 4. Look up the contract's `define-public` function and compare the
    tx's arguments against it. If the tx does not call an existing
    method, or supplies invalid arguments, then `RETURN INVALID`.
 5. Look up the cost to execute the given function, and if it is greater
    than the paid tx fee, `RETURN INVALID`.
-6. Execute the public function code and commit the effects of running the code and `RETURN OK`
+6. Execute the public function code and commit the effects of running
+   the code and `RETURN OK`
 
 ### Publish contract
 
@@ -507,7 +519,9 @@ a single cost metric (something like gas in Ethereum). Then, clients
 can set the fee rate for that metric, and pay the corresponding
 transaction fee. Notably, unlike Turing-complete smart contracting
 languages, any such fees are known _before_ executing the transaction,
-such that clients will no longer need to estimate gas fees.
+such that clients will no longer need to estimate gas fees. They will,
+however, still need to estimate fee rates (much like Bitcoin clients
+do today).
 
 Developing such a cost metric is an important task that has
 significant consequences. If the metric is a bad one, it could open up
@@ -562,9 +576,9 @@ practice, a buffer would probably be used.
   ((name-hash (buffer 160)))
   ((buyer principal) (paid integer)))
 
-(define-tx (preorder 
-           (name-hash (buffer 20))
-           (name-price integer))
+(define-public (preorder 
+               (name-hash (buffer 20))
+               (name-price integer))
   (if (stacks-transfer!
         name-price burn-address)
       (insert-entry! preorder-map
@@ -573,10 +587,10 @@ practice, a buffer would probably be used.
                #buyer tx-sender))
       false))
 
-(define-tx (register 
-           (recipient-principal principal)
-           (name integer)
-           (salt integer))
+(define-public (register 
+               (recipient-principal principal)
+               (name integer)
+               (salt integer))
   (let ((preorder-entry
           (fetch-entry preorder-map
                          (tuple #name-hash (hash160 name salt))))
