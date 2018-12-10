@@ -115,10 +115,13 @@ The following limitations are imposed on contract calls:
    be detected with static analysis of the call graph, and will be
    rejected by the network.
 
-A key benefit of the static analyzability of this smart contracting
-language is that _all_ functions that can possibly be called from
-a given transaction can be known _a priori_ so that a user can
-be warned about all side effects before signing a transaction.
+The language described here only allows for eager binding of smart
+contract function calls-- this makes static analysis easier, and
+eliminates the potential for reentrancy bugs. A key benefit of the
+static analyzability of this smart contracting language is that _all_
+functions that can possibly be called from a given transaction can be
+known _a priori_ so that a user can be warned about all side effects
+before signing a transaction.
 
 ## Principals and Owner Verification
 
