@@ -76,10 +76,16 @@ def forwarded_get(url, params = None):
 
     try:
         log.debug("{} => {}".format(resp.url, resp.status_code))
-        if resp.status_code == 301:
-            return resp.text, resp.status_code, resp.headers['Location']
+
+        if resp.headers['content-type'] and 'application/json' in resp.heads['content-type']:
+            respData = jsonify(resp.json())
         else:
-            return resp.text, resp.status_code
+            respData = resp.text
+
+        if resp.status_code == 301:
+            return respData, resp.status_code, resp.headers['Location']
+        else:
+            return respData, resp.status_code
     except:
         log.error("Bad response from API URL: {} \n {}".format(resp.url, resp.text))
         return jsonify({'error': 'Not found'}), resp.status_code
