@@ -57,21 +57,24 @@ network collapse, 51% attacks, and merge miners dominating the hash power.
 The proof-of-burn mining system will preserve this feature,
 so the underlying burn chain can be "swapped out" at a later date if need be.
 
-## 5. Participation in fair mining pools
+## 5. Fair mining pools
 
 Related to point 3, it is difficult to participate in block mining in proof-of-work blockchain.
 This is because a would-be miner needs to lock up a huge initial amount of capital in
-dedicated mining hardware.  Joining a mining pool is a risky alternative,
+dedicated mining hardware, and a miner receives no rewards for blocks that are
+not incorporated into the main chain.  Joining a mining pool is a risky alternative,
 because the pool operator can simply abscond with the block reward or
 dole out block rewards in an unfair way. 
 
-The Stacks blockchain addresses this problem by providing a provably-fair way to
-mine blocks in a pool.  To do so, users aggregate their individually-small burns
+The Stacks blockchain addresses this problem in two ways: by providing a provably-fair way to
+mine blocks in a pool, and by distributing some rewards to runner-up leaders as part
+of its election algorithm.  To implement mining pools, users aggregate their individually-small burns
 to produce a large burn, which in turn gives them all a non-negligeable chance
 to mine a block.  The leader election protocol is aware of these burns, and
 rewards users proportional to their contributions _without the need for a pool
 operator_.  This both lowers the barrier to entry in participating in mining,
-and removes the risk of operating in traditional mining pools.
+and removes the risk of operating in traditional mining pools.  A similar 
+technique is used to give runner-up miners a (smaller) share in the block reward.
 
 ## Assumptions
 
@@ -168,9 +171,7 @@ block-withholding attacks.
 * **Users enhance chain quality**:  In the Stacks blockchain, users can enhance
   their preferred fork's chain quality by _contributing_ burns to their
 preferred leader.  This in turn helps ensure chain liveness -- users can help
-honest leaders get elected and punish dishonest leaders that withhold blocks
-(and if this were not motivation enough, the Stacks blockchain also offers a financial incentive for
-doing so).
+honest leaders get elected and punish dishonest leaders that withhold blocks.
 
 # Leader Election
 
@@ -486,25 +487,15 @@ Leaders can announce their API endpoints via the Blockstack Naming Service.
 The specification for this transaction confirmation API service is the subject
 of a future SIP.
 
-## Reward distribution
-
-Stacks tokens come into existence on a fork in every epoch where a leader is
-selected, regardless of the chain tip commitment strategy.  To reduce the
-variance of leader rewards, the Stacks
-blockchain pools all tokens created and all transaction fees received and
-does not distribute them until a large number of epochs (a _reward window_) has
-passed.  The tokens cannot be spent until the window passes, and leaders
-in the window do not know in advance what fraction of the rewards
-they will receive (but they can estimate it as the window gets longer).
-However, unless the number of distinct burns is *very* large, each 
-leader can expect to recieve some Stacks tokens.
-
 # Burning pools
 
 Proof-of-burn mining is not only concerned with electing leaders, but also concerned with
 enhancing chain quality.  For this reason, the Stacks chain not
 only rewards leaders who build on the "best" fork, but also each user who
 supported the "best" fork by burning cryptocurrency in support of the winning block.
+The leader that commits to the winning block and the users who also burn for
+that block collectively share in the block's reward, proportional to how much
+each one burned.
 
 The reason for allowing users to support candidate blocks at all is to help
 maintain the chain's liveness in the presence of leaders who follow the
@@ -537,17 +528,19 @@ in their support, since users are rewarded by the election protocol itself.
 There are a couple important considerations for the mechanism by which users
 burn for their preferred blocks.
 
-* No one is rewarded for burning for a block that does not get elected.  This is
+* Users and runner-up loeaders are rewarded strictly less tokens
+for burning for a block that does not get elected.  This is
   important because leaders and users are indistinguishable
-on-chain.  Leaders should not be able to receive a reward for sock-puppeting,
-and neither leaders nor users should get a reward for doing nothing.
+on-chain.  Leaders should not be able to increase their expected reward by sock-puppeting,
+and neither leaders nor users should get an out-sized reward for burning for
+invalid blocks or blocks that will never make it on-chain.
 
 * It must be cheaper for a leader to submit a single expensive block commitment than it is
   to submit a cheap block commitment and a lot of user burns.  This is
 important because it should not be possible for a leader to profit from
 adaptively increasing their burns in response to other leader's burns.
 
-The first property is enforced by the reward window rules.
+The first property is enforced by the reward distribution rules (see below).
 The second property is given "for free" because the underlying burn chain
 assesses each participant a transaction fee.  Users and leaders incur an ever-increasing
 cost of trying to adaptively out-burn other leaders by submitting more and more
@@ -556,11 +549,46 @@ transactions.
 Users who want to support a block candidate must send their burn transactions _in the
 same burn chain block_ as the leader's commitment transaction.  This limits the degree to
 which users and leaders can adaptively out-bid each other to include their
-commitments.  In addition, this constraint creates negative feedback loop for supporting
+commitments.  However, this constraint creates an undesirable
+negative feedback loop for supporting
 blocks too zealously -- if there is _too much_ interest in a block, then the users may accidentally 
 kick their preferred block's commitment out of the target burn block (or kick all
 block commitments out), wasting everyone's cryptocurrency and dissuading
-users from supporting a block too much.
+users from supporting a block too much.  This outcome is partially remdiated
+by the facts that (1) a user or leader who wanted to hedge their bet would support
+their rivals' blocks as well, and (2) per the fork selection rules (see below),
+burns can only help a block so much (and too many now can hurt the leader in a
+future election).
+
+# Reward distribution
+
+New Stacks tokens come into existence on a fork in an epoch where a leader is
+selected.  To reduce the variance of leader rewards over time, the Stacks
+blockchain pools all tokens created and all transaction fees received and
+does not distribute them until a large number of epochs (a _lockup period_) has
+passed.  The tokens cannot be spent until the period passes.
+
+## Sharing the rewards among winners
+
+Winning blocks and the leaders and users who burned for them are not rewarded
+in a winner-take-all fashion.  Instead, after the
+rewards are delayed for a lock-up period, the are distributed to all winning
+burns over a _reward window_.  The block rewards
+are allotted to each burning participant incrementally as the window passes,
+based on the ratio between how
+much it burned over the window versus how much everyone
+burned over the window.  This has the (desired) effect of "smoothing out" the
+rewards so as to minimize the variance in earnings across all winning
+participants.
+
+The "smoothing" mechanism is necessary to keep miners incentivized to mine a
+maximal number of transactions when the block rewards are dominated by
+transaction fees instead of coinbases.  Since miners all share the transaction
+fees proportionally (instead of via a winner-take-all system), miners are
+still incentivized to mine transactions instead of attempting to mine the
+minimal amount in the hopes that their block gets added to the longest chain (as
+is the case under such circumstances in Bitcoin).
+
 
 # Recovery from data loss
 
@@ -581,10 +609,11 @@ follows directly from a single-leader model, where a principal can crash before
 producing a block or fail to propagate a block during its tenure.
 
 However, there is a downside to this approach: it enables **selfish mining.**  A
-minority coalition of leaders can statistically gain more Stacks tokens than they are due from
+minority coalition of leaders and users can statistically gain more Stacks tokens than they are due from
 their burns by attempting to build a hidden fork of blocks, and releasing it
 once the honest majority comes within one block height difference of the hidden
-fork.  This orphans the majority fork, causing them to lose their Stacks tokens.
+fork.  This orphans the majority fork, causing them to lose their Stacks tokens
+and re-build the majority fork.
 
 ## Seflish mining mitigation strategies
 
@@ -614,11 +643,16 @@ known-honest leaders' burns.  This increases the chance that honest leaders will
 be elected, thereby increasing the fraction of honest burn power and making it
 harder for a selfish leader to get elected.
 
-* The Stacks chain reward structure spreads out rewards for creating
+* The Stacks chain reward system spreads out rewards for creating
 blocks and mining transactions across a large interval.  This "smooths over"
 short-lived selfish mining attacks -- while selfish leaders still receive more
 than their fair share of the rewards, the low variance imposed by the
 reward window makes this discrepancy smaller.
+
+* All Stacks nodes relay all blocks they see, even if they suspect that they
+  came from the attacker.  If an honest leader finds two chain tips of equal
+length, it selects at random which chain tip to build off of.  This ensures that
+the fraction of honest burns that get behind the attack chain is capped at 50%.
 
 None of these points _prevent_ selfish mining, but they give honest users and
 honest leaders the tools to make selfish mining more difficult to pull off than in
@@ -675,32 +709,58 @@ As stated, leader candidates become leaders by burning a cryptocurrency.  But, w
 happens if the rate at which they collectively burn it fluctuates?
 
 * If it increases too fast, then a few rich leaders can quickly dominate the
-  sortition process and effectively take over the chain before other
+  sortition process (and rewards) and effectively take over the chain before other
 participants have had a chance to react.
 
 * If it decreases too fast, then it makes it easy for opportunistic attackers to
   reorg the chain and produce cheap orphan blocks before honest participants can react.
 
-To prevent increases or decreases from occuring too quickly, the Stacks
-blockchain implements a variable-sized burn window that has a "burn quota"
-that must be met before a leader can be elected.  The burn quota
-is controlled via a negative feedback loop, whereby
+In order to deal with changes in value between the burn chain tokens and the
+Stacks tokens, as well as to keep the number of blocks produced on non-canonical
+forks under control, the Stacks blockchain implements a "burn window" whereby it
+decides how much cryptocurrency all participants must have destroyed in order for 
+*any* block candidates to be appended (regardless of which chain tip).
+This measurement includes **all** block commitments and **all** user burns --
+even well-formed burns for otherwise invalid or missing blocks.
+
+The burn window is variable-sized and has a "burn quota"
+that must be met before a leader can be elected.  The burn quota determines how
+much cryptocurrency must be burned for _all_ candidate blocks in order to be
+considered for sortition.  It is controlled via a negative feedback loop, whereby
 the burn quota is additavely increased in the presence of more burns and
 multiplicatively decreased in the absence of burns.  In addition, the Stacks
 blockchain tracks an average burns/window value to determine which action to
-take on the burn quota.
+take on the burn quota on the arrival of the next block.
 
-* As more cryptocurrency is burned, the burn quota of
-  the burn window increases additively.  If adding the next block to the burn
+Tracking a burn window enables a set of leader candidates to
+burn cryptocurrency units at a rate that is about the market rate for Stacks
+tokens.  The feedback loop that governs the window's burn quota
+creates a steady-state behavior where there is about one Stacks block produced per
+epoch, even in the face of wild adjustments
+in the market values of Stacks and the underlying burn cryptocurrency, and in
+the face of the rise and fall in popularity of non-canonical forks.
+
+### Increasing the window
+
+As more cryptocurrency is burned, the burn quota of
+the burn window increases additively.  If adding the next block to the burn
 window increases the window's average burn/block ratio, then the burn quota
-is incremented by a protocol-defined constant. The burns/window-size ratio defines
-the lower and upper bound on the size of the acceptable burn of the next block
--- if a block commitment has a burn that is too high (e.g. 125% of the burns/block ratio) or
-too low (e.g. 75% of the burns/block ratio), the commitment will be rejected
-and the leader will not be up for sortition.
+is incremented by a protocol-defined constant.
 
-* As less cryptocurrency is burned, adding the next
-  block to the burn window would decrease its window's burns/block ratio.  If the
+The burns/window-size ratio defines
+the lower and upper bound on the size of the acceptable burn of the next block
+If a block commitment has a total burn amount that is too high (e.g. 100% of the
+burns/block ratio), the total burn for the block will be capped by the sortition
+algorithm.  The excess burn will _not_ count towards the chance that it gets
+elected.
+
+If a block commitment has a total burn that is too low (e.g. 75% of the
+burns/block ratio), then the block commitment will be ignored.
+
+### Decreasing the window
+
+As less cryptocurrency is burned, adding the next
+block to the burn window would decrease its window's burns/block ratio.  If the
 burns/block ratio falls beneath a fixed
 fraction of its maximum value since its last reduction (e.g. it falls beneath 75% of
 the last maximum burn quota), then
@@ -710,15 +770,8 @@ in the window exceeds the burn quota.  Once it is met, a new leader will be sele
 back" to its original size.  The burn quota will be decreased multiplicatively
 once this happens (e.g. reduced by 25%).
 
-This burn window protocol enables a set of leader candidates to
-burn cryptocurrency units at a rate that is about the market rate for Stacks
-tokens.  The feedback loop that governs the window's burn quota
-creates a steady-state behavior where there is about one Stacks block produced per
-epoch, even in the face of wild adjustments
-in the market values of Stacks and the underlying burn cryptocurrency.
-
 In the absence of a leader election if the burn quota is not met, the block seed
-that will be used for the next leader election's sortition will be calculated
+that will be used for the next leader election will be calculated
 per usual -- at each subsequent no-leader epoch, the new seed will be calculated as the hash
 of the current seed and the burn block header's hash.
 
