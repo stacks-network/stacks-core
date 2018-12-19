@@ -59,42 +59,48 @@ so the underlying burn chain can be "swapped out" at a later date if need be.
 
 ## 5. Fair mining pools
 
-Related to point 3, it is difficult to participate in block mining in proof-of-work blockchain.
-This is because a would-be miner needs to lock up a huge initial amount of capital in
-dedicated mining hardware, and a miner receives no rewards for blocks that are
-not incorporated into the main chain.  Joining a mining pool is a risky alternative,
+Related to point 3, it is difficult to participate in block mining in
+a proof-of-work blockchain.  This is because a would-be miner needs to
+lock up a huge initial amount of capital in dedicated mining hardware,
+and a miner receives no rewards for blocks that are not incorporated
+into the main chain.  Joining a mining pool is a risky alternative,
 because the pool operator can simply abscond with the block reward or
-dole out block rewards in an unfair way. 
+dole out block rewards in an unfair way.
 
-The Stacks blockchain addresses this problem in two ways: by providing a provably-fair way to
-mine blocks in a pool, and by distributing some rewards to runner-up leaders as part
-of its election algorithm.  To implement mining pools, users aggregate their individually-small burns
-to produce a large burn, which in turn gives them all a non-negligeable chance
-to mine a block.  The leader election protocol is aware of these burns, and
-rewards users proportional to their contributions _without the need for a pool
-operator_.  This both lowers the barrier to entry in participating in mining,
-and removes the risk of operating in traditional mining pools.  A similar 
-technique is used to give runner-up miners a (smaller) share in the block reward.
+The Stacks blockchain addresses this problem in two ways: by providing
+a provably-fair way to mine blocks in a pool, and by distributing some
+rewards to runner-up leaders as part of its election algorithm.  To
+implement mining pools, users aggregate their individually-small burns
+to produce a large burn, which in turn gives them all a
+non-negligeable chance to mine a block.  The leader election protocol
+is aware of these burns, and rewards users proportional to their
+contributions _without the need for a pool operator_.  This both
+lowers the barrier to entry in participating in mining, and removes
+the risk of operating in traditional mining pools.  A similar
+technique is used to give runner-up miners a (smaller) share in the
+block reward.
 
 ## Assumptions
 
 Given the design goals, the Stacks leader election protocol makes the following
 assumptions:
 
-* Deep forks in the burn chain are exponentially rarer as a function of their
-  length.
+* Deep forks in the burn chain are exponentially rarer as a function
+  of their length.
 
-* Deep forks in the burn chain occur for reasons unrelated to the Stacks protocol execution.  That
-  is, miners do not attempt to manipulate the execution of the Stacks protocol
-by reorganizing the burn chain.
+* Deep forks in the burn chain occur for reasons unrelated to the
+  Stacks protocol execution.  That is, miners do not attempt to
+  manipulate the execution of the Stacks protocol by reorganizing the
+  burn chain.
 
 * Burn chain miners do not censor all Stacks transactions (i.e. liveness is
   possible).
 
-* At least 2/3 of the Stacks leader candidates (measured by burn weight) are correct and honest.
+* At least 2/3 of the Stacks leader candidates (measured by burn
+  weight) are correct and honest.
 
-* The majority of users (by burn weight) who help leaders get elected only help
-known-honest leaders.
+* The majority of users (by burn weight) who help leaders get elected
+  only help known-honest leaders.
 
 # Protocol overview
 
@@ -180,7 +186,7 @@ blocks.  It does so via burn mining, whereby would-be leaders submit their candi
 to be leaders by burning an existing cryptocurrency.  A leader is selected to produce a
 block based on two things:
 
-* the fraction of cryptocurrency the burned relative to the other candidates
+* the amount of cryptocurrency burned relative to the other candidates
 * an unbiased source of randomness
 
 A new leader is selected whenever the burn chain produces a new block -- the
@@ -207,12 +213,13 @@ network as the leader of a future block.
 
 ## Committing to a chain tip
 
-Because anyone can become a leader, this means that even misbehaving leaders can
-be selected.  If a leader crashes before it can propagate their blocks, or if
-it produces an invalid block, then no block will be appended to the
-leader's chain tip during its epoch.  Also, if a leader is operating off of
-stale data, then the leader _may_ produce a block
-whose parent is not the latest block on the "best" fork.
+Because anyone can become a leader, this means that even misbehaving
+leaders can be selected.  If a leader crashes before it can propagate
+their blocks, or if it produces an invalid block, then no block will
+be appended to the leader's chain tip during its epoch.  Also, if a
+leader is operating off of stale data, then the leader _may_ produce a
+block whose parent is not the latest block on the "best" fork. These
+kinds of failures must be tolerated by the Stacks blockchain.
 
 A consequence of tolerating these failed leaders is that the Stacks blockchain 
 may have multiple competing forks; one of which is considered the canonical fork
