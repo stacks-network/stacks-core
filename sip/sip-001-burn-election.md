@@ -794,9 +794,9 @@ Commitment transaction wire format
                                              delta  txoff  delta txoff 
 
 User support transaction wire format
-0      2  3              19                       51                 75       80
+0      2  3              19                       51                 71       80
 |------|--|---------------|-----------------------|------------------|--------|
- magic  op consensus hash    proving public key       block hash        memo
+ magic  op consensus hash    proving public key       block hash 160    memo
 
 Field name        |   Field contents
 ------------------|-------------------------------------------------------------------------------------------
@@ -804,6 +804,7 @@ magic             |  network ID (e.g. "id")
 op                |  one-byte opcode that identifies the transaction type
 proving public key|  EdDSA public key (32 bytes)
 block hash        |  SHA256(SHA256(block header))
+block hash 160    |  RIPEMD160(block hash)
 consensus hash    |  first 16 bytes of RIPEMD160(merkle root of prior consensus hashes)
 parent delta      |  number of blocks back from this block in which the parent block header hash can be found
 parent txoff      |  offset in the block that contains the parent block header hash
