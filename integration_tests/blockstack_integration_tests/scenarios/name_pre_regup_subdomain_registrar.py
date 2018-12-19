@@ -43,6 +43,7 @@ import subprocess
 import time
 import sys
 import traceback
+import keylib
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -79,7 +80,7 @@ subdomain_registrar_config = """
   "domainUri": "http://localhost:%s",
   "port": %s,
   "ipLimit": 1,
-  "apiKeys": ['test_registrar'],
+  "apiKeys": ["test_registrar"],
   "proofsRequired": 0,
   "disableRegistrationsWithoutKey": false
 }
@@ -152,25 +153,35 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_preorder( "personal.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    registrar_zf = '$ORIGIN personal.test\n$TTL 3600\n_registrar URI 10 1 "http://localhost:%s"\n_resolver URI 10 1 "http://localhost:%s"\n' % (registrar_port, registrar_port)
+    # make an initial subdomain so we record the registrar
+    zf_subdomain_template = "$ORIGIN {}\n$TTL 3600\n{}"
+    zf_subdomain_default_url = '_https._tcp URI 10 1 "https://raw.githubusercontent.com/nobody/content/profile.md"'
+
+    first_subdomain_zf = zf_subdomain_template.format("first.personal.test", zf_subdomain_default_url)
+    first_subdomain_txt = subdomains.make_subdomain_txt("first.personal.test", "personal.test", virtualchain.address_reencode(wallets[0].addr, network='mainnet'), 0, first_subdomain_zf, wallets[0].privkey)
+
+    registrar_zf = '$ORIGIN personal.test\n$TTL 3600\n%s\n_registrar URI 10 1 "http://localhost:%s"\n_resolver URI 10 1 "http://localhost:%s"\n' % (first_subdomain_txt, registrar_port, registrar_port)
     registrar_zf_hash = storage.get_zonefile_data_hash(registrar_zf)
 
     testlib.blockstack_name_register( "personal.test", wallets[2].privkey, wallets[3].addr, zonefile_hash=registrar_zf_hash)
     testlib.next_block(**kw)
 
     testlib.blockstack_put_zonefile(registrar_zf)
+    testlib.next_block(**kw)
 
     zf_template = "$ORIGIN {}\n$TTL 3600\n{}"
     zf_default_url = '_https._tcp URI 10 1 "https://raw.githubusercontent.com/nobody/content/profile.md"'
 
     # request to register hello_XXX.personal.test
-    for i in range(0, 3):
+    for i in range(0, 50):
         sub_name = 'hello_{}.personal.test'.format(i)
         sub_zf = zf_template.format(sub_name, zf_default_url)
 
+        addr = keylib.b58check_encode('{:040x}'.format(int(keylib.b58check_decode(wallets[0].addr).encode('hex'), 16) + i).decode('hex'), version_byte=0)
+
         req_json = {
-            'name': 'hello_{}'.format(i+1),
-            'owner_address': virtualchain.address_reencode(wallets[i].addr, network='mainnet'),
+            'name': 'hello_{}'.format(i),
+            'owner_address': virtualchain.address_reencode(addr, network='mainnet'),
             'zonefile': sub_zf,
         }
 
@@ -181,8 +192,8 @@ def scenario( wallets, **kw ):
             return False
 
     # try to resolve each name on the subdomain registrar
-    for i in range(0, 3):
-        sub_name = 'hello_{}.personal.test'.format(i)
+    for i in range(0, 50):
+        sub_name = 'hello_{}'.format(i)
         resp = requests.get('http://localhost:{}/status/{}'.format(registrar_port, sub_name))
         status = resp.json()
 
@@ -193,7 +204,7 @@ def scenario( wallets, **kw ):
             return False
 
     # test /v1/names/{} emulation on the subdomain registrar
-    for i in range(0, 3):
+    for i in range(0, 50):
         sub_name = 'hello_{}.personal.test'.format(i)
         resp = requests.get('http://localhost:{}/v1/names/{}'.format(registrar_port, sub_name))
         status = resp.json()
@@ -201,15 +212,15 @@ def scenario( wallets, **kw ):
         print json.dumps(status, indent=4, sort_keys=True)
 
         if 'pending_subdomain' != status['status']:
-            print 'not pending: {}'.format(sub_name)
+            print 'not pending 1.1: {}'.format(sub_name)
             return False
 
-        if len(status['txid']) != 0:
-            print 'not pending: {}'.format(sub_name)
+        if len(status['last_txid']) != 0:
+            print 'not pending 1.2: {}'.format(sub_name)
             return False
 
     # test /v1/names/{} redirect from Blockstack Core
-    for i in range(0, 3):
+    for i in range(0, 50):
         sub_name = 'hello_{}.personal.test'.format(i)
         resp = requests.get('http://localhost:{}/v1/names/{}'.format(16268, sub_name))
         status = resp.json()
@@ -217,17 +228,59 @@ def scenario( wallets, **kw ):
         print json.dumps(status, indent=4, sort_keys=True)
 
         if 'pending_subdomain' != status['status']:
-            print 'not pending: {}'.format(sub_name)
+            print 'not pending 2.1: {}'.format(sub_name)
             return False
 
-        if len(status['txid']) != 0:
-            print 'not pending: {}'.format(sub_name)
+        if len(status['last_txid']) != 0:
+            print 'not pending 2.2: {}'.format(sub_name)
             return False
 
     # tell the registrar to flush the queue
+    resp = requests.post('http://localhost:{}/issue_batch/'.format(registrar_port), headers={'Authorization': 'bearer hello_world'})
+    if resp.status_code >= 300:
+        print 'issue_batch returned {}'.format(resp.status_code)
+        return False
+    
+    print 'wait for subdomain registrar to send the tx'
+    time.sleep(60)
 
-    # reindex
-    assert testlib.check_subdomain_db(**kw)
+    testlib.next_block(**kw)
+    testlib.next_block(**kw)
+    testlib.next_block(**kw)
+    testlib.next_block(**kw)
+    testlib.next_block(**kw)
+    testlib.next_block(**kw)
+    testlib.next_block(**kw)
+   
+    # tell the registrar to send the zonefiles
+    resp = requests.post('http://localhost:{}/check_zonefiles/'.format(registrar_port), headers={'Authorization': 'bearer hello_world'})
+    if resp.status_code >= 300:
+        print 'issue_batch returned {}'.format(resp.status_code)
+        return False
+    
+    print 'wait for zonefile to propagate'
+    time.sleep(5)
+    testlib.next_block(**kw)
+
+    # make sure that /v1/names/{} works without redirect
+    for i in range(0, 3):
+        sub_name = 'hello_{}.personal.test'.format(i)
+        resp = requests.get('http://localhost:{}/v1/names/{}'.format(16268, sub_name))
+        if resp.status_code != 200:
+            print 'invalid status code {}'.format(resp.status_code)
+            return False
+
+        status = resp.json()
+
+        print json.dumps(status, indent=4, sort_keys=True)
+
+        if 'registered_subdomain' != status['status']:
+            print 'still pending 3.1: {}'.format(sub_name)
+            return False
+
+        if len(status['last_txid']) == 0:
+            print 'still pending 2.2: {}'.format(sub_name)
+            return False
 
 
 def check( state_engine ):
