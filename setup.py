@@ -46,7 +46,7 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=20.0.0.0',
+        'virtualchain>=20.0.1.0',
         'keychain>=0.14.2.0',
         'protocoin>=0.2',
         'blockstack-zones>=0.19.0',
@@ -57,7 +57,7 @@ setup(
         'jsonschema>=2.5.1, <=2.99',
         'jsontokens>=0.0.4',
         'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly,
-        'requests>=2.18',
+        'requests>=2.20',
     ],
     classifiers=[
         'Intended Audience :: Developers',
