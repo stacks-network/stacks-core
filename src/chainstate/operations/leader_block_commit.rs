@@ -21,9 +21,9 @@ use chainstate::operations::{BlockstackOperation, BlockstackOperationType};
 use chainstate::operations::Error as op_error;
 use chainstate::{ConsensusHash, BlockHeaderHash, VRFSeed};
 
-use chainstate::db::namedb::NameDB;
+use chainstate::db::burndb::BurnDB;
 
-use burnchains::{BurnchainTransaction, PublicKey};
+use burnchains::{BurnchainTransaction, BurnchainTxInput, PublicKey};
 use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::indexer::BitcoinNetworkType;
 use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
@@ -35,22 +35,22 @@ use util::hash::hex_bytes;
 
 use ed25519_dalek::PublicKey as VRFPublicKey;
 
-use crypt::sha2::Sha256;
+use crypto::sha2::Sha256;
 
 pub const OPCODE: u8 = '[' as u8;
 
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub struct LeaderBlockCommitOp<A: Address, K: PublicKey> {
+#[derive(Debug, PartialEq, Clone)]
+pub struct LeaderBlockCommitOp<K: PublicKey> {
     block_header_hash: BlockHeaderHash, // hash of block header (double-sha256)
     new_seed: VRFSeed,                  // new seed for this block
     parent_block_backptr: u32,          // back-pointer to the block that contains the parent block hash 
     parent_vtxindex: u16,               // offset in the parent block where the parent block hash can be found
     key_block_backptr: u32,             // back-pointer to the block that contains the leader key registration 
     key_vtxindex: u16,                  // offset in the block where the leader key can be found
-    memo: Option<u8>,                   // extra unused byte
+    memo: Vec<u8>,                      // extra unused byte
 
     burn_fee: u64,                      // how many burn tokens (e.g. satoshis) were destroyed to produce this block
-    input: BurnchainTxInput<A, K>,      // burn chain keys that must match the key registration
+    input: BurnchainTxInput<K>,         // burn chain keys that must match the key registration
 
     // common to all transactions
     op: u8,                             // bytecode describing the operation
@@ -81,8 +81,8 @@ fn u16_from_be(bytes: &[u8]) -> Option<u16> {
     }
 }
 
-impl LeaderBlockCommitOp {
-    fn parse_data(data: &Vec<u8>) -> Option<(BlockHeaderHash, VRFSeed, u32, u16, u32, u16, Option<u8>> {
+impl LeaderBlockCommitOp<BitcoinPublicKey> {
+    fn parse_data(data: &Vec<u8>) -> Option<(BlockHeaderHash, VRFSeed, u32, u16, u32, u16, Vec<u8>)> {
         /*
             Wire format:
 
@@ -107,18 +107,12 @@ impl LeaderBlockCommitOp {
         let parent_vtxindex = u16_from_be(&data[68..70]).unwrap();
         let key_block_backptr = u32_from_be(&data[70..74]).unwrap();
         let key_vtxindex = u16_from_be(&data[74..76]).unwrap();
-        let memo = 
-            if data.len() == 77 {
-                Some(data[77])
-            }
-            else {
-                None
-            };
+        let memo = data[76..];
 
-        Some(block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, memo)
+        Some((block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, memo.to_vec()))
     }
 
-    pub fn from_bitcoin_tx(network_id: BitcoinNetworkType, block_height: u64, tx: &BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>) -> Result<LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey>, op_error> {
+    pub fn from_bitcoin_tx(network_id: BitcoinNetworkType, block_height: u64, tx: &BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>) -> Result<LeaderBlockCommitOp< BitcoinPublicKey>, op_error> {
 
         // can't be too careful...
         if tx.inputs.len() == 0 {
@@ -168,8 +162,8 @@ impl LeaderBlockCommitOp {
     }
 }
 
-impl BlockstackOperation for LeaderBlockCommitOp {
-    fn check(&self, db: &NameDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool {
+impl BlockstackOperation for LeaderBlockCommitOp<BitcoinPublicKey> {
+    fn check(&self, db: &BurnDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool {
         return false;
     }
 

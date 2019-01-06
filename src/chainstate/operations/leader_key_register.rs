@@ -21,7 +21,7 @@ use chainstate::operations::{BlockstackOperation, BlockstackOperationType};
 use chainstate::operations::Error as op_error;
 use chainstate::ConsensusHash;
 
-use chainstate::db::namedb::NameDB;
+use chainstate::db::burndb::BurnDB;
 
 use burnchains::{BurnchainTransaction, PublicKey};
 use burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -37,7 +37,7 @@ use ed25519_dalek::PublicKey as VRFPublicKey;
 
 pub const OPCODE: u8 = '^' as u8;
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct LeaderKeyRegisterOp<A: Address> {
     consensus_hash: ConsensusHash,      // consensus hash at time of issuance
     public_key: VRFPublicKey,           // EdDSA public key 
@@ -51,7 +51,7 @@ pub struct LeaderKeyRegisterOp<A: Address> {
     block_number: u64,                  // block height at which this tx occurs
 }
 
-impl LeaderKeyRegisterOp {
+impl LeaderKeyRegisterOp<BitcoinAddress> {
     fn parse_data(data: &Vec<u8>) -> Option<(ConsensusHash, VRFPublicKey, Vec<u8>)> {
         /*
             Wire format:
@@ -71,10 +71,10 @@ impl LeaderKeyRegisterOp {
         }
 
         let consensus_hash = ConsensusHash::from_bytes(&data[0..16]).unwrap();
-        let pubkey = VRFPublicKey::from_bytes(&data[16..48]).unwrap(),
-        let memo = &data[48..].to_vec();
+        let pubkey = VRFPublicKey::from_bytes(&data[16..48]).unwrap();
+        let memo = &data[48..];
 
-        return Some((consensus_hash, pubkey, memo));
+        return Some((consensus_hash, pubkey, memo.to_vec()));
     }
 
     pub fn from_bitcoin_tx(network_id: BitcoinNetworkType, block_height: u64, tx: &BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>) -> Result<LeaderKeyRegisterOp<BitcoinAddress>, op_error> {
@@ -113,8 +113,8 @@ impl LeaderKeyRegisterOp {
     }
 }
 
-impl BlockstackOperation for LeaderKeyRegisterOp {
-    fn check(&self, db: &NameDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool {
+impl BlockstackOperation for LeaderKeyRegisterOp<BitcoinAddress> {
+    fn check(&self, db: &BurnDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool {
         return false;
     }
 

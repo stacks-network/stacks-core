@@ -21,13 +21,12 @@ use chainstate::operations::{BlockstackOperation, BlockstackOperationType};
 use chainstate::operations::Error as op_error;
 use chainstate::{ConsensusHash, BlockHeaderHash, VRFSeed};
 
-use chainstate::db::namedb::NameDB;
+use chainstate::db::burndb::BurnDB;
 
 use burnchains::{BurnchainTransaction, PublicKey};
 use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::indexer::BitcoinNetworkType;
 use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
-use burnchains::ConsensusHash;
 use burnchains::Txid;
 use burnchains::Hash160;
 use burnchains::Address;
@@ -38,11 +37,11 @@ use ed25519_dalek::PublicKey as VRFPublicKey;
 
 pub const OPCODE: u8 = '_' as u8;
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct UserBurnSupportOp {
     consensus_hash: ConsensusHash,
     public_key: VRFPublicKey,
-    block_header_hash: BlockHeaderHash,
+    block_header_hash_160: Hash160,
     memo: Vec<u8>,
 
     // common to all transactions
@@ -57,7 +56,7 @@ impl UserBurnSupportOp {
         /*
             Wire format:
 
-            0      2  3              19                       51                 75       80
+            0      2  3              19                       51                 71       80
             |------|--|---------------|-----------------------|------------------|--------|
              magic  op consensus hash    proving public key       block hash        memo
 
@@ -71,10 +70,11 @@ impl UserBurnSupportOp {
         }
 
         let consensus_hash = ConsensusHash::from_vec(&data[0..16].to_vec()).unwrap();
-        let pubkey = VRFPublicKey::from_bytes(&data[16..48]).unwrap(),
-        let memo = &data[48..].to_vec();
+        let pubkey = VRFPublicKey::from_bytes(&data[16..48]).unwrap();
+        let block_header_hash_160 = BlockHeaderHash::from_bytes(&data[48..68]).unwrap();
+        let memo = &data[58..];
 
-        return Some((consensus_hash, pubkey, memo));
+        return Some((consensus_hash, pubkey, block_header_hash_160, memo.to_vec()));
     }
 
     pub fn from_bitcoin_tx(network_id: BitcoinNetworkType, block_height: u64, tx: &BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>) -> Result<UserBurnSupportOp, op_error> {
@@ -85,16 +85,17 @@ impl UserBurnSupportOp {
             return Err(op_error::ParseError);
         }
 
-        let parse_data_opt = LeaderKeyRegisterOp::parse_data(&tx.data);
+        let parse_data_opt = UserBurnSupportOp::parse_data(&tx.data);
         if parse_data_opt.is_none() {
             test_debug!("Invalid tx data");
             return Err(op_error::ParseError);
         }
 
-        let (consensus_hash, pubkey, memo) = parse_data_opt.unwrap();
-        Ok(LeaderKeyRegisterOp {
+        let (consensus_hash, pubkey, block_header_hash_160, memo) = parse_data_opt.unwrap();
+        Ok(UserBurnSupportOp {
             consensus_hash: consensus_hash,
             public_key: pubkey,
+            block_header_hash_160: block_header_hash_160,
             memo: memo,
 
             op: OPCODE,
@@ -105,8 +106,8 @@ impl UserBurnSupportOp {
     }
 }
 
-impl BlockstackOperation for LeaderKeyRegisterOp {
-    fn check(&self, db: &NameDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool {
+impl BlockstackOperation for UserBurnSupportOp {
+    fn check(&self, db: &BurnDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool {
         return false;
     }
 

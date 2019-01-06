@@ -17,42 +17,24 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-pub mod announce;
-pub mod nameimport;
-pub mod namepreorder;
-pub mod nameregistration;
-pub mod namerenewal;
-pub mod namerevoke;
-pub mod namespacepreorder;
-pub mod namespaceready;
-pub mod namespacereveal;
-pub mod nametransfer;
-pub mod nameupdate;
-pub mod tokentransfer;
+pub mod leader_key_register;
+pub mod leader_block_commit;
+pub mod user_burn_support;
 
 use std::fmt;
 use std::error;
 
-use burnchains::{BurnchainTransaction, PublicKey, Txid, Hash160, ConsensusHash};
-use chainstate::db::namedb;
+use self::leader_key_register::LeaderKeyRegisterOp;
+use self::leader_block_commit::LeaderBlockCommitOp;
+use self::user_burn_support::UserBurnSupportOp;
+
+use burnchains::{BurnchainTransaction, PublicKey, Txid, Hash160};
+use chainstate::db::burndb;
 
 use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
 
 use util::hash::to_hex;
-
-use self::announce::AnnounceOp;
-use self::nameimport::NameImportOp;
-use self::namepreorder::NamePreorderOp;
-use self::nameregistration::NameRegistrationOp;
-use self::namerenewal::NameRenewalOp;
-use self::namerevoke::NameRevokeOp;
-use self::namespacepreorder::NamespacePreorderOp;
-use self::namespaceready::NamespaceReadyOp;
-use self::namespacereveal::NamespaceRevealOp;
-use self::nametransfer::NameTransferOp;
-use self::nameupdate::NameUpdateOp;
-use self::tokentransfer::TokenTransferOp;
 
 #[derive(Debug)]
 pub enum Error {
@@ -94,93 +76,22 @@ impl error::Error for Error {
 
 #[derive(Debug)]
 pub enum BlockstackOperationType {
-    Announce(AnnounceOp),
-    NameImport(NameImportOp),
-    NamePreorder(NamePreorderOp),
-    NameRegistration(NameRegistrationOp),
-    NameRenewal(NameRenewalOp),
-    NameRevoke(NameRevokeOp),
-    NamespacePreorder(NamespacePreorderOp),
-    NamespaceReveal(NamespaceRevealOp),
-    NamespaceReady(NamespaceReadyOp),
-    NameTransfer(NameTransferOp),
-    NameUpdate(NameUpdateOp),
-    TokenTransfer(TokenTransferOp),
+    LeaderKeyRegister(LeaderKeyRegisterOp<BitcoinAddress>),
+    LeaderBlockCommit(LeaderBlockCommitOp<BitcoinPublicKey>),
+    UserBurnSupport(UserBurnSupportOp)
 }
-
-#[derive(Debug)]
-pub struct Opcode(u8);
 
 impl fmt::Display for BlockstackOperationType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            BlockstackOperationType::Announce(ref announce) => fmt::Display::fmt(&format!("{:?}", announce), f),
-            BlockstackOperationType::NameImport(ref name_import) => fmt::Display::fmt(&format!("{:?}", name_import), f),
-            BlockstackOperationType::NamePreorder(ref name_preorder) => fmt::Display::fmt(&format!("{:?}", name_preorder), f),
-            BlockstackOperationType::NameRegistration(ref name_registration) => fmt::Display::fmt(&format!("{:?}", name_registration), f),
-            BlockstackOperationType::NameRenewal(ref name_renewal) => fmt::Display::fmt(&format!("{:?}", name_renewal), f),
-            BlockstackOperationType::NameRevoke(ref name_revoke) => fmt::Display::fmt(&format!("{:?}", name_revoke), f),
-            BlockstackOperationType::NamespacePreorder(ref namespace_preorder) => fmt::Display::fmt(&format!("{:?}", namespace_preorder), f),
-            BlockstackOperationType::NamespaceReveal(ref namespace_reveal) => fmt::Display::fmt(&format!("{:?}", namespace_reveal), f),
-            BlockstackOperationType::NamespaceReady(ref namespace_ready) => fmt::Display::fmt(&format!("{:?}", namespace_ready), f),
-            BlockstackOperationType::NameTransfer(ref name_transfer) => fmt::Display::fmt(&format!("{:?}", name_transfer), f),
-            BlockstackOperationType::NameUpdate(ref name_update) => fmt::Display::fmt(&format!("{:?}", name_update), f),
-            BlockstackOperationType::TokenTransfer(ref token_transfer) => fmt::Display::fmt(&format!("{:?}", token_transfer), f),
+            BlockstackOperationType::LeaderKeyRegister(ref leader_key_register) => fmt::Display::fmt(&format!("{:?}", leader_key_register), f),
+            BlockstackOperationType::LeaderBlockCommit(ref leader_block_commit) => fmt::Display::fmt(&format!("{:?}", leader_block_commit), f),
+            BlockstackOperationType::UserBurnSupport(ref user_burn_support) => fmt::Display::fmt(&format!("{:?}", user_burn_support), f)
         }
     }
 }
 
 pub trait BlockstackOperation {
-    fn check(&self, db: &namedb::NameDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool;
+    fn check(&self, db: &burndb::BurnDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool;
     fn consensus_serialize(&self) -> Vec<u8>;
-}
-
-// consensus serializations for the types that make up a BlockstackOperation 
-pub trait ConsensusField {
-    fn consensus_serialize(&self) -> Vec<u8>;
-}
-
-impl ConsensusField for u8 {
-    fn consensus_serialize(&self) -> Vec<u8> {
-        let fmtstr = format!("{}", self);
-        return format!("{}:{}", fmtstr.len(), fmtstr).into_bytes();
-    }
-}
-
-impl ConsensusField for u64 {
-    fn consensus_serialize(&self) -> Vec<u8> {
-        let fmtstr = format!("{}", self);
-        return format!("{}:{}", fmtstr.len(), fmtstr).into_bytes();
-    }
-}
-
-impl ConsensusField for Opcode {
-    fn consensus_serialize(&self) -> Vec<u8> {
-        let fmtstr = format!("{}", self.0 as char);
-        return fmtstr.into_bytes();
-    }
-}
-
-impl ConsensusField for Txid {
-    fn consensus_serialize(&self) -> Vec<u8> {
-        let hexstr = to_hex(self.as_bytes());
-        let fmtstr = format!("{}:{}", hexstr.len(), hexstr);
-        return fmtstr.into_bytes();
-    }
-}
-
-impl ConsensusField for ConsensusHash {
-    fn consensus_serialize(&self) -> Vec<u8> {
-        let hexstr = to_hex(self.as_bytes());
-        let fmtstr = format!("{}:{}", hexstr.len(), hexstr);
-        return fmtstr.into_bytes();
-    }
-}
-
-impl ConsensusField for BitcoinAddress {
-    fn consensus_serialize(&self) -> Vec<u8> {
-        let b58addr = self.to_b58();
-        let fmtstr = format!("{}:{}", b58addr.len(), b58addr);
-        return fmtstr.into_bytes();
-    }
 }

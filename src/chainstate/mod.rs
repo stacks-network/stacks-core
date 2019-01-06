@@ -19,3 +19,20 @@
 
 pub mod db;
 pub mod operations;
+
+pub struct ConsensusHash([u8; 16]);
+impl_array_newtype!(ConsensusHash, u8, 16);
+impl_array_hexstring_fmt!(ConsensusHash);
+impl_byte_array_newtype!(ConsensusHash, u8, 16);
+
+pub struct BlockHeaderHash([u8; 32]);
+impl_array_newtype!(BlockHeaderHash, u8, 32);
+impl_array_hexstring_fmt!(BlockHeaderHash);
+impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
+
+pub struct VRFSeed([u8; 32]);
+impl_array_newtype!(VRFSeed, u8, 32);
+impl_array_hexstring_fmt!(VRFSeed);
+impl_byte_array_newtype!(VRFSeed, u8, 32);
+
+pub const CHAINSTATE_VERSION: &'static str = "21.0.0.0";
