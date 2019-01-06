@@ -679,6 +679,7 @@ mod tests {
                 txstr: "02000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0502b7020101ffffffff024023b71200000000232103ecfa5bcaa0d2b7dd3a705342be2e144f66293be99488c8e5c9bc3d843036f1bfac0000000000000000266a24aa21a9ed620a2609f2f58ea62134d1c54bf73cb6e0cf194cfbdf25ae32b55dd167ee64bb00000000".to_owned(),
                 result: None
             },
+            // TODO: add more transactions with non-standard scripts that we don't care about
         ];
 
         let parser = BitcoinBlockParser::new(BitcoinNetworkType::testnet, MagicBytes([105, 100]));   // "id"

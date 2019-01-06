@@ -29,11 +29,6 @@ use crypto::digest::Digest;
 
 use util::hash::hex_bytes;
 
-pub struct ConsensusHash([u8; 16]);
-impl_array_newtype!(ConsensusHash, u8, 16);
-impl_array_hexstring_fmt!(ConsensusHash);
-impl_byte_array_newtype!(ConsensusHash, u8, 16);
-
 pub struct Txid([u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
 impl_array_hexstring_fmt!(Txid);
@@ -66,6 +61,7 @@ impl Hash160 {
 }
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
+
 pub struct MagicBytes([u8; MAGIC_BYTES_LENGTH]);
 impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 
@@ -80,22 +76,24 @@ pub trait Address {
     fn to_bytes(&self) -> Vec<u8>;
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BurnchainTxOutput<A: Address> {
     pub address: A,
     pub units: u64
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BurnchainTxInput<K: PublicKey> {
     pub keys: Vec<K>,
     pub num_required: usize,
+
+    // TODO: these can be removed if we're never going to use them
     pub sender_scriptpubkey: Vec<u8>,             // LEGACY: required for consensus in Bitcoin for some operations -- this is the sender's deduced scriptpubkey (derived from the transaction scriptsig)
     pub sender_pubkey: Option<K>                  // LEGACY: required for consensus in Bitcoin for some operations -- this is the sender's public key extracted from the scriptsig (but only if this spends a p2pkh)
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BurnchainTransaction<A: Address, K: PublicKey> {
     pub txid: Txid,
     pub vtxindex: u64,
@@ -105,7 +103,7 @@ pub struct BurnchainTransaction<A: Address, K: PublicKey> {
     pub outputs: Vec<BurnchainTxOutput<A>>
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BurnchainBlock<A: Address, K: PublicKey> {
     pub block_height: u64,
     pub block_hash: BlockHash,
