@@ -228,6 +228,18 @@ macro_rules! impl_byte_array_newtype {
                 }
             }
 
+            /// Instantiates from a (little-endian) slice of bytes 
+            pub fn from_bytes(inp: &[u8]) -> Option<$thing> {
+                match inp.len() {
+                    $len => {
+                        let mut ret = [0; $len];
+                        ret.copy_from_slice(inp);
+                        Some($thing(ret))
+                    },
+                    _ => None
+                }
+            }
+
             /// Instantiates from a (little-endian) vector of bytes
             pub fn from_vec(inp: &Vec<u8>) -> Option<$thing> {
                 match inp.len() {
