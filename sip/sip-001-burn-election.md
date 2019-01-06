@@ -380,6 +380,8 @@ all chain tips).  The next block is determined with the following algorithm:
 
 ```python
 # inputs:
+#   * BLOCK_HEADER -- the burn chain block header, which contains the PoW nonce
+# 
 #   * BURNS -- a mapping from public keys to burn amounts and block hashes,
 #              generated from the valid set of commit & burn transaction pairs.
 # 
@@ -394,10 +396,13 @@ all chain tips).  The next block is determined with the following algorithm:
 #   * BLOCK_HASH -- the winning block hash 
 #   * NEW_SEED -- the new public seed
 
-def make_distribution(BURNS):
+def make_distribution(BURNS, BLOCK_HEADER):
    DISTRIBUTION = []
    BURN_OFFSET = 0
-   for (PUBKEY, (BURN_AMOUNT, BLOCK_HASH)) in sorted(BURNS.items()):
+   BURN_ORDER = dict([(hash(PUBKEY + BLOCK_HEADER.nonce), 
+                       (PUBKEY, BURN_AMOUNT, BLOCK_HASH))
+                      for (PUBKEY, (BURN_AMOUNT, BLOCK_HASH)) in BURNS.items()])
+   for (_, (PUBKEY, BURN_AMOUNT, BLOCK_HASH)) in sorted(BURN_ORDER.items()):
       DISTRIBUTION.append((BURN_OFFSET, PUBKEY, BLOCK_HASH))
       BURN_OFFSET += BURN_AMOUNT
    return DISTRIBUTION
@@ -421,7 +426,12 @@ Only one leader will win an election.  It is not guaranteed that the block the
 leader produces is valid or builds off of the best Stacks fork.  However,
 once a leader is elected, all peers will know enough information about the
 leader's decisions that the block data can be submitted and relayed by any other
-peer in the network.
+peer in the network.  Crucially, the winner of the sortition will be apparent to
+any peer without each candidate needing to submit their blocks beforehand.
+
+The distribution is sampled using the _previous VRF seed_ and the _current block
+PoW solution_.  This ensures that no one -- not even the PoW miner -- knows
+which public key in the burn distribution will be selected with the PoW seed.
 
 Leaders can make their burn chain transactions and
 construct their blocks however they want.  So long as the burn chain transactions
@@ -470,6 +480,14 @@ At the same time, it is unlikely that there will be epochs
 without a valid block being produced, because (1) attempting to produce a block
 is costly and (2) users can easily form burning pools to advance the
 state of the Stacks chain even if the "usual" leaders go offline.
+
+As an added security measure, the distribution into which the previous epoch's
+VRF seed will index will be randomly structured using the VRF seed and the PoW
+nonce.  This dissuades PoW miners from omitting or including burn transactions
+in order to influence where the VRF seed will index into the weight
+distribution.  Since the PoW miner is not expected to be able
+to generate more than one PoW nonce per epoch, the burn chain miners won't know
+in advance which leader will be elected.
 
 # Operation as a leader
 
