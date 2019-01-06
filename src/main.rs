@@ -24,6 +24,11 @@ extern crate jsonrpc;
 extern crate secp256k1;
 extern crate serde;
 extern crate crypto;
+extern crate rusqlite;
+extern crate curve25519_dalek;
+extern crate ed25519_dalek;
+extern crate sha2;
+
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate log;
 
