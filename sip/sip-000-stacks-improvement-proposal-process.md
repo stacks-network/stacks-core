@@ -18,10 +18,10 @@ Stacks improvement proposals (SIP) are documented design proposals aimed at impr
 **SIP Workflow & States**
 
 Draft → Proposed → Final/Active → Obsolete
- |
- |--------------|--------------|
-↓                  ↓                   ↓                 
-Deferred      Rejected       Withdrawn
+|
+|--------------|--------------|
+↓              ↓              ↓                 
+Deferred    Rejected      Withdrawn
 
 **Draft**
 SIP drafts should be submitted as pull requests to the Blockstack core repository. In this state, further changes can be made. Once a member of the core developer committee has reviewed the SIP and determined that there is support in the community, a SIP number will be assigned. You should not self-assign a SIP number. A core developer reviews the draft for quality and ensure guidelines have been followed. 
