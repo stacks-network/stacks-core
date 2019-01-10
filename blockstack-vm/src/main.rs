@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 pub struct SymbolicExpression {
     value: String,
     children: Option<Box<[SymbolicExpression]>>
@@ -7,13 +9,8 @@ pub struct Contract {
     content: Box<[SymbolicExpression]>
 }
 
-pub struct IntValueType (u64);
-
-pub struct BoolValueType (bool);
-
-pub struct BufferType (Box<[char]>);
-
 #[derive(Debug)]
+#[derive(Clone)]
 pub enum ValueType {
     IntType(u64),
     BoolType(bool),
@@ -23,7 +20,27 @@ pub enum ValueType {
     BufferListType(Vec<Box<[char]>>)
 }
 
-fn parse_integer(value: &ValueType) -> u64 {
+pub struct Context <'a> {
+    parent: Option< &'a Context<'a>>,
+    variables: HashMap<String, ValueType>,
+    functions: HashMap<String, Box<Fn(&[ValueType]) -> ValueType>>
+}
+
+impl <'a> Context <'a> {
+    fn lookup_variable(&self, name: &str) -> Option<ValueType> {
+        match self.variables.get(name) {
+            Some(value) => Option::Some((*value).clone()),
+            None => {
+                match self.parent {
+                    Some(parent) => parent.lookup_variable(name),
+                    None => Option::None
+                }
+            }
+        }
+    }
+}
+
+fn type_force_integer(value: &ValueType) -> u64 {
     match *value {
         ValueType::IntType(int) => int,
         _ => panic!("Not an integer")
@@ -31,12 +48,12 @@ fn parse_integer(value: &ValueType) -> u64 {
 }
 
 fn native_add(args: &[ValueType]) -> ValueType {
-    let parsed_args = args.iter().map(|x| parse_integer(x));
+    let parsed_args = args.iter().map(|x| type_force_integer(x));
     let result = parsed_args.fold(0, |acc, x| acc + x);
     ValueType::IntType(result)
 }
 
-fn lookup_variable(name: &str) -> ValueType {
+fn lookup_variable(name: &str, context: &Context) -> ValueType {
     // first off, are we talking about a constant?
     if name.starts_with(char::is_numeric) {
         match u64::from_str_radix(name, 10) {
@@ -44,7 +61,10 @@ fn lookup_variable(name: &str) -> ValueType {
             Err(_e) => panic!("Failed to parse!")
         }
     } else {
-        panic!("Not implemented");
+        match context.lookup_variable(name) {
+            Some(value) => value,
+            None => panic!("No such variable found in context")
+        }
     }
 }
 
@@ -55,18 +75,18 @@ fn lookup_function(name: &str)-> fn(&[ValueType]) -> ValueType {
     }
 }
 
-fn apply<F>(function: &F, args: &[SymbolicExpression]) -> ValueType
+fn apply<F>(function: &F, args: &[SymbolicExpression], context: &Context) -> ValueType
     where F: Fn(&[ValueType]) -> ValueType {
-    let evaluated_args: Vec<ValueType> = args.iter().map(|x| eval(x)).collect();
+    let evaluated_args: Vec<ValueType> = args.iter().map(|x| eval(x, context)).collect();
     function(&evaluated_args)
 }
 
-fn eval(exp: &SymbolicExpression) -> ValueType {
+fn eval(exp: &SymbolicExpression, context: &Context) -> ValueType {
     match exp.children {
-        None => lookup_variable(&exp.value),
+        None => lookup_variable(&exp.value, context),
         Some(ref children) => {
             let f = lookup_function(&exp.value);
-            apply(&f, &children)
+            apply(&f, &children, context)
         }
     }
 }
@@ -76,8 +96,15 @@ fn main() {
                                          children:
                                          Some(Box::new([ SymbolicExpression { value: "1".to_string(),
                                                                               children: None },
-                                                         SymbolicExpression { value: "1".to_string(),
+                                                         SymbolicExpression { value: "a".to_string(),
                                                                               children: None } ])) } ];
 //    let contract = Contract { content: Box::new(content) } ;
-    println!("{:?}", eval(&content[0]));
+    let mut context = Context {
+        parent: Option::None,
+        variables: HashMap::new(),
+        functions: HashMap::new() };
+
+    context.variables.insert("a".to_string(), ValueType::IntType(63));
+
+    println!("{:?}", eval(&content[0], &context));
 }
