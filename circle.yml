@@ -8,10 +8,10 @@ jobs:
       - checkout
       - run:
           command: |
-            cargo build
+            cd blockstack-vm && cargo build
       - run:
           environment:
             RUST_BACKTRACE: 1
             BLOCKSTACK_DEBUG: 1
           command: |
-            cargo test -- --nocapture --test-threads=1
+            cd blockstack-vm && cargo test -- --nocapture --test-threads=1
