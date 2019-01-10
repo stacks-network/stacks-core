@@ -23,20 +23,20 @@ pub enum ValueType {
     BufferListType(Vec<Box<[char]>>)
 }
 
-fn parseInteger(value: &ValueType) -> u64 {
+fn parse_integer(value: &ValueType) -> u64 {
     match *value {
         ValueType::IntType(int) => int,
         _ => panic!("Not an integer")
     }
 }
 
-fn nativeAdd(args: &[ValueType]) -> ValueType {
-    let parsedArgs = args.iter().map(|x| parseInteger(x));
-    let result = parsedArgs.fold(0, |acc, x| acc + x);
+fn native_add(args: &[ValueType]) -> ValueType {
+    let parsed_args = args.iter().map(|x| parse_integer(x));
+    let result = parsed_args.fold(0, |acc, x| acc + x);
     ValueType::IntType(result)
 }
 
-fn lookupVariable(name: &str) -> ValueType {
+fn lookup_variable(name: &str) -> ValueType {
     // first off, are we talking about a constant?
     if name.starts_with(char::is_numeric) {
         match u64::from_str_radix(name, 10) {
@@ -48,24 +48,24 @@ fn lookupVariable(name: &str) -> ValueType {
     }
 }
 
-fn lookupFunction(name: &str)-> fn(&[ValueType]) -> ValueType {
+fn lookup_function(name: &str)-> fn(&[ValueType]) -> ValueType {
     match name {
-        "+" => nativeAdd,
+        "+" => native_add,
         _ => panic!("Crash and burn")
     }
 }
 
 fn apply<F>(function: &F, args: &[SymbolicExpression]) -> ValueType
     where F: Fn(&[ValueType]) -> ValueType {
-    let evaluatedArgs: Vec<ValueType> = args.iter().map(|x| eval(x)).collect();
-    function(&evaluatedArgs)
+    let evaluated_args: Vec<ValueType> = args.iter().map(|x| eval(x)).collect();
+    function(&evaluated_args)
 }
 
 fn eval(exp: &SymbolicExpression) -> ValueType {
     match exp.children {
-        None => lookupVariable(&exp.value),
+        None => lookup_variable(&exp.value),
         Some(ref children) => {
-            let f = lookupFunction(&exp.value);
+            let f = lookup_function(&exp.value);
             apply(&f, &children)
         }
     }
