@@ -6,6 +6,7 @@ use super::eval;
 #[derive(Clone)]
 #[derive(PartialEq)]
 pub enum ValueType {
+    VoidType,
     IntType(u64),
     BoolType(bool),
     BufferType(Box<[char]>),
@@ -16,7 +17,8 @@ pub enum ValueType {
 
 pub enum CallableType <'a> {
     UserFunction(Box<DefinedFunction>),
-    NativeFunction(&'a Fn(&[ValueType]) -> ValueType)
+    NativeFunction(&'a Fn(&[ValueType]) -> ValueType),
+    SpecialFunction(&'a Fn(&[SymbolicExpression], &Context) -> ValueType)
 }
 
 #[derive(Clone)]
