@@ -4,6 +4,7 @@ use super::eval;
 
 #[derive(Debug)]
 #[derive(Clone)]
+#[derive(PartialEq)]
 pub enum ValueType {
     IntType(u64),
     BoolType(bool),

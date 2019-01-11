@@ -1,4 +1,11 @@
-extern crate blockstack_vm
+extern crate blockstack_vm;
+
+use std::collections::HashMap;
+use blockstack_vm::eval;
+use blockstack_vm::Context;
+use blockstack_vm::types::ValueType;
+use blockstack_vm::types::DefinedFunction;
+use blockstack_vm::representations::SymbolicExpression;
 
 
 #[test]
@@ -26,6 +33,6 @@ fn main() {
     context.variables.insert("a".to_string(), ValueType::IntType(59));
     context.functions.insert("do_work".to_string(), user_function);
 
-    println!("{:?}", eval(&content[0], &context));
+    assert_eq!(ValueType::IntType(64), eval(&content[0], &context));
 }
 

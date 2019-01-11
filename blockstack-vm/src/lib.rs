@@ -1,5 +1,5 @@
-mod types;
-mod representations;
+pub mod types;
+pub mod representations;
 
 use std::collections::HashMap;
 use types::ValueType;
@@ -15,9 +15,9 @@ fn type_force_integer(value: &ValueType) -> u64 {
 }
 
 pub struct Context <'a> {
-    parent: Option< &'a Context<'a>>,
-    variables: HashMap<String, ValueType>,
-    functions: HashMap<String, Box<DefinedFunction>>
+    pub parent: Option< &'a Context<'a>>,
+    pub variables: HashMap<String, ValueType>,
+    pub functions: HashMap<String, Box<DefinedFunction>>
 }
 
 impl <'a> Context <'a> {
