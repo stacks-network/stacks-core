@@ -1,30 +1,17 @@
+mod types;
+mod representations;
+
 use std::collections::HashMap;
+use types::ValueType;
+use types::CallableType;
+use types::DefinedFunction;
+use representations::SymbolicExpression;
 
-
-#[derive(Clone)]
-pub struct SymbolicExpression {
-    value: String,
-    children: Option<Box<[SymbolicExpression]>>
-}
-
-pub struct Contract {
-    content: Box<[SymbolicExpression]>
-}
-
-#[derive(Debug)]
-#[derive(Clone)]
-pub enum ValueType {
-    IntType(u64),
-    BoolType(bool),
-    BufferType(Box<[char]>),
-    IntListType(Vec<u64>),
-    BoolListType(Vec<bool>),
-    BufferListType(Vec<Box<[char]>>)
-}
-
-pub enum CallableType <'a> {
-    UserFunction(Box<DefinedFunction>),
-    NativeFunction(&'a Fn(&[ValueType]) -> ValueType)
+fn type_force_integer(value: &ValueType) -> u64 {
+    match *value {
+        ValueType::IntType(int) => int,
+        _ => panic!("Not an integer")
+    }
 }
 
 pub struct Context <'a> {
@@ -64,34 +51,6 @@ impl <'a> Context <'a> {
                 }
             }
         }
-    }
-}
-
-#[derive(Clone)]
-pub struct DefinedFunction {
-    arguments: Vec<String>,
-    body: SymbolicExpression
-}
-
-
-impl DefinedFunction {
-    fn apply(&self, args: &[ValueType]) -> ValueType {
-        let mut context = Context::new();
-        let arg_iterator = self.arguments.iter().zip(args.iter());
-        arg_iterator.for_each(|(arg, value)| {
-            match context.variables.insert((*arg).clone(), (*value).clone()) {
-                Some(_val) => panic!("Multiply defined function argument."),
-                _ => ()
-            }
-        });
-        eval(&self.body, &context) 
-    }
-}
-
-fn type_force_integer(value: &ValueType) -> u64 {
-    match *value {
-        ValueType::IntType(int) => int,
-        _ => panic!("Not an integer")
     }
 }
 
@@ -146,31 +105,4 @@ pub fn eval(exp: &SymbolicExpression, context: &Context) -> ValueType {
             apply(f, &children, context)
         }
     }
-}
-
-fn main() {
-    let content = [ SymbolicExpression { value: "do_work".to_string(),
-                                         children:
-                                         Some(Box::new([ SymbolicExpression { value: "a".to_string(),
-                                                                              children: None } ])) } ];
-    let func_body = SymbolicExpression { value: "+".to_string(),
-                                         children:
-                                         Some(Box::new([ SymbolicExpression { value: "5".to_string(),
-                                                                              children: None },
-                                                         SymbolicExpression { value: "x".to_string(),
-                                                                              children: None }])) };
-    let func_args = vec!["x".to_string()];
-    let user_function = Box::new(DefinedFunction { body: func_body,
-                                                   arguments: func_args });
-
-//    let contract = Contract { content: Box::new(content) } ;
-    let mut context = Context {
-        parent: Option::None,
-        variables: HashMap::new(),
-        functions: HashMap::new() };
-
-    context.variables.insert("a".to_string(), ValueType::IntType(59));
-    context.functions.insert("do_work".to_string(), user_function);
-
-    println!("{:?}", eval(&content[0], &context));
 }
