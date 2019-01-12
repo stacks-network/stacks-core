@@ -894,10 +894,8 @@ opposed to the amount of burn required for the _election_ of block _N_).
 
 This fork choice rule means that the best fork is the _longest valid_ fork.
 This fork has the most valid blocks available of all forks, and over time will have the
-highest cumulative proof-of-burn of all forks.  This is
-because a fork that has the most consecutive blocks will, with high probability,
-be produced by a succession of correct leaders who at the time of their election
-are selected from the set of candidates backed by the majority of the burn rate.
+highest cumulative proof-of-burn of all forks (but is not guaranteed to be the
+chain with the most cumulative burns at all times). 
 
 Using chain length as the fork choice rule makes it time-consuming for alternative forks to
 overtake the "canonical" fork, no matter how much burn capacity they have.
@@ -921,37 +919,41 @@ to be relatively stable and to usually make forward progress.
 
 ## Burn Window
 
-The rate at which the burn tokens are destroyed for proof-of-burn mining
-will fluctuate over time.  This affects the ease at which a
-"deep fork" can be executed:
+The fork choice rule effectively menas that in order to produce a fork that is
+_h_ blocks deep, the majority of leaders must spend _O(h)_ epochs producing it.
+However, the rate at which burn tokens are destroyed effects how easy or expensive it is
+to carry out a deep fork.  If the rate fluctuates both drastically and
+suddenly, a few well-placed leaders can carry out a deep fork before the rest of
+the network has a chance to react to it:
 
-* If the burn rate increases too quickly, then a few rich leaders can quickly dominate the
-  sortition process (and rewards) and effectively take over the chain before other
-participants have had a chance to react.  A set of rich leaders could burn a
-large amount of burn tokens to produce an alternative fork in only a few rounds (on the order of the
-depth of the fork) and maintain it as long as they have at least 51% of the burn
-capacity.   Also, if there are too many commitment
-transactions or burn transactions in the burn chain mempool, a "burn collapse"
-event can result whereby a legitimate commitment transaction is prevented from
-being mined and the Stacks blockchain stalls for the epoch.
+* A few rich leaders can quickly dominate the
+  sortition process (and rewards) by suddenly increasing their burn rate,
+ and effectively take over the chain before other
+participants have had a chance to react.
 
-* If the burn rate decreases too quickly, then it makes it easy for opportunistic attackers to
-  cheaply produce an alternative fork before honest participants can react.  In particular, 
-an opportunistic fork coalition can create a deep fork in only a few rounds in a
-similar manner described above.
+* A few high-burn leaders can all stop burning at the same time, leading to
+a sudden decrease in the burn rate.  This would make it easy for opportunistic attackers to
+  cheaply produce an alternative fork before honest participants can react.
 
-In order to increase the time it takes to execute a deep fork under these
-circumstances (i.e. to give the network's participants a chance to react),
-the Stacks blockchain implements a "burn window" whereby it
+In order to give the network a chance to react to sudden increases or decreases
+in burn rate, the Stacks blockchain "smooths out" its measured burn rate.  To do
+so, it implements a "burn window" whereby it
 decides how much cryptocurrency all participants must destroy in order for 
 *any* leaders to be selected (regardless of which chain tip).
 This measurement includes **all** block commitments and **all** user burns --
 even well-formed burns for otherwise invalid or missing blocks.
 
-The burn window is measured over a variable-length sequence of epochs and has a "burn quota"
-that must be met before a leader can be elected.  The burn quota determines how
+The purpose of the burn window is to ensure that a deep fork takes _O(h + d)_
+epochs to create, where _d_ is a function of the rate at which the burn rates
+change.  Higher burn rate fluctuations make it so a deep fork takes longer to
+carry out.
+
+The burn window is measured over a variable-length sequence of epochs, and is used
+to calculate a "burn quota."  The burn quota is used to (1) determine how
 much cryptocurrency must be burned in all epochs in the window in order for the
-next sortition to occur.  The burn quota is controlled via a negative feedback loop, whereby
+next sortition to occur, and (2) cap the maximum amount of cryptcurrency
+that will be accepted for a block built on a non-canonical fork.
+The burn quota is controlled via a negative feedback loop, whereby
 the burn quota is additively increased with excessive burns and
 multiplicatively decreased in the absence of burns.  The Stacks
 blockchain tracks an average burns/window value to determine which action to
@@ -980,7 +982,7 @@ If the cryptocurrency burn rate remains stable -- that is, the average
 burn/block ratio stays between the value at which the burn quota decreases
 and the value at which the burn quota increases, then no adjustment takes place.
 
-## Effects on sortition
+## Effects on forks
 
 In normal operation, tracking a burn window enables a set of leader candidates to
 burn cryptocurrency units at a rate that is about the market rate for Stacks
@@ -997,7 +999,7 @@ of the current seed and the burn block header's hash.  As argued earlier, this
 ensures that the next election, when it occurs, will be unbiased.
 
 Under adversarial conditions where multiple forks are competing, the burn window
-gives the sortition algorithm a way to prevent a rich coalition from quickly taking
+is used to prevent a rich coalition from quickly taking
 control of the sortition algorithm.  This occurs in two ways.  First, if an _individual chain tip_ accumulates a
 protocol-defined "high" fraction of the average burn/block ratio, then its
 associated weight in the sortition algorithm is capped.  Second, if the _total burn_ exceeds
@@ -1012,10 +1014,9 @@ This gives the rest of the network time to react to it -- the burn quota can be
 made to increase slowly, so a rich coalition would need to work on the
 alternative fork for days or even weeks.
 
-At the same time, the burn window gives the sortition algorithm the ability to
-filter out burns that are too small -- i.e. burns that are smaller than a
-"low" fraction of the average burn/block ratio.  Filtering out low burns
-serves two purposes:  ensuring that "spam attacks" are not profitable, and
+At the same time, the burn window is used to filter out burns that are too small
+-- i.e. burns that are smaller than a "low" fraction of the average burn/block ratio. 
+Filtering out low burns serves two purposes:  ensuring that "spam attacks" are not profitable, and
 discouraging the conditions that lead to a "burn collapse."  Regarding spam
 attacks, filtering out low burns ensures that leaders of forks with very little 
 burn support have zero chance of being selected by the sortition algorithm.  This prevents
