@@ -38,6 +38,8 @@ use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
 
 use bitcoin::network::constants as bitcoin_constants;
 
+use dirs;
+
 pub const USER_AGENT: &'static str = "Blockstack Core v21";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +105,7 @@ pub struct BitcoinIndexer {
 
 impl BitcoinIndexerConfig {
     fn default() -> BitcoinIndexerConfig {
-        let mut spv_headers_path = env::home_dir().unwrap();
+        let mut spv_headers_path = dirs::home_dir().unwrap();
         spv_headers_path.push(".blockstack-core");
         spv_headers_path.push("bitcoin-spv-headers.dat");
 
