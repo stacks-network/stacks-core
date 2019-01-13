@@ -28,6 +28,7 @@ extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
 extern crate sha2;
+extern crate dirs;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate log;

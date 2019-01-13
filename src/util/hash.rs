@@ -45,5 +45,5 @@ pub fn hex_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
 /// Convert a slice of u8 to a hex string
 pub fn to_hex(s: &[u8]) -> String {
     let r : Vec<String> = s.to_vec().iter().map(|b| format!("{:02x}", b)).collect();
-    return r.connect("");
+    return r.join("");
 }
