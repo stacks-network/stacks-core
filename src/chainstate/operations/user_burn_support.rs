@@ -52,13 +52,13 @@ pub struct UserBurnSupportOp {
 }
 
 impl UserBurnSupportOp {
-    fn parse_data(data: &Vec<u8>) -> Option<(ConsensusHash, VRFPublicKey, Vec<u8>)> {
+    fn parse_data(data: &Vec<u8>) -> Option<(ConsensusHash, VRFPublicKey, Hash160, Vec<u8>)> {
         /*
             Wire format:
 
             0      2  3              19                       51                 71       80
             |------|--|---------------|-----------------------|------------------|--------|
-             magic  op consensus hash    proving public key       block hash        memo
+             magic  op consensus hash    proving public key       block hash 160    memo
 
             
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
@@ -71,10 +71,10 @@ impl UserBurnSupportOp {
 
         let consensus_hash = ConsensusHash::from_vec(&data[0..16].to_vec()).unwrap();
         let pubkey = VRFPublicKey::from_bytes(&data[16..48]).unwrap();
-        let block_header_hash_160 = BlockHeaderHash::from_bytes(&data[48..68]).unwrap();
-        let memo = &data[58..];
+        let block_header_hash_160 = Hash160::from_vec(&data[48..68].to_vec()).unwrap();
+        let memo = data[58..].to_vec();
 
-        return Some((consensus_hash, pubkey, block_header_hash_160, memo.to_vec()));
+        return Some((consensus_hash, pubkey, block_header_hash_160, memo));
     }
 
     pub fn from_bitcoin_tx(network_id: BitcoinNetworkType, block_height: u64, tx: &BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>) -> Result<UserBurnSupportOp, op_error> {
@@ -140,7 +140,7 @@ mod tests {
 
     struct OpFixture {
         txstr: String,
-        result: Option<LeaderKeyRegisterOp>
+        result: Option<UserBurnSupportOp>
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
@@ -164,7 +164,7 @@ mod tests {
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize).unwrap();
-            let op = LeaderKeyRegisterOp::from_tx(BitcoinNetworkType::testnet, block_height, &burnchain_tx);
+            let op = UserBurnSupportOp::from_bitcoin_tx(BitcoinNetworkType::testnet, block_height, &burnchain_tx);
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {

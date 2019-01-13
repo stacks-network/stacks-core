@@ -74,8 +74,8 @@ fn u32_from_be(bytes: &[u8]) -> Option<u32> {
 fn u16_from_be(bytes: &[u8]) -> Option<u16> {
     match bytes.len() {
         2 => {
-            Some(((bytes[0] as u16) +
-                 ((bytes[1] as u16) << 8)))
+            Some((bytes[0] as u16) +
+                ((bytes[1] as u16) << 8))
         },
         _ => None
     }
@@ -107,9 +107,9 @@ impl LeaderBlockCommitOp<BitcoinPublicKey> {
         let parent_vtxindex = u16_from_be(&data[68..70]).unwrap();
         let key_block_backptr = u32_from_be(&data[70..74]).unwrap();
         let key_vtxindex = u16_from_be(&data[74..76]).unwrap();
-        let memo = data[76..];
+        let memo = data[76..].to_vec();
 
-        Some((block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, memo.to_vec()))
+        Some((block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, memo))
     }
 
     pub fn from_bitcoin_tx(network_id: BitcoinNetworkType, block_height: u64, tx: &BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>) -> Result<LeaderBlockCommitOp< BitcoinPublicKey>, op_error> {
@@ -152,7 +152,7 @@ impl LeaderBlockCommitOp<BitcoinPublicKey> {
             memo: memo,
 
             burn_fee: burn_fee,
-            input: tx.inputs[0],
+            input: tx.inputs[0].clone(),
 
             op: OPCODE,
             txid: tx.txid.clone(),
@@ -196,7 +196,7 @@ mod tests {
 
     struct OpFixture {
         txstr: String,
-        result: Option<LeaderBlockCommitOp>
+        result: Option<LeaderBlockCommitOp<BitcoinPublicKey>>
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
@@ -212,15 +212,64 @@ mod tests {
 
         let vtxindex = 1;
         let block_height = 694;
+        let block_header_hash = hex_bytes("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let tx_fixtures: Vec<OpFixture> = vec![];
+        /*
+    block_header_hash: BlockHeaderHash, // hash of block header (double-sha256)
+    new_seed: VRFSeed,                  // new seed for this block
+    parent_block_backptr: u32,          // back-pointer to the block that contains the parent block hash 
+    parent_vtxindex: u16,               // offset in the parent block where the parent block hash can be found
+    key_block_backptr: u32,             // back-pointer to the block that contains the leader key registration 
+    key_vtxindex: u16,                  // offset in the block where the leader key can be found
+    memo: Vec<u8>,                      // extra unused byte
+
+    burn_fee: u64,                      // how many burn tokens (e.g. satoshis) were destroyed to produce this block
+    input: BurnchainTxInput<K>,         // burn chain keys that must match the key registration
+
+    // common to all transactions
+    op: u8,                             // bytecode describing the operation
+    txid: Txid,                         // transaction ID
+    vtxindex: u64,                      // index in the block where this tx occurs
+    block_number: u64,                  // block height at which this tx occurs
+         */
+        // TODO
+        let tx_fixtures: Vec<OpFixture> = vec![
+            OpFixture {
+                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100d38771c28947356386b073fc941998f08b64243813e5b581f1d3447955ddfe3802202189372ab1db5d899ddc33a4a9c53af099135d67121d693d8e9160b4c7f7686b0121027d2bfa0adc775fb0ce605d988eb1ecd14c59796029843463610344370aba162100000000030000000000000000526a4d69645b222222222222222222222222222222222222222222222222222222222222222233333333333333333333333333333333333333333333333333333333333333334444444455556666666677778839300000000000001976a914111111111111111111111111111111111111111188aca05b0000000000001976a9141eef6322b36626c5e4b79aae77f3b9e56dbefa5688ac00000000".to_string(),
+                result: Some(LeaderBlockCommitOp {
+                    block_header_hash: BlockHeaderHash::from_bytes(&block_header_hash[..]).unwrap(),
+                    new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
+                    parent_block_backptr: 1145324612,       // 0x44444444
+                    parent_vtxindex: 21845,                 // 0x5555
+                    key_block_backptr: 1717986918,          // 0x66666666
+                    key_vtxindex: 30583,                    // 0x7777
+                    memo: vec![136],                        // 0x88
+
+                    burn_fee: 12345,
+                    input: BurnchainTxInput {
+                        keys: vec![
+                            BitcoinPublicKey::from_hex("027d2bfa0adc775fb0ce605d988eb1ecd14c59796029843463610344370aba1621").unwrap(),
+                        ],
+                        num_required: 1,
+
+                        sender_scriptpubkey: hex_bytes("76a9141eef6322b36626c5e4b79aae77f3b9e56dbefa5688ac").unwrap().to_vec(),
+                        sender_pubkey: Some(BitcoinPublicKey::from_hex("027d2bfa0adc775fb0ce605d988eb1ecd14c59796029843463610344370aba1621").unwrap())
+                    },
+
+                    op: 93,     // '[' in ascii
+                    txid: Txid::from_bytes(&hex_bytes("1111111111111111111111111111111111111111111111111111111111111111").unwrap()).unwrap(),
+                    vtxindex: vtxindex,
+                    block_number: block_height
+                })
+            }
+        ];
 
         let parser = BitcoinBlockParser::new(BitcoinNetworkType::testnet, BLOCKSTACK_MAGIC_MAINNET);
 
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize).unwrap();
-            let op = LeaderBlockCommitOp::from_tx(BitcoinNetworkType::testnet, block_height, &burnchain_tx);
+            let op = LeaderBlockCommitOp::from_bitcoin_tx(BitcoinNetworkType::testnet, block_height, &burnchain_tx);
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {

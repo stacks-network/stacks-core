@@ -147,7 +147,7 @@ mod tests {
 
     struct OpFixture {
         txstr: String,
-        result: Option<LeaderKeyRegisterOp>
+        result: Option<LeaderKeyRegisterOp<BitcoinAddress>>
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
@@ -172,7 +172,7 @@ mod tests {
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize).unwrap();
-            let op = LeaderKeyRegisterOp::from_tx(BitcoinNetworkType::testnet, block_height, &burnchain_tx);
+            let op = LeaderKeyRegisterOp::from_bitcoin_tx(BitcoinNetworkType::testnet, block_height, &burnchain_tx);
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {

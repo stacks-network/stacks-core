@@ -119,17 +119,17 @@ pub struct BurnDB {
 }
 
 impl BurnDB {
-    fn instantiate(conn: &Connection) -> Result<(), db_error> {
+    fn instantiate(conn: &mut Connection) -> Result<(), db_error> {
         let tx = conn.transaction()
             .map_err(|e| db_error::SqliteError(e))?;
 
         for row_text in BURNDB_SETUP {
             debug!("{}", row_text);
-            conn.execute(row_text, NO_PARAMS)
+            tx.execute(row_text, NO_PARAMS)
                 .map_err(|e| db_error::SqliteError(e))?;
         }
 
-        let mut version_stmt = conn.prepare("INSERT INTO db_version (version) VALUES (?1)", &[&CHAINSTATE_VERSION as &ToSql])
+        tx.execute("INSERT INTO db_version (version) VALUES (?1)", &[&CHAINSTATE_VERSION])
             .map_err(|e| db_error::SqliteError(e))?;
 
         tx.commit();
@@ -159,12 +159,12 @@ impl BurnDB {
                 }
             };
 
-        let conn = Connection::open_with_flags(path, open_flags)
+        let mut conn = Connection::open_with_flags(path, open_flags)
             .map_err(|e| db_error::SqliteError(e))?;
 
         if create_flag {
             // instantiate!
-            BurnDB::instantiate(&conn)?;
+            BurnDB::instantiate(&mut conn)?;
         }
         Ok(BurnDB {
             conn: conn
