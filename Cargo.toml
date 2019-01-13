@@ -19,8 +19,12 @@ serde = "1"
 serde_derive = "1"
 secp256k1 = "0.11.5"
 rust-crypto = "0.2" 
-rusqlite = "0.15.0"
 sha2 = "0.8.0"
+dirs = "1.0.4"
+
+[dependencies.rusqlite]
+version = "0.15.0"
+# features = ["bundled"]
 
 [dependencies.ed25519-dalek]
 version = "1.0.0-pre.0"
