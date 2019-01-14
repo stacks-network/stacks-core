@@ -2,6 +2,7 @@ pub mod types;
 pub mod representations;
 
 mod functions;
+pub mod parser;
 
 use std::collections::HashMap;
 use types::ValueType;

@@ -7,6 +7,47 @@ use blockstack_vm::types::ValueType;
 use blockstack_vm::types::DefinedFunction;
 use blockstack_vm::representations::SymbolicExpression;
 
+#[test]
+fn test_simple_parse() {
+    let input = "(let ((x 1) (y 2))
+                      (+ x 
+                         (let ((x 3))
+                         (+ x y))     
+                         x))";
+    let program = SymbolicExpression::List(Box::new([
+        SymbolicExpression::Atom("let".to_string()),
+        SymbolicExpression::List(Box::new([
+            SymbolicExpression::List(Box::new([
+                SymbolicExpression::Atom("x".to_string()),
+                SymbolicExpression::Atom("1".to_string())])),
+            SymbolicExpression::List(Box::new([
+                SymbolicExpression::Atom("y".to_string()),
+                SymbolicExpression::Atom("2".to_string())]))])),
+        SymbolicExpression::List(Box::new([
+            SymbolicExpression::Atom("+".to_string()),
+            SymbolicExpression::Atom("x".to_string()),
+            SymbolicExpression::List(Box::new([
+                SymbolicExpression::Atom("let".to_string()),
+                SymbolicExpression::List(Box::new([
+                    SymbolicExpression::List(Box::new([
+                        SymbolicExpression::Atom("x".to_string()),
+                        SymbolicExpression::Atom("3".to_string())]))])),
+                SymbolicExpression::List(Box::new([
+                    SymbolicExpression::Atom("+".to_string()),
+                    SymbolicExpression::Atom("x".to_string()),
+                    SymbolicExpression::Atom("y".to_string())]))])),
+            SymbolicExpression::Atom("x".to_string())]))]));
+
+    if let Ok(lexed) = blockstack_vm::parser::lex(&input) {
+        if let Ok(parsed) = blockstack_vm::parser::parse_lexed(&lexed) {
+            assert_eq!(program, parsed[0], "Should match expected symbolic expression");
+        } else {
+            assert!(false, "Failed to parse input");
+        }
+    } else {
+        println!("Failed to lex!");
+    }
+}
 
 #[test]
 fn test_simple_user_function() {
@@ -51,6 +92,7 @@ fn test_simple_let() {
                  (+ x y))
            x))
     */
+
     let program = SymbolicExpression::List(Box::new([
         SymbolicExpression::Atom("let".to_string()),
         SymbolicExpression::List(Box::new([
