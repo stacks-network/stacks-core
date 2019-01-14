@@ -59,7 +59,7 @@ fn lookup_variable(name: &str, context: &Context) -> ValueType {
     } else {
         match context.lookup_variable(name) {
             Some(value) => value,
-            None => panic!("No such variable found in context")
+            None => panic!("No such variable found in context: {}", name)
         }
     }
 }
@@ -93,11 +93,20 @@ pub fn apply(function: CallableType, args: &[SymbolicExpression], context: &Cont
 }
 
 pub fn eval(exp: &SymbolicExpression, context: &Context) -> ValueType {
-    match exp.children {
-        None => lookup_variable(&exp.value, context),
-        Some(ref children) => {
-            let f = lookup_function(&exp.value, &context);
-            apply(f, &children, context)
+    match exp {
+        &SymbolicExpression::Atom(ref value) => lookup_variable(&value, context),
+        &SymbolicExpression::List(ref children) => {
+            if let Some((function_variable, rest)) = children.split_first() {
+                match function_variable {
+                    &SymbolicExpression::List(ref _children) => panic!("Attempt to evaluate to function. Illegal!"),
+                    &SymbolicExpression::Atom(ref value) => {
+                        let f = lookup_function(&value, &context);
+                        apply(f, &rest, context)
+                    }
+                }
+            } else {
+                ValueType::VoidType
+            }
         }
     }
 }

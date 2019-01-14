@@ -1,7 +1,7 @@
 #[derive(Clone)]
-pub struct SymbolicExpression {
-    pub value: String,
-    pub children: Option<Box<[SymbolicExpression]>>
+pub enum SymbolicExpression {
+    Atom(String),
+    List(Box<[SymbolicExpression]>)
 }
 
 pub struct Contract {

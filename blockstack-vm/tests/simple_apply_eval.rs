@@ -17,16 +17,15 @@ fn test_simple_user_function() {
     //  (do_work a)
     //
 
-    let content = [ SymbolicExpression { value: "do_work".to_string(),
-                                         children:
-                                         Some(Box::new([ SymbolicExpression { value: "a".to_string(),
-                                                                              children: None } ])) } ];
-    let func_body = SymbolicExpression { value: "+".to_string(),
-                                         children:
-                                         Some(Box::new([ SymbolicExpression { value: "5".to_string(),
-                                                                              children: None },
-                                                         SymbolicExpression { value: "x".to_string(),
-                                                                              children: None }])) };
+    let content = [ SymbolicExpression::List(
+        Box::new([ SymbolicExpression::Atom("do_work".to_string()),
+                   SymbolicExpression::Atom("a".to_string()) ])) ];
+
+    let func_body = SymbolicExpression::List(
+        Box::new([ SymbolicExpression::Atom("+".to_string()),
+                   SymbolicExpression::Atom("5".to_string()),
+                   SymbolicExpression::Atom("x".to_string())]));
+
     let func_args = vec!["x".to_string()];
     let user_function = Box::new(DefinedFunction { body: func_body,
                                                    arguments: func_args });
@@ -52,46 +51,35 @@ fn test_simple_if_functions() {
     //  (with_else 3)
     //  (without_else 3)
 
-    let evals = [ SymbolicExpression { value: "with_else".to_string(),
-                                       children:
-                                       Some(Box::new([ SymbolicExpression { value: "5".to_string(),
-                                                                            children: None } ])) },
-                  SymbolicExpression { value: "without_else".to_string(),
-                                       children:
-                                       Some(Box::new([ SymbolicExpression { value: "3".to_string(),
-                                                                            children: None } ])) },
-                  SymbolicExpression { value: "with_else".to_string(),
-                                       children:
-                                       Some(Box::new([ SymbolicExpression { value: "3".to_string(),
-                                                                            children: None } ])) } ];
+    let evals = [
+        SymbolicExpression::List(
+            Box::new([ SymbolicExpression::Atom("with_else".to_string()),
+                       SymbolicExpression::Atom("5".to_string()) ])),
+        SymbolicExpression::List(
+            Box::new([ SymbolicExpression::Atom("without_else".to_string()),
+                       SymbolicExpression::Atom("3".to_string()) ])),
+        SymbolicExpression::List(
+            Box::new([ SymbolicExpression::Atom("with_else".to_string()),
+                       SymbolicExpression::Atom("3".to_string()) ])) ];
 
-    let with_else = SymbolicExpression {
-        value: "if".to_string(),
-        children:
-        Some(Box::new([
-            SymbolicExpression {
-                value: "eq?".to_string(),
-                children:
-                Some(Box::new([ SymbolicExpression { value: "5".to_string(),
-                                                     children: None },
-                                SymbolicExpression { value: "x".to_string(),
-                                                     children: None }]))},
-            SymbolicExpression { value: "1".to_string(), children: None },
-            SymbolicExpression { value: "0".to_string(), children: None } ])) };
+    let with_else = SymbolicExpression::List(
+        Box::new([
+            SymbolicExpression::Atom("if".to_string()),
+            SymbolicExpression::List(
+                Box::new([ SymbolicExpression::Atom("eq?".to_string()),
+                           SymbolicExpression::Atom("5".to_string()),
+                           SymbolicExpression::Atom("x".to_string()) ])),
+            SymbolicExpression::Atom("1".to_string()),
+            SymbolicExpression::Atom("0".to_string()) ]));
 
-    let without_else = SymbolicExpression {
-        value: "if".to_string(),
-        children:
-        Some(Box::new([
-            SymbolicExpression {
-                value: "eq?".to_string(),
-                children:
-                Some(Box::new([ SymbolicExpression { value: "5".to_string(),
-                                                     children: None },
-                                SymbolicExpression { value: "x".to_string(),
-                                                     children: None }]))},
-            SymbolicExpression { value: "1".to_string(), children: None } ])) };
-
+    let without_else = SymbolicExpression::List(
+        Box::new([
+            SymbolicExpression::Atom("if".to_string()),
+            SymbolicExpression::List(
+                Box::new([ SymbolicExpression::Atom("eq?".to_string()),
+                           SymbolicExpression::Atom("5".to_string()),
+                           SymbolicExpression::Atom("x".to_string()) ])),
+            SymbolicExpression::Atom("1".to_string()) ]));
 
     let func_args1 = vec!["x".to_string()];
     let func_args2 = vec!["x".to_string()];
