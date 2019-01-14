@@ -42,6 +42,45 @@ fn test_simple_user_function() {
 }
 
 #[test]
+fn test_simple_let() {
+    /*
+      test program:
+      (let ((x 1) (y 2))
+        (+ x
+           (let ((x 3))
+                 (+ x y))
+           x))
+    */
+    let program = SymbolicExpression::List(Box::new([
+        SymbolicExpression::Atom("let".to_string()),
+        SymbolicExpression::List(Box::new([
+            SymbolicExpression::List(Box::new([
+                SymbolicExpression::Atom("x".to_string()),
+                SymbolicExpression::Atom("1".to_string())])),
+            SymbolicExpression::List(Box::new([
+                SymbolicExpression::Atom("y".to_string()),
+                SymbolicExpression::Atom("2".to_string())]))])),
+        SymbolicExpression::List(Box::new([
+            SymbolicExpression::Atom("+".to_string()),
+            SymbolicExpression::Atom("x".to_string()),
+            SymbolicExpression::List(Box::new([
+                SymbolicExpression::Atom("let".to_string()),
+                SymbolicExpression::List(Box::new([
+                    SymbolicExpression::List(Box::new([
+                        SymbolicExpression::Atom("x".to_string()),
+                        SymbolicExpression::Atom("3".to_string())]))])),
+                SymbolicExpression::List(Box::new([
+                    SymbolicExpression::Atom("+".to_string()),
+                    SymbolicExpression::Atom("x".to_string()),
+                    SymbolicExpression::Atom("y".to_string())]))])),
+            SymbolicExpression::Atom("x".to_string())]))]));
+
+    let context = Context::new();
+
+    assert_eq!(ValueType::IntType(7), eval(&program, &context));
+}
+
+#[test]
 fn test_simple_if_functions() {
     //
     //  test program:

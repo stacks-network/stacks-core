@@ -16,7 +16,7 @@ pub struct Context <'a> {
 }
 
 impl <'a> Context <'a> {
-    fn new() -> Context<'a> {
+    pub fn new() -> Context<'a> {
         Context { parent: Option::None,
                   variables: HashMap::new(),
                   functions: HashMap::new() }
