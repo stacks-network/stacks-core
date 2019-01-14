@@ -518,24 +518,18 @@ mod tests {
                                 BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
                             ],
                             num_required: 1,
-                            sender_pubkey: Some(BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap()),
-                            sender_scriptpubkey: hex_bytes("76a914395f3643cea07ec4eec73b4d9a973dcce56b9bf188ac").unwrap().to_vec()
                         },
                         BurnchainTxInput {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
                             ],
                             num_required: 1,
-                            sender_pubkey: Some(BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap()),
-                            sender_scriptpubkey: hex_bytes("76a914395f3643cea07ec4eec73b4d9a973dcce56b9bf188ac").unwrap().to_vec()
                         },
                         BurnchainTxInput {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("04c77f262dda02580d65c9069a8a34c56bd77325bba4110b693b90216f5a3edc0bebc8ce28d61aa86b414aa91ecb29823b11aeed06098fcd97fee4bc73d54b1e96").unwrap(),
                             ],
                             num_required: 1,
-                            sender_pubkey: Some(BitcoinPublicKey::from_hex("04c77f262dda02580d65c9069a8a34c56bd77325bba4110b693b90216f5a3edc0bebc8ce28d61aa86b414aa91ecb29823b11aeed06098fcd97fee4bc73d54b1e96").unwrap()),
-                            sender_scriptpubkey: hex_bytes("76a9149f2660e75380675206b6f1e2b4f106ae33266be488ac").unwrap().to_vec()
                         }
                     ],
                     outputs: vec![
@@ -566,8 +560,6 @@ mod tests {
                                 BitcoinPublicKey::from_hex("046fd8c7330fbe307a0fad0bf9472ca080f4941f4b6edea7ab090e3e26075e7277a0bd61f42eff54daf3e6141de46a98a5a8265c9e8d58bd1a86cf36d418788ab8").unwrap(),
                             ],
                             num_required: 2,
-                            sender_pubkey: None,
-                            sender_scriptpubkey: hex_bytes("a914eb1881fb0682c2eb37e478bf918525a2c61bc40487").unwrap().to_vec()
                         },
                         BurnchainTxInput {
                             keys: vec![
@@ -576,8 +568,6 @@ mod tests {
                                 BitcoinPublicKey::from_hex("044c9f30b4546c1f30087001fa6450e52c645bd49e91a18c9c16965b72f5153f0e4b04712218b42b2bc578017b471beaa7d8c0a9eb69174ad50714d7ef4117863d").unwrap(),
                             ],
                             num_required: 2,
-                            sender_pubkey: None,
-                            sender_scriptpubkey: hex_bytes("a914c26afc6cb80ca477c280780902b40cbef8cd804d87").unwrap().to_vec()
                         },
                     ],
                     outputs: vec![
@@ -606,8 +596,6 @@ mod tests {
                                 BitcoinPublicKey::from_hex("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap()
                             ],
                             num_required: 1,
-                            sender_pubkey: None,
-                            sender_scriptpubkey: hex_bytes("a91431f8968eb1730c83fb58409a9a560a0a0835027f87").unwrap().to_vec()
                         }
                     ],
                     outputs: vec![
@@ -638,8 +626,6 @@ mod tests {
                                 BitcoinPublicKey::from_hex("028791dc45c049107fb99e673265a38a096536aacdf78aa90710a32fff7750f9f9").unwrap()
                             ],
                             num_required: 2,
-                            sender_pubkey: None,
-                            sender_scriptpubkey: hex_bytes("a91487a0487869af70b6b1cc79bd374b75ba1be5cff987").unwrap().to_vec()
                         }
                     ],
                     outputs: vec![
@@ -714,8 +700,6 @@ mod tests {
                                         BitcoinPublicKey::from_hex("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: None,
-                                    sender_scriptpubkey: hex_bytes("a91431f8968eb1730c83fb58409a9a560a0a0835027f87").unwrap().to_vec()
                                 }
                             ],
                             outputs: vec![
@@ -753,8 +737,6 @@ mod tests {
                                         BitcoinPublicKey::from_hex("03d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: Some(BitcoinPublicKey::from_hex("03d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3").unwrap()),
-                                    sender_scriptpubkey: hex_bytes("76a91474178497e927ff3ff1428a241be454d393c3c91c88ac").unwrap().to_vec()
                                 }
                             ],
                             outputs: vec![
@@ -780,8 +762,6 @@ mod tests {
                                         BitcoinPublicKey::from_hex("04ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: Some(BitcoinPublicKey::from_hex("04ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385").unwrap()),
-                                    sender_scriptpubkey: hex_bytes("76a91441a349571d89decfac52ffecd92300b6a97b284188ac").unwrap().to_vec()
                                 }
                             ],
                             outputs: vec![
@@ -807,8 +787,6 @@ mod tests {
                                         BitcoinPublicKey::from_hex("0479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: Some(BitcoinPublicKey::from_hex("0479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637").unwrap()),
-                                    sender_scriptpubkey: hex_bytes("76a914e1762290e3f035ea4e7f8cbf72a9d9386c4020ab88ac").unwrap().to_vec()
                                 }
                             ],
                             outputs: vec![
@@ -834,8 +812,6 @@ mod tests {
                                         BitcoinPublicKey::from_hex("04447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebc").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: Some(BitcoinPublicKey::from_hex("04447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebc").unwrap()),
-                                    sender_scriptpubkey: hex_bytes("76a914f3c49407d41b82f30636f5180718bb658ce7fe9488ac").unwrap().to_vec()
                                 }
                             ],
                             outputs: vec![
@@ -861,8 +837,6 @@ mod tests {
                                         BitcoinPublicKey::from_hex("04a96a8355b6c3597bb9425c2ef264ab8179ca8acd3032b62980d2067261b37666b66510983e6d60d49bbd28129f0bae4dbcaa97c2bc61a6b2e48ca1625ce81335").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: Some(BitcoinPublicKey::from_hex("04a96a8355b6c3597bb9425c2ef264ab8179ca8acd3032b62980d2067261b37666b66510983e6d60d49bbd28129f0bae4dbcaa97c2bc61a6b2e48ca1625ce81335").unwrap()),
-                                    sender_scriptpubkey: hex_bytes("76a914afc75a8f8fbcb922248a663dec927b33dccaed3788ac").unwrap().to_vec()
                                 }
                             ],
                             outputs: vec![

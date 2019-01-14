@@ -86,10 +86,6 @@ pub struct BurnchainTxOutput<A: Address> {
 pub struct BurnchainTxInput<K: PublicKey> {
     pub keys: Vec<K>,
     pub num_required: usize,
-
-    // TODO: these can be removed if we're never going to use them
-    pub sender_scriptpubkey: Vec<u8>,             // LEGACY: required for consensus in Bitcoin for some operations -- this is the sender's deduced scriptpubkey (derived from the transaction scriptsig)
-    pub sender_pubkey: Option<K>                  // LEGACY: required for consensus in Bitcoin for some operations -- this is the sender's public key extracted from the scriptsig (but only if this spends a p2pkh)
 }
 
 
