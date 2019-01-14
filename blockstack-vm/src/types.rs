@@ -28,6 +28,13 @@ pub struct DefinedFunction {
 }
 
 
+pub fn type_force_integer(value: &ValueType) -> u64 {
+    match *value {
+        ValueType::IntType(int) => int,
+        _ => panic!("Not an integer")
+    }
+}
+
 impl DefinedFunction {
     pub fn apply(&self, args: &[ValueType]) -> ValueType {
         let mut context = Context::new();
