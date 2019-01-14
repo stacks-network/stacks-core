@@ -6,48 +6,7 @@ use blockstack_vm::Context;
 use blockstack_vm::types::ValueType;
 use blockstack_vm::types::DefinedFunction;
 use blockstack_vm::representations::SymbolicExpression;
-
-#[test]
-fn test_simple_parse() {
-    let input = "(let ((x 1) (y 2))
-                      (+ x 
-                         (let ((x 3))
-                         (+ x y))     
-                         x))";
-    let program = SymbolicExpression::List(Box::new([
-        SymbolicExpression::Atom("let".to_string()),
-        SymbolicExpression::List(Box::new([
-            SymbolicExpression::List(Box::new([
-                SymbolicExpression::Atom("x".to_string()),
-                SymbolicExpression::Atom("1".to_string())])),
-            SymbolicExpression::List(Box::new([
-                SymbolicExpression::Atom("y".to_string()),
-                SymbolicExpression::Atom("2".to_string())]))])),
-        SymbolicExpression::List(Box::new([
-            SymbolicExpression::Atom("+".to_string()),
-            SymbolicExpression::Atom("x".to_string()),
-            SymbolicExpression::List(Box::new([
-                SymbolicExpression::Atom("let".to_string()),
-                SymbolicExpression::List(Box::new([
-                    SymbolicExpression::List(Box::new([
-                        SymbolicExpression::Atom("x".to_string()),
-                        SymbolicExpression::Atom("3".to_string())]))])),
-                SymbolicExpression::List(Box::new([
-                    SymbolicExpression::Atom("+".to_string()),
-                    SymbolicExpression::Atom("x".to_string()),
-                    SymbolicExpression::Atom("y".to_string())]))])),
-            SymbolicExpression::Atom("x".to_string())]))]));
-
-    if let Ok(lexed) = blockstack_vm::parser::lex(&input) {
-        if let Ok(parsed) = blockstack_vm::parser::parse_lexed(&lexed) {
-            assert_eq!(program, parsed[0], "Should match expected symbolic expression");
-        } else {
-            assert!(false, "Failed to parse input");
-        }
-    } else {
-        println!("Failed to lex!");
-    }
-}
+use blockstack_vm::parser::parse;
 
 #[test]
 fn test_simple_user_function() {
@@ -93,33 +52,19 @@ fn test_simple_let() {
            x))
     */
 
-    let program = SymbolicExpression::List(Box::new([
-        SymbolicExpression::Atom("let".to_string()),
-        SymbolicExpression::List(Box::new([
-            SymbolicExpression::List(Box::new([
-                SymbolicExpression::Atom("x".to_string()),
-                SymbolicExpression::Atom("1".to_string())])),
-            SymbolicExpression::List(Box::new([
-                SymbolicExpression::Atom("y".to_string()),
-                SymbolicExpression::Atom("2".to_string())]))])),
-        SymbolicExpression::List(Box::new([
-            SymbolicExpression::Atom("+".to_string()),
-            SymbolicExpression::Atom("x".to_string()),
-            SymbolicExpression::List(Box::new([
-                SymbolicExpression::Atom("let".to_string()),
-                SymbolicExpression::List(Box::new([
-                    SymbolicExpression::List(Box::new([
-                        SymbolicExpression::Atom("x".to_string()),
-                        SymbolicExpression::Atom("3".to_string())]))])),
-                SymbolicExpression::List(Box::new([
-                    SymbolicExpression::Atom("+".to_string()),
-                    SymbolicExpression::Atom("x".to_string()),
-                    SymbolicExpression::Atom("y".to_string())]))])),
-            SymbolicExpression::Atom("x".to_string())]))]));
+    let program = "(let ((x 1) (y 2))
+                     (+ x
+                        (let ((x 3))
+                             (+ x y))
+                        x))";
 
-    let context = Context::new();
+    if let Ok(parsed_program) = parse(&program) {
+        let context = Context::new();
+        assert_eq!(ValueType::IntType(7), eval(&parsed_program[0], &context));        
+    } else {
+        assert!(false, "Failed to parse program.");
+    }
 
-    assert_eq!(ValueType::IntType(7), eval(&program, &context));
 }
 
 #[test]
@@ -132,53 +77,68 @@ fn test_simple_if_functions() {
     //  (with_else 3)
     //  (without_else 3)
 
-    let evals = [
-        SymbolicExpression::List(
-            Box::new([ SymbolicExpression::Atom("with_else".to_string()),
-                       SymbolicExpression::Atom("5".to_string()) ])),
-        SymbolicExpression::List(
-            Box::new([ SymbolicExpression::Atom("without_else".to_string()),
-                       SymbolicExpression::Atom("3".to_string()) ])),
-        SymbolicExpression::List(
-            Box::new([ SymbolicExpression::Atom("with_else".to_string()),
-                       SymbolicExpression::Atom("3".to_string()) ])) ];
+    let evals = parse(&
+        "(with_else 5)
+         (without_else 3)
+         (with_else 3)");
 
-    let with_else = SymbolicExpression::List(
-        Box::new([
-            SymbolicExpression::Atom("if".to_string()),
-            SymbolicExpression::List(
-                Box::new([ SymbolicExpression::Atom("eq?".to_string()),
-                           SymbolicExpression::Atom("5".to_string()),
-                           SymbolicExpression::Atom("x".to_string()) ])),
-            SymbolicExpression::Atom("1".to_string()),
-            SymbolicExpression::Atom("0".to_string()) ]));
+    let function_bodies = parse(&"(if (eq? 5 x) 1 0)
+                                  (if (eq? 5 x) 1)");
 
-    let without_else = SymbolicExpression::List(
-        Box::new([
-            SymbolicExpression::Atom("if".to_string()),
-            SymbolicExpression::List(
-                Box::new([ SymbolicExpression::Atom("eq?".to_string()),
-                           SymbolicExpression::Atom("5".to_string()),
-                           SymbolicExpression::Atom("x".to_string()) ])),
-            SymbolicExpression::Atom("1".to_string()) ]));
+    if let Ok(parsed_bodies) = function_bodies {
+        let func_args1 = vec!["x".to_string()];
+        let func_args2 = vec!["x".to_string()];
+        let user_function1 = Box::new(DefinedFunction { body: parsed_bodies[0].clone(),
+                                                        arguments: func_args1 });
+        let user_function2 = Box::new(DefinedFunction { body: parsed_bodies[1].clone(),
+                                                        arguments: func_args2 });
+        let mut context = Context {
+            parent: Option::None,
+            variables: HashMap::new(),
+            functions: HashMap::new() };
 
-    let func_args1 = vec!["x".to_string()];
-    let func_args2 = vec!["x".to_string()];
-    let user_function1 = Box::new(DefinedFunction { body: with_else,
-                                                    arguments: func_args1 });
-    let user_function2 = Box::new(DefinedFunction { body: without_else,
-                                                    arguments: func_args2 });
+        context.functions.insert("with_else".to_string(), user_function1);
+        context.functions.insert("without_else".to_string(), user_function2);
 
-    let mut context = Context {
-        parent: Option::None,
-        variables: HashMap::new(),
-        functions: HashMap::new() };
+        if let Ok(tests) = evals {
+            assert_eq!(ValueType::IntType(1), eval(&tests[0], &context));
+            assert_eq!(ValueType::VoidType, eval(&tests[1], &context));
+            assert_eq!(ValueType::IntType(0), eval(&tests[2], &context));
+        } else {
+            assert!(false, "Failed to parse function bodies.");
+        }
+    } else {
+        assert!(false, "Failed to parse function bodies.");
+    }
+}
 
-    context.functions.insert("with_else".to_string(), user_function1);
-    context.functions.insert("without_else".to_string(), user_function2);
+#[test]
+fn test_simple_arithmetic_functions() {
+    let tests = parse(&
+        "(* 52314 414)
+         (/ 52314 414)
+         (* 2 3 4 5)
+         (/ 10 13)
+         (mod 51 2)
+         (- 5 4 1)
+         (+ 5 4 1)");
 
-    assert_eq!(ValueType::IntType(1), eval(&evals[0], &context));
-    assert_eq!(ValueType::VoidType, eval(&evals[1], &context));
-    assert_eq!(ValueType::IntType(0), eval(&evals[2], &context));
+    let expectations = [
+        ValueType::IntType(21657996),
+        ValueType::IntType(126),
+        ValueType::IntType(120),
+        ValueType::IntType(0),
+        ValueType::IntType(1),
+        ValueType::IntType(0),
+        ValueType::IntType(10)];
+
+
+    if let Ok(to_eval) = tests {
+        let context = Context::new();
+        to_eval.iter().zip(expectations.iter())
+            .for_each(|(program, expectation)| assert_eq!(*expectation, eval(program, &context)));
+    } else {
+        assert!(false, "Failed to parse function bodies.");
+    }
 }
 

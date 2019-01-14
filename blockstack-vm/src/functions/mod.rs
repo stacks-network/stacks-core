@@ -7,32 +7,81 @@ use super::eval;
 
 fn native_add(args: &[ValueType]) -> ValueType {
     let parsed_args = args.iter().map(|x| type_force_integer(x));
-    let result = parsed_args.fold(0, |acc, x| acc + x);
-    ValueType::IntType(result)
+    let checked_result = parsed_args.fold(Some(0), |acc: Option<u64>, x| {
+            match acc {
+                Some(value) => value.checked_add(x),
+                None => None
+            }});
+    if let Some(result) = checked_result{
+        ValueType::IntType(result)
+    } else {
+        panic!("Overflowed in addition!");
+    }
 }
 
 fn native_sub(args: &[ValueType]) -> ValueType {
-    let parsed_args = args.iter().map(|x| type_force_integer(x));
-    let result = parsed_args.fold(0, |acc, x| acc - x);
-    ValueType::IntType(result)
+    let parsed_args: Vec<u64> = args.iter().map(|x| type_force_integer(x)).collect();
+    if let Some((first, rest)) = parsed_args.split_first() {
+        let checked_result = rest.iter().fold(Some(*first), |acc, x| {
+            match acc {
+                Some(value) => value.checked_sub(*x),
+                None => None
+            }});
+        if let Some(result) = checked_result{
+            ValueType::IntType(result)
+        } else {
+            panic!("Underflowed in subtraction!");
+        }
+    } else {
+        panic!("(- ...) must be called with at least 1 argument");
+    }
 }
 
 fn native_mul(args: &[ValueType]) -> ValueType {
     let parsed_args = args.iter().map(|x| type_force_integer(x));
-    let result = parsed_args.fold(0, |acc, x| acc * x);
-    ValueType::IntType(result)
+    let checked_result = parsed_args.fold(Some(1), |acc: Option<u64>, x| {
+            match acc {
+                Some(value) => value.checked_mul(x),
+                None => None
+            }});
+    if let Some(result) = checked_result{
+        ValueType::IntType(result)
+    } else {
+        panic!("Overflowed in multiplication!");
+    }
 }
 
 fn native_div(args: &[ValueType]) -> ValueType {
-    let parsed_args = args.iter().map(|x| type_force_integer(x));
-    let result = parsed_args.fold(0, |acc, x| acc / x);
-    ValueType::IntType(result)
+    let parsed_args: Vec<u64> = args.iter().map(|x| type_force_integer(x)).collect();
+    if let Some((first, rest)) = parsed_args.split_first() {
+        let checked_result = rest.iter().fold(Some(*first), |acc, x| {
+            match acc {
+                Some(value) => value.checked_div(*x),
+                None => None
+            }});
+        if let Some(result) = checked_result{
+            ValueType::IntType(result)
+        } else {
+            panic!("Tried to divide by 0!");
+        }
+    } else {
+        panic!("(/ ...) must be called with at least 1 argument");
+    }
 }
 
 fn native_mod(args: &[ValueType]) -> ValueType {
-    let parsed_args = args.iter().map(|x| type_force_integer(x));
-    let result = parsed_args.fold(0, |acc, x| acc % x);
-    ValueType::IntType(result)
+    if args.len() == 2 {
+        let numerator = type_force_integer(&args[0]);
+        let denominator = type_force_integer(&args[1]);
+        let checked_result = numerator.checked_rem(denominator);
+        if let Some(result) = checked_result{
+            ValueType::IntType(result)
+        } else {
+            panic!("Tried to modulus by 0!");
+        }
+    } else {
+        panic!("(mod ...) must be called with exactly 2 arguments");
+    }
 }
 
 fn native_eq(args: &[ValueType]) -> ValueType {

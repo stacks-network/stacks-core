@@ -13,7 +13,7 @@ fn finish_atom(current: &mut Option<String>) -> Option<LexItem> {
             None
         },
         &mut Some(ref value) => {
-            Some(LexItem::Atom((*value).clone()))
+            Some(LexItem::Atom(value.clone()))
         },
     };
 
@@ -27,23 +27,20 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>, String> {
     input.chars().for_each(|c| {
         match c {
             '(' => {
-                match finish_atom(current) {
-                    Some(value) => result.push(value),
-                    None => ()
+                if let Some(value) = finish_atom(current) {
+                    result.push(value);
                 }
                 result.push(LexItem::LeftParen)
             },
             ')' => {
-                match finish_atom(current) {
-                    Some(value) => result.push(value),
-                    None => ()
+                if let Some(value) = finish_atom(current) {
+                    result.push(value);
                 }
                 result.push(LexItem::RightParen)
             },
             ' '|'\t'|'\n'|'\r' => {
-                match finish_atom(current) {
-                    Some(value) => result.push(value),
-                    None => ()
+                if let Some(value) = finish_atom(current) {
+                    result.push(value);
                 }
             },
             _ => {
@@ -58,6 +55,10 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>, String> {
             }
         }
     });
+
+    if let Some(value) = finish_atom(current) {
+        result.push(value);
+    }
 
     Ok(result)
 }
@@ -103,7 +104,21 @@ pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>, Stri
         }
     });
     match res {
-        Ok(_value) => Ok(output_list),
+        Ok(_value) => {
+            // check unfinished stack:
+            if parse_stack.len() > 0 {
+                Err("List expressions (..) left opened.".to_string())
+            } else {
+                Ok(output_list)
+            }
+        },
+        Err(value) => Err(value)
+    }
+}
+
+pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>, String> {
+    match lex(input) {
+        Ok(lexed) => parse_lexed(&lexed),
         Err(value) => Err(value)
     }
 }
