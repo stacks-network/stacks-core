@@ -32,7 +32,7 @@ use util::hash::hex_bytes;
 use std::cell::RefCell;
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct BitcoinPublicKey {
     key: Secp256k1PublicKey,
     compressed: bool
