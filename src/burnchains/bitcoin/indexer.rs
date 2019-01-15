@@ -42,7 +42,7 @@ use dirs;
 
 pub const USER_AGENT: &'static str = "Blockstack Core v21";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BitcoinNetworkType {
     mainnet,
     testnet,
