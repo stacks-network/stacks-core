@@ -25,6 +25,8 @@ use std::error;
 use rusqlite;
 use rusqlite::Error as sqlite_error;
 
+use serde_json::Error as serde_error;
+
 use burnchains::{Txid, Hash160};
 
 #[derive(Debug)]
@@ -35,8 +37,18 @@ pub enum Error {
     NoDBError,
     /// DB connection error 
     ConnectionError,
+    /// Read-only and tried to write
+    ReadOnly,
+    /// Transaction already in progress
+    TransactionInProgress,
+    /// No transaction in progress
+    NoTransaction,
+    /// Type error -- can't represent the given data in the database 
+    TypeError,
+    /// Serialization error -- can't serialize data
+    SerializationError(serde_error),
     /// Sqlite3 error
-    SqliteError(sqlite_error) 
+    SqliteError(sqlite_error)
 }
 
 impl fmt::Display for Error {
@@ -45,6 +57,11 @@ impl fmt::Display for Error {
             Error::NotImplemented => f.write_str(error::Error::description(self)),
             Error::NoDBError => f.write_str(error::Error::description(self)),
             Error::ConnectionError => f.write_str(error::Error::description(self)),
+            Error::ReadOnly => f.write_str(error::Error::description(self)),
+            Error::TransactionInProgress => f.write_str(error::Error::description(self)),
+            Error::NoTransaction => f.write_str(error::Error::description(self)),
+            Error::TypeError => f.write_str(error::Error::description(self)),
+            Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f)
         }
     }
@@ -56,6 +73,11 @@ impl error::Error for Error {
             Error::NotImplemented => None,
             Error::NoDBError => None,
             Error::ConnectionError => None,
+            Error::ReadOnly => None,
+            Error::TransactionInProgress => None,
+            Error::NoTransaction => None,
+            Error::TypeError => None,
+            Error::SerializationError(ref e) => Some(e),
             Error::SqliteError(ref e) => Some(e)
         }
     }
@@ -65,6 +87,11 @@ impl error::Error for Error {
             Error::NotImplemented => "Not implemented",
             Error::NoDBError => "Database does not exist",
             Error::ConnectionError => "Failed to connect to database",
+            Error::ReadOnly => "Database is opened read-only",
+            Error::TransactionInProgress => "Transaction already in progress",
+            Error::NoTransaction => "No transaction active",
+            Error::TypeError => "Invalid or unrepresentable database type",
+            Error::SerializationError(ref e) => e.description(),
             Error::SqliteError(ref e) => e.description()
         }
     }
