@@ -1,10 +1,8 @@
 extern crate blockstack_vm;
 
-use std::collections::HashMap;
 use blockstack_vm::eval;
-use blockstack_vm::Context;
-use blockstack_vm::types::ValueType;
-use blockstack_vm::types::DefinedFunction;
+use blockstack_vm::{Context, CallStack};
+use blockstack_vm::types::{ValueType, DefinedFunction};
 use blockstack_vm::representations::SymbolicExpression;
 use blockstack_vm::parser::parse;
 
@@ -27,18 +25,15 @@ fn test_simple_user_function() {
                    SymbolicExpression::Atom("x".to_string())]));
 
     let func_args = vec!["x".to_string()];
-    let user_function = Box::new(DefinedFunction { body: func_body,
-                                                   arguments: func_args });
+    let user_function = Box::new(DefinedFunction::new(func_body, func_args));
 
-    let mut context = Context {
-        parent: Option::None,
-        variables: HashMap::new(),
-        functions: HashMap::new() };
+    let mut context = Context::new();
 
     context.variables.insert("a".to_string(), ValueType::IntType(59));
     context.functions.insert("do_work".to_string(), user_function);
+    let mut call_stack = CallStack::new();
 
-    assert_eq!(ValueType::IntType(64), eval(&content[0], &context));
+    assert_eq!(ValueType::IntType(64), eval(&content[0], &context, &mut call_stack));
 }
 
 #[test]
@@ -60,7 +55,9 @@ fn test_simple_let() {
 
     if let Ok(parsed_program) = parse(&program) {
         let context = Context::new();
-        assert_eq!(ValueType::IntType(7), eval(&parsed_program[0], &context));        
+        let mut call_stack = CallStack::new();
+
+        assert_eq!(ValueType::IntType(7), eval(&parsed_program[0], &context, &mut call_stack));        
     } else {
         assert!(false, "Failed to parse program.");
     }
@@ -88,22 +85,21 @@ fn test_simple_if_functions() {
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec!["x".to_string()];
         let func_args2 = vec!["x".to_string()];
-        let user_function1 = Box::new(DefinedFunction { body: parsed_bodies[0].clone(),
-                                                        arguments: func_args1 });
-        let user_function2 = Box::new(DefinedFunction { body: parsed_bodies[1].clone(),
-                                                        arguments: func_args2 });
-        let mut context = Context {
-            parent: Option::None,
-            variables: HashMap::new(),
-            functions: HashMap::new() };
+        let user_function1 = Box::new(DefinedFunction::new(parsed_bodies[0].clone(),
+                                                           func_args1));
+        let user_function2 = Box::new(DefinedFunction::new(parsed_bodies[1].clone(),
+                                                           func_args2));
+        let mut context = Context::new();
 
         context.functions.insert("with_else".to_string(), user_function1);
         context.functions.insert("without_else".to_string(), user_function2);
 
         if let Ok(tests) = evals {
-            assert_eq!(ValueType::IntType(1), eval(&tests[0], &context));
-            assert_eq!(ValueType::VoidType, eval(&tests[1], &context));
-            assert_eq!(ValueType::IntType(0), eval(&tests[2], &context));
+            let mut call_stack = CallStack::new();
+
+            assert_eq!(ValueType::IntType(1), eval(&tests[0], &context, &mut call_stack));
+            assert_eq!(ValueType::VoidType, eval(&tests[1], &context, &mut call_stack));
+            assert_eq!(ValueType::IntType(0), eval(&tests[2], &context, &mut call_stack));
         } else {
             assert!(false, "Failed to parse function bodies.");
         }
@@ -135,8 +131,9 @@ fn test_simple_arithmetic_functions() {
 
     if let Ok(to_eval) = tests {
         let context = Context::new();
+        let mut call_stack = CallStack::new();
         to_eval.iter().zip(expectations.iter())
-            .for_each(|(program, expectation)| assert_eq!(*expectation, eval(program, &context)));
+            .for_each(|(program, expectation)| assert_eq!(*expectation, eval(program, &context, &mut call_stack)));
     } else {
         assert!(false, "Failed to parse function bodies.");
     }

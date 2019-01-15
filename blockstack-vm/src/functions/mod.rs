@@ -2,7 +2,7 @@ use super::types::ValueType;
 use super::types::CallableType;
 use super::types::type_force_integer;
 use super::representations::SymbolicExpression;
-use super::Context;
+use super::{Context,CallStack};
 use super::eval;
 
 fn native_add(args: &[ValueType]) -> ValueType {
@@ -97,19 +97,19 @@ fn native_eq(args: &[ValueType]) -> ValueType {
     }
 }
 
-fn special_if(args: &[SymbolicExpression], context: &Context) -> ValueType {
+fn special_if(args: &[SymbolicExpression], context: &Context, call_stack: &mut CallStack) -> ValueType {
     if !(args.len() == 2 || args.len() == 3) {
         panic!("Wrong number of arguments to if");
     }
     // handle the conditional clause.
-    let conditional = eval(&args[0], context);
+    let conditional = eval(&args[0], context, call_stack);
     match conditional {
         ValueType::BoolType(result) => {
             if result {
-                eval(&args[1], context)
+                eval(&args[1], context, call_stack)
             } else {
                 if args.len() == 3 {
-                    eval(&args[2], context)
+                    eval(&args[2], context, call_stack)
                 } else {
                     ValueType::VoidType
                 }
@@ -119,7 +119,7 @@ fn special_if(args: &[SymbolicExpression], context: &Context) -> ValueType {
     }
 }
 
-fn special_let(args: &[SymbolicExpression], context: &Context) -> ValueType {
+fn special_let(args: &[SymbolicExpression], context: &Context, call_stack: &mut CallStack) -> ValueType {
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1 => body
@@ -137,7 +137,7 @@ fn special_let(args: &[SymbolicExpression], context: &Context) -> ValueType {
                     panic!("Passed non 2-length list as binding in let expression");
                 } else {
                     if let SymbolicExpression::Atom(ref var_name) = binding_exps[0] {
-                        let value = eval(&binding_exps[1], context);
+                        let value = eval(&binding_exps[1], context, call_stack);
                         match inner_context.variables.insert((*var_name).clone(), value) {
                             Some(_val) => panic!("Multiply defined binding in let expression"),
                             _ => ()
@@ -154,7 +154,7 @@ fn special_let(args: &[SymbolicExpression], context: &Context) -> ValueType {
         panic!("Passed non-list as second argument to let expression.");
     }
 
-    eval(&args[1], &inner_context)
+    eval(&args[1], &inner_context, call_stack)
 }
 
 pub fn lookup_reserved_functions<'a> (name: &str) -> Option<CallableType<'a>> {

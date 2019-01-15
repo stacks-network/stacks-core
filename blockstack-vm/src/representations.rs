@@ -3,8 +3,7 @@
  data structures, and we don't support pair expressions directly in our lisp dialect.
  */
 #[derive(Debug)]
-#[derive(Clone)]
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum SymbolicExpression {
     Atom(String),
     List(Box<[SymbolicExpression]>)
