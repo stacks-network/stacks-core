@@ -333,6 +333,36 @@ pub fn ECVRF_verify(Y_point: &ed25519_PublicKey, proof: &ECVRF_Proof, alpha: &Ve
     Ok(c_prime == proof.c)
 }
 
+/// Verify that a given byte string is a well-formed EdDSA public key (i.e. it's a compressed
+/// Edwards point that is valid).
+pub fn ECVRF_check_public_key(pubkey_bytes: &Vec<u8>) -> Option<ed25519_PublicKey> {
+    match pubkey_bytes.len() {
+        32 => {
+            let mut pubkey_slice = [0; 32];
+            pubkey_slice.copy_from_slice(&pubkey_bytes[0..32]);
+
+            let checked_pubkey = CompressedEdwardsY(pubkey_slice);
+            let full_checked_pubkey = checked_pubkey.decompress();
+            if full_checked_pubkey.is_none() {
+                // invalid 
+                return None;
+            }
+
+            let key_res = ed25519_PublicKey::from_bytes(&pubkey_slice);
+            match key_res {
+                Ok(key) => Some(key),
+                Err(_e) => None
+            }
+        },
+        _ => None
+    }
+}
+
+/// Helper method to turn a public key into a hex string 
+pub fn ECVRF_public_key_to_hex(pubkey: &ed25519_PublicKey) -> String {
+    to_hex(pubkey.as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,5 +584,14 @@ mod tests {
 
         let bad_proof_bytes_res = bad_proof.to_bytes();
         assert!(bad_proof_bytes_res.is_err());
+    }
+
+    #[test]
+    fn check_valid_public_key() {
+        let res1 = ECVRF_check_public_key(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap().to_vec());
+        assert!(res1.is_some());
+
+        let res2 = ECVRF_check_public_key(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7b").unwrap().to_vec());
+        assert!(res2.is_none());
     }
 }
