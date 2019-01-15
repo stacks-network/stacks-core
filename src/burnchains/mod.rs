@@ -29,16 +29,19 @@ use crypto::digest::Digest;
 
 use util::hash::hex_bytes;
 
+#[derive(Serialize, Deserialize)]
 pub struct Txid([u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
 impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
 
+#[derive(Serialize, Deserialize)]
 pub struct BlockHash([u8; 32]);
 impl_array_newtype!(BlockHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHash);
 impl_byte_array_newtype!(BlockHash, u8, 32);
 
+#[derive(Serialize, Deserialize)]
 pub struct Hash160([u8; 20]);
 impl_array_newtype!(Hash160, u8, 20);
 impl_array_hexstring_fmt!(Hash160);
@@ -62,6 +65,7 @@ impl Hash160 {
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 
+#[derive(Serialize, Deserialize)]
 pub struct MagicBytes([u8; MAGIC_BYTES_LENGTH]);
 impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 
@@ -76,30 +80,36 @@ pub trait Address {
     fn to_bytes(&self) -> Vec<u8>;
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub enum BurnchainInputType {
+    BitcoinInput,
+    BitcoinSegwitP2SHInput,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct BurnchainTxOutput<A: Address> {
     pub address: A,
     pub units: u64
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct BurnchainTxInput<K: PublicKey> {
     pub keys: Vec<K>,
     pub num_required: usize,
+    pub in_type: BurnchainInputType
 }
 
-
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct BurnchainTransaction<A: Address, K: PublicKey> {
     pub txid: Txid,
-    pub vtxindex: u64,
+    pub vtxindex: u32,
     pub opcode: u8,
     pub data: Vec<u8>,
     pub inputs: Vec<BurnchainTxInput<K>>,
     pub outputs: Vec<BurnchainTxOutput<A>>
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct BurnchainBlock<A: Address, K: PublicKey> {
     pub block_height: u64,
     pub block_hash: BlockHash,
