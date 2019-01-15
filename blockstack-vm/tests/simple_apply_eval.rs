@@ -1,6 +1,6 @@
 extern crate blockstack_vm;
 
-use blockstack_vm::eval;
+use blockstack_vm::{eval, eval_all};
 use blockstack_vm::{Context, CallStack};
 use blockstack_vm::types::{ValueType, DefinedFunction};
 use blockstack_vm::representations::SymbolicExpression;
@@ -134,6 +134,38 @@ fn test_simple_arithmetic_functions() {
         let mut call_stack = CallStack::new();
         to_eval.iter().zip(expectations.iter())
             .for_each(|(program, expectation)| assert_eq!(*expectation, eval(program, &context, &mut call_stack, &context)));
+    } else {
+        assert!(false, "Failed to parse function bodies.");
+    }
+}
+
+#[test]
+fn test_defines() {
+    let tests = parse(&
+        "(define x 10)
+         (define y 15)
+         (define (f a b) (+ x y a b))
+         (f 3 1)");
+
+    if let Ok(to_eval) = tests {
+        assert_eq!(Ok(ValueType::IntType(29)), eval_all(&to_eval));
+    } else {
+        assert!(false, "Failed to parse function bodies.");
+    }
+}
+
+#[test]
+#[should_panic]
+fn test_recursive_panic() {
+    let tests = parse(&
+        "(define (factorial a)
+          (if (eq? a 0)
+              1
+              (* a (factorial (- a 1)))))
+         (factorial 10)");
+
+    if let Ok(to_eval) = tests {
+        assert_eq!(Ok(ValueType::IntType(29)), eval_all(&to_eval));
     } else {
         assert!(false, "Failed to parse function bodies.");
     }

@@ -159,7 +159,7 @@ pub fn eval <'a> (exp: &SymbolicExpression, context: &'a Context<'a>,
 /* This function evaluates a list of expressions, sharing a global context.
  * It returns the final evaluated result.
  */
-pub fn eval_all(expressions: &[&SymbolicExpression]) -> Result<ValueType, String> {
+pub fn eval_all(expressions: &[SymbolicExpression]) -> Result<ValueType, String> {
     let mut context = Context::new();
     let mut call_stack = CallStack::new();
     let mut last_executed = None;
