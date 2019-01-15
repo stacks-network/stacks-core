@@ -43,7 +43,9 @@ pub enum Error {
     /// Failed to parse the operation from the burnchain transaction
     ParseError,
     /// Did not recognize the opcode 
-    UnrecognizedOpcode
+    UnrecognizedOpcode,
+    /// Invalid input data
+    InvalidInput
 }
 
 impl fmt::Display for Error {
@@ -51,7 +53,8 @@ impl fmt::Display for Error {
         match *self {
             Error::NotImplemented => f.write_str(error::Error::description(self)),
             Error::ParseError => f.write_str(error::Error::description(self)),
-            Error::UnrecognizedOpcode => f.write_str(error::Error::description(self))
+            Error::UnrecognizedOpcode => f.write_str(error::Error::description(self)),
+            Error::InvalidInput => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -61,7 +64,8 @@ impl error::Error for Error {
         match *self {
             Error::NotImplemented => None,
             Error::ParseError => None,
-            Error::UnrecognizedOpcode => None
+            Error::UnrecognizedOpcode => None,
+            Error::InvalidInput => None,
         }
     }
 
@@ -69,7 +73,8 @@ impl error::Error for Error {
         match *self {
             Error::NotImplemented => "Not implemented",
             Error::ParseError => "Failed to parse transaction into Blockstack operation",
-            Error::UnrecognizedOpcode => "Unrecognized opcode"
+            Error::UnrecognizedOpcode => "Unrecognized opcode",
+            Error::InvalidInput => "Invalid input",
         }
     }
 }

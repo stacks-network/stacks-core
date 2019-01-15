@@ -32,6 +32,7 @@ use burnchains::Hash160;
 use burnchains::Address;
 
 use util::hash::hex_bytes;
+use util::vrf::ECVRF_check_public_key;
 
 use ed25519_dalek::PublicKey as VRFPublicKey;
 
@@ -39,16 +40,16 @@ pub const OPCODE: u8 = '^' as u8;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct LeaderKeyRegisterOp<A: Address> {
-    consensus_hash: ConsensusHash,      // consensus hash at time of issuance
-    public_key: VRFPublicKey,           // EdDSA public key 
-    memo: Vec<u8>,                      // extra bytes in the op-return
-    address: A,                         // second output's address -- will be used to help pair this tx up with a leader block commit tx
+    pub consensus_hash: ConsensusHash,      // consensus hash at time of issuance
+    pub public_key: VRFPublicKey,           // EdDSA public key 
+    pub memo: Vec<u8>,                      // extra bytes in the op-return
+    pub address: A,                         // second output's address -- will be used to help pair this tx up with a leader block commit tx
     
     // common to all transactions
-    op: u8,                             // bytecode describing the operation
-    txid: Txid,                         // transaction ID
-    vtxindex: u64,                      // index in the block where this tx occurs
-    block_number: u64,                  // block height at which this tx occurs
+    pub op: u8,                             // bytecode describing the operation
+    pub txid: Txid,                         // transaction ID
+    pub vtxindex: u32,                      // index in the block where this tx occurs
+    pub block_number: u64,                  // block height at which this tx occurs
 }
 
 impl LeaderKeyRegisterOp<BitcoinAddress> {
@@ -56,7 +57,7 @@ impl LeaderKeyRegisterOp<BitcoinAddress> {
         /*
             Wire format:
 
-            0      2  3              19                       51                          80
+            0      2  3              23                       55                          80
             |------|--|---------------|-----------------------|---------------------------|
              magic  op consensus hash   proving public key               memo
 
@@ -64,15 +65,21 @@ impl LeaderKeyRegisterOp<BitcoinAddress> {
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
         */
         // memo can be empty, and magic + op are omitted 
-        if data.len() < 16 + 32 {
+        if data.len() < 52 {
             // too short to have a consensus hash and proving public key
-            warn!("LEADER_KEY_REGISTER payload is malformed");
+            warn!("LEADER_KEY_REGISTER payload is malformed ({} bytes)", data.len());
             return None;
         }
 
-        let consensus_hash = ConsensusHash::from_bytes(&data[0..16]).unwrap();
-        let pubkey = VRFPublicKey::from_bytes(&data[16..48]).unwrap();
-        let memo = &data[48..];
+        let consensus_hash = ConsensusHash::from_bytes(&data[0..20]).unwrap();
+        let pubkey_opt = ECVRF_check_public_key(&data[20..52].to_vec());
+        if pubkey_opt.is_none() {
+            warn!("Invalid VRF public key");
+            return None;
+        }
+
+        let pubkey = pubkey_opt.unwrap();
+        let memo = &data[52..];
 
         return Some((consensus_hash, pubkey, memo.to_vec()));
     }
@@ -82,12 +89,17 @@ impl LeaderKeyRegisterOp<BitcoinAddress> {
         // can't be too careful...
         if tx.inputs.len() == 0 {
             test_debug!("Invalid tx: inputs: {}, outputs: {}", tx.inputs.len(), tx.outputs.len());
-            return Err(op_error::ParseError);
+            return Err(op_error::InvalidInput);
         }
 
-        if tx.outputs.len() < 2 {
+        if tx.outputs.len() < 1 {
             test_debug!("Invalid tx: inputs: {}, outputs: {}", tx.inputs.len(), tx.outputs.len());
-            return Err(op_error::ParseError);
+            return Err(op_error::InvalidInput);
+        }
+
+        if tx.opcode != OPCODE {
+            test_debug!("Invalid tx: invalid opcode {}", tx.opcode);
+            return Err(op_error::InvalidInput);
         }
 
         let parse_data_opt = LeaderKeyRegisterOp::parse_data(&tx.data);
@@ -97,7 +109,7 @@ impl LeaderKeyRegisterOp<BitcoinAddress> {
         }
 
         let (consensus_hash, pubkey, memo) = parse_data_opt.unwrap();
-        let address = tx.outputs[1].address;
+        let address = tx.outputs[0].address;
 
         Ok(LeaderKeyRegisterOp {
             consensus_hash: consensus_hash,
@@ -126,7 +138,7 @@ impl BlockstackOperation for LeaderKeyRegisterOp<BitcoinAddress> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burnchains::{BurnchainTransaction, BurnchainTxInput, BurnchainTxOutput};
+    use burnchains::{BurnchainTransaction, BurnchainTxOutput};
     use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::indexer::{BitcoinNetworkType};
@@ -164,8 +176,57 @@ mod tests {
         let vtxindex = 1;
         let block_height = 694;
 
-        // TODO
-        let tx_fixtures: Vec<OpFixture> = vec![];
+        // TODO: fix; consensus hash is now 20 bytes
+        let tx_fixtures: Vec<OpFixture> = vec![
+            OpFixture {
+                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402203a176d95803e8d51e7884d38750322c4bfa55307a71291ef8db65191edd665f1022056f5d1720d1fde8d6a163c79f73f22f874ef9e186e98e5b60fa8ac64d298e77a012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                result: Some(LeaderKeyRegisterOp {
+                    consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+                    public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+                    memo: vec![01, 02, 03, 04, 05],
+                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+
+                    op: OPCODE,
+                    txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+                    vtxindex: vtxindex,
+                    block_number: block_height
+                })
+            },
+            OpFixture {
+                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a473044022037d0b9d4e98eab190522acf5fb8ea8e89b6a4704e0ac6c1883d6ffa629b3edd30220202757d710ec0fb940d1715e02588bb2150110161a9ee08a83b750d961431a8e012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000020000000000000000396a3769645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a39300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                result: Some(LeaderKeyRegisterOp {
+                    consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+                    public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+                    memo: vec![],
+                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+
+                    op: OPCODE,
+                    txid: Txid::from_bytes_be(&hex_bytes("2fbf8d5be32dce49790d203ba59acbb0929d5243413174ff5d26a5c6f23dea65").unwrap()).unwrap(),
+                    vtxindex: vtxindex,
+                    block_number: block_height
+                })
+            },
+            OpFixture {
+                // invalid VRF public key 
+                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100ddbbaf029174a9bd1588fc0b34094e9f48fec9c89704eb12a3ee70dd5ca4142e02202eab7cbf985da23e890766331f7e0009268d1db75da8b583a953528e6a099499012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7b010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                result: None,
+            },
+            OpFixture {
+                // too short
+                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100b2680431ab771826f42b93f5238e518c6483af7026c25ddd6e970f26fec80473022050ab510ede8d7b50cea1a286d1e05fa2b2d62ffbb9983e4cade9899474d0f8b9012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d000000000020000000000000000386a3669645e22222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a39300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                result: None,
+            },
+            OpFixture {
+                // not enough outputs
+                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a473044022070c8ce3786cee46d283b8a02a9c6ba87ef693960a0200b4a85e1b4808ea7b23a02201c6926162fe8cf4d3bbc3fcea80baa8307543af69b5dbbad72aa659a3a87f08e012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000100000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a010203040500000000".to_string(),
+                result: None,
+            },
+            OpFixture {
+                // wrong opcode
+                txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006b483045022100a72df03441bdd08b8fd042f417e37e7ba7dc6212078835840f4cbd64f690533a0220385309a6096044828ec7889107a73da23b009157a752251ed68f8084834d4d44012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645f2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
+                result: None,
+            }
+        ];
 
         let parser = BitcoinBlockParser::new(BitcoinNetworkType::testnet, BLOCKSTACK_MAGIC_MAINNET);
 
@@ -180,11 +241,11 @@ mod tests {
                 },
                 (Err(_e), None) => {},
                 (Ok(parsed_tx), None) => {
-                    test_debug!("Parsed a tx when we should not have");
+                    test_debug!("Parsed a tx when we should not have: {}", tx_fixture.txstr);
                     assert!(false);
                 },
                 (Err(_e), Some(result)) => {
-                    test_debug!("Did not parse a tx when we should have");
+                    test_debug!("Did not parse a tx when we should have: {}", tx_fixture.txstr);
                     assert!(false);
                 }
             };
