@@ -11,10 +11,12 @@ use types::CallableType;
 use types::{DefinedFunction, FunctionIdentifier};
 use representations::SymbolicExpression;
 
+use functions::define::DefineResult;
+
 pub struct Context <'a> {
     pub parent: Option< &'a Context<'a>>,
     pub variables: HashMap<String, ValueType>,
-    pub functions: HashMap<String, Box<DefinedFunction<'a>>>,
+    pub functions: HashMap<String, Box<DefinedFunction>>,
 }
 
 impl <'a> Context <'a> {
@@ -36,7 +38,7 @@ impl <'a> Context <'a> {
         }
     }
 
-    fn lookup_function(&self, name: &str) -> Option<Box<DefinedFunction<'a>>> {
+    fn lookup_function(&self, name: &str) -> Option<Box<DefinedFunction>> {
         match self.functions.get(name) {
             Some(value) => {
                 Option::Some(Box::new(*value.clone()))
@@ -52,14 +54,14 @@ impl <'a> Context <'a> {
 }
 
 pub struct CallStack {
-    pub stack: HashSet<FunctionIdentifier>
+    pub stack: HashSet<FunctionIdentifier>,
 }
 
 
 impl CallStack {
     pub fn new() -> CallStack {
         CallStack {
-            stack: HashSet::new()
+            stack: HashSet::new(),
         }
     }
     fn contains(&self, user_function: &FunctionIdentifier) -> bool {
@@ -106,11 +108,12 @@ fn lookup_function<'a> (name: &str, context: &'a Context)-> CallableType<'a> {
     }
 }
 
-pub fn apply(function: &CallableType, args: &[SymbolicExpression], context: &Context, call_stack: &mut CallStack) -> ValueType {
+pub fn apply(function: &CallableType, args: &[SymbolicExpression],
+             context: &Context, call_stack: &mut CallStack, global_context: &Context) -> ValueType {
     match function {
-        CallableType::SpecialFunction(function) => function(&args, &context, call_stack),
+        CallableType::SpecialFunction(function) => function(&args, &context, call_stack, global_context),
         _ => {
-            let evaluated_args: Vec<ValueType> = args.iter().map(|x| eval(x, context, call_stack)).collect();
+            let evaluated_args: Vec<_> = args.iter().map(|x| eval(x, context, call_stack, global_context)).collect();
             match function {
                 CallableType::NativeFunction(function) => function(&evaluated_args),
                 CallableType::UserFunction(function) => {
@@ -121,7 +124,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression], context: &Con
                         panic!("Recursion detected");
                     } else {
                         call_stack.insert(&identifier);
-                        let resp = function.apply(&evaluated_args, call_stack);
+                        let resp = function.apply(&evaluated_args, call_stack, global_context);
                         call_stack.remove(&identifier);
                         resp
                     }
@@ -132,7 +135,8 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression], context: &Con
     }
 }
 
-pub fn eval <'a> (exp: &SymbolicExpression, context: &'a Context<'a>, call_stack: &mut CallStack) -> ValueType {
+pub fn eval <'a> (exp: &SymbolicExpression, context: &'a Context<'a>,
+                  call_stack: &mut CallStack, global_context: &'a Context<'a>) -> ValueType {
     match exp {
         &SymbolicExpression::Atom(ref value) => lookup_variable(&value, context),
         &SymbolicExpression::List(ref children) => {
@@ -141,7 +145,7 @@ pub fn eval <'a> (exp: &SymbolicExpression, context: &'a Context<'a>, call_stack
                     &SymbolicExpression::List(ref _children) => panic!("Attempt to evaluate to function. Illegal!"),
                     &SymbolicExpression::Atom(ref value) => {
                         let f = lookup_function(&value, &context);
-                        apply(&f, &rest, context, call_stack)
+                        apply(&f, &rest, context, call_stack, global_context)
                     }
                 }
             } else {
@@ -151,10 +155,31 @@ pub fn eval <'a> (exp: &SymbolicExpression, context: &'a Context<'a>, call_stack
     }
 }
 
+
 /* This function evaluates a list of expressions, sharing a global context.
- *  
- * 
+ * It returns the final evaluated result.
  */
-pub fn eval_all(expressions: &[&SymbolicExpression]) -> ValueType {
-    panic!("Unimplemented");
+pub fn eval_all(expressions: &[&SymbolicExpression]) -> Result<ValueType, String> {
+    let mut context = Context::new();
+    let mut call_stack = CallStack::new();
+    let mut last_executed = None;
+    for exp in expressions {
+        let try_define = functions::define::evaluate_define(exp, &context);
+        if let Some(result) = try_define {
+            match result {
+                DefineResult::Variable(name, value) => { context.variables.insert(name, value); },
+                DefineResult::Function(name, value) => {
+                    context.functions.insert(name, Box::new(value));
+                }
+            };
+        } else {
+            last_executed = Some(eval(exp, &context, &mut call_stack, &context));
+        }
+    }
+
+    if let Some(result) = last_executed {
+        Ok(result)
+    } else {
+        Err("Failed to get response from eval()".to_string())
+    }
 }

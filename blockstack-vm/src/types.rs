@@ -16,14 +16,13 @@ pub enum ValueType {
 }
 
 pub enum CallableType <'a> {
-    UserFunction(Box<DefinedFunction <'a>>),
+    UserFunction(Box<DefinedFunction>),
     NativeFunction(&'a Fn(&[ValueType]) -> ValueType),
-    SpecialFunction(&'a Fn(&[SymbolicExpression], &Context, &mut CallStack) -> ValueType)
+    SpecialFunction(&'a Fn(&[SymbolicExpression], &Context, &mut CallStack, &Context) -> ValueType)
 }
 
 #[derive(Clone)]
-pub struct DefinedFunction <'a> {
-    pub context: Option<&'a Context<'a>>,
+pub struct DefinedFunction {
     pub arguments: Vec<String>,
     pub body: SymbolicExpression
 }
@@ -42,20 +41,17 @@ pub struct FunctionIdentifier {
     pub body: SymbolicExpression
 }
 
-impl <'a> DefinedFunction <'a> {
-    pub fn new(body: SymbolicExpression, arguments: Vec<String>) -> DefinedFunction <'a> {
+impl DefinedFunction {
+    pub fn new(body: SymbolicExpression, arguments: Vec<String>) -> DefinedFunction {
         DefinedFunction {
             body: body,
             arguments: arguments,
-            context: None,
         }
     }
 
-    pub fn apply(&self, args: &[ValueType], call_stack: &mut CallStack) -> ValueType {
+    pub fn apply(&self, args: &[ValueType], call_stack: &mut CallStack, global: &Context) -> ValueType {
         let mut context = Context::new();
-        if let Some(global) = self.context {
-            context.parent = Some(global);
-        }
+        context.parent = Some(global);        
 
         let arg_iterator = self.arguments.iter().zip(args.iter());
         arg_iterator.for_each(|(arg, value)| {
@@ -64,7 +60,7 @@ impl <'a> DefinedFunction <'a> {
                 _ => ()
             }
         });
-        eval(&self.body, &context, call_stack)
+        eval(&self.body, &context, call_stack, global)
     }
 
     pub fn get_identifier(&self) -> FunctionIdentifier {
