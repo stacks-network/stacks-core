@@ -242,6 +242,11 @@ macro_rules! impl_byte_array_newtype {
                 }
             }
 
+            /// Instantiates from a (big-endian) slice of bytes 
+            pub fn from_bytes_be(inp: &[u8]) -> Option<$thing> {
+                $thing::from_vec_be(&inp.to_vec())
+            }
+
             /// Instantiates from a (little-endian) vector of bytes
             pub fn from_vec(inp: &Vec<u8>) -> Option<$thing> {
                 match inp.len() {
@@ -269,6 +274,12 @@ macro_rules! impl_byte_array_newtype {
                     }
                     _ => None
                 }
+            }
+
+            /// Convert to a hex string 
+            pub fn to_hex(&self) -> String {
+                use util::hash::to_hex;
+                to_hex(&self.0)
             }
         }
     }
