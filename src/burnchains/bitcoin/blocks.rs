@@ -278,6 +278,7 @@ impl BitcoinBlockParser {
         for inp in &tx.input {
             match BurnchainTxInput::from_bitcoin_txin(&inp) {
                 None => {
+                    test_debug!("Failed to parse input");
                     return None;
                 }
                 Some(i) => {
@@ -296,6 +297,7 @@ impl BitcoinBlockParser {
         for outp in &tx.output[1..tx.output.len()] {
             match BurnchainTxOutput::from_bitcoin_txout(self.network_id, &outp) {
                 None => {
+                    test_debug!("Failed to parse output");
                     return None;
                 }
                 Some(o) => {
@@ -309,11 +311,13 @@ impl BitcoinBlockParser {
     /// Parse a Bitcoin transaction into a Burnchain transaction 
     pub fn parse_tx(&self, tx: &Transaction, vtxindex: usize) -> Option<BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>> {
         if !self.maybe_burnchain_tx(tx) {
+            test_debug!("Not a burnchain tx");
             return None;
         }
 
         let data_opt = self.parse_data(&tx.output[0].script_pubkey);
         if data_opt.is_none() {
+            test_debug!("No OP_RETURN script");
             return None;
         }
 
@@ -325,14 +329,17 @@ impl BitcoinBlockParser {
             (Some(inputs), Some(outputs)) => {
                 Some(BurnchainTransaction {
                     txid: Txid::from_vec_be(&tx.txid().as_bytes().to_vec()).unwrap(), // txids are little-endian in Blockstack, and this *should* panic if it fails
-                    vtxindex: vtxindex as u64,
+                    vtxindex: vtxindex as u32,
                     opcode: opcode,
                     data: data,
                     inputs: inputs,
                     outputs: outputs
                 })
             }
-            (_, _) => None
+            (_, _) => {
+                test_debug!("Failed to parse inputs and/or outputs");
+                None
+            }
         }
     }
     
@@ -410,7 +417,8 @@ mod tests {
         BlockHash,
         MagicBytes, 
         Hash160, 
-        MAGIC_BYTES_LENGTH
+        MAGIC_BYTES_LENGTH,
+        BurnchainInputType,
     };
 
     use burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -518,18 +526,21 @@ mod tests {
                                 BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
                             ],
                             num_required: 1,
+                            in_type: BurnchainInputType::BitcoinInput,
                         },
                         BurnchainTxInput {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
                             ],
                             num_required: 1,
+                            in_type: BurnchainInputType::BitcoinInput,
                         },
                         BurnchainTxInput {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("04c77f262dda02580d65c9069a8a34c56bd77325bba4110b693b90216f5a3edc0bebc8ce28d61aa86b414aa91ecb29823b11aeed06098fcd97fee4bc73d54b1e96").unwrap(),
                             ],
                             num_required: 1,
+                            in_type: BurnchainInputType::BitcoinInput,
                         }
                     ],
                     outputs: vec![
@@ -560,6 +571,7 @@ mod tests {
                                 BitcoinPublicKey::from_hex("046fd8c7330fbe307a0fad0bf9472ca080f4941f4b6edea7ab090e3e26075e7277a0bd61f42eff54daf3e6141de46a98a5a8265c9e8d58bd1a86cf36d418788ab8").unwrap(),
                             ],
                             num_required: 2,
+                            in_type: BurnchainInputType::BitcoinInput,
                         },
                         BurnchainTxInput {
                             keys: vec![
@@ -568,6 +580,7 @@ mod tests {
                                 BitcoinPublicKey::from_hex("044c9f30b4546c1f30087001fa6450e52c645bd49e91a18c9c16965b72f5153f0e4b04712218b42b2bc578017b471beaa7d8c0a9eb69174ad50714d7ef4117863d").unwrap(),
                             ],
                             num_required: 2,
+                            in_type: BurnchainInputType::BitcoinInput,
                         },
                     ],
                     outputs: vec![
@@ -596,6 +609,7 @@ mod tests {
                                 BitcoinPublicKey::from_hex("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap()
                             ],
                             num_required: 1,
+                            in_type: BurnchainInputType::BitcoinSegwitP2SHInput,
                         }
                     ],
                     outputs: vec![
@@ -626,6 +640,7 @@ mod tests {
                                 BitcoinPublicKey::from_hex("028791dc45c049107fb99e673265a38a096536aacdf78aa90710a32fff7750f9f9").unwrap()
                             ],
                             num_required: 2,
+                            in_type: BurnchainInputType::BitcoinSegwitP2SHInput,
                         }
                     ],
                     outputs: vec![
@@ -700,6 +715,7 @@ mod tests {
                                         BitcoinPublicKey::from_hex("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap()
                                     ],
                                     num_required: 1,
+                                    in_type: BurnchainInputType::BitcoinSegwitP2SHInput,
                                 }
                             ],
                             outputs: vec![
@@ -737,6 +753,7 @@ mod tests {
                                         BitcoinPublicKey::from_hex("03d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3").unwrap()
                                     ],
                                     num_required: 1,
+                                    in_type: BurnchainInputType::BitcoinInput,
                                 }
                             ],
                             outputs: vec![
@@ -762,6 +779,7 @@ mod tests {
                                         BitcoinPublicKey::from_hex("04ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385").unwrap()
                                     ],
                                     num_required: 1,
+                                    in_type: BurnchainInputType::BitcoinInput,
                                 }
                             ],
                             outputs: vec![
@@ -787,6 +805,7 @@ mod tests {
                                         BitcoinPublicKey::from_hex("0479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637").unwrap()
                                     ],
                                     num_required: 1,
+                                    in_type: BurnchainInputType::BitcoinInput,
                                 }
                             ],
                             outputs: vec![
@@ -812,6 +831,7 @@ mod tests {
                                         BitcoinPublicKey::from_hex("04447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebc").unwrap()
                                     ],
                                     num_required: 1,
+                                    in_type: BurnchainInputType::BitcoinInput,
                                 }
                             ],
                             outputs: vec![
@@ -837,6 +857,7 @@ mod tests {
                                         BitcoinPublicKey::from_hex("04a96a8355b6c3597bb9425c2ef264ab8179ca8acd3032b62980d2067261b37666b66510983e6d60d49bbd28129f0bae4dbcaa97c2bc61a6b2e48ca1625ce81335").unwrap()
                                     ],
                                     num_required: 1,
+                                    in_type: BurnchainInputType::BitcoinInput,
                                 }
                             ],
                             outputs: vec![
