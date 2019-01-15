@@ -29,6 +29,7 @@ use bitcoin::network::message as btc_message;
 use burnchains::{
     BurnchainTxInput, 
     BurnchainTxOutput,
+    BurnchainInputType,
     PublicKey,
     Hash160,
 };
@@ -56,6 +57,82 @@ pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
 
 impl BurnchainTxInput<BitcoinPublicKey> {
 
+    /// recover the sender scriptpubkey from its public key in the script sig
+    pub fn sender_scriptpubkey_p2pkh(pubk: &BitcoinPublicKey) -> Vec<u8> {
+        let key_hash = Hash160::from_data(&pubk.to_bytes());
+
+        let mut res : Vec<u8> = Vec::with_capacity(3 + 20 + 2);
+        res.extend_from_slice(&[0x76, 0xa9, 0x14]);
+        res.extend_from_slice(key_hash.as_bytes());
+        res.extend_from_slice(&[0x88, 0xac]);
+        return res;
+    }
+
+    /// recover the sender scriptpubkey from its p2sh multisig redeem script
+    pub fn sender_scriptpubkey_p2sh_multisig(num_sigs: usize, pubkeys: &Vec<BitcoinPublicKey>) -> Vec<u8> {
+        let mut bldr = Builder::new();
+        bldr = bldr.push_int(num_sigs as i64);
+        for pubk in pubkeys {
+            bldr = bldr.push_slice(&pubk.to_bytes());
+        }
+        bldr = bldr.push_int(pubkeys.len() as i64);
+        bldr = bldr.push_opcode(btc_opcodes::OP_CHECKMULTISIG);
+        
+        let script = bldr.into_script();
+        let script_hash = Hash160::from_data(&script.as_bytes());
+
+        let mut res: Vec<u8> = Vec::with_capacity(2 + 20 + 1);
+        res.extend_from_slice(&[0xa9, 0x14]);
+        res.extend_from_slice(script_hash.as_bytes());
+        res.extend_from_slice(&[0x87]);
+
+        return res;
+    }
+    
+    /// recover the sender scriptpubkey from its p2wpkh-p2sh redeem script
+    pub fn sender_scriptpubkey_p2wpkh_p2sh(pubk: &BitcoinPublicKey) -> Vec<u8> {
+        let key_hash = Hash160::from_data(&pubk.to_bytes());
+
+        let bldr = Builder::new()
+            .push_int(0)
+            .push_slice(key_hash.as_bytes());
+
+        let script = bldr.into_script();
+        let script_hash = Hash160::from_data(&script.as_bytes());
+
+        let mut res: Vec<u8> = Vec::with_capacity(2 + 20 + 1);
+        res.extend_from_slice(&[0xa9, 0x14]);
+        res.extend_from_slice(script_hash.as_bytes());
+        res.extend_from_slice(&[0x87]);
+        return res;
+    }
+
+    /// recover the sender scriptpubkey from its p2wsh-p2sh redeem script 
+    pub fn sender_scriptpubkey_p2wsh_p2sh_multisig(num_sigs: usize, pubkeys: &Vec<BitcoinPublicKey>) -> Vec<u8> {
+        let mut bldr = Builder::new();
+        bldr = bldr.push_int(num_sigs as i64);
+        for pubk in pubkeys {
+            bldr = bldr.push_slice(&pubk.to_bytes());
+        }
+        bldr = bldr.push_int(pubkeys.len() as i64);
+        bldr = bldr.push_opcode(btc_opcodes::OP_CHECKMULTISIG);
+
+        let mut digest = Sha256::new();
+        let mut d = [0u8; 32];
+
+        digest.input(bldr.into_script().as_bytes());
+        digest.result(&mut d);
+
+        let ws = Builder::new().push_int(0).push_slice(&d).into_script();
+        let ws_hash = Hash160::from_data(&ws.as_bytes());
+
+        let mut res: Vec<u8> = Vec::with_capacity(2 + 20 + 1);
+        res.extend_from_slice(&[0xa9, 0x14]);
+        res.extend_from_slice(ws_hash.as_bytes());
+        res.extend_from_slice(&[0x87]);
+        return res;
+    }
+
     /// Parse a script instruction stream encoding a p2pkh scritpsig into a BurnchainTxInput
     pub fn from_bitcoin_p2pkh_script_sig(instructions: &Vec<Instruction>) -> Option<BurnchainTxInput<BitcoinPublicKey>> {
         if instructions.len() != 2 {
@@ -74,6 +151,7 @@ impl BurnchainTxInput<BitcoinPublicKey> {
                         Some(BurnchainTxInput {
                             keys: vec![pubkey],
                             num_required: 1,
+                            in_type: BurnchainInputType::BitcoinInput,
                         })
                     }
                     Err(_e) => {
@@ -129,6 +207,13 @@ impl BurnchainTxInput<BitcoinPublicKey> {
         Some(BurnchainTxInput::<BitcoinPublicKey> {
             keys: keys,
             num_required: num_sigs,
+            in_type: 
+                if segwit {
+                    BurnchainInputType::BitcoinSegwitP2SHInput
+                }
+                else {
+                    BurnchainInputType::BitcoinInput
+                }
         })
     }
 
@@ -161,6 +246,7 @@ impl BurnchainTxInput<BitcoinPublicKey> {
         let tx_input = BurnchainTxInput::<BitcoinPublicKey> {
             keys: keys,
             num_required: num_sigs,
+            in_type: BurnchainInputType::BitcoinSegwitP2SHInput,
         };
         
 
@@ -339,7 +425,7 @@ impl BurnchainTxInput<BitcoinPublicKey> {
                     test_debug!("Not a witness multisig script: {} signatures, {} required", num_expected_sigs, tx_input.num_required);
                     return None;
                 }
-
+                
                 Some(tx_input)
             },
             _ => {
@@ -435,7 +521,6 @@ impl BurnchainTxOutput<BitcoinAddress> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::BurnchainTxInput;
@@ -457,6 +542,7 @@ mod tests {
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
     use burnchains::bitcoin::indexer::BitcoinNetworkType;
+    use burnchains::BurnchainInputType;
 
     use util::log as logger;
 
@@ -471,6 +557,13 @@ mod tests {
         result: T
     }
 
+    struct ScriptPubkeyFixture {
+        keys: Vec<BitcoinPublicKey>,
+        num_required: usize,
+        segwit: bool,
+        result: Vec<u8>
+    }
+
     #[test]
     fn tx_input_singlesig() {
         logger::init();
@@ -483,6 +576,7 @@ mod tests {
                     keys: vec![
                         BitcoinPublicKey::from_hex("032cb957290adc734c56dbc29b63f94f1c493cd895aaa628766861b3d195dd1043").unwrap()
                     ],
+                    in_type: BurnchainInputType::BitcoinInput,
                 }
             },
             ScriptFixture {
@@ -493,6 +587,7 @@ mod tests {
                     keys: vec![
                         BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap()
                     ],
+                    in_type: BurnchainInputType::BitcoinInput,
                 }
             }
         ];
@@ -525,6 +620,7 @@ mod tests {
                         BitcoinPublicKey::from_hex("04019ef04a316792f0ecbe5ab1718c833c3964dee3626cfabe19d97745dbcaa5198919081b456e8eeea5898afa0e36d5c17ab693a80d728721128ed8c5f38cdba0").unwrap(),
                         BitcoinPublicKey::from_hex("04a04f29f308160e6f945b33d943304b1b471ed8f9eaceeb5412c04e60a0fab0376871d9d1108948b67cafbc703e565a18f8351fb8558fd7c7482d7027eecd687c").unwrap()
                     ],
+                    in_type: BurnchainInputType::BitcoinInput,
                 }
             },
             ScriptFixture {
@@ -549,6 +645,7 @@ mod tests {
                         BitcoinPublicKey::from_hex("0378d430274f8c5ec1321338151e9f27f4c676a008bdf8638d07c0b6be9ab35c71").unwrap(),
                         BitcoinPublicKey::from_hex("0378d430274f8c5ec1321338151e9f27f4c676a008bdf8638d07c0b6be9ab35c71").unwrap()
                     ],
+                    in_type: BurnchainInputType::BitcoinInput,
                 }
             },
             ScriptFixture {
@@ -561,6 +658,7 @@ mod tests {
                         BitcoinPublicKey::from_hex("0243930746e6ed6552e03359db521b088134652905bd2d1541fa9124303a41e956").unwrap(),
                         BitcoinPublicKey::from_hex("029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255").unwrap()
                     ],
+                    in_type: BurnchainInputType::BitcoinInput,
                 }
             }
         ];
@@ -597,6 +695,7 @@ mod tests {
                     keys: vec![
                         BitcoinPublicKey::from_hex("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap()
                     ],
+                    in_type: BurnchainInputType::BitcoinSegwitP2SHInput,
                 })
             },
             ScriptWitnessFixture {
@@ -672,6 +771,7 @@ mod tests {
                         BitcoinPublicKey::from_hex("02f21b29694df4c2188bee97103d10d017d1865fb40528f25589af9db6e0786b65").unwrap(),
                         BitcoinPublicKey::from_hex("028791dc45c049107fb99e673265a38a096536aacdf78aa90710a32fff7750f9f9").unwrap()
                     ],
+                    in_type: BurnchainInputType::BitcoinSegwitP2SHInput,
                 })
             },
             ScriptWitnessFixture {
@@ -889,6 +989,74 @@ mod tests {
         for script_fixture in tx_fixtures_strange {
             let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::mainnet, &script_fixture.script, 123);
             assert!(tx_output_opt.is_none());
+        }
+    }
+
+    #[test]
+    fn sender_scriptpubkey_from_keys() {
+        logger::init();
+
+        let scriptpubkey_fixtures = vec![
+            ScriptPubkeyFixture {
+                // script pubkey for p2pkh
+                keys: vec![
+                    BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
+                ],
+                num_required: 1,
+                segwit: false,
+                result: hex_bytes("76a914395f3643cea07ec4eec73b4d9a973dcce56b9bf188ac").unwrap().to_vec()
+            },
+            ScriptPubkeyFixture {
+                // script pubkey for multisig p2sh
+                keys: vec![
+                    BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
+                    BitcoinPublicKey::from_hex("04c77f262dda02580d65c9069a8a34c56bd77325bba4110b693b90216f5a3edc0bebc8ce28d61aa86b414aa91ecb29823b11aeed06098fcd97fee4bc73d54b1e96").unwrap(),
+                ],
+                num_required: 2,
+                segwit: false,
+                result: hex_bytes("a914fd3a5e9f5ba311ce6122765f0af8da7488e25d3a87").unwrap().to_vec(),
+            },
+            ScriptPubkeyFixture {
+                // script pubkey for p2sh-p2wpkh
+                keys: vec![
+                    BitcoinPublicKey::from_hex("020fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc8").unwrap(),
+                ],
+                num_required: 1,
+                segwit: true,
+                result: hex_bytes("a9140ac7ad046fe22c794dd923b3be14b2e668e50c4287").unwrap().to_vec(),
+            },
+            ScriptPubkeyFixture {
+                // script pubkey for multisig p2sh-p2wsh
+                keys: vec![
+                    BitcoinPublicKey::from_hex("020fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc8").unwrap(),
+                    BitcoinPublicKey::from_hex("02c77f262dda02580d65c9069a8a34c56bd77325bba4110b693b90216f5a3edc0b").unwrap(),
+                ],
+                num_required: 2,
+                segwit: true,
+                result: hex_bytes("a9143e02fa83ac2fae11fd6703b91e7c94ad393052e287").unwrap().to_vec(),
+            },
+        ];
+
+        for scriptpubkey_fixture in scriptpubkey_fixtures {
+            let result =
+                if !scriptpubkey_fixture.segwit {
+                    if scriptpubkey_fixture.num_required == 1 {
+                        BurnchainTxInput::sender_scriptpubkey_p2pkh(&scriptpubkey_fixture.keys[0])
+                    }
+                    else {
+                        BurnchainTxInput::sender_scriptpubkey_p2sh_multisig(scriptpubkey_fixture.num_required, &scriptpubkey_fixture.keys)
+                    }
+                }
+                else {
+                    if scriptpubkey_fixture.num_required == 1 {
+                        BurnchainTxInput::sender_scriptpubkey_p2wpkh_p2sh(&scriptpubkey_fixture.keys[0])
+                    }
+                    else {
+                        BurnchainTxInput::sender_scriptpubkey_p2wsh_p2sh_multisig(scriptpubkey_fixture.num_required, &scriptpubkey_fixture.keys)
+                    }
+                };
+
+            assert_eq!(result, scriptpubkey_fixture.result);
         }
     }
 }
