@@ -20,10 +20,10 @@
 pub mod db;
 pub mod operations;
 
-pub struct ConsensusHash([u8; 16]);
-impl_array_newtype!(ConsensusHash, u8, 16);
+pub struct ConsensusHash([u8; 20]);
+impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);
-impl_byte_array_newtype!(ConsensusHash, u8, 16);
+impl_byte_array_newtype!(ConsensusHash, u8, 20);
 
 pub struct BlockHeaderHash([u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
