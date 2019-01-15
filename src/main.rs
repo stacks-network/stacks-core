@@ -23,6 +23,7 @@ extern crate ini;
 extern crate jsonrpc;
 extern crate secp256k1;
 extern crate serde;
+extern crate serde_json;
 extern crate crypto;
 extern crate rusqlite;
 extern crate curve25519_dalek;
