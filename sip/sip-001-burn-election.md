@@ -922,38 +922,22 @@ to be relatively stable and to usually make forward progress.
 The fork choice rule effectively menas that in order to produce a fork that is
 _h_ blocks deep, the majority of leaders must spend _O(h)_ epochs producing it.
 However, the rate at which burn tokens are destroyed effects how easy or expensive it is
-to carry out a deep fork.  If the rate fluctuates both drastically and
-suddenly, a few well-placed leaders can carry out a deep fork before the rest of
-the network has a chance to react to it:
+to carry out a deep fork.  If the rate drops suddenly, then a few
+well-placed leaders can carry out a cheap deep fork before the rest of
+the network has a chance to react to it.
 
-* A few rich leaders can quickly dominate the
-  sortition process (and rewards) by suddenly increasing their burn rate,
- and effectively take over the chain before other
-participants have had a chance to react.
-
-* A few high-burn leaders can all stop burning at the same time, leading to
-a sudden decrease in the burn rate.  This would make it easy for opportunistic attackers to
-  cheaply produce an alternative fork before honest participants can react.
-
-In order to give the network a chance to react to sudden increases or decreases
-in burn rate, the Stacks blockchain "smooths out" its measured burn rate.  To do
-so, it implements a "burn window" whereby it
-decides how much cryptocurrency all participants must destroy in order for 
+In order to give the network a chance to react to sudden decreases
+in burn rate, the Stacks blockchain only allows sortition if the burn rate
+holds steady, and delays it if the burn rate drops.  It does so by
+measuring the average burn rate across a variable number of blocks called the
+ "burn window."  Using the burn window, the Stacks blockchain determines
+how much cryptocurrency all participants must destroy in order for 
 *any* leaders to be selected (regardless of which chain tip).
 This measurement includes **all** block commitments and **all** user burns --
 even well-formed burns for otherwise invalid or missing blocks.
 
-The purpose of the burn window is to ensure that a deep fork takes _O(h + d)_
-epochs to create, where _d_ is a function of the rate at which the burn rates
-change.  Higher burn rate fluctuations make it so a deep fork takes longer to
-carry out.
-
 The burn window is measured over a variable-length sequence of epochs, and is used
-to calculate a "burn quota."  The burn quota is used to (1) determine how
-much cryptocurrency must be burned in all epochs in the window in order for the
-next sortition to occur, and (2) cap the maximum amount of cryptcurrency
-that will be accepted for a block built on a non-canonical fork.
-The burn quota is controlled via a negative feedback loop, whereby
+to calculate a "burn quota."  The burn quota is controlled via a negative feedback loop, whereby
 the burn quota is additively increased with excessive burns and
 multiplicatively decreased in the absence of burns.  The Stacks
 blockchain tracks an average burns/window value to determine which action to
@@ -989,50 +973,16 @@ burn cryptocurrency units at a rate that is about the market rate for Stacks
 tokens.  The feedback loop that governs the window's burn quota
 creates a steady-state behavior where there is about one Stacks block produced per
 epoch, even in the face of wild adjustments
-in the market prices of Stacks and the underlying burn cryptocurrency, and in
-the face of the rise and fall in popularity of non-canonical forks.
+in the market prices of Stacks and the underlying burn cryptocurrency.  Should
+the burn rate drop suddenly, the set of honest leaders and users have a chance
+to react -- the network won't be immediately taken over by a few opportunistic
+players.
 
-In the absence of a leader election (if the burn quota is not met), the block seed
+In the absence of a leader election if the burn quota is not met, the block seed
 that will be used for the next leader election will be calculated
 per usual -- at each subsequent no-leader epoch, the new seed will be calculated as the hash
 of the current seed and the burn block header's hash.  As argued earlier, this
 ensures that the next election, when it occurs, will be unbiased.
-
-Under adversarial conditions where multiple forks are competing, the burn window
-is used to prevent a rich coalition from quickly taking
-control of the sortition algorithm.  This occurs in two ways.  First, if an _individual chain tip_ accumulates a
-protocol-defined "high" fraction of the average burn/block ratio, then its
-associated weight in the sortition algorithm is capped.  Second, if the _total burn_ exceeds
-a (different) protocol-defined "high" fraction of the average burn/block ratio,
-then the sortition algorithm will _only_ select blocks that build on the
-canonical fork's chain tip.  What this does is ensure that a rich coalition
-working on an alternative fork cannot immediately gain a greater-than-50%
-chance of getting selected -- it must
-first additively increase the average burn/block ratio to the point where it can
-both out-burn the remainder of the leaders and work on the alternative fork.
-This gives the rest of the network time to react to it -- the burn quota can be
-made to increase slowly, so a rich coalition would need to work on the
-alternative fork for days or even weeks.
-
-At the same time, the burn window is used to filter out burns that are too small
--- i.e. burns that are smaller than a "low" fraction of the average burn/block ratio. 
-Filtering out low burns serves two purposes:  ensuring that "spam attacks" are not profitable, and
-discouraging the conditions that lead to a "burn collapse."  Regarding spam
-attacks, filtering out low burns ensures that leaders of forks with very little 
-burn support have zero chance of being selected by the sortition algorithm.  This prevents
-a liveness failure scenario whereby a large number of low-burning peers DDoS the
-Stacks chain by committing to many different chain tips forks and collectively
-out-burning the honest coalition of leaders (at very small individual cost).
-This also effectively requires any fork that has a chance of becoming the
-"canonical" fork to have a large fraction of the burns behind them for a long period of time.
-
-Regarding burn collapse, ignoring burns that are too small encourages users to
-combine small burns into a single large burn when possible.  This in turn helps
-avoid the scenario whereby a legitimate chain commitment transaction gets bumped
-from its target block due to too much support.  When there is wide-spread
-interest in a particular chain tip from users, filtering small burns provides an
-economic incentive for users to make judicious use of the limited burn block
-space.
 
 # Implementation
 
@@ -1042,7 +992,7 @@ The Stacks blockchain leader election protocol will be written in Rust.
 
 ```
 Key transaction wire format
-0      2  3              19                       51                          80
+0      2  3              23                       55                         80
 |------|--|---------------|-----------------------|---------------------------|
  magic  op consensus hash   proving public key                   memo
 
@@ -1053,7 +1003,7 @@ Commitment transaction wire format
                                              delta  txoff  delta txoff 
 
 User support transaction wire format
-0      2  3              19                       51                 71       80
+0      2  3              23                       55                 75       80
 |------|--|---------------|-----------------------|------------------|--------|
  magic  op consensus hash    proving public key       block hash 160    memo
 
@@ -1064,7 +1014,7 @@ op                |  one-byte opcode that identifies the transaction type
 proving public key|  EdDSA public key (32 bytes)
 block hash        |  SHA256(SHA256(block header))
 block hash 160    |  RIPEMD160(block hash)
-consensus hash    |  first 16 bytes of RIPEMD160(merkle root of prior consensus hashes)
+consensus hash    |  RIPEMD160(merkle root of prior consensus hashes)
 parent delta      |  number of blocks back from this block in which the parent block header hash can be found
 parent txoff      |  offset in the block that contains the parent block header hash
 key delta         |  number of blocks back from this block in which the proving public key can be found
@@ -1072,6 +1022,9 @@ key txoff         |  offset in the block that contains the proving public key
 new seed          |  SHA256(SHA256(parent seed ++ VRF proof))
 memo              |  arbitrary data
 ```
+
+Note that the `consensus hash` field in Stacks v2 is 20 bytes, whereas in Stacks
+v1 it is 16 bytes.
 
 # Appendix
 
