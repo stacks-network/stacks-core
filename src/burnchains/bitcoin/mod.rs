@@ -152,3 +152,11 @@ impl error::Error for Error {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BitcoinNetworkType {
+    mainnet,
+    testnet,
+    regtest
+}
+
