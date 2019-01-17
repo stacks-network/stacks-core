@@ -46,7 +46,7 @@ use burnchains::bitcoin::network::PeerMessage;
 use burnchains::bitcoin::bits;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
-use burnchains::bitcoin::indexer::BitcoinNetworkType;
+use burnchains::bitcoin::BitcoinNetworkType;
 
 use burnchains::{
     BurnchainBlock, 
@@ -423,7 +423,7 @@ mod tests {
 
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
-    use burnchains::bitcoin::indexer::BitcoinNetworkType;
+    use burnchains::bitcoin::BitcoinNetworkType;
 
     use util::log as logger;
 
