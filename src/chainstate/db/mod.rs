@@ -24,10 +24,23 @@ use std::error;
 
 use rusqlite;
 use rusqlite::Error as sqlite_error;
+use rusqlite::types::ToSql;
+use rusqlite::Row;
 
 use serde_json::Error as serde_error;
 
 use burnchains::{Txid, Hash160};
+
+use burnchains::BurnchainTxInput;
+use burnchains::bitcoin::keys::BitcoinPublicKey;
+use burnchains::bitcoin::address::BitcoinAddress;
+
+use util::vrf::{ECVRF_public_key_to_hex, ECVRF_check_public_key};
+use util::hash::{to_hex, hex_bytes};
+
+use chainstate::{ConsensusHash, VRFSeed, BlockHeaderHash};
+
+use ed25519_dalek::PublicKey as VRFPublicKey;
 
 #[derive(Debug)]
 pub enum Error {
@@ -47,6 +60,10 @@ pub enum Error {
     TypeError,
     /// Serialization error -- can't serialize data
     SerializationError(serde_error),
+    /// Deserialization error -- can't deserialize data
+    DeserializationError(serde_error),
+    /// Parse error -- failed to load data we stored directly 
+    ParseError,
     /// Sqlite3 error
     SqliteError(sqlite_error)
 }
@@ -62,6 +79,8 @@ impl fmt::Display for Error {
             Error::NoTransaction => f.write_str(error::Error::description(self)),
             Error::TypeError => f.write_str(error::Error::description(self)),
             Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
+            Error::DeserializationError(ref e) => fmt::Display::fmt(e, f),
+            Error::ParseError => f.write_str(error::Error::description(self)),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f)
         }
     }
@@ -78,6 +97,8 @@ impl error::Error for Error {
             Error::NoTransaction => None,
             Error::TypeError => None,
             Error::SerializationError(ref e) => Some(e),
+            Error::DeserializationError(ref e) => Some(e),
+            Error::ParseError => None,
             Error::SqliteError(ref e) => Some(e)
         }
     }
@@ -92,6 +113,8 @@ impl error::Error for Error {
             Error::NoTransaction => "No transaction active",
             Error::TypeError => "Invalid or unrepresentable database type",
             Error::SerializationError(ref e) => e.description(),
+            Error::DeserializationError(ref e) => e.description(),
+            Error::ParseError => "Parse error",
             Error::SqliteError(ref e) => e.description()
         }
     }
@@ -101,4 +124,51 @@ pub trait ChainstateDB {
     fn backup(backup_path: &String) -> Result<(), Error>;
 }
 
+pub trait FromRow<T> {
+    fn from_row<'a>(row: &'a Row, index: usize) -> Result<T, db_error>;
+}
 
+use self::Error as db_error;
+
+macro_rules! impl_byte_array_from_row {
+    ($thing:ident) => {
+        impl FromRow<$thing> for $thing {
+            fn from_row<'a>(row: &'a Row, index: usize) -> Result<$thing, db_error> {
+                let hex_str : String = row.get(index);
+                let byte_str = hex_bytes(&hex_str)
+                    .map_err(|_e| db_error::ParseError)?;
+                let inst = $thing::from_bytes(&byte_str)
+                    .ok_or(db_error::ParseError)?;
+                Ok(inst)
+            }
+        }
+    }
+}
+
+impl_byte_array_from_row!(Txid);
+impl_byte_array_from_row!(ConsensusHash);
+impl_byte_array_from_row!(Hash160);
+impl_byte_array_from_row!(BlockHeaderHash);
+impl_byte_array_from_row!(VRFSeed);
+
+pub fn VRFPublicKey_from_row<'a>(row: &'a Row, index: usize) -> Result<VRFPublicKey, db_error> {
+    let public_key_hex : String = row.get(index);
+    let public_key_bytes = hex_bytes(&public_key_hex)
+        .map_err(|e| db_error::ParseError)?;
+
+    ECVRF_check_public_key(&public_key_bytes.to_vec())
+        .ok_or(db_error::ParseError)?;
+
+    let public_key = VRFPublicKey::from_bytes(&public_key_bytes)
+        .map_err(|e| db_error::ParseError)?;
+    Ok(public_key)
+}
+
+impl FromRow<BitcoinAddress> for BitcoinAddress {
+    fn from_row<'a>(row: &'a Row, index: usize) -> Result<BitcoinAddress, db_error> {
+        let address_b58 : String = row.get(index);
+        let address = BitcoinAddress::from_b58(&address_b58)
+            .map_err(|e| db_error::ParseError)?;
+        Ok(address)
+    }
+}
