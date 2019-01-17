@@ -25,7 +25,7 @@ use chainstate::db::burndb::BurnDB;
 
 use burnchains::{BurnchainTransaction, BurnchainTxInput, PublicKey};
 use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::indexer::BitcoinNetworkType;
+use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
 use burnchains::Txid;
 use burnchains::Hash160;
@@ -183,7 +183,6 @@ mod tests {
     use burnchains::{BurnchainTransaction, BurnchainTxInput, BurnchainTxOutput, BurnchainInputType};
     use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::indexer::{BitcoinNetworkType};
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::{Txid, Hash160};
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
