@@ -37,17 +37,11 @@ use burnchains::BurnchainTransaction;
 use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
 
 use bitcoin::network::constants as bitcoin_constants;
+use burnchains::bitcoin::BitcoinNetworkType;
 
 use dirs;
 
 pub const USER_AGENT: &'static str = "Blockstack Core v21";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BitcoinNetworkType {
-    mainnet,
-    testnet,
-    regtest
-}
 
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;
 pub const BITCOIN_TESTNET: u32 = 0x0709110B;
