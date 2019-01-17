@@ -19,7 +19,7 @@
 
 use burnchains::Address;
 use burnchains::Hash160;
-use burnchains::bitcoin::indexer::BitcoinNetworkType;
+use burnchains::bitcoin::BitcoinNetworkType;
 
 use burnchains::bitcoin::Error as btc_error;
 
@@ -178,7 +178,7 @@ impl Address for BitcoinAddress {
 #[cfg(test)]
 mod tests {
     use super::{BitcoinAddress, BitcoinAddressType};
-    use burnchains::bitcoin::indexer::BitcoinNetworkType;
+    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::Address;
     use burnchains::Hash160;
     use util::log as logger;
