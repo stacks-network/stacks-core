@@ -37,7 +37,7 @@ use burnchains::{
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
-use burnchains::bitcoin::indexer::BitcoinNetworkType;
+use burnchains::bitcoin::BitcoinNetworkType;
 
 use util::hash::to_hex;
 
@@ -541,10 +541,12 @@ mod tests {
     };
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
-    use burnchains::bitcoin::indexer::BitcoinNetworkType;
+    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::BurnchainInputType;
 
     use util::log as logger;
+
+    use serde_json::json;
 
     struct ScriptFixture<T> {
         script: Script,
@@ -603,6 +605,10 @@ mod tests {
 
             let tx_input_multisig_opt = BurnchainTxInput::from_bitcoin_p2sh_multisig_script_sig(&parse_script(&script_fixture.script));
             assert!(tx_input_multisig_opt.is_none());
+
+            let txin_str = serde_json::to_string(&script_fixture.result).unwrap();
+            let txin : BurnchainTxInput<BitcoinPublicKey> = serde_json::from_str(&txin_str).unwrap();
+            assert_eq!(txin, script_fixture.result);
         }
     }
 
@@ -674,6 +680,10 @@ mod tests {
 
             let tx_input_multisig_opt = BurnchainTxInput::from_bitcoin_p2pkh_script_sig(&parse_script(&script_fixture.script));
             assert!(tx_input_multisig_opt.is_none());
+
+            let txin_str = serde_json::to_string(&script_fixture.result).unwrap();
+            let txin : BurnchainTxInput<BitcoinPublicKey> = serde_json::from_str(&txin_str).unwrap();
+            assert_eq!(txin, script_fixture.result);
         }
     }
 
@@ -734,6 +744,10 @@ mod tests {
             match (tx_opt, fixture.result) {
                 (Some(tx_input), Some(fixture_input)) => {
                     assert_eq!(tx_input, fixture_input);
+
+                    let txin_str = serde_json::to_string(&fixture_input).unwrap();
+                    let txin : BurnchainTxInput<BitcoinPublicKey> = serde_json::from_str(&txin_str).unwrap();
+                    assert_eq!(txin, fixture_input);
                 },
                 (None, None) => {},
                 (Some(_t), None) => {
@@ -837,6 +851,10 @@ mod tests {
             match (tx_opt, fixture.result) {
                 (Some(tx_input), Some(fixture_input)) => {
                     assert_eq!(tx_input, fixture_input);
+
+                    let txin_str = serde_json::to_string(&fixture_input).unwrap();
+                    let txin : BurnchainTxInput<BitcoinPublicKey> = serde_json::from_str(&txin_str).unwrap();
+                    assert_eq!(txin, fixture_input);
                 },
                 (None, None) => {},
                 (Some(_t), None) => {
@@ -937,6 +955,7 @@ mod tests {
             let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::mainnet, &script_fixture.script, amount);
             assert!(tx_output_opt.is_some());
             assert_eq!(tx_output_opt.unwrap(), script_fixture.result);
+
         }
     }
 
