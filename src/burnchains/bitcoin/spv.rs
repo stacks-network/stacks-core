@@ -30,7 +30,8 @@ use bitcoin::network::message as btc_message;
 use bitcoin::util::hash::Sha256dHash;
 use bitcoin::util::uint::Uint256;
 
-use burnchains::bitcoin::indexer::{BitcoinIndexer, BitcoinNetworkType};
+use burnchains::bitcoin::BitcoinNetworkType;
+use burnchains::bitcoin::indexer::BitcoinIndexer;
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
 use burnchains::bitcoin::network::PeerMessage;
