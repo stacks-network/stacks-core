@@ -124,6 +124,10 @@ pub trait ChainstateDB {
     fn backup(backup_path: &String) -> Result<(), Error>;
 }
 
+pub trait RowOrder {
+    fn row_order() -> String;
+}
+
 pub trait FromRow<T> {
     fn from_row<'a>(row: &'a Row, index: usize) -> Result<T, db_error>;
 }

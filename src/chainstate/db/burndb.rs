@@ -24,7 +24,7 @@ use rusqlite::Row;
 use std::fs;
 use std::convert::From;
 
-use chainstate::db::FromRow;
+use chainstate::db::{FromRow, RowOrder};
 use chainstate::db::VRFPublicKey_from_row;
 use chainstate::db::ChainstateDB;
 use chainstate::db::Error as db_error;
@@ -104,6 +104,12 @@ impl From<&UserBurnSupportOp> for HistoryRow {
     }
 }
 
+impl RowOrder for LeaderKeyRegisterOp<BitcoinAddress> {
+    fn row_order() -> String {
+        "txid,vtxindex,block_height,consensus_hash,public_key,memo,address".to_string()
+    }
+}
+
 impl FromRow<LeaderKeyRegisterOp<BitcoinAddress>> for LeaderKeyRegisterOp<BitcoinAddress> {
     fn from_row<'a>(row: &'a Row, index: usize) -> Result<LeaderKeyRegisterOp<BitcoinAddress>, db_error> {
         let txid = Txid::from_row(row, 0 + index)?;
@@ -136,6 +142,12 @@ impl FromRow<LeaderKeyRegisterOp<BitcoinAddress>> for LeaderKeyRegisterOp<Bitcoi
         };
 
         Ok(leader_key_row)
+    }
+}
+
+impl RowOrder for LeaderBlockCommitOp<BitcoinPublicKey> {
+    fn row_order() -> String {
+        "txid,vtxindex,block_height,block_header_hash,new_seed,parent_block_backptr,parent_vtxindex,key_block_backptr,key_vtxindex,memo,burn_fee,input".to_string()
     }
 }
 
@@ -187,6 +199,12 @@ impl FromRow<LeaderBlockCommitOp<BitcoinPublicKey>> for LeaderBlockCommitOp<Bitc
             block_number: block_height as u64
         };
         Ok(block_commit)
+    }
+}
+
+impl RowOrder for UserBurnSupportOp {
+    fn row_order() -> String {
+        "txid,vtxindex,block_height,consensus_hash,public_key,block_header_hash_160,memo,burn_fee".to_string()
     }
 }
 
@@ -459,7 +477,8 @@ impl BurnDB {
     where
         P: IntoIterator,
         P::Item: ToSql,
-        T: FromRow<T>
+        T: FromRow<T>,
+        T: RowOrder
     {
         let mut stmt = self.conn.prepare(sql_query)
             .map_err(|e| db_error::SqliteError(e))?;
@@ -491,7 +510,7 @@ impl BurnDB {
         }
 
         // NOTE: we must select the fields *in this order*
-        let qry = "SELECT txid,vtxindex,block_height,consensus_hash,public_key,memo,address FROM leader_keys WHERE block_height = ?1 ORDER BY vtxindex ASC";
+        let qry = format!("SELECT {} FROM leader_keys WHERE block_height = ?1 ORDER BY vtxindex ASC", LeaderKeyRegisterOp::row_order());
         let args = [&(block_height as i64) as &ToSql];
         self.query_rows::<LeaderKeyRegisterOp<BitcoinAddress>, _>(&qry.to_string(), &args)
     }
@@ -503,7 +522,7 @@ impl BurnDB {
         }
 
         // NOTE: we must select the fields *in this order*
-        let qry = "SELECT txid,vtxindex,block_height,block_header_hash,new_seed,parent_block_backptr,parent_vtxindex,key_block_backptr,key_vtxindex,memo,burn_fee,input FROM block_commits WHERE block_height = ?1 ORDER BY vtxindex ASC";
+        let qry = format!("SELECT {} FROM block_commits WHERE block_height = ?1 ORDER BY vtxindex ASC", LeaderBlockCommitOp::row_order());
         let args = [&(block_height as i64) as &ToSql];
         self.query_rows::<LeaderBlockCommitOp<BitcoinPublicKey>, _>(&qry.to_string(), &args)
     }
@@ -515,7 +534,7 @@ impl BurnDB {
         }
 
         // NOTE: we must select the fields *in this order*
-        let qry = "SELECT txid,vtxindex,block_height,consensus_hash,public_key,block_header_hash_160,memo,burn_fee FROM user_burn_support WHERE block_height = ?1 ORDER BY vtxindex ASC";
+        let qry = format!("SELECT {} FROM user_burn_support WHERE block_height = ?1 ORDER BY vtxindex ASC", UserBurnSupportOp::row_order());
         let args = [&(block_height as i64) as &ToSql];
         self.query_rows::<UserBurnSupportOp, _>(&qry.to_string(), &args)
     }
