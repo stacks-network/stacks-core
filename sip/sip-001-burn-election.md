@@ -336,10 +336,9 @@ before the leader can commit to a chain tip in the next step.  For example, the
 leader may need to wait for 10 epochs before it can begin committing to a chain
 tip.  The exact number will be protocol-defined.
 
-The key transaction has a short lifetime in the protocol.  It must be consumed
-by a subsequent commitment transaction within a small number of epochs
-before it expires.  Once a key transaction is spent or expires,
-the public proving key _cannot be used again_.
+The key transaction can be used at any time to commit to a chain tip, once
+confirmed.  This is because the selection of the next block cannot be determined
+in advance.  However, a key can only be used once.
 
 ### Step 2: Burn & Commit
 
@@ -363,11 +362,8 @@ and this block's VRF proof generated with the leader's proving key.  The VRF pro
 is stored in the Stacks block header off-chain, but committed to on-chain.
 
 The leader has a 1-epoch window of time in which to generate a commitment
-transaction that matches its key transaction (i.e. if the key transaction is
-included at height _H_, then the commitment must be included at height _H+K_ for
-fixed _K_).  This is because leaders cannot be allowed to have a choice as to
-which seed they will build off of; otherwise they might be able to influence the
-sortition.
+transaction for its desired chain tip.  If the commitment transaction is "late"
+and arrives in a later epoch than intended, it will be ignored.
 
 The burn chain block that contains the candidates' commitment transaction
 serves as the election block for the leader's block (i.e. _N_), and is used to
