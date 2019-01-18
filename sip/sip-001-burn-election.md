@@ -407,13 +407,13 @@ def make_distribution(BURNS, BLOCK_HEADER):
       BURN_OFFSET += BURN_AMOUNT
    return DISTRIBUTION
 
-def select_block(SEED, BURNS, PROOFS, BURN_BLOCK_HEADER_HASH):
+def select_block(SEED, BURNS, PROOFS, BURN_BLOCK_HEADER.nonce):
    if len(BURNS) == 0:
-      return (None, None, hash(BURN_BLOCK_HEADER_HASH + SEED))
+      return (None, None, hash(BURN_BLOCK_HEADER.nonce+ SEED))
 
    DISTRIBUTION = make_distribution(BURNS)
    TOTAL_BURNS = sum(BURN_AMOUNT for (_, (BURN_AMOUNT, _)) in BURNS)
-   SEED_NORM = num(SEED) / TOTAL_BURNS
+   SEED_NORM = num(hash(SEED || BURN_BLOCK_HEADER.nonce)) / TOTAL_BURNS
    LAST_BURN_OFFSET = -1
    for (INDEX, (BURN_OFFSET, PUBKEY, BLOCK_HASH)) in enumerate(DISTRIBUTION):
       if LAST_BURN_OFFSET <= SEED_NORM and SEED_NORM < BURN_OFFSET:
