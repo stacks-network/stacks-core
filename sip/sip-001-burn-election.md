@@ -571,7 +571,9 @@ To help discourage both self-orphaning and "micro-bribes" to double-spend or
 omit specific transactions or trigger longer-than-necessary micro-forks, leaders are
 rewarded only 40% of their transaction fees in their block reward (including
 those that were batched).  They receive
-60% of the previous leader's transaction fees.  This result was shown in the
+60% of the previous leader's transaction fees (the exact distribution is
+"smoothed over" so that the expected pay-out to the leader is 40%; the exact
+details are described in the Reward Window below).  This result was shown in the
 Bitcoin-NG paper to be necessary to ensure that honest behavior is the most
 profitable behavior in the streaming model.
 
@@ -764,16 +766,41 @@ to help realize a close approximation of this payout distribution.
 
 ## Sharing the rewards among winners
 
-Winning blocks and the leaders and users who burned for them are not rewarded
-in a winner-take-all fashion.  Instead, after the
-rewards are delayed for a lock-up period, the are distributed to all winning
+Block rewards (coinbases and transaction fees) are not granted immediately,
+but are delayed for a lock-up period.  After the lock-up period passes,
+they are distributed to all winning
 burns over a _reward window_.  The block rewards
 are allotted to each burning participant incrementally as the window passes,
 based on the ratio between how
 much it burned over the window versus how much everyone
-burned over the window.  This has the (desired) effect of "smoothing out" the
+burned over the window.  That is, if a leader burned for a winning block
+in epoch _N_, they would receive a payout over epochs _N_ to _N+k_, where _k_
+is the length of the reward window.  This has the (desired) effect of "smoothing out" the
 rewards so as to minimize the difference between the idealized earnings and actual earnings
 across all winning participants.
+
+The exact reward break-down is as follows:
+
+* Coinbases: the coinbases in the reward window are summed and distributed to
+  each burner (leaders and supporting users) proportional to how much they
+burned over the _k_ blocks.  That is, for coinbases _C[N]...C[N+k]_, a peer
+that committed _b_ burns out of a total of _B_ burns receives _b/B *
+sum(C[N]...C[N+k])_ rewards.
+
+* Batched transactions:  the transaction fees for batched transactions are
+  summed and distributed to leaders proportional to how much they burned over
+the _k_ blocks.  In other words, all leaders share all batched transaction fees
+proportionally:  for batched transaction fee rewards _T[N]...T[N+k]_, a leader
+that committed _b_ burns out of _B_ burns total receives _b/B *
+sum(T[N]...T[N+k])_ rewards.
+
+* Streamed transactions:  the transaction fees for streamed transactions are
+  distributed such that in epoch _N_, 40% of the transaction fees are shared
+over all burners in epochs _N_..._N+k_, and 60% are shared over all burners in
+epochs _N+1_..._N+k+1_.  A leader that committed _b1_ burns out of _B1_ total burns in
+epochs _N...N+k_ and _b2_ burns out of _B2_ total burns in epochs _N+1...N+k+1_
+would receive _0.4 * b1/B1 * sum(T[N]...T[N+k]) + 0.6 * b2/B2 *
+sum(T[N+1]...T[N+k+1])_ streamed transaction fees.
 
 The "smoothing" mechanism is necessary to keep peers incentivized to mine a
 maximal number of transactions when either the Stacks block rewards
@@ -785,6 +812,15 @@ coinbase.  This avoids some of the [chain instability](http://randomwalker.info/
 problems that arise in winner-takes-all payout schemes, whereby
 miners implement a "petty compliant" strategy where a minimal amount of
 transactions are mined per block once transaction fees exceed coinbase rewards.
+
+Block rewards are effectively given out on a winner-take-all basis -- only
+leaders and users who burn for winning blocks receive an award.  However,
+leaders are expected to "hedge their bets" by burning in support for competing chain
+tips, so they will receive _some_ payout regardless of who
+wins.  This effectively rewards leaders who commit to valid chain tips but
+do not win the sortition.  This is a desirable outcome because it improves the
+chain's fork's quality (described in "Fork Selection" below) and lowers mining
+reward variance, without introducing the need for uncle blocks.
 
 On the burn chain, the presence of commitment transactions means that each burn
 chain miner _who also participates as a Stacks leader_ stands to receive both a
@@ -889,7 +925,7 @@ Fork selection in the Stacks blockchain requires a metric to determine which
 chain, between two candidates, is the "best" chain.  Using proof-of-burn as the
 security method for the blockchain implies a direct metric:  the total sum of
 burns in the election blocks for a candidate chain.  In particular, **the Stacks
-blockchain measures a fork's quality by the total amount of burns which _confirms_ block _N_** (as
+blockchain measures a fork's quality by the total amount of _blocks_ which _confirms_ block _N_** (as
 opposed to the amount of burn required for the _election_ of block _N_).
 
 This fork choice rule means that the best fork is the _longest valid_ fork.
@@ -997,10 +1033,10 @@ Key transaction wire format
  magic  op consensus hash   proving public key                   memo
 
 Commitment transaction wire format
-0      2  3              35                 67     71     73    77   79       80
-|------|--|---------------|-----------------|------|------|-----|-----|-------|
- magic  op   block hash       new seed       parent parent key   key    memo
-                                             delta  txoff  delta txoff 
+0      2  3           35               67     69     71    73   75     79    80
+|------|--|-------------|---------------|------|------|-----|-----|-----|-----|
+ magic  op   block hash     new seed     parent parent key   key   epoch  memo
+                                         delta  txoff  delta txoff num.
 
 User support transaction wire format
 0      2  3              23                       55                 75       80
