@@ -15,4 +15,4 @@ jobs:
             BLOCKSTACK_DEBUG: 1
             RUSTFLAGS: -Clink-dead-code
           command: |
-            cd blockstack-vm && cargo kcov
+            cd blockstack-vm && cargo kcov && /root/.codecov
