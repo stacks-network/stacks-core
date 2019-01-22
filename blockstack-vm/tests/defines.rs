@@ -38,26 +38,6 @@ fn test_recursive_panic() {
 }
 
 #[test]
-fn test_simple_map() {
-    let tests = parse(&
-        "(define (square x) (* x x))
-         (map square (list 1 2 3 4))");
-
-    let expected = ValueType::ListType(vec![
-        ValueType::IntType(1),
-        ValueType::IntType(4),
-        ValueType::IntType(9),
-        ValueType::IntType(16)]);
-
-    if let Ok(to_eval) = tests {
-        assert_eq!(Ok(expected), eval_all(&to_eval));
-    } else {
-        assert!(false, "Failed to parse function bodies.");
-    }
-}
-
-
-#[test]
 #[should_panic]
 fn test_define_parse_panic() {
     let tests = parse(&
