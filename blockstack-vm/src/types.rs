@@ -2,17 +2,17 @@ use super::representations::SymbolicExpression;
 use super::{Context,CallStack};
 use super::eval;
 
-#[derive(Debug)]
-#[derive(Clone)]
-#[derive(PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ValueType {
     VoidType,
     IntType(u64),
     BoolType(bool),
     BufferType(Box<[char]>),
-    IntListType(Vec<u64>),
-    BoolListType(Vec<bool>),
-    BufferListType(Vec<Box<[char]>>)
+    // Q: do we need to enforce that lists are composed
+    //   only of elements of the same type? if so, this has
+    //   to be done during runtime or via our type checker.
+    //  Rust will NOT do it for us.
+    ListType(Vec<ValueType>)
 }
 
 pub enum CallableType <'a> {

@@ -1,4 +1,5 @@
 pub mod define;
+mod lists;
 
 use super::types::ValueType;
 use super::types::CallableType;
@@ -161,14 +162,17 @@ fn special_let(args: &[SymbolicExpression], context: &Context, call_stack: &mut 
 
 pub fn lookup_reserved_functions<'a> (name: &str) -> Option<CallableType<'a>> {
     match name {
-        "+" => Option::Some(CallableType::NativeFunction(&native_add)),
-        "-" => Option::Some(CallableType::NativeFunction(&native_sub)),
-        "*" => Option::Some(CallableType::NativeFunction(&native_mul)),
-        "/" => Option::Some(CallableType::NativeFunction(&native_div)),
-        "mod" => Option::Some(CallableType::NativeFunction(&native_mod)),
-        "eq?" => Option::Some(CallableType::NativeFunction(&native_eq)),
-        "if" => Option::Some(CallableType::SpecialFunction(&special_if)),
-        "let" => Option::Some(CallableType::SpecialFunction(&special_let)),
-        _ => Option::None
+        "+" => Some(CallableType::NativeFunction(&native_add)),
+        "-" => Some(CallableType::NativeFunction(&native_sub)),
+        "*" => Some(CallableType::NativeFunction(&native_mul)),
+        "/" => Some(CallableType::NativeFunction(&native_div)),
+        "mod" => Some(CallableType::NativeFunction(&native_mod)),
+        "eq?" => Some(CallableType::NativeFunction(&native_eq)),
+        "if" => Some(CallableType::SpecialFunction(&special_if)),
+        "let" => Some(CallableType::SpecialFunction(&special_let)),
+        "map" => Some(CallableType::SpecialFunction(&lists::list_map)),
+        "fold" => Some(CallableType::SpecialFunction(&lists::list_fold)),
+        "list" => Some(CallableType::NativeFunction(&lists::list_cons)),
+        _ => None
     }
 }

@@ -2,5 +2,3 @@
 name = "blockstack-vm"
 version = "0.1.0"
 authors = ["Aaron Blankstein <aaron@blockstack.com>"]
-
-[dependencies]

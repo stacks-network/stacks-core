@@ -94,7 +94,7 @@ fn lookup_variable(name: &str, context: &Context) -> ValueType {
     }
 }
 
-fn lookup_function<'a> (name: &str, context: &'a Context)-> CallableType<'a> {
+pub fn lookup_function<'a> (name: &str, context: &'a Context)-> CallableType<'a> {
     match functions::lookup_reserved_functions(name) {
         Some(result) => result,
         _ => {
@@ -138,15 +138,16 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
 pub fn eval <'a> (exp: &SymbolicExpression, context: &'a Context<'a>,
                   call_stack: &mut CallStack, global_context: &'a Context<'a>) -> ValueType {
     match exp {
+        &SymbolicExpression::AtomValue(ref value) => value.clone(),
         &SymbolicExpression::Atom(ref value) => lookup_variable(&value, context),
         &SymbolicExpression::List(ref children) => {
             if let Some((function_variable, rest)) = children.split_first() {
                 match function_variable {
-                    &SymbolicExpression::List(ref _children) => panic!("Attempt to evaluate to function. Illegal!"),
                     &SymbolicExpression::Atom(ref value) => {
                         let f = lookup_function(&value, &context);
                         apply(&f, &rest, context, call_stack, global_context)
-                    }
+                    },
+                    _ => panic!("Attempt to evaluate to function. Illegal!")
                 }
             } else {
                 ValueType::VoidType

@@ -1,6 +1,6 @@
 use super::super::types::{ValueType, DefinedFunction};
 use super::super::representations::SymbolicExpression;
-use super::super::representations::SymbolicExpression::{Atom,List};
+use super::super::representations::SymbolicExpression::{Atom,AtomValue,List};
 use super::super::{Context,CallStack,eval};
 
 pub enum DefineResult {
@@ -45,6 +45,7 @@ pub fn evaluate_define(expression: &SymbolicExpression, context: &Context) -> Op
         } else {
             match elements[1] {
                 Atom(ref variable) => Some(handle_define_variable(variable, &elements[2], context)),
+                AtomValue(ref _value) => panic!("Attempted to define a value type!"),
                 List(ref function_signature) => Some(handle_define_function(&function_signature, &elements[2], context))
             }
         }
