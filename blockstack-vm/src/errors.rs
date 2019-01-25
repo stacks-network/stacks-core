@@ -5,7 +5,9 @@ use std::error;
 pub enum Error {
     Generic(String),
     NotImplemented,
-    TypeError(String, String)
+    TypeError(String, String),
+    InvalidArguments(String),
+    RecursionDetected
 }
 
 impl fmt::Display for Error {

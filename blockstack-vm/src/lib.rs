@@ -59,7 +59,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
                         // TODO: we must check for recursion during our static checks!
                         let identifier = function.get_identifier();
                         if call_stack.contains(&identifier) {
-                            panic!("Recursion detected");
+                            Err(Error::RecursionDetected)
                         } else {
                             call_stack.insert(&identifier);
                             let resp = function.apply(&evaluated_args, call_stack, global_context);

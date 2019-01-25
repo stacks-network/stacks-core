@@ -4,6 +4,8 @@ use blockstack_vm::types::ValueType;
 
 use blockstack_vm::parser::parse;
 use blockstack_vm::eval_all;
+use blockstack_vm::errors::Error;
+
 
 #[test]
 fn test_defines() {
@@ -21,7 +23,6 @@ fn test_defines() {
 }
 
 #[test]
-#[should_panic]
 fn test_recursive_panic() {
     let tests = parse(&
         "(define (factorial a)
@@ -31,33 +32,35 @@ fn test_recursive_panic() {
          (factorial 10)");
 
     if let Ok(to_eval) = tests {
-        assert_eq!(Ok(ValueType::IntType(29)), eval_all(&to_eval));
+        assert_eq!(Err(Error::RecursionDetected), eval_all(&to_eval));
     } else {
         assert!(false, "Failed to parse function bodies.");
     }
 }
 
 #[test]
-#[should_panic]
 fn test_define_parse_panic() {
     let tests = parse(&
         "(define () 1)");
 
+    let expected = Err(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()));
+
     if let Ok(to_eval) = tests {
-        assert_eq!(Ok(ValueType::IntType(29)), eval_all(&to_eval));
+        assert_eq!(expected, eval_all(&to_eval));
     } else {
         assert!(false, "Failed to parse function bodies.");
     }
 }
 
 #[test]
-#[should_panic]
 fn test_define_parse_panic_2() {
     let tests = parse(&
         "(define (a b (d)) 1)");
 
     if let Ok(to_eval) = tests {
-        assert_eq!(Ok(ValueType::IntType(29)), eval_all(&to_eval));
+        assert_eq!(
+            Err(Error::InvalidArguments("Non-atomic argument to method signature in define".to_string())),
+            eval_all(&to_eval));
     } else {
         assert!(false, "Failed to parse function bodies.");
     }

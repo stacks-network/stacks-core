@@ -13,7 +13,7 @@ pub fn list_cons(args: &[ValueType]) -> InterpreterResult {
 pub fn list_fold(args: &[SymbolicExpression], context: &Context,
                  call_stack: &mut CallStack, global: &Context) -> InterpreterResult {
     if args.len() != 3 {
-        return Err(Error::Generic(format!("Wrong number of arguments ({}) to fold", args.len())))
+        return Err(Error::InvalidArguments(format!("Wrong number of arguments ({}) to fold", args.len())))
     }
     if let SymbolicExpression::Atom(ref function_name) = args[0] {
         let function = lookup_function(&function_name, context);
@@ -30,14 +30,14 @@ pub fn list_fold(args: &[SymbolicExpression], context: &Context,
                                       format!("{:?}", list)))
         }
     } else {
-        Err(Error::Generic("Fold must be called with a function name. We do not support eval'ing to functions.".to_string()))
+        Err(Error::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string()))
     }
 }
 
 pub fn list_map(args: &[SymbolicExpression], context: &Context,
             call_stack: &mut CallStack, global: &Context) -> InterpreterResult {
     if args.len() != 2 {
-        return Err(Error::Generic(format!("Wrong number of arguments ({}) to map", args.len())))
+        return Err(Error::InvalidArguments(format!("Wrong number of arguments ({}) to map", args.len())))
     }
     if let SymbolicExpression::Atom(ref function_name) = args[0] {
         let function = lookup_function(&function_name, context);
@@ -51,9 +51,9 @@ pub fn list_map(args: &[SymbolicExpression], context: &Context,
                 let vec = result?;
                 Ok(ListType(vec))
             },
-            _ => panic!("Map called on non-list! Totally unacceptable.")
+            _ => Err(Error::TypeError("List".to_string(), format!("{:?}", list)))
         }
     } else {
-        panic!("Map must be called with a function name. We do not support eval'ing to functions.")
+        Err(Error::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string()))
     }
 }

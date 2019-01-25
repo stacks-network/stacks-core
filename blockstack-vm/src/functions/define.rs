@@ -21,7 +21,7 @@ pub fn handle_define_function(signature: &[SymbolicExpression], expression: &Sym
         if let Atom(name) = x {
             Ok(name)
         } else {
-            Err(Error::Generic("Non-atomic argument to method signature in define".to_string()))
+            Err(Error::InvalidArguments("Non-atomic argument to method signature in define".to_string()))
         }
     }).collect();
 
@@ -33,7 +33,7 @@ pub fn handle_define_function(signature: &[SymbolicExpression], expression: &Sym
         };
         Ok(DefineResult::Function((*function_name).clone(), function))
     } else {
-        panic!("Must supply atleast a name argument to define a function")
+        Err(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))
     }
 }
 
