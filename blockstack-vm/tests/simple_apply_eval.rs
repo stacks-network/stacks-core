@@ -1,7 +1,7 @@
 extern crate blockstack_vm;
 
 use blockstack_vm::eval;
-use blockstack_vm::{Context, CallStack};
+use blockstack_vm::contexts::{Context, CallStack};
 use blockstack_vm::types::{ValueType, DefinedFunction};
 use blockstack_vm::representations::SymbolicExpression;
 use blockstack_vm::parser::parse;
@@ -33,7 +33,7 @@ fn test_simple_user_function() {
     context.functions.insert("do_work".to_string(), user_function);
     let mut call_stack = CallStack::new();
 
-    assert_eq!(ValueType::IntType(64), eval(&content[0], &context, &mut call_stack, &context));
+    assert_eq!(Ok(ValueType::IntType(64)), eval(&content[0], &context, &mut call_stack, &context));
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn test_simple_let() {
         let context = Context::new();
         let mut call_stack = CallStack::new();
 
-        assert_eq!(ValueType::IntType(7), eval(&parsed_program[0], &context, &mut call_stack, &context));        
+        assert_eq!(Ok(ValueType::IntType(7)), eval(&parsed_program[0], &context, &mut call_stack, &context));        
     } else {
         assert!(false, "Failed to parse program.");
     }
@@ -97,9 +97,9 @@ fn test_simple_if_functions() {
         if let Ok(tests) = evals {
             let mut call_stack = CallStack::new();
 
-            assert_eq!(ValueType::IntType(1), eval(&tests[0], &context, &mut call_stack, &context));
-            assert_eq!(ValueType::VoidType, eval(&tests[1], &context, &mut call_stack, &context));
-            assert_eq!(ValueType::IntType(0), eval(&tests[2], &context, &mut call_stack, &context));
+            assert_eq!(Ok(ValueType::IntType(1)), eval(&tests[0], &context, &mut call_stack, &context));
+            assert_eq!(Ok(ValueType::VoidType), eval(&tests[1], &context, &mut call_stack, &context));
+            assert_eq!(Ok(ValueType::IntType(0)), eval(&tests[2], &context, &mut call_stack, &context));
         } else {
             assert!(false, "Failed to parse function bodies.");
         }
@@ -117,7 +117,9 @@ fn test_simple_arithmetic_functions() {
          (/ 10 13)
          (mod 51 2)
          (- 5 4 1)
-         (+ 5 4 1)");
+         (+ 5 4 1)
+         (eq? (* 2 3)
+              (+ 2 2 2))");
 
     let expectations = [
         ValueType::IntType(21657996),
@@ -126,14 +128,14 @@ fn test_simple_arithmetic_functions() {
         ValueType::IntType(0),
         ValueType::IntType(1),
         ValueType::IntType(0),
-        ValueType::IntType(10)];
-
+        ValueType::IntType(10),
+        ValueType::BoolType(true)];
 
     if let Ok(to_eval) = tests {
         let context = Context::new();
         let mut call_stack = CallStack::new();
         to_eval.iter().zip(expectations.iter())
-            .for_each(|(program, expectation)| assert_eq!(*expectation, eval(program, &context, &mut call_stack, &context)));
+            .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), eval(program, &context, &mut call_stack, &context)));
     } else {
         assert!(false, "Failed to parse function bodies.");
     }
