@@ -1,3 +1,5 @@
+use super::InterpreterResult;
+use super::errors::Error;
 use super::representations::SymbolicExpression;
 use super::{Context,CallStack};
 use super::eval;
@@ -17,8 +19,8 @@ pub enum ValueType {
 
 pub enum CallableType <'a> {
     UserFunction(Box<DefinedFunction>),
-    NativeFunction(&'a Fn(&[ValueType]) -> ValueType),
-    SpecialFunction(&'a Fn(&[SymbolicExpression], &Context, &mut CallStack, &Context) -> ValueType)
+    NativeFunction(&'a Fn(&[ValueType]) -> InterpreterResult),
+    SpecialFunction(&'a Fn(&[SymbolicExpression], &Context, &mut CallStack, &Context) -> InterpreterResult)
 }
 
 #[derive(Clone)]
@@ -28,10 +30,11 @@ pub struct DefinedFunction {
 }
 
 
-pub fn type_force_integer(value: &ValueType) -> u64 {
+pub fn type_force_integer(value: &ValueType) -> Result<u64, Error> {
     match *value {
-        ValueType::IntType(int) => int,
-        _ => panic!("Not an integer")
+        ValueType::IntType(int) => Ok(int),
+        _ => Err(Error::TypeError("Integer".to_string(),
+                                  format!("{:?}", value)))
     }
 }
 
@@ -49,7 +52,7 @@ impl DefinedFunction {
         }
     }
 
-    pub fn apply(&self, args: &[ValueType], call_stack: &mut CallStack, global: &Context) -> ValueType {
+    pub fn apply(&self, args: &[ValueType], call_stack: &mut CallStack, global: &Context) -> InterpreterResult {
         let mut context = Context::new();
         context.parent = Some(global);        
 
