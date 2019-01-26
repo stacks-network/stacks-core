@@ -44,7 +44,8 @@ pub fn evaluate_define(expression: &SymbolicExpression, context: &Context) -> Re
         } else {
             match elements[1] {
                 Atom(ref variable) => handle_define_variable(variable, &elements[2], context),
-                AtomValue(ref _value) => panic!("Attempted to define a value type!"),
+                AtomValue(ref _value) => Err(Error::InvalidArguments(
+                    "Illegal operation: attempted to re-define a value type.".to_string())),
                 List(ref function_signature) => handle_define_function(&function_signature, &elements[2], context)
             }
         }

@@ -1,96 +1,15 @@
 pub mod define;
 mod lists;
+mod arithmetic;
+mod boolean;
 
 use super::types::{ValueType, CallableType};
-use super::types::type_force_integer;
 use super::representations::SymbolicExpression;
 use super::{Context,CallStack};
 use super::InterpreterResult;
 use super::errors::Error;
 use super::eval;
 
-fn native_add(args: &[ValueType]) -> InterpreterResult {
-    let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
-    let parsed_args = typed_args?;
-    let checked_result = parsed_args.iter().fold(Some(0), |acc: Option<u64>, x| {
-        match acc {
-            Some(value) => value.checked_add(*x),
-            None => None
-        }});
-    if let Some(result) = checked_result{
-        Ok(ValueType::IntType(result))
-    } else {
-        panic!("Overflowed in addition!");
-    }
-}
-
-fn native_sub(args: &[ValueType]) -> InterpreterResult {
-    let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
-    let parsed_args = typed_args?;
-    if let Some((first, rest)) = parsed_args.split_first() {
-        let checked_result = rest.iter().fold(Some(*first), |acc, x| {
-            match acc {
-                Some(value) => value.checked_sub(*x),
-                None => None
-            }});
-        if let Some(result) = checked_result{
-            Ok(ValueType::IntType(result))
-        } else {
-            panic!("Underflowed in subtraction!");
-        }
-    } else {
-        panic!("(- ...) must be called with at least 1 argument");
-    }
-}
-
-fn native_mul(args: &[ValueType]) -> InterpreterResult {
-    let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
-    let parsed_args = typed_args?;
-    let checked_result = parsed_args.iter().fold(Some(1), |acc: Option<u64>, x| {
-        match acc {
-            Some(value) => value.checked_mul(*x),
-            None => None
-        }});
-    if let Some(result) = checked_result{
-        Ok(ValueType::IntType(result))
-    } else {
-        panic!("Overflowed in multiplication!");
-    }
-}
-
-fn native_div(args: &[ValueType]) -> InterpreterResult {
-    let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
-    let parsed_args = typed_args?;
-    if let Some((first, rest)) = parsed_args.split_first() {
-        let checked_result = rest.iter().fold(Some(*first), |acc, x| {
-            match acc {
-                Some(value) => value.checked_div(*x),
-                None => None
-            }});
-        if let Some(result) = checked_result{
-            Ok(ValueType::IntType(result))
-        } else {
-            panic!("Tried to divide by 0!");
-        }
-    } else {
-        panic!("(/ ...) must be called with at least 1 argument");
-    }
-}
-
-fn native_mod(args: &[ValueType]) -> InterpreterResult {
-    if args.len() == 2 {
-        let numerator = type_force_integer(&args[0])?;
-        let denominator = type_force_integer(&args[1])?;
-        let checked_result = numerator.checked_rem(denominator);
-        if let Some(result) = checked_result{
-            Ok(ValueType::IntType(result))
-        } else {
-            panic!("Tried to modulus by 0!");
-        }
-    } else {
-        Err(Error::Generic("(mod ...) must be called with exactly 2 arguments".to_string()))
-    }
-}
 
 fn native_eq(args: &[ValueType]) -> InterpreterResult {
     // TODO: this currently uses the derived equality checks of ValueType,
@@ -107,7 +26,7 @@ fn native_eq(args: &[ValueType]) -> InterpreterResult {
 
 fn special_if(args: &[SymbolicExpression], context: &Context, call_stack: &mut CallStack, global: &Context) -> InterpreterResult {
     if !(args.len() == 2 || args.len() == 3) {
-        panic!("Wrong number of arguments to if");
+        return Err(Error::InvalidArguments("Wrong number of arguments to if (expect 2 or 3)".to_string()))
     }
     // handle the conditional clause.
     let conditional = eval(&args[0], context, call_stack, global)?;
@@ -123,7 +42,7 @@ fn special_if(args: &[SymbolicExpression], context: &Context, call_stack: &mut C
                 }
             }
         },
-        _ => panic!("Conditional argument must evaluate to BoolType")
+        _ => Err(Error::TypeError("BoolType".to_string(), conditional))
     }
 }
 
@@ -132,7 +51,7 @@ fn special_let(args: &[SymbolicExpression], context: &Context, call_stack: &mut 
     // arg0 => binding list
     // arg1 => body
     if args.len() != 2 {
-        panic!("Wrong number of arguments to let");
+        return Err(Error::InvalidArguments("Wrong number of arguments to let (expect 2)".to_string()))
     }
     // create a new context.
     let mut inner_context = Context::new();
@@ -172,11 +91,18 @@ fn special_let(args: &[SymbolicExpression], context: &Context, call_stack: &mut 
 
 pub fn lookup_reserved_functions<'a> (name: &str) -> Option<CallableType<'a>> {
     match name {
-        "+" => Some(CallableType::NativeFunction(&native_add)),
-        "-" => Some(CallableType::NativeFunction(&native_sub)),
-        "*" => Some(CallableType::NativeFunction(&native_mul)),
-        "/" => Some(CallableType::NativeFunction(&native_div)),
-        "mod" => Some(CallableType::NativeFunction(&native_mod)),
+        "+" => Some(CallableType::NativeFunction(&arithmetic::native_add)),
+        "-" => Some(CallableType::NativeFunction(&arithmetic::native_sub)),
+        "*" => Some(CallableType::NativeFunction(&arithmetic::native_mul)),
+        "/" => Some(CallableType::NativeFunction(&arithmetic::native_div)),
+        ">=" => Some(CallableType::NativeFunction(&arithmetic::native_geq)),
+        "<=" => Some(CallableType::NativeFunction(&arithmetic::native_leq)),
+        "<" => Some(CallableType::NativeFunction(&arithmetic::native_le)),
+        ">" => Some(CallableType::NativeFunction(&arithmetic::native_ge)),
+        "mod" => Some(CallableType::NativeFunction(&arithmetic::native_mod)),
+        "and" => Some(CallableType::SpecialFunction(&boolean::special_and)),
+        "or" => Some(CallableType::SpecialFunction(&boolean::special_or)),
+        "not" => Some(CallableType::NativeFunction(&boolean::native_not)),
         "eq?" => Some(CallableType::NativeFunction(&native_eq)),
         "if" => Some(CallableType::SpecialFunction(&special_if)),
         "let" => Some(CallableType::SpecialFunction(&special_let)),

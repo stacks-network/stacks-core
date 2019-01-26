@@ -24,20 +24,20 @@ fn lookup_variable(name: &str, context: &Context) -> InterpreterResult {
     } else {
         match context.lookup_variable(name) {
             Some(value) => Ok(value),
-            None => Err(Error::Generic(format!("No such variable found in context: {}", name)))
+            None => Err(Error::Undefined(format!("No such variable found in context: {}", name)))
         }
     }
 }
 
-pub fn lookup_function<'a> (name: &str, context: &'a Context)-> CallableType<'a> {
+pub fn lookup_function<'a> (name: &str, context: &'a Context)-> Result<CallableType<'a>, Error> {
     match functions::lookup_reserved_functions(name) {
-        Some(result) => result,
+        Some(result) => Ok(result),
         _ => {
             match context.lookup_function(name) {
                 Some(func) => { 
-                    CallableType::UserFunction(func)
+                    Ok(CallableType::UserFunction(func))
                 }
-                None => panic!("Crash and burn")
+                None => Err(Error::Undefined(format!("No such function found in context: {}", name)))
             }
         }
     }
@@ -84,10 +84,10 @@ pub fn eval <'a> (exp: &SymbolicExpression, context: &'a Context<'a>,
             if let Some((function_variable, rest)) = children.split_first() {
                 match function_variable {
                     &SymbolicExpression::Atom(ref value) => {
-                        let f = lookup_function(&value, &context);
+                        let f = lookup_function(&value, &context)?;
                         apply(&f, &rest, context, call_stack, global_context)
                     },
-                    _ => panic!("Attempt to evaluate to function. Illegal!")
+                    _ => Err(Error::TryEvalToFunction)
                 }
             } else {
                 Ok(ValueType::VoidType)
@@ -123,4 +123,9 @@ pub fn eval_all(expressions: &[SymbolicExpression]) -> InterpreterResult {
     } else {
         Err(Error::Generic("Failed to get response from eval()".to_string()))
     }
+}
+
+pub fn execute(program: &str) -> InterpreterResult {
+    let parsed = parser::parse(program)?;
+    eval_all(&parsed)
 }

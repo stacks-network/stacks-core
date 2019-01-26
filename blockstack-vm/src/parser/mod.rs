@@ -1,3 +1,4 @@
+use super::errors::Error;
 use super::representations::SymbolicExpression;
 
 #[derive(Debug)]
@@ -21,7 +22,7 @@ fn finish_atom(current: &mut Option<String>) -> Option<LexItem> {
     resp
 }
 
-pub fn lex(input: &str) -> Result<Vec<LexItem>, String> {
+pub fn lex(input: &str) -> Result<Vec<LexItem>, Error> {
     let mut result = Vec::new();
     let current = &mut None;
     input.chars().for_each(|c| {
@@ -63,12 +64,12 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>, String> {
     Ok(result)
 }
 
-pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>, String> {
+pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>, Error> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
 
-    let res = input.iter().try_for_each(|item| {
+    let _result = input.iter().try_for_each(|item| {
         match *item {
             LexItem::LeftParen => {
                 // start new list.
@@ -91,7 +92,7 @@ pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>, Stri
                     };
                     Ok(())
                 } else {
-                    Err("Tried to close list which isn't open.".to_string())
+                    Err(Error::ParseError("Tried to close list which isn't open.".to_string()))
                 }
             },
             LexItem::Atom(ref value) => {
@@ -102,23 +103,17 @@ pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>, Stri
                 Ok(())
             }
         }
-    });
-    match res {
-        Ok(_value) => {
-            // check unfinished stack:
-            if parse_stack.len() > 0 {
-                Err("List expressions (..) left opened.".to_string())
-            } else {
-                Ok(output_list)
-            }
-        },
-        Err(value) => Err(value)
+    })?;
+
+    // check unfinished stack:
+    if parse_stack.len() > 0 {
+        Err(Error::ParseError("List expressions (..) left opened.".to_string()))
+    } else {
+        Ok(output_list)
     }
 }
 
-pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>, String> {
-    match lex(input) {
-        Ok(lexed) => parse_lexed(&lexed),
-        Err(value) => Err(value)
-    }
+pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>, Error> {
+    let lexed = lex(input)?;
+    parse_lexed(&lexed)
 }

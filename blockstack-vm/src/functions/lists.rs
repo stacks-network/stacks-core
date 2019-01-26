@@ -16,7 +16,7 @@ pub fn list_fold(args: &[SymbolicExpression], context: &Context,
         return Err(Error::InvalidArguments(format!("Wrong number of arguments ({}) to fold", args.len())))
     }
     if let SymbolicExpression::Atom(ref function_name) = args[0] {
-        let function = lookup_function(&function_name, context);
+        let function = lookup_function(&function_name, context)?;
         let list = eval(&args[1], context, call_stack, global)?;
         let initial = eval(&args[2], context, call_stack, global)?;
         match list {
@@ -26,8 +26,7 @@ pub fn list_fold(args: &[SymbolicExpression], context: &Context,
                     let argument = [ AtomValue(x.clone()), AtomValue(acc) ];
                     apply(&function, &argument, context, call_stack, global)
                 }),
-            _ => Err(Error::TypeError("List".to_string(),
-                                      format!("{:?}", list)))
+            _ => Err(Error::TypeError("List".to_string(), list))
         }
     } else {
         Err(Error::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string()))
@@ -40,7 +39,7 @@ pub fn list_map(args: &[SymbolicExpression], context: &Context,
         return Err(Error::InvalidArguments(format!("Wrong number of arguments ({}) to map", args.len())))
     }
     if let SymbolicExpression::Atom(ref function_name) = args[0] {
-        let function = lookup_function(&function_name, context);
+        let function = lookup_function(&function_name, context)?;
         let list = eval(&args[1], context, call_stack, global)?;
         match list {
             ListType(vector) => {
@@ -51,7 +50,7 @@ pub fn list_map(args: &[SymbolicExpression], context: &Context,
                 let vec = result?;
                 Ok(ListType(vec))
             },
-            _ => Err(Error::TypeError("List".to_string(), format!("{:?}", list)))
+            _ => Err(Error::TypeError("List".to_string(), list))
         }
     } else {
         Err(Error::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string()))

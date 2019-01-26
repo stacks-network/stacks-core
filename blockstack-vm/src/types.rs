@@ -29,15 +29,6 @@ pub struct DefinedFunction {
     pub body: SymbolicExpression
 }
 
-
-pub fn type_force_integer(value: &ValueType) -> Result<u64, Error> {
-    match *value {
-        ValueType::IntType(int) => Ok(int),
-        _ => Err(Error::TypeError("Integer".to_string(),
-                                  format!("{:?}", value)))
-    }
-}
-
 #[derive(Clone,PartialEq,Eq,Hash)]
 pub struct FunctionIdentifier {
     pub arguments: Vec<String>,
@@ -56,13 +47,13 @@ impl DefinedFunction {
         let mut context = Context::new();
         context.parent = Some(global);        
 
-        let arg_iterator = self.arguments.iter().zip(args.iter());
-        arg_iterator.for_each(|(arg, value)| {
+        let mut arg_iterator = self.arguments.iter().zip(args.iter());
+        let _result = arg_iterator.try_for_each(|(arg, value)| {
             match context.variables.insert((*arg).clone(), (*value).clone()) {
-                Some(_val) => panic!("Multiply defined function argument."),
-                _ => ()
+                Some(_val) => Err(Error::InvalidArguments("Multiply defined function argument".to_string())),
+                _ => Ok(())
             }
-        });
+        })?;
         eval(&self.body, &context, call_stack, global)
     }
 
