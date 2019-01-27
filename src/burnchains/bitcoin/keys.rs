@@ -28,12 +28,10 @@ use secp256k1::Error as Secp256k1Error;
 use burnchains::PublicKey;
 use util::hash::{hex_bytes, to_hex};
 
-use serde::de::{Deserialize, Deserializer};
+use serde::de::Deserialize;
 use serde::de::Error as de_Error;
-use serde::ser::{Serialize, Serializer};
 
 // per-thread Secp256k1 context
-use std::cell::RefCell;
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
 
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
@@ -118,15 +116,9 @@ mod tests {
 
     use secp256k1;
     use secp256k1::Secp256k1;
-    use secp256k1::constants as Secp256k1Constants;
     use secp256k1::PublicKey as Secp256k1PublicKey;
-    use secp256k1::Message as Secp256k1Message;
-    use secp256k1::Signature as Secp256k1Signature;
-    use secp256k1::Error as Secp256k1Error;
     use burnchains::PublicKey;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-
-    use util::log as logger;
 
     struct KeyFixture<I, R> {
         input: I,
@@ -192,7 +184,7 @@ mod tests {
 
     #[test]
     fn test_verify() {
-        let ctx : Secp256k1<secp256k1::All> = Secp256k1::new();
+        let _ctx : Secp256k1<secp256k1::All> = Secp256k1::new();
         let fixtures : Vec<VerifyFixture<Result<bool, &'static str>>> = vec![
             VerifyFixture {
                 public_key: "034c35b09b758678165d6ed84a50b329900c99986cf8e9a358ceae0d03af91f5b6",
