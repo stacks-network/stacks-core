@@ -23,8 +23,8 @@ use std::io::{Read, Seek, Write, SeekFrom};
 use std::ops::Deref;
 
 use bitcoin::blockdata::block::{LoneBlockHeader, BlockHeader};
-use bitcoin::network::encodable::{ConsensusEncodable, ConsensusDecodable, VarInt};
-use bitcoin::network::serialize::{RawEncoder, RawDecoder, serialize, deserialize, BitcoinHash};
+use bitcoin::network::encodable::VarInt;
+use bitcoin::network::serialize::{serialize, deserialize, BitcoinHash};
 use bitcoin::network::message as btc_message;
 
 use bitcoin::util::hash::Sha256dHash;
@@ -34,7 +34,7 @@ use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::bitcoin::indexer::BitcoinIndexer;
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
-use burnchains::bitcoin::network::PeerMessage;
+use burnchains::bitcoin::PeerMessage;
 
 const BLOCK_HEADER_SIZE: u64 = 81;
 
@@ -277,17 +277,15 @@ impl SpvClient {
 
     /// Append block headers to our headers file
     fn append_block_headers(&mut self, headers: &Vec<LoneBlockHeader>) -> Result<(), btc_error> {
-        let headers_path = self.headers_path.clone();
+        let headers_path = &self.headers_path;
         let network_id = self.network_id;
 
         if !self.is_initialized().is_ok() {
-            // damn borrow checker
-            let headers_path = self.headers_path.clone();
-            SpvClient::init_block_headers(&headers_path, network_id)?;
+            SpvClient::init_block_headers(headers_path, network_id)?;
         }
 
-        let height = SpvClient::get_headers_height(&headers_path)?;
-        let last_header_opt = SpvClient::read_block_header(&headers_path, height)?;
+        let height = SpvClient::get_headers_height(headers_path)?;
+        let last_header_opt = SpvClient::read_block_header(headers_path, height)?;
         assert!(last_header_opt.is_some());
         
         let last_header = last_header_opt.unwrap();
@@ -321,7 +319,19 @@ impl SpvClient {
         headers_file.flush()
                 .map_err(btc_error::FilesystemError)?;
 
-        return Ok(());
+        Ok(())
+    }
+
+    /// Drop headers after a block height (i.e. due to a reorg).
+    /// DANGEROUS -- don't use if there's another SPV client running on this header path!
+    pub fn drop_headers(header_path: &str, new_size: u64) -> Result<(), btc_error> {
+        let headers_file = fs::File::open(header_path)
+                             .map_err(btc_error::FilesystemError)?;
+
+        headers_file.set_len(new_size * BLOCK_HEADER_SIZE)
+            .map_err(btc_error::FilesystemError)?;
+
+        Ok(())
     }
 
     /// Determine the target difficult over a given difficulty adjustment interval
@@ -390,10 +400,9 @@ impl BitcoinMessageHandler for SpvClient {
 
     /// Trait message handler
     /// Take headers, validate them, and ask for more
-    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: &PeerMessage) -> Result<bool, btc_error> {
+    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: PeerMessage) -> Result<bool, btc_error> {
         match msg.deref() {
-            btc_message::NetworkMessage::Headers(ref block_headers) => {
-
+            btc_message::NetworkMessage::Headers(block_headers) => {
                 if self.cur_block_height >= self.end_block_height {
                     // done 
                     return Ok(false);
@@ -419,15 +428,17 @@ impl BitcoinMessageHandler for SpvClient {
                 debug!("Request headers for blocks {} - {}", block_height, block_height + 2000);
                 let res = self.send_next_getheaders(indexer, block_height);
                 match res {
-                    Ok(()) => Ok(true),
+                    Ok(()) => {
+                        return Ok(true);
+                    }
                     Err(_e) => {
                         panic!(format!("BUG: could not read block header at {} that we just stored", block_height));
                     }
                 }
             }
-            _ => {
-                return Err(btc_error::UnhandledMessage);
-            }
-        }
+            _ => {}
+        };
+
+        Err(btc_error::UnhandledMessage(msg))
     }
 }
