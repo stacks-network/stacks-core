@@ -5,6 +5,13 @@ use super::{Context,CallStack};
 use super::eval;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ListTypeIdentifier {
+    IntType,
+    BoolType,
+    BufferType
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ValueType {
     VoidType,
     IntType(u64),
@@ -14,7 +21,7 @@ pub enum ValueType {
     //   only of elements of the same type? if so, this has
     //   to be done during runtime or via our type checker.
     //  Rust will NOT do it for us.
-    ListType(Vec<ValueType>)
+    ListType(Vec<ValueType>, (ListTypeIdentifier, u8))
 }
 
 pub enum CallableType <'a> {

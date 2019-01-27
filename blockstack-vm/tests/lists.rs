@@ -1,6 +1,6 @@
 extern crate blockstack_vm;
 
-use blockstack_vm::types::ValueType;
+use blockstack_vm::types::{ValueType, ListTypeIdentifier};
 
 use blockstack_vm::parser::parse;
 use blockstack_vm::eval_all;
@@ -12,11 +12,13 @@ fn test_simple_map() {
         "(define (square x) (* x x))
          (map square (list 1 2 3 4))");
 
-    let expected = ValueType::ListType(vec![
-        ValueType::IntType(1),
-        ValueType::IntType(4),
-        ValueType::IntType(9),
-        ValueType::IntType(16)]);
+    let expected = ValueType::ListType(
+        vec![
+            ValueType::IntType(1),
+            ValueType::IntType(4),
+            ValueType::IntType(9),
+            ValueType::IntType(16)],
+        (ListTypeIdentifier::IntType, 0));
 
     if let Ok(to_eval) = tests {
         assert_eq!(Ok(expected), eval_all(&to_eval));
