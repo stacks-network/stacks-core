@@ -119,7 +119,12 @@ fn test_simple_arithmetic_functions() {
          (- 5 4 1)
          (+ 5 4 1)
          (eq? (* 2 3)
-              (+ 2 2 2))");
+              (+ 2 2 2))
+         (> 1 2)
+         (< 1 2)
+         (<= 1 1)
+         (>= 2 1)
+         (>= 1 1)");
 
     let expectations = [
         ValueType::IntType(21657996),
@@ -129,7 +134,40 @@ fn test_simple_arithmetic_functions() {
         ValueType::IntType(1),
         ValueType::IntType(0),
         ValueType::IntType(10),
+        ValueType::BoolType(true),
+        ValueType::BoolType(false),
+        ValueType::BoolType(true),
+        ValueType::BoolType(true),
+        ValueType::BoolType(true),
         ValueType::BoolType(true)];
+
+    if let Ok(to_eval) = tests {
+        let context = Context::new();
+        let mut call_stack = CallStack::new();
+        to_eval.iter().zip(expectations.iter())
+            .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), eval(program, &context, &mut call_stack, &context)));
+    } else {
+        assert!(false, "Failed to parse function bodies.");
+    }
+}
+
+#[test]
+fn test_bool_functions() {
+    let tests = parse(&
+        "(and 'true 'true 'true)
+         (and 'false 'true 'true)
+         (and 'false (> 1 (/ 10 0)))
+         (or 'true (> 1 (/ 10 0)))
+         (or 'false 'false 'false)
+         (not 'true)");
+
+    let expectations = [
+        ValueType::BoolType(true),
+        ValueType::BoolType(false),
+        ValueType::BoolType(false),
+        ValueType::BoolType(true),
+        ValueType::BoolType(false),
+        ValueType::BoolType(false)];
 
     if let Ok(to_eval) = tests {
         let context = Context::new();

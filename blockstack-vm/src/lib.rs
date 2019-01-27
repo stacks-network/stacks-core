@@ -21,6 +21,13 @@ fn lookup_variable(name: &str, context: &Context) -> InterpreterResult {
             Ok(parsed) => Ok(ValueType::IntType(parsed)),
             Err(_e) => Err(Error::Generic("Failed to parse native int!".to_string()))
         }
+    } else if name.starts_with('\'') {
+        // Quoted! true or false?
+        match &name as &str {
+            "'true" => Ok(ValueType::BoolType(true)),
+            "'false" => Ok(ValueType::BoolType(false)),
+            _ => Err(Error::NotImplemented)
+        }
     } else {
         match context.lookup_variable(name) {
             Some(value) => Ok(value),

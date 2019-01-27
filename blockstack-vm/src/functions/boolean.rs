@@ -11,7 +11,7 @@ fn type_force_bool(value: &ValueType) -> Result<bool, Error> {
 }
 
 pub fn special_or(args: &[SymbolicExpression], context: &Context, call_stack: &mut CallStack, global: &Context) -> InterpreterResult {
-    if !(args.len() == 0) {
+    if args.len() < 1 {
         return Err(Error::InvalidArguments("(or ...) requires at least 1 argument".to_string()))
     }
 
@@ -27,7 +27,7 @@ pub fn special_or(args: &[SymbolicExpression], context: &Context, call_stack: &m
 }
 
 pub fn special_and(args: &[SymbolicExpression], context: &Context, call_stack: &mut CallStack, global: &Context) -> InterpreterResult {
-    if !(args.len() == 0) {
+    if args.len() < 1 {
         return Err(Error::InvalidArguments("(and ...) requires at least 1 argument".to_string()))
     }
 
