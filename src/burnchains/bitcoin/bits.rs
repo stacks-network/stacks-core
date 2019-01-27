@@ -17,21 +17,20 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use bitcoin::util::address as btc_address;
 use bitcoin::blockdata::opcodes::All as btc_opcodes;
 use bitcoin::blockdata::opcodes::Class;
-use bitcoin::blockdata::script::{Script, Instruction, Instructions, Builder};
+use bitcoin::blockdata::script::{Script, Instruction, Builder};
 use bitcoin::blockdata::transaction::TxIn as BtcTxIn;
 use bitcoin::blockdata::transaction::TxOut as BtcTxOut;
 
-use bitcoin::network::message as btc_message;
+use bitcoin::util::hash::Sha256dHash;
 
 use burnchains::{
     BurnchainTxInput, 
     BurnchainTxOutput,
     BurnchainInputType,
     PublicKey,
-    Hash160,
+    BurnchainHeaderHash
 };
 
 use burnchains::bitcoin::Error as btc_error;
@@ -39,10 +38,11 @@ use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use burnchains::bitcoin::BitcoinNetworkType;
 
-use util::hash::to_hex;
-
 use crypto::sha2::Sha256;
 use crypto::digest::Digest;
+
+
+use util::hash::Hash160;
 
 /// Parse a script into its structured constituant opcodes and data and collect them
 pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
@@ -241,8 +241,6 @@ impl BurnchainTxInput<BitcoinPublicKey> {
             keys.push(pubk.unwrap());
         }
 
-        let num_keys = keys.len();
-        
         let tx_input = BurnchainTxInput::<BitcoinPublicKey> {
             keys: keys,
             num_required: num_sigs,
@@ -521,6 +519,14 @@ impl BurnchainTxOutput<BitcoinAddress> {
     }
 }
 
+impl BurnchainHeaderHash {
+    /// Instantiate a burnchain block hash from a Bitcoin block header 
+    pub fn from_bitcoin_hash(bitcoin_hash: &Sha256dHash) -> BurnchainHeaderHash {
+        // NOTE: Sha256dhash is the same size as BurnchainHeaderHash, so this should never panic
+        BurnchainHeaderHash::from_bytes_be(bitcoin_hash.as_bytes()).unwrap()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::BurnchainTxInput;
@@ -528,25 +534,14 @@ mod tests {
     use super::parse_script;
     use util::hash::hex_bytes;
 
-    use bitcoin::network::serialize::deserialize;
-    use bitcoin::blockdata::transaction::Transaction;
     use bitcoin::blockdata::script::{Script, Builder};
 
-    use burnchains::{
-        PublicKey, 
-        Txid, 
-        MagicBytes, 
-        Hash160, 
-        MAGIC_BYTES_LENGTH
-    };
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
     use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::BurnchainInputType;
 
     use util::log as logger;
-
-    use serde_json::json;
 
     struct ScriptFixture<T> {
         script: Script,
