@@ -18,7 +18,7 @@
 */
 
 extern crate log;
-use log::{Record, Level, Metadata, Log, SetLoggerError, LevelFilter};
+use log::{Record, Metadata, SetLoggerError, LevelFilter};
 
 pub struct SimpleLogger;
 
