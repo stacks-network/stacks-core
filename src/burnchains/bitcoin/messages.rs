@@ -17,19 +17,11 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::time::{UNIX_EPOCH, SystemTime};
-use std::io::{Read, Write};
-
-use bitcoin::network::message as btc_message;
-use bitcoin::network::encodable::{ConsensusEncodable, ConsensusDecodable};
-use bitcoin::network::serialize::{RawEncoder, SimpleEncoder, SimpleDecoder};
-use bitcoin::network::serialize::Error as btc_serialize_error;
-
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::indexer::BitcoinIndexer;
-use burnchains::bitcoin::network::PeerMessage;
+use burnchains::bitcoin::PeerMessage;
 
 pub trait BitcoinMessageHandler {
     fn begin_session(&mut self, indexer: &mut BitcoinIndexer) -> Result<bool, btc_error>;
-    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: &PeerMessage) -> Result<bool, btc_error>;
+    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: PeerMessage) -> Result<bool, btc_error>;
 }
