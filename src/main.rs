@@ -37,16 +37,16 @@ extern crate dirs;
 #[macro_use] mod util;
 mod burnchains;
 mod chainstate;
+mod core;
 
 use burnchains::indexer::BurnchainIndexer;
-use burnchains::bitcoin::indexer::sync_block_headers;
-use burnchains::bitcoin::Error as btc_error;
 
 use util::log as logger;
 
 fn main() {
     logger::init().unwrap();
 
+    /*
     let mut bitcoin_indexer = burnchains::bitcoin::indexer::BitcoinIndexer::new();
     bitcoin_indexer.setup("/tmp/test-blockstack-ng").unwrap();
 
@@ -58,4 +58,5 @@ fn main() {
             error!("Failed to sync headers: {:?}", e);
         }
     }
+    */
 }
