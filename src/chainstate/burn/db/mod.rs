@@ -22,23 +22,19 @@ pub mod burndb;
 use std::fmt;
 use std::error;
 
-use rusqlite;
 use rusqlite::Error as sqlite_error;
-use rusqlite::types::ToSql;
 use rusqlite::Row;
 
 use serde_json::Error as serde_error;
 
-use burnchains::{Txid, Hash160};
+use burnchains::{Txid, BurnchainHeaderHash, Address};
 
-use burnchains::BurnchainTxInput;
-use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::address::BitcoinAddress;
 
-use util::vrf::{ECVRF_public_key_to_hex, ECVRF_check_public_key};
-use util::hash::{to_hex, hex_bytes};
+use util::vrf::ECVRF_check_public_key;
+use util::hash::{hex_bytes, Hash160};
 
-use chainstate::{ConsensusHash, VRFSeed, BlockHeaderHash};
+use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash};
 
 use ed25519_dalek::PublicKey as VRFPublicKey;
 
@@ -58,6 +54,9 @@ pub enum Error {
     NoTransaction,
     /// Type error -- can't represent the given data in the database 
     TypeError,
+    /// Database is corrupt -- we got data that shouldn't be there, or didn't get data when we
+    /// should have 
+    Corruption,
     /// Serialization error -- can't serialize data
     SerializationError(serde_error),
     /// Deserialization error -- can't deserialize data
@@ -78,6 +77,7 @@ impl fmt::Display for Error {
             Error::TransactionInProgress => f.write_str(error::Error::description(self)),
             Error::NoTransaction => f.write_str(error::Error::description(self)),
             Error::TypeError => f.write_str(error::Error::description(self)),
+            Error::Corruption => f.write_str(error::Error::description(self)),
             Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
             Error::DeserializationError(ref e) => fmt::Display::fmt(e, f),
             Error::ParseError => f.write_str(error::Error::description(self)),
@@ -96,6 +96,7 @@ impl error::Error for Error {
             Error::TransactionInProgress => None,
             Error::NoTransaction => None,
             Error::TypeError => None,
+            Error::Corruption => None,
             Error::SerializationError(ref e) => Some(e),
             Error::DeserializationError(ref e) => Some(e),
             Error::ParseError => None,
@@ -112,6 +113,7 @@ impl error::Error for Error {
             Error::TransactionInProgress => "Transaction already in progress",
             Error::NoTransaction => "No transaction active",
             Error::TypeError => "Invalid or unrepresentable database type",
+            Error::Corruption => "Database is corrupt",
             Error::SerializationError(ref e) => e.description(),
             Error::DeserializationError(ref e) => e.description(),
             Error::ParseError => "Parse error",
@@ -125,7 +127,7 @@ pub trait ChainstateDB {
 }
 
 pub trait RowOrder {
-    fn row_order() -> String;
+    fn row_order() -> Vec<&'static str>;
 }
 
 pub trait FromRow<T> {
@@ -154,25 +156,28 @@ impl_byte_array_from_row!(ConsensusHash);
 impl_byte_array_from_row!(Hash160);
 impl_byte_array_from_row!(BlockHeaderHash);
 impl_byte_array_from_row!(VRFSeed);
+impl_byte_array_from_row!(OpsHash);
+impl_byte_array_from_row!(BurnchainHeaderHash);
 
 pub fn VRFPublicKey_from_row<'a>(row: &'a Row, index: usize) -> Result<VRFPublicKey, db_error> {
     let public_key_hex : String = row.get(index);
     let public_key_bytes = hex_bytes(&public_key_hex)
-        .map_err(|e| db_error::ParseError)?;
+        .map_err(|_e| db_error::ParseError)?;
 
     ECVRF_check_public_key(&public_key_bytes.to_vec())
         .ok_or(db_error::ParseError)?;
 
     let public_key = VRFPublicKey::from_bytes(&public_key_bytes)
-        .map_err(|e| db_error::ParseError)?;
+        .map_err(|_e| db_error::ParseError)?;
     Ok(public_key)
 }
 
 impl FromRow<BitcoinAddress> for BitcoinAddress {
     fn from_row<'a>(row: &'a Row, index: usize) -> Result<BitcoinAddress, db_error> {
         let address_b58 : String = row.get(index);
-        let address = BitcoinAddress::from_b58(&address_b58)
-            .map_err(|e| db_error::ParseError)?;
-        Ok(address)
+        match BitcoinAddress::from_string(&address_b58) {
+            Some(a) => Ok(a),
+            None => Err(db_error::ParseError)
+        }
     }
 }
