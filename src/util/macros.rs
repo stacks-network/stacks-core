@@ -146,6 +146,7 @@ macro_rules! impl_array_newtype {
     }
 }
 
+/*
 macro_rules! impl_array_newtype_show {
     ($thing:ident) => {
         impl ::std::fmt::Debug for $thing {
@@ -155,6 +156,7 @@ macro_rules! impl_array_newtype_show {
         }
     }
 }
+*/
 
 macro_rules! impl_index_newtype {
     ($thing:ident, $ty:ty) => {
