@@ -17,17 +17,18 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+/// This module contains drivers and types for all burn chains we support.
+
 pub mod bitcoin;
 pub mod indexer;
 
-use self::bitcoin::address::BitcoinAddress;
-use self::bitcoin::keys::BitcoinPublicKey;
+use std::fmt;
+use std::error;
 
-use crypto::ripemd160::Ripemd160;
-use crypto::sha2::Sha256;
-use crypto::digest::Digest;
+use self::bitcoin::Error as btc_error;
+use chainstate::burn::db::Error as burndb_error;
 
-use util::hash::hex_bytes;
+use serde::Serialize;
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid([u8; 32]);
@@ -36,48 +37,29 @@ impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
 
 #[derive(Serialize, Deserialize)]
-pub struct BlockHash([u8; 32]);
-impl_array_newtype!(BlockHash, u8, 32);
-impl_array_hexstring_fmt!(BlockHash);
-impl_byte_array_newtype!(BlockHash, u8, 32);
-
-#[derive(Serialize, Deserialize)]
-pub struct Hash160([u8; 20]);
-impl_array_newtype!(Hash160, u8, 20);
-impl_array_hexstring_fmt!(Hash160);
-impl_byte_array_newtype!(Hash160, u8, 20);
-
-impl Hash160 {
-    /// Create a hash by hashing some data
-    /// (borrwed from Andrew Poelstra)
-    pub fn from_data(data: &[u8]) -> Hash160 {
-        let mut tmp = [0; 32];
-        let mut ret = [0; 20];
-        let mut sha2 = Sha256::new();
-        let mut rmd = Ripemd160::new();
-        sha2.input(data);
-        sha2.result(&mut tmp);
-        rmd.input(&tmp);
-        rmd.result(&mut ret);
-        Hash160(ret)
-    }
-}
+pub struct BurnchainHeaderHash([u8; 32]);
+impl_array_newtype!(BurnchainHeaderHash, u8, 32);
+impl_array_hexstring_fmt!(BurnchainHeaderHash);
+impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MagicBytes([u8; MAGIC_BYTES_LENGTH]);
 impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 
 pub const BLOCKSTACK_MAGIC_MAINNET : MagicBytes = MagicBytes([105, 100]);  // 'id'
 
-pub trait PublicKey {
+pub trait PublicKey : Clone + fmt::Debug + serde::Serialize {
     fn to_bytes(&self) -> Vec<u8>;
     fn verify(&self, data_hash: &[u8], sig: &[u8]) -> Result<bool, &'static str>;
 }
 
-pub trait Address {
+pub trait Address : Clone + fmt::Debug {
     fn to_bytes(&self) -> Vec<u8>;
+    fn to_string(&self) -> String;
+    fn from_string(&String) -> Option<Self>
+        where Self: Sized;
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -87,20 +69,20 @@ pub enum BurnchainInputType {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct BurnchainTxOutput<A: Address> {
+pub struct BurnchainTxOutput<A> {
     pub address: A,
     pub units: u64
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct BurnchainTxInput<K: PublicKey> {
+pub struct BurnchainTxInput<K> {
     pub keys: Vec<K>,
     pub num_required: usize,
     pub in_type: BurnchainInputType
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct BurnchainTransaction<A: Address, K: PublicKey> {
+pub struct BurnchainTransaction<A, K> {
     pub txid: Txid,
     pub vtxindex: u32,
     pub opcode: u8,
@@ -110,9 +92,47 @@ pub struct BurnchainTransaction<A: Address, K: PublicKey> {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct BurnchainBlock<A: Address, K: PublicKey> {
+pub struct BurnchainBlock<A, K> {
     pub block_height: u64,
-    pub block_hash: BlockHash,
+    pub block_hash: BurnchainHeaderHash,
     pub txs: Vec<BurnchainTransaction<A, K>>
+}
+
+#[derive(Debug)]
+pub enum Error {
+    /// Bitcoin-related error
+    bitcoin(btc_error),
+    /// burn database error 
+    DBError(burndb_error),
+    /// Missing headers 
+    MissingHeaders
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::bitcoin(ref btce) => fmt::Display::fmt(btce, f),
+            Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
+            Error::MissingHeaders => f.write_str(error::Error::description(self))
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            Error::bitcoin(ref e) => Some(e),
+            Error::DBError(ref e) => Some(e),
+            Error::MissingHeaders => None,
+        }
+    }
+
+    fn description(&self) -> &str {
+        match *self {
+            Error::bitcoin(ref e) => e.description(),
+            Error::DBError(ref e) => e.description(),
+            Error::MissingHeaders => "Missing block headers"
+        }
+    }
 }
 
