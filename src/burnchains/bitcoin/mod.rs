@@ -33,11 +33,23 @@ pub mod spv;
 use std::fmt;
 use std::io;
 use std::error;
-use std::sync;
+use std::sync::Arc;
+
+use std::sync::mpsc::SyncSender;
 
 use bitcoin::network::serialize::Error as btc_serialize_error;
 use bitcoin::util::hash::HexError as btc_hex_error;
+
 use jsonrpc::Error as jsonrpc_error;
+
+use burnchains::BurnchainBlock;
+use burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::keys::BitcoinPublicKey;
+
+use chainstate::burn::db::Error as burndb_error;
+
+pub type PeerMessage = Arc<bitcoin::network::message::NetworkMessage>;
+pub type BlockSender = SyncSender<Arc<BurnchainBlock<BitcoinAddress, BitcoinPublicKey>>>;
 
 // Borrowed from Andrew Poelstra's rust-bitcoin 
 
@@ -53,17 +65,19 @@ pub enum Error {
     /// Serialization error 
     SerializationError(btc_serialize_error),
     /// Invalid Message to peer
-    InvalidMessage,
+    InvalidMessage(PeerMessage),
     /// Invalid Reply from peer
     InvalidReply,
     /// Invalid magic 
     InvalidMagic,
     /// Unhandled message 
-    UnhandledMessage,
+    UnhandledMessage(PeerMessage),
     /// Functionality not implemented 
     NotImplemented,
     /// Connection is broken and ought to be re-established
     ConnectionBroken,
+    /// Connection could not be (re-)established
+    ConnectionError,
     /// general filesystem error
     FilesystemError(io::Error),
     /// Hashing error
@@ -79,7 +93,15 @@ pub enum Error {
     /// Thread pipeline error (i.e. a receiving thread died)
     PipelineError,
     /// Wrong number of bytes for constructing an address
-    InvalidByteSequence
+    InvalidByteSequence,
+    /// Configuration error 
+    ConfigError(String),
+    /// Tried to synchronize to a point above the chain tip
+    BlockchainHeight,
+    /// Burn database error 
+    DBError(burndb_error),
+    /// Invalid argument 
+    InvalidArgument
 }
 
 impl fmt::Display for Error {
@@ -88,12 +110,13 @@ impl fmt::Display for Error {
             Error::Io(ref e) => fmt::Display::fmt(e, f),
             Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => f.write_str(error::Error::description(self)),
             Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
-            Error::InvalidMessage => f.write_str(error::Error::description(self)),
+            Error::InvalidMessage(ref msg) => f.write_str(error::Error::description(self)),
             Error::InvalidReply => f.write_str(error::Error::description(self)),
             Error::InvalidMagic => f.write_str(error::Error::description(self)),
-            Error::UnhandledMessage => f.write_str(error::Error::description(self)),
+            Error::UnhandledMessage(ref msg) => f.write_str(error::Error::description(self)),
             Error::NotImplemented => f.write_str(error::Error::description(self)),
             Error::ConnectionBroken => f.write_str(error::Error::description(self)),
+            Error::ConnectionError => f.write_str(error::Error::description(self)),
             Error::FilesystemError(ref e) => fmt::Display::fmt(e, f),
             Error::HashError(ref e) => fmt::Display::fmt(e, f),
             Error::NoncontiguousHeader => f.write_str(error::Error::description(self)),
@@ -102,6 +125,10 @@ impl fmt::Display for Error {
             Error::JSONRPCError(ref e) => fmt::Display::fmt(e, f),
             Error::PipelineError => f.write_str(error::Error::description(self)),
             Error::InvalidByteSequence => f.write_str(error::Error::description(self)),
+            Error::ConfigError(ref e_str) => fmt::Display::fmt(e_str, f),
+            Error::BlockchainHeight => f.write_str(error::Error::description(self)),
+            Error::DBError(ref e) => fmt::Display::fmt(e, f),
+            Error::InvalidArgument => f.write_str(error::Error::description(self))
         }
     }
 }
@@ -112,12 +139,13 @@ impl error::Error for Error {
             Error::Io(ref e) => Some(e),
             Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => None,
             Error::SerializationError(ref e) => Some(e),
-            Error::InvalidMessage => None,
+            Error::InvalidMessage(ref msg) => None,
             Error::InvalidReply => None,
             Error::InvalidMagic => None,
-            Error::UnhandledMessage => None,
+            Error::UnhandledMessage(ref msg) => None,
             Error::NotImplemented => None,
             Error::ConnectionBroken => None,
+            Error::ConnectionError => None,
             Error::FilesystemError(ref e) => Some(e),
             Error::HashError(ref e) => Some(e),
             Error::NoncontiguousHeader => None,
@@ -125,7 +153,11 @@ impl error::Error for Error {
             Error::InvalidPoW => None,
             Error::JSONRPCError(ref e) => Some(e),
             Error::PipelineError => None,
-            Error::InvalidByteSequence => None
+            Error::InvalidByteSequence => None,
+            Error::ConfigError(ref e_str) => None,
+            Error::BlockchainHeight => None,
+            Error::DBError(ref e) => Some(e),
+            Error::InvalidArgument => None,
         }
     }
 
@@ -135,12 +167,13 @@ impl error::Error for Error {
             Error::SocketMutexPoisoned => "socket mutex was poisoned",
             Error::SocketNotConnectedToPeer => "not connected to peer",
             Error::SerializationError(ref e) => e.description(),
-            Error::InvalidMessage => "invalid message to send",
+            Error::InvalidMessage(ref msg) => "Invalid message to send",
             Error::InvalidReply => "invalid reply for given message",
             Error::InvalidMagic => "invalid network magic",
-            Error::UnhandledMessage => "unable to handle message",
+            Error::UnhandledMessage(ref msg) => "Unhandled message",
             Error::NotImplemented => "functionality not implemented",
             Error::ConnectionBroken => "connection to peer node is broken",
+            Error::ConnectionError => "connection to peer could not be (re-)established",
             Error::FilesystemError(ref e) => e.description(),
             Error::HashError(ref e) => e.description(),
             Error::NoncontiguousHeader => "Non-contiguous header",
@@ -149,6 +182,10 @@ impl error::Error for Error {
             Error::JSONRPCError(ref e) => e.description(),
             Error::PipelineError => "Pipeline broken",
             Error::InvalidByteSequence => "Invalid sequence of bytes",
+            Error::ConfigError(ref e_str) => e_str.as_str(),
+            Error::BlockchainHeight => "Value is beyond the end of the blockchain",
+            Error::DBError(ref e) => e.description(),
+            Error::InvalidArgument => "Invalid argument"
         }
     }
 }
