@@ -2,15 +2,14 @@ extern crate blockstack_vm;
 
 use blockstack_vm::types::{ValueType, ListTypeIdentifier};
 
-use blockstack_vm::parser::parse;
-use blockstack_vm::eval_all;
+use blockstack_vm::execute;
 use blockstack_vm::errors::Error;
 
 #[test]
 fn test_simple_map() {
-    let tests = parse(&
+    let test1 =
         "(define (square x) (* x x))
-         (map square (list 1 2 3 4))");
+         (map square (list 1 2 3 4))";
 
     let expected = ValueType::ListType(
         vec![
@@ -20,81 +19,55 @@ fn test_simple_map() {
             ValueType::IntType(16)],
         (ListTypeIdentifier::IntType, 0));
 
-    if let Ok(to_eval) = tests {
-        assert_eq!(Ok(expected), eval_all(&to_eval));
-    } else {
-        assert!(false, "Failed to parse function bodies.");
-    }
+    assert_eq!(Ok(expected.clone()), execute(test1));
+
+    // let's test lists of lists.
+    let test2 = "(define (multiply x acc) (* x acc))
+                 (define (multiply-all x) (fold multiply x 1))
+                 (map multiply-all (list (list 1 1 1) (list 2 2 1) (list 3 3) (list 2 2 2 2)))";
+    assert_eq!(Ok(expected), execute(test2));
+                                       
 }
 
 #[test]
 fn test_simple_folds() {
-    let tests = parse(&
+    let test1 =
         "(define (multiply-all x acc) (* x acc))
-         (fold multiply-all (list 1 2 3 4) 1)");
+         (fold multiply-all (list 1 2 3 4) 1)";
 
     let expected = ValueType::IntType(24);
 
-    if let Ok(to_eval) = tests {
-        assert_eq!(Ok(expected), eval_all(&to_eval));
-    } else {
-        assert!(false, "Failed to parse function bodies.");
-    }
+    assert_eq!(Ok(expected), execute(test1));
+}
+
+#[test]
+fn test_construct_bad_list() {
+    let test1 = "(list 1 2 3 'true)";
+    assert_eq!(Err(Error::InvalidArguments("List must be composed of a single type".to_string())),
+               execute(test1));
+
+    let test2 = "(define (bad-function x) (if (eq? x 1) 'true x))
+                 (map bad-function (list 0 1 2 3))";
+    assert_eq!(Err(Error::InvalidArguments("Results of map must all be of a single type".to_string())),
+               execute(test2));
 }
 
 #[test]
 fn test_eval_func_arg_panic() {
-    let tests = parse(&
-        "(fold (lambda (x y) (* x y)) (list 1 2 3 4) 1)");
+    let test1 = "(fold (lambda (x y) (* x y)) (list 1 2 3 4) 1)";
+    assert_eq!(Err(Error::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string())),
+               execute(test1));
 
-    if let Ok(to_eval) = tests {
-        assert_eq!(
-            Err(Error::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string())),
-            eval_all(&to_eval));
-    } else {
-        assert!(false, "Failed to parse function bodies.");
-    }
-}
+    let test2 = "(map (lambda (x) (* x x)) (list 1 2 3 4))";
+    assert_eq!(Err(Error::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string())),
+               execute(test2));
 
-#[test]
-fn test_eval_func_arg_map_panic() {
-    let tests = parse(&
-        "(map (lambda (x) (* x x)) (list 1 2 3 4))");
+    let test3 = "(map square (list 1 2 3 4) 2)";
+    assert_eq!(Err(Error::InvalidArguments("Wrong number of arguments (3) to map".to_string())),
+               execute(test3));
 
-    if let Ok(to_eval) = tests {
-        assert_eq!(
-            Err(Error::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string())),
-            eval_all(&to_eval));
-    } else {
-        assert!(false, "Failed to parse function bodies.");
-    }
-}
-
-#[test]
-fn test_map_arg_panic() {
-    let tests = parse(&
-        "(map square (list 1 2 3 4) 2)");
-
-    if let Ok(to_eval) = tests {
-        assert_eq!(
-            Err(Error::InvalidArguments("Wrong number of arguments (3) to map".to_string())),
-            eval_all(&to_eval));
-    } else {
-        assert!(false, "Failed to parse function bodies.");
-    }
-}
-
-#[test]
-fn test_fold_arg_panic() {
-    let tests = parse(&
-        "(define (multiply-all x acc) (* x acc))
-         (fold multiply-all (list 1 2 3 4))");
-
-    if let Ok(to_eval) = tests {
-        assert_eq!(
-            Err(Error::InvalidArguments("Wrong number of arguments (2) to fold".to_string())),
-            eval_all(&to_eval));
-    } else {
-        assert!(false, "Failed to parse function bodies.");
-    }
+    let test4 = "(define (multiply-all x acc) (* x acc))
+         (fold multiply-all (list 1 2 3 4))";
+    assert_eq!(Err(Error::InvalidArguments("Wrong number of arguments (2) to fold".to_string())),
+               execute(test4));
 }
