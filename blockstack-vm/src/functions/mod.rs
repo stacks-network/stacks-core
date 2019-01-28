@@ -100,6 +100,7 @@ pub fn lookup_reserved_functions<'a> (name: &str) -> Option<CallableType<'a>> {
         "<" => Some(CallableType::NativeFunction(&arithmetic::native_le)),
         ">" => Some(CallableType::NativeFunction(&arithmetic::native_ge)),
         "mod" => Some(CallableType::NativeFunction(&arithmetic::native_mod)),
+        "pow" => Some(CallableType::NativeFunction(&arithmetic::native_pow)),
         "and" => Some(CallableType::SpecialFunction(&boolean::special_and)),
         "or" => Some(CallableType::SpecialFunction(&boolean::special_or)),
         "not" => Some(CallableType::NativeFunction(&boolean::native_not)),

@@ -1,6 +1,7 @@
 extern crate blockstack_vm;
 
 use blockstack_vm::eval;
+use blockstack_vm::errors::Error;
 use blockstack_vm::contexts::{Context, CallStack};
 use blockstack_vm::types::{ValueType, DefinedFunction};
 use blockstack_vm::representations::SymbolicExpression;
@@ -125,6 +126,9 @@ fn test_simple_arithmetic_functions() {
          (<= 1 1)
          (>= 2 1)
          (>= 1 1)
+         (pow 2 16)
+         (pow 2 32)
+         (- (pow 2 32))
 ");
 
     let expectations = [
@@ -140,7 +144,11 @@ fn test_simple_arithmetic_functions() {
         ValueType::BoolType(true),
         ValueType::BoolType(true),
         ValueType::BoolType(true),
-        ValueType::BoolType(true)];
+        ValueType::BoolType(true),
+        ValueType::IntType(65536),
+        ValueType::IntType(u32::max_value() as i128 + 1),
+        ValueType::IntType(-1 * (u32::max_value() as i128 + 1)),
+];
 
     if let Ok(to_eval) = tests {
         let context = Context::new();
@@ -152,31 +160,49 @@ fn test_simple_arithmetic_functions() {
     }
 }
 
-/*#[test]
+#[test]
 fn test_arithmetic_errors() {
     let tests = parse(&
         "(>= 1)
+         (+ 1 'true)
          (/ 10 0)
-         (* 10 (pow 2 127))
+         (mod 10 0)
+         (pow 2 128)
+         (* 10 (pow 2 126))
+         (+ (pow 2 126) (pow 2 126))
+         (- 0 (pow 2 126) (pow 2 126) 1)
+         (-) (/) (mod 1) (pow 1)
+         (pow 2 (pow 2 32))
+         (pow 2 (- 1))
 ");
 
     let expectations = [
-        Error::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()),
-        Error::Arithmetic("Divide by 0".to_string()),
-        Error::Arithmetic("Overflowed in multiplication".to_string()),
-        
-        ValueType::BoolType(true)];
+        Err(Error::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string())),
+        Err(Error::TypeError("IntType".to_string(), ValueType::BoolType(true))),
+        Err(Error::Arithmetic("Divide by 0".to_string())),
+        Err(Error::Arithmetic("Modulus by 0".to_string())),
+        Err(Error::Arithmetic("Overflowed in power".to_string())),
+        Err(Error::Arithmetic("Overflowed in multiplication".to_string())),
+        Err(Error::Arithmetic("Overflowed in addition".to_string())),
+        Err(Error::Arithmetic("Underflowed in subtraction".to_string())),
+        Err(Error::InvalidArguments("(- ...) must be called with at least 1 argument".to_string())),
+        Err(Error::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string())),
+        Err(Error::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string())),
+        Err(Error::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string())),
+        Err(Error::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())),
+        Err(Error::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()))
+    ];
 
     if let Ok(to_eval) = tests {
         let context = Context::new();
         let mut call_stack = CallStack::new();
-        to_eval.iter().zip(expectations.iter())
-            .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), eval(program, &context, &mut call_stack, &context)));
+        for (program, expectation) in to_eval.iter().zip(expectations.iter()) {
+            assert_eq!(*expectation, eval(program, &context, &mut call_stack, &context));
+        }
     } else {
         assert!(false, "Failed to parse function bodies.");
     }
 }
-*/
 
 #[test]
 fn test_bool_functions() {

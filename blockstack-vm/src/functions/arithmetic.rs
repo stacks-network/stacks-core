@@ -52,6 +52,10 @@ pub fn native_sub(args: &[ValueType]) -> InterpreterResult {
     let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
     let parsed_args = typed_args?;
     if let Some((first, rest)) = parsed_args.split_first() {
+        if rest.len() == 0 { // return negation
+            return Ok(ValueType::IntType(-1 * first))
+        }
+
         let checked_result = rest.iter().fold(Some(*first), |acc, x| {
             match acc {
                 Some(value) => value.checked_sub(*x),
@@ -115,7 +119,7 @@ pub fn native_pow(args: &[ValueType]) -> InterpreterResult {
         if let Some(result) = checked_result{
             Ok(ValueType::IntType(result))
         } else {
-            Err(Error::Arithmetic("Overflow in power".to_string()))
+            Err(Error::Arithmetic("Overflowed in power".to_string()))
         }
     } else {
         Err(Error::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()))
