@@ -17,7 +17,7 @@ type InterpreterResult = Result<ValueType, Error>;
 fn lookup_variable(name: &str, context: &Context) -> InterpreterResult {
     // first off, are we talking about a constant?
     if name.starts_with(char::is_numeric) {
-        match u64::from_str_radix(name, 10) {
+        match i128::from_str_radix(name, 10) {
             Ok(parsed) => Ok(ValueType::IntType(parsed)),
             Err(_e) => Err(Error::Generic("Failed to parse native int!".to_string()))
         }

@@ -2,7 +2,7 @@ use super::super::types::ValueType;
 use super::super::errors::Error;
 use super::super::InterpreterResult;
 
-fn type_force_integer(value: &ValueType) -> Result<u64, Error> {
+fn type_force_integer(value: &ValueType) -> Result<i128, Error> {
     match *value {
         ValueType::IntType(int) => Ok(int),
         _ => Err(Error::TypeError("IntType".to_string(), value.clone()))
@@ -10,7 +10,7 @@ fn type_force_integer(value: &ValueType) -> Result<u64, Error> {
 }
 
 fn binary_comparison<F>(args: &[ValueType], function: &F) -> InterpreterResult
-where F: Fn(u64, u64) -> bool {
+where F: Fn(i128, i128) -> bool {
     if args.len() == 2 {
         let arg1 = type_force_integer(&args[0])?;
         let arg2 = type_force_integer(&args[1])?;
@@ -36,7 +36,7 @@ pub fn native_le(args: &[ValueType]) -> InterpreterResult {
 pub fn native_add(args: &[ValueType]) -> InterpreterResult {
     let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
     let parsed_args = typed_args?;
-    let checked_result = parsed_args.iter().fold(Some(0), |acc: Option<u64>, x| {
+    let checked_result = parsed_args.iter().fold(Some(0), |acc: Option<i128>, x| {
         match acc {
             Some(value) => value.checked_add(*x),
             None => None
@@ -70,7 +70,7 @@ pub fn native_sub(args: &[ValueType]) -> InterpreterResult {
 pub fn native_mul(args: &[ValueType]) -> InterpreterResult {
     let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
     let parsed_args = typed_args?;
-    let checked_result = parsed_args.iter().fold(Some(1), |acc: Option<u64>, x| {
+    let checked_result = parsed_args.iter().fold(Some(1), |acc: Option<i128>, x| {
         match acc {
             Some(value) => value.checked_mul(*x),
             None => None
@@ -100,6 +100,28 @@ pub fn native_div(args: &[ValueType]) -> InterpreterResult {
         Err(Error::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string()))
     }
 }
+
+pub fn native_pow(args: &[ValueType]) -> InterpreterResult {
+    if args.len() == 2 {
+        let base = type_force_integer(&args[0])?;
+        let power_i128 = type_force_integer(&args[1])?;
+        if power_i128 < 0 || power_i128 > (u32::max_value() as i128) {
+            return Err(Error::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()))
+        }
+
+        let power = power_i128 as u32;
+        let checked_result = base.checked_pow(power);
+
+        if let Some(result) = checked_result{
+            Ok(ValueType::IntType(result))
+        } else {
+            Err(Error::Arithmetic("Overflow in power".to_string()))
+        }
+    } else {
+        Err(Error::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()))
+    }
+}
+
 
 pub fn native_mod(args: &[ValueType]) -> InterpreterResult {
     if args.len() == 2 {

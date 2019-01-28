@@ -124,7 +124,8 @@ fn test_simple_arithmetic_functions() {
          (< 1 2)
          (<= 1 1)
          (>= 2 1)
-         (>= 1 1)");
+         (>= 1 1)
+");
 
     let expectations = [
         ValueType::IntType(21657996),
@@ -150,6 +151,32 @@ fn test_simple_arithmetic_functions() {
         assert!(false, "Failed to parse function bodies.");
     }
 }
+
+/*#[test]
+fn test_arithmetic_errors() {
+    let tests = parse(&
+        "(>= 1)
+         (/ 10 0)
+         (* 10 (pow 2 127))
+");
+
+    let expectations = [
+        Error::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()),
+        Error::Arithmetic("Divide by 0".to_string()),
+        Error::Arithmetic("Overflowed in multiplication".to_string()),
+        
+        ValueType::BoolType(true)];
+
+    if let Ok(to_eval) = tests {
+        let context = Context::new();
+        let mut call_stack = CallStack::new();
+        to_eval.iter().zip(expectations.iter())
+            .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), eval(program, &context, &mut call_stack, &context)));
+    } else {
+        assert!(false, "Failed to parse function bodies.");
+    }
+}
+*/
 
 #[test]
 fn test_bool_functions() {

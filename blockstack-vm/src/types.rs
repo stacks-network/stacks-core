@@ -14,7 +14,7 @@ pub enum ListTypeIdentifier {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ValueType {
     VoidType,
-    IntType(u64),
+    IntType(i128),
     BoolType(bool),
     BufferType(Box<[char]>),
     // Q: do we need to enforce that lists are composed

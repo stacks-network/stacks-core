@@ -8,11 +8,11 @@ jobs:
       - checkout
       - run:
           command: |
-            cd blockstack-vm && cargo build
+            cd blockstack-vm && rustup override set nightly && cargo build
       - run:
           environment:
             RUST_BACKTRACE: 1
             BLOCKSTACK_DEBUG: 1
             RUSTFLAGS: -Clink-dead-code
           command: |
-            cd blockstack-vm && cargo kcov && bash <(curl -s https://codecov.io/bash)
+            cd blockstack-vm && rustup override set nightly && cargo kcov && bash <(curl -s https://codecov.io/bash)
