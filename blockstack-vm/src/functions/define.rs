@@ -1,7 +1,7 @@
 use super::super::types::{ValueType, DefinedFunction};
 use super::super::representations::SymbolicExpression;
 use super::super::representations::SymbolicExpression::{Atom,AtomValue,List};
-use super::super::{Context,CallStack,eval};
+use super::super::{Context,Environment,eval};
 use super::super::errors::Error;
 
 pub enum DefineResult {
@@ -10,13 +10,13 @@ pub enum DefineResult {
     NoDefine
 }
 
-pub fn handle_define_variable(variable: &String, expression: &SymbolicExpression, context: &Context) -> Result<DefineResult, Error> {
-    let mut call_stack = CallStack::new();
-    let value = eval(expression, context, &mut call_stack, context)?;
+pub fn handle_define_variable(variable: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult, Error> {
+    let context = Context::new();
+    let value = eval(expression, env, &context)?;
     Ok(DefineResult::Variable(variable.clone(), value))
 }
 
-pub fn handle_define_function(signature: &[SymbolicExpression], expression: &SymbolicExpression, _context: &Context) -> Result<DefineResult, Error> {
+pub fn handle_define_function(signature: &[SymbolicExpression], expression: &SymbolicExpression) -> Result<DefineResult, Error> {
     let coerced_atoms: Result<Vec<_>, _> = signature.iter().map(|x| {
         if let Atom(name) = x {
             Ok(name)
@@ -37,16 +37,16 @@ pub fn handle_define_function(signature: &[SymbolicExpression], expression: &Sym
     }
 }
 
-pub fn evaluate_define(expression: &SymbolicExpression, context: &Context) -> Result<DefineResult, Error> {
+pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult, Error> {
     if let SymbolicExpression::List(elements) = expression {
         if elements.len() != 3 || elements[0] != Atom("define".to_string()) {
             Ok(DefineResult::NoDefine)
         } else {
             match elements[1] {
-                Atom(ref variable) => handle_define_variable(variable, &elements[2], context),
+                Atom(ref variable) => handle_define_variable(variable, &elements[2], env),
                 AtomValue(ref _value) => Err(Error::InvalidArguments(
                     "Illegal operation: attempted to re-define a value type.".to_string())),
-                List(ref function_signature) => handle_define_function(&function_signature, &elements[2], context)
+                List(ref function_signature) => handle_define_function(&function_signature, &elements[2])
             }
         }
     } else {

@@ -5,7 +5,7 @@ mod boolean;
 
 use super::types::{ValueType, CallableType};
 use super::representations::SymbolicExpression;
-use super::{Context,CallStack};
+use super::{Context,Environment};
 use super::InterpreterResult;
 use super::errors::Error;
 use super::eval;
@@ -24,19 +24,19 @@ fn native_eq(args: &[ValueType]) -> InterpreterResult {
     }
 }
 
-fn special_if(args: &[SymbolicExpression], context: &Context, call_stack: &mut CallStack, global: &Context) -> InterpreterResult {
+fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
     if !(args.len() == 2 || args.len() == 3) {
         return Err(Error::InvalidArguments("Wrong number of arguments to if (expect 2 or 3)".to_string()))
     }
     // handle the conditional clause.
-    let conditional = eval(&args[0], context, call_stack, global)?;
+    let conditional = eval(&args[0], env, context)?;
     match conditional {
         ValueType::BoolType(result) => {
             if result {
-                eval(&args[1], context, call_stack, global)
+                eval(&args[1], env, context)
             } else {
                 if args.len() == 3 {
-                    eval(&args[2], context, call_stack, global)
+                    eval(&args[2], env, context)
                 } else {
                     Ok(ValueType::VoidType)
                 }
@@ -46,7 +46,7 @@ fn special_if(args: &[SymbolicExpression], context: &Context, call_stack: &mut C
     }
 }
 
-fn special_let(args: &[SymbolicExpression], context: &Context, call_stack: &mut CallStack, global: &Context) -> InterpreterResult {
+fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1 => body
@@ -54,8 +54,7 @@ fn special_let(args: &[SymbolicExpression], context: &Context, call_stack: &mut 
         return Err(Error::InvalidArguments("Wrong number of arguments to let (expect 2)".to_string()))
     }
     // create a new context.
-    let mut inner_context = Context::new();
-    inner_context.parent = Option::Some(context);
+    let mut inner_context = context.extend();
 
     if let SymbolicExpression::List(ref bindings) = args[0] {
         let bind_result = bindings.iter().try_for_each(|binding| {
@@ -64,7 +63,7 @@ fn special_let(args: &[SymbolicExpression], context: &Context, call_stack: &mut 
                     Err(Error::Generic("Passed non 2-length list as binding in let expression".to_string()))
                 } else {
                     if let SymbolicExpression::Atom(ref var_name) = binding_exps[0] {
-                        let value = eval(&binding_exps[1], context, call_stack, global)?;
+                        let value = eval(&binding_exps[1], env, context)?;
                         match inner_context.variables.insert((*var_name).clone(), value) {
                             Some(_val) => Err(Error::Generic("Multiply defined binding in let expression".to_string())),
                             _ => Ok(())
@@ -82,7 +81,7 @@ fn special_let(args: &[SymbolicExpression], context: &Context, call_stack: &mut 
             Err(e)
         } else {
             // otherwise, evaluate the let-body
-            eval(&args[1], &inner_context, call_stack, global)
+            eval(&args[1], env, &inner_context)
         }
     } else {
         Err(Error::Generic("Passed non-list as second argument to let expression.".to_string()))

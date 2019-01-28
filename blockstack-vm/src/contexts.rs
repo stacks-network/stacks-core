@@ -3,6 +3,22 @@ use std::collections::HashSet;
 
 use super::types::{DefinedFunction, FunctionIdentifier, ValueType};
 
+
+pub struct Environment <'a> {
+    pub global_context: Context <'a>,
+    pub call_stack: CallStack
+}
+
+impl <'a> Environment <'a> {
+    pub fn new() -> Environment<'a> {
+        let global_context = Context::new();
+        Environment {
+            global_context: global_context,
+            call_stack: CallStack::new()
+        }
+    }
+}
+
 pub struct Context <'a> {
     pub parent: Option< &'a Context<'a>>,
     pub variables: HashMap<String, ValueType>,
@@ -14,6 +30,14 @@ impl <'a> Context <'a> {
         Context { parent: Option::None,
                   variables: HashMap::new(),
                   functions: HashMap::new() }
+    }
+    
+    pub fn extend(&'a self) -> Context<'a> {
+        Context {
+            parent: Some(self),
+            variables: HashMap::new(),
+            functions: HashMap::new()
+        }
     }
 
     pub fn lookup_variable(&self, name: &str) -> Option<ValueType> {
