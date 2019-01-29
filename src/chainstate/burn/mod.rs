@@ -72,22 +72,37 @@ impl OpsHash {
 }
 
 impl ConsensusHash {
-    /// Instantiate a consensus hash from this block's operations hash
-    /// and a geometric series of previous consensus hashes.  Note that
-    /// prev_consensus_hashes should be in order from most-recent to
+    /// Instantiate a consensus hash from this block's operations, the total burn so far
+    /// for the resulting consensus hash, and the geometric series of previous consensus
+    /// hashes.  Note that prev_consensus_hashes should be in order from most-recent to
     /// least-recent.
-    pub fn from_ops(opshash: &OpsHash, prev_consensus_hashes: &Vec<ConsensusHash>) -> ConsensusHash {
+    pub fn from_ops(opshash: &OpsHash, total_burn: u64, prev_consensus_hashes: &Vec<ConsensusHash>) -> ConsensusHash {
         // NOTE: unlike stacks v1, we calculate the next consensus hash
-        // simply as a hash-chain of the new ops hash and the sequence of 
-        // previous consensus hashes.  We don't turn them into Merkle trees first.
+        // simply as a hash-chain of the new ops hash, the sequence of 
+        // previous consensus hashes, and the total burn that went into this
+        // consensus hash.  We don't turn them into Merkle trees first.
+        
+        // encode the burn as a string, so it's unambiguous regardless of architecture endianness
+        // (and it's not constrained by the word size)
+        let burn_str = format!("{}", total_burn);
+        assert!(burn_str.is_ascii());
+
         let result;
         {
             use sha2::Digest;
             let mut hasher = Sha256::new();
+
+            // ops hash...
             hasher.input(opshash.as_bytes());
+            
+            // total burn amount on this fork...
+            hasher.input(burn_str.as_str().as_bytes());
+
+            // previous consensus hashes...
             for ch in prev_consensus_hashes {
                 hasher.input(ch.as_bytes());
             }
+
             result = hasher.result();
         }
 
