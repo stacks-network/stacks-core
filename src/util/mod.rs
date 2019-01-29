@@ -36,7 +36,7 @@ pub enum Error {
     /// Failed to start a thread 
     ThreadStartFailure(io_error),
     /// Failed to join a thread 
-    ThreadJoinFailure(io_error),
+    ThreadJoinFailure,
     /// Failed to receive data 
     RecvError(recv_error),
     /// Failed to send data 
@@ -54,7 +54,7 @@ impl fmt::Display for Error {
         match *self {
             Error::NotImplemented => f.write_str(error::Error::description(self)),
             Error::ThreadStartFailure(ref e) => fmt::Display::fmt(e, f),
-            Error::ThreadJoinFailure(ref e) => fmt::Display::fmt(e, f),
+            Error::ThreadJoinFailure => f.write_str(error::Error::description(self)),
             Error::RecvError(ref e) => fmt::Display::fmt(e, f),
             Error::SendError => f.write_str(error::Error::description(self)),
             Error::ChannelNotConnected => f.write_str(error::Error::description(self)),
@@ -69,7 +69,7 @@ impl error::Error for Error {
         match *self {
             Error::NotImplemented => None,
             Error::ThreadStartFailure(ref e) => Some(e),
-            Error::ThreadJoinFailure(ref e) => Some(e),
+            Error::ThreadJoinFailure => None,
             Error::RecvError(ref e) => Some(e),
             Error::SendError => None,
             Error::ChannelNotConnected => None,
@@ -82,7 +82,7 @@ impl error::Error for Error {
         match *self {
             Error::NotImplemented => "Not implemented",
             Error::ThreadStartFailure(ref e) => e.description(),
-            Error::ThreadJoinFailure(ref e) => e.description(),
+            Error::ThreadJoinFailure => "Failed to join thread",
             Error::RecvError(ref e) => e.description(),
             Error::SendError => "Failed to send",
             Error::ChannelNotConnected => "Channel not connected",
