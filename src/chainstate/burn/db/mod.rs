@@ -25,6 +25,9 @@ use std::error;
 use rusqlite::Error as sqlite_error;
 use rusqlite::Row;
 
+use rusqlite::Connection;
+pub type DBConn = Connection;
+
 use serde_json::Error as serde_error;
 
 use burnchains::{Txid, BurnchainHeaderHash, Address};
@@ -63,6 +66,8 @@ pub enum Error {
     DeserializationError(serde_error),
     /// Parse error -- failed to load data we stored directly 
     ParseError,
+    /// Overflow 
+    Overflow,
     /// Sqlite3 error
     SqliteError(sqlite_error)
 }
@@ -81,6 +86,7 @@ impl fmt::Display for Error {
             Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
             Error::DeserializationError(ref e) => fmt::Display::fmt(e, f),
             Error::ParseError => f.write_str(error::Error::description(self)),
+            Error::Overflow => f.write_str(error::Error::description(self)),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f)
         }
     }
@@ -100,6 +106,7 @@ impl error::Error for Error {
             Error::SerializationError(ref e) => Some(e),
             Error::DeserializationError(ref e) => Some(e),
             Error::ParseError => None,
+            Error::Overflow => None,
             Error::SqliteError(ref e) => Some(e)
         }
     }
@@ -117,6 +124,7 @@ impl error::Error for Error {
             Error::SerializationError(ref e) => e.description(),
             Error::DeserializationError(ref e) => e.description(),
             Error::ParseError => "Parse error",
+            Error::Overflow => "Numeric overflow",
             Error::SqliteError(ref e) => e.description()
         }
     }
