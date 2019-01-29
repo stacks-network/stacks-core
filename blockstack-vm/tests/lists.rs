@@ -1,6 +1,6 @@
 extern crate blockstack_vm;
 
-use blockstack_vm::types::{ValueType, TypeSignature, AtomTypeIdentifier};
+use blockstack_vm::types::{Value, TypeSignature, AtomTypeIdentifier};
 
 use blockstack_vm::execute;
 use blockstack_vm::errors::Error;
@@ -11,12 +11,12 @@ fn test_simple_map() {
         "(define (square x) (* x x))
          (map square (list 1 2 3 4))";
 
-    let expected = ValueType::ListType(
+    let expected = Value::List(
         vec![
-            ValueType::IntType(1),
-            ValueType::IntType(4),
-            ValueType::IntType(9),
-            ValueType::IntType(16)],
+            Value::Int(1),
+            Value::Int(4),
+            Value::Int(9),
+            Value::Int(16)],
         TypeSignature::new(AtomTypeIdentifier::IntType, 1));
 
     assert_eq!(Ok(expected.clone()), execute(test1));
@@ -35,7 +35,7 @@ fn test_simple_folds() {
         "(define (multiply-all x acc) (* x acc))
          (fold multiply-all (list 1 2 3 4) 1)";
 
-    let expected = ValueType::IntType(24);
+    let expected = Value::Int(24);
 
     assert_eq!(Ok(expected), execute(test1));
 }

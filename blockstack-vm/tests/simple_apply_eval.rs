@@ -4,7 +4,7 @@ use blockstack_vm::eval;
 use blockstack_vm::database::MemoryContractDatabase;
 use blockstack_vm::errors::Error;
 use blockstack_vm::contexts::{Context, Environment};
-use blockstack_vm::types::{ValueType, DefinedFunction};
+use blockstack_vm::types::{Value, DefinedFunction};
 use blockstack_vm::representations::SymbolicExpression;
 use blockstack_vm::parser::parse;
 
@@ -32,10 +32,10 @@ fn test_simple_user_function() {
     let context = Context::new();
     let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
 
-    env.global_context.variables.insert("a".to_string(), ValueType::IntType(59));
+    env.global_context.variables.insert("a".to_string(), Value::Int(59));
     env.global_context.functions.insert("do_work".to_string(), user_function);
 
-    assert_eq!(Ok(ValueType::IntType(64)), eval(&content[0], &mut env, &context));
+    assert_eq!(Ok(Value::Int(64)), eval(&content[0], &mut env, &context));
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn test_simple_let() {
         let context = Context::new();
         let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
 
-        assert_eq!(Ok(ValueType::IntType(7)), eval(&parsed_program[0], &mut env, &context));        
+        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env, &context));        
     } else {
         assert!(false, "Failed to parse program.");
     }
@@ -98,9 +98,9 @@ fn test_simple_if_functions() {
         env.global_context.functions.insert("without_else".to_string(), user_function2);
 
         if let Ok(tests) = evals {
-            assert_eq!(Ok(ValueType::IntType(1)), eval(&tests[0], &mut env, &context));
-            assert_eq!(Ok(ValueType::VoidType), eval(&tests[1], &mut env, &context));
-            assert_eq!(Ok(ValueType::IntType(0)), eval(&tests[2], &mut env, &context));
+            assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));
+            assert_eq!(Ok(Value::Void), eval(&tests[1], &mut env, &context));
+            assert_eq!(Ok(Value::Int(0)), eval(&tests[2], &mut env, &context));
         } else {
             assert!(false, "Failed to parse function bodies.");
         }
@@ -132,22 +132,22 @@ fn test_simple_arithmetic_functions() {
 ");
 
     let expectations = [
-        ValueType::IntType(21657996),
-        ValueType::IntType(126),
-        ValueType::IntType(120),
-        ValueType::IntType(0),
-        ValueType::IntType(1),
-        ValueType::IntType(0),
-        ValueType::IntType(10),
-        ValueType::BoolType(true),
-        ValueType::BoolType(false),
-        ValueType::BoolType(true),
-        ValueType::BoolType(true),
-        ValueType::BoolType(true),
-        ValueType::BoolType(true),
-        ValueType::IntType(65536),
-        ValueType::IntType(u32::max_value() as i128 + 1),
-        ValueType::IntType(-1 * (u32::max_value() as i128 + 1)),
+        Value::Int(21657996),
+        Value::Int(126),
+        Value::Int(120),
+        Value::Int(0),
+        Value::Int(1),
+        Value::Int(0),
+        Value::Int(10),
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Int(65536),
+        Value::Int(u32::max_value() as i128 + 1),
+        Value::Int(-1 * (u32::max_value() as i128 + 1)),
 ];
 
     if let Ok(to_eval) = tests {
@@ -178,7 +178,7 @@ fn test_arithmetic_errors() {
 
     let expectations = [
         Err(Error::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string())),
-        Err(Error::TypeError("IntType".to_string(), ValueType::BoolType(true))),
+        Err(Error::TypeError("IntType".to_string(), Value::Bool(true))),
         Err(Error::Arithmetic("Divide by 0".to_string())),
         Err(Error::Arithmetic("Modulus by 0".to_string())),
         Err(Error::Arithmetic("Overflowed in power".to_string())),
@@ -215,12 +215,12 @@ fn test_bool_functions() {
          (not 'true)");
 
     let expectations = [
-        ValueType::BoolType(true),
-        ValueType::BoolType(false),
-        ValueType::BoolType(false),
-        ValueType::BoolType(true),
-        ValueType::BoolType(false),
-        ValueType::BoolType(false)];
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(false),
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(false)];
 
     if let Ok(to_eval) = tests {
         let context = Context::new();

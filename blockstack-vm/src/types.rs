@@ -29,22 +29,22 @@ pub struct TupleTypeSignature {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TupleData {
     pub type_signature: TupleTypeSignature,
-    data_map: BTreeMap<String, ValueType>
+    data_map: BTreeMap<String, Value>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ValueType {
-    VoidType,
-    IntType(i128),
-    BoolType(bool),
-    BufferType(Box<[char]>),
-    ListType(Vec<ValueType>, TypeSignature),
-    TupleType(TupleData)
+pub enum Value {
+    Void,
+    Int(i128),
+    Bool(bool),
+    Buffer(Box<[char]>),
+    List(Vec<Value>, TypeSignature),
+    Tuple(TupleData)
 }
 
 pub enum CallableType <'a> {
     UserFunction(Box<DefinedFunction>),
-    NativeFunction(&'a Fn(&[ValueType]) -> InterpreterResult),
+    NativeFunction(&'a Fn(&[Value]) -> InterpreterResult),
     SpecialFunction(&'a Fn(&[SymbolicExpression], &mut Environment, &Context) -> InterpreterResult)
 }
 
@@ -71,7 +71,7 @@ impl TupleTypeSignature {
         Ok(TupleTypeSignature { type_map: type_map })
     }
 
-    pub fn check_valid(&self, name: &str, value: &ValueType) -> bool {
+    pub fn check_valid(&self, name: &str, value: &Value) -> bool {
         if let Some(expected_type) = self.type_map.get(name) {
             *expected_type == TypeSignature::type_of(value)
         } else {
@@ -81,7 +81,7 @@ impl TupleTypeSignature {
 }
 
 impl TupleData {
-    pub fn from_data(data: &[(&str, ValueType)]) -> Result<TupleData, Error> {
+    pub fn from_data(data: &[(&str, Value)]) -> Result<TupleData, Error> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
         for (name, value) in data {
@@ -115,22 +115,22 @@ impl TypeSignature {
                         dimension: dimension }
     }
 
-    pub fn type_of(x: &ValueType) -> TypeSignature {
+    pub fn type_of(x: &Value) -> TypeSignature {
         match x {
-            ValueType::VoidType => TypeSignature::new(AtomTypeIdentifier::VoidType, 0),
-            ValueType::IntType(_v) => TypeSignature::new(AtomTypeIdentifier::IntType, 0),
-            ValueType::BoolType(_v) => TypeSignature::new(AtomTypeIdentifier::BoolType, 0),
-            ValueType::BufferType(_v) => TypeSignature::new(AtomTypeIdentifier::BufferType, 0),
-            ValueType::ListType(_v, type_signature) => type_signature.clone(),
-            ValueType::TupleType(v) => TypeSignature::new(AtomTypeIdentifier::TupleType(
+            Value::Void => TypeSignature::new(AtomTypeIdentifier::VoidType, 0),
+            Value::Int(_v) => TypeSignature::new(AtomTypeIdentifier::IntType, 0),
+            Value::Bool(_v) => TypeSignature::new(AtomTypeIdentifier::BoolType, 0),
+            Value::Buffer(_v) => TypeSignature::new(AtomTypeIdentifier::BufferType, 0),
+            Value::List(_v, type_signature) => type_signature.clone(),
+            Value::Tuple(v) => TypeSignature::new(AtomTypeIdentifier::TupleType(
                 v.type_signature.clone()), 0)
         }
     }
 
-    pub fn get_list_type_for(x: &ValueType) -> Result<TypeSignature, Error> {
+    pub fn get_list_type_for(x: &Value) -> Result<TypeSignature, Error> {
         match x {
-            ValueType::VoidType => Err(Error::InvalidArguments("Cannot construct list of void types".to_string())),
-            ValueType::TupleType(_a) => Err(Error::InvalidArguments("Cannot construct list of tuple types".to_string())),
+            Value::Void => Err(Error::InvalidArguments("Cannot construct list of void types".to_string())),
+            Value::Tuple(_a) => Err(Error::InvalidArguments("Cannot construct list of tuple types".to_string())),
             _ => {
                 let mut base_type = TypeSignature::type_of(x);
                 base_type.dimension += 1;
@@ -192,7 +192,7 @@ impl DefinedFunction {
         }
     }
 
-    pub fn apply(&self, args: &[ValueType], env: &mut Environment) -> InterpreterResult {
+    pub fn apply(&self, args: &[Value], env: &mut Environment) -> InterpreterResult {
         let mut context = Context::new();
 
         let mut arg_iterator = self.arguments.iter().zip(args.iter());

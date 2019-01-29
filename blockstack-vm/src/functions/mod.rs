@@ -5,7 +5,7 @@ mod boolean;
 mod database;
 mod tuples;
 
-use super::types::{ValueType, CallableType};
+use super::types::{Value, CallableType};
 use super::representations::SymbolicExpression;
 use super::{Context,Environment};
 use super::InterpreterResult;
@@ -13,23 +13,23 @@ use super::errors::Error;
 use super::eval;
 
 
-fn native_eq(args: &[ValueType]) -> InterpreterResult {
-    // TODO: this currently uses the derived equality checks of ValueType,
+fn native_eq(args: &[Value]) -> InterpreterResult {
+    // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
     if args.len() < 2 {
-        Ok(ValueType::BoolType(true))
+        Ok(Value::Bool(true))
     } else {
         let first = &args[0];
         let result = args.iter().fold(true, |acc, x| acc && (*x == *first));
-        Ok(ValueType::BoolType(result))
+        Ok(Value::Bool(result))
     }
 }
 
-fn native_begin(args: &[ValueType]) -> InterpreterResult {
+fn native_begin(args: &[Value]) -> InterpreterResult {
     match args.last() {
         Some(v) => Ok(v.clone()),
-        None => Ok(ValueType::VoidType)
+        None => Ok(Value::Void)
     }
 }
 
@@ -40,14 +40,14 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Cont
     // handle the conditional clause.
     let conditional = eval(&args[0], env, context)?;
     match conditional {
-        ValueType::BoolType(result) => {
+        Value::Bool(result) => {
             if result {
                 eval(&args[1], env, context)
             } else {
                 if args.len() == 3 {
                     eval(&args[2], env, context)
                 } else {
-                    Ok(ValueType::VoidType)
+                    Ok(Value::Void)
                 }
             }
         },

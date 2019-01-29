@@ -7,27 +7,27 @@ pub mod database;
 
 mod functions;
 
-use types::{ValueType, CallableType};
+use types::{Value, CallableType};
 use representations::SymbolicExpression;
 use contexts::{Context, Environment};
 use functions::define::DefineResult;
 use errors::Error;
 
-type InterpreterResult = Result<ValueType, Error>;
+type InterpreterResult = Result<Value, Error>;
 
 fn lookup_variable(name: &str, context: &Context, env: &Environment) -> InterpreterResult {
     // first off, are we talking about a constant?
     if name.starts_with(char::is_numeric) {
         match i128::from_str_radix(name, 10) {
-            Ok(parsed) => Ok(ValueType::IntType(parsed)),
+            Ok(parsed) => Ok(Value::Int(parsed)),
             Err(_e) => Err(Error::Generic("Failed to parse native int!".to_string()))
         }
     } else if name.starts_with('\'') {
         // Quoted! true or false?
         match &name as &str {
-            "'null" => Ok(ValueType::VoidType),
-            "'true" => Ok(ValueType::BoolType(true)),
-            "'false" => Ok(ValueType::BoolType(false)),
+            "'null" => Ok(Value::Void),
+            "'true" => Ok(Value::Bool(true)),
+            "'false" => Ok(Value::Bool(false)),
             _ => Err(Error::NotImplemented)
         }
     } else {
@@ -58,7 +58,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
     if let CallableType::SpecialFunction(function) = function {
         function(&args, env, context)
     } else {
-        let eval_tried: Result<Vec<ValueType>, errors::Error> =
+        let eval_tried: Result<Vec<Value>, errors::Error> =
             args.iter().map(|x| eval(x, env, context)).collect();
         match eval_tried {
             Ok(evaluated_args) => {
@@ -101,7 +101,7 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
                     _ => Err(Error::TryEvalToFunction)
                 }
             } else {
-                Ok(ValueType::VoidType)
+                Ok(Value::Void)
             }
         }
     }

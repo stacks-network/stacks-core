@@ -1,12 +1,12 @@
 use std::fmt;
 use std::error;
-use super::types::ValueType;
+use super::types::Value;
 
 #[derive(Debug,PartialEq)]
 pub enum Error {
     Generic(String),
     NotImplemented,
-    TypeError(String, ValueType),
+    TypeError(String, Value),
     InvalidArguments(String),
     Undefined(String),
     TryEvalToFunction,

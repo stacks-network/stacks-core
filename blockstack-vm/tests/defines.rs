@@ -2,7 +2,7 @@ extern crate blockstack_vm;
 
 use blockstack_vm::execute;
 use blockstack_vm::errors::Error;
-use blockstack_vm::types::ValueType;
+use blockstack_vm::types::Value;
 
 
 #[test]
@@ -13,7 +13,7 @@ fn test_defines() {
          (define (f a b) (+ x y a b))
          (f 3 1)";
 
-    assert_eq!(Ok(ValueType::IntType(29)), execute(&tests));
+    assert_eq!(Ok(Value::Int(29)), execute(&tests));
 }
 
 #[test]

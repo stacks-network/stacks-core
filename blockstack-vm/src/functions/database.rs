@@ -1,4 +1,4 @@
-use super::super::types::{ValueType};
+use super::super::types::{Value};
 use super::super::representations::SymbolicExpression;
 use super::super::{InterpreterResult,eval,Context,Environment};
 use super::super::errors::Error;
@@ -47,7 +47,7 @@ pub fn special_set_entry(args: &[SymbolicExpression],
     let map = obtain_map(&args[0], env)?;
 
     match map.set_entry(key, value) {
-        Ok(_) => Ok(ValueType::VoidType),
+        Ok(_) => Ok(Value::Void),
         Err(e) => Err(e)
     }
 }

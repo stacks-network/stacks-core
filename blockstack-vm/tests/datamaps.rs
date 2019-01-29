@@ -1,6 +1,6 @@
 extern crate blockstack_vm;
 
-use blockstack_vm::types::{ValueType, TypeSignature, AtomTypeIdentifier};
+use blockstack_vm::types::{Value, TypeSignature, AtomTypeIdentifier};
 
 use blockstack_vm::execute;
 
@@ -35,20 +35,20 @@ fn test_simple_tea_shop() {
               (consume 3))
         ";
 
-    let expected = ValueType::ListType(
+    let expected = Value::List(
         vec![
-            ValueType::BoolType(true),
-            ValueType::BoolType(true),
-            ValueType::BoolType(true),
-            ValueType::BoolType(true),
-            ValueType::BoolType(true),
-            ValueType::BoolType(true),
-            ValueType::BoolType(false),
-            ValueType::BoolType(true),
-            ValueType::BoolType(true),
-            ValueType::BoolType(false),
-            ValueType::BoolType(false),
-            ValueType::BoolType(false)],
+            Value::Bool(true),
+            Value::Bool(true),
+            Value::Bool(true),
+            Value::Bool(true),
+            Value::Bool(true),
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false)],
         TypeSignature::new(AtomTypeIdentifier::BoolType, 1));
 
     assert_eq!(Ok(expected), execute(test1));
@@ -81,18 +81,18 @@ fn silly_naming_system() {
               (who-owns? 1))
         ";
 
-    let expected = ValueType::ListType(
+    let expected = Value::List(
         vec![
-            ValueType::IntType(1),
-            ValueType::IntType(0),
-            ValueType::IntType(1),
-            ValueType::IntType(0),
-            ValueType::IntType(0),
-            ValueType::IntType(1),
-            ValueType::IntType(0),
-            ValueType::IntType(1),
-            ValueType::IntType(0),
-            ValueType::IntType(-1),
+            Value::Int(1),
+            Value::Int(0),
+            Value::Int(1),
+            Value::Int(0),
+            Value::Int(0),
+            Value::Int(1),
+            Value::Int(0),
+            Value::Int(1),
+            Value::Int(0),
+            Value::Int(-1),
         ],
         TypeSignature::new(AtomTypeIdentifier::IntType, 1));
 

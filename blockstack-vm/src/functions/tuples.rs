@@ -1,6 +1,6 @@
 use super::InterpreterResult;
 use super::super::errors::Error;
-use super::super::types::{ValueType, TupleData};
+use super::super::types::{Value, TupleData};
 use super::super::representations::SymbolicExpression;
 use super::super::representations::SymbolicExpression::{NamedParameter};
 use super::super::{Context,Environment,eval};
@@ -25,7 +25,7 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
     let evaled_pairs = eval_result?;
 
     let tuple_data = TupleData::from_data(&evaled_pairs)?;
-    Ok(ValueType::TupleType(tuple_data))
+    Ok(Value::Tuple(tuple_data))
 }
 
 pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
@@ -44,8 +44,8 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &C
     let value = eval(&args[1], env, context)?;
 
     match value {
-        ValueType::VoidType => Ok(ValueType::VoidType),
-        ValueType::TupleType(tuple_data) => tuple_data.get(arg_name),
+        Value::Void => Ok(Value::Void),
+        Value::Tuple(tuple_data) => tuple_data.get(arg_name),
         _ => Err(Error::TypeError("TupleType".to_string(), value.clone()))
     }
 }

@@ -1,39 +1,39 @@
-use super::super::types::ValueType;
+use super::super::types::Value;
 use super::super::errors::Error;
 use super::super::InterpreterResult;
 
-fn type_force_integer(value: &ValueType) -> Result<i128, Error> {
+fn type_force_integer(value: &Value) -> Result<i128, Error> {
     match *value {
-        ValueType::IntType(int) => Ok(int),
+        Value::Int(int) => Ok(int),
         _ => Err(Error::TypeError("IntType".to_string(), value.clone()))
     }
 }
 
-fn binary_comparison<F>(args: &[ValueType], function: &F) -> InterpreterResult
+fn binary_comparison<F>(args: &[Value], function: &F) -> InterpreterResult
 where F: Fn(i128, i128) -> bool {
     if args.len() == 2 {
         let arg1 = type_force_integer(&args[0])?;
         let arg2 = type_force_integer(&args[1])?;
-        Ok(ValueType::BoolType((*function)(arg1, arg2)))
+        Ok(Value::Bool((*function)(arg1, arg2)))
     } else {
         Err(Error::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()))
     }
 }
 
-pub fn native_geq(args: &[ValueType]) -> InterpreterResult {
+pub fn native_geq(args: &[Value]) -> InterpreterResult {
     binary_comparison(args, &|x, y| x >= y)
 }
-pub fn native_leq(args: &[ValueType]) -> InterpreterResult {
+pub fn native_leq(args: &[Value]) -> InterpreterResult {
     binary_comparison(args, &|x, y| x <= y)
 }
-pub fn native_ge(args: &[ValueType]) -> InterpreterResult {
+pub fn native_ge(args: &[Value]) -> InterpreterResult {
     binary_comparison(args, &|x, y| x > y)
 }
-pub fn native_le(args: &[ValueType]) -> InterpreterResult {
+pub fn native_le(args: &[Value]) -> InterpreterResult {
     binary_comparison(args, &|x, y| x < y)
 }
 
-pub fn native_add(args: &[ValueType]) -> InterpreterResult {
+pub fn native_add(args: &[Value]) -> InterpreterResult {
     let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
     let parsed_args = typed_args?;
     let checked_result = parsed_args.iter().fold(Some(0), |acc: Option<i128>, x| {
@@ -42,18 +42,18 @@ pub fn native_add(args: &[ValueType]) -> InterpreterResult {
             None => None
         }});
     if let Some(result) = checked_result{
-        Ok(ValueType::IntType(result))
+        Ok(Value::Int(result))
     } else {
         Err(Error::Arithmetic("Overflowed in addition".to_string()))
     }
 }
 
-pub fn native_sub(args: &[ValueType]) -> InterpreterResult {
+pub fn native_sub(args: &[Value]) -> InterpreterResult {
     let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
     let parsed_args = typed_args?;
     if let Some((first, rest)) = parsed_args.split_first() {
         if rest.len() == 0 { // return negation
-            return Ok(ValueType::IntType(-1 * first))
+            return Ok(Value::Int(-1 * first))
         }
 
         let checked_result = rest.iter().fold(Some(*first), |acc, x| {
@@ -62,7 +62,7 @@ pub fn native_sub(args: &[ValueType]) -> InterpreterResult {
                 None => None
             }});
         if let Some(result) = checked_result{
-            Ok(ValueType::IntType(result))
+            Ok(Value::Int(result))
         } else {
             Err(Error::Arithmetic("Underflowed in subtraction".to_string()))
         }
@@ -71,7 +71,7 @@ pub fn native_sub(args: &[ValueType]) -> InterpreterResult {
     }
 }
 
-pub fn native_mul(args: &[ValueType]) -> InterpreterResult {
+pub fn native_mul(args: &[Value]) -> InterpreterResult {
     let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
     let parsed_args = typed_args?;
     let checked_result = parsed_args.iter().fold(Some(1), |acc: Option<i128>, x| {
@@ -80,13 +80,13 @@ pub fn native_mul(args: &[ValueType]) -> InterpreterResult {
             None => None
         }});
     if let Some(result) = checked_result{
-        Ok(ValueType::IntType(result))
+        Ok(Value::Int(result))
     } else {
         Err(Error::Arithmetic("Overflowed in multiplication".to_string()))
     }
 }
 
-pub fn native_div(args: &[ValueType]) -> InterpreterResult {
+pub fn native_div(args: &[Value]) -> InterpreterResult {
     let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
     let parsed_args = typed_args?;
     if let Some((first, rest)) = parsed_args.split_first() {
@@ -96,7 +96,7 @@ pub fn native_div(args: &[ValueType]) -> InterpreterResult {
                 None => None
             }});
         if let Some(result) = checked_result{
-            Ok(ValueType::IntType(result))
+            Ok(Value::Int(result))
         } else {
             Err(Error::Arithmetic("Divide by 0".to_string()))
         }
@@ -105,7 +105,7 @@ pub fn native_div(args: &[ValueType]) -> InterpreterResult {
     }
 }
 
-pub fn native_pow(args: &[ValueType]) -> InterpreterResult {
+pub fn native_pow(args: &[Value]) -> InterpreterResult {
     if args.len() == 2 {
         let base = type_force_integer(&args[0])?;
         let power_i128 = type_force_integer(&args[1])?;
@@ -117,7 +117,7 @@ pub fn native_pow(args: &[ValueType]) -> InterpreterResult {
         let checked_result = base.checked_pow(power);
 
         if let Some(result) = checked_result{
-            Ok(ValueType::IntType(result))
+            Ok(Value::Int(result))
         } else {
             Err(Error::Arithmetic("Overflowed in power".to_string()))
         }
@@ -127,13 +127,13 @@ pub fn native_pow(args: &[ValueType]) -> InterpreterResult {
 }
 
 
-pub fn native_mod(args: &[ValueType]) -> InterpreterResult {
+pub fn native_mod(args: &[Value]) -> InterpreterResult {
     if args.len() == 2 {
         let numerator = type_force_integer(&args[0])?;
         let denominator = type_force_integer(&args[1])?;
         let checked_result = numerator.checked_rem(denominator);
         if let Some(result) = checked_result{
-            Ok(ValueType::IntType(result))
+            Ok(Value::Int(result))
         } else {
             Err(Error::Arithmetic("Modulus by 0".to_string()))
         }

@@ -1,11 +1,11 @@
-use super::super::types::{ValueType, DefinedFunction, TupleTypeSignature, TypeSignature};
+use super::super::types::{Value, DefinedFunction, TupleTypeSignature, TypeSignature};
 use super::super::representations::SymbolicExpression;
 use super::super::representations::SymbolicExpression::{Atom,AtomValue,List,NamedParameter};
 use super::super::{Context,Environment,eval};
 use super::super::errors::Error;
 
 pub enum DefineResult {
-    Variable(String, ValueType),
+    Variable(String, Value),
     Function(String, DefinedFunction),
     Map(String, TupleTypeSignature, TupleTypeSignature),
     NoDefine

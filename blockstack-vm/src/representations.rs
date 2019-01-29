@@ -1,4 +1,4 @@
-use types::{ValueType};
+use types::{Value};
 
 /*
  I don't add a pair type here, since we're only using these S-Expressions to represent code, rather than
@@ -7,7 +7,7 @@ use types::{ValueType};
 #[derive(Debug)]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum SymbolicExpression {
-    AtomValue(ValueType),
+    AtomValue(Value),
     Atom(String),
     List(Box<[SymbolicExpression]>),
     NamedParameter(String)

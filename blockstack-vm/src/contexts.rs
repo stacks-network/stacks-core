@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use super::types::{DefinedFunction, FunctionIdentifier, ValueType};
+use super::types::{DefinedFunction, FunctionIdentifier, Value};
 use super::database::ContractDatabase;
 
 pub struct Environment <'a> {
@@ -23,7 +23,7 @@ impl <'a> Environment <'a> {
 
 pub struct Context <'a> {
     pub parent: Option< &'a Context<'a>>,
-    pub variables: HashMap<String, ValueType>,
+    pub variables: HashMap<String, Value>,
     pub functions: HashMap<String, Box<DefinedFunction>>,
 }
 
@@ -42,7 +42,7 @@ impl <'a> Context <'a> {
         }
     }
 
-    pub fn lookup_variable(&self, name: &str) -> Option<ValueType> {
+    pub fn lookup_variable(&self, name: &str) -> Option<Value> {
         match self.variables.get(name) {
             Some(value) => Option::Some((*value).clone()),
             None => {
