@@ -130,7 +130,7 @@ pub fn eval_all(expressions: &[SymbolicExpression],
                 env.global_context.functions.insert(name, Box::new(value));
             },
             DefineResult::Map(name, key_type, value_type) => {
-                env.database.create_map(&name, key_type, value_type)
+                env.database.create_map(&name, key_type, value_type);
             },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
