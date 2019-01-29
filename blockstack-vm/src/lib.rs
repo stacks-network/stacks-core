@@ -25,6 +25,7 @@ fn lookup_variable(name: &str, context: &Context, env: &Environment) -> Interpre
     } else if name.starts_with('\'') {
         // Quoted! true or false?
         match &name as &str {
+            "'null" => Ok(ValueType::VoidType),
             "'true" => Ok(ValueType::BoolType(true)),
             "'false" => Ok(ValueType::BoolType(false)),
             _ => Err(Error::NotImplemented)

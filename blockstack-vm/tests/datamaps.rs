@@ -12,10 +12,12 @@ fn test_simple_map() {
            (set-entry! proper-tea (tuple #tea-type tea) (tuple #amount amount)))
          (define (consume tea)
            (let ((current (get amount (fetch-entry proper-tea (tuple #tea-type tea)))))
-              (if (>= current 1)
-                  (let ((_ (set-entry! proper-tea (tuple #tea-type tea) 
-                                                  (tuple #amount (- current 1)))))
-                       'true)
+              (if (and (not (eq? current 'null)) 
+                       (>= current 1))
+                  (begin
+                    (set-entry! proper-tea (tuple #tea-type tea) 
+                                                  (tuple #amount (- current 1)))
+                    'true)
                   'false)))
         (stock 1 3)
         (stock 2 5)
@@ -29,7 +31,8 @@ fn test_simple_map() {
               (consume 2)
               (consume 2)
               (consume 2)
-              (consume 2))
+              (consume 2)
+              (consume 3))
         ";
 
     let expected = ValueType::ListType(
@@ -43,6 +46,7 @@ fn test_simple_map() {
             ValueType::BoolType(false),
             ValueType::BoolType(true),
             ValueType::BoolType(true),
+            ValueType::BoolType(false),
             ValueType::BoolType(false),
             ValueType::BoolType(false)],
         TypeSignature::new(AtomTypeIdentifier::BoolType, 1));

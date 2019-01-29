@@ -30,6 +30,9 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
 
 pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
     // (get arg-name (tuple ...))
+    //    if the tuple argument is 'null, then return 'null.
+    //  NOTE:  a tuple field value itself may _never_ be 'null
+
     if args.len() != 2 {
         return Err(Error::InvalidArguments(format!("(get ..) requires exactly 2 arguments")))
     }
@@ -39,10 +42,10 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &C
     }?;
 
     let value = eval(&args[1], env, context)?;
-    let as_tuple = match value {
-        ValueType::TupleType(tuple_data) => Ok(tuple_data),
-        _ => Err(Error::TypeError("TupleType".to_string(), value.clone()))
-    }?;
 
-    as_tuple.get(arg_name)
+    match value {
+        ValueType::VoidType => Ok(ValueType::VoidType),
+        ValueType::TupleType(tuple_data) => tuple_data.get(arg_name),
+        _ => Err(Error::TypeError("TupleType".to_string(), value.clone()))
+    }
 }

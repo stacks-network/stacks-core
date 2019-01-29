@@ -81,25 +81,14 @@ impl TupleTypeSignature {
 }
 
 impl TupleData {
-    pub fn new(type_data: &TupleTypeSignature, data: &[(&str, &ValueType)]) -> Result<TupleData, Error> {
-        let mut data_map = BTreeMap::new();
-        for (name, value) in data {
-            if type_data.check_valid(name, value) {
-                data_map.insert(name.to_string(), (*value).clone());
-            } else {
-                return Err(Error::Generic(format!("Tuple type: {:?}, but tried to assign: {:?} to {:?}",
-                                                  type_data, *value, name)))
-            }
-        }
-        Ok(TupleData { type_signature: type_data.clone(),
-                       data_map: data_map })
-    }
-
     pub fn from_data(data: &[(&str, ValueType)]) -> Result<TupleData, Error> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
         for (name, value) in data {
             let type_info = TypeSignature::type_of(value);
+            if type_info.atomic_type == AtomTypeIdentifier::VoidType {
+                return Err(Error::InvalidArguments("Cannot use VoidTypes in tuples.".to_string()))
+            }
             if let Some(_v) = type_map.insert(name.to_string(), type_info) {
                 return Err(Error::InvalidArguments("Cannot use named argument twice in tuple construction.".to_string()))
             }

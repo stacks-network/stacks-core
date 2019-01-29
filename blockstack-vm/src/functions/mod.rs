@@ -26,6 +26,13 @@ fn native_eq(args: &[ValueType]) -> InterpreterResult {
     }
 }
 
+fn native_begin(args: &[ValueType]) -> InterpreterResult {
+    match args.last() {
+        Some(v) => Ok(v.clone()),
+        None => Ok(ValueType::VoidType)
+    }
+}
+
 fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
     if !(args.len() == 2 || args.len() == 3) {
         return Err(Error::InvalidArguments("Wrong number of arguments to if (expect 2 or 3)".to_string()))
@@ -117,6 +124,7 @@ pub fn lookup_reserved_functions<'a> (name: &str) -> Option<CallableType<'a>> {
         "delete-entry!" => Some(CallableType::SpecialFunction(&database::special_delete_entry)),
         "tuple" => Some(CallableType::SpecialFunction(&tuples::tuple_cons)),
         "get" => Some(CallableType::SpecialFunction(&tuples::tuple_get)),
+        "begin" => Some(CallableType::NativeFunction(&native_begin)),
         _ => None
     }
 }
