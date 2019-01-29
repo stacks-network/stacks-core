@@ -10,7 +10,7 @@ pub enum SymbolicExpression {
     AtomValue(ValueType),
     Atom(String),
     List(Box<[SymbolicExpression]>),
-    TypeIdentifier(TypeSignature)
+    NamedParameter(String)
 }
 
 pub struct Contract {

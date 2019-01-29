@@ -1,12 +1,12 @@
 use errors::Error;
-use types::{TypeSignature,AtomTypeIdentifier};
+use types::{TypeSignature};
 use representations::SymbolicExpression;
 
 #[derive(Debug)]
 pub enum LexItem {
     LeftParen,
     RightParen,
-    TypeSignifier(String),
+    NameParameter(String),
     Atom(String)
 }
 
@@ -17,7 +17,7 @@ fn finish_atom(current: &mut Option<String>) -> Option<LexItem> {
         },
         &mut Some(ref value) => {
             if value.starts_with('#') {
-                Some(LexItem::TypeSignifier(value[1..].to_string()))
+                Some(LexItem::NameParameter(value[1..].to_string()))
             } else {
                 Some(LexItem::Atom(value.clone()))
             }
@@ -77,36 +77,13 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>, Error> {
     Ok(result)
 }
 
-fn get_atom_type(typename: &str) -> Result<AtomTypeIdentifier, Error> {
-    match typename {
-        "int" => Ok(AtomTypeIdentifier::IntType),
-        "void" => Ok(AtomTypeIdentifier::VoidType),
-        "bool" => Ok(AtomTypeIdentifier::BoolType),
-        "buff" => Ok(AtomTypeIdentifier::BufferType),
-        _ => Err(Error::ParseError(format!("Unknown type name: '{:?}'", typename)))
-    }
-}
-
-fn get_list_type(prefix: &str, typename: &str, dimension: &str) -> Result<TypeSignature, Error> {
-    if prefix != "list" {
-        return Err(Error::ParseError(
-            format!("Unknown type name: '{}-{}-{}'", prefix, typename, dimension)))
-    }
-    let atom_type = get_atom_type(typename)?;
-    let dimension = match u8::from_str_radix(dimension, 10) {
-        Ok(parsed) => Ok(parsed),
-        Err(_e) => Err(Error::ParseError(
-            format!("Failed to parse dimension of type: '{}-{}-{}'",
-                    prefix, typename, dimension)))
-    }?;
-    Ok(TypeSignature::new(atom_type, dimension))
-}
-
 pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>, Error> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
 
+    // TODO: we don't need to be cloning here, we can just seize item ownership from the
+    //    input iterator by popping.
     let _result = input.iter().try_for_each(|item| {
         match *item {
             LexItem::LeftParen => {
@@ -115,30 +92,8 @@ pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>, Erro
                 parse_stack.push(new_list);
                 Ok(())
             },
-            LexItem::TypeSignifier(ref value) => {
-                // types should be formatted like one of:
-                // typename
-                // list-typename-dimensions
-                let components: Vec<_> = value.split('-').collect();
-                if components.len() < 1 {
-                    return Err(Error::ParseError(format!("Failure to parse type identifier '{:?}'",
-                                                         value)))
-                }
-                let type_identifier = match components.len() {
-                    1 => {
-                        let atom_type = get_atom_type(components[0])?;
-                        Ok(TypeSignature::new(atom_type, 0))
-                    },
-                    3 => {
-                        let type_identifier = get_list_type(components[0],
-                                                            components[1],
-                                                            components[2])?;
-                        Ok(type_identifier)
-                    },
-                    _ => Err(Error::ParseError(
-                        format!("Failure to parse type identifier '{:?}'", value)))
-                }?;
-                let symbol_out = SymbolicExpression::TypeIdentifier(type_identifier);
+            LexItem::NameParameter(ref value) => {
+                let symbol_out = SymbolicExpression::NamedParameter(value.clone());
                 match parse_stack.last_mut() {
                     None => output_list.push(symbol_out),
                     Some(ref mut list) => list.push(symbol_out)

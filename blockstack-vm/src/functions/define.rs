@@ -1,6 +1,6 @@
 use super::super::types::{ValueType, DefinedFunction};
 use super::super::representations::SymbolicExpression;
-use super::super::representations::SymbolicExpression::{Atom,AtomValue,List,TypeIdentifier};
+use super::super::representations::SymbolicExpression::{Atom,AtomValue,List,NamedParameter};
 use super::super::{Context,Environment,eval};
 use super::super::errors::Error;
 
@@ -37,21 +37,41 @@ pub fn handle_define_function(signature: &[SymbolicExpression], expression: &Sym
     }
 }
 
+fn handle_define_map(map_name: &SymbolicExpression,
+                     key_type: &SymbolicExpression,
+                     value_type: &SymbolicExpression) -> Result<DefineResult, Error> {
+    panic!("Not implemented")
+}
+
 pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult, Error> {
     if let SymbolicExpression::List(elements) = expression {
-        if elements.len() != 3 || elements[0] != Atom("define".to_string()) {
-            Ok(DefineResult::NoDefine)
-        } else {
-            match elements[1] {
-                Atom(ref variable) => handle_define_variable(variable, &elements[2], env),
-                AtomValue(ref _value) => Err(Error::InvalidArguments(
-                    "Illegal operation: attempted to re-define a value type.".to_string())),
-                TypeIdentifier(ref _value) => Err(Error::InvalidArguments(
-                    "Illegal operation: attempted to re-define a type identifier.".to_string())),
-                List(ref function_signature) => handle_define_function(&function_signature, &elements[2])
+        if let Some(Atom(func_name)) = elements.get(0) {
+            return match func_name.as_str() {
+                "define" => {
+                    if elements.len() != 3 {
+                        Err(Error::InvalidArguments("(define ...) requires 2 arguments".to_string()))
+                    } else {
+                        match elements[1] {
+                            Atom(ref variable) => handle_define_variable(variable, &elements[2], env),
+                            AtomValue(ref _value) => Err(Error::InvalidArguments(
+                                "Illegal operation: attempted to re-define a value type.".to_string())),
+                            NamedParameter(ref _value) => Err(Error::InvalidArguments(
+                                "Illegal operation: attempted to re-define a named parameter.".to_string())),
+                            List(ref function_signature) => handle_define_function(&function_signature, &elements[2])
+                        }
+                    }
+                },
+                "define-map" => {
+                    if elements.len() != 4 {
+                        Err(Error::InvalidArguments("(define-map ...) requires 3 arguments".to_string()))
+                    } else {
+                        handle_define_map(&elements[1], &elements[2], &elements[3])
+                    }
+                }
+                _ => Ok(DefineResult::NoDefine)
             }
         }
-    } else {
-        Ok(DefineResult::NoDefine)
     }
+
+    Ok(DefineResult::NoDefine)
 }

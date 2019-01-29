@@ -2,6 +2,7 @@ pub mod define;
 mod lists;
 mod arithmetic;
 mod boolean;
+mod database;
 
 use super::types::{ValueType, CallableType};
 use super::representations::SymbolicExpression;
@@ -109,6 +110,10 @@ pub fn lookup_reserved_functions<'a> (name: &str) -> Option<CallableType<'a>> {
         "map" => Some(CallableType::SpecialFunction(&lists::list_map)),
         "fold" => Some(CallableType::SpecialFunction(&lists::list_fold)),
         "list" => Some(CallableType::NativeFunction(&lists::list_cons)),
+        "fetch-entry" => Some(CallableType::SpecialFunction(&database::special_fetch_entry)),
+        "set-entry!" => Some(CallableType::SpecialFunction(&database::special_set_entry)),
+        "insert-entry!" => Some(CallableType::SpecialFunction(&database::special_insert_entry)),
+        "delete-entry!" => Some(CallableType::SpecialFunction(&database::special_delete_entry)),
         _ => None
     }
 }
