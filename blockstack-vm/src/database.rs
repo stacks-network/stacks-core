@@ -61,6 +61,10 @@ impl ContractDatabase for MemoryContractDatabase {
 }
 
 impl DataMap for MemoryDataMap {
+    // TODO: currently, the return types and behavior of these functions are defined here,
+    //   however, they should really be specified in the functions/database.rs file, whereas
+    //   this file should really just be speccing out the database connection/requirement.
+
     fn fetch_entry(&self, key: &ValueType) -> InterpreterResult {
         let key_type = TypeSignature::type_of(key);
         if self.key_type != key_type {
