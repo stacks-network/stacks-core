@@ -1,6 +1,7 @@
 extern crate blockstack_vm;
 
 use blockstack_vm::eval;
+use blockstack_vm::database::MemoryContractDatabase;
 use blockstack_vm::errors::Error;
 use blockstack_vm::contexts::{Context, Environment};
 use blockstack_vm::types::{ValueType, DefinedFunction};
@@ -29,7 +30,7 @@ fn test_simple_user_function() {
     let user_function = Box::new(DefinedFunction::new(func_body, func_args));
 
     let context = Context::new();
-    let mut env = Environment::new();
+    let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
 
     env.global_context.variables.insert("a".to_string(), ValueType::IntType(59));
     env.global_context.functions.insert("do_work".to_string(), user_function);
@@ -56,7 +57,7 @@ fn test_simple_let() {
 
     if let Ok(parsed_program) = parse(&program) {
         let context = Context::new();
-        let mut env = Environment::new();
+        let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
 
         assert_eq!(Ok(ValueType::IntType(7)), eval(&parsed_program[0], &mut env, &context));        
     } else {
@@ -91,7 +92,7 @@ fn test_simple_if_functions() {
         let user_function2 = Box::new(DefinedFunction::new(parsed_bodies[1].clone(),
                                                            func_args2));
         let mut context = Context::new();
-        let mut env = Environment::new();
+        let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
 
         env.global_context.functions.insert("with_else".to_string(), user_function1);
         env.global_context.functions.insert("without_else".to_string(), user_function2);
@@ -151,7 +152,7 @@ fn test_simple_arithmetic_functions() {
 
     if let Ok(to_eval) = tests {
         let context = Context::new();
-        let mut env = Environment::new();
+        let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
         to_eval.iter().zip(expectations.iter())
             .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), eval(program, &mut env, &context)));
     } else {
@@ -194,7 +195,7 @@ fn test_arithmetic_errors() {
 
     if let Ok(to_eval) = tests {
         let context = Context::new();
-        let mut env = Environment::new();
+        let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
         for (program, expectation) in to_eval.iter().zip(expectations.iter()) {
             assert_eq!(*expectation, eval(program, &mut env, &context));
         }
@@ -223,7 +224,7 @@ fn test_bool_functions() {
 
     if let Ok(to_eval) = tests {
         let context = Context::new();
-        let mut env = Environment::new();
+        let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
         to_eval.iter().zip(expectations.iter())
             .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), eval(program, &mut env, &context)));
     } else {

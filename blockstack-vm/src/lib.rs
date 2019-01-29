@@ -88,6 +88,8 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
     match exp {
         &SymbolicExpression::AtomValue(ref value) => Ok(value.clone()),
         &SymbolicExpression::Atom(ref value) => lookup_variable(&value, context, env),
+        &SymbolicExpression::TypeIdentifier(ref _type) => 
+            Err(Error::InvalidArguments("Cannot eval a type identifier".to_string())),
         &SymbolicExpression::List(ref children) => {
             if let Some((function_variable, rest)) = children.split_first() {
                 match function_variable {
@@ -108,8 +110,13 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
 /* This function evaluates a list of expressions, sharing a global context.
  * It returns the final evaluated result.
  */
-pub fn eval_all(expressions: &[SymbolicExpression]) -> InterpreterResult {
-    let mut env = Environment::new();
+pub fn eval_all(expressions: &[SymbolicExpression],
+                contract_db: Option<Box<database::ContractDatabase>>) -> InterpreterResult {
+    let db_instance = match contract_db {
+        Some(db) => db,
+        None => Box::new(database::MemoryContractDatabase::new())
+    };
+    let mut env = Environment::new(db_instance);
     let mut last_executed = None;
     let context = Context::new();
 
@@ -138,5 +145,5 @@ pub fn eval_all(expressions: &[SymbolicExpression]) -> InterpreterResult {
 
 pub fn execute(program: &str) -> InterpreterResult {
     let parsed = parser::parse(program)?;
-    eval_all(&parsed)
+    eval_all(&parsed, None)
 }

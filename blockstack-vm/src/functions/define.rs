@@ -1,6 +1,6 @@
 use super::super::types::{ValueType, DefinedFunction};
 use super::super::representations::SymbolicExpression;
-use super::super::representations::SymbolicExpression::{Atom,AtomValue,List};
+use super::super::representations::SymbolicExpression::{Atom,AtomValue,List,TypeIdentifier};
 use super::super::{Context,Environment,eval};
 use super::super::errors::Error;
 
@@ -46,6 +46,8 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                 Atom(ref variable) => handle_define_variable(variable, &elements[2], env),
                 AtomValue(ref _value) => Err(Error::InvalidArguments(
                     "Illegal operation: attempted to re-define a value type.".to_string())),
+                TypeIdentifier(ref _value) => Err(Error::InvalidArguments(
+                    "Illegal operation: attempted to re-define a type identifier.".to_string())),
                 List(ref function_signature) => handle_define_function(&function_signature, &elements[2])
             }
         }

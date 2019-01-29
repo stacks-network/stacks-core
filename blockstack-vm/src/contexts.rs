@@ -2,19 +2,21 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use super::types::{DefinedFunction, FunctionIdentifier, ValueType};
-
+use super::database::ContractDatabase;
 
 pub struct Environment <'a> {
     pub global_context: Context <'a>,
-    pub call_stack: CallStack
+    pub call_stack: CallStack,
+    pub database: Box<ContractDatabase>
 }
 
 impl <'a> Environment <'a> {
-    pub fn new() -> Environment<'a> {
+    pub fn new(database: Box<ContractDatabase>) -> Environment<'a> {
         let global_context = Context::new();
         Environment {
             global_context: global_context,
-            call_stack: CallStack::new()
+            call_stack: CallStack::new(),
+            database: database
         }
     }
 }

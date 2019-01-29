@@ -5,13 +5,50 @@ use super::{Context,Environment};
 use super::eval;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ListTypeIdentifier {
+pub enum AtomTypeIdentifier {
+    VoidType,
     IntType,
     BoolType,
     BufferType
 }
 
-pub type TypeSignature = (ListTypeIdentifier, u8);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypeSignature {
+    atomic_type: AtomTypeIdentifier,
+    dimension: u8
+}
+
+impl TypeSignature {
+    pub fn new(atomic_type: AtomTypeIdentifier, dimension: u8) -> TypeSignature {
+        TypeSignature { atomic_type: atomic_type,
+                        dimension: dimension }
+    }
+
+    pub fn type_of(x: &ValueType) -> TypeSignature {
+        match x {
+            ValueType::VoidType => TypeSignature::new(AtomTypeIdentifier::VoidType, 0),
+            ValueType::IntType(_v) => TypeSignature::new(AtomTypeIdentifier::IntType, 0),
+            ValueType::BoolType(_v) => TypeSignature::new(AtomTypeIdentifier::BoolType, 0),
+            ValueType::BufferType(_v) => TypeSignature::new(AtomTypeIdentifier::BufferType, 0),
+            ValueType::ListType(_v, type_signature) => type_signature.clone()
+        }
+    }
+
+    pub fn get_list_type_for(x: &ValueType) -> Result<TypeSignature, Error> {
+        match x {
+            ValueType::VoidType => Err(Error::InvalidArguments("Cannot construct list of void types".to_string())),
+            _ => {
+                let mut base_type = TypeSignature::type_of(x);
+                base_type.dimension += 1;
+                Ok(base_type)
+            }
+        }
+    }
+
+    pub fn get_empty_list_type() -> TypeSignature {
+        TypeSignature::new(AtomTypeIdentifier::IntType, 0)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ValueType {
@@ -70,18 +107,4 @@ impl DefinedFunction {
             body: self.body.clone(),
             arguments: self.arguments.clone() }
     }
-}
-
-pub fn get_list_type_for(x: &ValueType) -> Result<TypeSignature, Error> {
-    match x {
-        ValueType::VoidType => Err(Error::InvalidArguments("Cannot construct list of void types".to_string())),
-        ValueType::IntType(_r) => Ok((ListTypeIdentifier::IntType, 0)),
-        ValueType::BoolType(_r) => Ok((ListTypeIdentifier::BoolType, 0)),
-        ValueType::BufferType(_r) => Ok((ListTypeIdentifier::BufferType, 0)),
-        ValueType::ListType(_r, (identifier, list_order)) => Ok((identifier.clone(), list_order + 1))
-    }
-}
-
-pub fn get_empty_list_type() -> TypeSignature {
-    (ListTypeIdentifier::IntType, 0)
 }

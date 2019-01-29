@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use super::errors::Error;
-use super::{InterpreterResult};
-use super::types::{ValueType, TypeSignature, get_list_type_for};
+use errors::Error;
+use InterpreterResult;
+use types::{ValueType, TypeSignature};
 
 pub trait DataMap {
     fn fetch_entry(&self, key: &ValueType) -> InterpreterResult;
@@ -54,7 +54,7 @@ impl ContractDatabase for MemoryContractDatabase {
 
 impl DataMap for MemoryDataMap {
     fn fetch_entry(&self, key: &ValueType) -> InterpreterResult {
-        let key_type = get_list_type_for(key)?;
+        let key_type = TypeSignature::get_list_type_for(key)?;
         if self.key_type != key_type {
             return Err(Error::TypeError(format!("{:?}", self.key_type), (*key).clone()))
         }
@@ -66,11 +66,11 @@ impl DataMap for MemoryDataMap {
     }
 
     fn set_entry(&mut self, key: ValueType, value: ValueType) -> Result<(), Error> {
-        let key_type = get_list_type_for(&key)?;
+        let key_type = TypeSignature::get_list_type_for(&key)?;
         if self.key_type != key_type {
             return Err(Error::TypeError(format!("{:?}", self.key_type), key))
         }
-        let value_type = get_list_type_for(&value)?;
+        let value_type = TypeSignature::get_list_type_for(&value)?;
         if self.value_type != value_type {
             return Err(Error::TypeError(format!("{:?}", self.value_type), value))
         }
@@ -79,11 +79,11 @@ impl DataMap for MemoryDataMap {
     }
 
     fn insert_entry(&mut self, key: ValueType, value: ValueType) -> InterpreterResult {
-        let key_type = get_list_type_for(&key)?;
+        let key_type = TypeSignature::get_list_type_for(&key)?;
         if self.key_type != key_type {
             return Err(Error::TypeError(format!("{:?}", self.key_type), key))
         }
-        let value_type = get_list_type_for(&value)?;
+        let value_type = TypeSignature::get_list_type_for(&value)?;
         if self.value_type != value_type {
             return Err(Error::TypeError(format!("{:?}", self.value_type), value))
         }
@@ -96,7 +96,7 @@ impl DataMap for MemoryDataMap {
     }
 
     fn delete_entry(&mut self, key: &ValueType) -> InterpreterResult {
-        let key_type = get_list_type_for(key)?;
+        let key_type = TypeSignature::get_list_type_for(key)?;
         if self.key_type != key_type {
             return Err(Error::TypeError(format!("{:?}", self.key_type), (*key).clone()))
         }

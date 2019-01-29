@@ -1,6 +1,6 @@
 extern crate blockstack_vm;
 
-use blockstack_vm::types::{ValueType, ListTypeIdentifier};
+use blockstack_vm::types::{ValueType, TypeSignature, AtomTypeIdentifier};
 
 use blockstack_vm::execute;
 use blockstack_vm::errors::Error;
@@ -17,7 +17,7 @@ fn test_simple_map() {
             ValueType::IntType(4),
             ValueType::IntType(9),
             ValueType::IntType(16)],
-        (ListTypeIdentifier::IntType, 0));
+        TypeSignature::new(AtomTypeIdentifier::IntType, 1));
 
     assert_eq!(Ok(expected.clone()), execute(test1));
 

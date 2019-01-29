@@ -1,6 +1,6 @@
 use super::InterpreterResult;
 use super::super::errors::Error;
-use super::super::types::{ValueType, TypeSignature, get_list_type_for, get_empty_list_type};
+use super::super::types::{ValueType, TypeSignature};
 use super::super::types::ValueType::{ListType};
 use super::super::representations::SymbolicExpression;
 use super::super::representations::SymbolicExpression::{AtomValue};
@@ -8,9 +8,9 @@ use super::super::{Context,Environment,eval,apply,lookup_function};
 
 pub fn list_cons(args: &[ValueType]) -> InterpreterResult {
     if let Some((first, _rest)) = args.split_first() {
-        let list_type = get_list_type_for(first)?;
+        let list_type = TypeSignature::get_list_type_for(first)?;
         let list_result: Result<Vec<_>, Error> = args.iter().map(|x| {
-            let x_type = get_list_type_for(x)?;
+            let x_type = TypeSignature::get_list_type_for(x)?;
             if x_type == list_type {
                 Ok(x.clone())
             } else {
@@ -21,7 +21,7 @@ pub fn list_cons(args: &[ValueType]) -> InterpreterResult {
 
         Ok(ListType(list_contents, list_type))
     } else {
-        Ok(ListType(Vec::new(), get_empty_list_type()))
+        Ok(ListType(Vec::new(), TypeSignature::get_empty_list_type()))
     }
 }
 
@@ -61,7 +61,7 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Co
                 let result: Result<Vec<_>, Error> = vector.iter().map(|x| {
                     let argument = [ SymbolicExpression::AtomValue(x.clone()) ];
                     let value = apply(&function, &argument, env, context)?;
-                    let value_type = get_list_type_for(&value)?;
+                    let value_type = TypeSignature::get_list_type_for(&value)?;
                     if let Some(ref all_type) = result_value_type {
                         if *all_type == value_type {
                             Ok(value)
@@ -76,7 +76,7 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Co
                 let vec = result?;
                 match result_value_type {
                     Some(value_type) => Ok(ListType(vec, value_type)),
-                    None => Ok(ListType(Vec::new(), get_empty_list_type()))
+                    None => Ok(ListType(Vec::new(), TypeSignature::get_empty_list_type()))
                 }
             },
             _ => Err(Error::TypeError("List".to_string(), list))

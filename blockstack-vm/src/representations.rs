@@ -1,4 +1,4 @@
-use super::types::ValueType;
+use types::{ValueType, TypeSignature};
 
 /*
  I don't add a pair type here, since we're only using these S-Expressions to represent code, rather than
@@ -9,7 +9,8 @@ use super::types::ValueType;
 pub enum SymbolicExpression {
     AtomValue(ValueType),
     Atom(String),
-    List(Box<[SymbolicExpression]>)
+    List(Box<[SymbolicExpression]>),
+    TypeIdentifier(TypeSignature)
 }
 
 pub struct Contract {
