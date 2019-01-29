@@ -25,6 +25,7 @@ use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 
 use chainstate::burn::db::burndb::BurnDB;
+use chainstate::burn::db::DBConn;
 
 use burnchains::BurnchainTransaction;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -151,13 +152,13 @@ where
         LeaderKeyRegisterOp::<A, K>::parse_from_tx(block_height, block_hash, tx)
     }
 
-    fn check(&self, db: &BurnDB) -> Result<bool, op_error> {
+    fn check(&self, conn: &DBConn) -> Result<bool, op_error> {
         /////////////////////////////////////////////////////////////////
         // Keys must be unique -- no one can register the same key twice
         /////////////////////////////////////////////////////////////////
 
         // key selected here must never have been submitted before 
-        let has_key_already = db.has_VRF_public_key(&self.public_key)
+        let has_key_already = BurnDB::<A, K>::has_VRF_public_key(conn, &self.public_key)
             .map_err(op_error::DBError)?;
 
         if has_key_already {
@@ -169,7 +170,7 @@ where
         // Consensus hash must be recent and valid
         /////////////////////////////////////////////////////////////////
 
-        let consensus_hash_recent = db.is_fresh_consensus_hash(self.block_number, &self.consensus_hash)
+        let consensus_hash_recent = BurnDB::<A, K>::is_fresh_consensus_hash(conn, self.block_number, &self.consensus_hash)
             .map_err(op_error::DBError)?;
 
         if !consensus_hash_recent {

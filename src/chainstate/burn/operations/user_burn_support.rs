@@ -24,6 +24,7 @@ use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 
 use chainstate::burn::db::burndb::BurnDB;
+use chainstate::burn::db::DBConn;
 
 use burnchains::BurnchainTransaction;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
@@ -157,7 +158,7 @@ where
         UserBurnSupportOp::<A, K>::parse_from_tx(block_height, block_hash, tx)
     }
 
-    fn check(&self, db: &BurnDB) -> Result<bool, op_error> {
+    fn check(&self, conn: &DBConn) -> Result<bool, op_error> {
         Ok(false)
     }
 }

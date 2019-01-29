@@ -32,6 +32,7 @@ use self::user_burn_support::UserBurnSupportOp;
 
 use chainstate::burn::db::Error as db_error;
 use chainstate::burn::db::burndb;
+use chainstate::burn::db::DBConn;
 
 use burnchains::{Address, PublicKey, BurnchainHeaderHash, BurnchainTransaction};
 
@@ -85,12 +86,12 @@ impl error::Error for Error {
     }
 }
 
-pub trait BlockstackOperation<A, K>
+pub trait BlockstackOperation<A, K> 
 where
     A: Address,
     K: PublicKey
 {
-    fn check(&self, db: &burndb::BurnDB) -> Result<bool, Error>;
+    fn check(&self, conn: &DBConn) -> Result<bool, Error>;
     fn from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<Self, Error>
         where Self: Sized;
 }
