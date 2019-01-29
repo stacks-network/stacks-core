@@ -23,23 +23,64 @@ use burnchains::bitcoin::BlockSender;
 
 use burnchains::BurnchainHeaderHash;
 use burnchains::BurnchainBlock;
+use burnchains::BlockChannel;
 
 use chainstate::burn::db::burndb::BurnDB;
 
-use std::sync::Arc;
-use std::sync::mpsc::SyncSender;
+// IPC messages between threads
+#[derive(Debug, Clone, PartialEq)]
+pub struct BurnHeaderIPC<H> {
+    pub height: u64,
+    pub header: H
+}
 
-pub type BlockChannel<A, K> = SyncSender<Arc<BurnchainBlock<A, K>>>;
+#[derive(Debug, Clone, PartialEq)]
+pub struct BurnBlockIPC<H, B> {
+    pub height: u64,
+    pub header: H,
+    pub block: B
+}
 
-pub trait BurnchainIndexer<A: Address, K: PublicKey> {
+pub trait BurnchainBlockDownloader<H, B>
+where
+    H: Sync + Send,
+    B: Sync + Send,
+{
+    fn download(&mut self, header: &BurnHeaderIPC<H>) -> Result<BurnBlockIPC<H, B>, burnchain_error>;
+}
+
+pub trait BurnchainBlockParser<H, B, A, K>
+where
+    A: Address + Sync + Send,
+    K: PublicKey + Sync + Send
+{
+    fn parse(&mut self, block: &BurnBlockIPC<H, B>) -> Result<BurnchainBlock<A, K>, burnchain_error>;
+}
+
+pub trait BurnchainIndexer<H, B, D, P, A, K>
+where
+    // Rust doesn't have higher-kinded types yet :(
+    H: Send + Sync,
+    B: Send + Sync,
+    D: BurnchainBlockDownloader<H, B>,
+    P: BurnchainBlockParser<H, B, A, K>,
+    A: Address + Sync + Send,
+    K: PublicKey + Sync + Send,
+{
+    
     fn init(network_name: &String, working_directory: &String) -> Result<Self, burnchain_error>
         where Self : Sized;
     fn connect(&mut self) -> Result<(), burnchain_error>;
     fn get_blockchain_height(&self) -> Result<u64, burnchain_error>;
     fn get_headers_path(&self) -> String;
     fn get_headers_height(&self, headers_path: &String) -> Result<u64, burnchain_error>;
-    fn find_chain_reorg(&mut self, headers_path: &String, start_height: u64) -> Result<(u64, Vec<BurnchainHeaderHash>), burnchain_error>;
+    fn find_chain_reorg(&mut self, headers_path: &String, start_height: u64) -> Result<u64, burnchain_error>;
     fn sync_headers(&mut self, headers_path: &String, start_height: u64, end_height: u64) -> Result<(), burnchain_error>;
     fn drop_headers(&mut self, headers_path: &String, new_height: u64) -> Result<(), burnchain_error>;
-    fn sync_blocks(&mut self, headers_path: &String, start_height: u64, end_height: u64, block_channel: &BlockChannel<A, K>) -> Result<(), burnchain_error>;
+
+    fn read_headers(&self, headers_path: &String, start_block: u64, end_block: u64) -> Result<Vec<BurnHeaderIPC<H>>, burnchain_error>;
+
+    fn downloader(&self) -> D;
+    fn parser(&self) -> P;
 }
+
