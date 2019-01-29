@@ -3,6 +3,7 @@ mod lists;
 mod arithmetic;
 mod boolean;
 mod database;
+mod tuples;
 
 use super::types::{ValueType, CallableType};
 use super::representations::SymbolicExpression;
@@ -114,6 +115,8 @@ pub fn lookup_reserved_functions<'a> (name: &str) -> Option<CallableType<'a>> {
         "set-entry!" => Some(CallableType::SpecialFunction(&database::special_set_entry)),
         "insert-entry!" => Some(CallableType::SpecialFunction(&database::special_insert_entry)),
         "delete-entry!" => Some(CallableType::SpecialFunction(&database::special_delete_entry)),
+        "tuple" => Some(CallableType::SpecialFunction(&tuples::tuple_cons)),
+        "get" => Some(CallableType::SpecialFunction(&tuples::tuple_get)),
         _ => None
     }
 }

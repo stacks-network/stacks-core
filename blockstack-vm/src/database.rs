@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use errors::Error;
 use InterpreterResult;
-use types::{ValueType, TypeSignature};
+use types::{ValueType, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 pub trait DataMap {
     fn fetch_entry(&self, key: &ValueType) -> InterpreterResult;
@@ -13,6 +13,7 @@ pub trait DataMap {
 
 pub trait ContractDatabase {
     fn get_data_map(&mut self, map_name: &str) -> Option<&mut DataMap>;
+    fn create_map(&mut self, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature);
 }
 
 pub struct MemoryDataMap {
@@ -26,12 +27,14 @@ pub struct MemoryContractDatabase {
 }
 
 impl MemoryDataMap {
-    pub fn new(key_type: &TypeSignature,
-               value_type: &TypeSignature) -> MemoryDataMap {
+    pub fn new(key_type: TupleTypeSignature,
+               value_type: TupleTypeSignature) -> MemoryDataMap {
         MemoryDataMap {
             map: HashMap::new(),
-            key_type: key_type.clone(),
-            value_type: value_type.clone()
+            key_type: TypeSignature::new(
+                AtomTypeIdentifier::TupleType(key_type), 0),
+            value_type: TypeSignature::new(
+                AtomTypeIdentifier::TupleType(value_type), 0)
         }
     }
 }
@@ -49,6 +52,11 @@ impl ContractDatabase for MemoryContractDatabase {
         } else {
             None
         }
+    }
+
+    fn create_map(&mut self, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {
+        let new_map = MemoryDataMap::new(key_type, value_type);
+        self.maps.insert(map_name.to_string(), new_map);
     }
 }
 

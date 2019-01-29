@@ -12,7 +12,8 @@ pub enum Error {
     TryEvalToFunction,
     Arithmetic(String),
     ParseError(String),
-    RecursionDetected
+    RecursionDetected,
+    ExpectedListPairs
 }
 
 impl fmt::Display for Error {

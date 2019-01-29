@@ -129,6 +129,9 @@ pub fn eval_all(expressions: &[SymbolicExpression],
             DefineResult::Function(name, value) => {
                 env.global_context.functions.insert(name, Box::new(value));
             },
+            DefineResult::Map(name, key_type, value_type) => {
+                env.database.create_map(&name, key_type, value_type)
+            },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
                 last_executed = Some(eval(exp, &mut env, &context));

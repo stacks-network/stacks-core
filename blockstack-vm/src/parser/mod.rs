@@ -1,5 +1,4 @@
 use errors::Error;
-use types::{TypeSignature};
 use representations::SymbolicExpression;
 
 #[derive(Debug)]

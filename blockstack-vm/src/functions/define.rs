@@ -1,4 +1,4 @@
-use super::super::types::{ValueType, DefinedFunction};
+use super::super::types::{ValueType, DefinedFunction, TupleTypeSignature, TypeSignature};
 use super::super::representations::SymbolicExpression;
 use super::super::representations::SymbolicExpression::{Atom,AtomValue,List,NamedParameter};
 use super::super::{Context,Environment,eval};
@@ -7,6 +7,7 @@ use super::super::errors::Error;
 pub enum DefineResult {
     Variable(String, ValueType),
     Function(String, DefinedFunction),
+    Map(String, TupleTypeSignature, TupleTypeSignature),
     NoDefine
 }
 
@@ -37,10 +38,64 @@ pub fn handle_define_function(signature: &[SymbolicExpression], expression: &Sym
     }
 }
 
+fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature, Error> {
+
+    // this is a pretty deep nesting here, but what we're trying to do is pick out the values of
+    // the form:
+    // ((name1 type1) (name2 type2) (name3 type3) ...)
+    // which is a list of 2-length lists of atoms.
+
+    let mapped_key_types = match type_def {
+        List(ref key_vec) => {
+            // step 1: parse it into a vec of symbolicexpression pairs.
+            let as_pairs: Result<Vec<_>, Error> = 
+                key_vec.iter().map(
+                    |key_type_pair| {
+                        if let List(ref as_vec) = key_type_pair {
+                            if as_vec.len() != 2 {
+                                Err(Error::ExpectedListPairs)
+                            } else {
+                                Ok((&as_vec[0], &as_vec[1]))
+                            }
+                        } else {
+                            Err(Error::ExpectedListPairs)
+                        }
+                    }).collect();
+
+            // step 2: turn into a vec of (name, typesignature) pairs.
+            let key_types: Result<Vec<_>, Error> =
+                (as_pairs?).iter().map(|(name_symbol, type_symbol)| {
+                    let name = match name_symbol {
+                        Atom(ref var) => Ok(var.clone()),
+                        _ => Err(Error::ExpectedListPairs)
+                    }?;
+                    let type_info = match type_symbol {
+                        Atom(ref type_description) => TypeSignature::parse_type_str(type_description),
+                        _ => Err(Error::ExpectedListPairs)
+                    }?;
+                    Ok((name, type_info))
+                }).collect();
+
+            key_types
+        },
+        _ => Err(Error::ExpectedListPairs)
+    }?;
+
+    TupleTypeSignature::new(mapped_key_types)
+}
+
 fn handle_define_map(map_name: &SymbolicExpression,
                      key_type: &SymbolicExpression,
                      value_type: &SymbolicExpression) -> Result<DefineResult, Error> {
-    panic!("Not implemented")
+    let map_str = match map_name {
+        Atom(ref map_name) => Ok(map_name.clone()),
+        _ => Err(Error::InvalidArguments("Non-name argument to define-map".to_string()))
+    }?;
+
+    let key_type_signature = parse_name_type_pair_list(key_type)?;
+    let value_type_signature = parse_name_type_pair_list(value_type)?;
+
+    Ok(DefineResult::Map(map_str, key_type_signature, value_type_signature))
 }
 
 pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult, Error> {

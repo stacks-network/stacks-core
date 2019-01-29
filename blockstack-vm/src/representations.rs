@@ -1,4 +1,4 @@
-use types::{ValueType, TypeSignature};
+use types::{ValueType};
 
 /*
  I don't add a pair type here, since we're only using these S-Expressions to represent code, rather than
