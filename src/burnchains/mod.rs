@@ -26,9 +26,15 @@ use std::fmt;
 use std::error;
 
 use self::bitcoin::Error as btc_error;
+use util::Error as util_error;
 use chainstate::burn::db::Error as burndb_error;
 
 use serde::Serialize;
+
+use std::sync::Arc;
+use std::sync::mpsc::SyncSender;
+
+use serde::de::DeserializeOwned;
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid([u8; 32]);
@@ -50,7 +56,7 @@ impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 
 pub const BLOCKSTACK_MAGIC_MAINNET : MagicBytes = MagicBytes([105, 100]);  // 'id'
 
-pub trait PublicKey : Clone + fmt::Debug + serde::Serialize {
+pub trait PublicKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn verify(&self, data_hash: &[u8], sig: &[u8]) -> Result<bool, &'static str>;
 }
@@ -98,12 +104,22 @@ pub struct BurnchainBlock<A, K> {
     pub txs: Vec<BurnchainTransaction<A, K>>
 }
 
+pub type BlockChannel<A, K> = SyncSender<Arc<BurnchainBlock<A, K>>>;
+
 #[derive(Debug)]
 pub enum Error {
     /// Bitcoin-related error
     bitcoin(btc_error),
+    /// util error 
+    util(util_error),
     /// burn database error 
     DBError(burndb_error),
+    /// Download error 
+    DownloadError(btc_error),
+    /// Parse error 
+    ParseError,
+    /// Thread channel error 
+    ThreadChannelError,
     /// Missing headers 
     MissingHeaders
 }
@@ -113,7 +129,11 @@ impl fmt::Display for Error {
         match *self {
             Error::bitcoin(ref btce) => fmt::Display::fmt(btce, f),
             Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
-            Error::MissingHeaders => f.write_str(error::Error::description(self))
+            Error::util(ref ue) => fmt::Display::fmt(ue, f),
+            Error::DownloadError(ref btce) => fmt::Display::fmt(btce, f),
+            Error::ParseError => f.write_str(error::Error::description(self)),
+            Error::MissingHeaders => f.write_str(error::Error::description(self)),
+            Error::ThreadChannelError => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -123,7 +143,11 @@ impl error::Error for Error {
         match *self {
             Error::bitcoin(ref e) => Some(e),
             Error::DBError(ref e) => Some(e),
+            Error::util(ref e) => Some(e),
+            Error::DownloadError(ref e) => Some(e),
+            Error::ParseError => None,
             Error::MissingHeaders => None,
+            Error::ThreadChannelError => None,
         }
     }
 
@@ -131,7 +155,11 @@ impl error::Error for Error {
         match *self {
             Error::bitcoin(ref e) => e.description(),
             Error::DBError(ref e) => e.description(),
-            Error::MissingHeaders => "Missing block headers"
+            Error::util(ref e) => e.description(),
+            Error::DownloadError(ref e) => e.description(),
+            Error::ParseError => "Parse error",
+            Error::MissingHeaders => "Missing block headers",
+            Error::ThreadChannelError => "Error in thread channel",
         }
     }
 }
