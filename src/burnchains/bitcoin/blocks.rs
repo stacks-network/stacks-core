@@ -57,9 +57,50 @@ use burnchains::{
 
 use util::hash::to_hex;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct BitcoinHeaderIPC {
+    pub block_header: LoneBlockHeader,
+    pub block_height: u64
+}
+
+impl BurnHeaderIPC for BitcoinHeaderIPC {
+    type H = LoneBlockHeader;
+
+    fn header(&self) -> LoneBlockHeader {
+        self.block_header.clone()
+    }
+
+    fn height(&self) -> u64 {
+        self.block_height
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BitcoinBlockIPC {
+    pub header_data: BitcoinHeaderIPC,
+    pub block_message: PeerMessage
+}
+
+impl BurnBlockIPC for BitcoinBlockIPC {
+    type H = BitcoinHeaderIPC;
+    type B = PeerMessage;
+
+    fn header(&self) -> BitcoinHeaderIPC {
+        self.header_data.clone()
+    }
+
+    fn height(&self) -> u64 {
+        self.header_data.height()
+    }
+
+    fn block(&self) -> PeerMessage {
+        self.block_message.clone()
+    }
+}
+
 pub struct BitcoinBlockDownloader {
-    cur_request: Option<BurnHeaderIPC<LoneBlockHeader>>,
-    cur_block: Option<BurnBlockIPC<LoneBlockHeader, PeerMessage>>,
+    cur_request: Option<BitcoinHeaderIPC>,
+    cur_block: Option<BitcoinBlockIPC>,
     indexer: BitcoinIndexer
 }
 
@@ -77,7 +118,7 @@ impl BitcoinBlockDownloader {
         }
     }
 
-    pub fn run(&mut self, header: &BurnHeaderIPC<LoneBlockHeader>) -> Result<BurnBlockIPC<LoneBlockHeader, PeerMessage>, btc_error> {
+    pub fn run(&mut self, header: &BitcoinHeaderIPC) -> Result<BitcoinBlockIPC, btc_error> {
         self.cur_request = Some((*header).clone());
         
         let mut indexer = self.indexer.dup();
@@ -89,8 +130,11 @@ impl BitcoinBlockDownloader {
     }
 }
 
-impl BurnchainBlockDownloader<LoneBlockHeader, PeerMessage> for BitcoinBlockDownloader {
-    fn download(&mut self, header: &BurnHeaderIPC<LoneBlockHeader>) -> Result<BurnBlockIPC<LoneBlockHeader, PeerMessage>, burnchain_error> {
+impl BurnchainBlockDownloader for BitcoinBlockDownloader {
+    type H = BitcoinHeaderIPC;
+    type B = BitcoinBlockIPC;
+
+    fn download(&mut self, header: &BitcoinHeaderIPC) -> Result<BitcoinBlockIPC, burnchain_error> {
         self.run(header)
             .map_err(burnchain_error::DownloadError)
     }
@@ -104,7 +148,7 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
         match self.cur_request {
             None => panic!("No block header set"),
             Some(ref ipc_header) => {
-                let block_hash = ipc_header.header.header.bitcoin_hash().clone();
+                let block_hash = ipc_header.block_header.header.bitcoin_hash().clone();
                 indexer.send_getblocks(&vec![block_hash])
                     .and_then(|_r| Ok(true))
             }
@@ -133,18 +177,18 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
         match msg.deref() {
             btc_message::NetworkMessage::Block(block) => {
                 // make sure this block matches
-                if !BitcoinBlockParser::check_block(&block, &ipc_header.header) {
-                    debug!("Requested block {}, got block {}", &to_hex(ipc_header.header.header.bitcoin_hash().as_bytes()), &to_hex(block.bitcoin_hash().as_bytes()));
+                if !BitcoinBlockParser::check_block(&block, &ipc_header.block_header) {
+                    debug!("Requested block {}, got block {}", &to_hex(ipc_header.block_header.header.bitcoin_hash().as_bytes()), &to_hex(block.bitcoin_hash().as_bytes()));
                     
                     // try again 
-                    indexer.send_getblocks(&vec![ipc_header.header.header.bitcoin_hash()])?;
+                    indexer.send_getblocks(&vec![ipc_header.block_header.header.bitcoin_hash()])?;
                     return Ok(true);
                 }
 
                 // got valid data!
-                height = ipc_header.height;
-                header = ipc_header.header.clone();
-                block_hash = ipc_header.header.header.bitcoin_hash();
+                height = ipc_header.block_height;
+                header = ipc_header.clone();
+                block_hash = ipc_header.block_header.header.bitcoin_hash();
             },
             _ => { 
                 return Err(btc_error::UnhandledMessage(msg.clone()));
@@ -154,10 +198,9 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
         debug!("Got block {}: {}", height, &to_hex(block_hash.as_bytes()));
 
         // store response. we're done.
-        let ipc_block = BurnBlockIPC {
-            height: height,
-            header: header,
-            block: msg
+        let ipc_block = BitcoinBlockIPC {
+            header_data: header,
+            block_message: msg
         };
 
         self.cur_block = Some(ipc_block);
@@ -369,11 +412,15 @@ impl BitcoinBlockParser {
     }
 }
 
-impl BurnchainBlockParser<LoneBlockHeader, PeerMessage, BitcoinAddress, BitcoinPublicKey> for BitcoinBlockParser {
-    fn parse(&mut self, ipc_block: &BurnBlockIPC<LoneBlockHeader, PeerMessage>) -> Result<BurnchainBlock<BitcoinAddress, BitcoinPublicKey>, burnchain_error> {
-        match ipc_block.block.deref() {
+impl BurnchainBlockParser for BitcoinBlockParser {
+    type D = BitcoinBlockDownloader;
+    type A = BitcoinAddress;
+    type K = BitcoinPublicKey;
+
+    fn parse(&mut self, ipc_block: &BitcoinBlockIPC) -> Result<BurnchainBlock<BitcoinAddress, BitcoinPublicKey>, burnchain_error> {
+        match ipc_block.block_message.deref() {
             btc_message::NetworkMessage::Block(ref block) => { 
-                match self.process_block(&block, &ipc_block.header, ipc_block.height) {
+                match self.process_block(&block, &ipc_block.header_data.block_header, ipc_block.header_data.block_height) {
                     None => Err(burnchain_error::ParseError),
                     Some(block_data) => Ok(block_data)
                 }

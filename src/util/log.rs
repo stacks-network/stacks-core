@@ -34,7 +34,7 @@ pub fn init() -> Result<(), String> {
 pub fn set_loglevel(ll: u8) -> Result<(), String> {
     loglevel.with(move |level| {
         match ll {
-            LOG_TRACE...LOG_FATAL => {
+            LOG_DEBUG...LOG_ERROR => {
                 *level.borrow_mut() = ll;
                 Ok(())
             },

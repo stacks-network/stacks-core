@@ -23,46 +23,40 @@ use burnchains::Error as burnchain_error;
 use burnchains::BurnchainBlock;
 
 // IPC messages between threads
-#[derive(Debug, Clone, PartialEq)]
-pub struct BurnHeaderIPC<H> {
-    pub height: u64,
-    pub header: H
+pub trait BurnHeaderIPC {
+    type H: Send + Sync + Clone;
+
+    fn height(&self) -> u64;
+    fn header(&self) -> Self::H;
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct BurnBlockIPC<H, B> {
-    pub height: u64,
-    pub header: H,
-    pub block: B
+pub trait BurnBlockIPC {
+    type H: BurnHeaderIPC + Sync + Send + Clone;
+    type B: Send + Sync + Clone;
+
+    fn height(&self) -> u64;
+    fn header(&self) -> Self::H;
+    fn block(&self) -> Self::B;
 }
 
-pub trait BurnchainBlockDownloader<H, B>
-where
-    H: Sync + Send,
-    B: Sync + Send,
-{
-    fn download(&mut self, header: &BurnHeaderIPC<H>) -> Result<BurnBlockIPC<H, B>, burnchain_error>;
+pub trait BurnchainBlockDownloader {
+    type H: BurnHeaderIPC + Sync + Send + Clone;
+    type B: BurnBlockIPC + Sync + Send + Clone;
+
+    fn download(&mut self, header: &Self::H) -> Result<Self::B, burnchain_error>;
 }
 
-pub trait BurnchainBlockParser<H, B, A, K>
-where
-    A: Address + Sync + Send,
-    K: PublicKey + Sync + Send
-{
-    fn parse(&mut self, block: &BurnBlockIPC<H, B>) -> Result<BurnchainBlock<A, K>, burnchain_error>;
-}
-
-pub trait BurnchainIndexer<H, B, D, P, A, K>
-where
-    // Rust doesn't have higher-kinded types yet :(
-    H: Send + Sync,
-    B: Send + Sync,
-    D: BurnchainBlockDownloader<H, B>,
-    P: BurnchainBlockParser<H, B, A, K>,
-    A: Address + Sync + Send,
-    K: PublicKey + Sync + Send,
-{
+pub trait BurnchainBlockParser {
+    type D: BurnchainBlockDownloader + Sync + Send;
+    type A: Address + Send + Sync + Clone;
+    type K: PublicKey + Send + Sync + Clone;
     
+    fn parse(&mut self, block: &<<Self as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B) -> Result<BurnchainBlock<Self::A, Self::K>, burnchain_error>;
+}
+
+pub trait BurnchainIndexer {
+    type P: BurnchainBlockParser + Send + Sync;
+
     fn init(network_name: &String, working_directory: &String) -> Result<Self, burnchain_error>
         where Self : Sized;
     fn connect(&mut self) -> Result<(), burnchain_error>;
@@ -73,9 +67,8 @@ where
     fn sync_headers(&mut self, headers_path: &String, start_height: u64, end_height: u64) -> Result<(), burnchain_error>;
     fn drop_headers(&mut self, headers_path: &String, new_height: u64) -> Result<(), burnchain_error>;
 
-    fn read_headers(&self, headers_path: &String, start_block: u64, end_block: u64) -> Result<Vec<BurnHeaderIPC<H>>, burnchain_error>;
+    fn read_headers(&self, headers_path: &String, start_block: u64, end_block: u64) -> Result<Vec<<<<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D as BurnchainBlockDownloader>::H>, burnchain_error>;
 
-    fn downloader(&self) -> D;
-    fn parser(&self) -> P;
+    fn downloader(&self) -> <<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D;
+    fn parser(&self) -> Self::P;
 }
-

@@ -40,21 +40,15 @@ use util::log;
 /// Check the burn chain for reorgs and identify where we need to start synchronizing from.
 /// Returns the block height on success, as well as any new headers' hashes that need to be
 /// downloaded.
-fn sync_burnchain_reorg<T, H, B, D, P, A, K>(indexer: &mut T, burndb: &mut BurnDB<A, K>) -> Result<(u64, u64), burnchain_error>
+fn sync_burnchain_reorg<I>(indexer: &mut I, burndb: &mut BurnDB<<<I as BurnchainIndexer>::P as BurnchainBlockParser>::A, <<I as BurnchainIndexer>::P as BurnchainBlockParser>::K>) -> Result<(u64, u64), burnchain_error>
 where
-    A: Address + Send + Sync,
-    K: PublicKey + Send + Sync,
-    H: Send + Sync,
-    B: Send + Sync,
-    D: BurnchainBlockDownloader<H, B>,
-    P: BurnchainBlockParser<H, B, A, K>,
-    T: BurnchainIndexer<H, B, D, P, A, K>,
+    I: BurnchainIndexer
 {
     let headers_path = indexer.get_headers_path();
     let sync_height;
     
     // how far are we in sync'ing the db to?
-    let db_height = BurnDB::<A, K>::get_block_height(burndb.conn())
+    let db_height = BurnDB::<<<I as BurnchainIndexer>::P as BurnchainBlockParser>::A, <<I as BurnchainIndexer>::P as BurnchainBlockParser>::K>::get_block_height(burndb.conn())
         .map_err(|e| {
             error!("Failed to query block height from burn DB");
             burnchain_error::DBError(e)
@@ -95,7 +89,7 @@ where
                 burnchain_error::DBError(e)
             })?;
 
-        BurnDB::<A, K>::burnchain_history_reorg(&mut tx, new_height)
+        BurnDB::<<<I as BurnchainIndexer>::P as BurnchainBlockParser>::A, <<I as BurnchainIndexer>::P as BurnchainBlockParser>::K>::burnchain_history_reorg(&mut tx, new_height)
             .map_err(|e| {
                 error!("Failed to process burn chain reorg between {} and {}", new_height, db_height);
                 burnchain_error::DBError(e)
@@ -114,28 +108,21 @@ where
 }
 
 /// synchronize the burn database up to the given block height
-fn sync_burnchain<H, B, D, P, A, K, I>(network_name: &String, working_dir: &String, first_block: u64, first_block_hash: &BurnchainHeaderHash) -> Result<u64, burnchain_error>
+fn sync_burnchain<I>(network_name: &String, working_dir: &String, first_block: u64, first_block_hash: &BurnchainHeaderHash) -> Result<u64, burnchain_error>
 where
-    H: Send + Sync + Clone + 'static,
-    B: Send + Sync + Clone + 'static,
-    A: Address + Send + Sync + 'static,
-    K: PublicKey + Send + Sync + 'static,
-    D: BurnchainBlockDownloader<H, B> + Send + Sync + 'static,
-    P: BurnchainBlockParser<H, B, A, K> + Send + Sync + 'static,
-    I: BurnchainIndexer<H, B, D, P, A, K> + Send + Sync + 'static
+    I: BurnchainIndexer + 'static
 {
-
     let mut db_pathbuf = PathBuf::from(working_dir);
     db_pathbuf.push("burn.db");
     
     let db_path = db_pathbuf.to_str().unwrap().to_string();
 
     let mut indexer : I = BurnchainIndexer::init(network_name, working_dir)?;
-    let mut burndb = BurnDB::<A, K>::connect(&db_path, first_block, first_block_hash, true)
+    let mut burndb = BurnDB::<<<I as BurnchainIndexer>::P as BurnchainBlockParser>::A, <<I as BurnchainIndexer>::P as BurnchainBlockParser>::K>::connect(&db_path, first_block, first_block_hash, true)
         .map_err(burnchain_error::DBError)?;
 
     let headers_path = indexer.get_headers_path();
-    let db_height = BurnDB::<A, K>::get_block_height(burndb.conn())
+    let db_height = BurnDB::<<<I as BurnchainIndexer>::P as BurnchainBlockParser>::A, <<I as BurnchainIndexer>::P as BurnchainBlockParser>::K>::get_block_height(burndb.conn())
         .map_err(|e| {
             error!("Failed to query block height from burn DB");
             burnchain_error::DBError(e)
@@ -166,11 +153,11 @@ where
     let mut parser = indexer.parser();
 
     let download_thread : thread::JoinHandle<Result<(), burnchain_error>> = thread::spawn(move || {
-        while true {
-            let header : BurnHeaderIPC<H> = downloader_recv.recv()
+        loop {
+            let header : <<<I as BurnchainIndexer>::P as BurnchainBlockParser>::D as BurnchainBlockDownloader>::H = downloader_recv.recv()
                 .map_err(|_e| burnchain_error::ThreadChannelError)?;
 
-            let block : BurnBlockIPC<H, B> = downloader.download(&header)?;
+            let block : <<<I as BurnchainIndexer>::P as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B = downloader.download(&header)?;
 
             parser_send.send(block)
                 .map_err(|_e| burnchain_error::ThreadChannelError)?;
@@ -179,11 +166,11 @@ where
     });
 
     let parse_thread : thread::JoinHandle<Result<(), burnchain_error>> = thread::spawn(move || {
-        while true {
-            let block : BurnBlockIPC<H, B> = parser_recv.recv()
+        loop {
+            let block : <<<I as BurnchainIndexer>::P as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B = parser_recv.recv()
                 .map_err(|_e| burnchain_error::ThreadChannelError)?;
 
-            let burnchain_block : BurnchainBlock<A, K> = parser.parse(&block)?;
+            let burnchain_block : BurnchainBlock<<<I as BurnchainIndexer>::P as BurnchainBlockParser>::A, <<I as BurnchainIndexer>::P as BurnchainBlockParser>::K> = parser.parse(&block)?;
 
             db_send.send(burnchain_block)
                 .map_err(|_e| burnchain_error::ThreadChannelError)?;
@@ -192,8 +179,8 @@ where
     });
 
     let db_thread : thread::JoinHandle<Result<(), burnchain_error>> = thread::spawn(move || {
-        while true {
-            let burnchain_block : BurnchainBlock<A, K> = db_recv.recv()
+        loop {
+            let burnchain_block : BurnchainBlock<<<I as BurnchainIndexer>::P as BurnchainBlockParser>::A, <<I as BurnchainIndexer>::P as BurnchainBlockParser>::K> = db_recv.recv()
                 .map_err(|_e| burnchain_error::ThreadChannelError)?;
 
             burndb.process_block(&burnchain_block)
@@ -218,14 +205,9 @@ where
 
 /// Synchronize burn transactions from the Bitcoin blockchain 
 pub fn sync_burnchain_bitcoin(network_name: &String, working_dir: &String) -> Result<u64, burnchain_error> {
-    use bitcoin::blockdata::block::LoneBlockHeader;
-    use burnchains::bitcoin::PeerMessage;
     use burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET;
     use burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET_HASH;
-    use burnchains::bitcoin::blocks::{BitcoinBlockDownloader, BitcoinBlockParser};
     use burnchains::bitcoin::indexer::BitcoinIndexer;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::address::BitcoinAddress;
 
-    sync_burnchain::<LoneBlockHeader, PeerMessage, BitcoinBlockDownloader, BitcoinBlockParser, BitcoinAddress, BitcoinPublicKey, BitcoinIndexer>(network_name, working_dir, FIRST_BLOCK_MAINNET, &FIRST_BLOCK_MAINNET_HASH)
+    sync_burnchain::<BitcoinIndexer>(network_name, working_dir, FIRST_BLOCK_MAINNET, &FIRST_BLOCK_MAINNET_HASH)
 }

@@ -30,6 +30,7 @@ use burnchains::bitcoin::rpc::BitcoinRPC;
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
+use burnchains::bitcoin::blocks::{BitcoinHeaderIPC, BitcoinBlockIPC};
 
 use burnchains::bitcoin::address::BitcoinAddress;
 use burnchains::bitcoin::BitcoinNetworkType;
@@ -489,7 +490,10 @@ impl BitcoinIndexer {
     }
 }
 
-impl BurnchainIndexer<LoneBlockHeader, PeerMessage, BitcoinBlockDownloader, BitcoinBlockParser, BitcoinAddress, BitcoinPublicKey> for BitcoinIndexer {
+impl BurnchainIndexer for BitcoinIndexer {
+
+    type P = BitcoinBlockParser;
+    
     /// Instantiate the Bitcoin indexer, and connect to the peer network.
     /// Instead, load our configuration state and sanity-check it.
     /// 
@@ -543,15 +547,15 @@ impl BurnchainIndexer<LoneBlockHeader, PeerMessage, BitcoinBlockDownloader, Bitc
     }
 
     /// Read downloaded headers within a range 
-    fn read_headers(&self, headers_path: &String, start_block: u64, end_block: u64) -> Result<Vec<BurnHeaderIPC<LoneBlockHeader>>, burnchain_error> {
+    fn read_headers(&self, headers_path: &String, start_block: u64, end_block: u64) -> Result<Vec<BitcoinHeaderIPC>, burnchain_error> {
         let headers = self.read_spv_headers(headers_path, start_block, end_block)
                           .map_err(burnchain_error::bitcoin)?;
-        let mut ret_headers : Vec<BurnHeaderIPC<LoneBlockHeader>> = vec![];
+        let mut ret_headers : Vec<BitcoinHeaderIPC> = vec![];
         for i in 0..headers.len() {
             ret_headers.push({
-                BurnHeaderIPC {
-                    header: headers[i].clone(),
-                    height: (i as u64) + start_block
+                BitcoinHeaderIPC {
+                    block_header: headers[i].clone(),
+                    block_height: (i as u64) + start_block
                 }
             });
         }

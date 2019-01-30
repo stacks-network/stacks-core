@@ -32,8 +32,6 @@ use chainstate::burn::db::Error as burndb_error;
 use std::sync::Arc;
 use std::sync::mpsc::SyncSender;
 
-// use serde::de::DeserializeOwned;
-
 #[derive(Serialize, Deserialize)]
 pub struct Txid([u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
