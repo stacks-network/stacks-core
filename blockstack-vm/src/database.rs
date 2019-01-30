@@ -27,14 +27,13 @@ pub struct MemoryContractDatabase {
 }
 
 impl MemoryDataMap {
+    // TODO: we need to enforce a max list length on list values
     pub fn new(key_type: TupleTypeSignature,
                value_type: TupleTypeSignature) -> MemoryDataMap {
         MemoryDataMap {
             map: HashMap::new(),
-            key_type: TypeSignature::new(
-                AtomTypeIdentifier::TupleType(key_type), 0),
-            value_type: TypeSignature::new(
-                AtomTypeIdentifier::TupleType(value_type), 0)
+            key_type: TypeSignature::new_atom(AtomTypeIdentifier::TupleType(key_type)),
+            value_type: TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type))
         }
     }
 }

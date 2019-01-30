@@ -35,23 +35,88 @@ fn test_simple_tea_shop() {
               (consume 3))
         ";
 
-    let expected = Value::List(
-        vec![
-            Value::Bool(true),
-            Value::Bool(true),
-            Value::Bool(true),
-            Value::Bool(true),
-            Value::Bool(true),
-            Value::Bool(true),
-            Value::Bool(false),
-            Value::Bool(true),
-            Value::Bool(true),
-            Value::Bool(false),
-            Value::Bool(false),
+    if let Ok(type_sig) = TypeSignature::new_list(AtomTypeIdentifier::BoolType, 12, 1) {
+        let expected = Value::List(
+            vec![
+                Value::Bool(true),
+                Value::Bool(true),
+                Value::Bool(true),
+                Value::Bool(true),
+                Value::Bool(true),
+                Value::Bool(true),
+                Value::Bool(false),
+                Value::Bool(true),
+                Value::Bool(true),
+                Value::Bool(false),
+                Value::Bool(false),
             Value::Bool(false)],
-        TypeSignature::new(AtomTypeIdentifier::BoolType, 1));
+            type_sig
+        );
+        
+        assert_eq!(Ok(expected), execute(test1));
+    } else {
+        panic!("Error in type construction")
+    }
 
-    assert_eq!(Ok(expected), execute(test1));
+}
+
+#[test]
+fn test_factorial_contract() {
+    let test1 =
+        "(define-map factorials ((id int)) ((current int) (index int)))
+         (define (init-factorial id factorial)
+           (insert-entry! factorials (tuple #id id) (tuple #current 1 #index factorial)))
+         (define (compute id)
+           (let ((entry (fetch-entry factorials (tuple #id id))))
+                (if (eq? entry 'null)
+                    0
+                    (let ((current (get current entry))
+                          (index   (get index entry)))
+                         (if (<= index 1)
+                             current
+                             (begin
+                               (set-entry! factorials (tuple #id id)
+                                                      (tuple #current (* current index)
+                                                             #index (- index 1)))
+                               0))))))
+        (init-factorial 1337 3)
+        (init-factorial 8008 5)
+        (list (compute 1337)
+              (compute 1337)
+              (compute 1337)
+              (compute 1337)
+              (compute 1337)
+              (compute 8008)
+              (compute 8008)
+              (compute 8008)
+              (compute 8008)
+              (compute 8008)
+              (compute 8008))
+        ";
+
+    if let Ok(type_sig) = TypeSignature::new_list(AtomTypeIdentifier::IntType, 11, 1) {
+        let expected = Value::List(
+            vec![
+                Value::Int(0),
+                Value::Int(0),
+                Value::Int(6),
+                Value::Int(6),
+                Value::Int(6),
+                Value::Int(0),
+                Value::Int(0),
+                Value::Int(0),
+                Value::Int(0),
+                Value::Int(120),
+                Value::Int(120),
+            ],
+            type_sig
+        );
+        
+        assert_eq!(Ok(expected), execute(test1));
+    } else {
+        panic!("Error in type construction")
+    }
+
 }
 
 #[test]
@@ -81,20 +146,23 @@ fn silly_naming_system() {
               (who-owns? 1))
         ";
 
-    let expected = Value::List(
-        vec![
-            Value::Int(1),
-            Value::Int(0),
-            Value::Int(1),
-            Value::Int(0),
-            Value::Int(0),
-            Value::Int(1),
-            Value::Int(0),
-            Value::Int(1),
-            Value::Int(0),
-            Value::Int(-1),
-        ],
-        TypeSignature::new(AtomTypeIdentifier::IntType, 1));
-
-    assert_eq!(Ok(expected), execute(test1));
+    if let Ok(type_sig) = TypeSignature::new_list(AtomTypeIdentifier::IntType, 10, 1) {
+        let expected = Value::List(
+            vec![
+                Value::Int(1),
+                Value::Int(0),
+                Value::Int(1),
+                Value::Int(0),
+                Value::Int(0),
+                Value::Int(1),
+                Value::Int(0),
+                Value::Int(1),
+                Value::Int(0),
+                Value::Int(-1),
+            ],
+            type_sig);
+        assert_eq!(Ok(expected), execute(test1));
+    } else {
+        panic!("Error in type construction")
+    }
 }

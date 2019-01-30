@@ -11,22 +11,25 @@ fn test_simple_map() {
         "(define (square x) (* x x))
          (map square (list 1 2 3 4))";
 
-    let expected = Value::List(
-        vec![
-            Value::Int(1),
-            Value::Int(4),
-            Value::Int(9),
-            Value::Int(16)],
-        TypeSignature::new(AtomTypeIdentifier::IntType, 1));
+    if let Ok(type_sig) = TypeSignature::new_list(AtomTypeIdentifier::IntType, 4, 1) {
+        let expected = Value::List(
+            vec![
+                Value::Int(1),
+                Value::Int(4),
+                Value::Int(9),
+                Value::Int(16)],
+            type_sig);
+        assert_eq!(Ok(expected.clone()), execute(test1));
 
-    assert_eq!(Ok(expected.clone()), execute(test1));
-
-    // let's test lists of lists.
-    let test2 = "(define (multiply x acc) (* x acc))
+        // let's test lists of lists.
+        let test2 = "(define (multiply x acc) (* x acc))
                  (define (multiply-all x) (fold multiply x 1))
                  (map multiply-all (list (list 1 1 1) (list 2 2 1) (list 3 3) (list 2 2 2 2)))";
-    assert_eq!(Ok(expected), execute(test2));
+        assert_eq!(Ok(expected), execute(test2));
                                        
+    } else {
+        panic!("Err in type construction")
+    }
 }
 
 #[test]
@@ -43,13 +46,19 @@ fn test_simple_folds() {
 #[test]
 fn test_construct_bad_list() {
     let test1 = "(list 1 2 3 'true)";
-    assert_eq!(Err(Error::InvalidArguments("List must be composed of a single type".to_string())),
-               execute(test1));
+    assert!(
+        match execute(test1) {
+            Err(Error::InvalidArguments(_)) => true,
+            _ => false
+        });
 
     let test2 = "(define (bad-function x) (if (eq? x 1) 'true x))
                  (map bad-function (list 0 1 2 3))";
-    assert_eq!(Err(Error::InvalidArguments("Results of map must all be of a single type".to_string())),
-               execute(test2));
+    assert!(
+        match execute(test2) {
+            Err(Error::InvalidArguments(_)) => true,
+            _ => false
+        });
 }
 
 #[test]

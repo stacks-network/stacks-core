@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use InterpreterResult;
-use errors::Error;
+use errors::{Error, InterpreterResult as Result};
 use representations::SymbolicExpression;
 use {Context,Environment};
 use eval;
@@ -18,7 +18,9 @@ pub enum AtomTypeIdentifier {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TypeSignature {
     atomic_type: AtomTypeIdentifier,
-    dimension: u8
+    list_dimensions: Option<(u8, u8)>,
+    // NOTE: for the purposes of type-checks and cost computations, list size = dimension * max_length!
+    //       high dimensional lists are _expensive_ --- use lists of tuples!
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -61,7 +63,7 @@ pub struct FunctionIdentifier {
 }
 
 impl TupleTypeSignature {
-    pub fn new(type_data: Vec<(String, TypeSignature)>) -> Result<TupleTypeSignature, Error> {
+    pub fn new(type_data: Vec<(String, TypeSignature)>) -> Result<TupleTypeSignature> {
         let mut type_map = BTreeMap::new();
         for (name, type_info) in type_data {
             if let Some(_v) = type_map.insert(name, type_info) {
@@ -81,7 +83,7 @@ impl TupleTypeSignature {
 }
 
 impl TupleData {
-    pub fn from_data(data: &[(&str, Value)]) -> Result<TupleData, Error> {
+    pub fn from_data(data: &[(&str, Value)]) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
         for (name, value) in data {
@@ -110,36 +112,97 @@ impl TupleData {
 }
 
 impl TypeSignature {
-    pub fn new(atomic_type: AtomTypeIdentifier, dimension: u8) -> TypeSignature {
+    pub fn new_atom(atomic_type: AtomTypeIdentifier) -> TypeSignature {
         TypeSignature { atomic_type: atomic_type,
-                        dimension: dimension }
+                        list_dimensions: None }
+    }
+
+    pub fn new_list(atomic_type: AtomTypeIdentifier, max_len: u8, dimension: u8) -> Result<TypeSignature> {
+        if dimension == 0 {
+            return Err(Error::InvalidArguments("Cannot construct list of dimension 0".to_string()))
+        } else {
+            Ok(TypeSignature { atomic_type: atomic_type,
+                               list_dimensions: Some((max_len, dimension)) })
+        }
+    }
+
+    pub fn get_empty_list_type() -> TypeSignature {
+        TypeSignature { atomic_type: AtomTypeIdentifier::IntType,
+                        list_dimensions: Some((0, 1)) }
     }
 
     pub fn type_of(x: &Value) -> TypeSignature {
         match x {
-            Value::Void => TypeSignature::new(AtomTypeIdentifier::VoidType, 0),
-            Value::Int(_v) => TypeSignature::new(AtomTypeIdentifier::IntType, 0),
-            Value::Bool(_v) => TypeSignature::new(AtomTypeIdentifier::BoolType, 0),
-            Value::Buffer(_v) => TypeSignature::new(AtomTypeIdentifier::BufferType, 0),
+            Value::Void => TypeSignature::new_atom(AtomTypeIdentifier::VoidType),
+            Value::Int(_v) => TypeSignature::new_atom(AtomTypeIdentifier::IntType),
+            Value::Bool(_v) => TypeSignature::new_atom(AtomTypeIdentifier::BoolType),
+            Value::Buffer(_v) => TypeSignature::new_atom(AtomTypeIdentifier::BufferType),
             Value::List(_v, type_signature) => type_signature.clone(),
-            Value::Tuple(v) => TypeSignature::new(AtomTypeIdentifier::TupleType(
-                v.type_signature.clone()), 0)
+            Value::Tuple(v) => TypeSignature::new_atom(AtomTypeIdentifier::TupleType(
+                v.type_signature.clone()))
         }
     }
 
-    pub fn get_list_type_for(x: &Value) -> Result<TypeSignature, Error> {
+    pub fn get_list_type_for(x: &Value, max_len: u8) -> Result<TypeSignature> {
         match x {
             Value::Void => Err(Error::InvalidArguments("Cannot construct list of void types".to_string())),
             Value::Tuple(_a) => Err(Error::InvalidArguments("Cannot construct list of tuple types".to_string())),
             _ => {
                 let mut base_type = TypeSignature::type_of(x);
-                base_type.dimension += 1;
+                if let Some((child_max_len, dimension)) = base_type.list_dimensions {
+                    if child_max_len > max_len {
+                        base_type.list_dimensions = Some((child_max_len, dimension + 1));
+                    } else {
+                        base_type.list_dimensions = Some((max_len, dimension + 1));
+                    }
+                } else {
+                    base_type.list_dimensions = Some((max_len, 1));
+                }
                 Ok(base_type)
             }
         }
     }
 
-    fn get_atom_type(typename: &str) -> Result<AtomTypeIdentifier, Error> {
+    pub fn construct_parent_list_type(args: &[Value]) -> Result<TypeSignature> {
+        if let Some((first, rest)) = args.split_first() {
+            // children must be all of identical types, though we're a little more permissive about
+            //   children which are _lists_: we don't care about their max_len, we just take the max()
+            let first_type = TypeSignature::type_of(first);
+            let (mut max_len, dimension) = match first_type.list_dimensions {
+                Some((max_len, dimension)) => (max_len, dimension + 1),
+                None => (args.len() as u8, 1)
+            };
+
+            for x in rest {
+                let x_type = TypeSignature::type_of(x);
+                if let Some((child_max_len, child_dimension)) = x_type.list_dimensions {
+                    // we're making a higher order list, so check the type more loosely.
+                    if !(x_type.atomic_type == first_type.atomic_type &&
+                         dimension == child_dimension + 1) {
+                        return Err(Error::InvalidArguments(
+                            format!("List must be composed of a single type. Expected {:?}. Found {:?}.",
+                                    first_type, x_type)))
+                    } else {
+                        // otherwise, it matches, so make sure we expand max_len to fit the child list.
+                        if child_max_len > max_len {
+                            max_len = child_max_len;
+                        }
+                    }
+                } else if x_type != first_type {
+                    return Err(Error::InvalidArguments(
+                        format!("List must be composed of a single type. Expected {:?}. Found {:?}.",
+                                first_type, x_type)))
+                }
+            }
+
+            Ok(TypeSignature { atomic_type: first_type.atomic_type,
+                               list_dimensions: Some((max_len, dimension)) })
+        } else {
+            Ok(TypeSignature::get_empty_list_type())
+        }
+    }
+
+    fn get_atom_type(typename: &str) -> Result<AtomTypeIdentifier> {
         match typename {
             "int" => Ok(AtomTypeIdentifier::IntType),
             "void" => Ok(AtomTypeIdentifier::VoidType),
@@ -150,37 +213,39 @@ impl TypeSignature {
     }
 
     
-    fn get_list_type(prefix: &str, typename: &str, dimension: &str) -> Result<TypeSignature, Error> {
+    fn get_list_type(prefix: &str, typename: &str, dimension: &str, max_len: &str) -> Result<TypeSignature> {
         if prefix != "list" {
-            let message = format!("Unknown type name: '{}-{}-{}'", prefix, typename, dimension);
+            let message = format!("Unknown type name: '{}-{}-{}-{}'", prefix, typename, dimension, max_len);
             return Err(Error::ParseError(message))
         }
         let atom_type = TypeSignature::get_atom_type(typename)?;
         let dimension = match u8::from_str_radix(dimension, 10) {
             Ok(parsed) => Ok(parsed),
             Err(_e) => Err(Error::ParseError(
-                format!("Failed to parse dimension of type: '{}-{}-{}'",
-                        prefix, typename, dimension)))
+                format!("Failed to parse dimension of type: '{}-{}-{}-{}'",
+                        prefix, typename, dimension, max_len)))
         }?;
-        Ok(TypeSignature::new(atom_type, dimension))
+        let max_len = match u8::from_str_radix(max_len, 10) {
+            Ok(parsed) => Ok(parsed),
+            Err(_e) => Err(Error::ParseError(
+                format!("Failed to parse max_len of type: '{}-{}-{}-{}'",
+                        prefix, typename, dimension, max_len)))
+        }?;
+        TypeSignature::new_list(atom_type, max_len, dimension)
     }
 
-    pub fn parse_type_str(x: &str) -> Result<TypeSignature, Error> {
+    // TODO: these type strings are limited to conveying lists of non-tuple types.
+    pub fn parse_type_str(x: &str) -> Result<TypeSignature> {
         let components: Vec<_> = x.split('-').collect();
         match components.len() {
             1 => {
                 let atom_type = TypeSignature::get_atom_type(components[0])?;
-                Ok(TypeSignature::new(atom_type, 0))
+                Ok(TypeSignature::new_atom(atom_type))
             },
-            3 => TypeSignature::get_list_type(components[0], components[1], components[2]),
+            4 => TypeSignature::get_list_type(components[0], components[1], components[2], components[3]),
             _ => Err(Error::ParseError(
                 format!("Unknown type name: '{}'", x)))
         }
-    }
-
-
-    pub fn get_empty_list_type() -> TypeSignature {
-        TypeSignature::new(AtomTypeIdentifier::IntType, 0)
     }
 }
 

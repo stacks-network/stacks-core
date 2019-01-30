@@ -7,22 +7,12 @@ use super::super::representations::SymbolicExpression::{AtomValue};
 use super::super::{Context,Environment,eval,apply,lookup_function};
 
 pub fn list_cons(args: &[Value]) -> InterpreterResult {
-    if let Some((first, _rest)) = args.split_first() {
-        let list_type = TypeSignature::get_list_type_for(first)?;
-        let list_result: Result<Vec<_>, Error> = args.iter().map(|x| {
-            let x_type = TypeSignature::get_list_type_for(x)?;
-            if x_type == list_type {
-                Ok(x.clone())
-            } else {
-                Err(Error::InvalidArguments("List must be composed of a single type".to_string()))
-            }
-        }).collect();
-        let list_contents = list_result?;
-
-        Ok(List(list_contents, list_type))
-    } else {
-        Ok(List(Vec::new(), TypeSignature::get_empty_list_type()))
+    let list_type = TypeSignature::construct_parent_list_type(args)?;
+    let mut list_contents = Vec::new();
+    for item in args {
+        list_contents.push(item.clone());
     }
+    Ok(List(list_contents, list_type))
 }
 
 pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
@@ -57,27 +47,12 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Co
         let list = eval(&args[1], env, context)?;
         match list {
             List(vector, _) => {
-                let mut result_value_type: Option<TypeSignature> = None;
                 let result: Result<Vec<_>, Error> = vector.iter().map(|x| {
                     let argument = [ SymbolicExpression::AtomValue(x.clone()) ];
-                    let value = apply(&function, &argument, env, context)?;
-                    let value_type = TypeSignature::get_list_type_for(&value)?;
-                    if let Some(ref all_type) = result_value_type {
-                        if *all_type == value_type {
-                            Ok(value)
-                        } else {
-                            Err(Error::InvalidArguments("Results of map must all be of a single type".to_string()))
-                        }
-                    } else {
-                        result_value_type = Some(value_type);
-                        Ok(value)
-                    }
+                    apply(&function, &argument, env, context)
                 }).collect();
-                let vec = result?;
-                match result_value_type {
-                    Some(value_type) => Ok(List(vec, value_type)),
-                    None => Ok(List(Vec::new(), TypeSignature::get_empty_list_type()))
-                }
+                let as_vec = result?;
+                list_cons(&as_vec)
             },
             _ => Err(Error::TypeError("List".to_string(), list))
         }
