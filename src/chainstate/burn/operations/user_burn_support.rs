@@ -16,7 +16,6 @@
  You should have received a copy of the GNU General Public License
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
-use std::fmt;
 use std::marker::PhantomData;
 
 use chainstate::burn::operations::BlockstackOperation;
@@ -29,7 +28,6 @@ use chainstate::burn::db::DBConn;
 use burnchains::BurnchainTransaction;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
 use burnchains::Txid;
 use burnchains::Address;
 use burnchains::PublicKey;
@@ -37,6 +35,7 @@ use burnchains::BurnchainHeaderHash;
 
 use util::hash::{hex_bytes, Hash160};
 use util::vrf::ECVRF_check_public_key;
+use util::log;
 
 use ed25519_dalek::PublicKey as VRFPublicKey;
 
@@ -170,13 +169,15 @@ mod tests {
     use burnchains::Txid;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 
+    use burnchains::bitcoin::address::BitcoinAddress;
+
     use bitcoin::network::serialize::deserialize;
     use bitcoin::blockdata::transaction::Transaction;
 
     use chainstate::burn::ConsensusHash;
     
     use util::hash::{hex_bytes, Hash160};
-    use util::log as logger;
+    use util::log;
 
     struct OpFixture {
         txstr: String,
@@ -192,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        logger::init();
+        log::init();
 
         let vtxindex = 1;
         let block_height = 694;

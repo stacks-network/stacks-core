@@ -43,6 +43,8 @@ use burnchains::indexer::BurnchainIndexer;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
 use burnchains::bitcoin::PeerMessage;
 
+use util::log;
+
 // Borrowed from Andrew Poelstra's rust-bitcoin library.
 /// Lock the socket in the BitcoinIndexer's runtime state and do something with it.
 ///

@@ -17,28 +17,71 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-extern crate log;
-use log::{Record, Metadata, SetLoggerError, LevelFilter};
+use std::cell::RefCell;
 
-pub struct SimpleLogger;
+pub const LOG_DEBUG : u8 = 1;
+pub const LOG_INFO : u8 = 2;
+pub const LOG_WARN : u8 = 3;
+pub const LOG_ERROR : u8 = 4;
 
-impl log::Log for SimpleLogger {
-    fn enabled(&self, _metadata: &Metadata) -> bool {
-        true
-    }
+// per-thread log level and log format
+thread_local!(static loglevel: RefCell<u8> = RefCell::new(LOG_DEBUG));
 
-    fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
-            println!("{} - {}", record.level(), record.args());
+pub fn init() -> Result<(), String> {
+    Ok(())
+}
+
+pub fn set_loglevel(ll: u8) -> Result<(), String> {
+    loglevel.with(move |level| {
+        match ll {
+            LOG_TRACE...LOG_FATAL => {
+                *level.borrow_mut() = ll;
+                Ok(())
+            },
+            _ => {
+                Err("Invalid log level".to_string())
+            }
         }
-    }
-
-    fn flush(&self) {}
+    })
 }
 
-pub static LOGGER: SimpleLogger = SimpleLogger;
-
-pub fn init() -> Result<(), SetLoggerError> {
-    log::set_logger(&LOGGER)
-        .map(|()| log::set_max_level(LevelFilter::Debug))
+pub fn get_loglevel() -> u8 {
+    let mut res = 0;
+    loglevel.with(|lvl| {
+        res = *lvl.borrow();
+    });
+    res
 }
+
+macro_rules! debug {
+    ($($arg:tt)*) => ({
+        if log::get_loglevel() <= log::LOG_DEBUG {
+            eprintln!("DEBUG [{}:{}] {}", file!(), line!(), format!($($arg)*));
+        }
+    })
+}
+
+macro_rules! info {
+    ($($arg:tt)*) => ({
+        if log::get_loglevel() <= log::LOG_INFO {
+            eprintln!("INFO [{}:{}] {}", file!(), line!(), format!($($arg)*));
+        }
+    })
+}
+
+macro_rules! warn {
+    ($($arg:tt)*) => ({
+        if log::get_loglevel() <= log::LOG_WARN {
+            eprintln!("WARN [{}:{}] {}", file!(), line!(), format!($($arg)*));
+        }
+    })
+}
+
+macro_rules! error {
+    ($($arg:tt)*) => ({
+        if log::get_loglevel() <= log::LOG_ERROR {
+            eprintln!("ERROR [{}:{}] {}", file!(), line!(), format!($($arg)*));
+        }
+    })
+}
+

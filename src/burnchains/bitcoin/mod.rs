@@ -48,8 +48,6 @@ use burnchains::bitcoin::keys::BitcoinPublicKey;
 
 use chainstate::burn::db::Error as burndb_error;
 
-use util::Error as util_error;
-
 pub type PeerMessage = Arc<bitcoin::network::message::NetworkMessage>;
 pub type BlockSender = SyncSender<Arc<BurnchainBlock<BitcoinAddress, BitcoinPublicKey>>>;
 
@@ -104,8 +102,6 @@ pub enum Error {
     DBError(burndb_error),
     /// Invalid argument 
     InvalidArgument,
-    /// util error wrapper (e.g. for pipelines)
-    UtilError(util_error)
 }
 
 impl fmt::Display for Error {
@@ -133,7 +129,6 @@ impl fmt::Display for Error {
             Error::BlockchainHeight => f.write_str(error::Error::description(self)),
             Error::DBError(ref e) => fmt::Display::fmt(e, f),
             Error::InvalidArgument => f.write_str(error::Error::description(self)),
-            Error::UtilError(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -163,7 +158,6 @@ impl error::Error for Error {
             Error::BlockchainHeight => None,
             Error::DBError(ref e) => Some(e),
             Error::InvalidArgument => None,
-            Error::UtilError(ref e) => Some(e),
         }
     }
 
@@ -192,7 +186,6 @@ impl error::Error for Error {
             Error::BlockchainHeight => "Value is beyond the end of the blockchain",
             Error::DBError(ref e) => e.description(),
             Error::InvalidArgument => "Invalid argument",
-            Error::UtilError(ref e) => e.description()
         }
     }
 }

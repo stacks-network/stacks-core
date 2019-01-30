@@ -36,6 +36,8 @@ use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
 use burnchains::bitcoin::PeerMessage;
 
+use util::log;
+
 const BLOCK_HEADER_SIZE: u64 = 81;
 
 const GENESIS_BLOCK_HASH_MAINNET: &'static str = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";

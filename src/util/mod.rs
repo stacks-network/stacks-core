@@ -17,11 +17,10 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#[macro_use] pub mod log;
 #[macro_use] pub mod macros;
 pub mod hash;
-pub mod log;
 pub mod pair;
-pub mod pipeline;
 pub mod vrf;
 
 use std::io::Error as io_error;

@@ -20,11 +20,9 @@
 use rusqlite::{Connection, OpenFlags, NO_PARAMS};
 use rusqlite::types::ToSql;
 use rusqlite::Row;
-use rusqlite::DropBehavior;
 use rusqlite::Transaction;
 
 use std::fs;
-use std::fmt;
 use std::convert::From;
 use std::marker::PhantomData;
 
@@ -49,13 +47,11 @@ use chainstate::burn::operations::Error as op_error;
 use burnchains::BurnchainTxInput;
 use burnchains::BurnchainTransaction;
 use burnchains::BurnchainBlock;
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::address::BitcoinAddress;
 use burnchains::{Txid, BurnchainHeaderHash, PublicKey, Address};
 
 use util::vrf::ECVRF_public_key_to_hex;
 use util::hash::{to_hex, hex_bytes, Hash160};
-use util::pipeline::PipelineProcessor;
+use util::log;
 
 use ed25519_dalek::PublicKey as VRFPublicKey;
 
@@ -628,14 +624,14 @@ where
         let block_commits = BurnDB::<A, K>::get_block_commits_by_block(tx, block_height)?;
         let mut burn_total = 0;
 
-        for i in (0..user_burns.len()) {
+        for i in 0..user_burns.len() {
             if burn_total + user_burns[i].burn_fee < 0 {
                 return Err(db_error::Overflow);
             }
 
             burn_total += user_burns[i].burn_fee;
         }
-        for i in (0..block_commits.len()) {
+        for i in 0..block_commits.len() {
             if burn_total + user_burns[i].burn_fee < 0 {
                 return Err(db_error::Overflow);
             }

@@ -32,31 +32,45 @@ extern crate sha2;
 extern crate dirs;
 
 #[macro_use] extern crate serde_derive;
-#[macro_use] extern crate log;
 
 #[macro_use] mod util;
 mod burnchains;
 mod chainstate;
 mod core;
 
-use burnchains::indexer::BurnchainIndexer;
-
-use util::log as logger;
+use std::env;
+use std::process;
+use util::log;
 
 fn main() {
-    logger::init().unwrap();
+    log::init().unwrap();
 
-    /*
-    let mut bitcoin_indexer = burnchains::bitcoin::indexer::BitcoinIndexer::new();
-    bitcoin_indexer.setup("/tmp/test-blockstack-ng").unwrap();
-
-    match sync_block_headers(&mut bitcoin_indexer, Some(540000)) {
-        Ok(num_fetched) => {
-            debug!("Fetched {} headers!", num_fetched);
-        }
-        Err(e) => {
-            error!("Failed to sync headers: {:?}", e);
-        }
+    let argv : Vec<String> = env::args().collect();
+    if argv.len() < 4 {
+        eprintln!("Usage: {} blockchain network working_dir", argv[0]);
+        process::exit(1);
     }
-    */
+
+    let blockchain = &argv[1];
+    let network = &argv[2];
+    let working_dir = &argv[3];
+
+    match (blockchain.as_str(), network.as_str()) {
+        ("bitcoin", "mainnet") | ("bitcoin", "testnet") | ("bitcoin", "regtest") => {
+            let block_height_res = core::sync_burnchain_bitcoin(&network, &working_dir);
+            match block_height_res {
+                Err(e) => {
+                    eprintln!("Failed to sync {} {}: {:?}", blockchain, network, e);
+                    process::exit(1);
+                },
+                Ok(height) => {
+                    println!("Synchronized state to block {}", height);
+                }
+            }
+        },
+        (_, _) => {
+            eprintln!("Unrecognized blockchain and/or network");
+            process::exit(1);
+        }
+    };
 }

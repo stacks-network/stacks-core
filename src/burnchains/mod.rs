@@ -29,12 +29,10 @@ use self::bitcoin::Error as btc_error;
 use util::Error as util_error;
 use chainstate::burn::db::Error as burndb_error;
 
-use serde::Serialize;
-
 use std::sync::Arc;
 use std::sync::mpsc::SyncSender;
 
-use serde::de::DeserializeOwned;
+// use serde::de::DeserializeOwned;
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid([u8; 32]);

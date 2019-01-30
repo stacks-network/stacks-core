@@ -38,9 +38,11 @@ use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::address::BitcoinAddress;
 use burnchains::bitcoin::BitcoinNetworkType;
 
-use burnchains::indexer::{BurnHeaderIPC, BurnBlockIPC, BurnchainBlockDownloader, BurnchainBlockParser, BurnchainIndexer};
+use burnchains::indexer::{BurnHeaderIPC, BurnBlockIPC, BurnchainBlockDownloader, BurnchainBlockParser};
 
 use burnchains::Error as burnchain_error;
+
+use util::log;
 
 use burnchains::{
     BurnchainBlock, 
@@ -53,7 +55,6 @@ use burnchains::{
     MAGIC_BYTES_LENGTH
 };
 
-use util::pipeline::PipelineProcessor;
 use util::hash::to_hex;
 
 pub struct BitcoinBlockDownloader {
@@ -410,7 +411,7 @@ mod tests {
     use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
     use burnchains::bitcoin::BitcoinNetworkType;
 
-    use util::log as logger;
+    use util::log;
 
     struct TxFixture<T> {
         txstr: String,
@@ -464,7 +465,7 @@ mod tests {
 
     #[test]
     fn maybe_burnchain_tx_test() {
-        logger::init();
+        log::init();
         let tx_fixtures = vec![
             TxFixture {
                 // valid
@@ -493,7 +494,7 @@ mod tests {
 
     #[test]
     fn parse_tx_test() {
-        logger::init();
+        log::init();
 
         let vtxindex = 4;
         let tx_fixtures = vec![

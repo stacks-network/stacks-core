@@ -17,7 +17,6 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::fmt;
 use std::marker::PhantomData;
 
 use chainstate::burn::operations::BlockstackOperation;
@@ -28,16 +27,12 @@ use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::db::DBConn;
 
 use burnchains::{BurnchainTransaction, BurnchainTxInput, PublicKey};
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::BitcoinNetworkType;
-use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
 use burnchains::Txid;
 use burnchains::Address;
 use burnchains::BurnchainHeaderHash;
 
 use util::hash::hex_bytes;
-
-use serde::Serialize;
+use util::log;
 
 pub const OPCODE: u8 = '[' as u8;
 
@@ -206,17 +201,21 @@ mod tests {
     use super::*;
     use burnchains::{BurnchainTxInput, BurnchainInputType};
     use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
     use burnchains::Txid;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
+
+    use burnchains::bitcoin::BitcoinNetworkType;
 
     use bitcoin::network::serialize::deserialize;
     use bitcoin::blockdata::transaction::Transaction;
     
     use chainstate::burn::{BlockHeaderHash, VRFSeed};
 
+
     use util::hash::hex_bytes;
-    use util::log as logger;
+    use util::log;
 
     struct OpFixture {
         txstr: String,
@@ -232,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        logger::init();
+        log::init();
 
         let vtxindex = 1;
         let block_height = 694;

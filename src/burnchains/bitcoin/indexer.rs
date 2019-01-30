@@ -21,7 +21,6 @@ use std::net;
 use std::sync::{Arc, Mutex, LockResult, MutexGuard};
 use rand::{Rng, thread_rng};
 use std::path::{PathBuf};
-use std::thread;
 
 use ini::Ini;
 
@@ -39,19 +38,12 @@ use burnchains::bitcoin::PeerMessage;
 
 use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use burnchains::BurnchainHeaderHash;
-use burnchains::BurnchainBlock;
-use burnchains::BlockChannel;
 use burnchains::Error as burnchain_error;
 use burnchains::MagicBytes;
-use burnchains::indexer::{BurnHeaderIPC, BurnBlockIPC};
 
-use bitcoin::BitcoinHash;
 use bitcoin::blockdata::block::LoneBlockHeader;
 
-use chainstate::burn::db::burndb::BurnDB;
-
-use util::pipeline::PipelineStage;
-use util::Error as util_error;
+use util::log;
 
 use dirs;
 
@@ -68,6 +60,12 @@ pub const BITCOIN_REGTEST_NAME: &'static str = "regtest";
 // maybe change this
 pub const FIRST_BLOCK_MAINNET: u64 = 373601;
 pub const FIRST_BLOCK_MAINNET_HASH: BurnchainHeaderHash = BurnchainHeaderHash([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x10, 0xc0, 0x28, 0x5c, 0x41, 0x74, 0x93, 0xc7, 0x47, 0x69, 0xfe, 0x0c, 0x7c, 0x5a, 0xee, 0x84, 0xf6, 0x36, 0x7e, 0x48, 0x6a, 0xcb, 0x5a]);
+
+pub const FIRST_BLOCK_TESTNET: u64 = 0;
+pub const FIRST_BLOCK_TESTNET_HASH: BurnchainHeaderHash = BurnchainHeaderHash([0u8; 32]);
+
+pub const FIRST_BLOCK_REGTEST: u64 = 0;
+pub const FIRST_BLOCK_REGTEST_HASH: BurnchainHeaderHash = BurnchainHeaderHash([0u8; 32]);
 
 // batch size for searching for a reorg 
 const REORG_BATCH_SIZE: u64 = 200;

@@ -41,7 +41,7 @@ use burnchains::bitcoin::BitcoinNetworkType;
 use crypto::sha2::Sha256;
 use crypto::digest::Digest;
 
-
+use util::log;
 use util::hash::Hash160;
 
 /// Parse a script into its structured constituant opcodes and data and collect them
@@ -541,7 +541,7 @@ mod tests {
     use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::BurnchainInputType;
 
-    use util::log as logger;
+    use util::log;
 
     struct ScriptFixture<T> {
         script: Script,
@@ -563,7 +563,7 @@ mod tests {
 
     #[test]
     fn tx_input_singlesig() {
-        logger::init();
+        log::init();
         let tx_input_singlesig_fixtures = vec![
             ScriptFixture {
                 // one compressed key
@@ -609,7 +609,7 @@ mod tests {
 
     #[test]
     fn tx_input_multisig() {
-        logger::init();
+        log::init();
         let tx_input_multisig_fixtures = vec![
             ScriptFixture {
                 // 2-of-3 multisig, uncompressed keys 
@@ -684,7 +684,7 @@ mod tests {
 
     #[test]
     fn tx_input_segwit_p2wpkh_p2sh() {
-        logger::init();
+        log::init();
 
         // should extract keys from segwit p2wpkh-over-p2sh witness script 
         let tx_fixtures_p2wpkh_p2sh = vec![
@@ -760,7 +760,7 @@ mod tests {
 
     #[test]
     fn tx_input_segwit_p2wsh_multisig_p2sh() {
-        logger::init();
+        log::init();
 
         // should extract keys from segwit p2wsh-multisig-over-p2sh witness script 
         let tx_fixtures_p2wpkh_p2sh = vec![
@@ -866,7 +866,7 @@ mod tests {
 
     #[test]
     fn tx_input_strange() {
-        logger::init();
+        log::init();
 
         // none of these should parse
         let tx_fixtures_strange_scriptsig : Vec<ScriptFixture<Option<BurnchainTxInput<BitcoinPublicKey>>>> = vec![
@@ -926,7 +926,7 @@ mod tests {
 
     #[test]
     fn tx_output_p2pkh() {
-        logger::init();
+        log::init();
 
         let amount = 123;
         let tx_fixtures_p2pkh = vec![
@@ -956,7 +956,7 @@ mod tests {
 
     #[test]
     fn tx_output_p2sh() {
-        logger::init();
+        log::init();
 
         let amount = 123;
         let tx_fixtures_p2sh = vec![
@@ -985,7 +985,7 @@ mod tests {
 
     #[test]
     fn tx_output_strange() {
-        logger::init();
+        log::init();
 
         let tx_fixtures_strange : Vec<ScriptFixture<Option<BurnchainTxOutput<BitcoinAddress>>>> = vec![
             ScriptFixture {
@@ -1008,7 +1008,7 @@ mod tests {
 
     #[test]
     fn sender_scriptpubkey_from_keys() {
-        logger::init();
+        log::init();
 
         let scriptpubkey_fixtures = vec![
             ScriptPubkeyFixture {

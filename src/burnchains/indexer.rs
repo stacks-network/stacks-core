@@ -19,13 +19,8 @@
 
 use burnchains::*;
 use burnchains::Error as burnchain_error;
-use burnchains::bitcoin::BlockSender;
 
-use burnchains::BurnchainHeaderHash;
 use burnchains::BurnchainBlock;
-use burnchains::BlockChannel;
-
-use chainstate::burn::db::burndb::BurnDB;
 
 // IPC messages between threads
 #[derive(Debug, Clone, PartialEq)]

@@ -24,27 +24,18 @@ use std::thread;
 
 use chainstate::burn::db::burndb::BurnDB;
 
-use burnchains::bitcoin::indexer::BitcoinIndexer;
-
-use burnchains::bitcoin::Error as btc_error;
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-
 use burnchains::indexer::BurnchainIndexer;
 use burnchains::Address;
 use burnchains::PublicKey;
 use burnchains::BurnchainHeaderHash;
 use burnchains::BurnchainBlock;
-use burnchains::BlockChannel;
 use burnchains::indexer::BurnchainBlockDownloader;
 use burnchains::indexer::BurnchainBlockParser;
 use burnchains::indexer::{BurnHeaderIPC, BurnBlockIPC};
 
 use burnchains::Error as burnchain_error;
 
-use util::Error as util_error;
-use util::pipeline::PipelineStage;
-use util::pipeline::PipelineProcessor;
+use util::log;
 
 /// Check the burn chain for reorgs and identify where we need to start synchronizing from.
 /// Returns the block height on success, as well as any new headers' hashes that need to be
@@ -233,6 +224,8 @@ pub fn sync_burnchain_bitcoin(network_name: &String, working_dir: &String) -> Re
     use burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET_HASH;
     use burnchains::bitcoin::blocks::{BitcoinBlockDownloader, BitcoinBlockParser};
     use burnchains::bitcoin::indexer::BitcoinIndexer;
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::bitcoin::address::BitcoinAddress;
 
     sync_burnchain::<LoneBlockHeader, PeerMessage, BitcoinBlockDownloader, BitcoinBlockParser, BitcoinAddress, BitcoinPublicKey, BitcoinIndexer>(network_name, working_dir, FIRST_BLOCK_MAINNET, &FIRST_BLOCK_MAINNET_HASH)
 }

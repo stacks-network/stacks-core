@@ -31,12 +31,9 @@ use self::leader_block_commit::LeaderBlockCommitOp;
 use self::user_burn_support::UserBurnSupportOp;
 
 use chainstate::burn::db::Error as db_error;
-use chainstate::burn::db::burndb;
 use chainstate::burn::db::DBConn;
 
 use burnchains::{Address, PublicKey, BurnchainHeaderHash, BurnchainTransaction};
-
-use serde::Serialize;
 
 #[derive(Debug)]
 pub enum Error {

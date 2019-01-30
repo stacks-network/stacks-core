@@ -120,6 +120,8 @@ mod tests {
     use burnchains::PublicKey;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
 
+    use util::log;
+
     struct KeyFixture<I, R> {
         input: I,
         result: R

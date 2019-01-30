@@ -25,6 +25,7 @@ use burnchains::bitcoin::Error as btc_error;
 use bitcoin::util::base58;
 
 use util::hash::Hash160;
+use util::log;
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub enum BitcoinAddressType {
@@ -191,7 +192,7 @@ impl Address for BitcoinAddress {
 mod tests {
     use super::{BitcoinAddress, BitcoinAddressType};
     use burnchains::bitcoin::BitcoinNetworkType;
-    use util::log as logger;
+    use util::log;
     use util::hash::{hex_bytes, Hash160};
 
     struct AddressFixture {
@@ -206,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_from_b58() {
-        logger::init();
+        log::init();
 
         let fixtures = vec![
             AddressFixture {
