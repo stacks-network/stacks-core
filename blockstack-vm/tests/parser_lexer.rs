@@ -1,9 +1,10 @@
 extern crate blockstack_vm;
 use blockstack_vm::representations::SymbolicExpression;
+use blockstack_vm::errors::Error;
 
 #[test]
 fn test_parse_let_expression() {
-    let input = "z (let ((x 1) (y 2))
+    let input = "z (let((x 1) (y 2))
                       (+ x 
                          (let ((x 3))
                          (+ x y))     
@@ -37,24 +38,29 @@ fn test_parse_let_expression() {
         SymbolicExpression::Atom("y".to_string()),
     ];
 
-    if let Ok(parsed) = blockstack_vm::parser::parse(&input) {
-        assert_eq!(program, parsed, "Should match expected symbolic expression");
-    } else {
-        assert!(false, "Failed to lex and parse input");
-    }
+    let parsed = blockstack_vm::parser::parse(&input);
+    assert_eq!(Ok(program), parsed, "Should match expected symbolic expression");
 }
 
 #[test]
 fn test_parse_failures() {
     let too_much_closure = "(let ((x 1) (y 2))))";
     let not_enough_closure = "(let ((x 1) (y 2))";
+    let middle_hash = "(let ((x 1) (y#not 2)) x)";
 
-    match blockstack_vm::parser::parse(&too_much_closure) {
-        Ok(_parsed) => assert!(false, "Should have failed to parse with too many right parens"),
-        Err(_s) => assert!(true, "Should have failed to parse with too many right parens")
-    }
-    match blockstack_vm::parser::parse(&not_enough_closure) {
-        Ok(_parsed) => assert!(false, "Should have failed to parse with too few right parens"),
-        Err(_s) => assert!(true, "Should have failed to parse with too few right parens")
-    }
+    assert!(match blockstack_vm::parser::parse(&too_much_closure) {
+        Err(Error::ParseError(_)) => true,
+        _ => false
+    }, "Should have failed to parse with too many right parens");
+
+    assert!(match blockstack_vm::parser::parse(&not_enough_closure) {
+        Err(Error::ParseError(_)) => true,
+        _ => false
+    }, "Should have failed to parse with too few right parens");
+
+    assert!(match blockstack_vm::parser::parse(&middle_hash) {
+        Err(Error::ParseError(_)) => true,
+        _ => false
+    }, "Should have failed to parse with a middle hash");
+
 }

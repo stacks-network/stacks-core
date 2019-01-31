@@ -170,8 +170,20 @@ fn lists_system() {
                     (get-list 1))
         ";
 
-    let mut test2 = test1.to_string();
-    test2.push_str("(add-list 2 (list 1 2 3 4 5 6))");
+    let mut test_list_too_big = test1.to_string();
+    test_list_too_big.push_str("(add-list 2 (list 1 2 3 4 5 6))");
+
+    let mut test_bad_tuple_1 = test1.to_string();
+    test_bad_tuple_1.push_str("(insert-entry! lists (tuple #name 1) (tuple #contentious (list 1 2 6)))");
+
+    let mut test_bad_tuple_2 = test1.to_string();
+    test_bad_tuple_2.push_str("(insert-entry! lists (tuple #name 1) (tuple #contents (list 1 2 6) #discontents 1))");
+
+    let mut test_bad_tuple_3 = test1.to_string();
+    test_bad_tuple_3.push_str("(insert-entry! lists (tuple #name 1) (tuple #contents (list 'false 'true 'false)))");
+
+    let mut test_bad_tuple_4 = test1.to_string();
+    test_bad_tuple_4.push_str("(insert-entry! lists (tuple #name (list 1)) (tuple #contents (list 1 2 3)))");
 
     let expected = || {
         let list1 = Value::new_list(vec![
@@ -189,14 +201,44 @@ fn lists_system() {
     
     assert_eq!(expected(), execute(test1));
 
-    let expected_error = match execute(&test2) {
-        Err(Error::TypeError(_,_)) => true,
-        _ => false
-    };
+    for test in [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2,
+                 test_bad_tuple_3, test_bad_tuple_4].iter() {
+        let expected_type_error = match execute(test) {
+            Err(Error::TypeError(_,_)) => true,
+            _ => {
+                println!("{:?}", execute(test));
+                false
+            }
+        };
 
-    assert!(expected_error);
+        assert!(expected_type_error);
+    }
+
 }
 
+#[test]
+fn bad_define_maps() {
+    let test_list_pairs = [
+        "(define-map lists ((name int)) ((contents int bool)))",
+        "(define-map lists ((name int)) (contents bool))",
+        "(define-map lists ((#name int)) (contents bool))",
+        "(define-map lists ((name #int)) (contents bool))",
+        "(define-map lists ((name #int)) contents)"];
+    let test_define_args = [
+        "(define-map (lists) ((name #int)) contents)",
+        "(define-map lists ((name #int)) contents 5)"];
+    
+    for test in test_list_pairs.iter() {
+        assert_eq!(Err(Error::ExpectedListPairs), execute(test));
+    }
+
+    for test in test_define_args.iter() {
+        assert!(match execute(test) {
+            Err(Error::InvalidArguments(_)) => true,
+            _ => false
+        })
+    }
+}
 
 #[test]
 fn bad_tuples() {

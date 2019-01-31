@@ -14,6 +14,11 @@ fn test_defines() {
          (f 3 1)";
 
     assert_eq!(Ok(Value::Int(29)), execute(&tests));
+
+    let tests =
+        "1";
+
+    assert_eq!(Ok(Value::Int(1)), execute(&tests));
 }
 
 #[test]

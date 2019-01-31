@@ -207,7 +207,8 @@ fn test_arithmetic_errors() {
 #[test]
 fn test_bool_functions() {
     let tests = parse(&
-        "(and 'true 'true 'true)
+        "'true
+         (and 'true 'true 'true)
          (and 'false 'true 'true)
          (and 'false (> 1 (/ 10 0)))
          (or 'true (> 1 (/ 10 0)))
@@ -215,6 +216,7 @@ fn test_bool_functions() {
          (not 'true)");
 
     let expectations = [
+        Value::Bool(true),
         Value::Bool(true),
         Value::Bool(false),
         Value::Bool(false),

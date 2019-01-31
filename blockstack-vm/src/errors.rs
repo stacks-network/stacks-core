@@ -31,8 +31,18 @@ impl fmt::Display for Error {
 
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        match *self {
-            _ => None
-        }
+        None
     }
+}
+
+#[test]
+fn error_formats() {
+    assert_eq!(format!("{}", Error::RecursionDetected),
+               "Illegal operation: attempted recursion detected.");
+    assert_eq!(format!("{}", Error::TryEvalToFunction),
+               "Illegal operation: attempt to evaluate to function.");
+    assert_eq!(format!("{}", Error::TypeError("Test".to_string(), Value::Void)),
+               "TypeError: Expected Test, found Void.");
+    assert_eq!(format!("{}", Error::NotImplemented),
+               "NotImplemented");
 }
