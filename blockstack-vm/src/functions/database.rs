@@ -1,10 +1,10 @@
-use super::super::types::{Value};
-use super::super::representations::SymbolicExpression;
-use super::super::{InterpreterResult,eval,Context,Environment};
-use super::super::errors::Error;
-use super::super::database::DataMap;
+use types::{Value};
+use representations::SymbolicExpression;
+use errors::{Error, InterpreterResult as Result};
+use database::DataMap;
+use {eval,Context,Environment};
 
-fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> Result<&'a mut DataMap, Error> {
+fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> Result<&'a mut DataMap> {
     let map_name = match map_arg {
         SymbolicExpression::Atom(value) => Ok(value),
         _ => Err(Error::InvalidArguments("First argument in data functions must be the map name".to_string()))
@@ -17,7 +17,7 @@ fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> R
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],
                            env: &mut Environment,
-                           context: &Context) -> InterpreterResult {
+                           context: &Context) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     if args.len() != 2 {
@@ -33,7 +33,7 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
 
 pub fn special_set_entry(args: &[SymbolicExpression],
                          env: &mut Environment,
-                         context: &Context) -> InterpreterResult {
+                         context: &Context) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     // arg2 -> value
@@ -54,7 +54,7 @@ pub fn special_set_entry(args: &[SymbolicExpression],
 
 pub fn special_insert_entry(args: &[SymbolicExpression],
                             env: &mut Environment,
-                            context: &Context) -> InterpreterResult {
+                            context: &Context) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     // arg2 -> value
@@ -72,7 +72,7 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
 
 pub fn special_delete_entry(args: &[SymbolicExpression],
                             env: &mut Environment,
-                            context: &Context) -> InterpreterResult {
+                            context: &Context) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     if args.len() != 2 {

@@ -1,14 +1,13 @@
 use std::collections::HashMap;
 
-use errors::Error;
-use InterpreterResult;
+use errors::{Error, InterpreterResult as Result};
 use types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 pub trait DataMap {
-    fn fetch_entry(&self, key: &Value) -> InterpreterResult;
-    fn set_entry(&mut self, key: Value, value: Value) -> Result<(), Error>;
-    fn insert_entry(&mut self, key: Value, value: Value) -> InterpreterResult;
-    fn delete_entry(&mut self, key: &Value) -> InterpreterResult;
+    fn fetch_entry(&self, key: &Value) -> Result<Value>;
+    fn set_entry(&mut self, key: Value, value: Value) -> Result<()>;
+    fn insert_entry(&mut self, key: Value, value: Value) -> Result<Value>;
+    fn delete_entry(&mut self, key: &Value) -> Result<Value>;
 }
 
 pub trait ContractDatabase {
@@ -64,7 +63,7 @@ impl DataMap for MemoryDataMap {
     //   however, they should really be specified in the functions/database.rs file, whereas
     //   this file should really just be speccing out the database connection/requirement.
 
-    fn fetch_entry(&self, key: &Value) -> InterpreterResult {
+    fn fetch_entry(&self, key: &Value) -> Result<Value> {
         if !self.key_type.admits(key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), (*key).clone()))
         }
@@ -75,7 +74,7 @@ impl DataMap for MemoryDataMap {
         }
     }
 
-    fn set_entry(&mut self, key: Value, value: Value) -> Result<(), Error> {
+    fn set_entry(&mut self, key: Value, value: Value) -> Result<()> {
         if !self.key_type.admits(&key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), key))
         }
@@ -86,7 +85,7 @@ impl DataMap for MemoryDataMap {
         Ok(())
     }
 
-    fn insert_entry(&mut self, key: Value, value: Value) -> InterpreterResult {
+    fn insert_entry(&mut self, key: Value, value: Value) -> Result<Value> {
         if !self.key_type.admits(&key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), key))
         }
@@ -101,7 +100,7 @@ impl DataMap for MemoryDataMap {
         }
     }
 
-    fn delete_entry(&mut self, key: &Value) -> InterpreterResult {
+    fn delete_entry(&mut self, key: &Value) -> Result<Value> {
         if !self.key_type.admits(key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), (*key).clone()))
         }

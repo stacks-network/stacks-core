@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use super::types::{DefinedFunction, FunctionIdentifier, Value};
-use super::database::ContractDatabase;
+use types::{DefinedFunction, FunctionIdentifier, Value};
+use database::ContractDatabase;
 
 pub struct Environment <'a> {
     pub global_context: Context <'a>,

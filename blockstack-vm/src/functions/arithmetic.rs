@@ -1,15 +1,14 @@
-use super::super::types::Value;
-use super::super::errors::Error;
-use super::super::InterpreterResult;
+use types::Value;
+use errors::{Error, InterpreterResult as Result};
 
-fn type_force_integer(value: &Value) -> Result<i128, Error> {
+fn type_force_integer(value: &Value) -> Result<i128> {
     match *value {
         Value::Int(int) => Ok(int),
         _ => Err(Error::TypeError("IntType".to_string(), value.clone()))
     }
 }
 
-fn binary_comparison<F>(args: &[Value], function: &F) -> InterpreterResult
+fn binary_comparison<F>(args: &[Value], function: &F) -> Result<Value>
 where F: Fn(i128, i128) -> bool {
     if args.len() == 2 {
         let arg1 = type_force_integer(&args[0])?;
@@ -20,21 +19,21 @@ where F: Fn(i128, i128) -> bool {
     }
 }
 
-pub fn native_geq(args: &[Value]) -> InterpreterResult {
+pub fn native_geq(args: &[Value]) -> Result<Value> {
     binary_comparison(args, &|x, y| x >= y)
 }
-pub fn native_leq(args: &[Value]) -> InterpreterResult {
+pub fn native_leq(args: &[Value]) -> Result<Value> {
     binary_comparison(args, &|x, y| x <= y)
 }
-pub fn native_ge(args: &[Value]) -> InterpreterResult {
+pub fn native_ge(args: &[Value]) -> Result<Value> {
     binary_comparison(args, &|x, y| x > y)
 }
-pub fn native_le(args: &[Value]) -> InterpreterResult {
+pub fn native_le(args: &[Value]) -> Result<Value> {
     binary_comparison(args, &|x, y| x < y)
 }
 
-pub fn native_add(args: &[Value]) -> InterpreterResult {
-    let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
+pub fn native_add(args: &[Value]) -> Result<Value> {
+    let typed_args: Result<Vec<_>> = args.iter().map(|x| type_force_integer(x)).collect();
     let parsed_args = typed_args?;
     let checked_result = parsed_args.iter().fold(Some(0), |acc: Option<i128>, x| {
         match acc {
@@ -48,8 +47,8 @@ pub fn native_add(args: &[Value]) -> InterpreterResult {
     }
 }
 
-pub fn native_sub(args: &[Value]) -> InterpreterResult {
-    let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
+pub fn native_sub(args: &[Value]) -> Result<Value> {
+    let typed_args: Result<Vec<_>> = args.iter().map(|x| type_force_integer(x)).collect();
     let parsed_args = typed_args?;
     if let Some((first, rest)) = parsed_args.split_first() {
         if rest.len() == 0 { // return negation
@@ -71,8 +70,8 @@ pub fn native_sub(args: &[Value]) -> InterpreterResult {
     }
 }
 
-pub fn native_mul(args: &[Value]) -> InterpreterResult {
-    let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
+pub fn native_mul(args: &[Value]) -> Result<Value> {
+    let typed_args: Result<Vec<_>> = args.iter().map(|x| type_force_integer(x)).collect();
     let parsed_args = typed_args?;
     let checked_result = parsed_args.iter().fold(Some(1), |acc: Option<i128>, x| {
         match acc {
@@ -86,8 +85,8 @@ pub fn native_mul(args: &[Value]) -> InterpreterResult {
     }
 }
 
-pub fn native_div(args: &[Value]) -> InterpreterResult {
-    let typed_args: Result<Vec<_>, Error> = args.iter().map(|x| type_force_integer(x)).collect();
+pub fn native_div(args: &[Value]) -> Result<Value> {
+    let typed_args: Result<Vec<_>> = args.iter().map(|x| type_force_integer(x)).collect();
     let parsed_args = typed_args?;
     if let Some((first, rest)) = parsed_args.split_first() {
         let checked_result = rest.iter().fold(Some(*first), |acc, x| {
@@ -105,7 +104,7 @@ pub fn native_div(args: &[Value]) -> InterpreterResult {
     }
 }
 
-pub fn native_pow(args: &[Value]) -> InterpreterResult {
+pub fn native_pow(args: &[Value]) -> Result<Value> {
     if args.len() == 2 {
         let base = type_force_integer(&args[0])?;
         let power_i128 = type_force_integer(&args[1])?;
@@ -127,7 +126,7 @@ pub fn native_pow(args: &[Value]) -> InterpreterResult {
 }
 
 
-pub fn native_mod(args: &[Value]) -> InterpreterResult {
+pub fn native_mod(args: &[Value]) -> Result<Value> {
     if args.len() == 2 {
         let numerator = type_force_integer(&args[0])?;
         let denominator = type_force_integer(&args[1])?;

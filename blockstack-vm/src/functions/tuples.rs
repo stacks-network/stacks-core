@@ -1,11 +1,10 @@
-use super::InterpreterResult;
-use super::super::errors::Error;
-use super::super::types::{Value, TupleData};
-use super::super::representations::SymbolicExpression;
-use super::super::representations::SymbolicExpression::{NamedParameter};
-use super::super::{Context,Environment,eval};
+use errors::{Error, InterpreterResult as Result};
+use types::{Value, TupleData};
+use representations::SymbolicExpression;
+use representations::SymbolicExpression::{NamedParameter};
+use {Context, Environment, eval};
 
-pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
     // (tuple #arg-name value
     //        #arg-name value ...)
     if args.len() % 2 != 0 {
@@ -13,7 +12,7 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
     }
     let num_pairs = args.len() / 2;
     // turn list into pairs.
-    let eval_result: Result<Vec<_>, Error> = (0..num_pairs).map(|i| {
+    let eval_result: Result<Vec<_>> = (0..num_pairs).map(|i| {
         let arg_name = match args[i * 2] {
             NamedParameter(ref name) => Ok(name.as_str()),
             _ => Err(Error::InvalidArguments("Named arguments must be supplied as #name-arg".to_string()))
@@ -28,7 +27,7 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
     Ok(Value::Tuple(tuple_data))
 }
 
-pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
     // (get arg-name (tuple ...))
     //    if the tuple argument is 'null, then return 'null.
     //  NOTE:  a tuple field value itself may _never_ be 'null

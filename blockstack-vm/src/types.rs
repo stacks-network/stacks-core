@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use InterpreterResult;
 use errors::{Error, InterpreterResult as Result};
 use representations::SymbolicExpression;
 use {Context,Environment};
@@ -46,8 +45,8 @@ pub enum Value {
 
 pub enum CallableType <'a> {
     UserFunction(Box<DefinedFunction>),
-    NativeFunction(&'a Fn(&[Value]) -> InterpreterResult),
-    SpecialFunction(&'a Fn(&[SymbolicExpression], &mut Environment, &Context) -> InterpreterResult)
+    NativeFunction(&'a Fn(&[Value]) -> Result<Value>),
+    SpecialFunction(&'a Fn(&[SymbolicExpression], &mut Environment, &Context) -> Result<Value>)
 }
 
 #[derive(Clone)]
@@ -101,7 +100,7 @@ impl TupleData {
 
     }
 
-    pub fn get(&self, name: &str) -> InterpreterResult {
+    pub fn get(&self, name: &str) -> Result<Value> {
         if let Some(value) = self.data_map.get(name) {
             Ok(value.clone())
         } else {
@@ -251,7 +250,7 @@ impl DefinedFunction {
         }
     }
 
-    pub fn apply(&self, args: &[Value], env: &mut Environment) -> InterpreterResult {
+    pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
         let mut context = Context::new();
 
         let mut arg_iterator = self.arguments.iter().zip(args.iter());

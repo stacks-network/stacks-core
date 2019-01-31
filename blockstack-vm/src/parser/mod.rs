@@ -1,4 +1,4 @@
-use errors::Error;
+use errors::{Error, InterpreterResult as Result};
 use representations::SymbolicExpression;
 
 #[derive(Debug)]
@@ -27,7 +27,7 @@ fn finish_atom(current: &mut Option<String>) -> Option<LexItem> {
     resp
 }
 
-pub fn lex(input: &str) -> Result<Vec<LexItem>, Error> {
+pub fn lex(input: &str) -> Result<Vec<LexItem>> {
     let mut result = Vec::new();
     let current = &mut None;
     for c in input.chars() {
@@ -76,7 +76,7 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>, Error> {
     Ok(result)
 }
 
-pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>, Error> {
+pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
@@ -135,7 +135,7 @@ pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>, Erro
     }
 }
 
-pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>, Error> {
+pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>> {
     let lexed = lex(input)?;
     parse_lexed(&lexed)
 }

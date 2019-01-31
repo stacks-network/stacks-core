@@ -1,8 +1,8 @@
-use super::super::types::{Value, DefinedFunction, TupleTypeSignature, TypeSignature};
-use super::super::representations::SymbolicExpression;
-use super::super::representations::SymbolicExpression::{Atom,AtomValue,List,NamedParameter};
-use super::super::{Context,Environment,eval};
-use super::super::errors::Error;
+use types::{Value, DefinedFunction, TupleTypeSignature, TypeSignature};
+use representations::SymbolicExpression;
+use representations::SymbolicExpression::{Atom,AtomValue,List,NamedParameter};
+use errors::{Error, InterpreterResult as Result};
+use {Context,Environment,eval};
 
 pub enum DefineResult {
     Variable(String, Value),
@@ -11,14 +11,14 @@ pub enum DefineResult {
     NoDefine
 }
 
-pub fn handle_define_variable(variable: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult, Error> {
+pub fn handle_define_variable(variable: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     let context = Context::new();
     let value = eval(expression, env, &context)?;
     Ok(DefineResult::Variable(variable.clone(), value))
 }
 
-pub fn handle_define_function(signature: &[SymbolicExpression], expression: &SymbolicExpression) -> Result<DefineResult, Error> {
-    let coerced_atoms: Result<Vec<_>, _> = signature.iter().map(|x| {
+pub fn handle_define_function(signature: &[SymbolicExpression], expression: &SymbolicExpression) -> Result<DefineResult> {
+    let coerced_atoms: Result<Vec<_>> = signature.iter().map(|x| {
         if let Atom(name) = x {
             Ok(name)
         } else {
@@ -38,7 +38,7 @@ pub fn handle_define_function(signature: &[SymbolicExpression], expression: &Sym
     }
 }
 
-fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature, Error> {
+fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature> {
 
     // this is a pretty deep nesting here, but what we're trying to do is pick out the values of
     // the form:
@@ -48,7 +48,7 @@ fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeS
     let mapped_key_types = match type_def {
         List(ref key_vec) => {
             // step 1: parse it into a vec of symbolicexpression pairs.
-            let as_pairs: Result<Vec<_>, Error> = 
+            let as_pairs: Result<Vec<_>> = 
                 key_vec.iter().map(
                     |key_type_pair| {
                         if let List(ref as_vec) = key_type_pair {
@@ -63,7 +63,7 @@ fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeS
                     }).collect();
 
             // step 2: turn into a vec of (name, typesignature) pairs.
-            let key_types: Result<Vec<_>, Error> =
+            let key_types: Result<Vec<_>> =
                 (as_pairs?).iter().map(|(name_symbol, type_symbol)| {
                     let name = match name_symbol {
                         Atom(ref var) => Ok(var.clone()),
@@ -86,7 +86,7 @@ fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeS
 
 fn handle_define_map(map_name: &SymbolicExpression,
                      key_type: &SymbolicExpression,
-                     value_type: &SymbolicExpression) -> Result<DefineResult, Error> {
+                     value_type: &SymbolicExpression) -> Result<DefineResult> {
     let map_str = match map_name {
         Atom(ref map_name) => Ok(map_name.clone()),
         _ => Err(Error::InvalidArguments("Non-name argument to define-map".to_string()))
@@ -98,7 +98,7 @@ fn handle_define_map(map_name: &SymbolicExpression,
     Ok(DefineResult::Map(map_str, key_type_signature, value_type_signature))
 }
 
-pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult, Error> {
+pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     if let SymbolicExpression::List(elements) = expression {
         if let Some(Atom(func_name)) = elements.get(0) {
             return match func_name.as_str() {

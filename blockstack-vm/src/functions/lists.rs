@@ -1,12 +1,11 @@
-use super::InterpreterResult;
-use super::super::errors::Error;
-use super::super::types::{Value, TypeSignature};
-use super::super::types::Value::{List};
-use super::super::representations::SymbolicExpression;
-use super::super::representations::SymbolicExpression::{AtomValue};
-use super::super::{Context,Environment,eval,apply,lookup_function};
+use errors::{Error, InterpreterResult as Result};
+use types::{Value, TypeSignature};
+use types::Value::{List};
+use representations::SymbolicExpression;
+use representations::SymbolicExpression::{AtomValue};
+use {Context,Environment,eval,apply,lookup_function};
 
-pub fn list_cons(args: &[Value]) -> InterpreterResult {
+pub fn list_cons(args: &[Value]) -> Result<Value> {
     let list_type = TypeSignature::construct_parent_list_type(args)?;
     let mut list_contents = Vec::new();
     for item in args {
@@ -15,7 +14,7 @@ pub fn list_cons(args: &[Value]) -> InterpreterResult {
     Ok(List(list_contents, list_type))
 }
 
-pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
     if args.len() != 3 {
         return Err(Error::InvalidArguments(format!("Wrong number of arguments ({}) to fold", args.len())))
     }
@@ -37,7 +36,7 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &C
     }
 }
 
-pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
     if args.len() != 2 {
         return Err(Error::InvalidArguments(format!("Wrong number of arguments ({}) to map", args.len())))
     }
@@ -47,7 +46,7 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Co
         let list = eval(&args[1], env, context)?;
         match list {
             List(vector, _) => {
-                let result: Result<Vec<_>, Error> = vector.iter().map(|x| {
+                let result: Result<Vec<_>> = vector.iter().map(|x| {
                     let argument = [ SymbolicExpression::AtomValue(x.clone()) ];
                     apply(&function, &argument, env, context)
                 }).collect();

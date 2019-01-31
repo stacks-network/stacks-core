@@ -5,15 +5,13 @@ mod boolean;
 mod database;
 mod tuples;
 
-use super::types::{Value, CallableType};
-use super::representations::SymbolicExpression;
-use super::{Context,Environment};
-use super::InterpreterResult;
-use super::errors::Error;
-use super::eval;
+use errors::{Error, InterpreterResult as Result};
+use types::{Value, CallableType};
+use representations::SymbolicExpression;
+use {Context, Environment, eval};
 
 
-fn native_eq(args: &[Value]) -> InterpreterResult {
+fn native_eq(args: &[Value]) -> Result<Value> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
@@ -26,14 +24,14 @@ fn native_eq(args: &[Value]) -> InterpreterResult {
     }
 }
 
-fn native_begin(args: &[Value]) -> InterpreterResult {
+fn native_begin(args: &[Value]) -> Result<Value> {
     match args.last() {
         Some(v) => Ok(v.clone()),
         None => Ok(Value::Void)
     }
 }
 
-fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
     if !(args.len() == 2 || args.len() == 3) {
         return Err(Error::InvalidArguments("Wrong number of arguments to if (expect 2 or 3)".to_string()))
     }
@@ -55,7 +53,7 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Cont
     }
 }
 
-fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1 => body

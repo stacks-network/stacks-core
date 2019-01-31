@@ -1,16 +1,16 @@
-use super::super::types::Value;
-use super::super::errors::Error;
-use super::super::representations::SymbolicExpression;
-use super::super::{Context,Environment,eval,InterpreterResult};
+use types::Value;
+use errors::{Error, InterpreterResult as Result};
+use representations::SymbolicExpression;
+use {Context,Environment,eval};
 
-fn type_force_bool(value: &Value) -> Result<bool, Error> {
+fn type_force_bool(value: &Value) -> Result<bool> {
     match *value {
         Value::Bool(boolean) => Ok(boolean),
         _ => Err(Error::TypeError("BoolType".to_string(), value.clone()))
     }
 }
 
-pub fn special_or(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+pub fn special_or(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
     if args.len() < 1 {
         return Err(Error::InvalidArguments("(or ...) requires at least 1 argument".to_string()))
     }
@@ -26,7 +26,7 @@ pub fn special_or(args: &[SymbolicExpression], env: &mut Environment, context: &
     Ok(Value::Bool(false))
 }
 
-pub fn special_and(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+pub fn special_and(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
     if args.len() < 1 {
         return Err(Error::InvalidArguments("(and ...) requires at least 1 argument".to_string()))
     }
@@ -42,7 +42,7 @@ pub fn special_and(args: &[SymbolicExpression], env: &mut Environment, context: 
     Ok(Value::Bool(true))
 }
 
-pub fn native_not(args: &[Value]) -> InterpreterResult {
+pub fn native_not(args: &[Value]) -> Result<Value> {
     if args.len() != 1 {
         return Err(Error::InvalidArguments("(not ...) requires exactly 1 argument".to_string()))
     }

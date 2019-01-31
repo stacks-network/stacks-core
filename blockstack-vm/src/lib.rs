@@ -11,11 +11,9 @@ use types::{Value, CallableType};
 use representations::SymbolicExpression;
 use contexts::{Context, Environment};
 use functions::define::DefineResult;
-use errors::Error;
+use errors::{Error, InterpreterResult as Result};
 
-type InterpreterResult = Result<Value, Error>;
-
-fn lookup_variable(name: &str, context: &Context, env: &Environment) -> InterpreterResult {
+fn lookup_variable(name: &str, context: &Context, env: &Environment) -> Result<Value> {
     // first off, are we talking about a constant?
     if name.starts_with(char::is_numeric) {
         match i128::from_str_radix(name, 10) {
@@ -41,7 +39,7 @@ fn lookup_variable(name: &str, context: &Context, env: &Environment) -> Interpre
     }
 }
 
-pub fn lookup_function<'a> (name: &str, env: &Environment)-> Result<CallableType<'a>, Error> {
+pub fn lookup_function<'a> (name: &str, env: &Environment)-> Result<CallableType<'a>> {
     if let Some(result) = functions::lookup_reserved_functions(name) {
         Ok(result)
     } else {
@@ -54,11 +52,11 @@ pub fn lookup_function<'a> (name: &str, env: &Environment)-> Result<CallableType
 }
 
 pub fn apply(function: &CallableType, args: &[SymbolicExpression],
-             env: &mut Environment, context: &Context) -> InterpreterResult {
+             env: &mut Environment, context: &Context) -> Result<Value> {
     if let CallableType::SpecialFunction(function) = function {
         function(&args, env, context)
     } else {
-        let eval_tried: Result<Vec<Value>, errors::Error> =
+        let eval_tried: Result<Vec<Value>> =
             args.iter().map(|x| eval(x, env, context)).collect();
         match eval_tried {
             Ok(evaluated_args) => {
@@ -85,7 +83,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
     }
 }
 
-pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &Context) -> InterpreterResult {
+pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &Context) -> Result<Value> {
     match exp {
         &SymbolicExpression::AtomValue(ref value) => Ok(value.clone()),
         &SymbolicExpression::Atom(ref value) => lookup_variable(&value, context, env),
@@ -112,7 +110,7 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
  * It returns the final evaluated result.
  */
 pub fn eval_all(expressions: &[SymbolicExpression],
-                contract_db: Option<Box<database::ContractDatabase>>) -> InterpreterResult {
+                contract_db: Option<Box<database::ContractDatabase>>) -> Result<Value> {
     let db_instance = match contract_db {
         Some(db) => db,
         None => Box::new(database::MemoryContractDatabase::new())
@@ -147,7 +145,7 @@ pub fn eval_all(expressions: &[SymbolicExpression],
     }
 }
 
-pub fn execute(program: &str) -> InterpreterResult {
+pub fn execute(program: &str) -> Result<Value> {
     let parsed = parser::parse(program)?;
     eval_all(&parsed, None)
 }
