@@ -61,6 +61,13 @@ pub struct FunctionIdentifier {
     pub body: SymbolicExpression
 }
 
+impl Value {
+    pub fn new_list(list_data: Vec<Value>) -> Result<Value> {
+        let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
+        Ok(Value::List(list_data, type_sig))
+    }
+}
+
 impl TupleTypeSignature {
     pub fn new(type_data: Vec<(String, TypeSignature)>) -> Result<TupleTypeSignature> {
         let mut type_map = BTreeMap::new();
@@ -72,12 +79,22 @@ impl TupleTypeSignature {
         Ok(TupleTypeSignature { type_map: type_map })
     }
 
-    pub fn check_valid(&self, name: &str, value: &Value) -> bool {
-        if let Some(expected_type) = self.type_map.get(name) {
-            *expected_type == TypeSignature::type_of(value)
-        } else {
-            false
+    pub fn admits(&self, other: &TupleTypeSignature) -> bool {
+        if self.type_map.len() != other.type_map.len() {
+            return false
         }
+
+        for (name, my_type_sig) in self.type_map.iter() {
+            if let Some(other_type_sig) = other.type_map.get(name) {
+                if !my_type_sig.admits_type(other_type_sig) {
+                    return false
+                }
+            } else {
+                return false
+            }
+        }
+
+        return true
     }
 }
 
@@ -183,6 +200,10 @@ impl TypeSignature {
 
     pub fn admits(&self, x: &Value) -> bool {
         let x_type = TypeSignature::type_of(x);
+        self.admits_type(&x_type)
+    }
+
+    pub fn admits_type(&self, x_type: &TypeSignature) -> bool {
         if let Some((x_max_len, x_dimension)) = x_type.list_dimensions {
             if x_type.atomic_type != self.atomic_type {
                 false
@@ -191,8 +212,15 @@ impl TypeSignature {
             } else {
                 false
             }
+        } else if let AtomTypeIdentifier::TupleType(ref x_tuple_sig) = x_type.atomic_type {
+            // tuple admission must recurse on .admits
+            if let AtomTypeIdentifier::TupleType(ref my_tuple_sig) = self.atomic_type {
+                my_tuple_sig.admits(x_tuple_sig)
+            } else {
+                false
+            }
         } else {
-            x_type == *self
+            x_type == self
         }
     }
 

@@ -1,5 +1,6 @@
 extern crate blockstack_vm;
 
+use blockstack_vm::errors::Error;
 use blockstack_vm::types::{Value, TypeSignature, AtomTypeIdentifier};
 
 use blockstack_vm::execute;
@@ -94,30 +95,23 @@ fn test_factorial_contract() {
               (compute 8008))
         ";
 
-    if let Ok(type_sig) = TypeSignature::new_list(AtomTypeIdentifier::IntType, 11, 1) {
-        let expected = Value::List(
-            vec![
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(6),
-                Value::Int(6),
-                Value::Int(6),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(120),
-                Value::Int(120),
-            ],
-            type_sig
-        );
+    let expected = Value::new_list(vec![
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(6),
+        Value::Int(6),
+        Value::Int(6),
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(120),
+        Value::Int(120),
+    ]);
         
-        assert_eq!(Ok(expected), execute(test1));
-    } else {
-        panic!("Error in type construction")
-    }
-
+    assert_eq!(expected, execute(test1));
 }
+
 
 #[test]
 fn silly_naming_system() {
@@ -146,23 +140,90 @@ fn silly_naming_system() {
               (who-owns? 1))
         ";
 
-    if let Ok(type_sig) = TypeSignature::new_list(AtomTypeIdentifier::IntType, 10, 1) {
-        let expected = Value::List(
-            vec![
-                Value::Int(1),
-                Value::Int(0),
-                Value::Int(1),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(1),
-                Value::Int(0),
-                Value::Int(1),
-                Value::Int(0),
-                Value::Int(-1),
-            ],
-            type_sig);
-        assert_eq!(Ok(expected), execute(test1));
-    } else {
-        panic!("Error in type construction")
-    }
+    let expected = Value::new_list(vec![
+        Value::Int(1),
+        Value::Int(0),
+        Value::Int(1),
+        Value::Int(0),
+        Value::Int(0),
+        Value::Int(1),
+        Value::Int(0),
+        Value::Int(1),
+        Value::Int(0),
+        Value::Int(-1),
+    ]);
+    assert_eq!(expected, execute(test1));
+}
+
+#[test]
+fn lists_system() {
+    let test1 =
+        "(define-map lists ((name int)) ((contents list-int-1-5)))
+         (define (add-list name content)
+           (insert-entry! lists (tuple #name name)
+                                (tuple #contents content)))
+         (define (get-list name)
+            (get contents (fetch-entry lists (tuple #name name))))
+         (add-list 0 (list 1 2 3 4 5))
+         (add-list 1 (list 1 2 3))
+         (list      (get-list 0)
+                    (get-list 1))
+        ";
+
+    let mut test2 = test1.to_string();
+    test2.push_str("(add-list 2 (list 1 2 3 4 5 6))");
+
+    let expected = || {
+        let list1 = Value::new_list(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+            Value::Int(4),
+            Value::Int(5)])?;
+        let list2 = Value::new_list(vec![
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3)])?;
+        Value::new_list(vec![list1, list2])
+    };
+    
+    assert_eq!(expected(), execute(test1));
+
+    let expected_error = match execute(&test2) {
+        Err(Error::TypeError(_,_)) => true,
+        _ => false
+    };
+
+    assert!(expected_error);
+}
+
+
+#[test]
+fn bad_tuples() {
+    let test1 = "(tuple #name 1 #name 3)";
+    let test2 = "(tuple #name 'null)";
+    let test3 = "(get value (tuple #name 1))";
+    let test4 = "(define-map lists ((name int)) ((contents list-int-0-5)))";
+
+    let matched = match execute(test1) {
+        Err(Error::InvalidArguments(_)) => true,
+        _ => false
+    };
+    assert!(matched);
+
+    let matched2 = match execute(test2) {
+        Err(Error::InvalidArguments(_)) => true,
+        _ => false
+    };
+
+    assert!(matched2);
+
+    let expected = Err(Error::InvalidArguments(
+        "No such field \"value\" in tuple".to_string()));
+    assert_eq!(expected, execute(test3));
+
+
+    let expected_bad_list = Err(Error::InvalidArguments(
+        "Cannot construct list of dimension 0".to_string()));
+    assert_eq!(expected_bad_list, execute(test4));    
 }

@@ -1,6 +1,6 @@
 extern crate blockstack_vm;
 
-use blockstack_vm::types::{Value, TypeSignature, AtomTypeIdentifier};
+use blockstack_vm::types::{Value};
 
 use blockstack_vm::execute;
 use blockstack_vm::errors::Error;
@@ -11,25 +11,25 @@ fn test_simple_map() {
         "(define (square x) (* x x))
          (map square (list 1 2 3 4))";
 
-    if let Ok(type_sig) = TypeSignature::new_list(AtomTypeIdentifier::IntType, 4, 1) {
-        let expected = Value::List(
-            vec![
-                Value::Int(1),
-                Value::Int(4),
-                Value::Int(9),
-                Value::Int(16)],
-            type_sig);
-        assert_eq!(Ok(expected.clone()), execute(test1));
+    let expected = Value::new_list(vec![
+        Value::Int(1),
+        Value::Int(4),
+        Value::Int(9),
+        Value::Int(16)]);
 
-        // let's test lists of lists.
-        let test2 = "(define (multiply x acc) (* x acc))
+    assert_eq!(expected, execute(test1));
+
+    // let's test lists of lists.
+    let test2 = "(define (multiply x acc) (* x acc))
                  (define (multiply-all x) (fold multiply x 1))
                  (map multiply-all (list (list 1 1 1) (list 2 2 1) (list 3 3) (list 2 2 2 2)))";
-        assert_eq!(Ok(expected), execute(test2));
-                                       
-    } else {
-        panic!("Err in type construction")
-    }
+    assert_eq!(expected, execute(test2));
+
+    // let's test empty lists.
+    let test2 = "(define (double x) (* x 2))
+                 (map double (list))";
+    assert_eq!(Value::new_list(vec![]), execute(test2));
+
 }
 
 #[test]
@@ -59,6 +59,23 @@ fn test_construct_bad_list() {
             Err(Error::InvalidArguments(_)) => true,
             _ => false
         });
+
+    let bad_2d_list = "(list (list 1 2 3) (list 'true 'false 'true))";
+    let bad_high_order_list = "(list (list 1 2 3) (list (list 1 2 3)))";
+
+    let expected_err_1 = match execute(bad_2d_list) {
+        Err(Error::InvalidArguments(_)) => true,
+        _ => false
+    };
+
+    assert!(expected_err_1);
+
+    let expected_err_2 = match execute(bad_high_order_list) {
+        Err(Error::InvalidArguments(_)) => true,
+        _ => false
+    };
+
+   assert!(expected_err_2);
 }
 
 #[test]
