@@ -143,26 +143,6 @@ impl TypeSignature {
         }
     }
 
-    pub fn get_list_type_for(x: &Value, max_len: u8) -> Result<TypeSignature> {
-        match x {
-            Value::Void => Err(Error::InvalidArguments("Cannot construct list of void types".to_string())),
-            Value::Tuple(_a) => Err(Error::InvalidArguments("Cannot construct list of tuple types".to_string())),
-            _ => {
-                let mut base_type = TypeSignature::type_of(x);
-                if let Some((child_max_len, dimension)) = base_type.list_dimensions {
-                    if child_max_len > max_len {
-                        base_type.list_dimensions = Some((child_max_len, dimension + 1));
-                    } else {
-                        base_type.list_dimensions = Some((max_len, dimension + 1));
-                    }
-                } else {
-                    base_type.list_dimensions = Some((max_len, 1));
-                }
-                Ok(base_type)
-            }
-        }
-    }
-
     pub fn construct_parent_list_type(args: &[Value]) -> Result<TypeSignature> {
         if let Some((first, rest)) = args.split_first() {
             // children must be all of identical types, though we're a little more permissive about
@@ -202,6 +182,21 @@ impl TypeSignature {
         }
     }
 
+    pub fn admits(&self, x: &Value) -> bool {
+        let x_type = TypeSignature::type_of(x);
+        if let Some((x_max_len, x_dimension)) = x_type.list_dimensions {
+            if x_type.atomic_type != self.atomic_type {
+                false
+            } else if let Some((max_len, dimension)) = self.list_dimensions {
+                dimension == x_dimension && max_len >= x_max_len
+            } else {
+                false
+            }
+        } else {
+            x_type == *self
+        }
+    }
+
     fn get_atom_type(typename: &str) -> Result<AtomTypeIdentifier> {
         match typename {
             "int" => Ok(AtomTypeIdentifier::IntType),
@@ -212,7 +207,6 @@ impl TypeSignature {
         }
     }
 
-    
     fn get_list_type(prefix: &str, typename: &str, dimension: &str, max_len: &str) -> Result<TypeSignature> {
         if prefix != "list" {
             let message = format!("Unknown type name: '{}-{}-{}-{}'", prefix, typename, dimension, max_len);

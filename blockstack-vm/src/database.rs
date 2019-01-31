@@ -65,8 +65,7 @@ impl DataMap for MemoryDataMap {
     //   this file should really just be speccing out the database connection/requirement.
 
     fn fetch_entry(&self, key: &Value) -> InterpreterResult {
-        let key_type = TypeSignature::type_of(key);
-        if self.key_type != key_type {
+        if !self.key_type.admits(key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), (*key).clone()))
         }
         if let Some(value) = self.map.get(key) {
@@ -77,12 +76,10 @@ impl DataMap for MemoryDataMap {
     }
 
     fn set_entry(&mut self, key: Value, value: Value) -> Result<(), Error> {
-        let key_type = TypeSignature::type_of(&key);
-        if self.key_type != key_type {
+        if !self.key_type.admits(&key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), key))
         }
-        let value_type = TypeSignature::type_of(&value);
-        if self.value_type != value_type {
+        if !self.value_type.admits(&value) {
             return Err(Error::TypeError(format!("{:?}", self.value_type), value))
         }
         self.map.insert(key, value);
@@ -90,12 +87,10 @@ impl DataMap for MemoryDataMap {
     }
 
     fn insert_entry(&mut self, key: Value, value: Value) -> InterpreterResult {
-        let key_type = TypeSignature::type_of(&key);
-        if self.key_type != key_type {
+        if !self.key_type.admits(&key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), key))
         }
-        let value_type = TypeSignature::type_of(&value);
-        if self.value_type != value_type {
+        if !self.value_type.admits(&value) {
             return Err(Error::TypeError(format!("{:?}", self.value_type), value))
         }
         if self.map.contains_key(&key) {
@@ -107,8 +102,7 @@ impl DataMap for MemoryDataMap {
     }
 
     fn delete_entry(&mut self, key: &Value) -> InterpreterResult {
-        let key_type = TypeSignature::type_of(key);
-        if self.key_type != key_type {
+        if !self.key_type.admits(key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), (*key).clone()))
         }
         if let Some(_value) = self.map.remove(key) {
