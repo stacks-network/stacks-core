@@ -56,4 +56,9 @@ SEARCH_DEFAULT_LIMIT=50
 
 # BSK_API_TMPLTDIR sets the path to the generated documentation for serving
 BSK_API_TMPLTDIR=/src/blockstack/api/templates
+
+# BSK_API_BLOCKCHAIN_URL and BSK_API_PROFILE_URL specify URLs for
+#  fetching index file dumps from /v1/index_files/blockchain and /v1/index_files/profiles
+BSK_API_BLOCKCHAIN_URL="https://storage.googleapis.com/blockstack-search_indexer_data/blockchain_data.json"
+BSK_API_PROFILE_URL="https://storage.googleapis.com/blockstack-search_indexer_data/profile_data.json"
 ```

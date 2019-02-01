@@ -2244,6 +2244,34 @@ Searches for a profile using a search string.
                  }
             }
 
+
+## Get Profile Index Data [GET /v1/index_files/profiles]
+
+Returns a 302 redirect to a data dump of the profiles indexed by the search indexer.
+If not configured by the server, it returns a 404.
+
++ Public Endpoint
++ Response 302 (application/json)
+  + Body
+  
+             {
+                "profileData": "https://storage.googleapis.com/blockstack-search_indexer_data/profile_data.json"
+             }
+
+## Get Profile Index Data [GET /v1/index_files/blockchain]
+
+Returns a 302 redirect to a data dump of the blockchain names indexed by the search indexer.
+If not configured by the server, it returns a 404.
+
++ Public Endpoint
++ Response 302 (application/json)
+  + Body
+  
+             {
+                "blockchainData": "https://storage.googleapis.com/blockstack-search_indexer_data/blockchain_data.json"
+             }
+
+
 ## Resolve DID [GET /v1/dids/{did}]
 Resolve a Blockstack DID to its DID document object (DDO).  In practice, the DDO
 is stored in the same way as a user profile, but a few extra DDO-specific

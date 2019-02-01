@@ -73,6 +73,10 @@ SEARCH_NODE_URL = os.getenv('SEARCH_NODE_URL', 'https://search.example.org')
 # SEARCH_DEFAULT_LIMIT sets the number of returns per call
 SEARCH_DEFAULT_LIMIT = int(os.getenv('SEARCH_DEFAULT_LIMIT', '50'))
 
+# Control response to /v1/index_files
+API_BLOCKCHAIN_URL = os.getenv('BSK_API_BLOCKCHAIN_URL', '')
+API_PROFILE_URL = os.getenv('BSK_API_PROFILE_URL', '')
+
 # For the resolver endpoint
 NAMES_FILENAME = "names.json"
 NEW_NAMES_FILENAME = 'new_names.json'
