@@ -38,7 +38,7 @@ from flask_crossdomain import crossdomain
 from .parameters import parameters_required
 from .utils import get_api_calls, cache_control
 from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL, BASE_INDEXER_API_URL, DEFAULT_CACHE_TIMEOUT
-from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED
+from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED, API_BLOCKCHAIN_URL, API_PROFILE_URL
 
 # hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -113,6 +113,18 @@ def search_people():
         data = {'results': []}
 
     return jsonify(data), 200
+
+@app.route('/v1/index_files', methods=['GET'])
+@cache_control(10*60)
+@crossdomain(origin='*')
+def fetch_index_files():
+    if API_BLOCKCHAIN_URL and API_PROFILE_URL:
+        response = { 'indexes': { 'profileData': API_PROFILE_URL,
+                                  'blockchainData': API_BLOCKCHAIN_URL } }
+        return jsonify(response), 200
+    else:
+        err = { 'error': 'Index file serving not configured on this server.' }
+        return jsonify(err), 404
 
 CACHE_SPECIFIC = [ re.compile(regex) for regex in
                    [r'^/v1/node/ping/?$',
