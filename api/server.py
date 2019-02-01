@@ -114,14 +114,26 @@ def search_people():
 
     return jsonify(data), 200
 
-@app.route('/v1/index_files', methods=['GET'])
+@app.route('/v1/index_files/blockchain', methods=['GET'])
 @cache_control(10*60)
 @crossdomain(origin='*')
-def fetch_index_files():
+def fetch_index_blockchain_files():
     if API_BLOCKCHAIN_URL and API_PROFILE_URL:
-        response = { 'indexes': { 'profileData': API_PROFILE_URL,
-                                  'blockchainData': API_BLOCKCHAIN_URL } }
-        return jsonify(response), 200
+        response = make_response((jsonify({ 'blockchainData': API_BLOCKCHAIN_URL }), 302))
+        response.headers['Location'] = API_BLOCKCHAIN_URL
+        return response
+    else:
+        err = { 'error': 'Index file serving not configured on this server.' }
+        return jsonify(err), 404
+
+@app.route('/v1/index_files/profiles', methods=['GET'])
+@cache_control(10*60)
+@crossdomain(origin='*')
+def fetch_index_profile_files():
+    if API_BLOCKCHAIN_URL and API_PROFILE_URL:
+        response = make_response((jsonify({ 'profileData': API_PROFILE_URL }), 302))
+        response.headers['Location'] = API_PROFILE_URL
+        return response
     else:
         err = { 'error': 'Index file serving not configured on this server.' }
         return jsonify(err), 404
