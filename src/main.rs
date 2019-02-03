@@ -43,9 +43,40 @@ use std::process;
 use util::log;
 
 fn main() {
-    log::init().unwrap();
-
     let argv : Vec<String> = env::args().collect();
+    if argv.len() < 1 {
+        eprintln!("Usage: {} command [args...]", argv[0]);
+        process::exit(1);
+    }
+
+    if argv[1] == "read_bitcoin_header" {
+        if argv.len() < 4 {
+            eprintln!("Usage: {} read_bitcoin_header BLOCK_HEIGHT PATH", argv[0]);
+            process::exit(1);
+        }
+
+        use burnchains::BurnchainHeaderHash;
+        use burnchains::bitcoin::spv;
+        use util::hash::to_hex;
+        use bitcoin::network::serialize::BitcoinHash;
+
+        let height = argv[2].parse::<u64>().unwrap();
+        let headers_path = &argv[3];
+
+        let header_opt = spv::SpvClient::read_block_header(headers_path, height).unwrap();
+        match header_opt {
+            Some(header) => {
+                println!("{:?}", header);
+                println!("{}", to_hex(BurnchainHeaderHash::from_bytes_be(header.header.bitcoin_hash().as_bytes()).unwrap().as_bytes()));
+                process::exit(0);
+            },
+            None => {
+                eprintln!("Failed to read header");
+                process::exit(1);
+            }
+        }
+    }
+
     if argv.len() < 4 {
         eprintln!("Usage: {} blockchain network working_dir", argv[0]);
         process::exit(1);
