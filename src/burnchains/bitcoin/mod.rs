@@ -90,18 +90,12 @@ pub enum Error {
     InvalidPoW,
     /// RPC error with bitcoin 
     JSONRPCError(jsonrpc_error),
-    /// Thread pipeline error (i.e. a receiving thread died)
-    PipelineError,
     /// Wrong number of bytes for constructing an address
     InvalidByteSequence,
     /// Configuration error 
     ConfigError(String),
     /// Tried to synchronize to a point above the chain tip
     BlockchainHeight,
-    /// Burn database error 
-    DBError(burndb_error),
-    /// Invalid argument 
-    InvalidArgument,
 }
 
 impl fmt::Display for Error {
@@ -123,12 +117,9 @@ impl fmt::Display for Error {
             Error::MissingHeader => f.write_str(error::Error::description(self)),
             Error::InvalidPoW => f.write_str(error::Error::description(self)),
             Error::JSONRPCError(ref e) => fmt::Display::fmt(e, f),
-            Error::PipelineError => f.write_str(error::Error::description(self)),
             Error::InvalidByteSequence => f.write_str(error::Error::description(self)),
             Error::ConfigError(ref e_str) => fmt::Display::fmt(e_str, f),
             Error::BlockchainHeight => f.write_str(error::Error::description(self)),
-            Error::DBError(ref e) => fmt::Display::fmt(e, f),
-            Error::InvalidArgument => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -152,12 +143,9 @@ impl error::Error for Error {
             Error::MissingHeader => None,
             Error::InvalidPoW => None,
             Error::JSONRPCError(ref e) => Some(e),
-            Error::PipelineError => None,
             Error::InvalidByteSequence => None,
             Error::ConfigError(ref e_str) => None,
             Error::BlockchainHeight => None,
-            Error::DBError(ref e) => Some(e),
-            Error::InvalidArgument => None,
         }
     }
 
@@ -180,12 +168,9 @@ impl error::Error for Error {
             Error::MissingHeader => "Missing header",
             Error::InvalidPoW => "Invalid proof of work",
             Error::JSONRPCError(ref e) => e.description(),
-            Error::PipelineError => "Pipeline broken",
             Error::InvalidByteSequence => "Invalid sequence of bytes",
             Error::ConfigError(ref e_str) => e_str.as_str(),
             Error::BlockchainHeight => "Value is beyond the end of the blockchain",
-            Error::DBError(ref e) => e.description(),
-            Error::InvalidArgument => "Invalid argument",
         }
     }
 }
