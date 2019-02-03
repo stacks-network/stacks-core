@@ -212,8 +212,6 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        log::init();
-
         let vtxindex = 1;
         let block_height = 694;
         let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
