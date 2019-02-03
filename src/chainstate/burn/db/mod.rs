@@ -51,10 +51,6 @@ pub enum Error {
     ConnectionError,
     /// Read-only and tried to write
     ReadOnly,
-    /// Transaction already in progress
-    TransactionInProgress,
-    /// No transaction in progress
-    NoTransaction,
     /// Type error -- can't represent the given data in the database 
     TypeError,
     /// Database is corrupt -- we got data that shouldn't be there, or didn't get data when we
@@ -62,8 +58,6 @@ pub enum Error {
     Corruption,
     /// Serialization error -- can't serialize data
     SerializationError(serde_error),
-    /// Deserialization error -- can't deserialize data
-    DeserializationError(serde_error),
     /// Parse error -- failed to load data we stored directly 
     ParseError,
     /// Overflow 
@@ -79,12 +73,9 @@ impl fmt::Display for Error {
             Error::NoDBError => f.write_str(error::Error::description(self)),
             Error::ConnectionError => f.write_str(error::Error::description(self)),
             Error::ReadOnly => f.write_str(error::Error::description(self)),
-            Error::TransactionInProgress => f.write_str(error::Error::description(self)),
-            Error::NoTransaction => f.write_str(error::Error::description(self)),
             Error::TypeError => f.write_str(error::Error::description(self)),
             Error::Corruption => f.write_str(error::Error::description(self)),
             Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
-            Error::DeserializationError(ref e) => fmt::Display::fmt(e, f),
             Error::ParseError => f.write_str(error::Error::description(self)),
             Error::Overflow => f.write_str(error::Error::description(self)),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f)
@@ -99,12 +90,9 @@ impl error::Error for Error {
             Error::NoDBError => None,
             Error::ConnectionError => None,
             Error::ReadOnly => None,
-            Error::TransactionInProgress => None,
-            Error::NoTransaction => None,
             Error::TypeError => None,
             Error::Corruption => None,
             Error::SerializationError(ref e) => Some(e),
-            Error::DeserializationError(ref e) => Some(e),
             Error::ParseError => None,
             Error::Overflow => None,
             Error::SqliteError(ref e) => Some(e)
@@ -117,12 +105,9 @@ impl error::Error for Error {
             Error::NoDBError => "Database does not exist",
             Error::ConnectionError => "Failed to connect to database",
             Error::ReadOnly => "Database is opened read-only",
-            Error::TransactionInProgress => "Transaction already in progress",
-            Error::NoTransaction => "No transaction active",
             Error::TypeError => "Invalid or unrepresentable database type",
             Error::Corruption => "Database is corrupt",
             Error::SerializationError(ref e) => e.description(),
-            Error::DeserializationError(ref e) => e.description(),
             Error::ParseError => "Parse error",
             Error::Overflow => "Numeric overflow",
             Error::SqliteError(ref e) => e.description()
