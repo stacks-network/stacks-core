@@ -207,8 +207,6 @@ mod tests {
 
     #[test]
     fn test_from_b58() {
-        log::init();
-
         let fixtures = vec![
             AddressFixture {
                 addr: "mr6nrMvvh44sR5MiX929mMXP5hqgaTr6fx".to_owned(),
