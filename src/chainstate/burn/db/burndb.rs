@@ -507,14 +507,15 @@ where
 
         for row_text in BURNDB_SETUP {
             tx.execute(row_text, NO_PARAMS)
-                .map_err(|e| db_error::SqliteError(e))?;
+                .map_err(db_error::SqliteError)?;
         }
 
         tx.execute("INSERT INTO db_version (version) VALUES (?1)", &[&CHAINSTATE_VERSION])
             .map_err(|e| db_error::SqliteError(e))?;
 
         BurnDB::<A, K>::insert_snapshot_row(&mut tx, &first_snapshot)?;
-        tx.commit();
+        tx.commit()
+            .map_err(db_error::SqliteError);
 
         Ok(())
     }
@@ -590,17 +591,23 @@ where
     }
 
     /// Get the previous consensus hashes that must be hashed to find
-    /// the next consensus hash at a particular block.
+    /// the *next* consensus hash at a particular block.
+    /// The resulting list will include the consensus hash at block_height.
     fn get_prev_consensus_hashes(conn: &Connection, block_height: u64, first_block_height: u64) -> Result<Vec<ConsensusHash>, db_error> {
-        let mut i = 1;
+        let mut i = 0;
         let mut prev_chs = vec![];
         while block_height - (((1 as u64) << i) - 1) >= first_block_height {
             let prev_block : u64 = block_height - (((1 as u64) << i) - 1);
             let prev_ch_opt = BurnDB::<A, K>::get_consensus_at(conn, prev_block)?;
             match prev_ch_opt {
                 Some(prev_ch) => {
+                    debug!("Consensus at {}: {}", prev_block, &prev_ch.to_hex());
                     prev_chs.push(prev_ch.clone());
                     i += 1;
+
+                    if block_height < (((1 as u64) << i) - 1) {
+                        break;
+                    }
                 }
                 None => {
                     error!("Failed to read consensus hash for block height {}", prev_block);
@@ -613,7 +620,7 @@ where
 
     /// Make a new consensus hash, given the ops hash 
     fn make_consensus_hash(conn: &Connection, opshash: &OpsHash, block_height: u64, first_block_height: u64, total_burn: u64) -> Result<ConsensusHash, db_error> {
-        let prev_consensus_hashes = BurnDB::<A, K>::get_prev_consensus_hashes(conn, block_height, first_block_height)?;
+        let prev_consensus_hashes = BurnDB::<A, K>::get_prev_consensus_hashes(conn, block_height - 1, first_block_height)?;
         Ok(ConsensusHash::from_ops(opshash, total_burn, &prev_consensus_hashes))
     }
 
@@ -665,7 +672,7 @@ where
 
         // de-canonicalize operations that have occurred at or after this block height.
         // we will need to reprocess them.
-        let affected_tables = vec!["leader_keys", "block_commits", "user_support_burns", "history", "snapshots"];
+        let affected_tables = vec!["history", "snapshots"];
         for i in 0..affected_tables.len() {
             let sql = format!("UPDATE {} SET canonical = 0 WHERE block_height >= ?1", &affected_tables[i]);
             tx.execute(&sql, &[&(reorg_height as i64) as &ToSql])
@@ -962,7 +969,7 @@ where
             return Err(db_error::TypeError);
         }
 
-        let qry = "SELECT consensus_hash FROM snapshots WHERE canoncal = 1 AND block_height = ?1";
+        let qry = "SELECT consensus_hash FROM snapshots WHERE canonical = 1 AND block_height = ?1";
         let args = [&(block_height as i64) as &ToSql];
 
         let mut stmt = conn.prepare(qry)
@@ -1142,16 +1149,17 @@ where
         }
 
         let snapshot = BurnDB::<A, K>::make_snapshot_row(&mut tx, block.block_height, &block.block_hash, first_block_height, &txids, block_burn_total + chain_burn_total)
-            .map_err(|_e| panic!("FATAL ERROR when taking snapshot at block {} ({})", block.block_height, &block.block_hash.to_hex()))?;
+            .map_err(|e| panic!("FATAL ERROR when taking snapshot at block {} ({}): {:?}", block.block_height, &block.block_hash.to_hex(), e))?;
 
         BurnDB::<A, K>::insert_snapshot_row(&mut tx, &snapshot)
-            .map_err(|_e| panic!("FATAL ERROR when inserting snapshot for block {} ({})", block.block_height, &block.block_hash.to_hex()))?;
+            .map_err(|e| panic!("FATAL ERROR when inserting snapshot for block {} ({}): {:?}", block.block_height, &block.block_hash.to_hex(), e))?;
         
         info!("OPSHASH({}): {}", block.block_height, &snapshot.ops_hash.to_hex());
         info!("CONSENSUS({}): {}", block.block_height, &snapshot.consensus_hash.to_hex());
 
         // commit everything!
-        tx.commit();
+        tx.commit()
+            .map_err(db_error::SqliteError);
         Ok(())
     }
 }
@@ -1204,7 +1212,7 @@ mod tests {
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
         let tx = db.tx_begin().unwrap();
-        tx.commit();
+        tx.commit().unwrap();
     }
 
     #[test]
@@ -1233,7 +1241,7 @@ mod tests {
         {   // force the tx to go out of scope when we commit
             let mut tx = db.tx_begin().unwrap();
             BurnDB::insert_leader_key(&mut tx, &leader_key).unwrap();
-            tx.commit();
+            tx.commit().unwrap();
         }
 
         let res_leader_keys = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_leader_keys_by_block(db.conn(), block_height).unwrap();
@@ -1300,7 +1308,7 @@ mod tests {
         {
             let mut tx = db.tx_begin().unwrap();
             BurnDB::insert_block_commit(&mut tx, &block_commit).unwrap();
-            tx.commit();
+            tx.commit().unwrap();
         }
 
         let res_block_commits = BurnDB::get_block_commits_by_block(db.conn(), block_height).unwrap();
@@ -1343,7 +1351,7 @@ mod tests {
         {
             let mut tx = db.tx_begin().unwrap();
             BurnDB::insert_user_burn(&mut tx, &user_burn).unwrap();
-            tx.commit();
+            tx.commit().unwrap();
         }
 
         let res_user_burns = BurnDB::get_user_burns_by_block(db.conn(), block_height).unwrap();
@@ -1393,5 +1401,367 @@ mod tests {
 
         let has_key_after = BurnDB::<BitcoinAddress, BitcoinPublicKey>::has_VRF_public_key(db.conn(), &public_key).unwrap();
         assert!(has_key_after);
+    }
+
+    #[test]
+    fn is_fresh_consensus_hash() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
+        {
+            let mut tx = db.tx_begin().unwrap();
+            for i in 0..256 {
+                let snapshot_row = SnapshotRow {
+                    block_height: i,
+                    burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    total_burn: i,
+                    canonical: true
+                };
+                BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_snapshot_row(&mut tx, &snapshot_row).unwrap();
+            }
+
+            tx.commit();
+        }
+
+        let ch_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255]).unwrap();
+        let ch_oldest_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(255 - CONSENSUS_HASH_LIFETIME) as u8]).unwrap();
+        let ch_newest_stale = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(255 - CONSENSUS_HASH_LIFETIME - 1) as u8]).unwrap();
+        let ch_missing = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,255]).unwrap();
+
+        let fresh_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, &ch_fresh).unwrap();
+        assert!(fresh_check);
+
+        let oldest_fresh_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, &ch_oldest_fresh).unwrap();
+        assert!(oldest_fresh_check);
+
+        let newest_stale_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, &ch_newest_stale).unwrap();
+        assert!(!newest_stale_check);
+
+        let missing_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, &ch_missing).unwrap();
+        assert!(!missing_check);
+    }
+
+    #[test]
+    fn get_consensus_at() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
+        {
+            let mut tx = db.tx_begin().unwrap();
+            for i in 0..256 {
+                let snapshot_row = SnapshotRow {
+                    block_height: i,
+                    burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    total_burn: i,
+                    canonical: true
+                };
+                BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_snapshot_row(&mut tx, &snapshot_row).unwrap();
+
+                // should succeed within the tx 
+                let ch_opt = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_consensus_at(&tx, i).unwrap();
+                let ch = ch_opt.unwrap();
+                assert_eq!(ch, snapshot_row.consensus_hash);
+            }
+
+            tx.commit();
+        }
+
+        for i in 0..256 {
+            // should succeed within the conn
+            let expected_ch = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap();
+            let ch_opt = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_consensus_at(db.conn(), i).unwrap();
+            let ch = ch_opt.unwrap();
+            assert_eq!(ch, expected_ch);
+        }
+    }
+
+    #[test]
+    fn get_prev_consensus_hashes() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
+        {
+            let mut tx = db.tx_begin().unwrap();
+            for i in 0..256 {
+                let snapshot_row = SnapshotRow {
+                    block_height: i,
+                    burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    total_burn: i,
+                    canonical: true
+                };
+                BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_snapshot_row(&mut tx, &snapshot_row).unwrap();
+            }
+            
+            tx.commit();
+        }
+        
+        let prev_chs_0 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 0, 0).unwrap();
+        assert_eq!(prev_chs_0, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
+        
+        let prev_chs_1 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 1, 0).unwrap();
+        assert_eq!(prev_chs_1, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
+        
+        let prev_chs_2 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 2, 0).unwrap();
+        assert_eq!(prev_chs_2, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
+        
+        let prev_chs_3 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 3, 0).unwrap();
+        assert_eq!(prev_chs_3, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
+        
+        let prev_chs_4 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 4, 0).unwrap();
+        assert_eq!(prev_chs_4, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
+        
+        let prev_chs_5 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 5, 0).unwrap();
+        assert_eq!(prev_chs_5, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap()]);
+        
+        let prev_chs_6 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 6, 0).unwrap();
+        assert_eq!(prev_chs_6, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap()]);
+        
+        let prev_chs_7 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 7, 0).unwrap();
+        assert_eq!(prev_chs_7, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
+        
+        let prev_chs_8 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 8, 0).unwrap();
+        assert_eq!(prev_chs_8, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
+        
+        let prev_chs_62 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 62, 0).unwrap();
+        assert_eq!(prev_chs_62, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,62]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,61]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,59]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,55]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,47]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,31]).unwrap()]);
+
+        let prev_chs_63 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 63, 0).unwrap();
+        assert_eq!(prev_chs_63, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,62]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,60]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,56]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,48]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,32]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
+
+        let prev_chs_64 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 64, 0).unwrap();
+        assert_eq!(prev_chs_64, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,64]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,61]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,57]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,49]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,33]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
+
+        let prev_chs_126 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 126, 0).unwrap();
+        assert_eq!(prev_chs_126, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,126]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,125]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,123]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,119]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,111]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,95]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap()]);
+
+        let prev_chs_127 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 127, 0).unwrap();
+        assert_eq!(prev_chs_127, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,126]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,124]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,120]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,112]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,96]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,64]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
+
+        let prev_chs_128 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 128, 0).unwrap();
+        assert_eq!(prev_chs_128, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,125]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,121]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,113]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,97]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,65]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
+        
+        let prev_chs_254 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 254, 0).unwrap();
+        assert_eq!(prev_chs_254, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,254]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,253]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,251]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,247]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,239]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,223]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,191]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap()]);
+
+        let prev_chs_255 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 255, 0).unwrap();
+        assert_eq!(prev_chs_255, vec![
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,254]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,248]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,240]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,224]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,192]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128]).unwrap(),
+            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
+    }
+
+    #[test]
+    fn find_block_burn_amount() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let block_height = 500;
+
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
+        {
+            let mut tx = db.tx_begin().unwrap();
+        
+            let block_commit : LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey> = LeaderBlockCommitOp {
+                block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
+                new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
+                parent_block_backptr: 0x4140,
+                parent_vtxindex: 0x4342,
+                key_block_backptr: 0x5150,
+                key_vtxindex: 0x6160,
+                epoch_num: 0x71706362,
+                memo: vec![0x80],
+
+                burn_fee: 1,
+                input: BurnchainTxInput {
+                    keys: vec![
+                        BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                    ],
+                    num_required: 1, 
+                    in_type: BurnchainInputType::BitcoinInput,
+                },
+
+                op: 91,     // '[' in ascii
+                txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
+                vtxindex: 0,
+                block_number: block_height,
+                burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+
+                _phantom: PhantomData
+            };
+            
+            let block_commit_noncanonical : LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey> = LeaderBlockCommitOp {
+                block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222223").unwrap()).unwrap(),
+                new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
+                parent_block_backptr: 0x4140,
+                parent_vtxindex: 0x4342,
+                key_block_backptr: 0x5150,
+                key_vtxindex: 0x6160,
+                epoch_num: 0x71706362,
+                memo: vec![0x80],
+
+                burn_fee: 10,
+                input: BurnchainTxInput {
+                    keys: vec![
+                        BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                    ],
+                    num_required: 1, 
+                    in_type: BurnchainInputType::BitcoinInput,
+                },
+
+                op: 91,     // '[' in ascii
+                txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
+                vtxindex: 0,
+                block_number: block_height,
+                burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+
+                _phantom: PhantomData
+            };
+        
+            let user_burn : UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey> = UserBurnSupportOp {
+                consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+                public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+                block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
+                memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+                burn_fee: 2,
+
+                op: UserBurnSupportOp_OPCODE,
+                txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
+                vtxindex: 1,
+                block_number: block_height,
+                burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
+                
+                _phantom_a: PhantomData,
+                _phantom_k: PhantomData
+            };
+            
+            let user_burn_noncanonical : UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey> = UserBurnSupportOp {
+                consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+                public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+                block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
+                memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+                burn_fee: 20,
+
+                op: UserBurnSupportOp_OPCODE,
+                txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
+                vtxindex: 1,
+                block_number: block_height,
+                burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
+                
+                _phantom_a: PhantomData,
+                _phantom_k: PhantomData
+            };
+
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_commit(&mut tx, &block_commit_noncanonical).unwrap();
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_user_burn(&mut tx, &user_burn_noncanonical).unwrap();
+            
+            let burn_amount_noncanonical = BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height).unwrap();
+            assert_eq!(burn_amount_noncanonical, 30);
+            
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
+
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::burnchain_history_reorg(&mut tx, block_height).unwrap();
+
+            let burn_amount_postreorg = BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height).unwrap();
+            assert_eq!(burn_amount_postreorg, 0);
+            
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
+
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_commit(&mut tx, &block_commit).unwrap();
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_user_burn(&mut tx, &user_burn).unwrap();
+        
+            // only the canonical ops should show up 
+            let burn_amount = BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height).unwrap();
+            assert_eq!(burn_amount, 3);
+            
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
+
+            tx.commit();
+        }
     }
 }
