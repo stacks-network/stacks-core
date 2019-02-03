@@ -17,7 +17,10 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::fs;
 use std::net;
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::sync::{Arc, Mutex, LockResult, MutexGuard};
 use rand::{Rng, thread_rng};
 use std::path::{PathBuf};
@@ -43,6 +46,7 @@ use burnchains::Error as burnchain_error;
 use burnchains::MagicBytes;
 
 use bitcoin::blockdata::block::LoneBlockHeader;
+use bitcoin::network::message::NetworkMessage;
 
 use util::log;
 
@@ -60,16 +64,11 @@ pub const BITCOIN_REGTEST_NAME: &'static str = "regtest";
 
 // maybe change this
 pub const FIRST_BLOCK_MAINNET: u64 = 373601;
-pub const FIRST_BLOCK_MAINNET_HASH: BurnchainHeaderHash = BurnchainHeaderHash([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x10, 0xc0, 0x28, 0x5c, 0x41, 0x74, 0x93, 0xc7, 0x47, 0x69, 0xfe, 0x0c, 0x7c, 0x5a, 0xee, 0x84, 0xf6, 0x36, 0x7e, 0x48, 0x6a, 0xcb, 0x5a]);
-
 pub const FIRST_BLOCK_TESTNET: u64 = 0;
-pub const FIRST_BLOCK_TESTNET_HASH: BurnchainHeaderHash = BurnchainHeaderHash([0u8; 32]);
-
 pub const FIRST_BLOCK_REGTEST: u64 = 0;
-pub const FIRST_BLOCK_REGTEST_HASH: BurnchainHeaderHash = BurnchainHeaderHash([0u8; 32]);
 
 // batch size for searching for a reorg 
-const REORG_BATCH_SIZE: u64 = 200;
+const REORG_BATCH_SIZE: u64 = 2000;
 
 pub fn network_id_to_name(network_id: BitcoinNetworkType) -> &'static str {
     match network_id {
@@ -102,6 +101,7 @@ pub struct BitcoinIndexerConfig {
     pub magic_bytes: MagicBytes
 }
 
+#[derive(Debug, Clone)]
 pub struct BitcoinIndexerRuntime {
     sock: Arc<Mutex<Option<net::TcpStream>>>,
     pub services: u64,
@@ -117,31 +117,60 @@ pub struct BitcoinIndexer {
 
 
 impl BitcoinIndexerConfig {
-    fn default() -> BitcoinIndexerConfig {
-        let mut spv_headers_path = dirs::home_dir().unwrap();
-        spv_headers_path.push(".stacks");
-        spv_headers_path.push("bitcoin-spv-headers.dat");
+    pub fn default(working_dir: &String) -> BitcoinIndexerConfig {
+        let mut spv_headers_pathbuf = PathBuf::from(working_dir);
+        spv_headers_pathbuf.push("bitcoin-spv-headers.dat");
+        let spv_headers_path = spv_headers_pathbuf.to_str().unwrap().to_string();
 
         BitcoinIndexerConfig {
             peer_host: "bitcoin.blockstack.com".to_string(),
-            peer_port: 8332,
-            rpc_port: 8333,
+            peer_port: 8333,
+            rpc_port: 8332,
             rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 30,
-            spv_headers_path: spv_headers_path.to_str().unwrap().to_string(),
+            spv_headers_path: spv_headers_path,
             first_block: FIRST_BLOCK_MAINNET,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone()
         }
     }
 
-    fn from_file(path: &String) -> Result<BitcoinIndexerConfig, btc_error> {
+    pub fn to_file(&self, path: &String) -> Result<(), btc_error> {
+       let mut conf = Ini::new();
+
+       let username = self.username.clone().unwrap_or("".to_string());
+       let password = self.password.clone().unwrap_or("".to_string());
+
+       conf.with_section(Some("bitcoin".to_owned()))
+           .set("server", self.peer_host.as_str())
+           .set("port", format!("{}", self.peer_port).as_str())
+           .set("rpc_port", format!("{}", self.rpc_port).as_str())
+           .set("rpc_ssl", format!("{}", self.rpc_ssl).as_str())
+           .set("username", username.as_str())
+           .set("password", password.as_str())
+           .set("timeout", format!("{}", self.timeout).as_str())
+           .set("spv_path", self.spv_headers_path.as_str())
+           .set("first_block", format!("{}", self.first_block).as_str());
+
+       conf.with_section(Some("blockstack".to_owned()))
+           .set("network_id", format!("{}{}", self.magic_bytes.as_bytes()[0] as char, self.magic_bytes.as_bytes()[1] as char).as_str());
+
+       conf.write_to_file(&path)
+           .map_err(|e| btc_error::Io(e))
+    }
+
+    pub fn from_file(path: &String) -> Result<BitcoinIndexerConfig, btc_error> {
        let conf_path = PathBuf::from(path);
        if !conf_path.is_file() {
            return Err(btc_error::ConfigError("Failed to load BitcoinIndexerConfig file: No such file or directory".to_string()));
        }
-       let default_config = BitcoinIndexerConfig::default();
+
+       let mut home_pathbuf = PathBuf::from(dirs::home_dir().unwrap());
+       home_pathbuf.push(".stacks");
+
+       let default_working_dir = home_pathbuf.to_str().unwrap().to_string();
+       let default_config = BitcoinIndexerConfig::default(&default_working_dir);
 
        match Ini::load_from_file(path) {
            Ok(ini_file) => {
@@ -153,7 +182,7 @@ impl BitcoinIndexerConfig {
 
                let bitcoin_section = bitcoin_section_opt.unwrap();
 
-               // defaults
+               // [bitcoin]
                let peer_host = bitcoin_section.get("server")
                                               .unwrap_or(&default_config.peer_host);
 
@@ -173,7 +202,7 @@ impl BitcoinIndexerConfig {
                    return Err(btc_error::ConfigError("Invalid rpc_port".to_string()));
                }
 
-               let username = bitcoin_section.get("user").and_then(|s| Some(s.clone()));
+               let username = bitcoin_section.get("username").and_then(|s| Some(s.clone()));
                let password = bitcoin_section.get("password").and_then(|s| Some(s.clone()));
 
                let timeout = bitcoin_section.get("timeout")
@@ -193,6 +222,7 @@ impl BitcoinIndexerConfig {
                
                let rpc_ssl = rpc_ssl_str == "1" || rpc_ssl_str == "true";
 
+               // [blockstack]
                let blockstack_section_opt = ini_file.section(Some("blockstack").to_owned());
                if None == blockstack_section_opt {
                    return Err(btc_error::ConfigError("No [blockstack] section in config file".to_string()));
@@ -200,7 +230,6 @@ impl BitcoinIndexerConfig {
 
                let blockstack_section = blockstack_section_opt.unwrap();
 
-               // defaults 
                let blockstack_magic_str = blockstack_section.get("network_id")
                                                             .unwrap_or(&"id".to_string())
                                                             .clone();
@@ -296,12 +325,32 @@ impl BitcoinIndexer {
         )
     }
 
+    /// Are we connected?
+    fn is_connected(&mut self) -> bool {
+        let sock_locked = self.socket_locked();
+        match sock_locked {
+            Err(_) => {
+                false
+            },
+            Ok(mut guard) => {
+                match *guard.deref_mut() {
+                    Some(ref mut sock) => {
+                        true
+                    },
+                    None => {
+                        false
+                    }
+                }
+            }
+        }
+    }
+
     /// Carry on a conversation with the bitcoin peer.
     /// Handle version, verack, ping, and pong messages automatically.
     /// Reconnect to the peer automatically if the peer closes the connection.
     /// Pass any other messages to a given message handler.
-    pub fn peer_communicate<T: BitcoinMessageHandler>(&mut self, message_handler: &mut T) -> Result<(), btc_error> {
-        let mut do_handshake = true;
+    pub fn peer_communicate<T: BitcoinMessageHandler>(&mut self, message_handler: &mut T, initial_handshake: bool) -> Result<(), btc_error> {
+        let mut do_handshake = initial_handshake || !self.is_connected();
         let mut keep_going = true;
         let mut initiated = false;
 
@@ -357,7 +406,14 @@ impl BitcoinIndexer {
                             }
                         }
                         Err(btc_error::UnhandledMessage(m)) => {
-                            debug!("Unhandled message {:?}", m);
+                            match m.deref() {
+                                NetworkMessage::Alert(ref alert_msg) => {
+                                    keep_going = true;
+                                },
+                                _ => {
+                                    debug!("Unhandled message {:?}", m);
+                                }
+                            }
                         }
                         Err(btc_error::ConnectionBroken) => {
                             debug!("Re-establish peer connection");
@@ -398,10 +454,11 @@ impl BitcoinIndexer {
     /// Synchronize the last N headers from bitcoin to a specific file.
     /// Returns the number of headers fetched.
     pub fn sync_last_headers(&mut self, path: &String, start_block: u64, last_block: u64) -> Result<u64, btc_error> {
-        debug!("Sync all headers for blocks {} - {}", 0, last_block);
+        
+        debug!("Sync all headers for blocks {} - {}", start_block, last_block);
         let mut spv_client = SpvClient::new(&path, start_block, last_block, self.runtime.network_id);
         spv_client.run(self)
-                  .and_then(|r| Ok(last_block - 1 - start_block))
+                  .and_then(|r| Ok(last_block - start_block))
     }
 
     /// Get a range of block headers from a file.
@@ -427,16 +484,25 @@ impl BitcoinIndexer {
     /// Search for a bitcoin reorg.  Return the offset into the canonical bitcoin headers where
     /// the reorg starts.
     pub fn find_bitcoin_reorg(&mut self, headers_path: &String, db_height: u64) -> Result<u64, btc_error> {
-        let mut reorg_headers_pathbuf = PathBuf::from(&headers_path);
-        reorg_headers_pathbuf.push(".reorg");
-
-        let reorg_headers_path = reorg_headers_pathbuf.to_str().unwrap().to_string();
+        let reorg_headers_path = format!("{}.reorg", &headers_path);
+        if PathBuf::from(&reorg_headers_path).exists() {
+            fs::remove_file(&reorg_headers_path)
+                .map_err(|e| {
+                    error!("Failed to remove {}", reorg_headers_path);
+                    btc_error::Io(e)
+                })?;
+        }
 
         let mut new_tip = 0;
         let mut found = false;
 
         // what's the last header we have from the canonical history?
-        let canonical_end_block = SpvClient::get_headers_height(&headers_path)?;
+        let canonical_end_block = SpvClient::get_headers_height(&headers_path)
+            .map_err(|e| {
+                error!("Failed to get the last block from {}", &headers_path);
+                e
+            })?;
+
         if canonical_end_block < db_height {
             // should never happen 
             panic!("Headers is at block {}, but database is at block {}", canonical_end_block, db_height);
@@ -452,12 +518,29 @@ impl BitcoinIndexer {
 
         while start_block > 0 && !found {
             debug!("Search for reorg'ed headers from {} - {}", start_block, start_block + REORG_BATCH_SIZE);
-           
-            // get new headers
+
+            // copy over the head of the existing headers so we can fetch to the .reorg file
+            let copy_height_start = 
+                if start_block < REORG_BATCH_SIZE - 1 {
+                    0
+                }
+                else {
+                    start_block - REORG_BATCH_SIZE - 1
+                };
+
+            let existing_headers = self.read_spv_headers(&headers_path, copy_height_start, start_block + 1)?;
+
             let mut spv_client = SpvClient::new(&reorg_headers_path, start_block, start_block + REORG_BATCH_SIZE, self.runtime.network_id);
+            spv_client.write_block_headers(copy_height_start - 1, &existing_headers)
+                .map_err(|e| {
+                    error!("Failed to write block header {} to {}", start_block, &reorg_headers_path);
+                    e
+                })?;
+           
+            // get new headers, starting off of this one.
             spv_client.run(self)
                 .map_err(|e| {
-                    error!("Failed to fetch headers from {} - {}", start_block, REORG_BATCH_SIZE);
+                    error!("Failed to fetch headers from {} - {}", start_block, start_block + REORG_BATCH_SIZE);
                     e
                 })?;
 
@@ -475,7 +558,7 @@ impl BitcoinIndexer {
                 })?;
               
             for i in (start_block..(start_block + REORG_BATCH_SIZE)).rev() {
-                if canonical_headers[i as usize] == reorg_headers[i as usize] {
+                if canonical_headers[(i - start_block) as usize] == reorg_headers[(i - start_block) as usize] {
                     // shared history 
                     new_tip = i + 1;
                     found = true;
@@ -486,6 +569,7 @@ impl BitcoinIndexer {
             start_block -= REORG_BATCH_SIZE;
         }
 
+        debug!("Chain history is consistent up to {}", new_tip);
         Ok(new_tip)
     }
 }
@@ -540,6 +624,21 @@ impl BurnchainIndexer for BitcoinIndexer {
             .map_err(burnchain_error::bitcoin)
     }
 
+    /// Get the first block height
+    fn get_first_block_height(&self) -> u64 {
+        match self.runtime.network_id {
+            BitcoinNetworkType::mainnet => {
+                FIRST_BLOCK_MAINNET
+            },
+            BitcoinNetworkType::testnet => {
+                FIRST_BLOCK_TESTNET
+            },
+            BitcoinNetworkType::regtest => {
+                FIRST_BLOCK_REGTEST
+            }
+        }
+    }
+
     /// Get the height of the blockchain 
     fn get_blockchain_height(&self) -> Result<u64, burnchain_error> {
         self.get_bitcoin_blockchain_height()
@@ -570,7 +669,7 @@ impl BurnchainIndexer for BitcoinIndexer {
 
     /// Download and store all headers between two block heights 
     fn sync_headers(&mut self, headers_path: &String, start_height: u64, end_height: u64) -> Result<(), burnchain_error> {
-        self.sync_last_headers(headers_path, start_height, end_height)
+        self.sync_last_headers(headers_path, start_height, end_height - 1)
             .map_err(burnchain_error::bitcoin)
             .and_then(|_num_fetched| Ok(()))
     }
