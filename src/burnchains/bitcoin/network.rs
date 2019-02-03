@@ -205,7 +205,7 @@ impl BitcoinIndexer {
     /// succeed in establishing a connection.
     /// This method masks ConnectionBroken errors, but does not mask other network errors.
     pub fn connect_handshake_backoff(&mut self, network_name: &str) -> Result<(), btc_error> {
-        let mut backoff: f64 = 0.0;
+        let mut backoff: f64 = 1.0;
         let mut rng = thread_rng();
 
         loop {
@@ -235,13 +235,12 @@ impl BitcoinIndexer {
                 }
             }
 
-            // do backoff of we get here
-            warn!("Connection broken; retrying in {} sec...", backoff);
-
-            // don't sleep more than 10 min
-            if backoff > 600.0 {
-                backoff = 600.0;
+            // don't sleep more than 60 seconds
+            if backoff > 60.0 {
+                backoff = 60.0;
             }
+            
+            warn!("Connection broken; retrying in {} sec...", backoff);
 
             let sleep_sec = backoff as u64;
             let sleep_nsec = (((backoff - (sleep_sec as f64)) as u64) * 1_000_000) as u32;
@@ -276,7 +275,7 @@ impl BitcoinIndexer {
         };
 
         debug!("Send version (nonce={}) to {}:{}", self.runtime.version_nonce, self.config.peer_host, self.config.peer_port);
-        return self.send_message(btc_message::NetworkMessage::Version(payload));
+        self.send_message(btc_message::NetworkMessage::Version(payload))
     }
 
     /// Receive a Version message and reply with a Verack
@@ -298,7 +297,7 @@ impl BitcoinIndexer {
         let payload = btc_message::NetworkMessage::Verack;
 
         debug!("Send verack");
-        return self.send_message(payload);
+        self.send_message(payload)
     }
 
     /// Handle a verack we received.
@@ -313,7 +312,7 @@ impl BitcoinIndexer {
                 error!("Did not receive verack, but got {:?}", verack_message);
             }
         };
-        return Err(btc_error::InvalidMessage(verack_message));
+        Err(btc_error::InvalidMessage(verack_message))
     }
 
     /// Send a ping message 
@@ -321,7 +320,7 @@ impl BitcoinIndexer {
         let payload = btc_message::NetworkMessage::Ping(nonce);
 
         debug!("Send ping {} to {}:{}", nonce, self.config.peer_host, self.config.peer_port);
-        return self.send_message(payload);
+        self.send_message(payload)
     }
 
     /// Respond to a Ping message by sending a Pong message 
@@ -338,7 +337,7 @@ impl BitcoinIndexer {
                 error!("Did not receive ping, but got {:?}", ping_message);
             }
         };
-        return Err(btc_error::InvalidMessage(ping_message));
+        Err(btc_error::InvalidMessage(ping_message))
     }
     
     /// Respond to a Pong message.
@@ -357,7 +356,7 @@ impl BitcoinIndexer {
                 error!("Did not receive pong, but got {:?}", pong_message);
             }
         };
-        return Err(btc_error::InvalidReply);
+        Err(btc_error::InvalidReply)
     }
 
     /// Send a GetHeaders message
@@ -367,8 +366,8 @@ impl BitcoinIndexer {
         let getheaders = btc_message_blockdata::GetHeadersMessage::new(vec![prev_block_hash], prev_block_hash);
         let payload = btc_message::NetworkMessage::GetHeaders(getheaders);
 
-        debug!("Send GetHeaders {} to {}:{}", prev_block_hash.be_hex_string(), self.config.peer_host, self.config.peer_port);
-        return self.send_message(payload);
+        debug!("Send GetHeaders {} for 2000 headers to {}:{}", prev_block_hash.be_hex_string(), self.config.peer_host, self.config.peer_port);
+        self.send_message(payload)
     }
 
     /// Send a GetBlocks message
@@ -379,6 +378,25 @@ impl BitcoinIndexer {
         let payload = btc_message::NetworkMessage::GetBlocks(getblocks);
 
         debug!("Send GetBlocks {}-{} to {}:{}", block_hashes[0].be_hex_string(), block_hashes[block_hashes.len() - 1].be_hex_string(), self.config.peer_host, self.config.peer_port);
-        return self.send_message(payload);
+        self.send_message(payload)
+    }
+
+    /// Send a GetData message 
+    pub fn send_getdata(&mut self, block_hashes: &Vec<Sha256dHash>) -> Result<(), btc_error> {
+        assert!(block_hashes.len() > 0);
+        let getdata_invs = block_hashes
+            .iter()
+            .map(|h| {
+                 btc_message_blockdata::Inventory {
+                    inv_type: btc_message_blockdata::InvType::Block,
+                    hash: h.clone()
+                }
+            })
+            .collect();
+
+        let getdata = btc_message::NetworkMessage::GetData(getdata_invs);
+
+        debug!("Send GetData {}-{} to {}:{}", block_hashes[0].be_hex_string(), block_hashes[block_hashes.len() - 1].be_hex_string(), self.config.peer_host, self.config.peer_port);
+        self.send_message(getdata)
     }
 }
