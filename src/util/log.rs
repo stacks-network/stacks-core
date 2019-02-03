@@ -27,10 +27,6 @@ pub const LOG_ERROR : u8 = 4;
 // per-thread log level and log format
 thread_local!(static loglevel: RefCell<u8> = RefCell::new(LOG_DEBUG));
 
-pub fn init() -> Result<(), String> {
-    Ok(())
-}
-
 pub fn set_loglevel(ll: u8) -> Result<(), String> {
     loglevel.with(move |level| {
         match ll {
@@ -56,7 +52,12 @@ pub fn get_loglevel() -> u8 {
 macro_rules! debug {
     ($($arg:tt)*) => ({
         if log::get_loglevel() <= log::LOG_DEBUG {
-            eprintln!("DEBUG [{}:{}] {}", file!(), line!(), format!($($arg)*));
+            use std::time::SystemTime;
+            let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
+                Err(_) => (0, 0)
+            };
+            eprintln!("DEBUG [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
         }
     })
 }
@@ -64,7 +65,12 @@ macro_rules! debug {
 macro_rules! info {
     ($($arg:tt)*) => ({
         if log::get_loglevel() <= log::LOG_INFO {
-            eprintln!("INFO [{}:{}] {}", file!(), line!(), format!($($arg)*));
+            use std::time::SystemTime;
+            let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
+                Err(_) => (0, 0)
+            };
+            eprintln!("INFO [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
         }
     })
 }
@@ -72,7 +78,12 @@ macro_rules! info {
 macro_rules! warn {
     ($($arg:tt)*) => ({
         if log::get_loglevel() <= log::LOG_WARN {
-            eprintln!("WARN [{}:{}] {}", file!(), line!(), format!($($arg)*));
+            use std::time::SystemTime;
+            let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
+                Err(_) => (0, 0)
+            };
+            eprintln!("WARN [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
         }
     })
 }
@@ -80,7 +91,12 @@ macro_rules! warn {
 macro_rules! error {
     ($($arg:tt)*) => ({
         if log::get_loglevel() <= log::LOG_ERROR {
-            eprintln!("ERROR [{}:{}] {}", file!(), line!(), format!($($arg)*));
+            use std::time::SystemTime;
+            let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
+                Err(_) => (0, 0)
+            };
+            eprintln!("ERROR [{}.{:03}] [{}:{}] {}", ts_sec, ts_msec, file!(), line!(), format!($($arg)*));
         }
     })
 }
