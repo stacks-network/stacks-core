@@ -101,7 +101,7 @@ impl BurnBlockIPC for BitcoinBlockIPC {
 pub struct BitcoinBlockDownloader {
     cur_request: Option<BitcoinHeaderIPC>,
     cur_block: Option<BitcoinBlockIPC>,
-    indexer: BitcoinIndexer
+    indexer: Option<BitcoinIndexer>
 }
 
 pub struct BitcoinBlockParser {
@@ -114,16 +114,20 @@ impl BitcoinBlockDownloader {
         BitcoinBlockDownloader {
             cur_request: None,
             cur_block: None,
-            indexer: indexer
+            indexer: Some(indexer)
         }
     }
 
     pub fn run(&mut self, header: &BitcoinHeaderIPC) -> Result<BitcoinBlockIPC, btc_error> {
         self.cur_request = Some((*header).clone());
         
-        let mut indexer = self.indexer.dup();
+        // let mut indexer = self.indexer.dup();
+        let mut indexer = self.indexer.take().unwrap();
         
-        indexer.peer_communicate(self)?; 
+        indexer.peer_communicate(self, false)?; 
+        
+        self.indexer = Some(indexer);
+
         assert!(self.cur_block.is_some());
         let ipc_block = self.cur_block.take().unwrap();
         Ok(ipc_block)
@@ -149,7 +153,7 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
             None => panic!("No block header set"),
             Some(ref ipc_header) => {
                 let block_hash = ipc_header.block_header.header.bitcoin_hash().clone();
-                indexer.send_getblocks(&vec![block_hash])
+                indexer.send_getdata(&vec![block_hash])
                     .and_then(|_r| Ok(true))
             }
         }
@@ -181,7 +185,7 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
                     debug!("Requested block {}, got block {}", &to_hex(ipc_header.block_header.header.bitcoin_hash().as_bytes()), &to_hex(block.bitcoin_hash().as_bytes()));
                     
                     // try again 
-                    indexer.send_getblocks(&vec![ipc_header.block_header.header.bitcoin_hash()])?;
+                    indexer.send_getdata(&vec![ipc_header.block_header.header.bitcoin_hash()])?;
                     return Ok(true);
                 }
 
@@ -195,7 +199,7 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
             }
         }
 
-        debug!("Got block {}: {}", height, &to_hex(block_hash.as_bytes()));
+        debug!("Got block {}: {}", height, &to_hex(BurnchainHeaderHash::from_bitcoin_hash(&block_hash).as_bytes()));
 
         // store response. we're done.
         let ipc_block = BitcoinBlockIPC {
@@ -512,7 +516,6 @@ mod tests {
 
     #[test]
     fn maybe_burnchain_tx_test() {
-        log::init();
         let tx_fixtures = vec![
             TxFixture {
                 // valid
@@ -541,8 +544,6 @@ mod tests {
 
     #[test]
     fn parse_tx_test() {
-        log::init();
-
         let vtxindex = 4;
         let tx_fixtures = vec![
             TxFixture {
