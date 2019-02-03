@@ -563,7 +563,6 @@ mod tests {
 
     #[test]
     fn tx_input_singlesig() {
-        log::init();
         let tx_input_singlesig_fixtures = vec![
             ScriptFixture {
                 // one compressed key
@@ -609,7 +608,6 @@ mod tests {
 
     #[test]
     fn tx_input_multisig() {
-        log::init();
         let tx_input_multisig_fixtures = vec![
             ScriptFixture {
                 // 2-of-3 multisig, uncompressed keys 
@@ -684,8 +682,6 @@ mod tests {
 
     #[test]
     fn tx_input_segwit_p2wpkh_p2sh() {
-        log::init();
-
         // should extract keys from segwit p2wpkh-over-p2sh witness script 
         let tx_fixtures_p2wpkh_p2sh = vec![
             ScriptWitnessFixture {
@@ -760,8 +756,6 @@ mod tests {
 
     #[test]
     fn tx_input_segwit_p2wsh_multisig_p2sh() {
-        log::init();
-
         // should extract keys from segwit p2wsh-multisig-over-p2sh witness script 
         let tx_fixtures_p2wpkh_p2sh = vec![
             ScriptWitnessFixture {
@@ -866,8 +860,6 @@ mod tests {
 
     #[test]
     fn tx_input_strange() {
-        log::init();
-
         // none of these should parse
         let tx_fixtures_strange_scriptsig : Vec<ScriptFixture<Option<BurnchainTxInput<BitcoinPublicKey>>>> = vec![
             ScriptFixture {
@@ -926,8 +918,6 @@ mod tests {
 
     #[test]
     fn tx_output_p2pkh() {
-        log::init();
-
         let amount = 123;
         let tx_fixtures_p2pkh = vec![
             ScriptFixture {
@@ -956,8 +946,6 @@ mod tests {
 
     #[test]
     fn tx_output_p2sh() {
-        log::init();
-
         let amount = 123;
         let tx_fixtures_p2sh = vec![
             ScriptFixture {
@@ -985,8 +973,6 @@ mod tests {
 
     #[test]
     fn tx_output_strange() {
-        log::init();
-
         let tx_fixtures_strange : Vec<ScriptFixture<Option<BurnchainTxOutput<BitcoinAddress>>>> = vec![
             ScriptFixture {
                 // script pubkey for segwit p2wpkh
@@ -1008,8 +994,6 @@ mod tests {
 
     #[test]
     fn sender_scriptpubkey_from_keys() {
-        log::init();
-
         let scriptpubkey_fixtures = vec![
             ScriptPubkeyFixture {
                 // script pubkey for p2pkh
