@@ -24,6 +24,8 @@ pub mod indexer;
 
 use std::fmt;
 use std::error;
+use std::fs;
+use std::io;
 
 use self::bitcoin::Error as btc_error;
 use util::Error as util_error;
@@ -106,8 +108,6 @@ pub type BlockChannel<A, K> = SyncSender<Arc<BurnchainBlock<A, K>>>;
 pub enum Error {
     /// Bitcoin-related error
     bitcoin(btc_error),
-    /// util error 
-    util(util_error),
     /// burn database error 
     DBError(burndb_error),
     /// Download error 
@@ -117,7 +117,9 @@ pub enum Error {
     /// Thread channel error 
     ThreadChannelError,
     /// Missing headers 
-    MissingHeaders
+    MissingHeaders,
+    /// filesystem error 
+    FSError(io::Error)
 }
 
 impl fmt::Display for Error {
@@ -125,11 +127,11 @@ impl fmt::Display for Error {
         match *self {
             Error::bitcoin(ref btce) => fmt::Display::fmt(btce, f),
             Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
-            Error::util(ref ue) => fmt::Display::fmt(ue, f),
             Error::DownloadError(ref btce) => fmt::Display::fmt(btce, f),
             Error::ParseError => f.write_str(error::Error::description(self)),
             Error::MissingHeaders => f.write_str(error::Error::description(self)),
             Error::ThreadChannelError => f.write_str(error::Error::description(self)),
+            Error::FSError(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -139,11 +141,11 @@ impl error::Error for Error {
         match *self {
             Error::bitcoin(ref e) => Some(e),
             Error::DBError(ref e) => Some(e),
-            Error::util(ref e) => Some(e),
             Error::DownloadError(ref e) => Some(e),
             Error::ParseError => None,
             Error::MissingHeaders => None,
             Error::ThreadChannelError => None,
+            Error::FSError(ref e) => Some(e),
         }
     }
 
@@ -151,11 +153,11 @@ impl error::Error for Error {
         match *self {
             Error::bitcoin(ref e) => e.description(),
             Error::DBError(ref e) => e.description(),
-            Error::util(ref e) => e.description(),
             Error::DownloadError(ref e) => e.description(),
             Error::ParseError => "Parse error",
             Error::MissingHeaders => "Missing block headers",
             Error::ThreadChannelError => "Error in thread channel",
+            Error::FSError(ref e) => e.description(),
         }
     }
 }
