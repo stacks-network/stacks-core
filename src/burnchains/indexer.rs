@@ -60,6 +60,8 @@ pub trait BurnchainIndexer {
     fn init(network_name: &String, working_directory: &String) -> Result<Self, burnchain_error>
         where Self : Sized;
     fn connect(&mut self) -> Result<(), burnchain_error>;
+
+    fn get_first_block_height(&self) -> u64;
     fn get_blockchain_height(&self) -> Result<u64, burnchain_error>;
     fn get_headers_path(&self) -> String;
     fn get_headers_height(&self, headers_path: &String) -> Result<u64, burnchain_error>;
