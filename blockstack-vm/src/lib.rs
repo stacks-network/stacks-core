@@ -126,7 +126,7 @@ pub fn eval_all(expressions: &[SymbolicExpression],
                 env.global_context.variables.insert(name, value);
             },
             DefineResult::Function(name, value) => {
-                env.global_context.functions.insert(name, Box::new(value));
+                env.global_context.functions.insert(name, value);
             },
             DefineResult::Map(name, key_type, value_type) => {
                 env.database.create_map(&name, key_type, value_type);

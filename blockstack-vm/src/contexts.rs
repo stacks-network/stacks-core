@@ -24,7 +24,7 @@ impl <'a> Environment <'a> {
 pub struct Context <'a> {
     pub parent: Option< &'a Context<'a>>,
     pub variables: HashMap<String, Value>,
-    pub functions: HashMap<String, Box<DefinedFunction>>,
+    pub functions: HashMap<String, DefinedFunction>,
 }
 
 impl <'a> Context <'a> {
@@ -54,10 +54,10 @@ impl <'a> Context <'a> {
         }
     }
 
-    pub fn lookup_function(&self, name: &str) -> Option<Box<DefinedFunction>> {
+    pub fn lookup_function(&self, name: &str) -> Option<DefinedFunction> {
         match self.functions.get(name) {
             Some(value) => {
-                Option::Some(Box::new(*value.clone()))
+                Option::Some(value.clone())
             },
             None => {
                 match self.parent {

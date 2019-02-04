@@ -44,7 +44,7 @@ pub enum Value {
 }
 
 pub enum CallableType <'a> {
-    UserFunction(Box<DefinedFunction>),
+    UserFunction(DefinedFunction),
     NativeFunction(&'a Fn(&[Value]) -> Result<Value>),
     SpecialFunction(&'a Fn(&[SymbolicExpression], &mut Environment, &Context) -> Result<Value>)
 }
