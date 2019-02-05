@@ -40,11 +40,15 @@ mod core;
 
 use std::env;
 use std::process;
+
 use util::log;
 
 fn main() {
+
+    log::set_loglevel(log::LOG_DEBUG).unwrap();
+
     let argv : Vec<String> = env::args().collect();
-    if argv.len() < 1 {
+    if argv.len() < 2 {
         eprintln!("Usage: {} command [args...]", argv[0]);
         process::exit(1);
     }
@@ -88,7 +92,7 @@ fn main() {
 
     match (blockchain.as_str(), network.as_str()) {
         ("bitcoin", "mainnet") | ("bitcoin", "testnet") | ("bitcoin", "regtest") => {
-            let block_height_res = core::sync_burnchain_bitcoin(&network, &working_dir);
+            let block_height_res = core::sync_burnchain_bitcoin(&working_dir, &network);
             match block_height_res {
                 Err(e) => {
                     eprintln!("Failed to sync {} {}: {:?}", blockchain, network, e);
