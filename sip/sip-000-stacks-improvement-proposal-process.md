@@ -36,7 +36,7 @@ A core developer will move the SIP to the Proposed stage when the following has 
 2. All public criticism and comments have been adequately addressed
 
 **Final/Active**
-A SIP can be moved to the Final/Active status when a working reference implementation has been provided. Additionally, for a soft-fork SIP to progress to Final/Active status, a clear miner majority is required. Soft-fork BIPS themselves may set additional requirements. For a hard-fork SIP to progress to Final/Active status, adoption from the entire Stacks network economy is required. 
+A SIP can be moved to the Final/Active status when a working reference implementation has been provided. Additionally, for a soft-fork SIP to progress to Final/Active status, a clear miner majority is required. Soft-fork SIPS themselves may set additional requirements. One hard fork per year will be executed. And additional hard forks will be made in order to fix consensus-critical bugs. 
 
 **Obsolete**
 When a SIP is no longer relevant or is superseded by another SIP it’s status will change to Obsolete. 
@@ -99,7 +99,7 @@ The core developer committee is a group of active contributors to the Stacks blo
 
 ## Copyright & Licensing
 
-Each SIP must identify at least one acceptable license in its preamble. Source code in the SIP can be licensed differently than the text. Below is a list of recommended licenses.
+Each SIP must identify at least one acceptable license in its preamble. Source code in the SIP can be licensed differently than the text. SIPs whose reference implementation(s) touch existing reference implementation(s) must use the same license as the existing implementation(s) in order to be considered. Below is a list of recommended licenses.
 
 
 - BSD-2-Clause: [OSI-approved BSD 2-clause license](https://opensource.org/licenses/BSD-2-Clause)
