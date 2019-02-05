@@ -924,20 +924,20 @@ mod tests {
                 script: Builder::from(hex_bytes("76a914395f3643cea07ec4eec73b4d9a973dcce56b9bf188ac").unwrap()).into_script(),
                 result: BurnchainTxOutput {
                     units: amount,
-                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::mainnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap()
+                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Mainnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap()
                 }
             },
             ScriptFixture {
                 script: Builder::from(hex_bytes("76a914000000000000000000000000000000000000000088ac").unwrap()).into_script(),
                 result: BurnchainTxOutput {
                     units: amount,
-                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::mainnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
+                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Mainnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
                 }
             }
         ];
 
         for script_fixture in tx_fixtures_p2pkh {
-            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::mainnet, &script_fixture.script, amount);
+            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::Mainnet, &script_fixture.script, amount);
             assert!(tx_output_opt.is_some());
             assert_eq!(tx_output_opt.unwrap(), script_fixture.result);
 
@@ -952,20 +952,20 @@ mod tests {
                 script: Builder::from(hex_bytes("a914eb1881fb0682c2eb37e478bf918525a2c61bc40487").unwrap()).into_script(),
                 result: BurnchainTxOutput {
                     units: amount,
-                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::mainnet, BitcoinAddressType::ScriptHash, &hex_bytes("eb1881fb0682c2eb37e478bf918525a2c61bc404").unwrap()).unwrap()
+                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Mainnet, BitcoinAddressType::ScriptHash, &hex_bytes("eb1881fb0682c2eb37e478bf918525a2c61bc404").unwrap()).unwrap()
                 }
             },
             ScriptFixture {
                 script: Builder::from(hex_bytes("a914000000000000000000000000000000000000000087").unwrap()).into_script(),
                 result: BurnchainTxOutput {
                     units: amount,
-                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::mainnet, BitcoinAddressType::ScriptHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
+                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Mainnet, BitcoinAddressType::ScriptHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
                 }
             }
         ];
 
         for script_fixture in tx_fixtures_p2sh {
-            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::mainnet, &script_fixture.script, amount);
+            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::Mainnet, &script_fixture.script, amount);
             assert!(tx_output_opt.is_some());
             assert_eq!(tx_output_opt.unwrap(), script_fixture.result);
         }
@@ -987,7 +987,7 @@ mod tests {
         ];
 
         for script_fixture in tx_fixtures_strange {
-            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::mainnet, &script_fixture.script, 123);
+            let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::Mainnet, &script_fixture.script, 123);
             assert!(tx_output_opt.is_none());
         }
     }
