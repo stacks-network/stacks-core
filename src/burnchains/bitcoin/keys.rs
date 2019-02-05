@@ -43,6 +43,7 @@ pub struct BitcoinPublicKey {
 }
 
 impl BitcoinPublicKey {
+    #[allow(dead_code)]     // this method is used in tests
     pub fn from_hex(hex_string: &str) -> Result<BitcoinPublicKey, &'static str> {
         hex_bytes(hex_string)
             .and_then(|vec_bytes| BitcoinPublicKey::from_slice(&vec_bytes[..]))
