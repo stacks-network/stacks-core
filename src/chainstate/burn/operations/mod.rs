@@ -37,8 +37,6 @@ use burnchains::{Address, PublicKey, BurnchainHeaderHash, BurnchainTransaction};
 
 #[derive(Debug)]
 pub enum Error {
-    /// Not implemented 
-    NotImplemented,
     /// Failed to parse the operation from the burnchain transaction
     ParseError,
     /// Invalid input data
@@ -50,7 +48,6 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::NotImplemented => f.write_str(error::Error::description(self)),
             Error::ParseError => f.write_str(error::Error::description(self)),
             Error::InvalidInput => f.write_str(error::Error::description(self)),
             Error::DBError(ref e) => fmt::Display::fmt(e, f)
@@ -61,7 +58,6 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn cause(&self) -> Option<&error::Error> {
         match *self {
-            Error::NotImplemented => None,
             Error::ParseError => None,
             Error::InvalidInput => None,
             Error::DBError(ref e) => Some(e)
@@ -70,7 +66,6 @@ impl error::Error for Error {
 
     fn description(&self) -> &str {
         match *self {
-            Error::NotImplemented => "Not implemented",
             Error::ParseError => "Failed to parse transaction into Blockstack operation",
             Error::InvalidInput => "Invalid input",
             Error::DBError(ref e) => e.description()
