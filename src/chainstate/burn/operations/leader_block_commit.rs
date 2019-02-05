@@ -23,7 +23,6 @@ use chainstate::burn::operations::BlockstackOperation;
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::{BlockHeaderHash, VRFSeed};
 
-use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::db::DBConn;
 
 use burnchains::{BurnchainTransaction, BurnchainTxInput, PublicKey};
@@ -31,7 +30,6 @@ use burnchains::Txid;
 use burnchains::Address;
 use burnchains::BurnchainHeaderHash;
 
-use util::hash::hex_bytes;
 use util::log;
 
 pub const OPCODE: u8 = '[' as u8;
@@ -83,12 +81,24 @@ fn u16_from_be(bytes: &[u8]) -> Option<u16> {
     }
 }
 
+// return type from parse_data below
+struct ParsedData {
+    block_header_hash: BlockHeaderHash,
+    new_seed: VRFSeed,
+    parent_block_backptr: u16,
+    parent_vtxindex: u16,
+    key_block_backptr: u16,
+    key_vtxindex: u16,
+    epoch_num: u32,
+    memo: Vec<u8>
+}
+
 impl<AddrType, PubkeyType> LeaderBlockCommitOp<AddrType, PubkeyType>
 where
     AddrType: Address,
     PubkeyType: PublicKey
 {
-    fn parse_data(data: &Vec<u8>) -> Option<(BlockHeaderHash, VRFSeed, u16, u16, u16, u16, u32, Vec<u8>)> {
+    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
          
             Wire format:
@@ -116,7 +126,16 @@ where
         let epoch_num = u32_from_be(&data[72..76]).unwrap();
         let memo = data[76..77].to_vec();
 
-        Some((block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, epoch_num, memo))
+        Some(ParsedData {
+            block_header_hash,
+            new_seed,
+            parent_block_backptr,
+            parent_vtxindex,
+            key_block_backptr,
+            key_vtxindex,
+            epoch_num,
+            memo
+        })
     }
 
     fn parse_from_tx<A, K>(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<LeaderBlockCommitOp<A, K>, op_error>
@@ -126,25 +145,24 @@ where
     {
         // can't be too careful...
         if tx.inputs.len() == 0 {
-            test_debug!("Invalid tx: inputs: {}, outputs: {}", tx.inputs.len(), tx.outputs.len());
+            warn!("Invalid tx: inputs: {}, outputs: {}", tx.inputs.len(), tx.outputs.len());
             return Err(op_error::InvalidInput);
         }
 
         if tx.outputs.len() == 0 {
-            test_debug!("Invalid tx: inputs: {}, outputs: {}", tx.inputs.len(), tx.outputs.len());
+            warn!("Invalid tx: inputs: {}, outputs: {}", tx.inputs.len(), tx.outputs.len());
             return Err(op_error::InvalidInput);
         }
 
         if tx.opcode != OPCODE {
-            test_debug!("Invalid tx: invalid opcode {}", tx.opcode);
+            warn!("Invalid tx: invalid opcode {}", tx.opcode);
             return Err(op_error::InvalidInput);
         }
 
         // outputs[0] should be the burn output
-        // TODO: replace with Address::burn_address() trait method
-        if tx.outputs[0].address.to_bytes() != hex_bytes("0000000000000000000000000000000000000000").unwrap() {
+        if tx.outputs[0].address.to_bytes() != A::burn_bytes() {
             // wrong burn output
-            test_debug!("Invalid tx: burn output missing (got {:?})", tx.outputs[0]);
+            warn!("Invalid tx: burn output missing (got {:?})", tx.outputs[0]);
             return Err(op_error::ParseError);
         }
 
@@ -152,21 +170,37 @@ where
 
         let parse_data_opt = LeaderBlockCommitOp::<A, K>::parse_data(&tx.data);
         if parse_data_opt.is_none() {
-            test_debug!("Invalid tx data");
+            warn!("Invalid tx data");
             return Err(op_error::ParseError);
         }
 
-        let (block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, epoch_num, memo) = parse_data_opt.unwrap();
+        let data = parse_data_opt.unwrap();
+
+        // basic sanity checks 
+        if data.parent_block_backptr as u64 >= block_height {
+            warn!("Invalid tx: parent block back-pointer {} exceeds block height {}", data.parent_block_backptr, block_height);
+            return Err(op_error::ParseError);
+        }
+
+        if data.key_block_backptr as u64 >= block_height {
+            warn!("Invalid tx: key block back-pointer {} exceeds block height {}", data.key_block_backptr, block_height);
+            return Err(op_error::ParseError);
+        }
+
+        if data.epoch_num as u64 >= block_height {
+            warn!("Invalid tx: epoch number {} exceeds block height {}", data.epoch_num, block_height);
+            return Err(op_error::ParseError);
+        }
 
         Ok(LeaderBlockCommitOp {
-            block_header_hash: block_header_hash,
-            new_seed: new_seed,
-            parent_block_backptr: parent_block_backptr,
-            parent_vtxindex: parent_vtxindex,
-            key_block_backptr: key_block_backptr,
-            key_vtxindex: key_vtxindex,
-            epoch_num: epoch_num,
-            memo: memo,
+            block_header_hash: data.block_header_hash,
+            new_seed: data.new_seed,
+            parent_block_backptr: data.parent_block_backptr,
+            parent_vtxindex: data.parent_vtxindex,
+            key_block_backptr: data.key_block_backptr,
+            key_vtxindex: data.key_vtxindex,
+            epoch_num: data.epoch_num,
+            memo: data.memo,
 
             burn_fee: burn_fee,
             input: tx.inputs[0].clone(),
@@ -192,6 +226,54 @@ where
     }
         
     fn check(&self, conn: &DBConn) -> Result<bool, op_error> {
+        let leader_key_block_height = self.block_number - (self.key_block_backptr as u64);
+        let parent_block_height = self.block_number - (self.parent_block_backptr as u64);
+        
+        /*
+        /////////////////////////////////////////////////////////////////////////////////////
+        // This tx's epoch number must match the current epoch
+        /////////////////////////////////////////////////////////////////////////////////////
+        let current_epoch_opt = BurnDB::<A, K>::get_epoch(conn, self.block_number);
+        if current_epoch_opt.is_none() {
+            warn!("Invalid block commit: block height does not map to an existing epoch");
+            return Ok(false);
+        }
+
+        if current_epoch_opt != Some(self.epoch_num) {
+            warn!("Invalid block commit: current epoch is {}; got {}", current_epoch_opt.unwrap(), self.epoch_num);
+            return Ok(false);
+        }
+        
+        /////////////////////////////////////////////////////////////////////////////////////
+        // There must exist a previously-accepted *unused* key from a LeaderKeyRegister
+        /////////////////////////////////////////////////////////////////////////////////////
+        let register_key_opt = BurnDB::<A, K>::get_leader_key(conn, leader_key_block_height, self.key_vtxindex)
+            .map_err(op_error::DBError)?;
+
+        if register_key_opt.is_none() {
+            warn!("Invalid block commit: no corresponding leader key");
+            return Ok(false);
+        }
+    
+        // must be *unused*
+        // TODO
+
+        /////////////////////////////////////////////////////////////////////////////////////
+        // There must exist a previously-accepted block from a LeaderBlockCommit
+        /////////////////////////////////////////////////////////////////////////////////////
+        let parent_block_opt = BurnDB::<A, K>::get_block_commit(conn, parent_block_height, self.parent_vtxindex)
+            .map_err(op_error::DBError)?;
+
+        if parent_block_opt.is_none() {
+            warn!("Invalid block commit: no corresponding parent block");
+            return Ok(false);
+        }
+        
+        /////////////////////////////////////////////////////////////////////////////////////
+        // This LeaderBlockCommit's input must match the address of the LeaderKeyRegister
+        /////////////////////////////////////////////////////////////////////////////////////
+        */
+
         Ok(false)
     }
 }
@@ -213,7 +295,6 @@ mod tests {
     
     use chainstate::burn::{BlockHeaderHash, VRFSeed};
 
-
     use util::hash::hex_bytes;
     use util::log;
 
@@ -232,7 +313,7 @@ mod tests {
     #[test]
     fn test_parse() {
         let vtxindex = 1;
-        let block_height = 694;
+        let block_height = 0x71706363;  // epoch number must be strictly smaller than block height
         let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
         let tx_fixtures = vec![
