@@ -201,15 +201,15 @@ impl SpvClient {
     /// Initialize the block headers file with the genesis block hash 
     fn init_block_headers(headers_path: &str, network_id: BitcoinNetworkType) -> Result<(), btc_error> {
         let genesis_merkle_root_str = match network_id {
-            BitcoinNetworkType::mainnet => GENESIS_BLOCK_MERKLE_ROOT_MAINNET,
-            BitcoinNetworkType::testnet => GENESIS_BLOCK_MERKLE_ROOT_TESTNET,
-            BitcoinNetworkType::regtest => GENESIS_BLOCK_MERKLE_ROOT_TESTNET
+            BitcoinNetworkType::Mainnet => GENESIS_BLOCK_MERKLE_ROOT_MAINNET,
+            BitcoinNetworkType::Testnet => GENESIS_BLOCK_MERKLE_ROOT_TESTNET,
+            BitcoinNetworkType::Regtest => GENESIS_BLOCK_MERKLE_ROOT_TESTNET
         };
 
         let genesis_block_hash_str = match network_id {
-            BitcoinNetworkType::mainnet => GENESIS_BLOCK_HASH_MAINNET,
-            BitcoinNetworkType::testnet => GENESIS_BLOCK_HASH_TESTNET,
-            BitcoinNetworkType::regtest => GENESIS_BLOCK_HASH_TESTNET,
+            BitcoinNetworkType::Mainnet => GENESIS_BLOCK_HASH_MAINNET,
+            BitcoinNetworkType::Testnet => GENESIS_BLOCK_HASH_TESTNET,
+            BitcoinNetworkType::Regtest => GENESIS_BLOCK_HASH_TESTNET,
         };
 
         let genesis_prev_blockhash = Sha256dHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
@@ -419,7 +419,7 @@ impl BitcoinMessageHandler for SpvClient {
     /// Trait message handler 
     /// initiate the conversation with the bitcoin peer
     fn begin_session(&mut self, indexer: &mut BitcoinIndexer) -> Result<bool, btc_error> {
-        let start_height = self.start_block_height;
+        let start_height = self.cur_block_height;
         self.send_next_getheaders(indexer, start_height).and_then(|_r| Ok(true))
     }
 
