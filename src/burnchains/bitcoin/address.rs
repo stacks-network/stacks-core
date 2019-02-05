@@ -47,19 +47,19 @@ pub const ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 196;
 
 fn address_type_to_version_byte(addrtype: BitcoinAddressType, network_id: BitcoinNetworkType) -> u8 {
     match (addrtype, network_id) {
-        (BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::mainnet) => ADDRESS_VERSION_MAINNET_SINGLESIG,
-        (BitcoinAddressType::ScriptHash, BitcoinNetworkType::mainnet) => ADDRESS_VERSION_MAINNET_MULTISIG,
-        (BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::testnet) | (BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::regtest) => ADDRESS_VERSION_TESTNET_SINGLESIG,
-        (BitcoinAddressType::ScriptHash, BitcoinNetworkType::testnet) | (BitcoinAddressType::ScriptHash, BitcoinNetworkType::regtest) => ADDRESS_VERSION_TESTNET_MULTISIG,
+        (BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Mainnet) => ADDRESS_VERSION_MAINNET_SINGLESIG,
+        (BitcoinAddressType::ScriptHash, BitcoinNetworkType::Mainnet) => ADDRESS_VERSION_MAINNET_MULTISIG,
+        (BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Testnet) | (BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Regtest) => ADDRESS_VERSION_TESTNET_SINGLESIG,
+        (BitcoinAddressType::ScriptHash, BitcoinNetworkType::Testnet) | (BitcoinAddressType::ScriptHash, BitcoinNetworkType::Regtest) => ADDRESS_VERSION_TESTNET_MULTISIG,
     }
 }
 
 fn version_byte_to_address_type(version: u8) -> Option<(BitcoinAddressType, BitcoinNetworkType)> {
     match version {
-        ADDRESS_VERSION_MAINNET_SINGLESIG => Some((BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::mainnet)),
-        ADDRESS_VERSION_MAINNET_MULTISIG => Some((BitcoinAddressType::ScriptHash, BitcoinNetworkType::mainnet)),
-        ADDRESS_VERSION_TESTNET_SINGLESIG => Some((BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::testnet)),
-        ADDRESS_VERSION_TESTNET_MULTISIG => Some((BitcoinAddressType::ScriptHash, BitcoinNetworkType::testnet)),
+        ADDRESS_VERSION_MAINNET_SINGLESIG => Some((BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Mainnet)),
+        ADDRESS_VERSION_MAINNET_MULTISIG => Some((BitcoinAddressType::ScriptHash, BitcoinNetworkType::Mainnet)),
+        ADDRESS_VERSION_TESTNET_SINGLESIG => Some((BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Testnet)),
+        ADDRESS_VERSION_TESTNET_MULTISIG => Some((BitcoinAddressType::ScriptHash, BitcoinNetworkType::Testnet)),
         _ => None
     }
 }
@@ -186,6 +186,10 @@ impl Address for BitcoinAddress {
             Err(_e) => None
         }
     }
+
+    fn burn_bytes() -> Vec<u8> {
+        [0u8; 20].to_vec()
+    }
 }
 
 #[cfg(test)]
@@ -211,7 +215,7 @@ mod tests {
             AddressFixture {
                 addr: "mr6nrMvvh44sR5MiX929mMXP5hqgaTr6fx".to_owned(),
                 result: Some(BitcoinAddress {
-                    network_id: BitcoinNetworkType::testnet,
+                    network_id: BitcoinNetworkType::Testnet,
                     addrtype: BitcoinAddressType::PublicKeyHash,
                     bytes: Hash160::from_hex("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()
                 })
@@ -219,7 +223,7 @@ mod tests {
             AddressFixture {
                 addr: "1B5xoFjSwAB3DUum7dxXgj3brnYsXibLbc".to_owned(),
                 result: Some(BitcoinAddress {
-                    network_id: BitcoinNetworkType::mainnet,
+                    network_id: BitcoinNetworkType::Mainnet,
                     addrtype: BitcoinAddressType::PublicKeyHash,
                     bytes: Hash160::from_hex("6ea17fc39169cdd9f2414a893aa5ce0c4b4c8934").unwrap()
                 })
@@ -227,7 +231,7 @@ mod tests {
             AddressFixture {
                 addr: "2Mxh5a9QxP5jgABfzATLpmFVofbzDeFRJyt".to_owned(),
                 result: Some(BitcoinAddress {
-                    network_id: BitcoinNetworkType::testnet,
+                    network_id: BitcoinNetworkType::Testnet,
                     addrtype: BitcoinAddressType::ScriptHash,
                     bytes: Hash160::from_hex("3bbc6b200412398dc98c6eb49d20c6b01715c2c1").unwrap()
                 })
@@ -235,7 +239,7 @@ mod tests {
             AddressFixture {
                 addr: "35idohuiQNndP1xR3FhNVHXgKF9YYPhWo4".to_owned(),
                 result: Some(BitcoinAddress {
-                    network_id: BitcoinNetworkType::mainnet,
+                    network_id: BitcoinNetworkType::Mainnet,
                     addrtype: BitcoinAddressType::ScriptHash,
                     bytes: Hash160::from_hex("2c2edf39b098e05cf770e6b5a2fcedb54ee4fe05").unwrap()
                 })
@@ -286,7 +290,7 @@ mod tests {
             ScriptFixture {
                 scriptpubkey: hex_bytes("76a9146ea17fc39169cdd9f2414a893aa5ce0c4b4c893488ac").unwrap().to_vec(),
                 result: Some(BitcoinAddress {
-                    network_id: BitcoinNetworkType::mainnet,
+                    network_id: BitcoinNetworkType::Mainnet,
                     addrtype: BitcoinAddressType::PublicKeyHash,
                     bytes: Hash160::from_hex("6ea17fc39169cdd9f2414a893aa5ce0c4b4c8934").unwrap(),
                 })
@@ -294,7 +298,7 @@ mod tests {
             ScriptFixture {
                 scriptpubkey: hex_bytes("a9142c2edf39b098e05cf770e6b5a2fcedb54ee4fe0587").unwrap().to_vec(),
                 result: Some(BitcoinAddress {
-                    network_id: BitcoinNetworkType::mainnet,
+                    network_id: BitcoinNetworkType::Mainnet,
                     addrtype: BitcoinAddressType::ScriptHash,
                     bytes: Hash160::from_hex("2c2edf39b098e05cf770e6b5a2fcedb54ee4fe05").unwrap(),
                 })
@@ -314,7 +318,7 @@ mod tests {
         ];
 
         for fixture in fixtures {
-            let addr_opt = BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::mainnet, &fixture.scriptpubkey);
+            let addr_opt = BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Mainnet, &fixture.scriptpubkey);
 
             match (addr_opt, fixture.result) {
                 (Some(addr), Some(res)) => assert_eq!(addr, res),
