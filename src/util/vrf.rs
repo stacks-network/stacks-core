@@ -17,6 +17,10 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(dead_code)]        // TODO: remove once we start using the VRF for things 
+
 /// This codebase is based on routines defined in the IETF draft for verifiable random functions
 /// over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
 ///
