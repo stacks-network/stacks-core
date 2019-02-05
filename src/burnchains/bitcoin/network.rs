@@ -204,7 +204,7 @@ impl BitcoinIndexer {
     /// Connect to a remote peer, do a handshake with the remote peer, and use exponential backoff until we
     /// succeed in establishing a connection.
     /// This method masks ConnectionBroken errors, but does not mask other network errors.
-    pub fn connect_handshake_backoff(&mut self, network_name: &str) -> Result<(), btc_error> {
+    pub fn connect_handshake_backoff(&mut self) -> Result<(), btc_error> {
         let mut backoff: f64 = 1.0;
         let mut rng = thread_rng();
 
@@ -315,14 +315,6 @@ impl BitcoinIndexer {
         Err(btc_error::InvalidMessage(verack_message))
     }
 
-    /// Send a ping message 
-    pub fn send_ping(&mut self, nonce: u64) -> Result<(), btc_error> {
-        let payload = btc_message::NetworkMessage::Ping(nonce);
-
-        debug!("Send ping {} to {}:{}", nonce, self.config.peer_host, self.config.peer_port);
-        self.send_message(payload)
-    }
-
     /// Respond to a Ping message by sending a Pong message 
     pub fn handle_ping(&mut self, ping_message: PeerMessage) -> Result<(), btc_error> {
         match ping_message.deref() {
@@ -367,17 +359,6 @@ impl BitcoinIndexer {
         let payload = btc_message::NetworkMessage::GetHeaders(getheaders);
 
         debug!("Send GetHeaders {} for 2000 headers to {}:{}", prev_block_hash.be_hex_string(), self.config.peer_host, self.config.peer_port);
-        self.send_message(payload)
-    }
-
-    /// Send a GetBlocks message
-    /// The last block hash in the given block_hashes vector will be the stop_hash field in the request.
-    pub fn send_getblocks(&mut self, block_hashes: &Vec<Sha256dHash>) -> Result<(), btc_error> {
-        assert!(block_hashes.len() > 0);
-        let getblocks = btc_message_blockdata::GetBlocksMessage::new(block_hashes.to_vec(), block_hashes[block_hashes.len() - 1]);
-        let payload = btc_message::NetworkMessage::GetBlocks(getblocks);
-
-        debug!("Send GetBlocks {}-{} to {}:{}", block_hashes[0].be_hex_string(), block_hashes[block_hashes.len() - 1].be_hex_string(), self.config.peer_host, self.config.peer_port);
         self.send_message(payload)
     }
 
