@@ -22,18 +22,15 @@ use chainstate::burn::operations::BlockstackOperation;
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 
-use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::db::DBConn;
 
 use burnchains::BurnchainTransaction;
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::Txid;
 use burnchains::Address;
 use burnchains::PublicKey;
 use burnchains::BurnchainHeaderHash;
 
-use util::hash::{hex_bytes, Hash160};
+use util::hash::Hash160;
 use util::vrf::ECVRF_check_public_key;
 use util::log;
 
@@ -61,12 +58,20 @@ pub struct UserBurnSupportOp<A, K> {
     pub _phantom_k: PhantomData<K>
 }
 
+// return type for parse_data (below)
+struct ParsedData {
+    pub consensus_hash: ConsensusHash,
+    pub public_key: VRFPublicKey,
+    pub block_header_hash_160: Hash160,
+    pub memo: Vec<u8>
+}
+
 impl<AddrType, PubkeyType> UserBurnSupportOp<AddrType, PubkeyType>
 where
     AddrType: Address,
     PubkeyType: PublicKey
 {
-    fn parse_data(data: &Vec<u8>) -> Option<(ConsensusHash, VRFPublicKey, Hash160, Vec<u8>)> {
+    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
 
@@ -93,7 +98,12 @@ where
         let block_header_hash_160 = Hash160::from_vec(&data[52..72].to_vec()).unwrap();
         let memo = data[72..].to_vec();
 
-        return Some((consensus_hash, pubkey, block_header_hash_160, memo));
+        Some(ParsedData {
+            consensus_hash,
+            public_key: pubkey,
+            block_header_hash_160,
+            memo
+        })
     }
 
     fn parse_from_tx<A, K>(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<UserBurnSupportOp<A, K>, op_error>
@@ -113,8 +123,7 @@ where
         }
 
         // outputs[0] should be the burn output
-        // TODO: replace with Address::burn_address() trait method
-        if tx.outputs[0].address.to_bytes() != hex_bytes("0000000000000000000000000000000000000000").unwrap() {
+        if tx.outputs[0].address.to_bytes() != A::burn_bytes() {
             // wrong burn output
             test_debug!("Invalid tx: burn output missing (got {:?})", tx.outputs[0]);
             return Err(op_error::ParseError);
@@ -128,12 +137,13 @@ where
             return Err(op_error::ParseError);
         }
 
-        let (consensus_hash, pubkey, block_header_hash_160, memo) = parse_data_opt.unwrap();
+        let data = parse_data_opt.unwrap();
+
         Ok(UserBurnSupportOp {
-            consensus_hash: consensus_hash,
-            public_key: pubkey,
-            block_header_hash_160: block_header_hash_160,
-            memo: memo,
+            consensus_hash: data.consensus_hash,
+            public_key: data.public_key,
+            block_header_hash_160: data.block_header_hash_160,
+            memo: data.memo,
             burn_fee: burn_fee,
 
             op: OPCODE,
