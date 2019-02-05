@@ -32,6 +32,7 @@ impl_byte_array_newtype!(Hash160, u8, 20);
 impl Hash160 {
     /// Create a hash by hashing some data
     /// (borrwed from Andrew Poelstra)
+    #[allow(dead_code)]
     pub fn from_data(data: &[u8]) -> Hash160 {
         let mut tmp = [0; 32];
         let mut ret = [0; 20];
