@@ -233,3 +233,23 @@ fn test_bool_functions() {
         assert!(false, "Failed to parse function bodies.");
     }
 }
+
+#[test]
+fn test_bad_lets() {
+    let tests = parse(&
+        "(let ((tx-sender 1)) (+ tx-sender tx-sender))
+         (let ((* 1)) (+ * *))");
+
+    let expectations: &[Result<Value, Error>] = &[
+        Err(Error::ReservedName("tx-sender".to_string())),
+        Err(Error::ReservedName("*".to_string()))];
+
+    if let Ok(to_eval) = tests {
+        let context = Context::new();
+        let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
+        to_eval.iter().zip(expectations.iter())
+            .for_each(|(program, expectation)| assert_eq!(*expectation, eval(program, &mut env, &context)));
+    } else {
+        assert!(false, "Failed to parse function bodies.");
+    }
+}

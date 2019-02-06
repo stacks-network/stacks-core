@@ -54,6 +54,8 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Cont
 }
 
 fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
+    use is_reserved;
+
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1 => body
@@ -64,34 +66,32 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Con
     let mut inner_context = context.extend();
 
     if let SymbolicExpression::List(ref bindings) = args[0] {
-        let bind_result = bindings.iter().try_for_each(|binding| {
+        for binding in bindings.iter() {
             if let SymbolicExpression::List(ref binding_exps) = *binding {
                 if binding_exps.len() != 2 {
-                    Err(Error::Generic("Passed non 2-length list as binding in let expression".to_string()))
+                    return Err(Error::Generic("Passed non 2-length list as binding in let expression".to_string()))
                 } else {
                     if let SymbolicExpression::Atom(ref var_name) = binding_exps[0] {
+                        if is_reserved(var_name) {
+                            return Err(Error::ReservedName(var_name.to_string()))
+                        }
                         let value = eval(&binding_exps[1], env, context)?;
                         match inner_context.variables.insert((*var_name).clone(), value) {
-                            Some(_val) => Err(Error::Generic("Multiply defined binding in let expression".to_string())),
-                            _ => Ok(())
+                            Some(_val) => return Err(Error::MultiplyDefined(var_name.to_string())),
+                            _ => continue
                         }
                     } else {
-                        Err(Error::Generic("Passed non-atomic variable name to let expression binding".to_string()))
+                        return Err(Error::InvalidArguments("Passed non-atomic variable name to let expression binding".to_string()))
                     }
                 }
             } else {
-                Err(Error::Generic("Passed non-list as binding in let expression.".to_string()))
+                return Err(Error::InvalidArguments("Passed non-list as binding in let expression.".to_string()))
             }
-        });
-        // if there was an error during binding, return error.
-        if let Err(e) = bind_result {
-            Err(e)
-        } else {
-            // otherwise, evaluate the let-body
-            eval(&args[1], env, &inner_context)
         }
+        // evaluate the let-body
+        eval(&args[1], env, &inner_context)
     } else {
-        Err(Error::Generic("Passed non-list as second argument to let expression.".to_string()))
+        Err(Error::InvalidArguments("Passed non-list as second argument to let expression.".to_string()))
     }
 }
 
