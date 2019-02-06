@@ -30,6 +30,7 @@ extern crate curve25519_dalek;
 extern crate ed25519_dalek;
 extern crate sha2;
 extern crate dirs;
+extern crate regex;
 
 #[macro_use] extern crate serde_derive;
 

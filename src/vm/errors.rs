@@ -1,6 +1,6 @@
 use std::fmt;
 use std::error;
-use types::Value;
+use vm::types::Value;
 
 #[derive(Debug,PartialEq)]
 pub enum Error {

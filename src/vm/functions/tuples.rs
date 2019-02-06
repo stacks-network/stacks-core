@@ -1,8 +1,8 @@
-use errors::{Error, InterpreterResult as Result};
-use types::{Value, TupleData};
-use representations::SymbolicExpression;
-use representations::SymbolicExpression::{NamedParameter};
-use {Context, Environment, eval};
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::types::{Value, TupleData};
+use vm::representations::SymbolicExpression;
+use vm::representations::SymbolicExpression::{NamedParameter};
+use vm::{Context, Environment, eval};
 
 pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
     // (tuple #arg-name value

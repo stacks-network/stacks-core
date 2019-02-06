@@ -1,8 +1,8 @@
-use types::{Value, DefinedFunction, TupleTypeSignature, TypeSignature};
-use representations::SymbolicExpression;
-use representations::SymbolicExpression::{Atom, AtomValue, List, NamedParameter};
-use errors::{Error, InterpreterResult as Result};
-use { Context, Environment, eval };
+use vm::types::{Value, DefinedFunction, TupleTypeSignature, TypeSignature};
+use vm::representations::SymbolicExpression;
+use vm::representations::SymbolicExpression::{Atom, AtomValue, List, NamedParameter};
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::{ Context, Environment, eval };
 
 pub enum DefineResult {
     Variable(String, Value),
@@ -12,7 +12,7 @@ pub enum DefineResult {
 }
 
 fn check_legal_define(name: &str, global_context: &Context) -> Result<()> {
-    use is_reserved;
+    use vm::is_reserved;
 
     if is_reserved(name) {
         Err(Error::ReservedName(name.to_string()))

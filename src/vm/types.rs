@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use vm::errors::{Error, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
 use vm::{eval, Context, Environment};
-use eval;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AtomTypeIdentifier {

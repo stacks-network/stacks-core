@@ -1,7 +1,7 @@
-use types::Value;
-use errors::{Error, InterpreterResult as Result};
-use representations::SymbolicExpression;
-use {Context,Environment,eval};
+use vm::types::Value;
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::representations::SymbolicExpression;
+use vm::{Context,Environment,eval};
 
 fn type_force_bool(value: &Value) -> Result<bool> {
     match *value {

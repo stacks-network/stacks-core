@@ -1,8 +1,8 @@
-use types::{Value};
-use representations::SymbolicExpression;
-use errors::{Error, InterpreterResult as Result};
-use database::DataMap;
-use {eval,Context,Environment};
+use vm::types::{Value};
+use vm::representations::SymbolicExpression;
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::database::DataMap;
+use vm::{eval,Context,Environment};
 
 fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> Result<&'a mut DataMap> {
     let map_name = match map_arg {

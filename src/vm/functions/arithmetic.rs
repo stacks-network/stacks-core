@@ -1,5 +1,5 @@
-use types::Value;
-use errors::{Error, InterpreterResult as Result};
+use vm::types::Value;
+use vm::errors::{Error, InterpreterResult as Result};
 
 fn type_force_integer(value: &Value) -> Result<i128> {
     match *value {

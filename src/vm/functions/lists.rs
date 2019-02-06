@@ -1,9 +1,9 @@
-use errors::{Error, InterpreterResult as Result};
-use types::{Value, TypeSignature};
-use types::Value::{List};
-use representations::SymbolicExpression;
-use representations::SymbolicExpression::{AtomValue};
-use {Context,Environment,eval,apply,lookup_function};
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::types::{Value, TypeSignature};
+use vm::types::Value::{List};
+use vm::representations::SymbolicExpression;
+use vm::representations::SymbolicExpression::{AtomValue};
+use vm::{Context,Environment,eval,apply,lookup_function};
 
 pub fn list_cons(args: &[Value]) -> Result<Value> {
     let list_type = TypeSignature::construct_parent_list_type(args)?;

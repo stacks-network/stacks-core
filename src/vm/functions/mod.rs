@@ -54,7 +54,7 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Cont
 }
 
 fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
-    use is_reserved;
+    use vm::is_reserved;
 
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
