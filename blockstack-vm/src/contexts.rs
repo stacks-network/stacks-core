@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use errors::{Error, InterpreterResult as Result};
 use types::{DefinedFunction, FunctionIdentifier, Value};
 use database::ContractDatabase;
+
+const MAX_CONTEXT_DEPTH: u8 = 128;
 
 pub struct Environment <'a> {
     pub global_context: Context <'a>,
@@ -25,20 +28,29 @@ pub struct Context <'a> {
     pub parent: Option< &'a Context<'a>>,
     pub variables: HashMap<String, Value>,
     pub functions: HashMap<String, DefinedFunction>,
+    depth: u8
 }
 
 impl <'a> Context <'a> {
     pub fn new() -> Context<'a> {
-        Context { parent: Option::None,
-                  variables: HashMap::new(),
-                  functions: HashMap::new() }
-    }
-    
-    pub fn extend(&'a self) -> Context<'a> {
         Context {
-            parent: Some(self),
+            depth: 0,
+            parent: Option::None,
             variables: HashMap::new(),
             functions: HashMap::new()
+        }
+    }
+    
+    pub fn extend(&'a self) -> Result<Context<'a>> {
+        if self.depth >= MAX_CONTEXT_DEPTH {
+            Err(Error::MaxContextDepthReached)
+        } else {
+            Ok(Context {
+                parent: Some(self),
+                variables: HashMap::new(),
+                functions: HashMap::new(),
+                depth: self.depth + 1
+            })
         }
     }
 

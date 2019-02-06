@@ -112,7 +112,6 @@ fn test_factorial_contract() {
     assert_eq!(expected, execute(test1));
 }
 
-
 #[test]
 fn silly_naming_system() {
     let test1 =
@@ -153,6 +152,23 @@ fn silly_naming_system() {
         Value::Int(-1),
     ]);
     assert_eq!(expected, execute(test1));
+}
+
+#[test]
+fn datamap_errors() {
+    let tests = [
+        "(fetch-entry non-existent (tuple #name 1))",
+        "(delete-entry! non-existent (tuple #name 1))",
+    ];
+
+    let expected = [
+        Err(Error::Undefined("No such map named: non-existent".to_string())),
+        Err(Error::Undefined("No such map named: non-existent".to_string())),
+    ];
+
+    for (program, expectation) in tests.iter().zip(expected.iter()) {
+        assert_eq!(*expectation, execute(program));
+    }
 }
 
 #[test]
@@ -242,30 +258,23 @@ fn bad_define_maps() {
 
 #[test]
 fn bad_tuples() {
-    let test1 = "(tuple #name 1 #name 3)";
-    let test2 = "(tuple #name 'null)";
-    let test3 = "(get value (tuple #name 1))";
-    let test4 = "(define-map lists ((name int)) ((contents list-int-0-5)))";
+    let tests = ["(tuple #name 1 #name 3)",
+                 "(tuple #name 'null)",
+                 "(tuple name 1)",
+                 "(tuple #name 1 #blame)",
+                 "(get value (tuple #name 1))",
+                 "(define-map lists ((name int)) ((contents list-int-0-5)))",
+                 "(get name five (tuple #name 1))",
+                 "(get 1234 (tuple #name 1))"];
 
-    let matched = match execute(test1) {
-        Err(Error::InvalidArguments(_)) => true,
-        _ => false
-    };
-    assert!(matched);
-
-    let matched2 = match execute(test2) {
-        Err(Error::InvalidArguments(_)) => true,
-        _ => false
-    };
-
-    assert!(matched2);
-
-    let expected = Err(Error::InvalidArguments(
-        "No such field \"value\" in tuple".to_string()));
-    assert_eq!(expected, execute(test3));
-
-
-    let expected_bad_list = Err(Error::InvalidArguments(
-        "Cannot construct list of dimension 0".to_string()));
-    assert_eq!(expected_bad_list, execute(test4));    
+    for test in tests.iter() {
+        let outcome = execute(test);
+        match outcome {
+            Err(Error::InvalidArguments(_)) => continue,
+            _ => {
+                println!("Expected InvalidArguments Error, but found {:?}", outcome);
+                assert!(false)
+            }
+        }
+    }
 }

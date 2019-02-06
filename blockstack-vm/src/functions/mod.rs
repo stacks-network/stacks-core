@@ -63,7 +63,7 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Con
         return Err(Error::InvalidArguments("Wrong number of arguments to let (expect 2)".to_string()))
     }
     // create a new context.
-    let mut inner_context = context.extend();
+    let mut inner_context = context.extend()?;
 
     if let SymbolicExpression::List(ref bindings) = args[0] {
         for binding in bindings.iter() {
