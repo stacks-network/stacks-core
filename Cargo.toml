@@ -1,7 +1,7 @@
 [package]
 name = "blockstack-core"
 version = "0.0.1"
-authors = ["Jude Nelson <jude@blockstack.com>"]
+authors = ["Jude Nelson <jude@blockstack.com>", "Aaron Blankstein <aaron@blockstack.com>"]
 license = "GPLv3"
 homepage = "https://github.com/blockstack/blockstack-core"
 repository = "https://github.com/blockstack/blockstack-core"
