@@ -67,6 +67,29 @@ fn test_simple_let() {
 }
 
 #[test]
+fn test_buffer_equality() {
+    let tests = parse(
+        &"(eq? \"a b c\" \"a b c\")
+          (eq? \"\\\" a b d\"
+               \"\\\" a b d\")
+          (not (eq? \"\\\" a b d\"
+                    \" a b d\"))");
+    let expectations = [
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(true)];
+
+    if let Ok(to_eval) = tests {
+        let context = Context::new();
+        let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
+        to_eval.iter().zip(expectations.iter())
+            .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), eval(program, &mut env, &context)));
+    } else {
+        assert!(false, "Failed to parse function bodies.");
+    }
+}
+
+#[test]
 fn test_simple_if_functions() {
     //
     //  test program:
@@ -238,11 +261,13 @@ fn test_bool_functions() {
 fn test_bad_lets() {
     let tests = parse(&
         "(let ((tx-sender 1)) (+ tx-sender tx-sender))
-         (let ((* 1)) (+ * *))");
+         (let ((* 1)) (+ * *))
+         (let ((a 1) (a 2)) (+ a a))");
 
     let expectations: &[Result<Value, Error>] = &[
         Err(Error::ReservedName("tx-sender".to_string())),
-        Err(Error::ReservedName("*".to_string()))];
+        Err(Error::ReservedName("*".to_string())),
+        Err(Error::MultiplyDefined("a".to_string()))];
 
     if let Ok(to_eval) = tests {
         let context = Context::new();

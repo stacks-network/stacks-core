@@ -46,6 +46,27 @@ fn test_bad_define_names() {
 }
 
 #[test]
+fn test_stack_depth() {
+    let mut function_defines = Vec::new();
+    function_defines.push("(define (foo-0 x) (+ 1 x))".to_string());
+    for i in 1..129 {
+        function_defines.push(
+            format!("(define (foo-{} x) (foo-{} (+ 1 x)))",
+                    i, i-1));
+    }
+    function_defines.push(
+        format!("(foo-127 1)"));
+
+    let test0 = function_defines.join("\n");
+    function_defines.push(
+        format!("(foo-128 2)"));
+    let test1 = function_defines.join("\n");
+
+    assert_eq!(Ok(Value::Int(129)), execute(&test0));
+    assert_eq!(Err(Error::MaxStackDepthReached), execute(&test1));
+}
+
+#[test]
 fn test_recursive_panic() {
     let tests =
         "(define (factorial a)
