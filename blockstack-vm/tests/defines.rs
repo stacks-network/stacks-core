@@ -22,6 +22,30 @@ fn test_defines() {
 }
 
 #[test]
+fn test_bad_define_names() {
+    let test0 =
+        "(define tx-sender 1)
+         (+ tx-sender tx-sender)";
+    let test1 =
+        "(define * 1)
+         (+ * *)";
+    let test2 =
+        "(define 1 1)
+         (+ 1 1)";
+    let test3 =
+        "(define foo 1)
+         (define foo 2)
+         (+ foo foo)";
+
+    assert_eq!(Err(Error::ReservedName("tx-sender".to_string())), execute(&test0));
+    assert_eq!(Err(Error::ReservedName("*".to_string())), execute(&test1));
+    assert_eq!(Err(Error::InvalidArguments("Illegal operation: attempted to re-define a value type.".to_string())),
+               execute(&test2));
+    assert_eq!(Err(Error::MultiplyDefined("foo".to_string())),
+               execute(&test3));
+}
+
+#[test]
 fn test_recursive_panic() {
     let tests =
         "(define (factorial a)

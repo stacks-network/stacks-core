@@ -16,7 +16,9 @@ pub enum Error {
     MaxStackDepthReached,
     ListDimensionTooHigh,
     ExpectedListPairs,
-    BadSymbolicRepresentation(String)
+    BadSymbolicRepresentation(String),
+    ReservedName(String),
+    MultiplyDefined(String)
 }
 
 pub type InterpreterResult <R> = Result<R, Error>;

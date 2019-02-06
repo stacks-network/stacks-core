@@ -8,6 +8,7 @@ pub mod errors;
 pub mod database;
 
 mod functions;
+mod variables;
 
 use types::{Value, CallableType};
 use representations::SymbolicExpression;
@@ -100,6 +101,26 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
 }
 
 
+fn is_reserved(name: &str) -> bool {
+    if let Some(_result) = functions::lookup_reserved_functions(name) {
+        true
+    } else if variables::is_reserved_variable(name) {
+        true
+    } else {
+        false
+    }
+}
+
+fn check_legal_define(name: &str, context: &Context) -> Result<()> {
+    if is_reserved(name) {
+        Err(Error::ReservedName(name.to_string()))
+    } else if context.variables.contains_key(name) || context.functions.contains_key(name) {
+        Err(Error::MultiplyDefined(name.to_string()))
+    } else {
+        Ok(())
+    }
+}
+
 /* This function evaluates a list of expressions, sharing a global context.
  * It returns the final evaluated result.
  */
@@ -113,12 +134,15 @@ fn eval_all(expressions: &[SymbolicExpression],
         let try_define = functions::define::evaluate_define(exp, &mut env)?;
         match try_define {
             DefineResult::Variable(name, value) => {
+                check_legal_define(&name, &env.global_context)?;
                 env.global_context.variables.insert(name, value);
             },
             DefineResult::Function(name, value) => {
+                check_legal_define(&name, &env.global_context)?;
                 env.global_context.functions.insert(name, value);
             },
             DefineResult::Map(name, key_type, value_type) => {
+                check_legal_define(&name, &env.global_context)?;
                 env.database.create_map(&name, key_type, value_type);
             },
             DefineResult::NoDefine => {
