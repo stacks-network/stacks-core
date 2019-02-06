@@ -103,13 +103,9 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
 /* This function evaluates a list of expressions, sharing a global context.
  * It returns the final evaluated result.
  */
-pub fn eval_all(expressions: &[SymbolicExpression],
-                contract_db: Option<Box<database::ContractDatabase>>) -> Result<Value> {
-    let db_instance = match contract_db {
-        Some(db) => db,
-        None => Box::new(database::MemoryContractDatabase::new())
-    };
-    let mut env = Environment::new(db_instance);
+fn eval_all(expressions: &[SymbolicExpression],
+            mut env: Environment) -> Result<Value> {
+
     let mut last_executed = None;
     let context = Context::new();
 
@@ -139,7 +135,12 @@ pub fn eval_all(expressions: &[SymbolicExpression],
     }
 }
 
+/* Run provided program in a brand new environment, with a transient, empty
+ *  database.
+ */
 pub fn execute(program: &str) -> Result<Value> {
+    let db_instance = Box::new(database::MemoryContractDatabase::new());
+
     let parsed = parser::parse(program)?;
-    eval_all(&parsed, None)
+    eval_all(&parsed, Environment::new(db_instance))
 }
