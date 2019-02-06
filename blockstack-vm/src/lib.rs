@@ -13,9 +13,12 @@ use contexts::{Context, Environment};
 use functions::define::DefineResult;
 use errors::{Error, InterpreterResult as Result};
 
+const MAX_CALL_STACK_DEPTH: usize = 128;
+
 fn lookup_variable(name: &str, context: &Context, env: &Environment) -> Result<Value> {
-    // first off, are we talking about a constant?
+    // TODO: all handling of literals should be done by the lexer. not here.
     if name.starts_with(char::is_numeric) {
+        // first off, are we talking about a constant?
         match i128::from_str_radix(name, 10) {
             Ok(parsed) => Ok(Value::Int(parsed)),
             Err(_e) => Err(Error::Generic("Failed to parse native int!".to_string()))
@@ -68,6 +71,8 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
                         let identifier = function.get_identifier();
                         if env.call_stack.contains(&identifier) {
                             Err(Error::RecursionDetected)
+                        } else if env.call_stack.depth() >= MAX_CALL_STACK_DEPTH {
+                            Err(Error::MaxStackDepthReached)
                         } else {
                             env.call_stack.insert(&identifier);
                             let resp = function.apply(&evaluated_args, env);

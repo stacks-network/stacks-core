@@ -81,6 +81,10 @@ impl CallStack {
         }
     }
 
+    pub fn depth(&self) -> usize {
+        self.stack.len()
+    }
+
     pub fn contains(&self, user_function: &FunctionIdentifier) -> bool {
         self.stack.contains(user_function)
     }

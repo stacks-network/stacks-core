@@ -38,7 +38,7 @@ pub enum Value {
     Void,
     Int(i128),
     Bool(bool),
-    Buffer(Box<[char]>),
+    Buffer(Vec<u8>),
     List(Vec<Value>, TypeSignature),
     Tuple(TupleData)
 }
