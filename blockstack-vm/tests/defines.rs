@@ -79,9 +79,33 @@ fn test_recursive_panic() {
 }
 
 #[test]
+fn test_bad_variables() {
+    let test0 = "(+ a 1)";
+    let expected = Err(Error::Undefined("No such variable found in context: a".to_string()));
+    assert_eq!(expected, execute(&test0));
+
+
+    let test1 = "(foo 2 1)";
+    let expected = Err(Error::Undefined("No such function found in context: foo".to_string()));
+    assert_eq!(expected, execute(&test1));
+
+
+    let test2 = "((lambda (x y) 1) 2 1)";
+    let expected = Err(Error::TryEvalToFunction);
+    assert_eq!(expected, execute(&test2));
+
+    let test3 = "#foo";
+    let expected = Err(Error::InvalidArguments("Cannot eval a named parameter".to_string()));
+    assert_eq!(expected, execute(&test3));
+
+    let test4 = "()";
+    let expected = Ok(Value::Void);
+    assert_eq!(expected, execute(&test4));
+}
+
+#[test]
 fn test_define_parse_panic() {
     let tests = "(define () 1)";
-
     let expected = Err(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()));
     assert_eq!(expected, execute(&tests));
 }

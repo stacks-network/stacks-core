@@ -266,7 +266,7 @@ impl TypeSignature {
 
     // TODO: these type strings are limited to conveying lists of non-tuple types.
     pub fn parse_type_str(x: &str) -> Result<TypeSignature> {
-        let components: Vec<_> = x.split('-').collect();
+        let components: Vec<_> = x.splitn(4, '-').collect();
         match components.len() {
             1 => {
                 let atom_type = TypeSignature::get_atom_type(components[0])?;
