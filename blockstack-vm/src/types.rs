@@ -165,16 +165,25 @@ impl TypeSignature {
             //   children which are _lists_: we don't care about their max_len, we just take the max()
             let first_type = TypeSignature::type_of(first);
             let (mut max_len, dimension) = match first_type.list_dimensions {
-                Some((max_len, dimension)) => (max_len, dimension + 1),
-                None => (args.len() as u8, 1)
-            };
+                Some((max_len, dimension)) => {
+                    let parent_dimension = dimension.checked_add(1)
+                        .ok_or(Error::ListDimensionTooHigh)?;
+                    Ok((max_len, parent_dimension))
+                },
+                None => {
+                    Ok((args.len() as u8, 1))
+                }
+            }?;
 
             for x in rest {
                 let x_type = TypeSignature::type_of(x);
                 if let Some((child_max_len, child_dimension)) = x_type.list_dimensions {
                     // we're making a higher order list, so check the type more loosely.
+                    let expected_dimension = child_dimension.checked_add(1)
+                        .ok_or(Error::ListDimensionTooHigh)?;
+
                     if !(x_type.atomic_type == first_type.atomic_type &&
-                         dimension == child_dimension + 1) {
+                         dimension == expected_dimension) {
                         return Err(Error::InvalidArguments(
                             format!("List must be composed of a single type. Expected {:?}. Found {:?}.",
                                     first_type, x_type)))

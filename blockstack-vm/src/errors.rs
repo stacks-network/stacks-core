@@ -14,6 +14,7 @@ pub enum Error {
     ParseError(String),
     RecursionDetected,
     MaxStackDepthReached,
+    ListDimensionTooHigh,
     ExpectedListPairs,
     BadSymbolicRepresentation(String)
 }
