@@ -1,5 +1,5 @@
-extern crate blockstack_vm;
-use blockstack_vm::representations::SymbolicExpression;
+use vm::representations::SymbolicExpression;
+use vm::parser;
 
 #[test]
 fn test_parse_let_expression() {
@@ -37,7 +37,7 @@ fn test_parse_let_expression() {
         SymbolicExpression::Atom("y".to_string()),
     ];
 
-    if let Ok(parsed) = blockstack_vm::parser::parse(&input) {
+    if let Ok(parsed) = parser::parse(&input) {
         assert_eq!(program, parsed, "Should match expected symbolic expression");
     } else {
         assert!(false, "Failed to lex and parse input");
@@ -49,11 +49,11 @@ fn test_parse_failures() {
     let too_much_closure = "(let ((x 1) (y 2))))";
     let not_enough_closure = "(let ((x 1) (y 2))";
 
-    match blockstack_vm::parser::parse(&too_much_closure) {
+    match parser::parse(&too_much_closure) {
         Ok(_parsed) => assert!(false, "Should have failed to parse with too many right parens"),
         Err(_s) => assert!(true, "Should have failed to parse with too many right parens")
     }
-    match blockstack_vm::parser::parse(&not_enough_closure) {
+    match parser::parse(&not_enough_closure) {
         Ok(_parsed) => assert!(false, "Should have failed to parse with too few right parens"),
         Err(_s) => assert!(true, "Should have failed to parse with too few right parens")
     }

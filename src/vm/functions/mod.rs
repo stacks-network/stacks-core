@@ -5,12 +5,12 @@ mod boolean;
 mod database;
 mod tuples;
 
-use super::types::{Value, CallableType};
-use super::representations::SymbolicExpression;
-use super::{Context,Environment};
-use super::InterpreterResult;
-use super::errors::Error;
-use super::eval;
+use vm::types::{Value, CallableType};
+use vm::representations::SymbolicExpression;
+use vm::{Context,Environment};
+use vm::InterpreterResult;
+use vm::errors::Error;
+use vm::eval;
 
 
 fn native_eq(args: &[Value]) -> InterpreterResult {

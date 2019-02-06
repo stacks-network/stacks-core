@@ -1,12 +1,10 @@
-extern crate blockstack_vm;
-
-use blockstack_vm::eval;
-use blockstack_vm::database::MemoryContractDatabase;
-use blockstack_vm::errors::Error;
-use blockstack_vm::contexts::{Context, Environment};
-use blockstack_vm::types::{Value, DefinedFunction};
-use blockstack_vm::representations::SymbolicExpression;
-use blockstack_vm::parser::parse;
+use vm::eval;
+use vm::database::MemoryContractDatabase;
+use vm::errors::Error;
+use vm::contexts::{Context, Environment};
+use vm::types::{Value, DefinedFunction};
+use vm::representations::SymbolicExpression;
+use vm::parser::parse;
 
 #[test]
 fn test_simple_user_function() {

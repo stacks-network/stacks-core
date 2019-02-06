@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use errors::Error;
-use InterpreterResult;
-use types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
+use vm::errors::Error;
+use vm::InterpreterResult;
+use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 pub trait DataMap {
     fn fetch_entry(&self, key: &Value) -> InterpreterResult;

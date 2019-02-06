@@ -37,6 +37,7 @@ extern crate dirs;
 mod burnchains;
 mod chainstate;
 mod core;
+mod vm;
 
 use std::env;
 use std::process;

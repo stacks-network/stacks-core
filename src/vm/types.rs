@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 
-use InterpreterResult;
-use errors::Error;
-use representations::SymbolicExpression;
-use {Context,Environment};
-use eval;
+use vm::InterpreterResult;
+use vm::errors::Error;
+use vm::representations::SymbolicExpression;
+use vm::{eval, Context, Environment};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AtomTypeIdentifier {

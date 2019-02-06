@@ -1,5 +1,5 @@
-use errors::Error;
-use representations::SymbolicExpression;
+use vm::errors::Error;
+use vm::representations::SymbolicExpression;
 
 #[derive(Debug)]
 pub enum LexItem {
