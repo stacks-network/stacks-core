@@ -19,6 +19,32 @@
 
 use util::pair::*;
 
+use crypto::ripemd160::Ripemd160;
+use crypto::sha2::Sha256;
+use crypto::digest::Digest;
+
+#[derive(Serialize, Deserialize)]
+pub struct Hash160(pub [u8; 20]);
+impl_array_newtype!(Hash160, u8, 20);
+impl_array_hexstring_fmt!(Hash160);
+impl_byte_array_newtype!(Hash160, u8, 20);
+
+impl Hash160 {
+    /// Create a hash by hashing some data
+    /// (borrwed from Andrew Poelstra)
+    pub fn from_data(data: &[u8]) -> Hash160 {
+        let mut tmp = [0; 32];
+        let mut ret = [0; 20];
+        let mut sha2 = Sha256::new();
+        let mut rmd = Ripemd160::new();
+        sha2.input(data);
+        sha2.result(&mut tmp);
+        rmd.input(&tmp);
+        rmd.result(&mut ret);
+        Hash160(ret)
+    }
+}
+
 // borrowed from Andrew Poelstra's rust-bitcoin library
 /// Convert a hexadecimal-encoded string to its corresponding bytes
 pub fn hex_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
@@ -45,5 +71,5 @@ pub fn hex_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
 /// Convert a slice of u8 to a hex string
 pub fn to_hex(s: &[u8]) -> String {
     let r : Vec<String> = s.to_vec().iter().map(|b| format!("{:02x}", b)).collect();
-    return r.connect("");
+    return r.join("");
 }

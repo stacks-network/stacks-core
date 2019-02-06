@@ -1,9 +1,7 @@
-extern crate blockstack_vm;
+use vm::types::{Value};
 
-use blockstack_vm::types::{Value};
-
-use blockstack_vm::execute;
-use blockstack_vm::errors::Error;
+use vm::execute;
+use vm::errors::Error;
 
 #[test]
 fn test_simple_map() {

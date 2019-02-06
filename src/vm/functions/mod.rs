@@ -5,10 +5,10 @@ mod boolean;
 mod database;
 mod tuples;
 
-use errors::{Error, InterpreterResult as Result};
-use types::{Value, CallableType};
-use representations::SymbolicExpression;
-use {Context, Environment, eval};
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::types::{Value, CallableType};
+use vm::representations::SymbolicExpression;
+use vm::{Context, Environment, eval};
 
 
 fn native_eq(args: &[Value]) -> Result<Value> {

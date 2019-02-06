@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use errors::{Error, InterpreterResult as Result};
-use types::{DefinedFunction, FunctionIdentifier, Value};
-use database::ContractDatabase;
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::types::{DefinedFunction, FunctionIdentifier, Value};
+use vm::database::ContractDatabase;
 
 const MAX_CONTEXT_DEPTH: u8 = 128;
 

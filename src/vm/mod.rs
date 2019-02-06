@@ -10,11 +10,13 @@ pub mod database;
 mod functions;
 mod variables;
 
-use types::{Value, CallableType};
-use representations::SymbolicExpression;
-use contexts::{Context, Environment};
-use functions::define::DefineResult;
-use errors::{Error, InterpreterResult as Result};
+mod tests;
+
+use vm::types::{Value, CallableType};
+use vm::representations::SymbolicExpression;
+use vm::contexts::{Context, Environment};
+use vm::functions::define::DefineResult;
+use vm::errors::{Error, InterpreterResult as Result};
 
 const MAX_CALL_STACK_DEPTH: usize = 128;
 

@@ -18,20 +18,22 @@
 */
 
 use burnchains::Address;
-use burnchains::Hash160;
-use burnchains::bitcoin::indexer::BitcoinNetworkType;
+use burnchains::bitcoin::BitcoinNetworkType;
 
 use burnchains::bitcoin::Error as btc_error;
 
 use bitcoin::util::base58;
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+use util::hash::Hash160;
+use util::log;
+
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub enum BitcoinAddressType {
     PublicKeyHash,
     ScriptHash
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub struct BitcoinAddress {
     addrtype: BitcoinAddressType,
     network_id: BitcoinNetworkType,
@@ -111,6 +113,36 @@ impl BitcoinAddress {
         })
     }
 
+    /// Instantiate an address from a scriptpubkey 
+    /// If we don't recognize it, then return None 
+    pub fn from_scriptpubkey(network_id: BitcoinNetworkType, scriptpubkey: &Vec<u8>) -> Option<BitcoinAddress> {
+        if scriptpubkey.len() == 25 && scriptpubkey[0..3] == [0x76, 0xa9, 0x14] && scriptpubkey[23..25] == [0x88, 0xac] {
+            let mut my_bytes = [0; 20];
+            let b = &scriptpubkey[3..23];
+            my_bytes.copy_from_slice(b);
+
+            Some(BitcoinAddress {
+                network_id: network_id,
+                addrtype: BitcoinAddressType::PublicKeyHash,
+                bytes: Hash160(my_bytes)
+            })
+        }
+        else if scriptpubkey.len() == 23 && scriptpubkey[0..2] == [0xa9, 0x14] && scriptpubkey[22] == 0x87 {
+            let mut my_bytes = [0; 20];
+            let b = &scriptpubkey[2..22];
+            my_bytes.copy_from_slice(b);
+
+            Some(BitcoinAddress {
+                network_id: network_id, 
+                addrtype: BitcoinAddressType::ScriptHash,
+                bytes: Hash160(my_bytes)
+            })
+        }
+        else {
+            None
+        }
+    }
+
     fn to_versioned_bytes(&self) -> [u8; 21] {
         let mut ret = [0; 21];
         let addrtype = self.addrtype;
@@ -143,25 +175,38 @@ impl Address for BitcoinAddress {
     fn to_bytes(&self) -> Vec<u8> {
         self.bytes.as_bytes().to_vec()
     }
+    
+    fn to_string(&self) -> String {
+        self.to_b58()
+    }
+
+    fn from_string(s: &String) -> Option<BitcoinAddress> {
+        match BitcoinAddress::from_b58(s) {
+            Ok(a) => Some(a),
+            Err(_e) => None
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{BitcoinAddress, BitcoinAddressType};
-    use burnchains::bitcoin::indexer::BitcoinNetworkType;
-    use burnchains::Address;
-    use burnchains::Hash160;
-    use util::log as logger;
+    use burnchains::bitcoin::BitcoinNetworkType;
+    use util::log;
+    use util::hash::{hex_bytes, Hash160};
 
     struct AddressFixture {
         addr: String,
         result: Option<BitcoinAddress>
     }
 
+    struct ScriptFixture {
+        scriptpubkey: Vec<u8>,
+        result: Option<BitcoinAddress>
+    }
+
     #[test]
     fn test_from_b58() {
-        logger::init();
-
         let fixtures = vec![
             AddressFixture {
                 addr: "mr6nrMvvh44sR5MiX929mMXP5hqgaTr6fx".to_owned(),
@@ -227,8 +272,59 @@ mod tests {
                     test_debug!("Decoded an address when we should not have");
                     assert!(false);
                 }
-                (Err(_e), Some(res)) => {
+                (Err(_e), Some(_res)) => {
                     test_debug!("Failed to decode when we should have: {}", fixture.addr);
+                    assert!(false);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_from_scriptpubkey() {
+        let fixtures = vec![
+            ScriptFixture {
+                scriptpubkey: hex_bytes("76a9146ea17fc39169cdd9f2414a893aa5ce0c4b4c893488ac").unwrap().to_vec(),
+                result: Some(BitcoinAddress {
+                    network_id: BitcoinNetworkType::mainnet,
+                    addrtype: BitcoinAddressType::PublicKeyHash,
+                    bytes: Hash160::from_hex("6ea17fc39169cdd9f2414a893aa5ce0c4b4c8934").unwrap(),
+                })
+            },
+            ScriptFixture {
+                scriptpubkey: hex_bytes("a9142c2edf39b098e05cf770e6b5a2fcedb54ee4fe0587").unwrap().to_vec(),
+                result: Some(BitcoinAddress {
+                    network_id: BitcoinNetworkType::mainnet,
+                    addrtype: BitcoinAddressType::ScriptHash,
+                    bytes: Hash160::from_hex("2c2edf39b098e05cf770e6b5a2fcedb54ee4fe05").unwrap(),
+                })
+            },
+            ScriptFixture {
+                scriptpubkey: hex_bytes("002c2edf39b098e05cf770e6b5a2fcedb54ee4fe05").unwrap().to_vec(),
+                result: None,
+            },
+            ScriptFixture {
+                scriptpubkey: hex_bytes("76a9146ea17fc39169cdd9f2414a893aa5ce0c4b4c893488ad").unwrap().to_vec(),
+                result: None,
+            },
+            ScriptFixture {
+                scriptpubkey: hex_bytes("a91476a9146ea17fc39169cdd9f2414a893aa5ce0c4b4c893488ac88").unwrap().to_vec(),
+                result: None,
+            }
+        ];
+
+        for fixture in fixtures {
+            let addr_opt = BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::mainnet, &fixture.scriptpubkey);
+
+            match (addr_opt, fixture.result) {
+                (Some(addr), Some(res)) => assert_eq!(addr, res),
+                (None, None) => {},
+                (None, Some(_r)) => {
+                    test_debug!("Failed to decode an address when we should have");
+                    assert!(false);
+                },
+                (Some(_a), None) => {
+                    test_debug!("Decoded an address when we should not have");
                     assert!(false);
                 }
             }

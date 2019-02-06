@@ -1,7 +1,7 @@
 use regex::{Regex, Captures};
-use errors::{Error, InterpreterResult as Result};
-use representations::SymbolicExpression;
-use types::Value;
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::representations::SymbolicExpression;
+use vm::types::Value;
 
 #[derive(Debug)]
 pub enum LexItem {

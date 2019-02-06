@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
-use errors::{Error, InterpreterResult as Result};
-use representations::SymbolicExpression;
-use {Context,Environment};
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::representations::SymbolicExpression;
+use vm::{eval, Context, Environment};
 use eval;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

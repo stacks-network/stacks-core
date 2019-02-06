@@ -1,9 +1,7 @@
-extern crate blockstack_vm;
+use vm::errors::Error;
+use vm::types::{Value, TypeSignature, AtomTypeIdentifier};
 
-use blockstack_vm::errors::Error;
-use blockstack_vm::types::{Value, TypeSignature, AtomTypeIdentifier};
-
-use blockstack_vm::execute;
+use vm::execute;
 
 #[test]
 fn test_simple_tea_shop() {

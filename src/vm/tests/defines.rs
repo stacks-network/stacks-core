@@ -1,8 +1,6 @@
-extern crate blockstack_vm;
-
-use blockstack_vm::execute;
-use blockstack_vm::errors::Error;
-use blockstack_vm::types::Value;
+use vm::execute;
+use vm::errors::Error;
+use vm::types::Value;
 
 
 #[test]
