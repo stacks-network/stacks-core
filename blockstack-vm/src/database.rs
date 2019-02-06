@@ -11,7 +11,8 @@ pub trait DataMap {
 }
 
 pub trait ContractDatabase {
-    fn get_data_map(&mut self, map_name: &str) -> Option<&mut DataMap>;
+    fn get_data_map(&mut self, map_name: &str) -> Option<&DataMap>;
+    fn get_mut_data_map(&mut self, map_name: &str) -> Option<&mut DataMap>;
     fn create_map(&mut self, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature);
 }
 
@@ -44,8 +45,16 @@ impl MemoryContractDatabase {
 }
 
 impl ContractDatabase for MemoryContractDatabase {
-    fn get_data_map(&mut self, map_name: &str) -> Option<&mut DataMap> {
+    fn get_mut_data_map(&mut self, map_name: &str) -> Option<&mut DataMap> {
         if let Some(data_map) = self.maps.get_mut(map_name) {
+            Some(data_map)
+        } else {
+            None
+        }
+    }
+
+    fn get_data_map(&mut self, map_name: &str) -> Option<&DataMap> {
+        if let Some(data_map) = self.maps.get(map_name) {
             Some(data_map)
         } else {
             None

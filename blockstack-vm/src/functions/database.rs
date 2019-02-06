@@ -9,7 +9,7 @@ fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> R
         SymbolicExpression::Atom(value) => Ok(value),
         _ => Err(Error::InvalidArguments("First argument in data functions must be the map name".to_string()))
     }?;
-    match env.database.get_data_map(map_name) {
+    match env.database.get_mut_data_map(map_name) {
         Some(map) => Ok(map),
         None => Err(Error::Undefined(format!("No such map named: {}", map_name)))
     }
@@ -26,7 +26,15 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
 
     let key = eval(&args[1], env, context)?;
 
-    let map = obtain_map(&args[0], env)?;
+    let map_name = match &args[0] {
+        SymbolicExpression::Atom(value) => Ok(value),
+        _ => Err(Error::InvalidArguments("First argument in data functions must be the map name".to_string()))
+    }?;
+
+    let map = match env.database.get_data_map(&map_name) {
+        Some(map) => Ok(map),
+        None => Err(Error::Undefined(format!("No such map named: {}", map_name)))
+    }?;
 
     map.fetch_entry(&key)
 }
