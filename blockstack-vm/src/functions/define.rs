@@ -1,8 +1,8 @@
 use types::{Value, DefinedFunction, TupleTypeSignature, TypeSignature};
 use representations::SymbolicExpression;
-use representations::SymbolicExpression::{Atom,AtomValue,List,NamedParameter};
+use representations::SymbolicExpression::{Atom, AtomValue, List, NamedParameter};
 use errors::{Error, InterpreterResult as Result};
-use {Context,Environment,eval};
+use { Context, Environment, eval };
 
 pub enum DefineResult {
     Variable(String, Value),
@@ -11,13 +11,29 @@ pub enum DefineResult {
     NoDefine
 }
 
-pub fn handle_define_variable(variable: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
+fn check_legal_define(name: &str, global_context: &Context) -> Result<()> {
+    use is_reserved;
+
+    if is_reserved(name) {
+        Err(Error::ReservedName(name.to_string()))
+    } else if global_context.variables.contains_key(name) || global_context.functions.contains_key(name) {
+        Err(Error::MultiplyDefined(name.to_string()))
+    } else {
+        Ok(())
+    }
+}
+
+fn handle_define_variable(variable: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
+    // is the variable name legal?
+    check_legal_define(variable, &env.global_context)?;
     let context = Context::new();
     let value = eval(expression, env, &context)?;
     Ok(DefineResult::Variable(variable.clone(), value))
 }
 
-pub fn handle_define_function(signature: &[SymbolicExpression], expression: &SymbolicExpression) -> Result<DefineResult> {
+fn handle_define_function(signature: &[SymbolicExpression],
+                          expression: &SymbolicExpression,
+                          env: &Environment) -> Result<DefineResult> {
     let coerced_atoms: Result<Vec<_>> = signature.iter().map(|x| {
         if let Atom(name) = x {
             Ok(name)
@@ -27,15 +43,18 @@ pub fn handle_define_function(signature: &[SymbolicExpression], expression: &Sym
     }).collect();
 
     let names = coerced_atoms?;
-    if let Some((function_name, arg_names)) = names.split_first() {
-        let function = DefinedFunction {
-            arguments: arg_names.iter().map(|x| (*x).clone()).collect(),
-            body: expression.clone()
-        };
-        Ok(DefineResult::Function((*function_name).clone(), function))
-    } else {
-        Err(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))
-    }
+
+    let (function_name, arg_names) = names.split_first()
+        .ok_or(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))?;
+
+    check_legal_define(&function_name, &env.global_context)?;
+
+    let function = DefinedFunction {
+        arguments: arg_names.iter().map(|x| (*x).clone()).collect(),
+        body: expression.clone()
+    };
+
+    Ok(DefineResult::Function((*function_name).clone(), function))
 }
 
 fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature> {
@@ -86,11 +105,14 @@ fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeS
 
 fn handle_define_map(map_name: &SymbolicExpression,
                      key_type: &SymbolicExpression,
-                     value_type: &SymbolicExpression) -> Result<DefineResult> {
+                     value_type: &SymbolicExpression,
+                     env: &Environment) -> Result<DefineResult> {
     let map_str = match map_name {
         Atom(ref map_name) => Ok(map_name.clone()),
         _ => Err(Error::InvalidArguments("Non-name argument to define-map".to_string()))
     }?;
+
+    check_legal_define(&map_str, &env.global_context)?;
 
     let key_type_signature = parse_name_type_pair_list(key_type)?;
     let value_type_signature = parse_name_type_pair_list(value_type)?;
@@ -112,7 +134,7 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                                 "Illegal operation: attempted to re-define a value type.".to_string())),
                             NamedParameter(ref _value) => Err(Error::InvalidArguments(
                                 "Illegal operation: attempted to re-define a named parameter.".to_string())),
-                            List(ref function_signature) => handle_define_function(&function_signature, &elements[2])
+                            List(ref function_signature) => handle_define_function(&function_signature, &elements[2], env)
                         }
                     }
                 },
@@ -120,7 +142,7 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                     if elements.len() != 4 {
                         Err(Error::InvalidArguments("(define-map ...) requires 3 arguments".to_string()))
                     } else {
-                        handle_define_map(&elements[1], &elements[2], &elements[3])
+                        handle_define_map(&elements[1], &elements[2], &elements[3], env)
                     }
                 }
                 _ => Ok(DefineResult::NoDefine)
