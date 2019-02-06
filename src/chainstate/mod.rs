@@ -1,5 +1,5 @@
 /*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
+ copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
 
  This file is part of Blockstack.
 
@@ -17,22 +17,5 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-pub mod db;
-pub mod operations;
-
-pub struct ConsensusHash([u8; 16]);
-impl_array_newtype!(ConsensusHash, u8, 16);
-impl_array_hexstring_fmt!(ConsensusHash);
-impl_byte_array_newtype!(ConsensusHash, u8, 16);
-
-pub struct BlockHeaderHash([u8; 32]);
-impl_array_newtype!(BlockHeaderHash, u8, 32);
-impl_array_hexstring_fmt!(BlockHeaderHash);
-impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
-
-pub struct VRFSeed([u8; 32]);
-impl_array_newtype!(VRFSeed, u8, 32);
-impl_array_hexstring_fmt!(VRFSeed);
-impl_byte_array_newtype!(VRFSeed, u8, 32);
-
-pub const CHAINSTATE_VERSION: &'static str = "21.0.0.0";
+pub mod burn;
+pub mod stacks;

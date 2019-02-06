@@ -18,10 +18,59 @@
 */
 
 use burnchains::*;
+use burnchains::Error as burnchain_error;
 
-pub trait BurnchainIndexer<A: Address, K: PublicKey> {
-    fn setup(&mut self, working_directory: &str) -> Result<(), &'static str>;
-    fn connect(&mut self, &str) -> Result<(), &'static str>;
-    fn get_block_hash(&mut self, block_height: u64) -> Result<String, &'static str>;
-    fn get_block_txs(&mut self, block_hash: &str) -> Result<Box<Vec<BurnchainTransaction<A, K>>>, &'static str>;
+use burnchains::BurnchainBlock;
+
+// IPC messages between threads
+pub trait BurnHeaderIPC {
+    type H: Send + Sync + Clone;
+
+    fn height(&self) -> u64;
+    fn header(&self) -> Self::H;
+}
+
+pub trait BurnBlockIPC {
+    type H: BurnHeaderIPC + Sync + Send + Clone;
+    type B: Send + Sync + Clone;
+
+    fn height(&self) -> u64;
+    fn header(&self) -> Self::H;
+    fn block(&self) -> Self::B;
+}
+
+pub trait BurnchainBlockDownloader {
+    type H: BurnHeaderIPC + Sync + Send + Clone;
+    type B: BurnBlockIPC + Sync + Send + Clone;
+
+    fn download(&mut self, header: &Self::H) -> Result<Self::B, burnchain_error>;
+}
+
+pub trait BurnchainBlockParser {
+    type D: BurnchainBlockDownloader + Sync + Send;
+    type A: Address + Send + Sync + Clone;
+    type K: PublicKey + Send + Sync + Clone;
+    
+    fn parse(&mut self, block: &<<Self as BurnchainBlockParser>::D as BurnchainBlockDownloader>::B) -> Result<BurnchainBlock<Self::A, Self::K>, burnchain_error>;
+}
+
+pub trait BurnchainIndexer {
+    type P: BurnchainBlockParser + Send + Sync;
+
+    fn init(network_name: &String, working_directory: &String) -> Result<Self, burnchain_error>
+        where Self : Sized;
+    fn connect(&mut self) -> Result<(), burnchain_error>;
+
+    fn get_first_block_height(&self) -> u64;
+    fn get_blockchain_height(&self) -> Result<u64, burnchain_error>;
+    fn get_headers_path(&self) -> String;
+    fn get_headers_height(&self, headers_path: &String) -> Result<u64, burnchain_error>;
+    fn find_chain_reorg(&mut self, headers_path: &String, start_height: u64) -> Result<u64, burnchain_error>;
+    fn sync_headers(&mut self, headers_path: &String, start_height: u64, end_height: u64) -> Result<(), burnchain_error>;
+    fn drop_headers(&mut self, headers_path: &String, new_height: u64) -> Result<(), burnchain_error>;
+
+    fn read_headers(&self, headers_path: &String, start_block: u64, end_block: u64) -> Result<Vec<<<<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D as BurnchainBlockDownloader>::H>, burnchain_error>;
+
+    fn downloader(&self) -> <<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D;
+    fn parser(&self) -> Self::P;
 }

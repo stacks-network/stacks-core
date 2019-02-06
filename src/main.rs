@@ -23,37 +23,85 @@ extern crate ini;
 extern crate jsonrpc;
 extern crate secp256k1;
 extern crate serde;
+extern crate serde_json;
 extern crate crypto;
 extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
 extern crate sha2;
+extern crate dirs;
 
 #[macro_use] extern crate serde_derive;
-#[macro_use] extern crate log;
 
 #[macro_use] mod util;
 mod burnchains;
 mod chainstate;
+mod core;
 
-use burnchains::indexer::BurnchainIndexer;
-use burnchains::bitcoin::indexer::sync_block_headers;
-use burnchains::bitcoin::Error as btc_error;
-
-use util::log as logger;
+use std::env;
+use std::process;
+use util::log;
 
 fn main() {
-    logger::init().unwrap();
+    let argv : Vec<String> = env::args().collect();
+    if argv.len() < 1 {
+        eprintln!("Usage: {} command [args...]", argv[0]);
+        process::exit(1);
+    }
 
-    let mut bitcoin_indexer = burnchains::bitcoin::indexer::BitcoinIndexer::new();
-    bitcoin_indexer.setup("/tmp/test-blockstack-ng").unwrap();
-
-    match sync_block_headers(&mut bitcoin_indexer, Some(540000)) {
-        Ok(num_fetched) => {
-            debug!("Fetched {} headers!", num_fetched);
+    if argv[1] == "read_bitcoin_header" {
+        if argv.len() < 4 {
+            eprintln!("Usage: {} read_bitcoin_header BLOCK_HEIGHT PATH", argv[0]);
+            process::exit(1);
         }
-        Err(e) => {
-            error!("Failed to sync headers: {:?}", e);
+
+        use burnchains::BurnchainHeaderHash;
+        use burnchains::bitcoin::spv;
+        use util::hash::to_hex;
+        use bitcoin::network::serialize::BitcoinHash;
+
+        let height = argv[2].parse::<u64>().unwrap();
+        let headers_path = &argv[3];
+
+        let header_opt = spv::SpvClient::read_block_header(headers_path, height).unwrap();
+        match header_opt {
+            Some(header) => {
+                println!("{:?}", header);
+                println!("{}", to_hex(BurnchainHeaderHash::from_bytes_be(header.header.bitcoin_hash().as_bytes()).unwrap().as_bytes()));
+                process::exit(0);
+            },
+            None => {
+                eprintln!("Failed to read header");
+                process::exit(1);
+            }
         }
     }
+
+    if argv.len() < 4 {
+        eprintln!("Usage: {} blockchain network working_dir", argv[0]);
+        process::exit(1);
+    }
+
+    let blockchain = &argv[1];
+    let network = &argv[2];
+    let working_dir = &argv[3];
+
+    match (blockchain.as_str(), network.as_str()) {
+        ("bitcoin", "mainnet") | ("bitcoin", "testnet") | ("bitcoin", "regtest") => {
+            let block_height_res = core::sync_burnchain_bitcoin(&network, &working_dir);
+            match block_height_res {
+                Err(e) => {
+                    eprintln!("Failed to sync {} {}: {:?}", blockchain, network, e);
+                    process::exit(1);
+                },
+                Ok(height) => {
+                    println!("Synchronized state to block {}", height);
+                }
+            }
+        },
+        (_, _) => {
+            eprintln!("Unrecognized blockchain and/or network");
+            process::exit(1);
+        }
+    };
 }

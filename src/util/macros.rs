@@ -135,15 +135,18 @@ macro_rules! impl_array_newtype {
             }
         }
 
+        /*
         impl ::rand::Rand for $thing {
             #[inline]
             fn rand<R: ::rand::Rng>(r: &mut R) -> $thing {
                 $thing(::rand::Rand::rand(r))
             }
         }
+        */
     }
 }
 
+/*
 macro_rules! impl_array_newtype_show {
     ($thing:ident) => {
         impl ::std::fmt::Debug for $thing {
@@ -153,6 +156,7 @@ macro_rules! impl_array_newtype_show {
         }
     }
 }
+*/
 
 macro_rules! impl_index_newtype {
     ($thing:ident, $ty:ty) => {
@@ -240,6 +244,11 @@ macro_rules! impl_byte_array_newtype {
                 }
             }
 
+            /// Instantiates from a (big-endian) slice of bytes 
+            pub fn from_bytes_be(inp: &[u8]) -> Option<$thing> {
+                $thing::from_vec_be(&inp.to_vec())
+            }
+
             /// Instantiates from a (little-endian) vector of bytes
             pub fn from_vec(inp: &Vec<u8>) -> Option<$thing> {
                 match inp.len() {
@@ -267,6 +276,12 @@ macro_rules! impl_byte_array_newtype {
                     }
                     _ => None
                 }
+            }
+
+            /// Convert to a hex string 
+            pub fn to_hex(&self) -> String {
+                use util::hash::to_hex;
+                to_hex(&self.0)
             }
         }
     }
