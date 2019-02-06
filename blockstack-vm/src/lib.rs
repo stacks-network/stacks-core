@@ -1,3 +1,5 @@
+extern crate regex;
+
 pub mod types;
 pub mod representations;
 pub mod parser;
@@ -16,21 +18,8 @@ use errors::{Error, InterpreterResult as Result};
 const MAX_CALL_STACK_DEPTH: usize = 128;
 
 fn lookup_variable(name: &str, context: &Context, env: &Environment) -> Result<Value> {
-    // TODO: all handling of literals should be done by the lexer. not here.
-    if name.starts_with(char::is_numeric) {
-        // first off, are we talking about a constant?
-        match i128::from_str_radix(name, 10) {
-            Ok(parsed) => Ok(Value::Int(parsed)),
-            Err(_e) => Err(Error::Generic("Failed to parse native int!".to_string()))
-        }
-    } else if name.starts_with('\'') {
-        // Quoted! true or false?
-        match &name as &str {
-            "'null" => Ok(Value::Void),
-            "'true" => Ok(Value::Bool(true)),
-            "'false" => Ok(Value::Bool(false)),
-            _ => Err(Error::NotImplemented)
-        }
+    if name.starts_with(char::is_numeric) || name.starts_with('\'') {
+        Err(Error::BadSymbolicRepresentation(format!("Unexpected variable name: {}", name)))
     } else {
         if let Some(value) = context.lookup_variable(name) {
             Ok(value)

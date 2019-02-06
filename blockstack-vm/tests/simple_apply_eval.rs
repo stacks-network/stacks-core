@@ -23,7 +23,7 @@ fn test_simple_user_function() {
 
     let func_body = SymbolicExpression::List(
         Box::new([ SymbolicExpression::Atom("+".to_string()),
-                   SymbolicExpression::Atom("5".to_string()),
+                   SymbolicExpression::AtomValue(Value::Int(5)),
                    SymbolicExpression::Atom("x".to_string())]));
 
     let func_args = vec!["x".to_string()];

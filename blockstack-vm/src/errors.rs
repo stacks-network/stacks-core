@@ -14,7 +14,8 @@ pub enum Error {
     ParseError(String),
     RecursionDetected,
     MaxStackDepthReached,
-    ExpectedListPairs
+    ExpectedListPairs,
+    BadSymbolicRepresentation(String)
 }
 
 pub type InterpreterResult <R> = Result<R, Error>;

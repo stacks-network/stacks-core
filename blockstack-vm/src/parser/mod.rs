@@ -1,79 +1,135 @@
+use regex::{Regex, Captures};
 use errors::{Error, InterpreterResult as Result};
 use representations::SymbolicExpression;
+use types::Value;
 
 #[derive(Debug)]
 pub enum LexItem {
     LeftParen,
     RightParen,
-    NameParameter(String),
-    Atom(String)
+    NamedParameter(String),
+    LiteralValue(Value),
+    Variable(String),
+    Whitespace
 }
 
-fn finish_atom(current: &mut Option<String>) -> Option<LexItem> {
-    let resp = match current {
-        &mut None => {
-            None
-        },
-        &mut Some(ref value) => {
-            if value.starts_with('#') {
-                Some(LexItem::NameParameter(value[1..].to_string()))
-            } else {
-                Some(LexItem::Atom(value.clone()))
-            }
-        },
-    };
+#[derive(Debug)]
+enum TokenType {
+    LParens, RParens, Whitespace,
+    StringLiteral, HexStringLiteral,
+    IntLiteral, QuoteLiteral,
+    Variable, NamedParameter
+}
 
-    *current = None;
-    resp
+struct LexMatcher {
+    matcher: Regex,
+    handler: TokenType
+}
+
+impl LexMatcher {
+    fn new(regex_str: &str, handles: TokenType) -> LexMatcher {
+        LexMatcher {
+            matcher: Regex::new(&format!("^{}", regex_str)).unwrap(),
+            handler: handles
+        }
+    }
+}
+
+fn get_value_or_err(input: &str, captures: Captures) -> Result<String> {
+    let matched = captures.name("value").ok_or(
+        Error::ParseError("Failed to capture value from input".to_string()))?;
+    Ok(input[matched.start()..matched.end()].to_string())
 }
 
 pub fn lex(input: &str) -> Result<Vec<LexItem>> {
+
+    // Aaron: I'd like these to be static, but that'd require using
+    //    lazy_static (or just hand implementing that), and I'm not convinced
+    //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
+    let lex_matchers: &[LexMatcher] = &[
+        LexMatcher::new(r##""(?P<value>((\\")|([[:ascii:]&&[^"\n\r\t]]))*)""##, TokenType::StringLiteral),
+        LexMatcher::new("[(]", TokenType::LParens),
+        LexMatcher::new("[)]", TokenType::RParens),
+        LexMatcher::new("[ \n\t\r]+", TokenType::Whitespace),
+        LexMatcher::new("(?P<value>[[:digit:]]+)", TokenType::IntLiteral),
+        LexMatcher::new("'(?P<value>true|false|null)", TokenType::QuoteLiteral),
+        LexMatcher::new("0x(?P<value>[[:xdigit:]])", TokenType::HexStringLiteral),
+        LexMatcher::new("#(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::NamedParameter),
+        LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
+    ];
+
+
     let mut result = Vec::new();
-    let current = &mut None;
-    for c in input.chars() {
-        match c {
-            '(' => {
-                if let Some(value) = finish_atom(current) {
-                    result.push(value);
-                }
-                result.push(LexItem::LeftParen)
-            },
-            ')' => {
-                if let Some(value) = finish_atom(current) {
-                    result.push(value);
-                }
-                result.push(LexItem::RightParen)
-            },
-            '#' => {
-                if let Some(ref _value) = *current {
-                    return Err(Error::ParseError("You may not use # in the middle of an atom.".to_string()))
-                } else {
-                    *current = Some(c.to_string())
-                }
-            },
-            ' '|'\t'|'\n'|'\r' => {
-                if let Some(value) = finish_atom(current) {
-                    result.push(value);
-                }
-            },
-            _ => {
-                match *current {
-                    None => {
-                        *current = Some(c.to_string());
+    let mut munch_index = 0;
+    let mut did_match = true;
+    while did_match && munch_index < input.len() {
+        did_match = false;
+        let current_slice = &input[munch_index..];
+        for matcher in lex_matchers.iter() {
+            if let Some(captures) = matcher.matcher.captures(current_slice) {
+                let whole_match = captures.get(0).unwrap();
+                assert_eq!(whole_match.start(), 0);
+                munch_index += whole_match.end();
+                let token = match matcher.handler {
+                    TokenType::LParens => Ok(LexItem::LeftParen),
+                    TokenType::RParens => Ok(LexItem::RightParen),
+                    TokenType::Whitespace => Ok(LexItem::Whitespace),
+                    TokenType::NamedParameter => {
+                        let value = get_value_or_err(current_slice, captures)?;
+                        if value.contains("#") {
+                            return Err(Error::ParseError(format!("Illegal variable name: '{}'", value)))
+                        }
+                        Ok(LexItem::NamedParameter(value))
                     },
-                    Some(ref mut value) => {
-                        value.push(c);
+                    TokenType::Variable => {
+                        let value = get_value_or_err(current_slice, captures)?;
+                        if value.contains("#") {
+                            return Err(Error::ParseError(format!("Illegal variable name: '{}'", value)))
+                        }
+                        Ok(LexItem::Variable(value))
+                    },
+                    TokenType::QuoteLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let value = match str_value.as_str() {
+                            "null" => Ok(Value::Void),
+                            "true" => Ok(Value::Bool(true)),
+                            "false" => Ok(Value::Bool(false)),
+                            _ => Err(Error::ParseError(format!("Unknown 'quoted value '{}'", str_value)))
+                        }?;
+                        Ok(LexItem::LiteralValue(value))
+                    },
+                    TokenType::IntLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let value = match i128::from_str_radix(&str_value, 10) {
+                            Ok(parsed) => Ok(Value::Int(parsed)),
+                            Err(_e) => Err(Error::ParseError(format!("Failed to parse int literal '{}'", str_value)))
+                        }?;
+                        Ok(LexItem::LiteralValue(value))
+                    },
+                    TokenType::HexStringLiteral => {
+                        panic!("Not implemented")
+                    },
+                    TokenType::StringLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let quote_unescaped = str_value.replace("\\\"","\"");
+                        let slash_unescaped = quote_unescaped.replace("\\\\","\\");
+                        let byte_vec = slash_unescaped.as_bytes().to_vec();
+                        Ok(LexItem::LiteralValue(Value::Buffer(byte_vec)))
                     }
-                }
+                }?;
+
+                result.push(token);
+                did_match = true;
+                break;
             }
-        };
+        }
     }
 
-    if let Some(value) = finish_atom(current) {
-        result.push(value);
+    if munch_index == input.len() {
+        Ok(result)
+    } else {
+        Err(Error::ParseError(format!("Failed to lex input remainder: {}", &input[munch_index..])))
     }
-
-    Ok(result)
 }
 
 pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
@@ -91,7 +147,7 @@ pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
                 parse_stack.push(new_list);
                 Ok(())
             },
-            LexItem::NameParameter(ref value) => {
+            LexItem::NamedParameter(ref value) => {
                 let symbol_out = SymbolicExpression::NamedParameter(value.clone());
                 match parse_stack.last_mut() {
                     None => output_list.push(symbol_out),
@@ -117,13 +173,21 @@ pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
                     Err(Error::ParseError("Tried to close list which isn't open.".to_string()))
                 }
             },
-            LexItem::Atom(ref value) => {
+            LexItem::Variable(ref value) => {
                 match parse_stack.last_mut() {
                     None => output_list.push(SymbolicExpression::Atom(value.clone())),
                     Some(ref mut list) => list.push(SymbolicExpression::Atom(value.clone()))
                 };
                 Ok(())
-            }
+            },
+            LexItem::LiteralValue(ref value) => {
+                match parse_stack.last_mut() {
+                    None => output_list.push(SymbolicExpression::AtomValue(value.clone())),
+                    Some(ref mut list) => list.push(SymbolicExpression::AtomValue(value.clone()))
+                };
+                Ok(())
+            },
+            LexItem::Whitespace => Ok(())
         }
     })?;
 

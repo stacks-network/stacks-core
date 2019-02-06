@@ -1,6 +1,7 @@
 extern crate blockstack_vm;
 use blockstack_vm::representations::SymbolicExpression;
 use blockstack_vm::errors::Error;
+use blockstack_vm::types::Value;
 
 #[test]
 fn test_parse_let_expression() {
@@ -16,10 +17,10 @@ fn test_parse_let_expression() {
             SymbolicExpression::List(Box::new([
                 SymbolicExpression::List(Box::new([
                     SymbolicExpression::Atom("x".to_string()),
-                    SymbolicExpression::Atom("1".to_string())])),
+                    SymbolicExpression::AtomValue(Value::Int(1))])),
                 SymbolicExpression::List(Box::new([
                     SymbolicExpression::Atom("y".to_string()),
-                    SymbolicExpression::Atom("2".to_string())]))])),
+                    SymbolicExpression::AtomValue(Value::Int(2))]))])),
             SymbolicExpression::List(Box::new([
                 SymbolicExpression::Atom("+".to_string()),
                 SymbolicExpression::Atom("x".to_string()),
@@ -28,7 +29,7 @@ fn test_parse_let_expression() {
                     SymbolicExpression::List(Box::new([
                         SymbolicExpression::List(Box::new([
                             SymbolicExpression::Atom("x".to_string()),
-                            SymbolicExpression::Atom("3".to_string())]))])),
+                            SymbolicExpression::AtomValue(Value::Int(3))]))])),
                     SymbolicExpression::List(Box::new([
                         SymbolicExpression::Atom("+".to_string()),
                         SymbolicExpression::Atom("x".to_string()),
@@ -58,9 +59,13 @@ fn test_parse_failures() {
         _ => false
     }, "Should have failed to parse with too few right parens");
 
-    assert!(match blockstack_vm::parser::parse(&middle_hash) {
+    let x = blockstack_vm::parser::parse(&middle_hash);
+    assert!(match x {
         Err(Error::ParseError(_)) => true,
-        _ => false
+        _ => {
+            println!("Expected parser error. Unexpected value is:\n {:?}", x);
+            false
+        }
     }, "Should have failed to parse with a middle hash");
 
 }
