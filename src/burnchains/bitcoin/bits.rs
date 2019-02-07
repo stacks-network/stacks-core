@@ -55,21 +55,26 @@ pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
     return ret;
 }
 
-impl BurnchainTxInput<BitcoinPublicKey> {
-
-    /// recover the sender scriptpubkey from its public key in the script sig
-    pub fn sender_scriptpubkey_p2pkh(pubk: &BitcoinPublicKey) -> Vec<u8> {
+impl<K> BurnchainTxInput<K> 
+where
+    K: PublicKey
+{
+    /// Internally, the Stacks blockchain encodes address the same as Bitcoin
+    /// single-sig address (p2pkh)
+    fn to_address_bits_singlesig(pubk: &K) -> Vec<u8> {
         let key_hash = Hash160::from_data(&pubk.to_bytes());
 
         let mut res : Vec<u8> = Vec::with_capacity(3 + 20 + 2);
         res.extend_from_slice(&[0x76, 0xa9, 0x14]);
         res.extend_from_slice(key_hash.as_bytes());
         res.extend_from_slice(&[0x88, 0xac]);
-        return res;
+
+        res
     }
 
-    /// recover the sender scriptpubkey from its p2sh multisig redeem script
-    pub fn sender_scriptpubkey_p2sh_multisig(num_sigs: usize, pubkeys: &Vec<BitcoinPublicKey>) -> Vec<u8> {
+    /// Internally, the Stacks blockchain encodes address the same as Bitcoin
+    /// multi-sig address (p2sh)
+    fn to_address_bits_multisig(num_sigs: usize, pubkeys: &Vec<K>) -> Vec<u8> {
         let mut bldr = Builder::new();
         bldr = bldr.push_int(num_sigs as i64);
         for pubk in pubkeys {
@@ -86,11 +91,12 @@ impl BurnchainTxInput<BitcoinPublicKey> {
         res.extend_from_slice(script_hash.as_bytes());
         res.extend_from_slice(&[0x87]);
 
-        return res;
+        res
     }
-    
-    /// recover the sender scriptpubkey from its p2wpkh-p2sh redeem script
-    pub fn sender_scriptpubkey_p2wpkh_p2sh(pubk: &BitcoinPublicKey) -> Vec<u8> {
+
+    /// Internally, the Stacks blockchain encodes address the same as Bitcoin
+    /// single-sig address over p2sh (p2h-p2wpkh)
+    fn to_address_bits_singlesig_p2sh(pubk: &K) -> Vec<u8> {
         let key_hash = Hash160::from_data(&pubk.to_bytes());
 
         let bldr = Builder::new()
@@ -104,11 +110,13 @@ impl BurnchainTxInput<BitcoinPublicKey> {
         res.extend_from_slice(&[0xa9, 0x14]);
         res.extend_from_slice(script_hash.as_bytes());
         res.extend_from_slice(&[0x87]);
-        return res;
+
+        res
     }
 
-    /// recover the sender scriptpubkey from its p2wsh-p2sh redeem script 
-    pub fn sender_scriptpubkey_p2wsh_p2sh_multisig(num_sigs: usize, pubkeys: &Vec<BitcoinPublicKey>) -> Vec<u8> {
+    /// Internally, the Stacks blockchain encodes address the same as Bitcoin
+    /// multisig address over p2sh (p2sh-p2wsh)
+    fn to_address_bits_multisig_p2sh(num_sigs: usize, pubkeys: &Vec<K>) -> Vec<u8> {
         let mut bldr = Builder::new();
         bldr = bldr.push_int(num_sigs as i64);
         for pubk in pubkeys {
@@ -130,9 +138,34 @@ impl BurnchainTxInput<BitcoinPublicKey> {
         res.extend_from_slice(&[0xa9, 0x14]);
         res.extend_from_slice(ws_hash.as_bytes());
         res.extend_from_slice(&[0x87]);
-        return res;
+
+        res
     }
 
+    pub fn to_address_bits(input: &BurnchainTxInput<K>) -> Vec<u8> {
+        match input.in_type {
+            BurnchainInputType::BitcoinInput => {
+                if input.keys.len() == 1 {
+                    BurnchainTxInput::to_address_bits_singlesig(&input.keys[0])
+                }
+                else {
+                    BurnchainTxInput::to_address_bits_multisig(input.num_required, &input.keys)
+                }
+            },
+            BurnchainInputType::BitcoinSegwitP2SHInput => {
+                if input.keys.len() == 1 {
+                    BurnchainTxInput::to_address_bits_singlesig_p2sh(&input.keys[0])
+                }
+                else {
+                    BurnchainTxInput::to_address_bits_multisig_p2sh(input.num_required, &input.keys)
+                }
+            }
+        }
+    }
+}
+
+
+impl BurnchainTxInput<BitcoinPublicKey> {
     /// Parse a script instruction stream encoding a p2pkh scritpsig into a BurnchainTxInput
     pub fn from_bitcoin_p2pkh_script_sig(instructions: &Vec<Instruction>) -> Option<BurnchainTxInput<BitcoinPublicKey>> {
         if instructions.len() != 2 {
@@ -303,7 +336,7 @@ impl BurnchainTxInput<BitcoinPublicKey> {
     }
 
     /// parse a p2sh scriptsig 
-    pub fn from_bitcoin_p2sh_multisig_script_sig(instructions: &Vec<Instruction>) -> Option<BurnchainTxInput<BitcoinPublicKey>> {
+    fn from_bitcoin_p2sh_multisig_script_sig(instructions: &Vec<Instruction>) -> Option<BurnchainTxInput<BitcoinPublicKey>> {
         // format: OP_0 <sig1> <sig2> ... <sig_m> OP_m <pubkey1> <pubkey2> ... <pubkey_n> OP_n OP_CHECKMULTISIG
         // the "OP_m <pubkey1> <pubkey2> ... <pubkey_n> OP_N OP_CHECKMULTISIG" is a single PushBytes
         if instructions.len() < 3 || instructions[0] != Instruction::PushBytes(&[]) {
@@ -340,7 +373,7 @@ impl BurnchainTxInput<BitcoinPublicKey> {
     }
 
     /// parse p2wpkh-over-p2sh public keys, given p2sh scriptsig as hash of witness 
-    pub fn from_bitcoin_p2wpkh_p2sh_script_sig(instructions: &Vec<Instruction>, witness: &Vec<Vec<u8>>) -> Option<BurnchainTxInput<BitcoinPublicKey>> {
+    fn from_bitcoin_p2wpkh_p2sh_script_sig(instructions: &Vec<Instruction>, witness: &Vec<Vec<u8>>) -> Option<BurnchainTxInput<BitcoinPublicKey>> {
         // redeem script format: OP_PUSHDATA <20-byte witness hash>
         // witness format: <sig> <pubkey>
         if instructions.len() != 1 {
@@ -378,7 +411,7 @@ impl BurnchainTxInput<BitcoinPublicKey> {
     }
 
     /// parse a p2wsh-over-p2sh multisig redeem script 
-    pub fn from_bitcoin_p2wsh_p2sh_multisig_script_sig(instructions: &Vec<Instruction>, witness: &Vec<Vec<u8>>) -> Option<BurnchainTxInput<BitcoinPublicKey>> {
+    fn from_bitcoin_p2wsh_p2sh_multisig_script_sig(instructions: &Vec<Instruction>, witness: &Vec<Vec<u8>>) -> Option<BurnchainTxInput<BitcoinPublicKey>> {
         // redeem script format: OP_PUSHDATA <32-byte witness hash>
         // witness format: OP_m <pubkey1> <pubkey2> ... <pubkey_n> OP_n OP_CHECKMULTISIG
         if instructions.len() != 1 {
@@ -435,7 +468,7 @@ impl BurnchainTxInput<BitcoinPublicKey> {
 
     /// parse a script-sig as either p2pkh scriptsig or p2sh multisig scriptsig
     /// does NOT work with segwit
-    pub fn from_bitcoin_script_sig(script_sig: &Script) -> Option<BurnchainTxInput<BitcoinPublicKey>> {
+    fn from_bitcoin_script_sig(script_sig: &Script) -> Option<BurnchainTxInput<BitcoinPublicKey>> {
         let instructions = parse_script(script_sig);
         match BurnchainTxInput::from_bitcoin_p2pkh_script_sig(&instructions) {
             Some(tx_input) => {
@@ -489,7 +522,7 @@ impl BurnchainTxInput<BitcoinPublicKey> {
 impl BurnchainTxOutput<BitcoinAddress> {
 
     /// Parse a BurnchainTxOutput from a Bitcoin scriptpubkey and its value in satoshis
-    pub fn from_bitcoin_script_pubkey(network_id: BitcoinNetworkType, script_pubkey: &Script, amount: u64) -> Option<BurnchainTxOutput<BitcoinAddress>> {
+    fn from_bitcoin_script_pubkey(network_id: BitcoinNetworkType, script_pubkey: &Script, amount: u64) -> Option<BurnchainTxOutput<BitcoinAddress>> {
         let script_bytes = script_pubkey.to_bytes();
         let address = 
             if script_pubkey.is_p2pkh() {
@@ -1039,18 +1072,18 @@ mod tests {
             let result =
                 if !scriptpubkey_fixture.segwit {
                     if scriptpubkey_fixture.num_required == 1 {
-                        BurnchainTxInput::sender_scriptpubkey_p2pkh(&scriptpubkey_fixture.keys[0])
+                        BurnchainTxInput::to_address_bits_singlesig(&scriptpubkey_fixture.keys[0])
                     }
                     else {
-                        BurnchainTxInput::sender_scriptpubkey_p2sh_multisig(scriptpubkey_fixture.num_required, &scriptpubkey_fixture.keys)
+                        BurnchainTxInput::to_address_bits_multisig(scriptpubkey_fixture.num_required, &scriptpubkey_fixture.keys)
                     }
                 }
                 else {
                     if scriptpubkey_fixture.num_required == 1 {
-                        BurnchainTxInput::sender_scriptpubkey_p2wpkh_p2sh(&scriptpubkey_fixture.keys[0])
+                        BurnchainTxInput::to_address_bits_singlesig_p2sh(&scriptpubkey_fixture.keys[0])
                     }
                     else {
-                        BurnchainTxInput::sender_scriptpubkey_p2wsh_p2sh_multisig(scriptpubkey_fixture.num_required, &scriptpubkey_fixture.keys)
+                        BurnchainTxInput::to_address_bits_multisig_p2sh(scriptpubkey_fixture.num_required, &scriptpubkey_fixture.keys)
                     }
                 };
 
