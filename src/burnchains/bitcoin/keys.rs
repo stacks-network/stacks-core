@@ -26,14 +26,18 @@ use secp256k1::Signature as Secp256k1Signature;
 use secp256k1::Error as Secp256k1Error;
 
 use burnchains::PublicKey;
-use util::hash::hex_bytes;
+use util::hash::{hex_bytes, to_hex};
+
+use serde::de::Deserialize;
+use serde::de::Error as de_Error;
 
 // per-thread Secp256k1 context
-use std::cell::RefCell;
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
 
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct BitcoinPublicKey {
+    // serde is broken for secp256k1, so do it ourselves
+    #[serde(serialize_with = "serialize_secp256k1_pubkey", deserialize_with = "deserialize_secp256k1_pubkey")]
     key: Secp256k1PublicKey,
     compressed: bool
 }
@@ -90,21 +94,33 @@ impl PublicKey for BitcoinPublicKey {
     }
 }
 
+fn serialize_secp256k1_pubkey<S: serde::Serializer>(pubk: &Secp256k1PublicKey, s: S) -> Result<S::Ok, S::Error> {
+    let key_hex = to_hex(&pubk.serialize().to_vec());
+    s.serialize_str(&key_hex.as_str())
+}
+
+fn deserialize_secp256k1_pubkey<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Secp256k1PublicKey, D::Error> {
+    let key_hex = String::deserialize(d)?;
+    let key_bytes = hex_bytes(&key_hex)
+        .map_err(de_Error::custom)?;
+
+    _secp256k1.with(|ctx| {
+        Secp256k1PublicKey::from_slice(&ctx, &key_bytes[..])
+            .map_err(de_Error::custom)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use util::hash::hex_bytes;
 
     use secp256k1;
     use secp256k1::Secp256k1;
-    use secp256k1::constants as Secp256k1Constants;
     use secp256k1::PublicKey as Secp256k1PublicKey;
-    use secp256k1::Message as Secp256k1Message;
-    use secp256k1::Signature as Secp256k1Signature;
-    use secp256k1::Error as Secp256k1Error;
     use burnchains::PublicKey;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
 
-    use util::log as logger;
+    use util::log;
 
     struct KeyFixture<I, R> {
         input: I,
@@ -170,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_verify() {
-        let ctx : Secp256k1<secp256k1::All> = Secp256k1::new();
+        let _ctx : Secp256k1<secp256k1::All> = Secp256k1::new();
         let fixtures : Vec<VerifyFixture<Result<bool, &'static str>>> = vec![
             VerifyFixture {
                 public_key: "034c35b09b758678165d6ed84a50b329900c99986cf8e9a358ceae0d03af91f5b6",

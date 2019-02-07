@@ -16,30 +16,33 @@
  You should have received a copy of the GNU General Public License
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
+use std::marker::PhantomData;
 
-use chainstate::operations::{BlockstackOperation, BlockstackOperationType};
-use chainstate::operations::Error as op_error;
-use chainstate::{ConsensusHash, BlockHeaderHash, VRFSeed};
+use chainstate::burn::operations::BlockstackOperation;
+use chainstate::burn::operations::Error as op_error;
+use chainstate::burn::ConsensusHash;
 
-use chainstate::db::burndb::BurnDB;
+use chainstate::burn::db::burndb::BurnDB;
+use chainstate::burn::db::DBConn;
 
-use burnchains::{BurnchainTransaction, PublicKey};
+use burnchains::BurnchainTransaction;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::indexer::BitcoinNetworkType;
-use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
+use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::Txid;
-use burnchains::Hash160;
 use burnchains::Address;
+use burnchains::PublicKey;
+use burnchains::BurnchainHeaderHash;
 
-use util::hash::hex_bytes;
+use util::hash::{hex_bytes, Hash160};
 use util::vrf::ECVRF_check_public_key;
+use util::log;
 
 use ed25519_dalek::PublicKey as VRFPublicKey;
 
 pub const OPCODE: u8 = '_' as u8;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct UserBurnSupportOp {
+pub struct UserBurnSupportOp<A, K> {
     pub consensus_hash: ConsensusHash,
     pub public_key: VRFPublicKey,
     pub block_header_hash_160: Hash160,
@@ -51,9 +54,18 @@ pub struct UserBurnSupportOp {
     pub txid: Txid,                         // transaction ID
     pub vtxindex: u32,                      // index in the block where this tx occurs
     pub block_number: u64,                  // block height at which this tx occurs
+    pub burn_header_hash: BurnchainHeaderHash,   // hash of burnchain block with this tx
+
+    // required to help the compiler figure out impls
+    pub _phantom_a: PhantomData<A>,
+    pub _phantom_k: PhantomData<K>
 }
 
-impl UserBurnSupportOp {
+impl<AddrType, PubkeyType> UserBurnSupportOp<AddrType, PubkeyType>
+where
+    AddrType: Address,
+    PubkeyType: PublicKey
+{
     fn parse_data(data: &Vec<u8>) -> Option<(ConsensusHash, VRFPublicKey, Hash160, Vec<u8>)> {
         /*
             Wire format:
@@ -84,8 +96,11 @@ impl UserBurnSupportOp {
         return Some((consensus_hash, pubkey, block_header_hash_160, memo));
     }
 
-    pub fn from_bitcoin_tx(network_id: BitcoinNetworkType, block_height: u64, tx: &BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>) -> Result<UserBurnSupportOp, op_error> {
-
+    fn parse_from_tx<A, K>(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<UserBurnSupportOp<A, K>, op_error>
+    where
+        A: Address,
+        K: PublicKey
+    {
         // can't be too careful...
         if tx.inputs.len() == 0 || tx.outputs.len() == 0 {
             test_debug!("Invalid tx: inputs: {}, outputs: {}", tx.inputs.len(), tx.outputs.len());
@@ -98,7 +113,8 @@ impl UserBurnSupportOp {
         }
 
         // outputs[0] should be the burn output
-        if tx.outputs[0].address.to_bytes() != hex_bytes("0000000000000000000000000000000000000000").unwrap() || tx.outputs[0].address.get_type() != BitcoinAddressType::PublicKeyHash {
+        // TODO: replace with Address::burn_address() trait method
+        if tx.outputs[0].address.to_bytes() != hex_bytes("0000000000000000000000000000000000000000").unwrap() {
             // wrong burn output
             test_debug!("Invalid tx: burn output missing (got {:?})", tx.outputs[0]);
             return Err(op_error::ParseError);
@@ -106,7 +122,7 @@ impl UserBurnSupportOp {
 
         let burn_fee = tx.outputs[0].units;
 
-        let parse_data_opt = UserBurnSupportOp::parse_data(&tx.data);
+        let parse_data_opt = UserBurnSupportOp::<A, K>::parse_data(&tx.data);
         if parse_data_opt.is_none() {
             test_debug!("Invalid tx data");
             return Err(op_error::ParseError);
@@ -123,46 +139,49 @@ impl UserBurnSupportOp {
             op: OPCODE,
             txid: tx.txid.clone(),
             vtxindex: tx.vtxindex,
-            block_number: block_height
+            block_number: block_height,
+            burn_header_hash: block_hash.clone(),
+
+            _phantom_a: PhantomData,
+            _phantom_k: PhantomData
         })
     }
 }
 
-impl BlockstackOperation for UserBurnSupportOp {
-    fn check(&self, db: &BurnDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool {
-        return false;
+impl<A, K> BlockstackOperation<A, K> for UserBurnSupportOp<A, K>
+where
+    A: Address,
+    K: PublicKey
+{
+    fn from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<UserBurnSupportOp<A, K>, op_error> {
+        UserBurnSupportOp::<A, K>::parse_from_tx(block_height, block_hash, tx)
     }
 
-    fn consensus_serialize(&self) -> Vec<u8> {
-        return self.txid.as_bytes().to_vec();
+    fn check(&self, conn: &DBConn) -> Result<bool, op_error> {
+        Ok(false)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burnchains::{BurnchainTransaction, BurnchainTxOutput};
-    use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::indexer::{BitcoinNetworkType};
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use burnchains::{Txid, Hash160};
+    use burnchains::Txid;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 
-    use bitcoin::network::serialize::deserialize;
-    use bitcoin::network::encodable::VarInt;
-    use bitcoin::blockdata::transaction::Transaction;
-    use bitcoin::blockdata::block::{Block, LoneBlockHeader};
+    use burnchains::bitcoin::address::BitcoinAddress;
 
-    use chainstate::operations::Error as op_error;
-    use chainstate::ConsensusHash;
+    use bitcoin::network::serialize::deserialize;
+    use bitcoin::blockdata::transaction::Transaction;
+
+    use chainstate::burn::ConsensusHash;
     
-    use util::hash::hex_bytes;
-    use util::log as logger;
+    use util::hash::{hex_bytes, Hash160};
+    use util::log;
 
     struct OpFixture {
         txstr: String,
-        result: Option<UserBurnSupportOp>
+        result: Option<UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey>>
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
@@ -174,10 +193,9 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        logger::init();
-
         let vtxindex = 1;
         let block_height = 694;
+        let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
         let tx_fixtures: Vec<OpFixture> = vec![
             OpFixture {
@@ -192,7 +210,11 @@ mod tests {
                     op: OPCODE,
                     txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
                     vtxindex: vtxindex,
-                    block_number: block_height
+                    block_number: block_height,
+                    burn_header_hash: burn_header_hash,
+
+                    _phantom_a: PhantomData,
+                    _phantom_k: PhantomData
                 })
             },
             OpFixture {
@@ -222,18 +244,18 @@ mod tests {
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize).unwrap();
-            let op = UserBurnSupportOp::from_bitcoin_tx(BitcoinNetworkType::testnet, block_height, &burnchain_tx);
+            let op = UserBurnSupportOp::from_tx(block_height, &burn_header_hash, &burnchain_tx);
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
                     assert_eq!(parsed_tx, result);
                 },
                 (Err(_e), None) => {},
-                (Ok(parsed_tx), None) => {
+                (Ok(_parsed_tx), None) => {
                     test_debug!("Parsed a tx when we should not have");
                     assert!(false);
                 },
-                (Err(_e), Some(result)) => {
+                (Err(_e), Some(_result)) => {
                     test_debug!("Did not parse a tx when we should have");
                     assert!(false);
                 }

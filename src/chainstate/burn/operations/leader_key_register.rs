@@ -17,29 +17,31 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use chainstate::operations::{BlockstackOperation, BlockstackOperationType};
-use chainstate::operations::Error as op_error;
-use chainstate::ConsensusHash;
+use std::marker::PhantomData;
 
-use chainstate::db::burndb::BurnDB;
+use chainstate::burn::operations::BlockstackOperation;
+use chainstate::burn::operations::Error as op_error;
+use chainstate::burn::ConsensusHash;
 
-use burnchains::{BurnchainTransaction, PublicKey};
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::indexer::BitcoinNetworkType;
-use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
+use chainstate::burn::db::burndb::BurnDB;
+use chainstate::burn::db::DBConn;
+
+use burnchains::BurnchainTransaction;
 use burnchains::Txid;
-use burnchains::Hash160;
 use burnchains::Address;
+use burnchains::PublicKey;
+use burnchains::BurnchainHeaderHash;
 
-use util::hash::hex_bytes;
-use util::vrf::ECVRF_check_public_key;
+use util::vrf::{ECVRF_check_public_key, ECVRF_public_key_to_hex};
 
 use ed25519_dalek::PublicKey as VRFPublicKey;
+
+use util::log;
 
 pub const OPCODE: u8 = '^' as u8;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct LeaderKeyRegisterOp<A: Address> {
+pub struct LeaderKeyRegisterOp<A, K> {
     pub consensus_hash: ConsensusHash,      // consensus hash at time of issuance
     pub public_key: VRFPublicKey,           // EdDSA public key 
     pub memo: Vec<u8>,                      // extra bytes in the op-return
@@ -50,9 +52,17 @@ pub struct LeaderKeyRegisterOp<A: Address> {
     pub txid: Txid,                         // transaction ID
     pub vtxindex: u32,                      // index in the block where this tx occurs
     pub block_number: u64,                  // block height at which this tx occurs
+    pub burn_header_hash: BurnchainHeaderHash,    // hash of burn chain block 
+
+    // required in order to help the type checker reason about impls for K
+    pub _phantom: PhantomData<K>
 }
 
-impl LeaderKeyRegisterOp<BitcoinAddress> {
+impl<AddrType, PubkeyType> LeaderKeyRegisterOp<AddrType, PubkeyType> 
+where
+    AddrType: Address,
+    PubkeyType: PublicKey
+{
     fn parse_data(data: &Vec<u8>) -> Option<(ConsensusHash, VRFPublicKey, Vec<u8>)> {
         /*
             Wire format:
@@ -84,8 +94,11 @@ impl LeaderKeyRegisterOp<BitcoinAddress> {
         return Some((consensus_hash, pubkey, memo.to_vec()));
     }
 
-    pub fn from_bitcoin_tx(network_id: BitcoinNetworkType, block_height: u64, tx: &BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>) -> Result<LeaderKeyRegisterOp<BitcoinAddress>, op_error> {
-
+    fn parse_from_tx<A, K>(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<LeaderKeyRegisterOp<A, K>, op_error>
+    where
+        A: Address,
+        K: PublicKey
+    {
         // can't be too careful...
         if tx.inputs.len() == 0 {
             test_debug!("Invalid tx: inputs: {}, outputs: {}", tx.inputs.len(), tx.outputs.len());
@@ -102,14 +115,14 @@ impl LeaderKeyRegisterOp<BitcoinAddress> {
             return Err(op_error::InvalidInput);
         }
 
-        let parse_data_opt = LeaderKeyRegisterOp::parse_data(&tx.data);
+        let parse_data_opt = LeaderKeyRegisterOp::<A, K>::parse_data(&tx.data);
         if parse_data_opt.is_none() {
             test_debug!("Invalid tx data");
             return Err(op_error::ParseError);
         }
 
         let (consensus_hash, pubkey, memo) = parse_data_opt.unwrap();
-        let address = tx.outputs[0].address;
+        let address = tx.outputs[0].address.clone();
 
         Ok(LeaderKeyRegisterOp {
             consensus_hash: consensus_hash,
@@ -120,46 +133,74 @@ impl LeaderKeyRegisterOp<BitcoinAddress> {
             op: OPCODE,
             txid: tx.txid.clone(),
             vtxindex: tx.vtxindex,
-            block_number: block_height
+            block_number: block_height,
+            burn_header_hash: block_hash.clone(),
+
+            _phantom: PhantomData
         })
     }
 }
 
-impl BlockstackOperation for LeaderKeyRegisterOp<BitcoinAddress> {
-    fn check(&self, db: &BurnDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool {
-        return false;
+impl<A, K> BlockstackOperation<A, K> for LeaderKeyRegisterOp<A, K> 
+where
+    A: Address,
+    K: PublicKey
+{
+    fn from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<LeaderKeyRegisterOp<A, K>, op_error> {
+        LeaderKeyRegisterOp::<A, K>::parse_from_tx(block_height, block_hash, tx)
     }
 
-    fn consensus_serialize(&self) -> Vec<u8> {
-        return self.txid.as_bytes().to_vec();
+    fn check(&self, conn: &DBConn) -> Result<bool, op_error> {
+        /////////////////////////////////////////////////////////////////
+        // Keys must be unique -- no one can register the same key twice
+        /////////////////////////////////////////////////////////////////
+
+        // key selected here must never have been submitted before 
+        let has_key_already = BurnDB::<A, K>::has_VRF_public_key(conn, &self.public_key)
+            .map_err(op_error::DBError)?;
+
+        if has_key_already {
+            warn!("Invalid leader key registration: public key {} previously used", ECVRF_public_key_to_hex(&self.public_key));
+            return Ok(false);
+        }
+
+        /////////////////////////////////////////////////////////////////
+        // Consensus hash must be recent and valid
+        /////////////////////////////////////////////////////////////////
+
+        let consensus_hash_recent = BurnDB::<A, K>::is_fresh_consensus_hash(conn, self.block_number, &self.consensus_hash)
+            .map_err(op_error::DBError)?;
+
+        if !consensus_hash_recent {
+            warn!("Invalid consensus hash {}", &self.consensus_hash.to_hex());
+            return Ok(false);
+        }
+
+        return Ok(true);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burnchains::{BurnchainTransaction, BurnchainTxOutput};
-    use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+    use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::indexer::{BitcoinNetworkType};
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use burnchains::{Txid, Hash160};
+    use burnchains::bitcoin::BitcoinNetworkType;
+    use burnchains::Txid;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 
     use bitcoin::network::serialize::deserialize;
-    use bitcoin::network::encodable::VarInt;
     use bitcoin::blockdata::transaction::Transaction;
-    use bitcoin::blockdata::block::{Block, LoneBlockHeader};
 
-    use chainstate::operations::Error as op_error;
-    use chainstate::ConsensusHash;
+    use chainstate::burn::ConsensusHash;
     
     use util::hash::hex_bytes;
-    use util::log as logger;
+    use util::log;
 
     struct OpFixture {
         txstr: String,
-        result: Option<LeaderKeyRegisterOp<BitcoinAddress>>
+        result: Option<LeaderKeyRegisterOp<BitcoinAddress, BitcoinPublicKey>>
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
@@ -171,12 +212,10 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        logger::init();
-
         let vtxindex = 1;
         let block_height = 694;
+        let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        // TODO: fix; consensus hash is now 20 bytes
         let tx_fixtures: Vec<OpFixture> = vec![
             OpFixture {
                 txstr: "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a47304402203a176d95803e8d51e7884d38750322c4bfa55307a71291ef8db65191edd665f1022056f5d1720d1fde8d6a163c79f73f22f874ef9e186e98e5b60fa8ac64d298e77a012102d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0000000000200000000000000003e6a3c69645e2222222222222222222222222222222222222222a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a010203040539300000000000001976a9140be3e286a15ea85882761618e366586b5574100d88ac00000000".to_string(),
@@ -189,7 +228,10 @@ mod tests {
                     op: OPCODE,
                     txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
                     vtxindex: vtxindex,
-                    block_number: block_height
+                    block_number: block_height,
+                    burn_header_hash: burn_header_hash.clone(),
+            
+                    _phantom: PhantomData
                 })
             },
             OpFixture {
@@ -203,7 +245,10 @@ mod tests {
                     op: OPCODE,
                     txid: Txid::from_bytes_be(&hex_bytes("2fbf8d5be32dce49790d203ba59acbb0929d5243413174ff5d26a5c6f23dea65").unwrap()).unwrap(),
                     vtxindex: vtxindex,
-                    block_number: block_height
+                    block_number: block_height,
+                    burn_header_hash: burn_header_hash,
+                    
+                    _phantom: PhantomData
                 })
             },
             OpFixture {
@@ -233,18 +278,18 @@ mod tests {
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize).unwrap();
-            let op = LeaderKeyRegisterOp::from_bitcoin_tx(BitcoinNetworkType::testnet, block_height, &burnchain_tx);
+            let op = LeaderKeyRegisterOp::from_tx(block_height, &burn_header_hash, &burnchain_tx);
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
                     assert_eq!(parsed_tx, result);
                 },
                 (Err(_e), None) => {},
-                (Ok(parsed_tx), None) => {
+                (Ok(_parsed_tx), None) => {
                     test_debug!("Parsed a tx when we should not have: {}", tx_fixture.txstr);
                     assert!(false);
                 },
-                (Err(_e), Some(result)) => {
+                (Err(_e), Some(_result)) => {
                     test_debug!("Did not parse a tx when we should have: {}", tx_fixture.txstr);
                     assert!(false);
                 }

@@ -17,6 +17,8 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+/// This module contains all burn-chain operations
+
 pub mod leader_key_register;
 pub mod leader_block_commit;
 pub mod user_burn_support;
@@ -28,13 +30,10 @@ use self::leader_key_register::LeaderKeyRegisterOp;
 use self::leader_block_commit::LeaderBlockCommitOp;
 use self::user_burn_support::UserBurnSupportOp;
 
-use burnchains::{BurnchainTransaction, PublicKey, Txid, Hash160};
-use chainstate::db::burndb;
+use chainstate::burn::db::Error as db_error;
+use chainstate::burn::db::DBConn;
 
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
-
-use util::hash::to_hex;
+use burnchains::{Address, PublicKey, BurnchainHeaderHash, BurnchainTransaction};
 
 #[derive(Debug)]
 pub enum Error {
@@ -42,10 +41,10 @@ pub enum Error {
     NotImplemented,
     /// Failed to parse the operation from the burnchain transaction
     ParseError,
-    /// Did not recognize the opcode 
-    UnrecognizedOpcode,
     /// Invalid input data
-    InvalidInput
+    InvalidInput,
+    /// Database error
+    DBError(db_error)
 }
 
 impl fmt::Display for Error {
@@ -53,8 +52,8 @@ impl fmt::Display for Error {
         match *self {
             Error::NotImplemented => f.write_str(error::Error::description(self)),
             Error::ParseError => f.write_str(error::Error::description(self)),
-            Error::UnrecognizedOpcode => f.write_str(error::Error::description(self)),
             Error::InvalidInput => f.write_str(error::Error::description(self)),
+            Error::DBError(ref e) => fmt::Display::fmt(e, f)
         }
     }
 }
@@ -64,8 +63,8 @@ impl error::Error for Error {
         match *self {
             Error::NotImplemented => None,
             Error::ParseError => None,
-            Error::UnrecognizedOpcode => None,
             Error::InvalidInput => None,
+            Error::DBError(ref e) => Some(e)
         }
     }
 
@@ -73,20 +72,38 @@ impl error::Error for Error {
         match *self {
             Error::NotImplemented => "Not implemented",
             Error::ParseError => "Failed to parse transaction into Blockstack operation",
-            Error::UnrecognizedOpcode => "Unrecognized opcode",
             Error::InvalidInput => "Invalid input",
+            Error::DBError(ref e) => e.description()
         }
     }
 }
 
-#[derive(Debug)]
-pub enum BlockstackOperationType {
-    LeaderKeyRegister(LeaderKeyRegisterOp<BitcoinAddress>),
-    LeaderBlockCommit(LeaderBlockCommitOp<BitcoinPublicKey>),
-    UserBurnSupport(UserBurnSupportOp)
+pub trait BlockstackOperation<A, K> 
+where
+    A: Address,
+    K: PublicKey
+{
+    fn check(&self, conn: &DBConn) -> Result<bool, Error>;
+    fn from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<Self, Error>
+        where Self: Sized;
 }
 
-impl fmt::Display for BlockstackOperationType {
+#[derive(Debug)]
+pub enum BlockstackOperationType<A, K>
+where
+    A: Address,
+    K: PublicKey
+{
+    LeaderKeyRegister(LeaderKeyRegisterOp<A, K>),
+    LeaderBlockCommit(LeaderBlockCommitOp<A, K>),
+    UserBurnSupport(UserBurnSupportOp<A, K>)
+}
+
+impl<A, K> fmt::Display for BlockstackOperationType<A, K>
+where
+    A: Address,
+    K: PublicKey
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(ref leader_key_register) => fmt::Display::fmt(&format!("{:?}", leader_key_register), f),
@@ -96,7 +113,3 @@ impl fmt::Display for BlockstackOperationType {
     }
 }
 
-pub trait BlockstackOperation {
-    fn check(&self, db: &burndb::BurnDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool;
-    fn consensus_serialize(&self) -> Vec<u8>;
-}

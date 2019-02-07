@@ -18,12 +18,14 @@
 */
 
 use burnchains::Address;
-use burnchains::Hash160;
-use burnchains::bitcoin::indexer::BitcoinNetworkType;
+use burnchains::bitcoin::BitcoinNetworkType;
 
 use burnchains::bitcoin::Error as btc_error;
 
 use bitcoin::util::base58;
+
+use util::hash::Hash160;
+use util::log;
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub enum BitcoinAddressType {
@@ -173,16 +175,25 @@ impl Address for BitcoinAddress {
     fn to_bytes(&self) -> Vec<u8> {
         self.bytes.as_bytes().to_vec()
     }
+    
+    fn to_string(&self) -> String {
+        self.to_b58()
+    }
+
+    fn from_string(s: &String) -> Option<BitcoinAddress> {
+        match BitcoinAddress::from_b58(s) {
+            Ok(a) => Some(a),
+            Err(_e) => None
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{BitcoinAddress, BitcoinAddressType};
-    use burnchains::bitcoin::indexer::BitcoinNetworkType;
-    use burnchains::Address;
-    use burnchains::Hash160;
-    use util::log as logger;
-    use util::hash::hex_bytes;
+    use burnchains::bitcoin::BitcoinNetworkType;
+    use util::log;
+    use util::hash::{hex_bytes, Hash160};
 
     struct AddressFixture {
         addr: String,
@@ -196,8 +207,6 @@ mod tests {
 
     #[test]
     fn test_from_b58() {
-        logger::init();
-
         let fixtures = vec![
             AddressFixture {
                 addr: "mr6nrMvvh44sR5MiX929mMXP5hqgaTr6fx".to_owned(),
@@ -263,7 +272,7 @@ mod tests {
                     test_debug!("Decoded an address when we should not have");
                     assert!(false);
                 }
-                (Err(_e), Some(res)) => {
+                (Err(_e), Some(_res)) => {
                     test_debug!("Failed to decode when we should have: {}", fixture.addr);
                     assert!(false);
                 }

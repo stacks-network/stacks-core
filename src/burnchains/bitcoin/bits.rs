@@ -17,32 +17,32 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use bitcoin::util::address as btc_address;
 use bitcoin::blockdata::opcodes::All as btc_opcodes;
 use bitcoin::blockdata::opcodes::Class;
-use bitcoin::blockdata::script::{Script, Instruction, Instructions, Builder};
+use bitcoin::blockdata::script::{Script, Instruction, Builder};
 use bitcoin::blockdata::transaction::TxIn as BtcTxIn;
 use bitcoin::blockdata::transaction::TxOut as BtcTxOut;
 
-use bitcoin::network::message as btc_message;
+use bitcoin::util::hash::Sha256dHash;
 
 use burnchains::{
     BurnchainTxInput, 
     BurnchainTxOutput,
     BurnchainInputType,
     PublicKey,
-    Hash160,
+    BurnchainHeaderHash
 };
 
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
-use burnchains::bitcoin::indexer::BitcoinNetworkType;
-
-use util::hash::to_hex;
+use burnchains::bitcoin::BitcoinNetworkType;
 
 use crypto::sha2::Sha256;
 use crypto::digest::Digest;
+
+use util::log;
+use util::hash::Hash160;
 
 /// Parse a script into its structured constituant opcodes and data and collect them
 pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
@@ -241,8 +241,6 @@ impl BurnchainTxInput<BitcoinPublicKey> {
             keys.push(pubk.unwrap());
         }
 
-        let num_keys = keys.len();
-        
         let tx_input = BurnchainTxInput::<BitcoinPublicKey> {
             keys: keys,
             num_required: num_sigs,
@@ -521,6 +519,14 @@ impl BurnchainTxOutput<BitcoinAddress> {
     }
 }
 
+impl BurnchainHeaderHash {
+    /// Instantiate a burnchain block hash from a Bitcoin block header 
+    pub fn from_bitcoin_hash(bitcoin_hash: &Sha256dHash) -> BurnchainHeaderHash {
+        // NOTE: Sha256dhash is the same size as BurnchainHeaderHash, so this should never panic
+        BurnchainHeaderHash::from_bytes_be(bitcoin_hash.as_bytes()).unwrap()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::BurnchainTxInput;
@@ -528,23 +534,14 @@ mod tests {
     use super::parse_script;
     use util::hash::hex_bytes;
 
-    use bitcoin::network::serialize::deserialize;
-    use bitcoin::blockdata::transaction::Transaction;
     use bitcoin::blockdata::script::{Script, Builder};
 
-    use burnchains::{
-        PublicKey, 
-        Txid, 
-        MagicBytes, 
-        Hash160, 
-        MAGIC_BYTES_LENGTH
-    };
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
-    use burnchains::bitcoin::indexer::BitcoinNetworkType;
+    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::BurnchainInputType;
 
-    use util::log as logger;
+    use util::log;
 
     struct ScriptFixture<T> {
         script: Script,
@@ -566,7 +563,6 @@ mod tests {
 
     #[test]
     fn tx_input_singlesig() {
-        logger::init();
         let tx_input_singlesig_fixtures = vec![
             ScriptFixture {
                 // one compressed key
@@ -603,12 +599,15 @@ mod tests {
 
             let tx_input_multisig_opt = BurnchainTxInput::from_bitcoin_p2sh_multisig_script_sig(&parse_script(&script_fixture.script));
             assert!(tx_input_multisig_opt.is_none());
+
+            let txin_str = serde_json::to_string(&script_fixture.result).unwrap();
+            let txin : BurnchainTxInput<BitcoinPublicKey> = serde_json::from_str(&txin_str).unwrap();
+            assert_eq!(txin, script_fixture.result);
         }
     }
 
     #[test]
     fn tx_input_multisig() {
-        logger::init();
         let tx_input_multisig_fixtures = vec![
             ScriptFixture {
                 // 2-of-3 multisig, uncompressed keys 
@@ -674,13 +673,15 @@ mod tests {
 
             let tx_input_multisig_opt = BurnchainTxInput::from_bitcoin_p2pkh_script_sig(&parse_script(&script_fixture.script));
             assert!(tx_input_multisig_opt.is_none());
+
+            let txin_str = serde_json::to_string(&script_fixture.result).unwrap();
+            let txin : BurnchainTxInput<BitcoinPublicKey> = serde_json::from_str(&txin_str).unwrap();
+            assert_eq!(txin, script_fixture.result);
         }
     }
 
     #[test]
     fn tx_input_segwit_p2wpkh_p2sh() {
-        logger::init();
-
         // should extract keys from segwit p2wpkh-over-p2sh witness script 
         let tx_fixtures_p2wpkh_p2sh = vec![
             ScriptWitnessFixture {
@@ -734,6 +735,10 @@ mod tests {
             match (tx_opt, fixture.result) {
                 (Some(tx_input), Some(fixture_input)) => {
                     assert_eq!(tx_input, fixture_input);
+
+                    let txin_str = serde_json::to_string(&fixture_input).unwrap();
+                    let txin : BurnchainTxInput<BitcoinPublicKey> = serde_json::from_str(&txin_str).unwrap();
+                    assert_eq!(txin, fixture_input);
                 },
                 (None, None) => {},
                 (Some(_t), None) => {
@@ -751,8 +756,6 @@ mod tests {
 
     #[test]
     fn tx_input_segwit_p2wsh_multisig_p2sh() {
-        logger::init();
-
         // should extract keys from segwit p2wsh-multisig-over-p2sh witness script 
         let tx_fixtures_p2wpkh_p2sh = vec![
             ScriptWitnessFixture {
@@ -837,6 +840,10 @@ mod tests {
             match (tx_opt, fixture.result) {
                 (Some(tx_input), Some(fixture_input)) => {
                     assert_eq!(tx_input, fixture_input);
+
+                    let txin_str = serde_json::to_string(&fixture_input).unwrap();
+                    let txin : BurnchainTxInput<BitcoinPublicKey> = serde_json::from_str(&txin_str).unwrap();
+                    assert_eq!(txin, fixture_input);
                 },
                 (None, None) => {},
                 (Some(_t), None) => {
@@ -853,8 +860,6 @@ mod tests {
 
     #[test]
     fn tx_input_strange() {
-        logger::init();
-
         // none of these should parse
         let tx_fixtures_strange_scriptsig : Vec<ScriptFixture<Option<BurnchainTxInput<BitcoinPublicKey>>>> = vec![
             ScriptFixture {
@@ -913,8 +918,6 @@ mod tests {
 
     #[test]
     fn tx_output_p2pkh() {
-        logger::init();
-
         let amount = 123;
         let tx_fixtures_p2pkh = vec![
             ScriptFixture {
@@ -937,13 +940,12 @@ mod tests {
             let tx_output_opt = BurnchainTxOutput::from_bitcoin_script_pubkey(BitcoinNetworkType::mainnet, &script_fixture.script, amount);
             assert!(tx_output_opt.is_some());
             assert_eq!(tx_output_opt.unwrap(), script_fixture.result);
+
         }
     }
 
     #[test]
     fn tx_output_p2sh() {
-        logger::init();
-
         let amount = 123;
         let tx_fixtures_p2sh = vec![
             ScriptFixture {
@@ -971,8 +973,6 @@ mod tests {
 
     #[test]
     fn tx_output_strange() {
-        logger::init();
-
         let tx_fixtures_strange : Vec<ScriptFixture<Option<BurnchainTxOutput<BitcoinAddress>>>> = vec![
             ScriptFixture {
                 // script pubkey for segwit p2wpkh
@@ -994,8 +994,6 @@ mod tests {
 
     #[test]
     fn sender_scriptpubkey_from_keys() {
-        logger::init();
-
         let scriptpubkey_fixtures = vec![
             ScriptPubkeyFixture {
                 // script pubkey for p2pkh

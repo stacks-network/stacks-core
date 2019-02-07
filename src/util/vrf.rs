@@ -26,7 +26,6 @@
 ///
 /// THIS CODE HAS NOT BEEN AUDITED.  DO NOT USE IN PRODUCTION SYSTEMS.
 
-use util::hash::hex_bytes;
 use util::hash::to_hex;
 
 use ed25519_dalek::PublicKey as ed25519_PublicKey;
@@ -39,8 +38,6 @@ use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 
 use sha2::Digest;
 use sha2::Sha512;
-
-use rand::rngs::OsRng;
 
 use std::fmt;
 use std::error;
@@ -308,6 +305,7 @@ fn ECVRF_ed25519_PublicKey_to_RistrettoPoint(public_key: &ed25519_PublicKey) -> 
     let public_key_ed = public_key_ed_opt.unwrap();
     
     // RistrettoPoint is just a wrapper around EdwardsPoint
+    // TODO: see about getting a public constructor here
     use std::mem::transmute;
     let rp = unsafe { transmute::<EdwardsPoint, RistrettoPoint>(public_key_ed) };
     return Ok(rp);
@@ -368,17 +366,12 @@ mod tests {
     use super::*;
 
     use util::hash::hex_bytes;
-    use util::hash::to_hex;
 
     use ed25519_dalek::PublicKey as ed25519_PublicKey;
     use ed25519_dalek::SecretKey as ed25519_PrivateKey;
 
-    use curve25519_dalek::ristretto::{RistrettoPoint, CompressedRistretto};
     use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
-    use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
-    use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 
-    use sha2::Digest;
     use sha2::Sha512;
 
     use rand::rngs::OsRng;
@@ -497,7 +490,7 @@ mod tests {
 
     #[test]
     fn test_random_proof_roundtrip() {
-        for i in 0..100 {
+        for _i in 0..100 {
             let mut csprng: OsRng = OsRng::new().unwrap();
             let secret_key: ed25519_PrivateKey = ed25519_PrivateKey::generate(&mut csprng);
             let public_key = ed25519_PublicKey::from_secret::<Sha512>(&secret_key);

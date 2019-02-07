@@ -3,7 +3,7 @@ jobs:
   build:
     working_directory: ~/blockstack
     docker:
-      - image: circleci/rust
+      - image: ablankstein/circleci-rust-kcov
     steps:
       - checkout
       - run:
@@ -13,5 +13,6 @@ jobs:
           environment:
             RUST_BACKTRACE: 1
             BLOCKSTACK_DEBUG: 1
+            RUSTFLAGS: -Clink-dead-code
           command: |
-            cargo test -- --nocapture --test-threads=1
+            cargo kcov && bash <(curl -s https://codecov.io/bash)

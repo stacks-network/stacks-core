@@ -17,36 +17,34 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use chainstate::operations::{BlockstackOperation, BlockstackOperationType};
-use chainstate::operations::Error as op_error;
-use chainstate::{ConsensusHash, BlockHeaderHash, VRFSeed};
+use std::marker::PhantomData;
 
-use chainstate::db::burndb::BurnDB;
+use chainstate::burn::operations::BlockstackOperation;
+use chainstate::burn::operations::Error as op_error;
+use chainstate::burn::{BlockHeaderHash, VRFSeed};
+
+use chainstate::burn::db::burndb::BurnDB;
+use chainstate::burn::db::DBConn;
 
 use burnchains::{BurnchainTransaction, BurnchainTxInput, PublicKey};
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::indexer::BitcoinNetworkType;
-use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
 use burnchains::Txid;
-use burnchains::Hash160;
 use burnchains::Address;
+use burnchains::BurnchainHeaderHash;
 
 use util::hash::hex_bytes;
-
-use ed25519_dalek::PublicKey as VRFPublicKey;
-
-use crypto::sha2::Sha256;
+use util::log;
 
 pub const OPCODE: u8 = '[' as u8;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct LeaderBlockCommitOp<K: PublicKey> {
-    pub block_header_hash: BlockHeaderHash, // hash of block header (double-sha256)
+pub struct LeaderBlockCommitOp<A, K> {
+    pub block_header_hash: BlockHeaderHash, // hash of Stacks block header (double-sha256)
     pub new_seed: VRFSeed,                  // new seed for this block
-    pub parent_block_backptr: u32,          // back-pointer to the block that contains the parent block hash 
+    pub parent_block_backptr: u16,          // back-pointer to the block that contains the parent block hash 
     pub parent_vtxindex: u16,               // offset in the parent block where the parent block hash can be found
-    pub key_block_backptr: u32,             // back-pointer to the block that contains the leader key registration 
+    pub key_block_backptr: u16,             // back-pointer to the block that contains the leader key registration 
     pub key_vtxindex: u16,                  // offset in the block where the leader key can be found
+    pub epoch_num: u32,                     // which epoch this commit was meant for?
     pub memo: Vec<u8>,                      // extra unused byte
 
     pub burn_fee: u64,                      // how many burn tokens (e.g. satoshis) were destroyed to produce this block
@@ -57,6 +55,10 @@ pub struct LeaderBlockCommitOp<K: PublicKey> {
     pub txid: Txid,                         // transaction ID
     pub vtxindex: u32,                      // index in the block where this tx occurs
     pub block_number: u64,                  // block height at which this tx occurs
+    pub burn_header_hash: BurnchainHeaderHash,      // hash of the burn chain block header
+
+    // required in order to help the type checker reason about impls for A
+    pub _phantom: PhantomData<A>
 }
 
 fn u32_from_be(bytes: &[u8]) -> Option<u32> {
@@ -81,15 +83,19 @@ fn u16_from_be(bytes: &[u8]) -> Option<u16> {
     }
 }
 
-impl LeaderBlockCommitOp<BitcoinPublicKey> {
-    fn parse_data(data: &Vec<u8>) -> Option<(BlockHeaderHash, VRFSeed, u32, u16, u32, u16, Vec<u8>)> {
+impl<AddrType, PubkeyType> LeaderBlockCommitOp<AddrType, PubkeyType>
+where
+    AddrType: Address,
+    PubkeyType: PublicKey
+{
+    fn parse_data(data: &Vec<u8>) -> Option<(BlockHeaderHash, VRFSeed, u16, u16, u16, u16, u32, Vec<u8>)> {
         /*
+         
             Wire format:
-
-            0      2  3              35                 67     71     73    77   79       80
-            |------|--|---------------|-----------------|------|------|-----|-----|-------|
-             magic  op   block hash       new seed       parent parent key   key    memo
-                                                         delta  txoff  delta txoff 
+            0      2  3           35               67     69     71    73   75     79    80
+            |------|--|-------------|---------------|------|------|-----|-----|-----|-----|
+             magic  op   block hash     new seed     parent parent key   key   epoch  memo
+                                                     delta  txoff  delta txoff num.
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
 
@@ -103,17 +109,21 @@ impl LeaderBlockCommitOp<BitcoinPublicKey> {
 
         let block_header_hash = BlockHeaderHash::from_bytes(&data[0..32]).unwrap();
         let new_seed = VRFSeed::from_bytes(&data[32..64]).unwrap();
-        let parent_block_backptr = u32_from_be(&data[64..68]).unwrap();
-        let parent_vtxindex = u16_from_be(&data[68..70]).unwrap();
-        let key_block_backptr = u32_from_be(&data[70..74]).unwrap();
-        let key_vtxindex = u16_from_be(&data[74..76]).unwrap();
+        let parent_block_backptr = u16_from_be(&data[64..66]).unwrap();
+        let parent_vtxindex = u16_from_be(&data[66..68]).unwrap();
+        let key_block_backptr = u16_from_be(&data[68..70]).unwrap();
+        let key_vtxindex = u16_from_be(&data[70..72]).unwrap();
+        let epoch_num = u32_from_be(&data[72..76]).unwrap();
         let memo = data[76..77].to_vec();
 
-        Some((block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, memo))
+        Some((block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, epoch_num, memo))
     }
 
-    pub fn from_bitcoin_tx(network_id: BitcoinNetworkType, block_height: u64, tx: &BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>) -> Result<LeaderBlockCommitOp<BitcoinPublicKey>, op_error> {
-
+    fn parse_from_tx<A, K>(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<LeaderBlockCommitOp<A, K>, op_error>
+    where
+        A: Address,
+        K: PublicKey
+    {
         // can't be too careful...
         if tx.inputs.len() == 0 {
             test_debug!("Invalid tx: inputs: {}, outputs: {}", tx.inputs.len(), tx.outputs.len());
@@ -131,7 +141,8 @@ impl LeaderBlockCommitOp<BitcoinPublicKey> {
         }
 
         // outputs[0] should be the burn output
-        if tx.outputs[0].address.to_bytes() != hex_bytes("0000000000000000000000000000000000000000").unwrap() || tx.outputs[0].address.get_type() != BitcoinAddressType::PublicKeyHash {
+        // TODO: replace with Address::burn_address() trait method
+        if tx.outputs[0].address.to_bytes() != hex_bytes("0000000000000000000000000000000000000000").unwrap() {
             // wrong burn output
             test_debug!("Invalid tx: burn output missing (got {:?})", tx.outputs[0]);
             return Err(op_error::ParseError);
@@ -139,13 +150,13 @@ impl LeaderBlockCommitOp<BitcoinPublicKey> {
 
         let burn_fee = tx.outputs[0].units;
 
-        let parse_data_opt = LeaderBlockCommitOp::parse_data(&tx.data);
+        let parse_data_opt = LeaderBlockCommitOp::<A, K>::parse_data(&tx.data);
         if parse_data_opt.is_none() {
             test_debug!("Invalid tx data");
             return Err(op_error::ParseError);
         }
 
-        let (block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, memo) = parse_data_opt.unwrap();
+        let (block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, epoch_num, memo) = parse_data_opt.unwrap();
 
         Ok(LeaderBlockCommitOp {
             block_header_hash: block_header_hash,
@@ -154,6 +165,7 @@ impl LeaderBlockCommitOp<BitcoinPublicKey> {
             parent_vtxindex: parent_vtxindex,
             key_block_backptr: key_block_backptr,
             key_vtxindex: key_vtxindex,
+            epoch_num: epoch_num,
             memo: memo,
 
             burn_fee: burn_fee,
@@ -162,46 +174,52 @@ impl LeaderBlockCommitOp<BitcoinPublicKey> {
             op: OPCODE,
             txid: tx.txid.clone(),
             vtxindex: tx.vtxindex,
-            block_number: block_height
+            block_number: block_height,
+            burn_header_hash: block_hash.clone(),
+
+            _phantom: PhantomData
         })
     }
 }
 
-impl BlockstackOperation for LeaderBlockCommitOp<BitcoinPublicKey> {
-    fn check(&self, db: &BurnDB, block_height: u64, checked_block_ops: &Vec<BlockstackOperationType>) -> bool {
-        return false;
+impl<A, K> BlockstackOperation<A, K> for LeaderBlockCommitOp<A, K> 
+where
+    A: Address,
+    K: PublicKey
+{
+    fn from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<LeaderBlockCommitOp<A, K>, op_error> {
+        LeaderBlockCommitOp::<A, K>::parse_from_tx(block_height, block_hash, tx)
     }
-
-    fn consensus_serialize(&self) -> Vec<u8> {
-        return self.txid.as_bytes().to_vec();
+        
+    fn check(&self, conn: &DBConn) -> Result<bool, op_error> {
+        Ok(false)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use burnchains::{BurnchainTransaction, BurnchainTxInput, BurnchainTxOutput, BurnchainInputType};
-    use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
+    use burnchains::{BurnchainTxInput, BurnchainInputType};
     use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::indexer::{BitcoinNetworkType};
+    use burnchains::bitcoin::address::BitcoinAddress;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use burnchains::{Txid, Hash160};
+    use burnchains::Txid;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 
-    use bitcoin::network::serialize::deserialize;
-    use bitcoin::network::encodable::VarInt;
-    use bitcoin::blockdata::transaction::Transaction;
-    use bitcoin::blockdata::block::{Block, LoneBlockHeader};
+    use burnchains::bitcoin::BitcoinNetworkType;
 
-    use chainstate::operations::Error as op_error;
-    use chainstate::{ConsensusHash, BlockHeaderHash, VRFSeed};
+    use bitcoin::network::serialize::deserialize;
+    use bitcoin::blockdata::transaction::Transaction;
+    
+    use chainstate::burn::{BlockHeaderHash, VRFSeed};
+
 
     use util::hash::hex_bytes;
-    use util::log as logger;
+    use util::log;
 
     struct OpFixture {
         txstr: String,
-        result: Option<LeaderBlockCommitOp<BitcoinPublicKey>>
+        result: Option<LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey>>
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
@@ -213,10 +231,9 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        logger::init();
-
         let vtxindex = 1;
         let block_height = 694;
+        let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
         let tx_fixtures = vec![
             OpFixture {
@@ -225,11 +242,12 @@ mod tests {
                 result: Some(LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
                     new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 1128415552,       // 0x40414243 (network byte order)
-                    parent_vtxindex: 20816,                 // 0x5051 (network byte order)
-                    key_block_backptr: 1667391840,          // 0x60616263 (network byte order)
-                    key_vtxindex: 29040,                    // 0x7071 (network byte order)
-                    memo: vec![128],                        // 0x80
+                    parent_block_backptr: 0x4140,
+                    parent_vtxindex: 0x4342,
+                    key_block_backptr: 0x5150,
+                    key_vtxindex: 0x6160,
+                    epoch_num: 0x71706362,
+                    memo: vec![0x80],
 
                     burn_fee: 12345,
                     input: BurnchainTxInput {
@@ -243,7 +261,10 @@ mod tests {
                     op: 91,     // '[' in ascii
                     txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
                     vtxindex: vtxindex,
-                    block_number: block_height
+                    block_number: block_height,
+                    burn_header_hash: burn_header_hash,
+            
+                    _phantom: PhantomData
                 })
             },
             OpFixture {
@@ -268,18 +289,18 @@ mod tests {
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize).unwrap();
-            let op = LeaderBlockCommitOp::from_bitcoin_tx(BitcoinNetworkType::testnet, block_height, &burnchain_tx);
+            let op = LeaderBlockCommitOp::from_tx(block_height, &burn_header_hash, &burnchain_tx);
 
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
                     assert_eq!(parsed_tx, result);
                 },
                 (Err(_e), None) => {},
-                (Ok(parsed_tx), None) => {
+                (Ok(_parsed_tx), None) => {
                     test_debug!("Parsed a tx when we should not have");
                     assert!(false);
                 },
-                (Err(_e), Some(result)) => {
+                (Err(_e), Some(_result)) => {
                     test_debug!("Did not parse a tx when we should have");
                     assert!(false);
                 }
