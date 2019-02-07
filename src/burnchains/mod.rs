@@ -54,7 +54,7 @@ impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 
 pub const BLOCKSTACK_MAGIC_MAINNET : MagicBytes = MagicBytes([105, 100]);  // 'id'
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub enum BurnchainInputType {
     BitcoinInput,
     BitcoinSegwitP2SHInput,
@@ -81,7 +81,7 @@ pub struct BurnchainTxOutput<A> {
     pub units: u64
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BurnchainTxInput<K> {
     pub keys: Vec<K>,
     pub num_required: usize,
