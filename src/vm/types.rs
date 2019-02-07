@@ -1,8 +1,10 @@
+use std::fmt;
 use std::collections::BTreeMap;
 
 use vm::errors::{Error, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
 use vm::{eval, Context, Environment};
+use util::hash;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AtomTypeIdentifier {
@@ -67,6 +69,25 @@ impl Value {
     }
 }
 
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Value::Void => write!(f, "null"),
+            Value::Int(int) => write!(f, "{}", int),
+            Value::Bool(boolean) => write!(f, "{}", boolean),
+            Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes)),
+            Value::Tuple(data) => write!(f, "{}", data),
+            Value::List(values, _type) => {
+                write!(f, "( ")?;
+                for v in values.iter() {
+                    write!(f, "{} ", v)?;
+                }
+                write!(f, ")")
+            }
+        }
+    }
+}
+
 impl TupleTypeSignature {
     pub fn new(type_data: Vec<(String, TypeSignature)>) -> Result<TupleTypeSignature> {
         let mut type_map = BTreeMap::new();
@@ -123,6 +144,21 @@ impl TupleData {
             Err(Error::InvalidArguments(format!("No such field {:?} in tuple", name)))
         }
         
+    }
+}
+
+impl fmt::Display for TupleData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut first = true;
+        write!(f, "(")?;
+        for (name, value) in self.data_map.iter() {
+            if !first {
+                write!(f, ", ")?;
+            }
+            first = false;
+            write!(f, "{}: {}", name, value)?;
+        }
+        write!(f, ")")
     }
 }
 
