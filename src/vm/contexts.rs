@@ -5,7 +5,7 @@ use vm::errors::{Error, InterpreterResult as Result};
 use vm::types::{DefinedFunction, FunctionIdentifier, Value};
 use vm::database::ContractDatabase;
 
-const MAX_CONTEXT_DEPTH: u8 = 256;
+const MAX_CONTEXT_DEPTH: u16 = 256;
 
 pub struct Environment <'a> {
     pub global_context: Context <'a>,
@@ -28,7 +28,7 @@ pub struct Context <'a> {
     pub parent: Option< &'a Context<'a>>,
     pub variables: HashMap<String, Value>,
     pub functions: HashMap<String, DefinedFunction>,
-    depth: u8
+    depth: u16
 }
 
 impl <'a> Context <'a> {
