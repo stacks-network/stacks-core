@@ -5,7 +5,7 @@ use vm::errors::{Error, InterpreterResult as Result};
 use vm::types::{DefinedFunction, FunctionIdentifier, Value};
 use vm::database::ContractDatabase;
 
-const MAX_CONTEXT_DEPTH: u8 = 128;
+const MAX_CONTEXT_DEPTH: u8 = 256;
 
 pub struct Environment <'a> {
     pub global_context: Context <'a>,

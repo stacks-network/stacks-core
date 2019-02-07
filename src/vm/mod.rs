@@ -18,7 +18,7 @@ use vm::contexts::{Context, Environment};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterResult as Result};
 
-const MAX_CALL_STACK_DEPTH: usize = 128;
+const MAX_CALL_STACK_DEPTH: usize = 256;
 
 fn lookup_variable(name: &str, context: &Context, env: &Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {

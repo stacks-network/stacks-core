@@ -132,28 +132,26 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
     }
 }
 
-pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
+pub fn parse_lexed(mut input: Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
 
     // TODO: we don't need to be cloning here, we can just seize item ownership from the
     //    input iterator by popping.
-    let _result = input.iter().try_for_each(|item| {
-        match *item {
+    for item in input.drain(..) {
+        match item {
             LexItem::LeftParen => {
                 // start new list.
                 let new_list = Vec::new();
                 parse_stack.push(new_list);
-                Ok(())
             },
-            LexItem::NamedParameter(ref value) => {
-                let symbol_out = SymbolicExpression::NamedParameter(value.clone());
+            LexItem::NamedParameter(value) => {
+                let symbol_out = SymbolicExpression::NamedParameter(value);
                 match parse_stack.last_mut() {
                     None => output_list.push(symbol_out),
                     Some(ref mut list) => list.push(symbol_out)
                 };
-                Ok(())
             },
             LexItem::RightParen => {
                 // end current list.
@@ -168,28 +166,25 @@ pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
                             list.push(expression);
                         }
                     };
-                    Ok(())
                 } else {
-                    Err(Error::ParseError("Tried to close list which isn't open.".to_string()))
+                    return Err(Error::ParseError("Tried to close list which isn't open.".to_string()))
                 }
             },
-            LexItem::Variable(ref value) => {
+            LexItem::Variable(value) => {
                 match parse_stack.last_mut() {
-                    None => output_list.push(SymbolicExpression::Atom(value.clone())),
-                    Some(ref mut list) => list.push(SymbolicExpression::Atom(value.clone()))
+                    None => output_list.push(SymbolicExpression::Atom(value)),
+                    Some(ref mut list) => list.push(SymbolicExpression::Atom(value))
                 };
-                Ok(())
             },
-            LexItem::LiteralValue(ref value) => {
+            LexItem::LiteralValue(value) => {
                 match parse_stack.last_mut() {
-                    None => output_list.push(SymbolicExpression::AtomValue(value.clone())),
-                    Some(ref mut list) => list.push(SymbolicExpression::AtomValue(value.clone()))
+                    None => output_list.push(SymbolicExpression::AtomValue(value)),
+                    Some(ref mut list) => list.push(SymbolicExpression::AtomValue(value))
                 };
-                Ok(())
             },
-            LexItem::Whitespace => Ok(())
-        }
-    })?;
+            LexItem::Whitespace => ()
+        };
+    }
 
     // check unfinished stack:
     if parse_stack.len() > 0 {
@@ -201,5 +196,5 @@ pub fn parse_lexed(input: &Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
 
 pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>> {
     let lexed = lex(input)?;
-    parse_lexed(&lexed)
+    parse_lexed(lexed)
 }
