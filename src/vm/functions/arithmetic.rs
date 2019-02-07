@@ -105,6 +105,27 @@ pub fn native_div(args: &[Value]) -> InterpreterResult {
     }
 }
 
+fn checked_pow(mut base: i128, mut exp: u32) -> Option<i128> {
+    let mut acc: i128 = 1;
+    
+    while exp > 1 {
+        if (exp & 1) == 1 {
+            acc = acc.checked_mul(base)?;
+        }
+        exp /= 2;
+        base = base.checked_mul(base)?;
+    }
+    
+    // Deal with the final bit of the exponent separately, since
+    // squaring the base afterwards is not necessary and may cause a
+    // needless overflow.
+    if exp == 1 {
+        acc = acc.checked_mul(base)?;
+    }
+    
+    Some(acc)
+}
+
 pub fn native_pow(args: &[Value]) -> InterpreterResult {
     if args.len() == 2 {
         let base = type_force_integer(&args[0])?;
@@ -114,7 +135,7 @@ pub fn native_pow(args: &[Value]) -> InterpreterResult {
         }
 
         let power = power_i128 as u32;
-        let checked_result = base.checked_pow(power);
+        let checked_result = checked_pow(base, power);
 
         if let Some(result) = checked_result{
             Ok(Value::Int(result))
