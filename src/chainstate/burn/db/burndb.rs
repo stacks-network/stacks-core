@@ -45,6 +45,7 @@ use chainstate::burn::operations::user_burn_support::OPCODE as UserBurnSupportOp
 use burnchains::BurnchainTxInput;
 use burnchains::{Txid, BurnchainHeaderHash, PublicKey, Address};
 
+use util::log;
 use util::vrf::ECVRF_public_key_to_hex;
 use util::hash::{to_hex, hex_bytes, Hash160};
 
@@ -222,7 +223,7 @@ where
             public_key: public_key,
             memo: memo, 
             address: address,
-                    
+             
             _phantom: PhantomData
         };
 
@@ -547,6 +548,26 @@ where
             // instantiate!
             db.instantiate()?;
         }
+        else {
+            // validate -- must contain the given first block and first block hash 
+            let snapshot_opt = BurnDB::<A, K>::get_block_snapshot(&db.conn, first_block_height)?;
+            match snapshot_opt {
+                None => {
+                    error!("No snapshot for block {}", first_block_height);
+                    return Err(db_error::Corruption);
+                },
+                Some(snapshot) => {
+                    if snapshot.burn_header_hash != *first_burn_hash || 
+                       snapshot.consensus_hash != ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap() ||
+                       snapshot.ops_hash != OpsHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap() ||
+                       snapshot.total_burn != 0 {
+                           error!("Invalid genesis snapshot at {}", first_block_height);
+                           return Err(db_error::Corruption);
+                       }
+                }
+            };
+        }
+
         Ok(db)
     }
 
@@ -625,6 +646,29 @@ where
         let args = NO_PARAMS;
         let res = BurnDB::<A, K>::query_count(conn, &sql_qry.to_string(), args)?;
         Ok(res as u64)
+    }
+
+    /// Get a consensus hash at a particular block height 
+    /// Returns None if there is no consensus hash at this given block height
+    pub fn get_consensus_at(conn: &Connection, block_height: u64) -> Result<Option<ConsensusHash>, db_error> {
+        if block_height > ((1 as u64) << 63) - 1 {
+            return Err(db_error::TypeError);
+        }
+
+        let qry = "SELECT consensus_hash FROM snapshots WHERE canonical = 1 AND block_height = ?1";
+        let args = [&(block_height as i64) as &ToSql];
+
+        let mut stmt = conn.prepare(qry)
+            .map_err(|e| db_error::SqliteError(e))?;
+
+        stmt.query_row(&args,
+            |row| {
+                match ConsensusHash::from_row(&row, 0) {
+                    Ok(ch) => Some(ch),
+                    Err(_e) => None
+                }
+            })
+            .map_err(|e| db_error::SqliteError(e))
     }
 
     /// Begin a transaction.  TODO: use immediate mode?
@@ -771,6 +815,21 @@ where
             })
             .map_err(|e| db_error::SqliteError(e))
     }
+    
+    /// Get the first snapshot 
+    pub fn get_first_block_snapshot(conn: &Connection) -> Result<BlockSnapshot, db_error> {
+        let row_order = BlockSnapshot::row_order().join(",");
+        let qry = format!("SELECT {} FROM snapshots WHERE canonical = 1 ORDER BY block_height LIMIT 1", row_order);
+        let rows = BurnDB::<A, K>::query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), NO_PARAMS)?;
+
+        match rows.len() {
+            1 => Ok(rows[0].clone()),
+            _ => {
+                // should never happen 
+                panic!("FATAL: multiple canonical first-block snapshots")
+            }
+        }
+    }
 
     /// Get a canonical snapshot row 
     pub fn get_block_snapshot(conn: &Connection, block_height: u64) -> Result<Option<BlockSnapshot>, db_error> {
@@ -805,7 +864,8 @@ where
         let row_order_list : Vec<String> = LeaderKeyRegisterOp::row_order().iter().map(|r| format!("leader_keys.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid WHERE history.canonical = 1 AND leader_keys.block_height = ?1 ORDER BY leader_keys.vtxindex ASC", row_order);
+        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND leader_keys.block_height = ?1 ORDER BY leader_keys.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
         BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
@@ -823,7 +883,8 @@ where
         let row_order_list : Vec<String> = LeaderKeyRegisterOp::row_order().iter().map(|r| format!("leader_keys.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid WHERE history.canonical = 1 AND leader_keys.block_height = ?1 AND leader_keys.vtxindex = ?2", row_order);
+        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND leader_keys.block_height = ?1 AND leader_keys.vtxindex = ?2", row_order);
         let args = [&(block_height as i64) as &ToSql, &vtxindex as &ToSql];
         let rows = BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)?;
 
@@ -833,6 +894,31 @@ where
             _ => {
                 // should never happen 
                 panic!("FATAL: multiple leader keys at block {} vtxindex {}", block_height, vtxindex);
+            }
+        }
+    }
+
+    /// Get a leader key by its VRF key.
+    /// Returns None if the key does not exist.
+    #[allow(non_snake_case)]
+    pub fn get_leader_key_by_VRF_key(conn: &Connection, VRF_key: &VRFPublicKey) -> Result<Option<LeaderKeyRegisterOp<A, K>>, db_error>
+    where
+        LeaderKeyRegisterOp<A, K>: FromRow<LeaderKeyRegisterOp<A, K>> + RowOrder
+    {
+        let row_order_list : Vec<String> = LeaderKeyRegisterOp::row_order().iter().map(|r| format!("leader_keys.{}", r)).collect();
+        let row_order = row_order_list.join(",");
+
+        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND leader_keys.public_key = ?1", row_order);
+        let args = [&ECVRF_public_key_to_hex(VRF_key)];
+        let rows = BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)?;
+
+        match rows.len() {
+            0 => Ok(None),
+            1 => Ok(Some(rows[0].clone())),
+            _ => {
+                // should never happen 
+                panic!("FATAL: multiple leader keys with VRF key {}", &ECVRF_public_key_to_hex(VRF_key));
             }
         }
     }
@@ -849,7 +935,8 @@ where
         let row_order_list : Vec<String> = LeaderBlockCommitOp::row_order().iter().map(|r| format!("block_commits.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid WHERE history.canonical = 1 AND block_commits.block_height = ?1 ORDER BY block_commits.vtxindex ASC", row_order);
+        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND block_commits.block_height = ?1 ORDER BY block_commits.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
 
         BurnDB::<A, K>::query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)
@@ -868,7 +955,8 @@ where
         let row_order_list : Vec<String> = LeaderBlockCommitOp::row_order().iter().map(|r| format!("block_commits.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid WHERE history.canonical = 1 AND block_commits.block_height = ?1 AND block_commits.vtxindex = ?2", row_order);
+        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND block_commits.block_height = ?1 AND block_commits.vtxindex = ?2", row_order);
         let args = [&(block_height as i64) as &ToSql, &vtxindex as &ToSql];
         let rows = BurnDB::<A, K>::query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)?;
 
@@ -881,7 +969,7 @@ where
             }
         }
     }
-    
+
     /// Get all user burns registered in a block on the burn chain's canonical history
     pub fn get_user_burns_by_block(conn: &Connection, block_height: u64) -> Result<Vec<UserBurnSupportOp<A, K>>, db_error>
     where
@@ -894,7 +982,8 @@ where
         let row_order_list : Vec<String> = UserBurnSupportOp::row_order().iter().map(|r| format!("user_burn_support.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid WHERE history.canonical = 1 AND user_burn_support.block_height = ?1 ORDER BY user_burn_support.vtxindex ASC", row_order);
+        let qry = format!("SELECT {} FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid AND user_burn_support.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND user_burn_support.block_height = ?1 ORDER BY user_burn_support.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
 
         BurnDB::<A, K>::query_rows::<UserBurnSupportOp<A, K>, _>(conn, &qry.to_string(), &args)
@@ -903,7 +992,8 @@ where
     /// Find out whether or not a particular VRF key was used before in the canonical burnchain history
     #[allow(non_snake_case)]
     pub fn has_VRF_public_key(conn: &Connection, key: &VRFPublicKey) -> Result<bool, db_error> {
-        let qry = "SELECT COUNT(leader_keys.public_key) FROM leader_keys JOIN history ON leader_keys.txid = history.txid WHERE history.canonical = 1 AND leader_keys.public_key = ?1 AND history.canonical = 1";
+        let qry = "SELECT COUNT(leader_keys.public_key) FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+                   WHERE history.canonical = 1 AND leader_keys.public_key = ?1";
         let args = [&ECVRF_public_key_to_hex(&key)];
         let count = BurnDB::<A, K>::query_count(conn, &qry.to_string(), &args)?;
         Ok(count != 0)
@@ -926,27 +1016,46 @@ where
         Ok(count != 0)
     }
 
-    /// Get a consensus hash at a particular block height 
-    /// Returns None if there is no consensus hash at this given block height
-    pub fn get_consensus_at(conn: &Connection, block_height: u64) -> Result<Option<ConsensusHash>, db_error> {
-        if block_height > ((1 as u64) << 63) - 1 {
+    /// Determine whether or not a leader key is available to be consumed by a block commitment at the given block height.
+    /// That is, there must _not_ be a block commit paired with this leader key already.
+    pub fn is_leader_key_available(conn: &Connection, leader_key: &LeaderKeyRegisterOp<A, K>) -> Result<bool, db_error> 
+    where
+        LeaderBlockCommitOp<A, K>: FromRow<LeaderBlockCommitOp<A, K>> + RowOrder
+    {
+        if leader_key.block_number > ((1 as u64) << 63) - 1 {
             return Err(db_error::TypeError);
         }
 
-        let qry = "SELECT consensus_hash FROM snapshots WHERE canonical = 1 AND block_height = ?1";
-        let args = [&(block_height as i64) as &ToSql];
+        let row_order = "block_commits.txid,block_commits.burn_block_hash";
+        let qry = format!("SELECT COUNT({}) FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND block_commits.block_height - block_commits.key_block_backptr = ?1 AND block_commits.key_vtxindex = ?2", row_order);
+        let args = [&(leader_key.block_number as i64) as &ToSql, &leader_key.vtxindex as &ToSql];
+        let count = BurnDB::<A, K>::query_count(conn, &qry.to_string(), &args)?;
+        Ok(count == 0)
+    }
 
-        let mut stmt = conn.prepare(qry)
-            .map_err(|e| db_error::SqliteError(e))?;
+    /// Determine which user support burn ops successfully committed to the given block.
+    /// This is all user burns *in the same block* that also burned for *this block and key*.
+    /// Note that it is possible for a user burn to be accepted even if it does not support a valid leader
+    /// or block.  This method does *not* include such burns.
+    pub fn get_user_commit_burns(conn: &Connection, leader_key: &LeaderKeyRegisterOp<A, K>, block_commit: &LeaderBlockCommitOp<A, K>) -> Result<Vec<UserBurnSupportOp<A, K>>, db_error>
+    where
+        LeaderKeyRegisterOp<A, K>: FromRow<LeaderKeyRegisterOp<A, K>> + RowOrder,
+        LeaderBlockCommitOp<A, K>: FromRow<LeaderBlockCommitOp<A, K>> + RowOrder,
+        UserBurnSupportOp<A, K>: FromRow<UserBurnSupportOp<A, K>> + RowOrder
+    {
+        if block_commit.block_number > ((1 as u64) << 63) - 1 {
+            return Err(db_error::TypeError);
+        }
 
-        stmt.query_row(&args,
-            |row| {
-                match ConsensusHash::from_row(&row, 0) {
-                    Ok(ch) => Some(ch),
-                    Err(_e) => None
-                }
-            })
-            .map_err(|e| db_error::SqliteError(e))
+        let block_hash160 = block_commit.block_header_hash.to_hash160();
+
+        let row_order = "user_burn_support.burn_fee";
+        let qry = format!("SELECT SUM({}) FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid AND user_burn_support.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND user_burn_support.block_height = ?1 AND user_burn_support.public_key = ?2 AND user_burn_support.block_header_hash_160 = ?3", row_order);
+        let args = [&(block_commit.block_number as i64) as &ToSql, &ECVRF_public_key_to_hex(&leader_key.public_key), &block_hash160.to_hex()];
+
+        BurnDB::<A, K>::query_rows::<UserBurnSupportOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
 }
 
