@@ -864,7 +864,7 @@ where
         let row_order_list : Vec<String> = LeaderKeyRegisterOp::row_order().iter().map(|r| format!("leader_keys.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND leader_keys.block_height = ?1 ORDER BY leader_keys.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
         BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)
@@ -883,7 +883,7 @@ where
         let row_order_list : Vec<String> = LeaderKeyRegisterOp::row_order().iter().map(|r| format!("leader_keys.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND leader_keys.block_height = ?1 AND leader_keys.vtxindex = ?2", row_order);
         let args = [&(block_height as i64) as &ToSql, &vtxindex as &ToSql];
         let rows = BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)?;
@@ -908,7 +908,7 @@ where
         let row_order_list : Vec<String> = LeaderKeyRegisterOp::row_order().iter().map(|r| format!("leader_keys.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND leader_keys.public_key = ?1", row_order);
         let args = [&ECVRF_public_key_to_hex(VRF_key)];
         let rows = BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)?;
@@ -935,7 +935,7 @@ where
         let row_order_list : Vec<String> = LeaderBlockCommitOp::row_order().iter().map(|r| format!("block_commits.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_block_hash = history.burn_block_hash \
+        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND block_commits.block_height = ?1 ORDER BY block_commits.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
 
@@ -955,7 +955,7 @@ where
         let row_order_list : Vec<String> = LeaderBlockCommitOp::row_order().iter().map(|r| format!("block_commits.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_block_hash = history.burn_block_hash \
+        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND block_commits.block_height = ?1 AND block_commits.vtxindex = ?2", row_order);
         let args = [&(block_height as i64) as &ToSql, &vtxindex as &ToSql];
         let rows = BurnDB::<A, K>::query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)?;
@@ -982,7 +982,7 @@ where
         let row_order_list : Vec<String> = UserBurnSupportOp::row_order().iter().map(|r| format!("user_burn_support.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid AND user_burn_support.burn_block_hash = history.burn_block_hash \
+        let qry = format!("SELECT {} FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid AND user_burn_support.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND user_burn_support.block_height = ?1 ORDER BY user_burn_support.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
 
@@ -992,7 +992,7 @@ where
     /// Find out whether or not a particular VRF key was used before in the canonical burnchain history
     #[allow(non_snake_case)]
     pub fn has_VRF_public_key(conn: &Connection, key: &VRFPublicKey) -> Result<bool, db_error> {
-        let qry = "SELECT COUNT(leader_keys.public_key) FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+        let qry = "SELECT COUNT(leader_keys.public_key) FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_header_hash = history.burn_header_hash \
                    WHERE history.canonical = 1 AND leader_keys.public_key = ?1";
         let args = [&ECVRF_public_key_to_hex(&key)];
         let count = BurnDB::<A, K>::query_count(conn, &qry.to_string(), &args)?;
@@ -1026,8 +1026,8 @@ where
             return Err(db_error::TypeError);
         }
 
-        let row_order = "block_commits.txid,block_commits.burn_block_hash";
-        let qry = format!("SELECT COUNT({}) FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_block_hash = history.burn_block_hash \
+        let row_order = "block_commits.txid,block_commits.burn_header_hash";
+        let qry = format!("SELECT COUNT({}) FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND block_commits.block_height - block_commits.key_block_backptr = ?1 AND block_commits.key_vtxindex = ?2", row_order);
         let args = [&(leader_key.block_number as i64) as &ToSql, &leader_key.vtxindex as &ToSql];
         let count = BurnDB::<A, K>::query_count(conn, &qry.to_string(), &args)?;
@@ -1051,7 +1051,7 @@ where
         let block_hash160 = block_commit.block_header_hash.to_hash160();
 
         let row_order = "user_burn_support.burn_fee";
-        let qry = format!("SELECT SUM({}) FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid AND user_burn_support.burn_block_hash = history.burn_block_hash \
+        let qry = format!("SELECT SUM({}) FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid AND user_burn_support.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND user_burn_support.block_height = ?1 AND user_burn_support.public_key = ?2 AND user_burn_support.block_header_hash_160 = ?3", row_order);
         let args = [&(block_commit.block_number as i64) as &ToSql, &ECVRF_public_key_to_hex(&leader_key.public_key), &block_hash160.to_hex()];
 
@@ -1087,14 +1087,13 @@ mod tests {
     use burnchains::BurnchainInputType;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::BitcoinAddress;
+    use burnchains::bitcoin::BitcoinNetworkType;
 
     use burnchains::{Txid, BurnchainHeaderHash};
 
     use util::hash::{hex_bytes, Hash160};
 
     use ed25519_dalek::PublicKey as VRFPublicKey;
-
-    use burnchains::bitcoin::BitcoinNetworkType;
 
     #[test]
     fn test_instantiate() {
@@ -1120,7 +1119,7 @@ mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
 
             op: LeaderKeyRegisterOpcode,
             txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
@@ -1273,7 +1272,7 @@ mod tests {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
             public_key: public_key,
             memo: vec![01, 02, 03, 04, 05],
-            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
 
             op: LeaderKeyRegisterOpcode,
             txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
