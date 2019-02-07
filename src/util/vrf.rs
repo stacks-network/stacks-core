@@ -216,7 +216,7 @@ fn ECVRF_expand_privkey(secret: &ed25519_PrivateKey) -> (ed25519_PublicKey, ed25
     let mut hasher = Sha512::new();
     let mut h = [0u8; 64];
     let mut trunc_hash = [0u8; 32];
-    let pubkey = ed25519_PublicKey::from_secret::<Sha512>(secret);
+    let pubkey = ed25519_PublicKey::from(secret);
     let privkey_buf = secret.to_bytes();
 
     // hash secret key to produce nonce and intermediate private key
@@ -497,7 +497,7 @@ mod tests {
         for _i in 0..100 {
             let mut csprng: OsRng = OsRng::new().unwrap();
             let secret_key: ed25519_PrivateKey = ed25519_PrivateKey::generate(&mut csprng);
-            let public_key = ed25519_PublicKey::from_secret::<Sha512>(&secret_key);
+            let public_key = ed25519_PublicKey::from(&secret_key);
 
             let mut msg = [0u8, 1024];
             csprng.fill_bytes(&mut msg);
