@@ -35,21 +35,12 @@ use std::io;
 use std::error;
 use std::sync::Arc;
 
-use std::sync::mpsc::SyncSender;
-
 use bitcoin::network::serialize::Error as btc_serialize_error;
 use bitcoin::util::hash::HexError as btc_hex_error;
 
 use jsonrpc::Error as jsonrpc_error;
 
-use burnchains::BurnchainBlock;
-use burnchains::bitcoin::address::BitcoinAddress;
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-
-use chainstate::burn::db::Error as burndb_error;
-
 pub type PeerMessage = Arc<bitcoin::network::message::NetworkMessage>;
-pub type BlockSender = SyncSender<Arc<BurnchainBlock<BitcoinAddress, BitcoinPublicKey>>>;
 
 // Borrowed from Andrew Poelstra's rust-bitcoin 
 
@@ -72,8 +63,6 @@ pub enum Error {
     InvalidMagic,
     /// Unhandled message 
     UnhandledMessage(PeerMessage),
-    /// Functionality not implemented 
-    NotImplemented,
     /// Connection is broken and ought to be re-established
     ConnectionBroken,
     /// Connection could not be (re-)established
@@ -104,11 +93,10 @@ impl fmt::Display for Error {
             Error::Io(ref e) => fmt::Display::fmt(e, f),
             Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => f.write_str(error::Error::description(self)),
             Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
-            Error::InvalidMessage(ref msg) => f.write_str(error::Error::description(self)),
+            Error::InvalidMessage(ref _msg) => f.write_str(error::Error::description(self)),
             Error::InvalidReply => f.write_str(error::Error::description(self)),
             Error::InvalidMagic => f.write_str(error::Error::description(self)),
-            Error::UnhandledMessage(ref msg) => f.write_str(error::Error::description(self)),
-            Error::NotImplemented => f.write_str(error::Error::description(self)),
+            Error::UnhandledMessage(ref _msg) => f.write_str(error::Error::description(self)),
             Error::ConnectionBroken => f.write_str(error::Error::description(self)),
             Error::ConnectionError => f.write_str(error::Error::description(self)),
             Error::FilesystemError(ref e) => fmt::Display::fmt(e, f),
@@ -130,11 +118,10 @@ impl error::Error for Error {
             Error::Io(ref e) => Some(e),
             Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => None,
             Error::SerializationError(ref e) => Some(e),
-            Error::InvalidMessage(ref msg) => None,
+            Error::InvalidMessage(ref _msg) => None,
             Error::InvalidReply => None,
             Error::InvalidMagic => None,
-            Error::UnhandledMessage(ref msg) => None,
-            Error::NotImplemented => None,
+            Error::UnhandledMessage(ref _msg) => None,
             Error::ConnectionBroken => None,
             Error::ConnectionError => None,
             Error::FilesystemError(ref e) => Some(e),
@@ -144,7 +131,7 @@ impl error::Error for Error {
             Error::InvalidPoW => None,
             Error::JSONRPCError(ref e) => Some(e),
             Error::InvalidByteSequence => None,
-            Error::ConfigError(ref e_str) => None,
+            Error::ConfigError(ref _e_str) => None,
             Error::BlockchainHeight => None,
         }
     }
@@ -155,11 +142,10 @@ impl error::Error for Error {
             Error::SocketMutexPoisoned => "socket mutex was poisoned",
             Error::SocketNotConnectedToPeer => "not connected to peer",
             Error::SerializationError(ref e) => e.description(),
-            Error::InvalidMessage(ref msg) => "Invalid message to send",
+            Error::InvalidMessage(ref _msg) => "Invalid message to send",
             Error::InvalidReply => "invalid reply for given message",
             Error::InvalidMagic => "invalid network magic",
-            Error::UnhandledMessage(ref msg) => "Unhandled message",
-            Error::NotImplemented => "functionality not implemented",
+            Error::UnhandledMessage(ref _msg) => "Unhandled message",
             Error::ConnectionBroken => "connection to peer node is broken",
             Error::ConnectionError => "connection to peer could not be (re-)established",
             Error::FilesystemError(ref e) => e.description(),
@@ -177,8 +163,7 @@ impl error::Error for Error {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BitcoinNetworkType {
-    mainnet,
-    testnet,
-    regtest
+    Mainnet,
+    Testnet,
+    Regtest
 }
-

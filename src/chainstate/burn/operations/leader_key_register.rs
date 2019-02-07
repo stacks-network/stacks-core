@@ -58,12 +58,19 @@ pub struct LeaderKeyRegisterOp<A, K> {
     pub _phantom: PhantomData<K>
 }
 
+struct ParsedData {
+    pub consensus_hash: ConsensusHash,
+    pub public_key: VRFPublicKey,
+    pub memo: Vec<u8>
+}
+    
+
 impl<AddrType, PubkeyType> LeaderKeyRegisterOp<AddrType, PubkeyType> 
 where
     AddrType: Address,
     PubkeyType: PublicKey
 {
-    fn parse_data(data: &Vec<u8>) -> Option<(ConsensusHash, VRFPublicKey, Vec<u8>)> {
+    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
 
@@ -91,7 +98,11 @@ where
         let pubkey = pubkey_opt.unwrap();
         let memo = &data[52..];
 
-        return Some((consensus_hash, pubkey, memo.to_vec()));
+        Some(ParsedData {
+            consensus_hash,
+            public_key: pubkey,
+            memo: memo.to_vec()
+        })
     }
 
     fn parse_from_tx<A, K>(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<LeaderKeyRegisterOp<A, K>, op_error>
@@ -121,13 +132,13 @@ where
             return Err(op_error::ParseError);
         }
 
-        let (consensus_hash, pubkey, memo) = parse_data_opt.unwrap();
+        let data = parse_data_opt.unwrap();
         let address = tx.outputs[0].address.clone();
 
         Ok(LeaderKeyRegisterOp {
-            consensus_hash: consensus_hash,
-            public_key: pubkey,
-            memo: memo,
+            consensus_hash: data.consensus_hash,
+            public_key: data.public_key,
+            memo: data.memo,
             address: address,
 
             op: OPCODE,

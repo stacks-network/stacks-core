@@ -21,18 +21,18 @@
 
 pub mod bitcoin;
 pub mod indexer;
+pub mod burnchain;
 
 use std::fmt;
 use std::error;
-use std::fs;
 use std::io;
 
 use self::bitcoin::Error as btc_error;
-use util::Error as util_error;
-use chainstate::burn::db::Error as burndb_error;
 
-use std::sync::Arc;
-use std::sync::mpsc::SyncSender;
+use chainstate::burn::db::Error as burndb_error;
+use chainstate::burn::operations::Error as op_error;
+
+use util::hash::Hash160;
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid([u8; 32]);
@@ -54,6 +54,14 @@ impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 
 pub const BLOCKSTACK_MAGIC_MAINNET : MagicBytes = MagicBytes([105, 100]);  // 'id'
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub enum BurnchainInputType {
+    BitcoinInput,
+    BitcoinSegwitP2SHInput,
+
+    // TODO: expand this as more burnchains are supported
+}
+
 pub trait PublicKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn verify(&self, data_hash: &[u8], sig: &[u8]) -> Result<bool, &'static str>;
@@ -64,12 +72,7 @@ pub trait Address : Clone + fmt::Debug {
     fn to_string(&self) -> String;
     fn from_string(&String) -> Option<Self>
         where Self: Sized;
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub enum BurnchainInputType {
-    BitcoinInput,
-    BitcoinSegwitP2SHInput,
+    fn burn_bytes() -> Vec<u8>;
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -102,12 +105,16 @@ pub struct BurnchainBlock<A, K> {
     pub txs: Vec<BurnchainTransaction<A, K>>
 }
 
-pub type BlockChannel<A, K> = SyncSender<Arc<BurnchainBlock<A, K>>>;
+pub struct Burnchain {
+    chain_name: String,
+    network_name: String,
+    working_dir: String
+}
 
 #[derive(Debug)]
 pub enum Error {
     /// Bitcoin-related error
-    bitcoin(btc_error),
+    Bitcoin(btc_error),
     /// burn database error 
     DBError(burndb_error),
     /// Download error 
@@ -119,19 +126,22 @@ pub enum Error {
     /// Missing headers 
     MissingHeaders,
     /// filesystem error 
-    FSError(io::Error)
+    FSError(io::Error),
+    /// Operation processing error 
+    OpError(op_error),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::bitcoin(ref btce) => fmt::Display::fmt(btce, f),
+            Error::Bitcoin(ref btce) => fmt::Display::fmt(btce, f),
             Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
             Error::DownloadError(ref btce) => fmt::Display::fmt(btce, f),
             Error::ParseError => f.write_str(error::Error::description(self)),
             Error::MissingHeaders => f.write_str(error::Error::description(self)),
             Error::ThreadChannelError => f.write_str(error::Error::description(self)),
             Error::FSError(ref e) => fmt::Display::fmt(e, f),
+            Error::OpError(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -139,26 +149,27 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn cause(&self) -> Option<&error::Error> {
         match *self {
-            Error::bitcoin(ref e) => Some(e),
+            Error::Bitcoin(ref e) => Some(e),
             Error::DBError(ref e) => Some(e),
             Error::DownloadError(ref e) => Some(e),
             Error::ParseError => None,
             Error::MissingHeaders => None,
             Error::ThreadChannelError => None,
             Error::FSError(ref e) => Some(e),
+            Error::OpError(ref e) => Some(e),
         }
     }
 
     fn description(&self) -> &str {
         match *self {
-            Error::bitcoin(ref e) => e.description(),
+            Error::Bitcoin(ref e) => e.description(),
             Error::DBError(ref e) => e.description(),
             Error::DownloadError(ref e) => e.description(),
             Error::ParseError => "Parse error",
             Error::MissingHeaders => "Missing block headers",
             Error::ThreadChannelError => "Error in thread channel",
             Error::FSError(ref e) => e.description(),
+            Error::OpError(ref e) => e.description(),
         }
     }
 }
-

@@ -30,18 +30,23 @@ impl_array_hexstring_fmt!(Hash160);
 impl_byte_array_newtype!(Hash160, u8, 20);
 
 impl Hash160 {
-    /// Create a hash by hashing some data
-    /// (borrwed from Andrew Poelstra)
-    pub fn from_data(data: &[u8]) -> Hash160 {
-        let mut tmp = [0; 32];
-        let mut ret = [0; 20];
-        let mut sha2 = Sha256::new();
+    pub fn from_sha256(sha256_hash: &[u8; 32]) -> Hash160 {
         let mut rmd = Ripemd160::new();
-        sha2.input(data);
-        sha2.result(&mut tmp);
-        rmd.input(&tmp);
+        let mut ret = [0u8; 20];
+        rmd.input(sha256_hash);
         rmd.result(&mut ret);
         Hash160(ret)
+    }
+
+    /// Create a hash by hashing some data
+    /// (borrwed from Andrew Poelstra)
+    #[allow(dead_code)]
+    pub fn from_data(data: &[u8]) -> Hash160 {
+        let mut tmp = [0u8; 32];
+        let mut sha2 = Sha256::new();
+        sha2.input(data);
+        sha2.result(&mut tmp);
+        Hash160::from_sha256(&tmp)
     }
 }
 

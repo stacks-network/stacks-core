@@ -33,25 +33,21 @@ use chainstate::burn::db::Error as db_error;
 
 use chainstate::burn::CHAINSTATE_VERSION;
 use chainstate::burn::CONSENSUS_HASH_LIFETIME;
-use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash};
+use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, BlockSnapshot};
 
-use chainstate::burn::operations::{BlockstackOperationType, BlockstackOperation};
 use chainstate::burn::operations::leader_block_commit::LeaderBlockCommitOp;
-use chainstate::burn::operations::leader_block_commit::OPCODE as LeaderBlockCommitOp_OPCODE;
+use chainstate::burn::operations::leader_block_commit::OPCODE as LeaderBlockCommitOpcode;
 use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
-use chainstate::burn::operations::leader_key_register::OPCODE as LeaderKeyRegisterOp_OPCODE;
+use chainstate::burn::operations::leader_key_register::OPCODE as LeaderKeyRegisterOpcode;
 use chainstate::burn::operations::user_burn_support::UserBurnSupportOp;
-use chainstate::burn::operations::user_burn_support::OPCODE as UserBurnSupportOp_OPCODE;
-use chainstate::burn::operations::Error as op_error;
+use chainstate::burn::operations::user_burn_support::OPCODE as UserBurnSupportOpcode;
 
 use burnchains::BurnchainTxInput;
-use burnchains::BurnchainTransaction;
-use burnchains::BurnchainBlock;
 use burnchains::{Txid, BurnchainHeaderHash, PublicKey, Address};
 
+use util::log;
 use util::vrf::ECVRF_public_key_to_hex;
 use util::hash::{to_hex, hex_bytes, Hash160};
-use util::log;
 
 use ed25519_dalek::PublicKey as VRFPublicKey;
 
@@ -147,25 +143,14 @@ where
     }
 }
 
-// a row in the "snapshots" table
-#[derive(Debug, Clone, PartialEq)]
-pub struct SnapshotRow {
-    pub block_height: u64,
-    pub burn_header_hash: BurnchainHeaderHash,
-    pub consensus_hash: ConsensusHash,
-    pub ops_hash: OpsHash,
-    pub total_burn: u64,
-    pub canonical: bool
-}
-
-impl RowOrder for SnapshotRow {
+impl RowOrder for BlockSnapshot {
     fn row_order() -> Vec<&'static str> {
         vec!["block_height","burn_header_hash","consensus_hash","ops_hash","total_burn","canonical"]
     }
 }
 
-impl FromRow<SnapshotRow> for SnapshotRow {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<SnapshotRow, db_error> {
+impl FromRow<BlockSnapshot> for BlockSnapshot {
+    fn from_row<'a>(row: &'a Row, index: usize) -> Result<BlockSnapshot, db_error> {
         let block_height_i64 : i64 = row.get(0 + index);
         let burn_header_hash = BurnchainHeaderHash::from_row(row, 1 + index)?;
         let consensus_hash = ConsensusHash::from_row(row, 2 + index)?;
@@ -180,7 +165,7 @@ impl FromRow<SnapshotRow> for SnapshotRow {
         let total_burn = total_burn_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
-        let snapshot = SnapshotRow {
+        let snapshot = BlockSnapshot {
             block_height: block_height_i64 as u64,
             burn_header_hash: burn_header_hash,
             consensus_hash: consensus_hash,
@@ -232,13 +217,13 @@ where
             vtxindex: vtxindex,
             block_number: block_number as u64,
             burn_header_hash: burn_header_hash,
-            op: LeaderKeyRegisterOp_OPCODE,
+            op: LeaderKeyRegisterOpcode,
 
             consensus_hash: consensus_hash,
             public_key: public_key,
             memo: memo, 
             address: address,
-                    
+             
             _phantom: PhantomData
         };
 
@@ -307,7 +292,7 @@ where
             burn_fee: burn_fee,
             input: input,
 
-            op: LeaderBlockCommitOp_OPCODE,
+            op: LeaderBlockCommitOpcode,
             txid: txid,
             vtxindex: vtxindex,
             block_number: block_height as u64,
@@ -366,7 +351,7 @@ where
             memo: memo,
             burn_fee: burn_fee,
 
-            op: UserBurnSupportOp_OPCODE,
+            op: UserBurnSupportOpcode,
             txid: txid,
             vtxindex: vtxindex,
             block_number: block_height as u64,
@@ -494,7 +479,7 @@ where
     fn instantiate(&mut self) -> Result<(), db_error> {
 
         // create first (sentinel) snapshot
-        let first_snapshot = SnapshotRow {
+        let first_snapshot = BlockSnapshot {
             block_height: self.first_block_height,
             burn_header_hash: self.first_burn_header_hash.clone(),
             consensus_hash: ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
@@ -513,9 +498,9 @@ where
         tx.execute("INSERT INTO db_version (version) VALUES (?1)", &[&CHAINSTATE_VERSION])
             .map_err(|e| db_error::SqliteError(e))?;
 
-        BurnDB::<A, K>::insert_snapshot_row(&mut tx, &first_snapshot)?;
+        BurnDB::<A, K>::insert_block_snapshot(&mut tx, &first_snapshot)?;
         tx.commit()
-            .map_err(db_error::SqliteError);
+            .map_err(db_error::SqliteError)?;
 
         Ok(())
     }
@@ -563,10 +548,31 @@ where
             // instantiate!
             db.instantiate()?;
         }
+        else {
+            // validate -- must contain the given first block and first block hash 
+            let snapshot_opt = BurnDB::<A, K>::get_block_snapshot(&db.conn, first_block_height)?;
+            match snapshot_opt {
+                None => {
+                    error!("No snapshot for block {}", first_block_height);
+                    return Err(db_error::Corruption);
+                },
+                Some(snapshot) => {
+                    if snapshot.burn_header_hash != *first_burn_hash || 
+                       snapshot.consensus_hash != ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap() ||
+                       snapshot.ops_hash != OpsHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap() ||
+                       snapshot.total_burn != 0 {
+                           error!("Invalid genesis snapshot at {}", first_block_height);
+                           return Err(db_error::Corruption);
+                       }
+                }
+            };
+        }
+
         Ok(db)
     }
 
     /// Open a burn database in memory (used for testing)
+    #[allow(dead_code)]
     pub fn connect_memory(first_block_height: u64, first_burn_hash: &BurnchainHeaderHash) -> Result<BurnDB<A, K>, db_error> {
         let conn = Connection::open_in_memory()
             .map_err(|e| db_error::SqliteError(e))?;
@@ -590,77 +596,28 @@ where
         &self.conn
     }
 
-    /// Get the previous consensus hashes that must be hashed to find
-    /// the *next* consensus hash at a particular block.
-    /// The resulting list will include the consensus hash at block_height.
-    fn get_prev_consensus_hashes(conn: &Connection, block_height: u64, first_block_height: u64) -> Result<Vec<ConsensusHash>, db_error> {
-        let mut i = 0;
-        let mut prev_chs = vec![];
-        while block_height - (((1 as u64) << i) - 1) >= first_block_height {
-            let prev_block : u64 = block_height - (((1 as u64) << i) - 1);
-            let prev_ch_opt = BurnDB::<A, K>::get_consensus_at(conn, prev_block)?;
-            match prev_ch_opt {
-                Some(prev_ch) => {
-                    debug!("Consensus at {}: {}", prev_block, &prev_ch.to_hex());
-                    prev_chs.push(prev_ch.clone());
-                    i += 1;
-
-                    if block_height < (((1 as u64) << i) - 1) {
-                        break;
-                    }
-                }
-                None => {
-                    error!("Failed to read consensus hash for block height {}", prev_block);
-                    return Err(db_error::Corruption);
-                }
-            };
-        }
-        Ok(prev_chs)
-    }
-
-    /// Make a new consensus hash, given the ops hash 
-    fn make_consensus_hash(conn: &Connection, opshash: &OpsHash, block_height: u64, first_block_height: u64, total_burn: u64) -> Result<ConsensusHash, db_error> {
-        let prev_consensus_hashes = BurnDB::<A, K>::get_prev_consensus_hashes(conn, block_height - 1, first_block_height)?;
-        Ok(ConsensusHash::from_ops(opshash, total_burn, &prev_consensus_hashes))
-    }
-
     /// Find out how any burn tokens were destroyed in a given (canonical) block
-    fn find_block_burn_amount<'a>(tx: &mut Transaction<'a>, block_height: u64) -> Result<u64, db_error>
+    pub fn get_block_burn_amount<'a>(tx: &mut Transaction<'a>, block_height: u64) -> Result<u64, db_error>
     {
         let user_burns = BurnDB::<A, K>::get_user_burns_by_block(tx, block_height)?;
         let block_commits = BurnDB::<A, K>::get_block_commits_by_block(tx, block_height)?;
-        let mut burn_total = 0;
+        let mut burn_total : u64 = 0;
 
         for i in 0..user_burns.len() {
-            if burn_total + user_burns[i].burn_fee < 0 {
+            if burn_total.checked_add(user_burns[i].burn_fee).is_none() {
                 return Err(db_error::Overflow);
             }
 
             burn_total += user_burns[i].burn_fee;
         }
         for i in 0..block_commits.len() {
-            if burn_total + user_burns[i].burn_fee < 0 {
+            if burn_total.checked_add(user_burns[i].burn_fee).is_none() {
                 return Err(db_error::Overflow);
             }
 
             burn_total += block_commits[i].burn_fee;
         }
         Ok(burn_total)
-    }
-
-    /// Make a block snapshot 
-    fn make_snapshot_row(conn: &Connection, block_height: u64, burn_header_hash: &BurnchainHeaderHash, first_block_height: u64, txids: &Vec<Txid>, total_burn: u64) -> Result<SnapshotRow, db_error> {
-        let ops_hash = OpsHash::from_txids(txids);
-        let ch = BurnDB::<A, K>::make_consensus_hash(conn, &ops_hash, block_height, first_block_height, total_burn)?;
-        
-        Ok(SnapshotRow {
-            block_height: block_height,
-            burn_header_hash: burn_header_hash.clone(),
-            consensus_hash: ch,
-            ops_hash: ops_hash,
-            total_burn: total_burn,
-            canonical: true
-        })
     }
 
     /// Process a burn chain reorganization -- given the height at which the reorg starts,
@@ -691,6 +648,29 @@ where
         Ok(res as u64)
     }
 
+    /// Get a consensus hash at a particular block height 
+    /// Returns None if there is no consensus hash at this given block height
+    pub fn get_consensus_at(conn: &Connection, block_height: u64) -> Result<Option<ConsensusHash>, db_error> {
+        if block_height > ((1 as u64) << 63) - 1 {
+            return Err(db_error::TypeError);
+        }
+
+        let qry = "SELECT consensus_hash FROM snapshots WHERE canonical = 1 AND block_height = ?1";
+        let args = [&(block_height as i64) as &ToSql];
+
+        let mut stmt = conn.prepare(qry)
+            .map_err(|e| db_error::SqliteError(e))?;
+
+        stmt.query_row(&args,
+            |row| {
+                match ConsensusHash::from_row(&row, 0) {
+                    Ok(ch) => Some(ch),
+                    Err(_e) => None
+                }
+            })
+            .map_err(|e| db_error::SqliteError(e))
+    }
+
     /// Begin a transaction.  TODO: use immediate mode?
     pub fn tx_begin<'a>(&'a mut self) -> Result<Transaction<'a>, db_error> {
         if !self.readwrite {
@@ -717,7 +697,7 @@ where
     }
 
     /// Insert a snapshots row from a block's-worth of operations. 
-    fn insert_snapshot_row<'a>(tx: &mut Transaction<'a>, snapshot: &SnapshotRow) -> Result<(), db_error> {
+    pub fn insert_block_snapshot<'a>(tx: &mut Transaction<'a>, snapshot: &BlockSnapshot) -> Result<(), db_error> {
         if snapshot.block_height > ((1 as u64) << 63 - 1) {
             return Err(db_error::TypeError);
         }
@@ -835,17 +815,32 @@ where
             })
             .map_err(|e| db_error::SqliteError(e))
     }
+    
+    /// Get the first snapshot 
+    pub fn get_first_block_snapshot(conn: &Connection) -> Result<BlockSnapshot, db_error> {
+        let row_order = BlockSnapshot::row_order().join(",");
+        let qry = format!("SELECT {} FROM snapshots WHERE canonical = 1 ORDER BY block_height LIMIT 1", row_order);
+        let rows = BurnDB::<A, K>::query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), NO_PARAMS)?;
+
+        match rows.len() {
+            1 => Ok(rows[0].clone()),
+            _ => {
+                // should never happen 
+                panic!("FATAL: multiple canonical first-block snapshots")
+            }
+        }
+    }
 
     /// Get a canonical snapshot row 
-    pub fn get_block_snapshot(conn: &Connection, block_height: u64) -> Result<Option<SnapshotRow>, db_error> {
+    pub fn get_block_snapshot(conn: &Connection, block_height: u64) -> Result<Option<BlockSnapshot>, db_error> {
         if block_height > ((1 as u64) << 63) - 1 {
             return Err(db_error::TypeError);
         }
 
-        let row_order = SnapshotRow::row_order().join(",");
+        let row_order = BlockSnapshot::row_order().join(",");
         let qry = format!("SELECT {} FROM snapshots WHERE canonical = 1 AND block_height = ?1", row_order);
         let args = [&(block_height as i64) as &ToSql];
-        let rows = BurnDB::<A, K>::query_rows::<SnapshotRow, _>(conn, &qry.to_string(), &args)?;
+        let rows = BurnDB::<A, K>::query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
             0 => Ok(None),
@@ -869,7 +864,8 @@ where
         let row_order_list : Vec<String> = LeaderKeyRegisterOp::row_order().iter().map(|r| format!("leader_keys.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid WHERE history.canonical = 1 AND leader_keys.block_height = ?1 ORDER BY leader_keys.vtxindex ASC", row_order);
+        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND leader_keys.block_height = ?1 ORDER BY leader_keys.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
         BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
@@ -887,7 +883,8 @@ where
         let row_order_list : Vec<String> = LeaderKeyRegisterOp::row_order().iter().map(|r| format!("leader_keys.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid WHERE history.canonical = 1 AND leader_keys.block_height = ?1 AND leader_keys.vtxindex = ?2 ORDER BY leader_keys.vtxindex ASC", row_order);
+        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND leader_keys.block_height = ?1 AND leader_keys.vtxindex = ?2", row_order);
         let args = [&(block_height as i64) as &ToSql, &vtxindex as &ToSql];
         let rows = BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)?;
 
@@ -897,6 +894,31 @@ where
             _ => {
                 // should never happen 
                 panic!("FATAL: multiple leader keys at block {} vtxindex {}", block_height, vtxindex);
+            }
+        }
+    }
+
+    /// Get a leader key by its VRF key.
+    /// Returns None if the key does not exist.
+    #[allow(non_snake_case)]
+    pub fn get_leader_key_by_VRF_key(conn: &Connection, VRF_key: &VRFPublicKey) -> Result<Option<LeaderKeyRegisterOp<A, K>>, db_error>
+    where
+        LeaderKeyRegisterOp<A, K>: FromRow<LeaderKeyRegisterOp<A, K>> + RowOrder
+    {
+        let row_order_list : Vec<String> = LeaderKeyRegisterOp::row_order().iter().map(|r| format!("leader_keys.{}", r)).collect();
+        let row_order = row_order_list.join(",");
+
+        let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND leader_keys.public_key = ?1", row_order);
+        let args = [&ECVRF_public_key_to_hex(VRF_key)];
+        let rows = BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)?;
+
+        match rows.len() {
+            0 => Ok(None),
+            1 => Ok(Some(rows[0].clone())),
+            _ => {
+                // should never happen 
+                panic!("FATAL: multiple leader keys with VRF key {}", &ECVRF_public_key_to_hex(VRF_key));
             }
         }
     }
@@ -913,12 +935,41 @@ where
         let row_order_list : Vec<String> = LeaderBlockCommitOp::row_order().iter().map(|r| format!("block_commits.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid WHERE history.canonical = 1 AND block_commits.block_height = ?1 ORDER BY block_commits.vtxindex ASC", row_order);
+        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND block_commits.block_height = ?1 ORDER BY block_commits.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
 
         BurnDB::<A, K>::query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
-    
+
+    /// Get a block commit at a specific location in the burn chain's canonical history.
+    /// Returns None if there is no block commit at this location.
+    pub fn get_block_commit(conn: &Connection, block_height: u64, vtxindex: u32) -> Result<Option<LeaderBlockCommitOp<A, K>>, db_error>
+    where
+        LeaderBlockCommitOp<A, K>: FromRow<LeaderBlockCommitOp<A, K>> + RowOrder
+    {
+        if block_height > ((1 as u64) << 63) - 1 {
+            return Err(db_error::TypeError);
+        }
+
+        let row_order_list : Vec<String> = LeaderBlockCommitOp::row_order().iter().map(|r| format!("block_commits.{}", r)).collect();
+        let row_order = row_order_list.join(",");
+
+        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND block_commits.block_height = ?1 AND block_commits.vtxindex = ?2", row_order);
+        let args = [&(block_height as i64) as &ToSql, &vtxindex as &ToSql];
+        let rows = BurnDB::<A, K>::query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)?;
+
+        match rows.len() {
+            0 => Ok(None),
+            1 => Ok(Some(rows[0].clone())),
+            _ => {
+                // should never happen 
+                panic!("FATAL: multiple block commits at block {} vtxindex {}", block_height, vtxindex);
+            }
+        }
+    }
+
     /// Get all user burns registered in a block on the burn chain's canonical history
     pub fn get_user_burns_by_block(conn: &Connection, block_height: u64) -> Result<Vec<UserBurnSupportOp<A, K>>, db_error>
     where
@@ -931,15 +982,18 @@ where
         let row_order_list : Vec<String> = UserBurnSupportOp::row_order().iter().map(|r| format!("user_burn_support.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid WHERE history.canonical = 1 AND user_burn_support.block_height = ?1 ORDER BY user_burn_support.vtxindex ASC", row_order);
+        let qry = format!("SELECT {} FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid AND user_burn_support.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND user_burn_support.block_height = ?1 ORDER BY user_burn_support.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
 
         BurnDB::<A, K>::query_rows::<UserBurnSupportOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
 
     /// Find out whether or not a particular VRF key was used before in the canonical burnchain history
+    #[allow(non_snake_case)]
     pub fn has_VRF_public_key(conn: &Connection, key: &VRFPublicKey) -> Result<bool, db_error> {
-        let qry = "SELECT COUNT(leader_keys.public_key) FROM leader_keys JOIN history ON leader_keys.txid = history.txid WHERE history.canonical = 1 AND leader_keys.public_key = ?1 AND history.canonical = 1";
+        let qry = "SELECT COUNT(leader_keys.public_key) FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_block_hash = history.burn_block_hash \
+                   WHERE history.canonical = 1 AND leader_keys.public_key = ?1";
         let args = [&ECVRF_public_key_to_hex(&key)];
         let count = BurnDB::<A, K>::query_count(conn, &qry.to_string(), &args)?;
         Ok(count != 0)
@@ -962,205 +1016,46 @@ where
         Ok(count != 0)
     }
 
-    /// Get a consensus hash at a particular block height 
-    /// Returns None if there is no consensus hash at this given block height
-    pub fn get_consensus_at(conn: &Connection, block_height: u64) -> Result<Option<ConsensusHash>, db_error> {
-        if block_height > ((1 as u64) << 63) - 1 {
+    /// Determine whether or not a leader key is available to be consumed by a block commitment at the given block height.
+    /// That is, there must _not_ be a block commit paired with this leader key already.
+    pub fn is_leader_key_available(conn: &Connection, leader_key: &LeaderKeyRegisterOp<A, K>) -> Result<bool, db_error> 
+    where
+        LeaderBlockCommitOp<A, K>: FromRow<LeaderBlockCommitOp<A, K>> + RowOrder
+    {
+        if leader_key.block_number > ((1 as u64) << 63) - 1 {
             return Err(db_error::TypeError);
         }
 
-        let qry = "SELECT consensus_hash FROM snapshots WHERE canonical = 1 AND block_height = ?1";
-        let args = [&(block_height as i64) as &ToSql];
-
-        let mut stmt = conn.prepare(qry)
-            .map_err(|e| db_error::SqliteError(e))?;
-
-        stmt.query_row(&args,
-            |row| {
-                match ConsensusHash::from_row(&row, 0) {
-                    Ok(ch) => Some(ch),
-                    Err(_e) => None
-                }
-            })
-            .map_err(|e| db_error::SqliteError(e))
+        let row_order = "block_commits.txid,block_commits.burn_block_hash";
+        let qry = format!("SELECT COUNT({}) FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND block_commits.block_height - block_commits.key_block_backptr = ?1 AND block_commits.key_vtxindex = ?2", row_order);
+        let args = [&(leader_key.block_number as i64) as &ToSql, &leader_key.vtxindex as &ToSql];
+        let count = BurnDB::<A, K>::query_count(conn, &qry.to_string(), &args)?;
+        Ok(count == 0)
     }
 
-    /// Classify a burnchain transaction as a burn database operation 
-    pub fn classify_transaction(block_height: u64, block_hash: &BurnchainHeaderHash, burn_tx: &BurnchainTransaction<A, K>) -> Option<BlockstackOperationType<A, K>> {
-        match burn_tx.opcode {
-            LeaderKeyRegisterOp_OPCODE => {
-                match LeaderKeyRegisterOp::from_tx(block_height, block_hash, burn_tx) {
-                    Ok(op) => {
-                        Some(BlockstackOperationType::LeaderKeyRegister(op))
-                    },
-                    Err(e) => {
-                        warn!("Failed to parse leader key register tx {} data {}: {:?}", &burn_tx.txid.to_hex(), &to_hex(&burn_tx.data[..]), e);
-                        None
-                    }
-                }
-            },
-            LeaderBlockCommitOp_OPCODE => {
-                match LeaderBlockCommitOp::from_tx(block_height, block_hash, burn_tx) {
-                    Ok(op) => {
-                        Some(BlockstackOperationType::LeaderBlockCommit(op))
-                    },
-                    Err(e) => {
-                        warn!("Failed to parse leader block commit tx {} data {}: {:?}", &burn_tx.txid.to_hex(), &to_hex(&burn_tx.data[..]), e);
-                        None
-                    }
-                }
-            },
-            UserBurnSupportOp_OPCODE => {
-                match UserBurnSupportOp::from_tx(block_height, block_hash, burn_tx) {
-                    Ok(op) => {
-                        Some(BlockstackOperationType::UserBurnSupport(op))
-                    },
-                    Err(e) => {
-                        warn!("Failed to parse user burn support tx {} data {}: {:?}", &burn_tx.txid.to_hex(), &to_hex(&burn_tx.data[..]), e);
-                        None
-                    }
-                }
-            },
-            _ => {
-                None
-            }
-        }
-    }
-
-    /// Check a burnchain transaction to determine if it is valid -- i.e. that it can be committed 
-    pub fn check_transaction(conn: &Connection, blockstack_op: &BlockstackOperationType<A, K>) -> Result<bool, op_error> { 
-        match blockstack_op {
-            BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                LeaderKeyRegisterOp::check(op, conn)
-                  .and_then(|res| {
-                      if res {
-                          info!("ACCEPT leader key register {}", &op.txid.to_hex());
-                      }
-                      else {
-                          warn!("REJECT leader key register {}", &op.txid.to_hex());
-                      }
-                      Ok(res)
-                  })
-            },
-            BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                LeaderBlockCommitOp::check(op, conn)
-                  .and_then(|res| {
-                      if res {
-                          info!("ACCEPT leader block commit {}", &op.txid.to_hex());
-                      }
-                      else {
-                          warn!("REJECT leader block commit {}", &op.txid.to_hex());
-                      }
-                      Ok(res)
-                  })
-            },
-            BlockstackOperationType::UserBurnSupport(ref op) => {
-                UserBurnSupportOp::check(op, conn)
-                  .and_then(|res| {
-                      if res {
-                          info!("ACCEPT user burn support {}", &op.txid.to_hex());
-                      }
-                      else {
-                          warn!("REJECT user burn support {}", &op.txid.to_hex());
-                      }
-                      Ok(res)
-                  })
-            }
-        }
-    }
-
-    /// commit a transaction 
-    pub fn commit_transaction<'a>(tx: &mut Transaction<'a>, blockstack_op: &BlockstackOperationType<A, K>) -> Result<(), db_error> { 
-        match blockstack_op {
-            BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                info!("COMMIT leader key register {}", &op.txid.to_hex());
-                BurnDB::insert_leader_key(tx, op)
-            },
-            BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                info!("COMMIT leader block commit {}", &op.txid.to_hex());
-                BurnDB::insert_block_commit(tx, op)
-            },
-            BlockstackOperationType::UserBurnSupport(ref op) => {
-                info!("COMMIT user burn support {}", &op.txid.to_hex());
-                BurnDB::insert_user_burn(tx, op)
-            }
-        }
-    }
-
-    /// Process a burnchain block from Bitcoin. Check each transaction and commit the valid ones.
-    /// Panics if any database operation fails.
-    pub fn process_block(&mut self, block: &BurnchainBlock<A, K>) -> Result<(), db_error>
+    /// Determine which user support burn ops successfully committed to the given block.
+    /// This is all user burns *in the same block* that also burned for *this block and key*.
+    /// Note that it is possible for a user burn to be accepted even if it does not support a valid leader
+    /// or block.  This method does *not* include such burns.
+    pub fn get_user_commit_burns(conn: &Connection, leader_key: &LeaderKeyRegisterOp<A, K>, block_commit: &LeaderBlockCommitOp<A, K>) -> Result<Vec<UserBurnSupportOp<A, K>>, db_error>
+    where
+        LeaderKeyRegisterOp<A, K>: FromRow<LeaderKeyRegisterOp<A, K>> + RowOrder,
+        LeaderBlockCommitOp<A, K>: FromRow<LeaderBlockCommitOp<A, K>> + RowOrder,
+        UserBurnSupportOp<A, K>: FromRow<UserBurnSupportOp<A, K>> + RowOrder
     {
-        let first_block_height = self.first_block_height;
-        debug!("Process block {} {}", block.block_height, &block.block_hash.to_hex());
-        
-        let mut tx = self.tx_begin()?;
-
-        // commit each transaction
-        for i in 0..block.txs.len() {
-            match BurnDB::classify_transaction(block.block_height, &block.block_hash, &block.txs[i]) {
-                None => {
-                    continue;
-                },
-                Some(ref blockstack_op) => {
-                    match BurnDB::check_transaction(&tx, blockstack_op) {
-                        Err(op_error) => {
-                            panic!("FATAL ERROR when processing burnchain transaction {}", &block.txs[i].txid.to_hex());
-                        },
-                        Ok(res) => {
-                            if res {
-                                // accepted, so commit 
-                                match BurnDB::commit_transaction(&mut tx, blockstack_op) {
-                                    Err(db_error) => {
-                                        panic!("FATAL ERROR when inserting burnchain transaction {}", &block.txs[i].txid.to_hex());
-                                    }
-                                    Ok(_) => {}
-                                };
-                            }
-                            else {
-                                // rejected
-                                continue;
-                            }
-                        }
-                    };
-                }
-            };
+        if block_commit.block_number > ((1 as u64) << 63) - 1 {
+            return Err(db_error::TypeError);
         }
 
-        // snapshot
-        let txids : Vec<Txid> = block.txs.iter()
-                                         .map(|tx| tx.txid.clone())
-                                         .collect();
+        let block_hash160 = block_commit.block_header_hash.to_hash160();
 
-        let block_burn_total = BurnDB::<A, K>::find_block_burn_amount(&mut tx, block.block_height)
-            .map_err(|e| panic!("FATAL ERROR when trying to query burn amount for block {}", block.block_height))?;
+        let row_order = "user_burn_support.burn_fee";
+        let qry = format!("SELECT SUM({}) FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid AND user_burn_support.burn_block_hash = history.burn_block_hash \
+                          WHERE history.canonical = 1 AND user_burn_support.block_height = ?1 AND user_burn_support.public_key = ?2 AND user_burn_support.block_header_hash_160 = ?3", row_order);
+        let args = [&(block_commit.block_number as i64) as &ToSql, &ECVRF_public_key_to_hex(&leader_key.public_key), &block_hash160.to_hex()];
 
-        let last_block_snapshot_opt = BurnDB::<A, K>::get_block_snapshot(&mut tx, block.block_height - 1)
-            .map_err(|e| panic!("FATAL ERROR when trying to get block snapshot for block {}", block.block_height))?;
-
-        let chain_burn_total = 
-            match last_block_snapshot_opt {
-                Some(prev_snapshot) => prev_snapshot.total_burn,
-                None => 0
-            };
-       
-        if block_burn_total + chain_burn_total < 0 {
-            panic!("FATAL ERROR burn total overflow ({} + {})", block_burn_total, chain_burn_total);
-        }
-
-        let snapshot = BurnDB::<A, K>::make_snapshot_row(&mut tx, block.block_height, &block.block_hash, first_block_height, &txids, block_burn_total + chain_burn_total)
-            .map_err(|e| panic!("FATAL ERROR when taking snapshot at block {} ({}): {:?}", block.block_height, &block.block_hash.to_hex(), e))?;
-
-        BurnDB::<A, K>::insert_snapshot_row(&mut tx, &snapshot)
-            .map_err(|e| panic!("FATAL ERROR when inserting snapshot for block {} ({}): {:?}", block.block_height, &block.block_hash.to_hex(), e))?;
-        
-        info!("OPSHASH({}): {}", block.block_height, &snapshot.ops_hash.to_hex());
-        info!("CONSENSUS({}): {}", block.block_height, &snapshot.consensus_hash.to_hex());
-
-        // commit everything!
-        tx.commit()
-            .map_err(db_error::SqliteError);
-        Ok(())
+        BurnDB::<A, K>::query_rows::<UserBurnSupportOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
 }
 
@@ -1184,9 +1079,9 @@ mod tests {
 
     use chainstate::burn::operations::leader_block_commit::LeaderBlockCommitOp;
     use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
-    use chainstate::burn::operations::leader_key_register::OPCODE as LeaderKeyRegisterOp_OPCODE;
+    use chainstate::burn::operations::leader_key_register::OPCODE as LeaderKeyRegisterOpcode;
     use chainstate::burn::operations::user_burn_support::UserBurnSupportOp;
-    use chainstate::burn::operations::user_burn_support::OPCODE as UserBurnSupportOp_OPCODE;
+    use chainstate::burn::operations::user_burn_support::OPCODE as UserBurnSupportOpcode;
 
     use burnchains::BurnchainTxInput;
     use burnchains::BurnchainInputType;
@@ -1227,7 +1122,7 @@ mod tests {
             memo: vec![01, 02, 03, 04, 05],
             address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
 
-            op: LeaderKeyRegisterOp_OPCODE,
+            op: LeaderKeyRegisterOpcode,
             txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
             vtxindex: vtxindex,
             block_number: block_height,
@@ -1337,7 +1232,7 @@ mod tests {
             memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
             burn_fee: 12345,
 
-            op: UserBurnSupportOp_OPCODE,
+            op: UserBurnSupportOpcode,
             txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
             vtxindex: vtxindex,
             block_number: block_height,
@@ -1380,7 +1275,7 @@ mod tests {
             memo: vec![01, 02, 03, 04, 05],
             address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
 
-            op: LeaderKeyRegisterOp_OPCODE,
+            op: LeaderKeyRegisterOpcode,
             txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
             vtxindex: vtxindex,
             block_number: block_height,
@@ -1410,7 +1305,7 @@ mod tests {
         {
             let mut tx = db.tx_begin().unwrap();
             for i in 0..256 {
-                let snapshot_row = SnapshotRow {
+                let snapshot_row = BlockSnapshot {
                     block_height: i,
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -1418,7 +1313,7 @@ mod tests {
                     total_burn: i,
                     canonical: true
                 };
-                BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_snapshot_row(&mut tx, &snapshot_row).unwrap();
+                BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
             }
 
             tx.commit();
@@ -1449,7 +1344,7 @@ mod tests {
         {
             let mut tx = db.tx_begin().unwrap();
             for i in 0..256 {
-                let snapshot_row = SnapshotRow {
+                let snapshot_row = BlockSnapshot {
                     block_height: i,
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -1457,7 +1352,7 @@ mod tests {
                     total_burn: i,
                     canonical: true
                 };
-                BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_snapshot_row(&mut tx, &snapshot_row).unwrap();
+                BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
 
                 // should succeed within the tx 
                 let ch_opt = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_consensus_at(&tx, i).unwrap();
@@ -1478,165 +1373,7 @@ mod tests {
     }
 
     #[test]
-    fn get_prev_consensus_hashes() {
-        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
-        {
-            let mut tx = db.tx_begin().unwrap();
-            for i in 0..256 {
-                let snapshot_row = SnapshotRow {
-                    block_height: i,
-                    burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    total_burn: i,
-                    canonical: true
-                };
-                BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_snapshot_row(&mut tx, &snapshot_row).unwrap();
-            }
-            
-            tx.commit();
-        }
-        
-        let prev_chs_0 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 0, 0).unwrap();
-        assert_eq!(prev_chs_0, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
-        
-        let prev_chs_1 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 1, 0).unwrap();
-        assert_eq!(prev_chs_1, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
-        
-        let prev_chs_2 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 2, 0).unwrap();
-        assert_eq!(prev_chs_2, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
-        
-        let prev_chs_3 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 3, 0).unwrap();
-        assert_eq!(prev_chs_3, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
-        
-        let prev_chs_4 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 4, 0).unwrap();
-        assert_eq!(prev_chs_4, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
-        
-        let prev_chs_5 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 5, 0).unwrap();
-        assert_eq!(prev_chs_5, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap()]);
-        
-        let prev_chs_6 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 6, 0).unwrap();
-        assert_eq!(prev_chs_6, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap()]);
-        
-        let prev_chs_7 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 7, 0).unwrap();
-        assert_eq!(prev_chs_7, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
-        
-        let prev_chs_8 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 8, 0).unwrap();
-        assert_eq!(prev_chs_8, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
-        
-        let prev_chs_62 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 62, 0).unwrap();
-        assert_eq!(prev_chs_62, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,62]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,61]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,59]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,55]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,47]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,31]).unwrap()]);
-
-        let prev_chs_63 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 63, 0).unwrap();
-        assert_eq!(prev_chs_63, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,62]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,60]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,56]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,48]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,32]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
-
-        let prev_chs_64 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 64, 0).unwrap();
-        assert_eq!(prev_chs_64, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,64]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,61]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,57]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,49]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,33]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
-
-        let prev_chs_126 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 126, 0).unwrap();
-        assert_eq!(prev_chs_126, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,126]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,125]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,123]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,119]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,111]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,95]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap()]);
-
-        let prev_chs_127 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 127, 0).unwrap();
-        assert_eq!(prev_chs_127, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,126]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,124]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,120]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,112]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,96]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,64]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
-
-        let prev_chs_128 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 128, 0).unwrap();
-        assert_eq!(prev_chs_128, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,125]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,121]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,113]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,97]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,65]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
-        
-        let prev_chs_254 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 254, 0).unwrap();
-        assert_eq!(prev_chs_254, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,254]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,253]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,251]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,247]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,239]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,223]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,191]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap()]);
-
-        let prev_chs_255 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_prev_consensus_hashes(db.conn(), 255, 0).unwrap();
-        assert_eq!(prev_chs_255, vec![
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,254]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,252]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,248]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,240]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,224]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,192]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128]).unwrap(),
-            ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
-    }
-
-    #[test]
-    fn find_block_burn_amount() {
+    fn get_block_burn_amount() {
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         let block_height = 500;
 
@@ -1707,7 +1444,7 @@ mod tests {
                 memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
                 burn_fee: 2,
 
-                op: UserBurnSupportOp_OPCODE,
+                op: UserBurnSupportOpcode,
                 txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
                 vtxindex: 1,
                 block_number: block_height,
@@ -1724,7 +1461,7 @@ mod tests {
                 memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
                 burn_fee: 20,
 
-                op: UserBurnSupportOp_OPCODE,
+                op: UserBurnSupportOpcode,
                 txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
                 vtxindex: 1,
                 block_number: block_height,
@@ -1737,29 +1474,29 @@ mod tests {
             BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_commit(&mut tx, &block_commit_noncanonical).unwrap();
             BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_user_burn(&mut tx, &user_burn_noncanonical).unwrap();
             
-            let burn_amount_noncanonical = BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height).unwrap();
+            let burn_amount_noncanonical = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_burn_amount(&mut tx, block_height).unwrap();
             assert_eq!(burn_amount_noncanonical, 30);
             
-            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
-            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
 
             BurnDB::<BitcoinAddress, BitcoinPublicKey>::burnchain_history_reorg(&mut tx, block_height).unwrap();
 
-            let burn_amount_postreorg = BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height).unwrap();
+            let burn_amount_postreorg = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_burn_amount(&mut tx, block_height).unwrap();
             assert_eq!(burn_amount_postreorg, 0);
             
-            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
-            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
 
             BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_commit(&mut tx, &block_commit).unwrap();
             BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_user_burn(&mut tx, &user_burn).unwrap();
         
             // only the canonical ops should show up 
-            let burn_amount = BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height).unwrap();
+            let burn_amount = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_burn_amount(&mut tx, block_height).unwrap();
             assert_eq!(burn_amount, 3);
             
-            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
-            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::find_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
+            assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
 
             tx.commit();
         }
