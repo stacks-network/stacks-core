@@ -23,6 +23,7 @@ use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
 
 use chainstate::burn::db::DBConn;
+use chainstate::burn::db::burndb::BurnDB;
 
 use burnchains::BurnchainTransaction;
 use burnchains::Txid;
@@ -31,7 +32,7 @@ use burnchains::PublicKey;
 use burnchains::BurnchainHeaderHash;
 
 use util::hash::Hash160;
-use util::vrf::ECVRF_check_public_key;
+use util::vrf::{ECVRF_check_public_key, ECVRF_public_key_to_hex};
 use util::log;
 
 use ed25519_dalek::PublicKey as VRFPublicKey;
@@ -168,7 +169,21 @@ where
     }
 
     fn check(&self, conn: &DBConn) -> Result<bool, op_error> {
-        Ok(false)
+        /////////////////////////////////////////////////////////////////////////////////////
+        // There must exist a previously-accepted LeaderKeyRegisterOp.  It may already be
+        // consumed by a LeaderBlockCommitOp by the time this transaction is processed,
+        // so we only check for the key's existence.
+        /////////////////////////////////////////////////////////////////////////////////////
+
+        let register_key_opt = BurnDB::<A, K>::get_leader_key_by_VRF_key(conn, &self.public_key)
+            .map_err(op_error::DBError)?;
+
+        if register_key_opt.is_none() {
+            warn!("Invalid user burn: no such leader VRF key {}", &ECVRF_public_key_to_hex(&self.public_key));
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 }
 
