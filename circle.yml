@@ -8,11 +8,11 @@ jobs:
       - checkout
       - run:
           command: |
-            rustup override set nightly && cargo build
+            cargo build
       - run:
           environment:
             RUST_BACKTRACE: 1
             BLOCKSTACK_DEBUG: 1
             RUSTFLAGS: -Clink-dead-code
           command: |
-            rustup override set nightly && cargo kcov && bash <(curl -s https://codecov.io/bash)
+            cargo kcov && bash <(curl -s https://codecov.io/bash)
