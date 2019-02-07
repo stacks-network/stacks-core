@@ -39,7 +39,7 @@ use ed25519_dalek::PublicKey as VRFPublicKey;
 
 pub const OPCODE: u8 = '_' as u8;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub struct UserBurnSupportOp<A, K> {
     pub consensus_hash: ConsensusHash,
     pub public_key: VRFPublicKey,
@@ -191,9 +191,11 @@ where
 mod tests {
     use super::*;
     use burnchains::bitcoin::blocks::BitcoinBlockParser;
+    use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::Txid;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::BitcoinAddress;
 
     use bitcoin::network::serialize::deserialize;
@@ -264,7 +266,7 @@ mod tests {
             }
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::testnet, BLOCKSTACK_MAGIC_MAINNET);
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
 
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();

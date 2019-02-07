@@ -40,7 +40,7 @@ use util::log;
 
 pub const OPCODE: u8 = '^' as u8;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub struct LeaderKeyRegisterOp<A, K> {
     pub consensus_hash: ConsensusHash,      // consensus hash at time of issuance
     pub public_key: VRFPublicKey,           // EdDSA public key 
@@ -234,7 +234,7 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     memo: vec![01, 02, 03, 04, 05],
-                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
 
                     op: OPCODE,
                     txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
@@ -251,7 +251,7 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     memo: vec![],
-                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
 
                     op: OPCODE,
                     txid: Txid::from_bytes_be(&hex_bytes("2fbf8d5be32dce49790d203ba59acbb0929d5243413174ff5d26a5c6f23dea65").unwrap()).unwrap(),
@@ -284,7 +284,7 @@ mod tests {
             }
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::testnet, BLOCKSTACK_MAGIC_MAINNET);
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
 
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();

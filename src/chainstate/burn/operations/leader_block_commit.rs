@@ -36,7 +36,7 @@ use util::hash::to_hex;
 
 pub const OPCODE: u8 = '[' as u8;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub struct LeaderBlockCommitOp<A, K> {
     pub block_header_hash: BlockHeaderHash, // hash of Stacks block header (double-sha256)
     pub new_seed: VRFSeed,                  // new seed for this block
@@ -395,7 +395,7 @@ mod tests {
             }
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::testnet, BLOCKSTACK_MAGIC_MAINNET);
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
 
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
