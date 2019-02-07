@@ -22,6 +22,9 @@ use burnchains::Burnchain;
 use burnchains::Error as burnchain_error;
 use util::log;
 
+// fork set identifier -- to be mixed with the consensus hash (encodes the version)
+pub const SYSTEM_FORK_SET_VERSION : [u8; 4] = [21u8, 0u8, 0u8, 0u8];
+
 /// Synchronize burn transactions from the Bitcoin blockchain 
 pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Result<u64, burnchain_error> {
     use burnchains::bitcoin::indexer::BitcoinIndexer;
