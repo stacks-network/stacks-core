@@ -32,8 +32,6 @@ use serde_json::Error as serde_error;
 
 use burnchains::{Txid, BurnchainHeaderHash, Address};
 
-use burnchains::bitcoin::address::BitcoinAddress;
-
 use util::vrf::ECVRF_check_public_key;
 use util::hash::{hex_bytes, Hash160};
 
@@ -47,8 +45,6 @@ pub enum Error {
     NotImplemented,
     /// Database doesn't exist
     NoDBError,
-    /// DB connection error 
-    ConnectionError,
     /// Read-only and tried to write
     ReadOnly,
     /// Type error -- can't represent the given data in the database 
@@ -71,7 +67,6 @@ impl fmt::Display for Error {
         match *self {
             Error::NotImplemented => f.write_str(error::Error::description(self)),
             Error::NoDBError => f.write_str(error::Error::description(self)),
-            Error::ConnectionError => f.write_str(error::Error::description(self)),
             Error::ReadOnly => f.write_str(error::Error::description(self)),
             Error::TypeError => f.write_str(error::Error::description(self)),
             Error::Corruption => f.write_str(error::Error::description(self)),
@@ -88,7 +83,6 @@ impl error::Error for Error {
         match *self {
             Error::NotImplemented => None,
             Error::NoDBError => None,
-            Error::ConnectionError => None,
             Error::ReadOnly => None,
             Error::TypeError => None,
             Error::Corruption => None,
@@ -103,7 +97,6 @@ impl error::Error for Error {
         match *self {
             Error::NotImplemented => "Not implemented",
             Error::NoDBError => "Database does not exist",
-            Error::ConnectionError => "Failed to connect to database",
             Error::ReadOnly => "Database is opened read-only",
             Error::TypeError => "Invalid or unrepresentable database type",
             Error::Corruption => "Database is corrupt",
@@ -152,6 +145,7 @@ impl_byte_array_from_row!(VRFSeed);
 impl_byte_array_from_row!(OpsHash);
 impl_byte_array_from_row!(BurnchainHeaderHash);
 
+#[allow(non_snake_case)]
 pub fn VRFPublicKey_from_row<'a>(row: &'a Row, index: usize) -> Result<VRFPublicKey, db_error> {
     let public_key_hex : String = row.get(index);
     let public_key_bytes = hex_bytes(&public_key_hex)
@@ -165,12 +159,13 @@ pub fn VRFPublicKey_from_row<'a>(row: &'a Row, index: usize) -> Result<VRFPublic
     Ok(public_key)
 }
 
-impl FromRow<BitcoinAddress> for BitcoinAddress {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<BitcoinAddress, db_error> {
-        let address_b58 : String = row.get(index);
-        match BitcoinAddress::from_string(&address_b58) {
+impl<A: Address> FromRow<A> for A {
+    fn from_row<'a>(row: &'a Row, index: usize) -> Result<A, db_error> {
+        let address_str : String = row.get(index);
+        match A::from_string(&address_str) {
             Some(a) => Ok(a),
             None => Err(db_error::ParseError)
         }
     }
 }
+

@@ -22,6 +22,7 @@ macro_rules! impl_array_newtype {
     ($thing:ident, $ty:ty, $len:expr) => {
         impl $thing {
             #[inline]
+            #[allow(dead_code)]
             /// Converts the object to a raw pointer
             pub fn as_ptr(&self) -> *const $ty {
                 let &$thing(ref dat) = self;
@@ -29,6 +30,7 @@ macro_rules! impl_array_newtype {
             }
 
             #[inline]
+            #[allow(dead_code)]
             /// Converts the object to a mutable raw pointer
             pub fn as_mut_ptr(&mut self) -> *mut $ty {
                 let &mut $thing(ref mut dat) = self;
@@ -36,22 +38,27 @@ macro_rules! impl_array_newtype {
             }
 
             #[inline]
+            #[allow(dead_code)]
             /// Returns the length of the object as an array
             pub fn len(&self) -> usize { $len }
 
             #[inline]
+            #[allow(dead_code)]
             /// Returns whether the object, as an array, is empty. Always false.
             pub fn is_empty(&self) -> bool { false }
 
             #[inline]
+            #[allow(dead_code)]
             /// Returns the underlying bytes.
             pub fn as_bytes(&self) -> &[$ty; $len] { &self.0 }
 
             #[inline]
+            #[allow(dead_code)]
             /// Returns the underlying bytes.
             pub fn to_bytes(&self) -> [$ty; $len] { self.0.clone() }
 
             #[inline]
+            #[allow(dead_code)]
             /// Returns the underlying bytes.
             pub fn into_bytes(self) -> [$ty; $len] { self.0 }
         }
@@ -134,29 +141,8 @@ macro_rules! impl_array_newtype {
                 }
             }
         }
-
-        /*
-        impl ::rand::Rand for $thing {
-            #[inline]
-            fn rand<R: ::rand::Rng>(r: &mut R) -> $thing {
-                $thing(::rand::Rand::rand(r))
-            }
-        }
-        */
     }
 }
-
-/*
-macro_rules! impl_array_newtype_show {
-    ($thing:ident) => {
-        impl ::std::fmt::Debug for $thing {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-                write!(f, concat!(stringify!($thing), "({:?})"), &self[..])
-            }
-        }
-    }
-}
-*/
 
 macro_rules! impl_index_newtype {
     ($thing:ident, $ty:ty) => {
@@ -212,10 +198,12 @@ macro_rules! impl_array_hexstring_fmt {
     }
 }
 
+#[allow(unused_macros)]
 macro_rules! impl_byte_array_newtype {
     ($thing:ident, $ty:ty, $len:expr) => {
         impl $thing {
             /// Instantiates from a hex string 
+            #[allow(dead_code)]
             pub fn from_hex(hex_str: &str) -> Option<$thing> {
                 use util::hash::hex_bytes;
                 let _hex_len = $len * 2;
@@ -233,6 +221,7 @@ macro_rules! impl_byte_array_newtype {
             }
 
             /// Instantiates from a (little-endian) slice of bytes 
+            #[allow(dead_code)]
             pub fn from_bytes(inp: &[u8]) -> Option<$thing> {
                 match inp.len() {
                     $len => {
@@ -245,11 +234,13 @@ macro_rules! impl_byte_array_newtype {
             }
 
             /// Instantiates from a (big-endian) slice of bytes 
+            #[allow(dead_code)]
             pub fn from_bytes_be(inp: &[u8]) -> Option<$thing> {
                 $thing::from_vec_be(&inp.to_vec())
             }
 
             /// Instantiates from a (little-endian) vector of bytes
+            #[allow(dead_code)]
             pub fn from_vec(inp: &Vec<u8>) -> Option<$thing> {
                 match inp.len() {
                     $len => {
@@ -263,6 +254,7 @@ macro_rules! impl_byte_array_newtype {
             }
 
             /// Instantiates from a big-endian vector of bytes
+            #[allow(dead_code)]
             pub fn from_vec_be(b: &Vec<u8>) -> Option<$thing> {
                 match b.len() {
                     $len => {
@@ -279,6 +271,7 @@ macro_rules! impl_byte_array_newtype {
             }
 
             /// Convert to a hex string 
+            #[allow(dead_code)]
             pub fn to_hex(&self) -> String {
                 use util::hash::to_hex;
                 to_hex(&self.0)
@@ -288,6 +281,7 @@ macro_rules! impl_byte_array_newtype {
 }
 
 // print debug statements while testing
+#[allow(unused_macros)]
 macro_rules! test_debug {
     ($($arg:tt)*) => ({
         use std::env;

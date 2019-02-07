@@ -40,7 +40,7 @@ use util::log;
 
 pub const OPCODE: u8 = '^' as u8;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub struct LeaderKeyRegisterOp<A, K> {
     pub consensus_hash: ConsensusHash,      // consensus hash at time of issuance
     pub public_key: VRFPublicKey,           // EdDSA public key 
@@ -58,12 +58,19 @@ pub struct LeaderKeyRegisterOp<A, K> {
     pub _phantom: PhantomData<K>
 }
 
+struct ParsedData {
+    pub consensus_hash: ConsensusHash,
+    pub public_key: VRFPublicKey,
+    pub memo: Vec<u8>
+}
+    
+
 impl<AddrType, PubkeyType> LeaderKeyRegisterOp<AddrType, PubkeyType> 
 where
     AddrType: Address,
     PubkeyType: PublicKey
 {
-    fn parse_data(data: &Vec<u8>) -> Option<(ConsensusHash, VRFPublicKey, Vec<u8>)> {
+    fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
 
@@ -91,7 +98,11 @@ where
         let pubkey = pubkey_opt.unwrap();
         let memo = &data[52..];
 
-        return Some((consensus_hash, pubkey, memo.to_vec()));
+        Some(ParsedData {
+            consensus_hash,
+            public_key: pubkey,
+            memo: memo.to_vec()
+        })
     }
 
     fn parse_from_tx<A, K>(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<LeaderKeyRegisterOp<A, K>, op_error>
@@ -121,13 +132,13 @@ where
             return Err(op_error::ParseError);
         }
 
-        let (consensus_hash, pubkey, memo) = parse_data_opt.unwrap();
+        let data = parse_data_opt.unwrap();
         let address = tx.outputs[0].address.clone();
 
         Ok(LeaderKeyRegisterOp {
-            consensus_hash: consensus_hash,
-            public_key: pubkey,
-            memo: memo,
+            consensus_hash: data.consensus_hash,
+            public_key: data.public_key,
+            memo: data.memo,
             address: address,
 
             op: OPCODE,
@@ -223,7 +234,7 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     memo: vec![01, 02, 03, 04, 05],
-                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
 
                     op: OPCODE,
                     txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
@@ -240,7 +251,7 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     memo: vec![],
-                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
 
                     op: OPCODE,
                     txid: Txid::from_bytes_be(&hex_bytes("2fbf8d5be32dce49790d203ba59acbb0929d5243413174ff5d26a5c6f23dea65").unwrap()).unwrap(),
@@ -273,7 +284,7 @@ mod tests {
             }
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::testnet, BLOCKSTACK_MAGIC_MAINNET);
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
 
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();

@@ -18,6 +18,7 @@
 */
 
 use std::fs;
+use std::path;
 use std::net;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -27,18 +28,17 @@ use std::path::{PathBuf};
 
 use ini::Ini;
 
+use burnchains::Burnchain;
 use burnchains::indexer::*;
 use burnchains::bitcoin::spv::*;
 use burnchains::bitcoin::rpc::BitcoinRPC;
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
-use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::blocks::{BitcoinHeaderIPC, BitcoinBlockIPC};
+use burnchains::bitcoin::blocks::BitcoinHeaderIPC;
+use burnchains::indexer::BurnchainIndexer;
 
-use burnchains::bitcoin::address::BitcoinAddress;
 use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::bitcoin::blocks::{BitcoinBlockDownloader, BitcoinBlockParser};
-use burnchains::bitcoin::PeerMessage;
 
 use burnchains::BLOCKSTACK_MAGIC_MAINNET;
 use burnchains::BurnchainHeaderHash;
@@ -47,10 +47,14 @@ use burnchains::MagicBytes;
 
 use bitcoin::blockdata::block::LoneBlockHeader;
 use bitcoin::network::message::NetworkMessage;
+use bitcoin::network::serialize::BitcoinHash;
 
 use util::log;
 
 use dirs;
+
+pub type BitcoinIndexerPublicKey = <<BitcoinIndexer as BurnchainIndexer>::P as BurnchainBlockParser>::K;
+pub type BitcoinIndexerAddress = <<BitcoinIndexer as BurnchainIndexer>::P as BurnchainBlockParser>::A;
 
 pub const USER_AGENT: &'static str = "Blockstack Core v21";
 
@@ -70,19 +74,11 @@ pub const FIRST_BLOCK_REGTEST: u64 = 0;
 // batch size for searching for a reorg 
 const REORG_BATCH_SIZE: u64 = 2000;
 
-pub fn network_id_to_name(network_id: BitcoinNetworkType) -> &'static str {
-    match network_id {
-        BitcoinNetworkType::mainnet => BITCOIN_MAINNET_NAME,
-        BitcoinNetworkType::testnet => BITCOIN_TESTNET_NAME,
-        BitcoinNetworkType::regtest => BITCOIN_REGTEST_NAME
-    }
-}
-
 pub fn network_id_to_bytes(network_id: BitcoinNetworkType) -> u32 {
     match network_id {
-        BitcoinNetworkType::mainnet => BITCOIN_MAINNET,
-        BitcoinNetworkType::testnet => BITCOIN_TESTNET,
-        BitcoinNetworkType::regtest => BITCOIN_REGTEST,
+        BitcoinNetworkType::Mainnet => BITCOIN_MAINNET,
+        BitcoinNetworkType::Testnet => BITCOIN_TESTNET,
+        BitcoinNetworkType::Regtest => BITCOIN_REGTEST,
     }
 }
 
@@ -117,11 +113,7 @@ pub struct BitcoinIndexer {
 
 
 impl BitcoinIndexerConfig {
-    pub fn default(working_dir: &String) -> BitcoinIndexerConfig {
-        let mut spv_headers_pathbuf = PathBuf::from(working_dir);
-        spv_headers_pathbuf.push("bitcoin-spv-headers.dat");
-        let spv_headers_path = spv_headers_pathbuf.to_str().unwrap().to_string();
-
+    pub fn default() -> BitcoinIndexerConfig {
         BitcoinIndexerConfig {
             peer_host: "bitcoin.blockstack.com".to_string(),
             peer_port: 8333,
@@ -130,7 +122,7 @@ impl BitcoinIndexerConfig {
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
             timeout: 30,
-            spv_headers_path: spv_headers_path,
+            spv_headers_path: "./spv-headers.dat".to_string(),
             first_block: FIRST_BLOCK_MAINNET,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone()
         }
@@ -144,7 +136,7 @@ impl BitcoinIndexerConfig {
 
        conf.with_section(Some("bitcoin".to_owned()))
            .set("server", self.peer_host.as_str())
-           .set("port", format!("{}", self.peer_port).as_str())
+           .set("p2p_port", format!("{}", self.peer_port).as_str())
            .set("rpc_port", format!("{}", self.rpc_port).as_str())
            .set("rpc_ssl", format!("{}", self.rpc_ssl).as_str())
            .set("username", username.as_str())
@@ -169,8 +161,7 @@ impl BitcoinIndexerConfig {
        let mut home_pathbuf = PathBuf::from(dirs::home_dir().unwrap());
        home_pathbuf.push(".stacks");
 
-       let default_working_dir = home_pathbuf.to_str().unwrap().to_string();
-       let default_config = BitcoinIndexerConfig::default(&default_working_dir);
+       let default_config = BitcoinIndexerConfig::default();
 
        match Ini::load_from_file(path) {
            Ok(ini_file) => {
@@ -194,7 +185,7 @@ impl BitcoinIndexerConfig {
                    return Err(btc_error::ConfigError("Invalid p2p_port".to_string()));
                }
 
-               let rpc_port = bitcoin_section.get("port")
+               let rpc_port = bitcoin_section.get("rpc_port")
                                              .unwrap_or(&format!("{}", default_config.rpc_port))
                                              .trim().parse().map_err(|_e| btc_error::ConfigError("Invalid bitcoin:port value".to_string()))?;
 
@@ -209,8 +200,22 @@ impl BitcoinIndexerConfig {
                                             .unwrap_or(&format!("{}", default_config.timeout))
                                             .trim().parse().map_err(|_e| btc_error::ConfigError("Invalid bitcoin:timeout value".to_string()))?;
 
-               let spv_headers_path = bitcoin_section.get("spv_path")
+               let spv_headers_path_cfg = bitcoin_section.get("spv_path")
                                             .unwrap_or(&default_config.spv_headers_path);
+
+               let spv_headers_path = 
+                   if path::is_separator(spv_headers_path_cfg.chars().next().unwrap()) {
+                       // absolute
+                       (*spv_headers_path_cfg).clone()
+                   }
+                   else {
+                       // relative to config file 
+                       let mut p = PathBuf::from(path);
+                       p.pop();
+                       let s = p.join(&spv_headers_path_cfg);
+                       s.to_str().unwrap().to_string()
+                   };
+                   
 
                let first_block = bitcoin_section.get("first_block")
                                                 .unwrap_or(&format!("{}", FIRST_BLOCK_MAINNET))
@@ -334,7 +339,7 @@ impl BitcoinIndexer {
             },
             Ok(mut guard) => {
                 match *guard.deref_mut() {
-                    Some(ref mut sock) => {
+                    Some(ref mut _sock) => {
                         true
                     },
                     None => {
@@ -357,8 +362,9 @@ impl BitcoinIndexer {
         while keep_going {
             if do_handshake {
                 debug!("(Re)establish peer connection");
-                let network_id = self.runtime.network_id;
-                let handshake_result = self.connect_handshake_backoff(network_id_to_name(network_id));
+
+                initiated = false;
+                let handshake_result = self.connect_handshake_backoff();
                 match handshake_result {
                     Ok(()) => {
                         // connection established!
@@ -407,9 +413,9 @@ impl BitcoinIndexer {
                         }
                         Err(btc_error::UnhandledMessage(m)) => {
                             match m.deref() {
-                                NetworkMessage::Alert(ref alert_msg) => {
-                                    keep_going = true;
-                                },
+                                // some Bitcoin nodes send this to tell us to upgrade, so just
+                                // consume it
+                                NetworkMessage::Alert(ref _alert_msg) => {},
                                 _ => {
                                     debug!("Unhandled message {:?}", m);
                                 }
@@ -442,23 +448,13 @@ impl BitcoinIndexer {
         bitcoin_client.getblockcount()
     }
 
-    /// Synchronize on-disk headers from Bitcoin up to the given block height.
-    /// Returns the number of headers fetched.
-    pub fn sync_all_headers(&mut self, last_block: u64) -> Result<u64, btc_error> {
-        debug!("Sync all headers for blocks {} - {}", 0, last_block);
-        let mut spv_client = SpvClient::new(&self.config.spv_headers_path, 0, last_block, self.runtime.network_id);
-        spv_client.run(self)
-                  .and_then(|_r| Ok(last_block - 1))
-    }
-
     /// Synchronize the last N headers from bitcoin to a specific file.
     /// Returns the number of headers fetched.
     pub fn sync_last_headers(&mut self, path: &String, start_block: u64, last_block: u64) -> Result<u64, btc_error> {
-        
         debug!("Sync all headers for blocks {} - {}", start_block, last_block);
         let mut spv_client = SpvClient::new(&path, start_block, last_block, self.runtime.network_id);
         spv_client.run(self)
-                  .and_then(|r| Ok(last_block - start_block))
+                  .and_then(|_r| Ok(last_block - start_block))
     }
 
     /// Get a range of block headers from a file.
@@ -582,24 +578,29 @@ impl BurnchainIndexer for BitcoinIndexer {
     /// Instead, load our configuration state and sanity-check it.
     /// 
     /// Pass a directory (working_dir) that contains a "bitcoin.ini" file.
-    fn init(network_name: &String, working_dir: &String) -> Result<BitcoinIndexer, burnchain_error> {
-        let mut conf_path = PathBuf::from(working_dir);
-        conf_path.push("bitcoin.ini");
-        let conf_path_str = conf_path.to_str().unwrap().to_string();
+    fn init(working_dir: &String, network_name: &String) -> Result<BitcoinIndexer, burnchain_error> {
+        let conf_path_str = Burnchain::get_chainstate_config_path(working_dir, &"bitcoin".to_string(), network_name);
 
         let network_id_opt = match network_name.as_ref() {
-            "mainnet" => Some(BitcoinNetworkType::mainnet),
-            "testnet" => Some(BitcoinNetworkType::testnet),
-            "regtest" => Some(BitcoinNetworkType::regtest),
+            BITCOIN_MAINNET_NAME => Some(BitcoinNetworkType::Mainnet),
+            BITCOIN_TESTNET_NAME => Some(BitcoinNetworkType::Testnet),
+            BITCOIN_REGTEST_NAME => Some(BitcoinNetworkType::Regtest),
             _ => None
         };
 
         if network_id_opt.is_none() {
-            return Err(burnchain_error::bitcoin(btc_error::ConfigError("Unrecognized network name".to_string())));
+            return Err(burnchain_error::Bitcoin(btc_error::ConfigError(format!("Unrecognized network name '{}'", network_name).to_string())));
         }
         let bitcoin_network_id = network_id_opt.unwrap();
+        
+        if !PathBuf::from(&conf_path_str).exists() {
+            let default_config = BitcoinIndexerConfig::default();
+            default_config.to_file(&conf_path_str)
+                .map_err(burnchain_error::Bitcoin)?;
+        }
+
         let mut indexer = BitcoinIndexer::from_file(bitcoin_network_id, &conf_path_str)
-            .map_err(burnchain_error::bitcoin)?;
+            .map_err(burnchain_error::Bitcoin)?;
 
         indexer.connect()?;
         Ok(indexer)
@@ -610,7 +611,7 @@ impl BurnchainIndexer for BitcoinIndexer {
     /// and loaded in on setup.  Don't call this before init().
     fn connect(&mut self) -> Result<(), burnchain_error> {
         self.reconnect_peer()
-            .map_err(burnchain_error::bitcoin)
+            .map_err(burnchain_error::Bitcoin)
     }
 
     /// Get the location on disk where we keep headers
@@ -621,34 +622,44 @@ impl BurnchainIndexer for BitcoinIndexer {
     /// Get the number of headers we have 
     fn get_headers_height(&self, headers_path: &String) -> Result<u64, burnchain_error> {
         SpvClient::get_headers_height(headers_path)
-            .map_err(burnchain_error::bitcoin)
+            .map_err(burnchain_error::Bitcoin)
     }
 
     /// Get the first block height
     fn get_first_block_height(&self) -> u64 {
         match self.runtime.network_id {
-            BitcoinNetworkType::mainnet => {
+            BitcoinNetworkType::Mainnet => {
                 FIRST_BLOCK_MAINNET
             },
-            BitcoinNetworkType::testnet => {
+            BitcoinNetworkType::Testnet => {
                 FIRST_BLOCK_TESTNET
             },
-            BitcoinNetworkType::regtest => {
+            BitcoinNetworkType::Regtest => {
                 FIRST_BLOCK_REGTEST
             }
         }
     }
 
+    /// Get the first block header hash 
+    fn get_first_block_header_hash(&self, headers_path: &String) -> Result<BurnchainHeaderHash, burnchain_error> {
+        let first_block_height = self.get_first_block_height();
+        let first_headers = self.read_spv_headers(headers_path, first_block_height, first_block_height+1)
+            .map_err(burnchain_error::Bitcoin)?;
+
+        let first_block_header_hash = BurnchainHeaderHash::from_bitcoin_hash(&first_headers[0].header.bitcoin_hash());
+        Ok(first_block_header_hash)
+    }
+
     /// Get the height of the blockchain 
     fn get_blockchain_height(&self) -> Result<u64, burnchain_error> {
         self.get_bitcoin_blockchain_height()
-            .map_err(burnchain_error::bitcoin)
+            .map_err(burnchain_error::Bitcoin)
     }
 
     /// Read downloaded headers within a range 
     fn read_headers(&self, headers_path: &String, start_block: u64, end_block: u64) -> Result<Vec<BitcoinHeaderIPC>, burnchain_error> {
         let headers = self.read_spv_headers(headers_path, start_block, end_block)
-                          .map_err(burnchain_error::bitcoin)?;
+                          .map_err(burnchain_error::Bitcoin)?;
         let mut ret_headers : Vec<BitcoinHeaderIPC> = vec![];
         for i in 0..headers.len() {
             ret_headers.push({
@@ -664,27 +675,31 @@ impl BurnchainIndexer for BitcoinIndexer {
     /// Identify underlying reorgs and return the block height at which they occur
     fn find_chain_reorg(&mut self, headers_path: &String, db_height: u64) -> Result<u64, burnchain_error> {
         self.find_bitcoin_reorg(headers_path, db_height)
-            .map_err(burnchain_error::bitcoin)
+            .map_err(burnchain_error::Bitcoin)
     }
 
     /// Download and store all headers between two block heights 
     fn sync_headers(&mut self, headers_path: &String, start_height: u64, end_height: u64) -> Result<(), burnchain_error> {
+        if end_height <= start_height {
+            return Ok(());
+        }
+
         self.sync_last_headers(headers_path, start_height, end_height - 1)
-            .map_err(burnchain_error::bitcoin)
+            .map_err(burnchain_error::Bitcoin)
             .and_then(|_num_fetched| Ok(()))
     }
 
     /// Drop headers after a given height
     fn drop_headers(&mut self, headers_path: &String, new_height: u64) -> Result<(), burnchain_error> {
         let canonical_end_block = SpvClient::get_headers_height(headers_path)
-            .map_err(burnchain_error::bitcoin)?;
+            .map_err(burnchain_error::Bitcoin)?;
         
         if canonical_end_block < new_height {
-            return Err(burnchain_error::bitcoin(btc_error::BlockchainHeight));
+            return Err(burnchain_error::Bitcoin(btc_error::BlockchainHeight));
         }
 
         SpvClient::drop_headers(headers_path, new_height)
-            .map_err(burnchain_error::bitcoin)
+            .map_err(burnchain_error::Bitcoin)
     }
 
     fn downloader(&self) -> BitcoinBlockDownloader {
@@ -695,4 +710,3 @@ impl BurnchainIndexer for BitcoinIndexer {
         BitcoinBlockParser::new(self.runtime.network_id, self.config.magic_bytes) 
     }
 }
-
