@@ -35,9 +35,9 @@ pub enum BitcoinAddressType {
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub struct BitcoinAddress {
-    addrtype: BitcoinAddressType,
-    network_id: BitcoinNetworkType,
-    bytes: Hash160
+    pub addrtype: BitcoinAddressType,
+    pub network_id: BitcoinNetworkType,
+    pub bytes: Hash160
 }
 
 pub const ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 0;
@@ -164,10 +164,6 @@ impl BitcoinAddress {
     pub fn to_c32(&self) -> String {
         // TODO
         String::from("")
-    }
-
-    pub fn get_type(&self) -> BitcoinAddressType {
-        return self.addrtype;
     }
 }
 
