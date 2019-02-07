@@ -24,6 +24,7 @@ use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::{BlockHeaderHash, VRFSeed};
 
 use chainstate::burn::db::DBConn;
+use chainstate::burn::db::burndb::BurnDB;
 
 use burnchains::{BurnchainTransaction, BurnchainTxInput, PublicKey};
 use burnchains::Txid;
@@ -31,6 +32,7 @@ use burnchains::Address;
 use burnchains::BurnchainHeaderHash;
 
 use util::log;
+use util::hash::to_hex;
 
 pub const OPCODE: u8 = '[' as u8;
 
@@ -229,39 +231,51 @@ where
         let leader_key_block_height = self.block_number - (self.key_block_backptr as u64);
         let parent_block_height = self.block_number - (self.parent_block_backptr as u64);
         
-        /*
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx's epoch number must match the current epoch
         /////////////////////////////////////////////////////////////////////////////////////
-        let current_epoch_opt = BurnDB::<A, K>::get_epoch(conn, self.block_number);
-        if current_epoch_opt.is_none() {
-            warn!("Invalid block commit: block height does not map to an existing epoch");
+    
+        let first_block_snapshot = BurnDB::<A, K>::get_first_block_snapshot(conn)
+            .map_err(op_error::DBError)?;
+
+        if self.block_number < first_block_snapshot.block_height {
+            warn!("Invalid block commit: predates genesis height {}", first_block_snapshot.block_height);
             return Ok(false);
         }
 
-        if current_epoch_opt != Some(self.epoch_num) {
-            warn!("Invalid block commit: current epoch is {}; got {}", current_epoch_opt.unwrap(), self.epoch_num);
+        let target_epoch = self.block_number - first_block_snapshot.block_height;
+        if (self.epoch_num as u64) != target_epoch {
+            warn!("Invalid block commit: current epoch is {}; got {}", target_epoch, self.epoch_num);
             return Ok(false);
         }
         
         /////////////////////////////////////////////////////////////////////////////////////
         // There must exist a previously-accepted *unused* key from a LeaderKeyRegister
         /////////////////////////////////////////////////////////////////////////////////////
-        let register_key_opt = BurnDB::<A, K>::get_leader_key(conn, leader_key_block_height, self.key_vtxindex)
+
+        let register_key_opt = BurnDB::<A, K>::get_leader_key(conn, leader_key_block_height, self.key_vtxindex.into())
             .map_err(op_error::DBError)?;
 
         if register_key_opt.is_none() {
             warn!("Invalid block commit: no corresponding leader key");
             return Ok(false);
         }
+
+        let register_key = register_key_opt.unwrap();
     
-        // must be *unused*
-        // TODO
+        let is_key_available = BurnDB::<A, K>::is_leader_key_available(conn, &register_key)
+            .map_err(op_error::DBError)?;
+
+        if !is_key_available {
+            warn!("Invalid block commit: leader key at {},{} is already used", register_key.block_number, register_key.vtxindex);
+            return Ok(false);
+        }
 
         /////////////////////////////////////////////////////////////////////////////////////
         // There must exist a previously-accepted block from a LeaderBlockCommit
         /////////////////////////////////////////////////////////////////////////////////////
-        let parent_block_opt = BurnDB::<A, K>::get_block_commit(conn, parent_block_height, self.parent_vtxindex)
+
+        let parent_block_opt = BurnDB::<A, K>::get_block_commit(conn, parent_block_height, self.parent_vtxindex.into())
             .map_err(op_error::DBError)?;
 
         if parent_block_opt.is_none() {
@@ -270,11 +284,27 @@ where
         }
         
         /////////////////////////////////////////////////////////////////////////////////////
-        // This LeaderBlockCommit's input must match the address of the LeaderKeyRegister
+        // This LeaderBlockCommit's input public keys must match the address of the LeaderKeyRegister
+        // -- the hash of the inputs' public key(s) must equal the hash contained within the
+        // LeaderKeyRegister's address.  Note that we only need to check the address bytes,
+        // not the entire address (since finding two sets of different public keys that
+        // hash to the same address is considered intractible).
+        //
+        // Under the hood, the blockchain further ensures that the tx was signed with the
+        // associated private keys, so only the private key owner(s) are in a position to 
+        // reveal the keys that hash to the address's hash.
         /////////////////////////////////////////////////////////////////////////////////////
-        */
 
-        Ok(false)
+        let input_address_bytes = BurnchainTxInput::to_address_bits(&self.input);
+        let addr_bytes = register_key.address.to_bytes();
+
+        if input_address_bytes != addr_bytes {
+            warn!("Invalid block commit: leader key at {},{} has address bytes {}, but this tx input has address bytes {}",
+                  register_key.block_number, register_key.vtxindex, &to_hex(&input_address_bytes[..]), &to_hex(&addr_bytes[..]));
+            return Ok(false);
+        }
+
+        Ok(true)
     }
 }
 
