@@ -32,6 +32,8 @@ use self::bitcoin::Error as btc_error;
 use chainstate::burn::db::Error as burndb_error;
 use chainstate::burn::operations::Error as op_error;
 
+use util::hash::Hash160;
+
 #[derive(Serialize, Deserialize)]
 pub struct Txid([u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
@@ -52,6 +54,14 @@ impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 
 pub const BLOCKSTACK_MAGIC_MAINNET : MagicBytes = MagicBytes([105, 100]);  // 'id'
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub enum BurnchainInputType {
+    BitcoinInput,
+    BitcoinSegwitP2SHInput,
+
+    // TODO: expand this as more burnchains are supported
+}
+
 pub trait PublicKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn verify(&self, data_hash: &[u8], sig: &[u8]) -> Result<bool, &'static str>;
@@ -63,12 +73,6 @@ pub trait Address : Clone + fmt::Debug {
     fn from_string(&String) -> Option<Self>
         where Self: Sized;
     fn burn_bytes() -> Vec<u8>;
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub enum BurnchainInputType {
-    BitcoinInput,
-    BitcoinSegwitP2SHInput,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
