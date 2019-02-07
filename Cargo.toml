@@ -30,10 +30,10 @@ version = "0.16.0"
 # features = ["bundled"]
 
 [dependencies.ed25519-dalek]
-version = "=1.0.0-pre.0"
+version = "=1.0.0-pre.1"
 features = ["serde"]
 
 [dependencies.curve25519-dalek]
-version = "1.0.0-pre.0"
+version = "=1.0.3"
 features = ["serde"]
 
