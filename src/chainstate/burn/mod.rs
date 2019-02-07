@@ -32,6 +32,7 @@ use burnchains::BurnchainHeaderHash;
 use burnchains::BurnchainBlock;
 
 use sha2::Sha256;
+use util::hash::Hash160;
 
 use crypto::ripemd160::Ripemd160;
 
@@ -40,6 +41,8 @@ use rusqlite::Transaction;
 
 use self::db::burndb::BurnDB;
 use self::db::Error as db_error;
+
+use core::SYSTEM_FORK_SET_VERSION;
 
 use util::log;
 
@@ -52,6 +55,12 @@ pub struct BlockHeaderHash([u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
 impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
+
+impl BlockHeaderHash {
+    pub fn to_hash160(&self) -> Hash160 {
+        Hash160::from_sha256(&self.0)
+    }
+}
 
 pub struct VRFSeed([u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
@@ -103,6 +112,9 @@ impl ConsensusHash {
         {
             use sha2::Digest;
             let mut hasher = Sha256::new();
+
+            // fork-set version... 
+            hasher.input(SYSTEM_FORK_SET_VERSION);
 
             // ops hash...
             hasher.input(opshash.as_bytes());
@@ -180,7 +192,6 @@ pub struct BlockSnapshot {
     pub total_burn: u64,
     pub canonical: bool
 }
-
 
 impl BlockSnapshot {
     /// Make a block snapshot from is block's data and the previous block
