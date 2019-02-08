@@ -6,7 +6,8 @@ mod database;
 mod tuples;
 
 use vm::errors::{Error, InterpreterResult as Result};
-use vm::types::{Value, CallableType};
+use vm::types::Value;
+use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
 use vm::{Context, Environment, eval};
 

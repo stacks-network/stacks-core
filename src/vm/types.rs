@@ -2,26 +2,9 @@ use std::fmt;
 use std::collections::BTreeMap;
 
 use vm::errors::{Error, InterpreterResult as Result};
-use vm::representations::SymbolicExpression;
-use vm::{eval, Context, Environment};
 use util::hash;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum AtomTypeIdentifier {
-    VoidType,
-    IntType,
-    BoolType,
-    BufferType,
-    TupleType(TupleTypeSignature)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TypeSignature {
-    atomic_type: AtomTypeIdentifier,
-    list_dimensions: Option<(u8, u8)>,
-    // NOTE: for the purposes of type-checks and cost computations, list size = dimension * max_length!
-    //       high dimensional lists are _expensive_ --- use lists of tuples!
-}
+const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TupleTypeSignature {
@@ -29,9 +12,38 @@ pub struct TupleTypeSignature {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AtomTypeIdentifier {
+    VoidType,
+    IntType,
+    BoolType,
+    BufferType(u32),
+    TupleType(TupleTypeSignature)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ListTypeData {
+    max_len: u32,
+    dimension: u8
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TypeSignature {
+    atomic_type: AtomTypeIdentifier,
+    list_dimensions: Option<ListTypeData>,
+    // NOTE: for the purposes of type-checks and cost computations, list size = dimension * max_length!
+    //       high dimensional lists are _expensive_ --- use lists of tuples!
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TupleData {
-    pub type_signature: TupleTypeSignature,
+    type_signature: TupleTypeSignature,
     data_map: BTreeMap<String, Value>
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BuffData {
+    data: Vec<u8>,
+    length: u32
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -39,34 +51,60 @@ pub enum Value {
     Void,
     Int(i128),
     Bool(bool),
-    Buffer(Vec<u8>),
+    Buffer(BuffData),
     List(Vec<Value>, TypeSignature),
     Tuple(TupleData)
 }
 
-pub enum CallableType <'a> {
-    UserFunction(DefinedFunction),
-    NativeFunction(&'a Fn(&[Value]) -> Result<Value>),
-    SpecialFunction(&'a Fn(&[SymbolicExpression], &mut Environment, &Context) -> Result<Value>)
-}
-
-#[derive(Clone)]
-pub struct DefinedFunction {
-    pub arguments: Vec<String>,
-    pub body: SymbolicExpression
-}
-
-#[derive(Clone,PartialEq,Eq,Hash)]
-pub struct FunctionIdentifier {
-    pub arguments: Vec<String>,
-    pub body: SymbolicExpression
-}
-
 impl Value {
-    pub fn new_list(list_data: Vec<Value>) -> Result<Value> {
+    pub fn new_list(list_data: &[Value]) -> Result<Value> {
+        let vec_data = Vec::from(list_data);
+        Value::list_from(vec_data)
+    }
+
+    pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
         let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
+        // Aaron: at this point, we've _already_ allocated memory for this type.
+        //     (e.g., from a (map...) call, or a (list...) call.
+        //     this is a problem _if_ the static analyzer cannot already prevent
+        //     this case. This applies to all the constructor size checks.
+        if type_sig.size() > MAX_VALUE_SIZE {
+            return Err(Error::ValueTooLarge)
+        }
         Ok(Value::List(list_data, type_sig))
     }
+
+    pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
+        if buff_data.len() > u32::max_value() as usize {
+            Err(Error::BufferTooLarge)
+        } else if buff_data.len() as i128 > MAX_VALUE_SIZE {
+            Err(Error::ValueTooLarge)
+        } else {
+            let length = buff_data.len() as u32;
+            Ok(Value::Buffer(BuffData { data: buff_data,
+                                        length: length }))
+        }
+    }
+
+    pub fn tuple_from_data(paired_tuple_data: Vec<(String, Value)>) -> Result<Value> {
+        let tuple_data = TupleData::from_data(paired_tuple_data)?;
+        if tuple_data.size() > MAX_VALUE_SIZE {
+            return Err(Error::ValueTooLarge)
+        }
+        Ok(Value::Tuple(tuple_data))
+    }
+
+    pub fn size(&self) -> i128 {
+        match self {
+            Value::Void => 1,
+            Value::Int(_i) => 16,
+            Value::Bool(_i) => 1,
+            Value::Buffer(ref buff_data) => buff_data.length as i128,
+            Value::Tuple(ref tuple_data) => tuple_data.size(),
+            Value::List(ref _v, ref type_signature) => type_signature.size()
+        }
+    }
+
 }
 
 impl fmt::Display for Value {
@@ -75,7 +113,7 @@ impl fmt::Display for Value {
             Value::Void => write!(f, "null"),
             Value::Int(int) => write!(f, "{}", int),
             Value::Bool(boolean) => write!(f, "{}", boolean),
-            Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes)),
+            Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes.data)),
             Value::Tuple(data) => write!(f, "{}", data),
             Value::List(values, _type) => {
                 write!(f, "( ")?;
@@ -87,6 +125,19 @@ impl fmt::Display for Value {
         }
     }
 }
+
+impl AtomTypeIdentifier {
+    pub fn size(&self) -> i128 {
+        match self {
+            AtomTypeIdentifier::VoidType => 1,
+            AtomTypeIdentifier::IntType => 16,
+            AtomTypeIdentifier::BoolType => 1,
+            AtomTypeIdentifier::BufferType(len) => *len as i128,
+            AtomTypeIdentifier::TupleType(tuple_sig) => tuple_sig.size()
+        }
+    }
+}
+
 
 impl TupleTypeSignature {
     pub fn new(type_data: Vec<(String, TypeSignature)>) -> Result<TupleTypeSignature> {
@@ -116,21 +167,33 @@ impl TupleTypeSignature {
 
         return true
     }
+
+    pub fn size(&self) -> i128 {
+        let mut name_size: i128 = 0;
+        let mut value_size: i128 = 0;
+        for (name, type_signature) in self.type_map.iter() {
+            // we only accept ascii names, so 1 char = 1 byte.
+            name_size = name_size.checked_add(name.len() as i128).unwrap();
+            value_size = value_size.checked_add(type_signature.size() as i128).unwrap();
+        }
+        let name_total_size = name_size.checked_mul(2).unwrap(); // counts the b-tree size...
+        value_size.checked_add(name_total_size).unwrap()
+    }
 }
 
 impl TupleData {
-    pub fn from_data(data: &[(&str, Value)]) -> Result<TupleData> {
+    fn from_data(mut data: Vec<(String, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
-        for (name, value) in data {
-            let type_info = TypeSignature::type_of(value);
+        for (name, value) in data.drain(..) {
+            let type_info = TypeSignature::type_of(&value);
             if type_info.atomic_type == AtomTypeIdentifier::VoidType {
                 return Err(Error::InvalidArguments("Cannot use VoidTypes in tuples.".to_string()))
             }
             if let Some(_v) = type_map.insert(name.to_string(), type_info) {
                 return Err(Error::InvalidArguments("Cannot use named argument twice in tuple construction.".to_string()))
             }
-            data_map.insert(name.to_string(), (*value).clone());
+            data_map.insert(name.to_string(), value);
         }
         Ok(TupleData { type_signature: TupleTypeSignature { type_map: type_map },
                        data_map: data_map })
@@ -144,6 +207,10 @@ impl TupleData {
             Err(Error::InvalidArguments(format!("No such field {:?} in tuple", name)))
         }
         
+    }
+
+    pub fn size(&self) -> i128 {
+        self.type_signature.size()
     }
 }
 
@@ -168,18 +235,28 @@ impl TypeSignature {
                         list_dimensions: None }
     }
 
-    pub fn new_list(atomic_type: AtomTypeIdentifier, max_len: u8, dimension: u8) -> Result<TypeSignature> {
+    pub fn new_list(atomic_type: AtomTypeIdentifier, max_len: u32, dimension: u8) -> Result<TypeSignature> {
         if dimension == 0 {
             return Err(Error::InvalidArguments("Cannot construct list of dimension 0".to_string()))
         } else {
             Ok(TypeSignature { atomic_type: atomic_type,
-                               list_dimensions: Some((max_len, dimension)) })
+                               list_dimensions: Some(ListTypeData { max_len: max_len,
+                                                                    dimension: dimension })})
         }
     }
 
     pub fn get_empty_list_type() -> TypeSignature {
         TypeSignature { atomic_type: AtomTypeIdentifier::IntType,
-                        list_dimensions: Some((0, 1)) }
+                        list_dimensions: Some(ListTypeData { max_len: 0,
+                                                             dimension: 1 })}
+    }
+
+    pub fn size(&self) -> i128 {
+        let list_multiplier = match self.list_dimensions {
+                Some(ref list_data) => (list_data.max_len as i128).checked_mul(list_data.dimension as i128).unwrap(),
+                None => 1
+        };
+        list_multiplier.checked_mul(self.atomic_type.size()).unwrap()
     }
 
     pub fn type_of(x: &Value) -> TypeSignature {
@@ -187,45 +264,54 @@ impl TypeSignature {
             Value::Void => TypeSignature::new_atom(AtomTypeIdentifier::VoidType),
             Value::Int(_v) => TypeSignature::new_atom(AtomTypeIdentifier::IntType),
             Value::Bool(_v) => TypeSignature::new_atom(AtomTypeIdentifier::BoolType),
-            Value::Buffer(_v) => TypeSignature::new_atom(AtomTypeIdentifier::BufferType),
+            Value::Buffer(buff_data) => TypeSignature::new_atom(
+                AtomTypeIdentifier::BufferType(buff_data.length)),
             Value::List(_v, type_signature) => type_signature.clone(),
             Value::Tuple(v) => TypeSignature::new_atom(AtomTypeIdentifier::TupleType(
                 v.type_signature.clone()))
         }
     }
 
-    pub fn construct_parent_list_type(args: &[Value]) -> Result<TypeSignature> {
+    fn construct_parent_list_type(args: &[Value]) -> Result<TypeSignature> {
         if let Some((first, rest)) = args.split_first() {
             // children must be all of identical types, though we're a little more permissive about
             //   children which are _lists_: we don't care about their max_len, we just take the max()
             let first_type = TypeSignature::type_of(first);
-            let (mut max_len, dimension) = match first_type.list_dimensions {
-                Some((max_len, dimension)) => {
-                    let parent_dimension = dimension.checked_add(1)
+            let (mut parent_max_len, parent_dimension) = match first_type.list_dimensions {
+                Some(ref type_data) => {
+                    let parent_dimension = type_data.dimension.checked_add(1)
                         .ok_or(Error::ListDimensionTooHigh)?;
-                    Ok((max_len, parent_dimension))
+                    Ok((type_data.max_len, parent_dimension))
                 },
                 None => {
-                    Ok((args.len() as u8, 1))
+                    let max_len = args.len();
+                    if max_len > (u32::max_value() as usize) {
+                        Err(Error::ListTooLarge)
+                    } else {
+                        Ok((args.len() as u32, 1))
+                    }
                 }
             }?;
 
             for x in rest {
                 let x_type = TypeSignature::type_of(x);
-                if let Some((child_max_len, child_dimension)) = x_type.list_dimensions {
+                if let Some(ref child_type_data) = x_type.list_dimensions {
                     // we're making a higher order list, so check the type more loosely.
+                    let child_dimension = child_type_data.dimension;
+                    let child_max_len = child_type_data.max_len;
+
                     let expected_dimension = child_dimension.checked_add(1)
                         .ok_or(Error::ListDimensionTooHigh)?;
 
                     if !(x_type.atomic_type == first_type.atomic_type &&
-                         dimension == expected_dimension) {
+                         parent_dimension == expected_dimension) {
                         return Err(Error::InvalidArguments(
                             format!("List must be composed of a single type. Expected {:?}. Found {:?}.",
                                     first_type, x_type)))
                     } else {
                         // otherwise, it matches, so make sure we expand max_len to fit the child list.
-                        if child_max_len > max_len {
-                            max_len = child_max_len;
+                        if child_max_len > parent_max_len {
+                            parent_max_len = child_max_len;
                         }
                     }
                 } else if x_type != first_type {
@@ -236,7 +322,8 @@ impl TypeSignature {
             }
 
             Ok(TypeSignature { atomic_type: first_type.atomic_type,
-                               list_dimensions: Some((max_len, dimension)) })
+                               list_dimensions: Some(ListTypeData { max_len: parent_max_len,
+                                                                    dimension: parent_dimension })})
         } else {
             Ok(TypeSignature::get_empty_list_type())
         }
@@ -248,11 +335,12 @@ impl TypeSignature {
     }
 
     pub fn admits_type(&self, x_type: &TypeSignature) -> bool {
-        if let Some((x_max_len, x_dimension)) = x_type.list_dimensions {
+        if let Some(ref x_type_data) = x_type.list_dimensions {
             if x_type.atomic_type != self.atomic_type {
                 false
-            } else if let Some((max_len, dimension)) = self.list_dimensions {
-                dimension == x_dimension && max_len >= x_max_len
+            } else if let Some(ref my_type_data) = self.list_dimensions {
+                my_type_data.dimension == x_type_data.dimension &&
+                    my_type_data.max_len >= x_type_data.max_len
             } else {
                 false
             }
@@ -273,7 +361,7 @@ impl TypeSignature {
             "int" => Ok(AtomTypeIdentifier::IntType),
             "void" => Ok(AtomTypeIdentifier::VoidType),
             "bool" => Ok(AtomTypeIdentifier::BoolType),
-            "buff" => Ok(AtomTypeIdentifier::BufferType),
+            "buff" => Err(Error::NotImplemented),
             _ => Err(Error::ParseError(format!("Unknown type name: '{:?}'", typename)))
         }
     }
@@ -290,7 +378,7 @@ impl TypeSignature {
                 format!("Failed to parse dimension of type: '{}-{}-{}-{}'",
                         prefix, typename, dimension, max_len)))
         }?;
-        let max_len = match u8::from_str_radix(max_len, 10) {
+        let max_len = match u32::from_str_radix(max_len, 10) {
             Ok(parsed) => Ok(parsed),
             Err(_e) => Err(Error::ParseError(
                 format!("Failed to parse max_len of type: '{}-{}-{}-{}'",
@@ -311,33 +399,5 @@ impl TypeSignature {
             _ => Err(Error::ParseError(
                 format!("Unknown type name: '{}'", x)))
         }
-    }
-}
-
-impl DefinedFunction {
-    pub fn new(body: SymbolicExpression, arguments: Vec<String>) -> DefinedFunction {
-        DefinedFunction {
-            body: body,
-            arguments: arguments,
-        }
-    }
-
-    pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
-        let mut context = Context::new();
-
-        let mut arg_iterator = self.arguments.iter().zip(args.iter());
-        let _result = arg_iterator.try_for_each(|(arg, value)| {
-            match context.variables.insert((*arg).clone(), (*value).clone()) {
-                Some(_val) => Err(Error::InvalidArguments("Multiply defined function argument".to_string())),
-                _ => Ok(())
-            }
-        })?;
-        eval(&self.body, env, &context)
-    }
-
-    pub fn get_identifier(&self) -> FunctionIdentifier {
-        return FunctionIdentifier {
-            body: self.body.clone(),
-            arguments: self.arguments.clone() }
     }
 }

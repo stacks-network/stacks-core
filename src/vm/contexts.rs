@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use vm::errors::{Error, InterpreterResult as Result};
-use vm::types::{DefinedFunction, FunctionIdentifier, Value};
+use vm::types::Value;
+use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::ContractDatabase;
 
 const MAX_CONTEXT_DEPTH: u16 = 256;

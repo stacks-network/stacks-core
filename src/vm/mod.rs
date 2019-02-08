@@ -1,18 +1,20 @@
 extern crate regex;
 
-pub mod types;
-pub mod representations;
-pub mod parser;
-pub mod contexts;
 pub mod errors;
-pub mod database;
+pub mod types;
+
+mod representations;
+mod parser;
+mod contexts;
+mod database;
 
 mod functions;
 mod variables;
-
+mod callables;
 mod tests;
 
-use vm::types::{Value, CallableType};
+use vm::types::Value;
+use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
 use vm::contexts::{Context, Environment};
 use vm::functions::define::DefineResult;

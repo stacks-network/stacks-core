@@ -9,7 +9,7 @@ fn test_simple_map() {
         "(define (square x) (* x x))
          (map square (list 1 2 3 4))";
 
-    let expected = Value::new_list(vec![
+    let expected = Value::list_from(vec![
         Value::Int(1),
         Value::Int(4),
         Value::Int(9),
@@ -26,7 +26,7 @@ fn test_simple_map() {
     // let's test empty lists.
     let test2 = "(define (double x) (* x 2))
                  (map double (list))";
-    assert_eq!(Value::new_list(vec![]), execute(test2));
+    assert_eq!(Value::list_from(vec![]), execute(test2));
 
 }
 

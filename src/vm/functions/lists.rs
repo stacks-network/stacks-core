@@ -1,17 +1,11 @@
 use vm::errors::{Error, InterpreterResult as Result};
-use vm::types::{Value, TypeSignature};
-use vm::types::Value::{List};
+use vm::types::Value;
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpression::{AtomValue};
 use vm::{Context,Environment,eval,apply,lookup_function};
 
 pub fn list_cons(args: &[Value]) -> Result<Value> {
-    let list_type = TypeSignature::construct_parent_list_type(args)?;
-    let mut list_contents = Vec::new();
-    for item in args {
-        list_contents.push(item.clone());
-    }
-    Ok(List(list_contents, list_type))
+    Value::new_list(args)
 }
 
 pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
@@ -23,7 +17,7 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &C
         let list = eval(&args[1], env, context)?;
         let initial = eval(&args[2], env, context)?;
         match list {
-            List(vector, _) => vector.iter().try_fold(
+            Value::List(vector, _) => vector.iter().try_fold(
                 initial,
                 |acc, x| {
                     let argument = [ AtomValue(x.clone()), AtomValue(acc) ];
@@ -45,13 +39,13 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Co
 
         let list = eval(&args[1], env, context)?;
         match list {
-            List(vector, _) => {
+            Value::List(vector, _) => {
                 let result: Result<Vec<_>> = vector.iter().map(|x| {
-                    let argument = [ SymbolicExpression::AtomValue(x.clone()) ];
+                    let argument = [ AtomValue(x.clone()) ];
                     apply(&function, &argument, env, context)
                 }).collect();
                 let as_vec = result?;
-                list_cons(&as_vec)
+                Value::list_from(as_vec)
             },
             _ => Err(Error::TypeError("List".to_string(), list))
         }

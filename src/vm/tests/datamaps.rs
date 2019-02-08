@@ -93,7 +93,7 @@ fn test_factorial_contract() {
               (compute 8008))
         ";
 
-    let expected = Value::new_list(vec![
+    let expected = Value::list_from(vec![
         Value::Int(0),
         Value::Int(0),
         Value::Int(6),
@@ -137,7 +137,7 @@ fn silly_naming_system() {
               (who-owns? 1))
         ";
 
-    let expected = Value::new_list(vec![
+    let expected = Value::list_from(vec![
         Value::Int(1),
         Value::Int(0),
         Value::Int(1),
@@ -200,17 +200,17 @@ fn lists_system() {
     test_bad_tuple_4.push_str("(insert-entry! lists (tuple #name (list 1)) (tuple #contents (list 1 2 3)))");
 
     let expected = || {
-        let list1 = Value::new_list(vec![
+        let list1 = Value::list_from(vec![
             Value::Int(1),
             Value::Int(2),
             Value::Int(3),
             Value::Int(4),
             Value::Int(5)])?;
-        let list2 = Value::new_list(vec![
+        let list2 = Value::list_from(vec![
             Value::Int(1),
             Value::Int(2),
             Value::Int(3)])?;
-        Value::new_list(vec![list1, list2])
+        Value::list_from(vec![list1, list2])
     };
     
     assert_eq!(expected(), execute(test1));

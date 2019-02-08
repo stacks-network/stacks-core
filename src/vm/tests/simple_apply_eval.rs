@@ -1,8 +1,8 @@
 use vm::eval;
 use vm::database::MemoryContractDatabase;
 use vm::errors::Error;
-use vm::contexts::{Context, Environment};
-use vm::types::{Value, DefinedFunction};
+use vm::{Value, Context, Environment};
+use vm::callables::DefinedFunction;
 use vm::representations::SymbolicExpression;
 use vm::parser::parse;
 
@@ -25,7 +25,8 @@ fn test_simple_user_function() {
                    SymbolicExpression::Atom("x".to_string())]));
 
     let func_args = vec!["x".to_string()];
-    let user_function = DefinedFunction::new(func_body, func_args);
+    let user_function = DefinedFunction { body: func_body,
+                                          arguments: func_args };
 
     let context = Context::new();
     let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
@@ -108,10 +109,10 @@ fn test_simple_if_functions() {
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec!["x".to_string()];
         let func_args2 = vec!["x".to_string()];
-        let user_function1 = DefinedFunction::new(parsed_bodies[0].clone(),
-                                                           func_args1);
-        let user_function2 = DefinedFunction::new(parsed_bodies[1].clone(),
-                                                           func_args2);
+        let user_function1 = DefinedFunction { body: parsed_bodies[0].clone(),
+                                               arguments: func_args1 };
+        let user_function2 = DefinedFunction { body: parsed_bodies[1].clone(),
+                                               arguments: func_args2 };
         let mut context = Context::new();
         let mut env = Environment::new(Box::new(MemoryContractDatabase::new()));
 

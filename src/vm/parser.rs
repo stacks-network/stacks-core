@@ -114,7 +114,8 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                         let quote_unescaped = str_value.replace("\\\"","\"");
                         let slash_unescaped = quote_unescaped.replace("\\\\","\\");
                         let byte_vec = slash_unescaped.as_bytes().to_vec();
-                        Ok(LexItem::LiteralValue(Value::Buffer(byte_vec)))
+                        let value = Value::buff_from(byte_vec)?;
+                        Ok(LexItem::LiteralValue(value))
                     }
                 }?;
 

@@ -1,4 +1,5 @@
-use vm::types::{Value, DefinedFunction, TupleTypeSignature, TypeSignature};
+use vm::types::{Value, TupleTypeSignature, TypeSignature};
+use vm::callables::DefinedFunction;
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpression::{Atom, AtomValue, List, NamedParameter};
 use vm::errors::{Error, InterpreterResult as Result};
