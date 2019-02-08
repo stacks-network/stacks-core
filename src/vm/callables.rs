@@ -10,6 +10,7 @@ pub enum CallableType <'a> {
 
 #[derive(Clone)]
 pub struct DefinedFunction {
+    is_public: bool,
     pub arguments: Vec<String>,
     pub body: SymbolicExpression
 }
@@ -33,6 +34,18 @@ impl DefinedFunction {
             }
         })?;
         eval(&self.body, env, &context)
+    }
+
+    pub fn new(arguments: Vec<String>, body: SymbolicExpression, is_public: bool) -> DefinedFunction {
+        DefinedFunction {
+            arguments: arguments,
+            body: body,
+            is_public: is_public
+        }
+    }
+
+    pub fn is_public(&self) -> bool {
+        self.is_public
     }
 
     pub fn get_identifier(&self) -> FunctionIdentifier {

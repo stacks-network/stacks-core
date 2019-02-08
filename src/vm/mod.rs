@@ -17,6 +17,7 @@ use vm::types::Value;
 use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
 use vm::contexts::{Context, Environment};
+use vm::database::ContractDatabase;
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterResult as Result};
 
@@ -119,25 +120,33 @@ pub fn is_reserved(name: &str) -> bool {
  * It returns the final evaluated result.
  */
 fn eval_all(expressions: &[SymbolicExpression],
-            mut env: Environment) -> Result<Value> {
+            mut database: Box<ContractDatabase>,
+            mut global_context: Context) -> Result<Value> {
 
     let mut last_executed = None;
     let context = Context::new();
 
     for exp in expressions {
-        let try_define = functions::define::evaluate_define(exp, &mut env)?;
+        let try_define = {
+            let mut env = Environment::new(
+                &global_context, &mut *database);
+
+            functions::define::evaluate_define(exp, &mut env)
+        }?;
         match try_define {
             DefineResult::Variable(name, value) => {
-                env.global_context.variables.insert(name, value);
+                global_context.variables.insert(name, value);
             },
             DefineResult::Function(name, value) => {
-                env.global_context.functions.insert(name, value);
+                global_context.functions.insert(name, value);
             },
             DefineResult::Map(name, key_type, value_type) => {
-                env.database.create_map(&name, key_type, value_type);
+                database.create_map(&name, key_type, value_type);
             },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
+                let mut env = Environment::new(
+                    &global_context, &mut *database);
                 last_executed = Some(eval(exp, &mut env, &context));
             }
         }
@@ -154,8 +163,9 @@ fn eval_all(expressions: &[SymbolicExpression],
  *  database.
  */
 pub fn execute(program: &str) -> Result<Value> {
+    let global_context = Context::new();
     let db_instance = Box::new(database::MemoryContractDatabase::new());
 
     let parsed = parser::parse(program)?;
-    eval_all(&parsed, Environment::new(db_instance))
+    eval_all(&parsed, db_instance, global_context)
 }

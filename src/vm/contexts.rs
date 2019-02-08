@@ -9,14 +9,17 @@ use vm::database::ContractDatabase;
 const MAX_CONTEXT_DEPTH: u16 = 256;
 
 pub struct Environment <'a> {
-    pub global_context: Context <'a>,
+    pub global_context: &'a Context <'a>,
     pub call_stack: CallStack,
-    pub database: Box<ContractDatabase>
+    pub database: &'a mut ContractDatabase
 }
 
 impl <'a> Environment <'a> {
-    pub fn new(database: Box<ContractDatabase>) -> Environment<'a> {
-        let global_context = Context::new();
+    // Environments pack a reference to the global context, a mutable reference to a contract db,
+    //   together with a call stack. Generally, the environment structure is intended to be reconstructed
+    //   for every transaction.
+    pub fn new(global_context: &'a Context<'a>,
+               database: &'a mut ContractDatabase) -> Environment<'a> {
         Environment {
             global_context: global_context,
             call_stack: CallStack::new(),
@@ -24,6 +27,9 @@ impl <'a> Environment <'a> {
         }
     }
 }
+
+// Aaron: note -- only the global context will ever have DefinedFunctions
+//        so it is probably worthwhile to separate into 2 types.
 
 pub struct Context <'a> {
     pub parent: Option< &'a Context<'a>>,

@@ -12,7 +12,3 @@ pub enum SymbolicExpression {
     List(Box<[SymbolicExpression]>),
     NamedParameter(String)
 }
-
-pub struct Contract {
-    pub content: Box<[SymbolicExpression]>
-}

@@ -50,10 +50,10 @@ fn handle_define_function(signature: &[SymbolicExpression],
 
     check_legal_define(&function_name, &env.global_context)?;
 
-    let function = DefinedFunction {
-        arguments: arg_names.iter().map(|x| (*x).clone()).collect(),
-        body: expression.clone()
-    };
+    let function = DefinedFunction::new(
+        arg_names.iter().map(|x| (*x).clone()).collect(),
+        expression.clone(),
+        false);
 
     Ok(DefineResult::Function((*function_name).clone(), function))
 }
