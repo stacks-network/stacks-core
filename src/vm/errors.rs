@@ -22,6 +22,7 @@ pub enum Error {
     ExpectedListPairs,
     BadSymbolicRepresentation(String),
     ReservedName(String),
+    InterpreterError(String),
     MultiplyDefined(String)
 }
 

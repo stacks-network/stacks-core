@@ -3,6 +3,8 @@ extern crate regex;
 pub mod errors;
 pub mod types;
 
+mod contracts;
+
 mod representations;
 mod parser;
 mod contexts;
@@ -37,6 +39,8 @@ fn lookup_variable(name: &str, context: &Context, env: &Environment) -> Result<V
     }
 }
 
+// Aaron:: todo -- now that global_context is an immutable reference when it's used here,
+//         I am pretty sure we can return a reference with lifetime 'a here.
 pub fn lookup_function<'a> (name: &str, env: &Environment)-> Result<CallableType<'a>> {
     if let Some(result) = functions::lookup_reserved_functions(name) {
         Ok(result)
