@@ -124,8 +124,8 @@ pub fn is_reserved(name: &str) -> bool {
  * It returns the final evaluated result.
  */
 fn eval_all(expressions: &[SymbolicExpression],
-            mut database: Box<ContractDatabase>,
-            mut global_context: Context) -> Result<Value> {
+            database: &mut ContractDatabase,
+            global_context: &mut Context) -> Result<Value> {
 
     let mut last_executed = None;
     let context = Context::new();
@@ -133,7 +133,7 @@ fn eval_all(expressions: &[SymbolicExpression],
     for exp in expressions {
         let try_define = {
             let mut env = Environment::new(
-                &global_context, &mut *database);
+                global_context, database);
 
             functions::define::evaluate_define(exp, &mut env)
         }?;
@@ -150,7 +150,7 @@ fn eval_all(expressions: &[SymbolicExpression],
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
                 let mut env = Environment::new(
-                    &global_context, &mut *database);
+                    global_context, database);
                 last_executed = Some(eval(exp, &mut env, &context));
             }
         }
@@ -159,7 +159,7 @@ fn eval_all(expressions: &[SymbolicExpression],
     if let Some(result) = last_executed {
         result
     } else {
-        Err(Error::Generic("Failed to get response from eval()".to_string()))
+        Ok(Value::Void)
     }
 }
 
@@ -167,9 +167,9 @@ fn eval_all(expressions: &[SymbolicExpression],
  *  database.
  */
 pub fn execute(program: &str) -> Result<Value> {
-    let global_context = Context::new();
-    let db_instance = Box::new(database::MemoryContractDatabase::new());
+    let mut global_context = Context::new();
+    let mut db_instance = Box::new(database::MemoryContractDatabase::new());
 
     let parsed = parser::parse(program)?;
-    eval_all(&parsed, db_instance, global_context)
+    eval_all(&parsed, &mut *db_instance, &mut global_context)
 }
