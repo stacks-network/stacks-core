@@ -27,7 +27,6 @@ pub struct MemoryContractDatabase {
 }
 
 impl MemoryDataMap {
-    // TODO: we need to enforce a max list length on list values
     pub fn new(key_type: TupleTypeSignature,
                value_type: TupleTypeSignature) -> MemoryDataMap {
         MemoryDataMap {

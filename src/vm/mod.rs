@@ -3,7 +3,7 @@ extern crate regex;
 pub mod errors;
 pub mod types;
 
-mod contracts;
+pub mod contracts;
 
 mod representations;
 mod parser;

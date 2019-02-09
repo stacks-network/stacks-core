@@ -34,7 +34,7 @@ fn handle_define_variable(variable: &String, expression: &SymbolicExpression, en
 
 fn handle_define_function(signature: &[SymbolicExpression],
                           expression: &SymbolicExpression,
-                          env: &Environment) -> Result<DefineResult> {
+                          env: &Environment, is_public: bool) -> Result<DefineResult> {
     let coerced_atoms: Result<Vec<_>> = signature.iter().map(|x| {
         if let Atom(name) = x {
             Ok(name)
@@ -53,7 +53,7 @@ fn handle_define_function(signature: &[SymbolicExpression],
     let function = DefinedFunction::new(
         arg_names.iter().map(|x| (*x).clone()).collect(),
         expression.clone(),
-        false);
+        is_public);
 
     Ok(DefineResult::Function((*function_name).clone(), function))
 }
@@ -135,7 +135,20 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                                 "Illegal operation: attempted to re-define a value type.".to_string())),
                             NamedParameter(ref _value) => Err(Error::InvalidArguments(
                                 "Illegal operation: attempted to re-define a named parameter.".to_string())),
-                            List(ref function_signature) => handle_define_function(&function_signature, &elements[2], env)
+                            List(ref function_signature) =>
+                                handle_define_function(&function_signature, &elements[2], env, false)
+                        }
+                    }
+                },
+                "define-public" => {
+                    if elements.len() != 3 {
+                        Err(Error::InvalidArguments("(define-public ...) requires 2 arguments".to_string()))
+                    } else {
+                        if let List(ref function_signature) =  elements[1] {
+                            handle_define_function(&function_signature, &elements[2], env, true)
+                        } else {
+                            Err(Error::InvalidArguments(
+                                "Illegal operation: attempted to define-public a non-function.".to_string()))
                         }
                     }
                 },
