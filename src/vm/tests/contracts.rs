@@ -69,4 +69,15 @@ fn test_factorial_contract() {
                                                             &Value::Void,
                                                             &tx_name,
                                                             arguments)));
+
+    let err_result = contract.execute_transaction(&Value::Void, &"init-factorial",
+                                                  &symbols_from_values(vec![Value::Int(9000),
+                                                                            Value::Int(15)]));
+    match err_result {
+        Err(Error::Undefined(_)) => {},
+        _ => {
+            println!("{:?}", err_result);
+            assert!(false, "Attempt to call init-factorial should fail!")
+        }
+    }
 }
