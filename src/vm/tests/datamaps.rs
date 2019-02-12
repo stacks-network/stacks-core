@@ -172,7 +172,7 @@ fn datamap_errors() {
 #[test]
 fn lists_system() {
     let test1 =
-        "(define-map lists ((name int)) ((contents list-int-1-5)))
+        "(define-map lists ((name int)) ((contents (list 5 1 int))))
          (define (add-list name content)
            (insert-entry! lists (tuple #name name)
                                 (tuple #contents content)))
@@ -236,13 +236,17 @@ fn bad_define_maps() {
         "(define-map lists ((name int)) ((contents int bool)))",
         "(define-map lists ((name int)) (contents bool))",
         "(define-map lists ((#name int)) (contents bool))",
-        "(define-map lists ((name #int)) (contents bool))",
-        "(define-map lists ((name #int)) contents)"];
+        "(define-map lists ((name int)) contents)"];
     let test_define_args = [
         "(define-map (lists) ((name #int)) contents)",
         "(define-map lists ((name #int)) contents 5)"];
+
+    let test_bad_type = [
+        "(define-map lists ((name int)) ((contents (list 5 0 int))))",
+        "(define-map lists ((name #int)) (contents bool))"];
     
     for test in test_list_pairs.iter() {
+        println!("Test: {:?}", test);
         assert_eq!(Err(Error::ExpectedListPairs), execute(test));
     }
 
@@ -251,6 +255,10 @@ fn bad_define_maps() {
             Err(Error::InvalidArguments(_)) => true,
             _ => false
         })
+    }
+
+    for test in test_bad_type.iter() {
+        assert_eq!(Err(Error::InvalidTypeDescription), execute(test));
     }
 }
 
@@ -261,7 +269,6 @@ fn bad_tuples() {
                  "(tuple name 1)",
                  "(tuple #name 1 #blame)",
                  "(get value (tuple #name 1))",
-                 "(define-map lists ((name int)) ((contents list-int-0-5)))",
                  "(get name five (tuple #name 1))",
                  "(get 1234 (tuple #name 1))"];
 

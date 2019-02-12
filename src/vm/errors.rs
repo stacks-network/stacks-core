@@ -20,6 +20,7 @@ pub enum Error {
     BufferTooLarge,
     ValueTooLarge,
     ExpectedListPairs,
+    InvalidTypeDescription,
     BadSymbolicRepresentation(String),
     ReservedName(String),
     InterpreterError(String),

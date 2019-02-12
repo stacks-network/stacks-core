@@ -1,6 +1,7 @@
 use std::fmt;
 use std::collections::BTreeMap;
 
+use vm::representations::SymbolicExpression;
 use vm::errors::{Error, InterpreterResult as Result};
 use util::hash;
 
@@ -179,6 +180,49 @@ impl TupleTypeSignature {
         let name_total_size = name_size.checked_mul(2).unwrap(); // counts the b-tree size...
         value_size.checked_add(name_total_size).unwrap()
     }
+
+    pub fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature> {
+        // this is a pretty deep nesting here, but what we're trying to do is pick out the values of
+        // the form:
+        // ((name1 type1) (name2 type2) (name3 type3) ...)
+        // which is a list of 2-length lists of atoms.
+        use vm::representations::SymbolicExpression::{List, Atom};
+
+        let mapped_key_types = match type_def {
+            List(ref key_vec) => {
+                // step 1: parse it into a vec of symbolicexpression pairs.
+                let as_pairs: Result<Vec<_>> = 
+                    key_vec.iter().map(
+                        |key_type_pair| {
+                            if let List(ref as_vec) = key_type_pair {
+                                if as_vec.len() != 2 {
+                                    Err(Error::ExpectedListPairs)
+                                } else {
+                                    Ok((&as_vec[0], &as_vec[1]))
+                                }
+                            } else {
+                                Err(Error::ExpectedListPairs)
+                            }
+                        }).collect();
+
+                // step 2: turn into a vec of (name, typesignature) pairs.
+                let key_types: Result<Vec<_>> =
+                    (as_pairs?).iter().map(|(name_symbol, type_symbol)| {
+                        let name = match name_symbol {
+                            Atom(ref var) => Ok(var.clone()),
+                            _ => Err(Error::ExpectedListPairs)
+                        }?;
+                        let type_info = TypeSignature::parse_type_repr(type_symbol, true)?;
+                        Ok((name, type_info))
+                    }).collect();
+
+                key_types
+            },
+            _ => Err(Error::ExpectedListPairs)
+        }?;
+
+        TupleTypeSignature::new(mapped_key_types)
+    }
 }
 
 impl TupleData {
@@ -356,48 +400,116 @@ impl TypeSignature {
         }
     }
 
-    fn get_atom_type(typename: &str) -> Result<AtomTypeIdentifier> {
+    fn parse_atom_type(typename: &str) -> Result<AtomTypeIdentifier> {
         match typename {
             "int" => Ok(AtomTypeIdentifier::IntType),
             "void" => Ok(AtomTypeIdentifier::VoidType),
             "bool" => Ok(AtomTypeIdentifier::BoolType),
-            "buff" => Err(Error::NotImplemented),
             _ => Err(Error::ParseError(format!("Unknown type name: '{:?}'", typename)))
         }
     }
 
-    fn get_list_type(prefix: &str, typename: &str, dimension: &str, max_len: &str) -> Result<TypeSignature> {
-        if prefix != "list" {
-            let message = format!("Unknown type name: '{}-{}-{}-{}'", prefix, typename, dimension, max_len);
-            return Err(Error::ParseError(message))
+    // Parses list type signatures ->
+    // (list maximum-length dimension atomic-type) or
+    // (list maximum-length atomic-type) -> creates list of dimension 1
+    fn parse_list_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+        if type_args.len() != 2 && type_args.len() != 3 {
+            return Err(Error::InvalidTypeDescription);
         }
-        let atom_type = TypeSignature::get_atom_type(typename)?;
-        let dimension = match u8::from_str_radix(dimension, 10) {
-            Ok(parsed) => Ok(parsed),
-            Err(_e) => Err(Error::ParseError(
-                format!("Failed to parse dimension of type: '{}-{}-{}-{}'",
-                        prefix, typename, dimension, max_len)))
+        let dimension = {
+            if type_args.len() == 2 {
+                Ok(1)
+            } else {
+                if let SymbolicExpression::AtomValue(Value::Int(dimension)) = &type_args[1] {
+                    Ok(*dimension)
+                } else {
+                    Err(Error::InvalidTypeDescription)
+                }
+            }
         }?;
-        let max_len = match u32::from_str_radix(max_len, 10) {
-            Ok(parsed) => Ok(parsed),
-            Err(_e) => Err(Error::ParseError(
-                format!("Failed to parse max_len of type: '{}-{}-{}-{}'",
-                        prefix, typename, dimension, max_len)))
-        }?;
-        TypeSignature::new_list(atom_type, max_len, dimension)
+
+        if let SymbolicExpression::AtomValue(Value::Int(max_len)) = &type_args[0] {            
+            let atomic_type_arg = &type_args[type_args.len()-1];
+            let atomic_type = TypeSignature::parse_type_repr(atomic_type_arg, false)?;
+            if *max_len > u32::max_value() as i128
+                || dimension > u8::max_value() as i128 || dimension < 1 {
+                Err(Error::InvalidTypeDescription)
+            } else {
+                let list_dimensions = ListTypeData {
+                    max_len: *max_len as u32,
+                    dimension: dimension as u8 };
+                let type_signature = TypeSignature {
+                    atomic_type: atomic_type.atomic_type,
+                    list_dimensions: Some(list_dimensions) };
+                if type_signature.size() > MAX_VALUE_SIZE {
+                    Err(Error::ListTooLarge)
+                } else {
+                    Ok(type_signature)
+                }
+            }
+        } else {
+            Err(Error::InvalidTypeDescription)
+        }
     }
 
-    // TODO: these type strings are limited to conveying lists of non-tuple types.
-    pub fn parse_type_str(x: &str) -> Result<TypeSignature> {
-        let components: Vec<_> = x.splitn(4, '-').collect();
-        match components.len() {
-            1 => {
-                let atom_type = TypeSignature::get_atom_type(components[0])?;
+    // Parses type signatures of the following form:
+    // (tuple ((key-name-0 value-type-0) (key-name-1 value-type-1)))
+    fn parse_tuple_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+        if type_args.len() != 1 {
+            return Err(Error::InvalidTypeDescription)
+        }
+        let tuple_type_signature = TupleTypeSignature::parse_name_type_pair_list(&type_args[0])?;
+        if tuple_type_signature.size() > MAX_VALUE_SIZE {
+            Err(Error::ValueTooLarge)
+        } else {
+            Ok(TypeSignature::new_atom(AtomTypeIdentifier::TupleType(tuple_type_signature)))
+        }
+    }
+
+    // Parses type signatures of the form:
+    // (buff 10)
+    fn parse_buff_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+        if type_args.len() != 1 {
+            return Err(Error::InvalidTypeDescription)
+        }
+        if let SymbolicExpression::AtomValue(Value::Int(buff_len)) = &type_args[0] {
+            if *buff_len > u32::max_value() as i128 || *buff_len > MAX_VALUE_SIZE {
+                Err(Error::BufferTooLarge)
+            } else {
+                let atom_type = AtomTypeIdentifier::BufferType(*buff_len as u32);
                 Ok(TypeSignature::new_atom(atom_type))
+            }
+        } else {
+            Err(Error::InvalidTypeDescription)
+        }
+    }
+
+    fn parse_type_repr(x: &SymbolicExpression, allow_list: bool) -> Result<TypeSignature> {
+        match x {
+            SymbolicExpression::Atom(atom_type_str) => {
+                let atomic_type = TypeSignature::parse_atom_type(atom_type_str)?;
+                Ok(TypeSignature::new_atom(atomic_type))
             },
-            4 => TypeSignature::get_list_type(components[0], components[1], components[2], components[3]),
-            _ => Err(Error::ParseError(
-                format!("Unknown type name: '{}'", x)))
+            SymbolicExpression::List(list_contents) => {
+                let (compound_type, rest) = list_contents.split_first()
+                    .ok_or(Error::InvalidTypeDescription)?;
+                if let SymbolicExpression::Atom(compound_type) = compound_type {
+                    match compound_type.as_str() {
+                        "list" =>
+                            if !allow_list {
+                                Err(Error::InvalidTypeDescription)
+                            } else {
+                                TypeSignature::parse_list_type_repr(rest)
+                            },
+                        "buff" => TypeSignature::parse_buff_type_repr(rest),
+                        "tuple" => TypeSignature::parse_tuple_type_repr(rest),
+                        _ => Err(Error::InvalidTypeDescription)
+                    }
+                } else {
+                    Err(Error::InvalidTypeDescription)
+                }
+            },
+            _ => Err(Error::InvalidTypeDescription)
         }
     }
 }
