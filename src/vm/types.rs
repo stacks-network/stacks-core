@@ -279,13 +279,42 @@ impl TypeSignature {
                         list_dimensions: None }
     }
 
-    pub fn new_list(atomic_type: AtomTypeIdentifier, max_len: u32, dimension: u8) -> Result<TypeSignature> {
+    pub fn new_list(atomic_type: AtomTypeIdentifier, max_len: i128, dimension: i128) -> Result<TypeSignature> {
         if dimension == 0 {
-            return Err(Error::InvalidArguments("Cannot construct list of dimension 0".to_string()))
+            Err(Error::InvalidTypeDescription)
+        } else if max_len > u32::max_value() as i128 || dimension > u8::max_value() as i128 {
+            Err(Error::ListTooLarge)
         } else {
-            Ok(TypeSignature { atomic_type: atomic_type,
-                               list_dimensions: Some(ListTypeData { max_len: max_len,
-                                                                    dimension: dimension })})
+            let list_dimensions = Some(ListTypeData { max_len: max_len as u32,
+                                                      dimension: dimension as u8 });
+            let type_sig = TypeSignature { atomic_type: atomic_type,
+                                           list_dimensions: list_dimensions };
+            if type_sig.size() > MAX_VALUE_SIZE {
+                Err(Error::ValueTooLarge)
+            } else {
+                Ok(type_sig)
+            }
+        }
+    }
+
+    fn new_atom_checked(atom_type: AtomTypeIdentifier) -> Result<TypeSignature> {
+        if atom_type.size() > MAX_VALUE_SIZE {
+            Err(Error::ValueTooLarge)
+        } else {
+            Ok(TypeSignature::new_atom(atom_type))
+        }
+    }
+
+    fn new_tuple(tuple_type_sig: TupleTypeSignature) -> Result<TypeSignature> {
+        TypeSignature::new_atom_checked(AtomTypeIdentifier::TupleType(tuple_type_sig))
+    }
+
+    fn new_buffer(buff_len: i128) -> Result<TypeSignature> {
+        if buff_len > u32::max_value() as i128 {
+            Err(Error::BufferTooLarge)
+        } else {
+            let atom_type = AtomTypeIdentifier::BufferType(buff_len as u32);
+            TypeSignature::new_atom_checked(atom_type)
         }
     }
 
@@ -316,6 +345,7 @@ impl TypeSignature {
         }
     }
 
+    // Checks if resulting type signature is of valid size.
     fn construct_parent_list_type(args: &[Value]) -> Result<TypeSignature> {
         if let Some((first, rest)) = args.split_first() {
             // children must be all of identical types, though we're a little more permissive about
@@ -365,9 +395,8 @@ impl TypeSignature {
                 }
             }
 
-            Ok(TypeSignature { atomic_type: first_type.atomic_type,
-                               list_dimensions: Some(ListTypeData { max_len: parent_max_len,
-                                                                    dimension: parent_dimension })})
+            TypeSignature::new_list(first_type.atomic_type,
+                                    parent_max_len, parent_dimension)
         } else {
             Ok(TypeSignature::get_empty_list_type())
         }
@@ -411,7 +440,7 @@ impl TypeSignature {
 
     // Parses list type signatures ->
     // (list maximum-length dimension atomic-type) or
-    // (list maximum-length atomic-type) -> creates list of dimension 1
+    // (list maximum-length atomic-type) -> denotes list of dimension 1
     fn parse_list_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
         if type_args.len() != 2 && type_args.len() != 3 {
             return Err(Error::InvalidTypeDescription);
@@ -431,22 +460,7 @@ impl TypeSignature {
         if let SymbolicExpression::AtomValue(Value::Int(max_len)) = &type_args[0] {            
             let atomic_type_arg = &type_args[type_args.len()-1];
             let atomic_type = TypeSignature::parse_type_repr(atomic_type_arg, false)?;
-            if *max_len > u32::max_value() as i128
-                || dimension > u8::max_value() as i128 || dimension < 1 {
-                Err(Error::InvalidTypeDescription)
-            } else {
-                let list_dimensions = ListTypeData {
-                    max_len: *max_len as u32,
-                    dimension: dimension as u8 };
-                let type_signature = TypeSignature {
-                    atomic_type: atomic_type.atomic_type,
-                    list_dimensions: Some(list_dimensions) };
-                if type_signature.size() > MAX_VALUE_SIZE {
-                    Err(Error::ListTooLarge)
-                } else {
-                    Ok(type_signature)
-                }
-            }
+            TypeSignature::new_list(atomic_type.atomic_type, *max_len, dimension)
         } else {
             Err(Error::InvalidTypeDescription)
         }
@@ -459,11 +473,7 @@ impl TypeSignature {
             return Err(Error::InvalidTypeDescription)
         }
         let tuple_type_signature = TupleTypeSignature::parse_name_type_pair_list(&type_args[0])?;
-        if tuple_type_signature.size() > MAX_VALUE_SIZE {
-            Err(Error::ValueTooLarge)
-        } else {
-            Ok(TypeSignature::new_atom(AtomTypeIdentifier::TupleType(tuple_type_signature)))
-        }
+        TypeSignature::new_tuple(tuple_type_signature)
     }
 
     // Parses type signatures of the form:
@@ -473,12 +483,7 @@ impl TypeSignature {
             return Err(Error::InvalidTypeDescription)
         }
         if let SymbolicExpression::AtomValue(Value::Int(buff_len)) = &type_args[0] {
-            if *buff_len > u32::max_value() as i128 || *buff_len > MAX_VALUE_SIZE {
-                Err(Error::BufferTooLarge)
-            } else {
-                let atom_type = AtomTypeIdentifier::BufferType(*buff_len as u32);
-                Ok(TypeSignature::new_atom(atom_type))
-            }
+            TypeSignature::new_buffer(*buff_len)
         } else {
             Err(Error::InvalidTypeDescription)
         }
