@@ -346,6 +346,14 @@ impl TypeSignature {
     }
 
     // Checks if resulting type signature is of valid size.
+    // Aaron:
+    //    currently, this does "loose admission" for higher-order lists --
+    //     but should it do the same for buffers and tuples or is it better
+    //     like it is now, where it requires an exact type match on those?
+    //     e.g.: (list "abcd" "abc") will currently error because one etry is
+    //           if type (buffer 4) and the other is of type (buffer 3)
+    //       my feeling is that this should probably be allowed, and the resulting
+    //       type should be (list 2 (buffer 4)) 
     fn construct_parent_list_type(args: &[Value]) -> Result<TypeSignature> {
         if let Some((first, rest)) = args.split_first() {
             // children must be all of identical types, though we're a little more permissive about
@@ -421,6 +429,12 @@ impl TypeSignature {
             // tuple admission must recurse on .admits
             if let AtomTypeIdentifier::TupleType(ref my_tuple_sig) = self.atomic_type {
                 my_tuple_sig.admits(x_tuple_sig)
+            } else {
+                false
+            }
+        } else if let AtomTypeIdentifier::BufferType(ref x_buff_len) = x_type.atomic_type {
+            if let AtomTypeIdentifier::BufferType(ref my_buff_len) = self.atomic_type {
+                my_buff_len >= x_buff_len
             } else {
                 false
             }

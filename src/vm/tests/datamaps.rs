@@ -231,6 +231,57 @@ fn lists_system() {
 }
 
 #[test]
+fn tuples_system() {
+    let test1 =
+        "(define-map tuples ((name int)) 
+                            ((contents (tuple ((name (buff 5))
+                                               (owner (buff 5)))))))
+
+         (define (add-tuple name content)
+           (insert-entry! tuples (tuple #name name)
+                                 (tuple #contents
+                                   (tuple #name content
+                                          #owner content))))
+         (define (get-tuple name)
+            (get name (get contents (fetch-entry tuples (tuple #name name)))))
+
+
+         (add-tuple 0 \"abcde\")
+         (add-tuple 1 \"abcd0\")
+         (list      (get-tuple 0)
+                    (get-tuple 1))
+        ";
+
+    let mut test_list_too_big = test1.to_string();
+    test_list_too_big.push_str("(add-tuple 2 \"abcdef\")");
+
+    let mut test_bad_tuple_1 = test1.to_string();
+    test_bad_tuple_1.push_str("(insert-entry! tuples (tuple #name 1) (tuple #contents (tuple #name \"abcde\" #owner \"abcdef\")))");
+
+    let expected = || {
+        let buff1 = Value::buff_from("abcde".to_string().into_bytes())?;
+        let buff2 = Value::buff_from("abcd0".to_string().into_bytes())?;
+        Value::list_from(vec![buff1, buff2])
+    };
+
+    assert_eq!(expected(), execute(test1));
+
+    for test in [test_bad_tuple_1].iter() {
+        let expected_type_error = match execute(test) {
+            Err(Error::TypeError(_,_)) => true,
+            _ => {
+                println!("{:?}", execute(test));
+                false
+            }
+        };
+
+        assert!(expected_type_error);
+    }
+
+}
+
+
+#[test]
 fn bad_define_maps() {
     let test_list_pairs = [
         "(define-map lists ((name int)) ((contents int bool)))",
