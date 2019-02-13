@@ -396,7 +396,7 @@ impl TypeSignature {
             }
 
             TypeSignature::new_list(first_type.atomic_type,
-                                    parent_max_len, parent_dimension)
+                                    parent_max_len as i128, parent_dimension as i128)
         } else {
             Ok(TypeSignature::get_empty_list_type())
         }
