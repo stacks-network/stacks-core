@@ -1,4 +1,4 @@
-use vm::types::{Value};
+use vm::types::{Value, TypeSignature};
 
 use vm::execute;
 use vm::errors::Error;
@@ -31,6 +31,41 @@ fn test_simple_map() {
 }
 
 #[test]
+fn test_list_tuple_admission() {
+    let test = 
+        "(define (bufferize x) (if (eq? x 1) \"abc\" \"ab\"))
+         (define (tuplize x)
+           (tuple #value (bufferize x)))
+         (map tuplize (list 0 1 0 1 0 1))";
+
+    let expected_type = 
+        "(list (tuple #value \"012\")
+               (tuple #value \"012\")
+               (tuple #value \"012\")
+               (tuple #value \"012\")
+               (tuple #value \"012\")
+               (tuple #value \"012\"))";
+
+    let not_expected_type = 
+        "(list (tuple #value \"01\")
+               (tuple #value \"02\")
+               (tuple #value \"12\")
+               (tuple #value \"12\")
+               (tuple #value \"01\")
+               (tuple #value \"02\"))";
+
+    
+    let result_type = TypeSignature::type_of(&execute(test).unwrap());
+    let expected_type = TypeSignature::type_of(&execute(expected_type).unwrap());
+    let testing_value = &execute(not_expected_type).unwrap();
+    let not_expected_type = TypeSignature::type_of(testing_value);
+
+    assert_eq!(expected_type, result_type);
+    assert!(not_expected_type != result_type);
+    assert!(result_type.admits(&testing_value));
+}
+
+#[test]
 fn test_simple_folds() {
     let test1 =
         "(define (multiply-all x acc) (* x acc))
@@ -46,7 +81,7 @@ fn test_construct_bad_list() {
     let test1 = "(list 1 2 3 'true)";
     assert!(
         match execute(test1) {
-            Err(Error::InvalidArguments(_)) => true,
+            Err(Error::BadTypeConstruction) => true,
             _ => false
         });
 
@@ -54,7 +89,7 @@ fn test_construct_bad_list() {
                  (map bad-function (list 0 1 2 3))";
     assert!(
         match execute(test2) {
-            Err(Error::InvalidArguments(_)) => true,
+            Err(Error::BadTypeConstruction) => true,
             _ => false
         });
 
@@ -62,14 +97,14 @@ fn test_construct_bad_list() {
     let bad_high_order_list = "(list (list 1 2 3) (list (list 1 2 3)))";
 
     let expected_err_1 = match execute(bad_2d_list) {
-        Err(Error::InvalidArguments(_)) => true,
+        Err(Error::BadTypeConstruction) => true,
         _ => false
     };
 
     assert!(expected_err_1);
 
     let expected_err_2 = match execute(bad_high_order_list) {
-        Err(Error::InvalidArguments(_)) => true,
+        Err(Error::BadTypeConstruction) => true,
         _ => false
     };
 

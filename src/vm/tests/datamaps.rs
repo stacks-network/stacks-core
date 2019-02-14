@@ -247,7 +247,7 @@ fn tuples_system() {
 
 
          (add-tuple 0 \"abcde\")
-         (add-tuple 1 \"abcd0\")
+         (add-tuple 1 \"abcd\")
          (list      (get-tuple 0)
                     (get-tuple 1))
         ";
@@ -260,13 +260,13 @@ fn tuples_system() {
 
     let expected = || {
         let buff1 = Value::buff_from("abcde".to_string().into_bytes())?;
-        let buff2 = Value::buff_from("abcd0".to_string().into_bytes())?;
+        let buff2 = Value::buff_from("abcd".to_string().into_bytes())?;
         Value::list_from(vec![buff1, buff2])
     };
 
     assert_eq!(expected(), execute(test1));
 
-    for test in [test_bad_tuple_1].iter() {
+    for test in [test_list_too_big, test_bad_tuple_1].iter() {
         let expected_type_error = match execute(test) {
             Err(Error::TypeError(_,_)) => true,
             _ => {
@@ -279,7 +279,6 @@ fn tuples_system() {
     }
 
 }
-
 
 #[test]
 fn bad_define_maps() {

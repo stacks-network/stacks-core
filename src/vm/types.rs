@@ -137,6 +137,55 @@ impl AtomTypeIdentifier {
             AtomTypeIdentifier::TupleType(tuple_sig) => tuple_sig.size()
         }
     }
+
+    fn expand_to_admit(&mut self, other: &AtomTypeIdentifier) -> Result<()> {
+        match self {
+            AtomTypeIdentifier::BufferType(ref mut my_len) => {
+                if let AtomTypeIdentifier::BufferType(ref other_len) = other {
+                    if other_len > my_len {
+                        *my_len = *other_len
+                    }
+                    Ok(())
+                } else {
+                    Err(Error::BadTypeConstruction)
+                }
+            },
+            AtomTypeIdentifier::TupleType(ref mut tuple_sig) => {
+                if let AtomTypeIdentifier::TupleType(ref other_tuple_sig) = other {
+                    tuple_sig.expand_to_admit(other_tuple_sig)
+                } else {
+                    Err(Error::BadTypeConstruction)
+                }
+            },
+            _ => {
+                if (other == self) {
+                    Ok(())
+                } else {
+                    Err(Error::BadTypeConstruction)
+                }
+            }
+        }
+    }
+
+    fn admits(&self, other: &AtomTypeIdentifier) -> bool {
+        match self {
+            AtomTypeIdentifier::BufferType(ref my_len) => {
+                if let AtomTypeIdentifier::BufferType(ref other_len) = other {
+                    my_len >= other_len
+                } else {
+                    false
+                }
+            },
+            AtomTypeIdentifier::TupleType(ref tuple_sig) => {
+                if let AtomTypeIdentifier::TupleType(ref other_tuple_sig) = other {
+                    tuple_sig.admits(other_tuple_sig)
+                } else {
+                    false
+                }
+            },
+            _ => other == self
+        }
+    }
 }
 
 
@@ -179,6 +228,20 @@ impl TupleTypeSignature {
         }
         let name_total_size = name_size.checked_mul(2).unwrap(); // counts the b-tree size...
         value_size.checked_add(name_total_size).unwrap()
+    }
+
+    // NOTE: this function mutates self _even if it returns an error_.
+    fn expand_to_admit(&mut self, other: &TupleTypeSignature) -> Result<()> {
+        if self.type_map.len() != other.type_map.len() {
+            return Err(Error::BadTypeConstruction)
+        }
+
+        for (name, my_type_sig) in self.type_map.iter_mut() {
+            let other_type_sig = other.type_map.get(name).ok_or(Error::BadTypeConstruction)?;
+            my_type_sig.expand_to_admit(other_type_sig)?;
+        }
+
+        Ok(())
     }
 
     pub fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature> {
@@ -345,6 +408,27 @@ impl TypeSignature {
         }
     }
 
+    fn expand_to_admit(&mut self, x_type: &TypeSignature) -> Result<()> {
+        if let Some(ref mut my_list_dimensions) = self.list_dimensions {
+            if let Some(ref x_list_dimensions) = x_type.list_dimensions {
+                if my_list_dimensions.dimension != x_list_dimensions.dimension {
+                    return Err(Error::BadTypeConstruction)
+                }
+                if my_list_dimensions.max_len < x_list_dimensions.max_len {
+                    my_list_dimensions.max_len = x_list_dimensions.max_len;
+                }
+            } else {
+                return Err(Error::BadTypeConstruction)
+            }
+        } else {
+            if let Some(_) = x_type.list_dimensions {
+                return Err(Error::BadTypeConstruction)
+            }
+        }
+
+        self.atomic_type.expand_to_admit(& x_type.atomic_type)
+    }
+
     // Checks if resulting type signature is of valid size.
     // Aaron:
     //    currently, this does "loose admission" for higher-order lists --
@@ -358,52 +442,35 @@ impl TypeSignature {
         if let Some((first, rest)) = args.split_first() {
             // children must be all of identical types, though we're a little more permissive about
             //   children which are _lists_: we don't care about their max_len, we just take the max()
-            let first_type = TypeSignature::type_of(first);
-            let (mut parent_max_len, parent_dimension) = match first_type.list_dimensions {
-                Some(ref type_data) => {
-                    let parent_dimension = type_data.dimension.checked_add(1)
-                        .ok_or(Error::ListDimensionTooHigh)?;
-                    Ok((type_data.max_len, parent_dimension))
-                },
-                None => {
-                    let max_len = args.len();
-                    if max_len > (u32::max_value() as usize) {
-                        Err(Error::ListTooLarge)
-                    } else {
-                        Ok((args.len() as u32, 1))
-                    }
+            let mut child_type = TypeSignature::type_of(first);
+            for x in rest {
+                let x_type_signature = TypeSignature::type_of(x);
+                child_type.expand_to_admit(&x_type_signature)?;
+            }
+
+            let mut parent_max_len = {
+                let args_len = args.len();
+                if args_len > (u32::max_value() as usize) {
+                    Err(Error::ListTooLarge)
+                } else {
+                    Ok(args_len as u32)
                 }
             }?;
 
-            for x in rest {
-                let x_type = TypeSignature::type_of(x);
-                if let Some(ref child_type_data) = x_type.list_dimensions {
-                    // we're making a higher order list, so check the type more loosely.
-                    let child_dimension = child_type_data.dimension;
-                    let child_max_len = child_type_data.max_len;
-
-                    let expected_dimension = child_dimension.checked_add(1)
-                        .ok_or(Error::ListDimensionTooHigh)?;
-
-                    if !(x_type.atomic_type == first_type.atomic_type &&
-                         parent_dimension == expected_dimension) {
-                        return Err(Error::InvalidArguments(
-                            format!("List must be composed of a single type. Expected {:?}. Found {:?}.",
-                                    first_type, x_type)))
-                    } else {
-                        // otherwise, it matches, so make sure we expand max_len to fit the child list.
-                        if child_max_len > parent_max_len {
-                            parent_max_len = child_max_len;
-                        }
+            let parent_dimension = match child_type.list_dimensions {
+                Some(ref type_data) => {
+                    if type_data.max_len > parent_max_len {
+                        parent_max_len = type_data.max_len
                     }
-                } else if x_type != first_type {
-                    return Err(Error::InvalidArguments(
-                        format!("List must be composed of a single type. Expected {:?}. Found {:?}.",
-                                first_type, x_type)))
+                    type_data.dimension.checked_add(1)
+                        .ok_or(Error::ListDimensionTooHigh)
+                },
+                None => {
+                    Ok(1)
                 }
-            }
+            }?;
 
-            TypeSignature::new_list(first_type.atomic_type,
+            TypeSignature::new_list(child_type.atomic_type,
                                     parent_max_len as i128, parent_dimension as i128)
         } else {
             Ok(TypeSignature::get_empty_list_type())
@@ -417,29 +484,17 @@ impl TypeSignature {
 
     pub fn admits_type(&self, x_type: &TypeSignature) -> bool {
         if let Some(ref x_type_data) = x_type.list_dimensions {
-            if x_type.atomic_type != self.atomic_type {
-                false
-            } else if let Some(ref my_type_data) = self.list_dimensions {
-                my_type_data.dimension == x_type_data.dimension &&
-                    my_type_data.max_len >= x_type_data.max_len
-            } else {
-                false
-            }
-        } else if let AtomTypeIdentifier::TupleType(ref x_tuple_sig) = x_type.atomic_type {
-            // tuple admission must recurse on .admits
-            if let AtomTypeIdentifier::TupleType(ref my_tuple_sig) = self.atomic_type {
-                my_tuple_sig.admits(x_tuple_sig)
-            } else {
-                false
-            }
-        } else if let AtomTypeIdentifier::BufferType(ref x_buff_len) = x_type.atomic_type {
-            if let AtomTypeIdentifier::BufferType(ref my_buff_len) = self.atomic_type {
-                my_buff_len >= x_buff_len
+            if let Some(ref my_type_data) = self.list_dimensions {
+                if my_type_data.dimension == x_type_data.dimension && my_type_data.max_len >= x_type_data.max_len {
+                    self.atomic_type.admits(&x_type.atomic_type)
+                } else {
+                    false
+                }
             } else {
                 false
             }
         } else {
-            x_type == self
+            self.atomic_type.admits(&x_type.atomic_type)
         }
     }
 

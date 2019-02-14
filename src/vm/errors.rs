@@ -17,6 +17,7 @@ pub enum Error {
     MaxContextDepthReached,
     ListDimensionTooHigh,
     ListTooLarge,
+    BadTypeConstruction,
     BufferTooLarge,
     ValueTooLarge,
     ExpectedListPairs,
