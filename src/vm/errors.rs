@@ -35,7 +35,7 @@ impl fmt::Display for Error {
         match *self {
             Error::RecursionDetected => write!(f, "Illegal operation: attempted recursion detected."),
             Error::TryEvalToFunction => write!(f, "Illegal operation: attempt to evaluate to function."),
-            Error::TypeError(ref expected, ref found) => write!(f, "TypeError: Expected {}, found {:?}.", expected, found),
+            Error::TypeError(ref expected, ref found) => write!(f, "TypeError: Expected {}, found {}.", expected, found),
             _ =>  write!(f, "{:?}", self)
         }
     }
@@ -54,7 +54,7 @@ fn error_formats() {
     assert_eq!(format!("{}", Error::TryEvalToFunction),
                "Illegal operation: attempt to evaluate to function.");
     assert_eq!(format!("{}", Error::TypeError("Test".to_string(), Value::Void)),
-               "TypeError: Expected Test, found Void.");
+               "TypeError: Expected Test, found null.");
     assert_eq!(format!("{}", Error::NotImplemented),
                "NotImplemented");
 }

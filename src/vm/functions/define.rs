@@ -1,4 +1,4 @@
-use vm::types::{Value, TupleTypeSignature};
+use vm::types::{Value, TupleTypeSignature, parse_name_type_pairs};
 use vm::callables::DefinedFunction;
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpression::{Atom, AtomValue, List, NamedParameter};
@@ -32,9 +32,9 @@ fn handle_define_variable(variable: &String, expression: &SymbolicExpression, en
     Ok(DefineResult::Variable(variable.clone(), value))
 }
 
-fn handle_define_function(signature: &[SymbolicExpression],
-                          expression: &SymbolicExpression,
-                          env: &Environment, is_public: bool) -> Result<DefineResult> {
+fn handle_define_private_function(signature: &[SymbolicExpression],
+                                  expression: &SymbolicExpression,
+                                  env: &Environment) -> Result<DefineResult> {
     let coerced_atoms: Result<Vec<_>> = signature.iter().map(|x| {
         if let Atom(name) = x {
             Ok(name)
@@ -49,11 +49,30 @@ fn handle_define_function(signature: &[SymbolicExpression],
         .ok_or(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))?;
 
     check_legal_define(&function_name, &env.global_context)?;
-
-    let function = DefinedFunction::new(
+    let function = DefinedFunction::new_private(
         arg_names.iter().map(|x| (*x).clone()).collect(),
-        expression.clone(),
-        is_public);
+        expression.clone());
+
+    Ok(DefineResult::Function((*function_name).clone(), function))
+}
+
+fn handle_define_public_function(signature: &[SymbolicExpression],
+                                 expression: &SymbolicExpression,
+                                 env: &Environment) -> Result<DefineResult> {
+    let (function_symbol, arg_symbols) = signature.split_first()
+        .ok_or(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))?;
+
+    let function_name = match function_symbol {
+        Atom(name) => Ok(name),
+        _ => Err(Error::InvalidArguments(format!("Invalid function name {:?}", function_symbol)))
+    }?;
+
+    check_legal_define(&function_name, &env.global_context)?;
+
+    let mut arguments = parse_name_type_pairs(arg_symbols)?;
+
+    let function = DefinedFunction::new_public(arguments,
+                                               expression.clone());
 
     Ok(DefineResult::Function((*function_name).clone(), function))
 }
@@ -90,7 +109,7 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                             NamedParameter(ref _value) => Err(Error::InvalidArguments(
                                 "Illegal operation: attempted to re-define a named parameter.".to_string())),
                             List(ref function_signature) =>
-                                handle_define_function(&function_signature, &elements[2], env, false)
+                                handle_define_private_function(&function_signature, &elements[2], env)
                         }
                     }
                 },
@@ -99,7 +118,7 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                         Err(Error::InvalidArguments("(define-public ...) requires 2 arguments".to_string()))
                     } else {
                         if let List(ref function_signature) =  elements[1] {
-                            handle_define_function(&function_signature, &elements[2], env, true)
+                            handle_define_public_function(&function_signature, &elements[2], env)
                         } else {
                             Err(Error::InvalidArguments(
                                 "Illegal operation: attempted to define-public a non-function.".to_string()))

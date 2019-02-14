@@ -1,5 +1,6 @@
 use vm::errors::{InterpreterResult as Result, Error};
 use vm::representations::SymbolicExpression;
+use vm::types::TypeSignature;
 use vm::{eval, Value, Context, Environment};
 
 pub enum CallableType <'a> {
@@ -11,6 +12,7 @@ pub enum CallableType <'a> {
 #[derive(Clone)]
 pub struct DefinedFunction {
     is_public: bool,
+    types: Option<Vec<TypeSignature>>,
     pub arguments: Vec<String>,
     pub body: SymbolicExpression
 }
@@ -26,21 +28,47 @@ impl DefinedFunction {
     pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
         let mut context = Context::new();
 
-        let mut arg_iterator = self.arguments.iter().zip(args.iter());
-        let _result = arg_iterator.try_for_each(|(arg, value)| {
-            match context.variables.insert((*arg).clone(), (*value).clone()) {
-                Some(_val) => Err(Error::InvalidArguments("Multiply defined function argument".to_string())),
-                _ => Ok(())
+        if !self.is_public {
+            let arg_iterator = self.arguments.iter().zip(args.iter());
+            for (arg, value) in arg_iterator {
+                if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {
+                    return Err(Error::MultiplyDefined(arg.clone()))
+                }
             }
-        })?;
+        } else {
+            let types = self.types.as_ref().unwrap(); // if types is None, and is_public = true, we should panic.
+                                                      //   since self is a malformed object.
+            let arg_iterator = self.arguments.iter().zip(types.iter()).zip(args.iter());
+            for ((arg, type_sig), value) in arg_iterator {
+                if !type_sig.admits(value) {
+                    return Err(Error::TypeError(format!("{:?}", type_sig), value.clone())) 
+                }
+                if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {
+                    return Err(Error::MultiplyDefined(arg.clone()))
+                }
+            }
+        }
+
         eval(&self.body, env, &context)
     }
 
-    pub fn new(arguments: Vec<String>, body: SymbolicExpression, is_public: bool) -> DefinedFunction {
+    pub fn new_private(arguments: Vec<String>, body: SymbolicExpression) -> DefinedFunction {
         DefinedFunction {
             arguments: arguments,
             body: body,
-            is_public: is_public
+            is_public: false,
+            types: None
+        }
+    }
+
+    pub fn new_public(mut arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression) -> DefinedFunction {
+        let (argument_names, types) = arguments.drain(..).unzip();
+
+        DefinedFunction {
+            arguments: argument_names,
+            body: body,
+            is_public: true,
+            types: Some(types)
         }
     }
 

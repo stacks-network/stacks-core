@@ -158,7 +158,7 @@ impl AtomTypeIdentifier {
                 }
             },
             _ => {
-                if (other == self) {
+                if other == self {
                     Ok(())
                 } else {
                     Err(Error::BadTypeConstruction)
@@ -245,46 +245,12 @@ impl TupleTypeSignature {
     }
 
     pub fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature> {
-        // this is a pretty deep nesting here, but what we're trying to do is pick out the values of
-        // the form:
-        // ((name1 type1) (name2 type2) (name3 type3) ...)
-        // which is a list of 2-length lists of atoms.
-        use vm::representations::SymbolicExpression::{List, Atom};
-
-        let mapped_key_types = match type_def {
-            List(ref key_vec) => {
-                // step 1: parse it into a vec of symbolicexpression pairs.
-                let as_pairs: Result<Vec<_>> = 
-                    key_vec.iter().map(
-                        |key_type_pair| {
-                            if let List(ref as_vec) = key_type_pair {
-                                if as_vec.len() != 2 {
-                                    Err(Error::ExpectedListPairs)
-                                } else {
-                                    Ok((&as_vec[0], &as_vec[1]))
-                                }
-                            } else {
-                                Err(Error::ExpectedListPairs)
-                            }
-                        }).collect();
-
-                // step 2: turn into a vec of (name, typesignature) pairs.
-                let key_types: Result<Vec<_>> =
-                    (as_pairs?).iter().map(|(name_symbol, type_symbol)| {
-                        let name = match name_symbol {
-                            Atom(ref var) => Ok(var.clone()),
-                            _ => Err(Error::ExpectedListPairs)
-                        }?;
-                        let type_info = TypeSignature::parse_type_repr(type_symbol, true)?;
-                        Ok((name, type_info))
-                    }).collect();
-
-                key_types
-            },
-            _ => Err(Error::ExpectedListPairs)
-        }?;
-
-        TupleTypeSignature::new(mapped_key_types)
+        if let SymbolicExpression::List(ref name_type_pairs) = type_def {
+            let mapped_key_types = parse_name_type_pairs(name_type_pairs)?;
+            TupleTypeSignature::new(mapped_key_types)
+        } else {
+            Err(Error::ExpectedListPairs)
+        }
     }
 }
 
@@ -586,4 +552,41 @@ impl TypeSignature {
             _ => Err(Error::InvalidTypeDescription)
         }
     }
+}
+
+
+pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<Vec<(String, TypeSignature)>> {
+    // this is a pretty deep nesting here, but what we're trying to do is pick out the values of
+    // the form:
+    // ((name1 type1) (name2 type2) (name3 type3) ...)
+    // which is a list of 2-length lists of atoms.
+    use vm::representations::SymbolicExpression::{List, Atom};
+
+    // step 1: parse it into a vec of symbolicexpression pairs.
+    let as_pairs: Result<Vec<_>> = 
+        name_type_pairs.iter().map(
+            |key_type_pair| {
+                if let List(ref as_vec) = key_type_pair {
+                    if as_vec.len() != 2 {
+                        Err(Error::ExpectedListPairs)
+                    } else {
+                        Ok((&as_vec[0], &as_vec[1]))
+                    }
+                } else {
+                    Err(Error::ExpectedListPairs)
+                }
+            }).collect();
+
+    // step 2: turn into a vec of (name, typesignature) pairs.
+    let key_types: Result<Vec<_>> =
+        (as_pairs?).iter().map(|(name_symbol, type_symbol)| {
+            let name = match name_symbol {
+                Atom(ref var) => Ok(var.clone()),
+                _ => Err(Error::ExpectedListPairs)
+            }?;
+            let type_info = TypeSignature::parse_type_repr(type_symbol, true)?;
+            Ok((name, type_info))
+        }).collect();
+    
+    key_types
 }

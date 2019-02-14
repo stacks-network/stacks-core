@@ -14,7 +14,7 @@ fn test_factorial_contract() {
         "(define-map factorials ((id int)) ((current int) (index int)))
          (define (init-factorial id factorial)
            (insert-entry! factorials (tuple #id id) (tuple #current 1 #index factorial)))
-         (define-public (compute id)
+         (define-public (compute (id int))
            (let ((entry (fetch-entry factorials (tuple #id id))))
                 (if (eq? entry 'null)
                     0
@@ -80,4 +80,15 @@ fn test_factorial_contract() {
             assert!(false, "Attempt to call init-factorial should fail!")
         }
     }
+
+    let err_result = contract.execute_transaction(&Value::Void, &"compute",
+                                                  &symbols_from_values(vec![Value::Void]));
+    match err_result {
+        Err(Error::TypeError(_, _)) => {},
+        _ => {
+            println!("{:?}", err_result);
+            assert!(false, "Attempt to call compute with void type should fail!")
+        }
+    }
+
 }
