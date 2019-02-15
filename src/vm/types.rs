@@ -1,6 +1,7 @@
 use std::fmt;
 use std::collections::BTreeMap;
 
+use address::c32;
 use vm::representations::SymbolicExpression;
 use vm::errors::{Error, InterpreterResult as Result};
 use util::hash;
@@ -18,6 +19,7 @@ pub enum AtomTypeIdentifier {
     IntType,
     BoolType,
     BufferType(u32),
+    PrincipalType,
     TupleType(TupleTypeSignature)
 }
 
@@ -54,6 +56,7 @@ pub enum Value {
     Bool(bool),
     Buffer(BuffData),
     List(Vec<Value>, TypeSignature),
+    Principal(u8, Vec<u8>), // a principal is a version byte + hash160 (20 bytes)
     Tuple(TupleData)
 }
 
@@ -97,9 +100,10 @@ impl Value {
 
     pub fn size(&self) -> i128 {
         match self {
-            Value::Void => 1,
-            Value::Int(_i) => 16,
-            Value::Bool(_i) => 1,
+            Value::Void => AtomTypeIdentifier::VoidType.size(),
+            Value::Int(_i) => AtomTypeIdentifier::IntType.size(),
+            Value::Bool(_i) => AtomTypeIdentifier::BoolType.size(),
+            Value::Principal(_,_) => AtomTypeIdentifier::PrincipalType.size(),
             Value::Buffer(ref buff_data) => buff_data.length as i128,
             Value::Tuple(ref tuple_data) => tuple_data.size(),
             Value::List(ref _v, ref type_signature) => type_signature.size()
@@ -116,6 +120,13 @@ impl fmt::Display for Value {
             Value::Bool(boolean) => write!(f, "{}", boolean),
             Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes.data)),
             Value::Tuple(data) => write!(f, "{}", data),
+            Value::Principal(version, vec_bytes) => {
+                let c32_str = match c32::c32_address(*version, &vec_bytes) {
+                    Ok(val) => val,
+                    Err(_) => "INVALID_C32_ADDR".to_string()
+                };
+                write!(f, "{}", c32_str)
+            },
             Value::List(values, _type) => {
                 write!(f, "( ")?;
                 for v in values.iter() {
@@ -133,6 +144,7 @@ impl AtomTypeIdentifier {
             AtomTypeIdentifier::VoidType => 1,
             AtomTypeIdentifier::IntType => 16,
             AtomTypeIdentifier::BoolType => 1,
+            AtomTypeIdentifier::PrincipalType => 21,
             AtomTypeIdentifier::BufferType(len) => *len as i128,
             AtomTypeIdentifier::TupleType(tuple_sig) => tuple_sig.size()
         }
@@ -362,15 +374,21 @@ impl TypeSignature {
     }
 
     pub fn type_of(x: &Value) -> TypeSignature {
-        match x {
-            Value::Void => TypeSignature::new_atom(AtomTypeIdentifier::VoidType),
-            Value::Int(_v) => TypeSignature::new_atom(AtomTypeIdentifier::IntType),
-            Value::Bool(_v) => TypeSignature::new_atom(AtomTypeIdentifier::BoolType),
-            Value::Buffer(buff_data) => TypeSignature::new_atom(
-                AtomTypeIdentifier::BufferType(buff_data.length)),
-            Value::List(_v, type_signature) => type_signature.clone(),
-            Value::Tuple(v) => TypeSignature::new_atom(AtomTypeIdentifier::TupleType(
-                v.type_signature.clone()))
+        if let Value::List(_, type_signature) = x {
+            type_signature.clone()
+        } else {
+            let atom = match x {
+                Value::Void => AtomTypeIdentifier::VoidType,
+                Value::Principal(_,_) => AtomTypeIdentifier::PrincipalType,
+                Value::Int(_v) => AtomTypeIdentifier::IntType,
+                Value::Bool(_v) => AtomTypeIdentifier::BoolType,
+                Value::Buffer(buff_data) => AtomTypeIdentifier::BufferType(buff_data.length),
+                Value::Tuple(v) => AtomTypeIdentifier::TupleType(
+                    v.type_signature.clone()),
+                Value::List(_,_) => panic!("Unreachable code")
+            };
+
+            TypeSignature::new_atom(atom)
         }
     }
 

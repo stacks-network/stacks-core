@@ -39,6 +39,7 @@ mod burnchains;
 mod chainstate;
 mod core;
 mod vm;
+mod address;
 
 use std::fs;
 use std::env;

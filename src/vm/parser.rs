@@ -1,4 +1,5 @@
 use regex::{Regex, Captures};
+use address::c32::c32_address_decode;
 use vm::errors::{Error, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
 use vm::types::Value;
@@ -18,7 +19,7 @@ enum TokenType {
     LParens, RParens, Whitespace,
     StringLiteral, HexStringLiteral,
     IntLiteral, QuoteLiteral,
-    Variable, NamedParameter
+    Variable, NamedParameter, PrincipalLiteral
 }
 
 struct LexMatcher {
@@ -42,7 +43,6 @@ fn get_value_or_err(input: &str, captures: Captures) -> Result<String> {
 }
 
 pub fn lex(input: &str) -> Result<Vec<LexItem>> {
-
     // Aaron: I'd like these to be static, but that'd require using
     //    lazy_static (or just hand implementing that), and I'm not convinced
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
@@ -53,6 +53,7 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
         LexMatcher::new("[ \n\t\r]+", TokenType::Whitespace),
         LexMatcher::new("(?P<value>[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false|null)", TokenType::QuoteLiteral),
+        LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{40,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("0x(?P<value>[[:xdigit:]])", TokenType::HexStringLiteral),
         LexMatcher::new("#(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::NamedParameter),
         LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
@@ -105,6 +106,12 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                             Err(_e) => Err(Error::ParseError(format!("Failed to parse int literal '{}'", str_value)))
                         }?;
                         Ok(LexItem::LiteralValue(value))
+                    },
+                    TokenType::PrincipalLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let (version, data) = c32_address_decode(&str_value)
+                            .map_err(|x| { Error::ParseError(format!("Invalid principal literal: {}", x)) })?;
+                        Ok(LexItem::LiteralValue(Value::Principal(version, data)))
                     },
                     TokenType::HexStringLiteral => {
                         panic!("Not implemented")

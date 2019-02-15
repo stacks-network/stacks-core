@@ -86,6 +86,20 @@ fn test_buffer_equality() {
 }
 
 #[test]
+fn test_principal_equality() {
+    let tests = [
+        "(eq? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)",
+        "(not (eq? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR
+                   'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G))"];
+    let expectations = [
+        Value::Bool(true),
+        Value::Bool(true)];
+
+    tests.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), execute(program)));
+}
+
+#[test]
 fn test_simple_if_functions() {
     //
     //  test program:

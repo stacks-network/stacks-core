@@ -17,4 +17,27 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::error;
+use std::fmt;
+
 pub mod c32;
+
+#[derive(Debug)]
+pub enum Error {
+    InvalidCrockford32,
+    InvalidVersion(u8),
+    InvalidChecksum(Vec<u8>, Vec<u8>),
+    EmptyData
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        None
+    }
+}
