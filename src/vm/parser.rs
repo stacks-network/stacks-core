@@ -112,7 +112,13 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let (version, data) = c32_address_decode(&str_value)
                             .map_err(|x| { Error::ParseError(format!("Invalid principal literal: {}", x)) })?;
-                        Ok(LexItem::LiteralValue(Value::Principal(version, data)))
+                        if data.len() != 20 {
+                            Err(Error::ParseError("Invalid principal literal: Expected 20 data bytes.".to_string()))
+                        } else {
+                            let mut fixed_data = [0; 20];
+                            fixed_data.copy_from_slice(&data[..20]);
+                            Ok(LexItem::LiteralValue(Value::Principal(version, fixed_data)))
+                        }
                     },
                     TokenType::HexStringLiteral => {
                         panic!("Not implemented")

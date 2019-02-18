@@ -56,7 +56,7 @@ pub enum Value {
     Bool(bool),
     Buffer(BuffData),
     List(Vec<Value>, TypeSignature),
-    Principal(u8, Vec<u8>), // a principal is a version byte + hash160 (20 bytes)
+    Principal(u8, [u8; 20]), // a principal is a version byte + hash160 (20 bytes)
     Tuple(TupleData)
 }
 
@@ -121,7 +121,7 @@ impl fmt::Display for Value {
             Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes.data)),
             Value::Tuple(data) => write!(f, "{}", data),
             Value::Principal(version, vec_bytes) => {
-                let c32_str = match c32::c32_address(*version, &vec_bytes) {
+                let c32_str = match c32::c32_address(*version, &vec_bytes[..]) {
                     Ok(val) => val,
                     Err(_) => "INVALID_C32_ADDR".to_string()
                 };

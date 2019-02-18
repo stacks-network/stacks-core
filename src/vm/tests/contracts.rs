@@ -62,7 +62,7 @@ fn test_factorial_contract() {
         Value::Int(120),
     ];
         
-    let sender = Value::Principal(1, vec![1,1,1,1,1]);
+    let sender = Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]);
 
     arguments_to_test.iter().zip(expected.iter())
         .for_each(|(arguments, expectation)| assert_eq!(Ok(expectation.clone()),
