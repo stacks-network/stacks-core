@@ -1,5 +1,5 @@
 use vm::types::{Value, TupleTypeSignature, parse_name_type_pairs};
-use vm::callables::DefinedFunction;
+use vm::callables::{DefinedFunction, PublicFunction, PrivateFunction};
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpression::{Atom, AtomValue, List, NamedParameter};
 use vm::errors::{Error, InterpreterResult as Result};
@@ -49,7 +49,7 @@ fn handle_define_private_function(signature: &[SymbolicExpression],
         .ok_or(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))?;
 
     check_legal_define(&function_name, &env.global_context)?;
-    let function = DefinedFunction::new_private(
+    let function = PrivateFunction::new(
         arg_names.iter().map(|x| (*x).clone()).collect(),
         expression.clone());
 
@@ -71,8 +71,8 @@ fn handle_define_public_function(signature: &[SymbolicExpression],
 
     let arguments = parse_name_type_pairs(arg_symbols)?;
 
-    let function = DefinedFunction::new_public(arguments,
-                                               expression.clone());
+    let function = PublicFunction::new(arguments,
+                                       expression.clone());
 
     Ok(DefineResult::Function((*function_name).clone(), function))
 }

@@ -2,7 +2,7 @@ use vm::{eval, execute};
 use vm::database::MemoryContractDatabase;
 use vm::errors::Error;
 use vm::{Value, Context, Environment};
-use vm::callables::DefinedFunction;
+use vm::callables::PrivateFunction;
 use vm::representations::SymbolicExpression;
 use vm::parser::parse;
 
@@ -25,7 +25,7 @@ fn test_simple_user_function() {
                    SymbolicExpression::Atom("x".to_string())]));
 
     let func_args = vec!["x".to_string()];
-    let user_function = DefinedFunction::new_private(func_args, func_body);
+    let user_function = PrivateFunction::new(func_args, func_body);
 
     let context = Context::new();
     let mut global_context = Context::new();
@@ -120,8 +120,8 @@ fn test_simple_if_functions() {
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec!["x".to_string()];
         let func_args2 = vec!["x".to_string()];
-        let user_function1 = DefinedFunction::new_private(func_args1, parsed_bodies[0].clone());
-        let user_function2 = DefinedFunction::new_private(func_args2, parsed_bodies[1].clone());
+        let user_function1 = PrivateFunction::new(func_args1, parsed_bodies[0].clone());
+        let user_function2 = PrivateFunction::new(func_args2, parsed_bodies[1].clone());
 
         let context = Context::new();
         let mut global_context = Context::new();
