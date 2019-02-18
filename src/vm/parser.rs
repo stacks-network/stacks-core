@@ -47,7 +47,8 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
     //    lazy_static (or just hand implementing that), and I'm not convinced
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
     let lex_matchers: &[LexMatcher] = &[
-        LexMatcher::new(r##""(?P<value>((\\")|([[:ascii:]&&[^"\n\r\t]]))*)""##, TokenType::StringLiteral),
+        LexMatcher::new(r##""(?P<value>((\\")|([[:print:]&&[^"\n\r\t]]))*)""##, TokenType::StringLiteral),
+        LexMatcher::new(";;[[:print:]&&[^\n\r\t]]*", TokenType::Whitespace), // ;; comments.
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
         LexMatcher::new("[ \n\t\r]+", TokenType::Whitespace),

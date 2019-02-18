@@ -3,6 +3,7 @@ use vm::callables::CallableType;
 use vm::{Context, SymbolicExpression, Value, Environment, apply, eval_all};
 use vm::database::{MemoryContractDatabase, ContractDatabase};
 use vm::parser;
+use vm::variables;
 
 pub struct Contract <'a> {
     db: Box<ContractDatabase>,
@@ -26,7 +27,7 @@ impl <'a> Contract <'a> {
     }
 
     // Todo: add principal value type, check for sender to be one.
-    pub fn execute_transaction(&mut self, _sender: &Value, tx_name: &str,
+    pub fn execute_transaction(&mut self, sender: &Value, tx_name: &str,
                                args: &[SymbolicExpression]) -> Result<Value> {
         let func = self.global_context.lookup_function(tx_name)
             .ok_or(Error::Undefined(format!("No such function in contract: {}", tx_name)))?;
@@ -34,16 +35,22 @@ impl <'a> Contract <'a> {
             return Err(Error::Undefined("Attempt to call non-public function".to_string()))
         }
 
-        let mut env = Environment::new(&self.global_context, &mut *self.db);
+        if let Value::Principal(_, _) = sender {
+            let mut env = Environment::new(&self.global_context, &mut *self.db);
 
-        for arg in args {
-            match arg {
-                SymbolicExpression::AtomValue(ref _v) => {},
-                _ => return Err(Error::InterpreterError("Passed non-value expression to exec_tx!".to_string()))
+            for arg in args {
+                match arg {
+                    SymbolicExpression::AtomValue(ref _v) => {},
+                    _ => return Err(Error::InterpreterError("Passed non-value expression to exec_tx!".to_string()))
+                }
             }
-        }
 
-        let local_context = Context::new();
-        apply(&CallableType::UserFunction(func), args, &mut env, &local_context)
+            let mut local_context = Context::new();
+            local_context.variables.insert(variables::TX_SENDER.to_string(), sender.clone());
+
+            apply(&CallableType::UserFunction(func), args, &mut env, &local_context)
+        } else {
+            Err(Error::BadSender(sender.clone()))
+        }
     }
 }

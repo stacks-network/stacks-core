@@ -6,8 +6,9 @@ use vm::parser;
 #[test]
 fn test_parse_let_expression() {
     let input = "z (let((x 1) (y 2))
-                      (+ x 
-                         (let ((x 3))
+                      (+ x ;; \"comments section?\"
+                         ;; this is also a comment!
+                         (let ((x 3)) ;; more commentary
                          (+ x y))     
                          x)) x y";
     let program = vec![

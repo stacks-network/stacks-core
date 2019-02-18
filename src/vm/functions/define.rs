@@ -69,7 +69,7 @@ fn handle_define_public_function(signature: &[SymbolicExpression],
 
     check_legal_define(&function_name, &env.global_context)?;
 
-    let mut arguments = parse_name_type_pairs(arg_symbols)?;
+    let arguments = parse_name_type_pairs(arg_symbols)?;
 
     let function = DefinedFunction::new_public(arguments,
                                                expression.clone());
