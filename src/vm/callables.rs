@@ -1,12 +1,12 @@
 use vm::errors::{InterpreterResult as Result, Error};
 use vm::representations::SymbolicExpression;
 use vm::types::TypeSignature;
-use vm::{eval, Value, Context, Environment};
+use vm::{eval, Value, LocalContext, Environment};
 
 pub enum CallableType <'a> {
     UserFunction(DefinedFunction),
     NativeFunction(&'a Fn(&[Value]) -> Result<Value>),
-    SpecialFunction(&'a Fn(&[SymbolicExpression], &mut Environment, &Context) -> Result<Value>)
+    SpecialFunction(&'a Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
 }
 
 #[derive(Clone)]
@@ -47,7 +47,7 @@ impl PublicFunction {
 
     fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
         //   since self is a malformed object.
-        let mut context = Context::new();
+        let mut context = LocalContext::new();
         let arg_iterator = self.arguments.iter().zip(self.types.iter()).zip(args.iter());
         for ((arg, type_sig), value) in arg_iterator {
             if !type_sig.admits(value) {
@@ -70,7 +70,7 @@ impl PrivateFunction {
     }
 
     fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
-        let mut context = Context::new();
+        let mut context = LocalContext::new();
         let arg_iterator = self.arguments.iter().zip(args.iter());
         for (arg, value) in arg_iterator {
             if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {

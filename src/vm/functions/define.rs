@@ -3,7 +3,8 @@ use vm::callables::{DefinedFunction, PublicFunction, PrivateFunction};
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpression::{Atom, AtomValue, List, NamedParameter};
 use vm::errors::{Error, InterpreterResult as Result};
-use vm::{ Context, Environment, eval };
+use vm::contexts::{GlobalContext, LocalContext, Environment};
+use vm::eval;
 
 pub enum DefineResult {
     Variable(String, Value),
@@ -12,7 +13,7 @@ pub enum DefineResult {
     NoDefine
 }
 
-fn check_legal_define(name: &str, global_context: &Context) -> Result<()> {
+fn check_legal_define(name: &str, global_context: &GlobalContext) -> Result<()> {
     use vm::is_reserved;
 
     if is_reserved(name) {
@@ -27,7 +28,7 @@ fn check_legal_define(name: &str, global_context: &Context) -> Result<()> {
 fn handle_define_variable(variable: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     // is the variable name legal?
     check_legal_define(variable, &env.global_context)?;
-    let context = Context::new();
+    let context = LocalContext::new();
     let value = eval(expression, env, &context)?;
     Ok(DefineResult::Variable(variable.clone(), value))
 }

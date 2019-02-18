@@ -1,19 +1,20 @@
+use vm::{SymbolicExpression, Value, apply, eval_all};
 use vm::errors::{Error, InterpreterResult as Result};
 use vm::callables::CallableType;
-use vm::{Context, SymbolicExpression, Value, Environment, apply, eval_all};
+use vm::contexts::{Environment, LocalContext, GlobalContext};
 use vm::database::{MemoryContractDatabase, ContractDatabase};
 use vm::parser;
 use vm::variables;
 
-pub struct Contract <'a> {
+pub struct Contract {
     db: Box<ContractDatabase>,
-    global_context: Context<'a>
+    global_context: GlobalContext
 }
 
-impl <'a> Contract <'a> {
-    pub fn make_in_memory_contract(contract: &str) -> Result<Contract<'a>> {
+impl Contract {
+    pub fn make_in_memory_contract(contract: &str) -> Result<Contract> {
         let parsed: Vec<_> = parser::parse(contract)?;
-        let mut global_context = Context::new();
+        let mut global_context = GlobalContext::new();
         let mut db_instance = Box::new(MemoryContractDatabase::new());
 
         let result = eval_all(&parsed, &mut *db_instance, &mut global_context)?;
@@ -45,7 +46,7 @@ impl <'a> Contract <'a> {
                 }
             }
 
-            let mut local_context = Context::new();
+            let mut local_context = LocalContext::new();
             local_context.variables.insert(variables::TX_SENDER.to_string(), sender.clone());
 
             apply(&CallableType::UserFunction(func), args, &mut env, &local_context)

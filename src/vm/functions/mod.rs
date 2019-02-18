@@ -9,7 +9,7 @@ use vm::errors::{Error, InterpreterResult as Result};
 use vm::types::Value;
 use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
-use vm::{Context, Environment, eval};
+use vm::{LocalContext, Environment, eval};
 
 
 fn native_eq(args: &[Value]) -> Result<Value> {
@@ -32,7 +32,7 @@ fn native_begin(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
+fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if !(args.len() == 2 || args.len() == 3) {
         return Err(Error::InvalidArguments("Wrong number of arguments to if (expect 2 or 3)".to_string()))
     }
@@ -54,7 +54,7 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Cont
     }
 }
 
-fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
+fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     use vm::is_reserved;
 
     // (let ((x 1) (y 2)) (+ x y)) -> 3

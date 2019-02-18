@@ -2,7 +2,7 @@ use vm::types::{Value};
 use vm::representations::SymbolicExpression;
 use vm::errors::{Error, InterpreterResult as Result};
 use vm::database::DataMap;
-use vm::{eval,Context,Environment};
+use vm::{eval, LocalContext, Environment};
 
 fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> Result<&'a mut DataMap> {
     let map_name = match map_arg {
@@ -17,7 +17,7 @@ fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> R
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],
                            env: &mut Environment,
-                           context: &Context) -> Result<Value> {
+                           context: &LocalContext) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     if args.len() != 2 {
@@ -41,7 +41,7 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
 
 pub fn special_set_entry(args: &[SymbolicExpression],
                          env: &mut Environment,
-                         context: &Context) -> Result<Value> {
+                         context: &LocalContext) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     // arg2 -> value
@@ -62,7 +62,7 @@ pub fn special_set_entry(args: &[SymbolicExpression],
 
 pub fn special_insert_entry(args: &[SymbolicExpression],
                             env: &mut Environment,
-                            context: &Context) -> Result<Value> {
+                            context: &LocalContext) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     // arg2 -> value
@@ -80,7 +80,7 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
 
 pub fn special_delete_entry(args: &[SymbolicExpression],
                             env: &mut Environment,
-                            context: &Context) -> Result<Value> {
+                            context: &LocalContext) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     if args.len() != 2 {

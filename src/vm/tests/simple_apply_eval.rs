@@ -1,7 +1,7 @@
 use vm::{eval, execute};
 use vm::database::MemoryContractDatabase;
 use vm::errors::Error;
-use vm::{Value, Context, Environment};
+use vm::{Value, LocalContext, GlobalContext, Environment};
 use vm::callables::PrivateFunction;
 use vm::representations::SymbolicExpression;
 use vm::parser::parse;
@@ -27,8 +27,8 @@ fn test_simple_user_function() {
     let func_args = vec!["x".to_string()];
     let user_function = PrivateFunction::new(func_args, func_body);
 
-    let context = Context::new();
-    let mut global_context = Context::new();
+    let context = LocalContext::new();
+    let mut global_context = GlobalContext::new();
     let mut db = MemoryContractDatabase::new();
 
     global_context.variables.insert("a".to_string(), Value::Int(59));
@@ -56,8 +56,8 @@ fn test_simple_let() {
                         x))";
 
     if let Ok(parsed_program) = parse(&program) {
-        let context = Context::new();
-        let global_context = Context::new();
+        let context = LocalContext::new();
+        let global_context = GlobalContext::new();
         let mut db = MemoryContractDatabase::new();
         let mut env = Environment::new(&global_context, &mut db);
 
@@ -123,8 +123,8 @@ fn test_simple_if_functions() {
         let user_function1 = PrivateFunction::new(func_args1, parsed_bodies[0].clone());
         let user_function2 = PrivateFunction::new(func_args2, parsed_bodies[1].clone());
 
-        let context = Context::new();
-        let mut global_context = Context::new();
+        let context = LocalContext::new();
+        let mut global_context = GlobalContext::new();
         let mut db = MemoryContractDatabase::new();
 
         global_context.functions.insert("with_else".to_string(), user_function1);

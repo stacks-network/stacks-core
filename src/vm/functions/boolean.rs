@@ -1,7 +1,7 @@
 use vm::types::Value;
 use vm::errors::{Error, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
-use vm::{Context,Environment,eval};
+use vm::{LocalContext, Environment, eval};
 
 fn type_force_bool(value: &Value) -> Result<bool> {
     match *value {
@@ -10,7 +10,7 @@ fn type_force_bool(value: &Value) -> Result<bool> {
     }
 }
 
-pub fn special_or(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
+pub fn special_or(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if args.len() < 1 {
         return Err(Error::InvalidArguments("(or ...) requires at least 1 argument".to_string()))
     }
@@ -26,7 +26,7 @@ pub fn special_or(args: &[SymbolicExpression], env: &mut Environment, context: &
     Ok(Value::Bool(false))
 }
 
-pub fn special_and(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
+pub fn special_and(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if args.len() < 1 {
         return Err(Error::InvalidArguments("(and ...) requires at least 1 argument".to_string()))
     }

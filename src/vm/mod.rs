@@ -18,14 +18,14 @@ mod tests;
 use vm::types::Value;
 use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
-use vm::contexts::{Context, Environment};
+use vm::contexts::{GlobalContext, LocalContext, Environment};
 use vm::database::ContractDatabase;
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterResult as Result};
 
 const MAX_CALL_STACK_DEPTH: usize = 256;
 
-fn lookup_variable(name: &str, context: &Context, env: &Environment) -> Result<Value> {
+fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(Error::BadSymbolicRepresentation(format!("Unexpected variable name: {}", name)))
     } else {
@@ -45,16 +45,14 @@ pub fn lookup_function<'a> (name: &str, env: &Environment)-> Result<CallableType
     if let Some(result) = functions::lookup_reserved_functions(name) {
         Ok(result)
     } else {
-        if let Some(func) = env.global_context.lookup_function(name) {
-            Ok(CallableType::UserFunction(func))
-        } else {
-            Err(Error::Undefined(format!("No such function found in context: {}", name)))
-        }
+        let user_function = env.global_context.lookup_function(name).ok_or(
+            Error::Undefined(format!("No such function found in context: {}", name)))?;
+        Ok(CallableType::UserFunction(user_function))
     }
 }
 
 pub fn apply(function: &CallableType, args: &[SymbolicExpression],
-             env: &mut Environment, context: &Context) -> Result<Value> {
+             env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if let CallableType::SpecialFunction(function) = function {
         function(&args, env, context)
     } else {
@@ -87,7 +85,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
     }
 }
 
-pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &Context) -> Result<Value> {
+pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &LocalContext) -> Result<Value> {
     match exp {
         &SymbolicExpression::AtomValue(ref value) => Ok(value.clone()),
         &SymbolicExpression::Atom(ref value) => lookup_variable(&value, context, env),
@@ -125,10 +123,10 @@ pub fn is_reserved(name: &str) -> bool {
  */
 fn eval_all(expressions: &[SymbolicExpression],
             database: &mut ContractDatabase,
-            global_context: &mut Context) -> Result<Value> {
+            global_context: &mut GlobalContext) -> Result<Value> {
 
     let mut last_executed = None;
-    let context = Context::new();
+    let context = LocalContext::new();
 
     for exp in expressions {
         let try_define = {
@@ -167,7 +165,7 @@ fn eval_all(expressions: &[SymbolicExpression],
  *  database.
  */
 pub fn execute(program: &str) -> Result<Value> {
-    let mut global_context = Context::new();
+    let mut global_context = GlobalContext::new();
     let mut db_instance = Box::new(database::MemoryContractDatabase::new());
 
     let parsed = parser::parse(program)?;

@@ -2,13 +2,13 @@ use vm::errors::{Error, InterpreterResult as Result};
 use vm::types::Value;
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpression::{AtomValue};
-use vm::{Context,Environment,eval,apply,lookup_function};
+use vm::{LocalContext, Environment, eval, apply, lookup_function};
 
 pub fn list_cons(args: &[Value]) -> Result<Value> {
     Value::new_list(args)
 }
 
-pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
+pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if args.len() != 3 {
         return Err(Error::InvalidArguments(format!("Wrong number of arguments ({}) to fold", args.len())))
     }
@@ -30,7 +30,7 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &C
     }
 }
 
-pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> Result<Value> {
+pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if args.len() != 2 {
         return Err(Error::InvalidArguments(format!("Wrong number of arguments ({}) to map", args.len())))
     }
