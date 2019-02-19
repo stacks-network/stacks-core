@@ -28,9 +28,6 @@ impl <'a> Environment <'a> {
     }
 }
 
-// Aaron: note -- only the global context will ever have DefinedFunctions
-//        so it is probably worthwhile to separate into 2 types.
-
 pub struct GlobalContext {
     pub variables: HashMap<String, Value>,
     pub functions: HashMap<String, DefinedFunction>,

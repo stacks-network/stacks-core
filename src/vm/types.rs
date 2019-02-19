@@ -44,12 +44,11 @@ pub struct TupleData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BuffData {
+struct BuffData {
     data: Vec<u8>,
-    length: u32
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Eq, Hash)]
 pub enum Value {
     Void,
     Int(i128),
@@ -58,6 +57,26 @@ pub enum Value {
     List(Vec<Value>, TypeSignature),
     Principal(u8, [u8; 20]), // a principal is a version byte + hash160 (20 bytes)
     Tuple(TupleData)
+}
+
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Value) -> bool {
+        match (self, other) {
+            (Value::Void, Value::Void) => { true },
+            (Value::Int(x), Value::Int(y)) => { x == y },
+            (Value::Bool(x), Value::Bool(y)) => { x == y },
+            (Value::Buffer(ref x), Value::Buffer(ref y)) => { x.data == y.data },
+            (Value::List(ref x_data, _), Value::List(ref y_data, _)) => { x_data == y_data },
+            (Value::Principal(x_version, ref x_data), Value::Principal(y_version, ref y_data)) => {
+                x_version == y_version && x_data == y_data
+            },
+            (Value::Tuple(ref x_data), Value::Tuple(ref y_data)) => {
+                x_data.data_map == y_data.data_map
+            },
+            _ => false
+        }
+    }
 }
 
 impl Value {
@@ -85,8 +104,7 @@ impl Value {
             Err(Error::ValueTooLarge)
         } else {
             let length = buff_data.len() as u32;
-            Ok(Value::Buffer(BuffData { data: buff_data,
-                                        length: length }))
+            Ok(Value::Buffer(BuffData { data: buff_data }))
         }
     }
 
@@ -104,7 +122,7 @@ impl Value {
             Value::Int(_i) => AtomTypeIdentifier::IntType.size(),
             Value::Bool(_i) => AtomTypeIdentifier::BoolType.size(),
             Value::Principal(_,_) => AtomTypeIdentifier::PrincipalType.size(),
-            Value::Buffer(ref buff_data) => Ok(buff_data.length as i128),
+            Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
             Value::Tuple(ref tuple_data) => tuple_data.size(),
             Value::List(ref _v, ref type_signature) => type_signature.size()
         }
@@ -388,7 +406,7 @@ impl TypeSignature {
                 Value::Principal(_,_) => AtomTypeIdentifier::PrincipalType,
                 Value::Int(_v) => AtomTypeIdentifier::IntType,
                 Value::Bool(_v) => AtomTypeIdentifier::BoolType,
-                Value::Buffer(buff_data) => AtomTypeIdentifier::BufferType(buff_data.length),
+                Value::Buffer(buff_data) => AtomTypeIdentifier::BufferType(buff_data.data.len() as u32),
                 Value::Tuple(v) => AtomTypeIdentifier::TupleType(
                     v.type_signature.clone()),
                 Value::List(_,_) => panic!("Unreachable code")
