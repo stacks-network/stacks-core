@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 use std::fmt;
 use std::collections::BTreeMap;
 
@@ -8,12 +9,12 @@ use util::hash;
 
 const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TupleTypeSignature {
     type_map: BTreeMap<String, TypeSignature>
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AtomTypeIdentifier {
     VoidType,
     IntType,
@@ -23,13 +24,13 @@ pub enum AtomTypeIdentifier {
     TupleType(TupleTypeSignature)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ListTypeData {
     max_len: u32,
     dimension: u8
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeSignature {
     atomic_type: AtomTypeIdentifier,
     list_dimensions: Option<ListTypeData>,
@@ -37,7 +38,7 @@ pub struct TypeSignature {
     //       high dimensional lists are _expensive_ --- use lists of tuples!
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Eq)]
 pub struct TupleData {
     type_signature: TupleTypeSignature,
     data_map: BTreeMap<String, Value>
@@ -46,18 +47,47 @@ pub struct TupleData {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BuffData {
     data: Vec<u8>,
-    length: u32
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Eq)]
+pub struct ListData {
+    pub data: Vec<Value>,
+    type_signature: TypeSignature
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Value {
     Void,
     Int(i128),
     Bool(bool),
     Buffer(BuffData),
-    List(Vec<Value>, TypeSignature),
-    Principal(u8, Vec<u8>), // a principal is a version byte + hash160 (20 bytes)
+    List(ListData),
+    Principal(u8, [u8; 20]), // a principal is a version byte + hash160 (20 bytes)
     Tuple(TupleData)
+}
+
+impl PartialEq for ListData {
+    fn eq(&self, other: &ListData) -> bool {
+        self.data == other.data
+    }
+}
+
+impl Hash for ListData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.data.hash(state);
+    }
+}
+
+impl PartialEq for TupleData {
+    fn eq(&self, other: &TupleData) -> bool {
+        self.data_map == other.data_map
+    }
+}
+
+impl Hash for TupleData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.data_map.hash(state);
+    }
 }
 
 impl Value {
@@ -72,10 +102,10 @@ impl Value {
         //     (e.g., from a (map...) call, or a (list...) call.
         //     this is a problem _if_ the static analyzer cannot already prevent
         //     this case. This applies to all the constructor size checks.
-        if type_sig.size() > MAX_VALUE_SIZE {
+        if type_sig.size()? > MAX_VALUE_SIZE {
             return Err(Error::ValueTooLarge)
         }
-        Ok(Value::List(list_data, type_sig))
+        Ok(Value::List(ListData { data: list_data, type_signature: type_sig }))
     }
 
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
@@ -84,29 +114,27 @@ impl Value {
         } else if buff_data.len() as i128 > MAX_VALUE_SIZE {
             Err(Error::ValueTooLarge)
         } else {
-            let length = buff_data.len() as u32;
-            Ok(Value::Buffer(BuffData { data: buff_data,
-                                        length: length }))
+            Ok(Value::Buffer(BuffData { data: buff_data }))
         }
     }
 
     pub fn tuple_from_data(paired_tuple_data: Vec<(String, Value)>) -> Result<Value> {
         let tuple_data = TupleData::from_data(paired_tuple_data)?;
-        if tuple_data.size() > MAX_VALUE_SIZE {
+        if tuple_data.size()? > MAX_VALUE_SIZE {
             return Err(Error::ValueTooLarge)
         }
         Ok(Value::Tuple(tuple_data))
     }
 
-    pub fn size(&self) -> i128 {
+    pub fn size(&self) -> Result<i128> {
         match self {
             Value::Void => AtomTypeIdentifier::VoidType.size(),
             Value::Int(_i) => AtomTypeIdentifier::IntType.size(),
             Value::Bool(_i) => AtomTypeIdentifier::BoolType.size(),
             Value::Principal(_,_) => AtomTypeIdentifier::PrincipalType.size(),
-            Value::Buffer(ref buff_data) => buff_data.length as i128,
+            Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
             Value::Tuple(ref tuple_data) => tuple_data.size(),
-            Value::List(ref _v, ref type_signature) => type_signature.size()
+            Value::List(ref list_data) => list_data.type_signature.size()
         }
     }
 
@@ -121,15 +149,15 @@ impl fmt::Display for Value {
             Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes.data)),
             Value::Tuple(data) => write!(f, "{}", data),
             Value::Principal(version, vec_bytes) => {
-                let c32_str = match c32::c32_address(*version, &vec_bytes) {
+                let c32_str = match c32::c32_address(*version, &vec_bytes[..]) {
                     Ok(val) => val,
                     Err(_) => "INVALID_C32_ADDR".to_string()
                 };
                 write!(f, "{}", c32_str)
             },
-            Value::List(values, _type) => {
+            Value::List(list_data) => {
                 write!(f, "( ")?;
-                for v in values.iter() {
+                for v in list_data.data.iter() {
                     write!(f, "{} ", v)?;
                 }
                 write!(f, ")")
@@ -139,13 +167,13 @@ impl fmt::Display for Value {
 }
 
 impl AtomTypeIdentifier {
-    pub fn size(&self) -> i128 {
+    pub fn size(&self) -> Result<i128> {
         match self {
-            AtomTypeIdentifier::VoidType => 1,
-            AtomTypeIdentifier::IntType => 16,
-            AtomTypeIdentifier::BoolType => 1,
-            AtomTypeIdentifier::PrincipalType => 21,
-            AtomTypeIdentifier::BufferType(len) => *len as i128,
+            AtomTypeIdentifier::VoidType => Ok(1),
+            AtomTypeIdentifier::IntType => Ok(16),
+            AtomTypeIdentifier::BoolType => Ok(1),
+            AtomTypeIdentifier::PrincipalType => Ok(21),
+            AtomTypeIdentifier::BufferType(len) => Ok(*len as i128),
             AtomTypeIdentifier::TupleType(tuple_sig) => tuple_sig.size()
         }
     }
@@ -230,16 +258,20 @@ impl TupleTypeSignature {
         return true
     }
 
-    pub fn size(&self) -> i128 {
+    pub fn size(&self) -> Result<i128> {
         let mut name_size: i128 = 0;
         let mut value_size: i128 = 0;
         for (name, type_signature) in self.type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
-            name_size = name_size.checked_add(name.len() as i128).unwrap();
-            value_size = value_size.checked_add(type_signature.size() as i128).unwrap();
+            name_size = name_size.checked_add(name.len() as i128)
+                .ok_or(Error::ValueTooLarge)?;
+            value_size = value_size.checked_add(type_signature.size()? as i128)
+                .ok_or(Error::ValueTooLarge)?;
         }
-        let name_total_size = name_size.checked_mul(2).unwrap(); // counts the b-tree size...
-        value_size.checked_add(name_total_size).unwrap()
+        let name_total_size = name_size.checked_mul(2)
+            .ok_or(Error::ValueTooLarge)?;
+        value_size.checked_add(name_total_size)
+            .ok_or(Error::ValueTooLarge)
     }
 
     // NOTE: this function mutates self _even if it returns an error_.
@@ -294,7 +326,7 @@ impl TupleData {
         
     }
 
-    pub fn size(&self) -> i128 {
+    pub fn size(&self) -> Result<i128> {
         self.type_signature.size()
     }
 }
@@ -330,7 +362,7 @@ impl TypeSignature {
                                                       dimension: dimension as u8 });
             let type_sig = TypeSignature { atomic_type: atomic_type,
                                            list_dimensions: list_dimensions };
-            if type_sig.size() > MAX_VALUE_SIZE {
+            if type_sig.size()? > MAX_VALUE_SIZE {
                 Err(Error::ValueTooLarge)
             } else {
                 Ok(type_sig)
@@ -339,7 +371,7 @@ impl TypeSignature {
     }
 
     fn new_atom_checked(atom_type: AtomTypeIdentifier) -> Result<TypeSignature> {
-        if atom_type.size() > MAX_VALUE_SIZE {
+        if atom_type.size()? > MAX_VALUE_SIZE {
             Err(Error::ValueTooLarge)
         } else {
             Ok(TypeSignature::new_atom(atom_type))
@@ -365,27 +397,29 @@ impl TypeSignature {
                                                              dimension: 1 })}
     }
 
-    pub fn size(&self) -> i128 {
+    pub fn size(&self) -> Result<i128> {
         let list_multiplier = match self.list_dimensions {
-                Some(ref list_data) => (list_data.max_len as i128).checked_mul(list_data.dimension as i128).unwrap(),
-                None => 1
-        };
-        list_multiplier.checked_mul(self.atomic_type.size()).unwrap()
+                Some(ref list_data) => (list_data.max_len as i128).checked_mul(list_data.dimension as i128)
+                .ok_or(Error::ValueTooLarge),
+                None => Ok(1)
+        }?;
+        list_multiplier.checked_mul(self.atomic_type.size()?)
+            .ok_or(Error::ValueTooLarge)
     }
 
     pub fn type_of(x: &Value) -> TypeSignature {
-        if let Value::List(_, type_signature) = x {
-            type_signature.clone()
+        if let Value::List(list_data) = x {
+            list_data.type_signature.clone()
         } else {
             let atom = match x {
                 Value::Void => AtomTypeIdentifier::VoidType,
                 Value::Principal(_,_) => AtomTypeIdentifier::PrincipalType,
                 Value::Int(_v) => AtomTypeIdentifier::IntType,
                 Value::Bool(_v) => AtomTypeIdentifier::BoolType,
-                Value::Buffer(buff_data) => AtomTypeIdentifier::BufferType(buff_data.length),
+                Value::Buffer(buff_data) => AtomTypeIdentifier::BufferType(buff_data.data.len() as u32),
                 Value::Tuple(v) => AtomTypeIdentifier::TupleType(
                     v.type_signature.clone()),
-                Value::List(_,_) => panic!("Unreachable code")
+                Value::List(_) => panic!("Unreachable code")
             };
 
             TypeSignature::new_atom(atom)
@@ -487,6 +521,7 @@ impl TypeSignature {
             "int" => Ok(AtomTypeIdentifier::IntType),
             "void" => Ok(AtomTypeIdentifier::VoidType),
             "bool" => Ok(AtomTypeIdentifier::BoolType),
+            "principal" => Ok(AtomTypeIdentifier::PrincipalType),
             _ => Err(Error::ParseError(format!("Unknown type name: '{:?}'", typename)))
         }
     }

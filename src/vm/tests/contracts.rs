@@ -1,4 +1,3 @@
-use vm::execute;
 use vm::errors::Error;
 use vm::types::{Value};
 use vm::representations::SymbolicExpression;
@@ -63,14 +62,16 @@ fn test_factorial_contract() {
         Value::Int(120),
     ];
         
+    let sender = Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]);
+
     arguments_to_test.iter().zip(expected.iter())
         .for_each(|(arguments, expectation)| assert_eq!(Ok(expectation.clone()),
                                                         contract.execute_transaction(
-                                                            &Value::Void,
+                                                            &sender,
                                                             &tx_name,
                                                             arguments)));
 
-    let err_result = contract.execute_transaction(&Value::Void, &"init-factorial",
+    let err_result = contract.execute_transaction(&sender, &"init-factorial",
                                                   &symbols_from_values(vec![Value::Int(9000),
                                                                             Value::Int(15)]));
     match err_result {
@@ -81,7 +82,7 @@ fn test_factorial_contract() {
         }
     }
 
-    let err_result = contract.execute_transaction(&Value::Void, &"compute",
+    let err_result = contract.execute_transaction(&sender, &"compute",
                                                   &symbols_from_values(vec![Value::Void]));
     match err_result {
         Err(Error::TypeError(_, _)) => {},

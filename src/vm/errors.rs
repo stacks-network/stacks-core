@@ -22,10 +22,11 @@ pub enum Error {
     ValueTooLarge,
     ExpectedListPairs,
     InvalidTypeDescription,
+    BadSender(Value),
     BadSymbolicRepresentation(String),
     ReservedName(String),
     InterpreterError(String),
-    MultiplyDefined(String)
+    VariableDefinedMultipleTimes(String)
 }
 
 pub type InterpreterResult <R> = Result<R, Error>;

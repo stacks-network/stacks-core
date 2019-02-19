@@ -1,9 +1,10 @@
 use vm::types::{Value, TupleTypeSignature, parse_name_type_pairs};
-use vm::callables::DefinedFunction;
+use vm::callables::{DefinedFunction, PublicFunction, PrivateFunction};
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpression::{Atom, AtomValue, List, NamedParameter};
 use vm::errors::{Error, InterpreterResult as Result};
-use vm::{ Context, Environment, eval };
+use vm::contexts::{GlobalContext, LocalContext, Environment};
+use vm::eval;
 
 pub enum DefineResult {
     Variable(String, Value),
@@ -12,13 +13,13 @@ pub enum DefineResult {
     NoDefine
 }
 
-fn check_legal_define(name: &str, global_context: &Context) -> Result<()> {
+fn check_legal_define(name: &str, global_context: &GlobalContext) -> Result<()> {
     use vm::is_reserved;
 
     if is_reserved(name) {
         Err(Error::ReservedName(name.to_string()))
     } else if global_context.variables.contains_key(name) || global_context.functions.contains_key(name) {
-        Err(Error::MultiplyDefined(name.to_string()))
+        Err(Error::VariableDefinedMultipleTimes(name.to_string()))
     } else {
         Ok(())
     }
@@ -27,7 +28,7 @@ fn check_legal_define(name: &str, global_context: &Context) -> Result<()> {
 fn handle_define_variable(variable: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     // is the variable name legal?
     check_legal_define(variable, &env.global_context)?;
-    let context = Context::new();
+    let context = LocalContext::new();
     let value = eval(expression, env, &context)?;
     Ok(DefineResult::Variable(variable.clone(), value))
 }
@@ -49,7 +50,7 @@ fn handle_define_private_function(signature: &[SymbolicExpression],
         .ok_or(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))?;
 
     check_legal_define(&function_name, &env.global_context)?;
-    let function = DefinedFunction::new_private(
+    let function = PrivateFunction::new(
         arg_names.iter().map(|x| (*x).clone()).collect(),
         expression.clone());
 
@@ -69,10 +70,10 @@ fn handle_define_public_function(signature: &[SymbolicExpression],
 
     check_legal_define(&function_name, &env.global_context)?;
 
-    let mut arguments = parse_name_type_pairs(arg_symbols)?;
+    let arguments = parse_name_type_pairs(arg_symbols)?;
 
-    let function = DefinedFunction::new_public(arguments,
-                                               expression.clone());
+    let function = PublicFunction::new(arguments,
+                                       expression.clone());
 
     Ok(DefineResult::Function((*function_name).clone(), function))
 }

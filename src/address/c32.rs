@@ -130,7 +130,7 @@ fn double_sha256_checksum(data: &[u8]) -> Vec<u8> {
 }
 
 fn c32_check_encode(version: u8, data: &[u8]) -> Result<String, Error> {
-    if (version >= 32) {
+    if version >= 32 {
         return Err(Error::InvalidVersion(version))
     }
 

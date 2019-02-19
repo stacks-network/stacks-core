@@ -47,7 +47,8 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
     //    lazy_static (or just hand implementing that), and I'm not convinced
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
     let lex_matchers: &[LexMatcher] = &[
-        LexMatcher::new(r##""(?P<value>((\\")|([[:ascii:]&&[^"\n\r\t]]))*)""##, TokenType::StringLiteral),
+        LexMatcher::new(r##""(?P<value>((\\")|([[:print:]&&[^"\n\r\t]]))*)""##, TokenType::StringLiteral),
+        LexMatcher::new(";;[[:print:]&&[^\n\r\t]]*", TokenType::Whitespace), // ;; comments.
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
         LexMatcher::new("[ \n\t\r]+", TokenType::Whitespace),
@@ -111,7 +112,13 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let (version, data) = c32_address_decode(&str_value)
                             .map_err(|x| { Error::ParseError(format!("Invalid principal literal: {}", x)) })?;
-                        Ok(LexItem::LiteralValue(Value::Principal(version, data)))
+                        if data.len() != 20 {
+                            Err(Error::ParseError("Invalid principal literal: Expected 20 data bytes.".to_string()))
+                        } else {
+                            let mut fixed_data = [0; 20];
+                            fixed_data.copy_from_slice(&data[..20]);
+                            Ok(LexItem::LiteralValue(Value::Principal(version, fixed_data)))
+                        }
                     },
                     TokenType::HexStringLiteral => {
                         panic!("Not implemented")
@@ -205,4 +212,87 @@ pub fn parse_lexed(mut input: Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
 pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>> {
     let lexed = lex(input)?;
     parse_lexed(lexed)
+}
+
+
+mod test {
+    use vm::representations::SymbolicExpression;
+    use vm::errors::Error;
+    use vm::types::Value;
+    use vm::parser;
+
+    #[test]
+    fn test_parse_let_expression() {
+        let input = "z (let((x 1) (y 2))
+                      (+ x ;; \"comments section?\"
+                         ;; this is also a comment!
+                         (let ((x 3)) ;; more commentary
+                         (+ x y))     
+                         x)) x y";
+        let program = vec![
+            SymbolicExpression::Atom("z".to_string()),
+            SymbolicExpression::List(Box::new([
+                SymbolicExpression::Atom("let".to_string()),
+                SymbolicExpression::List(Box::new([
+                    SymbolicExpression::List(Box::new([
+                        SymbolicExpression::Atom("x".to_string()),
+                        SymbolicExpression::AtomValue(Value::Int(1))])),
+                    SymbolicExpression::List(Box::new([
+                        SymbolicExpression::Atom("y".to_string()),
+                        SymbolicExpression::AtomValue(Value::Int(2))]))])),
+                SymbolicExpression::List(Box::new([
+                    SymbolicExpression::Atom("+".to_string()),
+                    SymbolicExpression::Atom("x".to_string()),
+                    SymbolicExpression::List(Box::new([
+                        SymbolicExpression::Atom("let".to_string()),
+                        SymbolicExpression::List(Box::new([
+                            SymbolicExpression::List(Box::new([
+                                SymbolicExpression::Atom("x".to_string()),
+                                SymbolicExpression::AtomValue(Value::Int(3))]))])),
+                        SymbolicExpression::List(Box::new([
+                            SymbolicExpression::Atom("+".to_string()),
+                            SymbolicExpression::Atom("x".to_string()),
+                            SymbolicExpression::Atom("y".to_string())]))])),
+                    SymbolicExpression::Atom("x".to_string())]))])),
+            SymbolicExpression::Atom("x".to_string()),
+            SymbolicExpression::Atom("y".to_string()),
+        ];
+
+        let parsed = parser::parse(&input);
+        assert_eq!(Ok(program), parsed, "Should match expected symbolic expression");
+    }
+
+    #[test]
+    fn test_parse_failures() {
+        let too_much_closure = "(let ((x 1) (y 2))))";
+        let not_enough_closure = "(let ((x 1) (y 2))";
+        let middle_hash = "(let ((x 1) (y#not 2)) x)";
+        let unicode = "(let ((x🎶 1)) (eq x🎶 1))";
+
+        assert!(match parser::parse(&too_much_closure) {
+            Err(Error::ParseError(_)) => true,
+            _ => false
+        }, "Should have failed to parse with too many right parens");
+        
+        assert!(match parser::parse(&not_enough_closure) {
+            Err(Error::ParseError(_)) => true,
+            _ => false
+        }, "Should have failed to parse with too few right parens");
+        
+        let x = parser::parse(&middle_hash);
+        assert!(match x {
+            Err(Error::ParseError(_)) => true,
+            _ => {
+                println!("Expected parser error. Unexpected value is:\n {:?}", x);
+                false
+            }
+        }, "Should have failed to parse with a middle hash");
+
+        assert!(match parser::parse(&unicode) {
+            Err(Error::ParseError(_)) => true,
+            _ => false
+        }, "Should have failed to parse a unicode variable name");
+
+    }
+
 }
