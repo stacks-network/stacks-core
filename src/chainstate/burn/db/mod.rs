@@ -35,7 +35,7 @@ use burnchains::{Txid, BurnchainHeaderHash, Address};
 use util::vrf::ECVRF_check_public_key;
 use util::hash::{hex_bytes, Hash160};
 
-use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash};
+use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, SortitionHash};
 
 use ed25519_dalek::PublicKey as VRFPublicKey;
 
@@ -144,6 +144,7 @@ impl_byte_array_from_row!(BlockHeaderHash);
 impl_byte_array_from_row!(VRFSeed);
 impl_byte_array_from_row!(OpsHash);
 impl_byte_array_from_row!(BurnchainHeaderHash);
+impl_byte_array_from_row!(SortitionHash);
 
 #[allow(non_snake_case)]
 pub fn VRFPublicKey_from_row<'a>(row: &'a Row, index: usize) -> Result<VRFPublicKey, db_error> {
