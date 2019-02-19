@@ -30,6 +30,7 @@ extern crate curve25519_dalek;
 extern crate ed25519_dalek;
 extern crate sha2;
 extern crate dirs;
+extern crate regex;
 
 #[macro_use] extern crate serde_derive;
 
@@ -38,7 +39,9 @@ mod burnchains;
 mod chainstate;
 mod core;
 mod vm;
+mod address;
 
+use std::fs;
 use std::env;
 use std::process;
 
@@ -80,6 +83,20 @@ fn main() {
                 process::exit(1);
             }
         }
+    }
+
+    if argv[1] == "exec_program" {
+        if argv.len() < 3 {
+            eprintln!("Usage: {} exec_program [program-file.scm]", argv[0]);
+            process::exit(1);
+        }
+        let program: String = fs::read_to_string(&argv[2])
+            .expect(&format!("Error reading file: {}", argv[2]));
+        match vm::execute(&program) {
+            Ok(result) => println!("{}", result),
+            Err(error) => println!("Program Execution Error: \n {}", error)
+        }
+        return
     }
 
     if argv.len() < 4 {

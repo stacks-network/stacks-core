@@ -1,8 +1,10 @@
-use super::super::types::{Value, DefinedFunction, TupleTypeSignature, TypeSignature};
-use super::super::representations::SymbolicExpression;
-use super::super::representations::SymbolicExpression::{Atom,AtomValue,List,NamedParameter};
-use super::super::{Context,Environment,eval};
-use super::super::errors::Error;
+use vm::types::{Value, TupleTypeSignature, parse_name_type_pairs};
+use vm::callables::{DefinedFunction, PublicFunction, PrivateFunction};
+use vm::representations::SymbolicExpression;
+use vm::representations::SymbolicExpression::{Atom, AtomValue, List, NamedParameter};
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::contexts::{GlobalContext, LocalContext, Environment};
+use vm::eval;
 
 pub enum DefineResult {
     Variable(String, Value),
@@ -11,14 +13,30 @@ pub enum DefineResult {
     NoDefine
 }
 
-pub fn handle_define_variable(variable: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult, Error> {
-    let context = Context::new();
+fn check_legal_define(name: &str, global_context: &GlobalContext) -> Result<()> {
+    use vm::is_reserved;
+
+    if is_reserved(name) {
+        Err(Error::ReservedName(name.to_string()))
+    } else if global_context.variables.contains_key(name) || global_context.functions.contains_key(name) {
+        Err(Error::VariableDefinedMultipleTimes(name.to_string()))
+    } else {
+        Ok(())
+    }
+}
+
+fn handle_define_variable(variable: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
+    // is the variable name legal?
+    check_legal_define(variable, &env.global_context)?;
+    let context = LocalContext::new();
     let value = eval(expression, env, &context)?;
     Ok(DefineResult::Variable(variable.clone(), value))
 }
 
-pub fn handle_define_function(signature: &[SymbolicExpression], expression: &SymbolicExpression) -> Result<DefineResult, Error> {
-    let coerced_atoms: Result<Vec<_>, _> = signature.iter().map(|x| {
+fn handle_define_private_function(signature: &[SymbolicExpression],
+                                  expression: &SymbolicExpression,
+                                  env: &Environment) -> Result<DefineResult> {
+    let coerced_atoms: Result<Vec<_>> = signature.iter().map(|x| {
         if let Atom(name) = x {
             Ok(name)
         } else {
@@ -27,78 +45,57 @@ pub fn handle_define_function(signature: &[SymbolicExpression], expression: &Sym
     }).collect();
 
     let names = coerced_atoms?;
-    if let Some((function_name, arg_names)) = names.split_first() {
-        let function = DefinedFunction {
-            arguments: arg_names.iter().map(|x| (*x).clone()).collect(),
-            body: expression.clone()
-        };
-        Ok(DefineResult::Function((*function_name).clone(), function))
-    } else {
-        Err(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))
-    }
+
+    let (function_name, arg_names) = names.split_first()
+        .ok_or(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))?;
+
+    check_legal_define(&function_name, &env.global_context)?;
+    let function = PrivateFunction::new(
+        arg_names.iter().map(|x| (*x).clone()).collect(),
+        expression.clone());
+
+    Ok(DefineResult::Function((*function_name).clone(), function))
 }
 
-fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature, Error> {
+fn handle_define_public_function(signature: &[SymbolicExpression],
+                                 expression: &SymbolicExpression,
+                                 env: &Environment) -> Result<DefineResult> {
+    let (function_symbol, arg_symbols) = signature.split_first()
+        .ok_or(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))?;
 
-    // this is a pretty deep nesting here, but what we're trying to do is pick out the values of
-    // the form:
-    // ((name1 type1) (name2 type2) (name3 type3) ...)
-    // which is a list of 2-length lists of atoms.
-
-    let mapped_key_types = match type_def {
-        List(ref key_vec) => {
-            // step 1: parse it into a vec of symbolicexpression pairs.
-            let as_pairs: Result<Vec<_>, Error> = 
-                key_vec.iter().map(
-                    |key_type_pair| {
-                        if let List(ref as_vec) = key_type_pair {
-                            if as_vec.len() != 2 {
-                                Err(Error::ExpectedListPairs)
-                            } else {
-                                Ok((&as_vec[0], &as_vec[1]))
-                            }
-                        } else {
-                            Err(Error::ExpectedListPairs)
-                        }
-                    }).collect();
-
-            // step 2: turn into a vec of (name, typesignature) pairs.
-            let key_types: Result<Vec<_>, Error> =
-                (as_pairs?).iter().map(|(name_symbol, type_symbol)| {
-                    let name = match name_symbol {
-                        Atom(ref var) => Ok(var.clone()),
-                        _ => Err(Error::ExpectedListPairs)
-                    }?;
-                    let type_info = match type_symbol {
-                        Atom(ref type_description) => TypeSignature::parse_type_str(type_description),
-                        _ => Err(Error::ExpectedListPairs)
-                    }?;
-                    Ok((name, type_info))
-                }).collect();
-
-            key_types
-        },
-        _ => Err(Error::ExpectedListPairs)
+    let function_name = match function_symbol {
+        Atom(name) => Ok(name),
+        _ => Err(Error::InvalidArguments(format!("Invalid function name {:?}", function_symbol)))
     }?;
 
-    TupleTypeSignature::new(mapped_key_types)
+    check_legal_define(&function_name, &env.global_context)?;
+
+    let arguments = parse_name_type_pairs(arg_symbols)?;
+
+    let function = PublicFunction::new(arguments,
+                                       expression.clone());
+
+    Ok(DefineResult::Function((*function_name).clone(), function))
 }
 
 fn handle_define_map(map_name: &SymbolicExpression,
                      key_type: &SymbolicExpression,
-                     value_type: &SymbolicExpression) -> Result<DefineResult, Error> {
+                     value_type: &SymbolicExpression,
+                     env: &Environment) -> Result<DefineResult> {
     let map_str = match map_name {
         Atom(ref map_name) => Ok(map_name.clone()),
         _ => Err(Error::InvalidArguments("Non-name argument to define-map".to_string()))
     }?;
 
-    let key_type_signature = parse_name_type_pair_list(key_type)?;
-    let value_type_signature = parse_name_type_pair_list(value_type)?;
+    check_legal_define(&map_str, &env.global_context)?;
+
+    let key_type_signature = TupleTypeSignature::parse_name_type_pair_list(key_type)?;
+    let value_type_signature = TupleTypeSignature::parse_name_type_pair_list(value_type)?;
 
     Ok(DefineResult::Map(map_str, key_type_signature, value_type_signature))
 }
 
-pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult, Error> {
+pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     if let SymbolicExpression::List(elements) = expression {
         if let Some(Atom(func_name)) = elements.get(0) {
             return match func_name.as_str() {
@@ -112,7 +109,20 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                                 "Illegal operation: attempted to re-define a value type.".to_string())),
                             NamedParameter(ref _value) => Err(Error::InvalidArguments(
                                 "Illegal operation: attempted to re-define a named parameter.".to_string())),
-                            List(ref function_signature) => handle_define_function(&function_signature, &elements[2])
+                            List(ref function_signature) =>
+                                handle_define_private_function(&function_signature, &elements[2], env)
+                        }
+                    }
+                },
+                "define-public" => {
+                    if elements.len() != 3 {
+                        Err(Error::InvalidArguments("(define-public ...) requires 2 arguments".to_string()))
+                    } else {
+                        if let List(ref function_signature) =  elements[1] {
+                            handle_define_public_function(&function_signature, &elements[2], env)
+                        } else {
+                            Err(Error::InvalidArguments(
+                                "Illegal operation: attempted to define-public a non-function.".to_string()))
                         }
                     }
                 },
@@ -120,7 +130,7 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                     if elements.len() != 4 {
                         Err(Error::InvalidArguments("(define-map ...) requires 3 arguments".to_string()))
                     } else {
-                        handle_define_map(&elements[1], &elements[2], &elements[3])
+                        handle_define_map(&elements[1], &elements[2], &elements[3], env)
                     }
                 }
                 _ => Ok(DefineResult::NoDefine)

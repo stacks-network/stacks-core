@@ -1,15 +1,15 @@
-use super::super::types::{Value};
-use super::super::representations::SymbolicExpression;
-use super::super::{InterpreterResult,eval,Context,Environment};
-use super::super::errors::Error;
-use super::super::database::DataMap;
+use vm::types::{Value};
+use vm::representations::SymbolicExpression;
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::database::DataMap;
+use vm::{eval, LocalContext, Environment};
 
-fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> Result<&'a mut DataMap, Error> {
+fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> Result<&'a mut DataMap> {
     let map_name = match map_arg {
         SymbolicExpression::Atom(value) => Ok(value),
         _ => Err(Error::InvalidArguments("First argument in data functions must be the map name".to_string()))
     }?;
-    match env.database.get_data_map(map_name) {
+    match env.database.get_mut_data_map(map_name) {
         Some(map) => Ok(map),
         None => Err(Error::Undefined(format!("No such map named: {}", map_name)))
     }
@@ -17,7 +17,7 @@ fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> R
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],
                            env: &mut Environment,
-                           context: &Context) -> InterpreterResult {
+                           context: &LocalContext) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     if args.len() != 2 {
@@ -26,14 +26,22 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
 
     let key = eval(&args[1], env, context)?;
 
-    let map = obtain_map(&args[0], env)?;
+    let map_name = match &args[0] {
+        SymbolicExpression::Atom(value) => Ok(value),
+        _ => Err(Error::InvalidArguments("First argument in data functions must be the map name".to_string()))
+    }?;
+
+    let map = match env.database.get_data_map(&map_name) {
+        Some(map) => Ok(map),
+        None => Err(Error::Undefined(format!("No such map named: {}", map_name)))
+    }?;
 
     map.fetch_entry(&key)
 }
 
 pub fn special_set_entry(args: &[SymbolicExpression],
                          env: &mut Environment,
-                         context: &Context) -> InterpreterResult {
+                         context: &LocalContext) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     // arg2 -> value
@@ -54,7 +62,7 @@ pub fn special_set_entry(args: &[SymbolicExpression],
 
 pub fn special_insert_entry(args: &[SymbolicExpression],
                             env: &mut Environment,
-                            context: &Context) -> InterpreterResult {
+                            context: &LocalContext) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     // arg2 -> value
@@ -72,7 +80,7 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
 
 pub fn special_delete_entry(args: &[SymbolicExpression],
                             env: &mut Environment,
-                            context: &Context) -> InterpreterResult {
+                            context: &LocalContext) -> Result<Value> {
     // arg0 -> map name
     // arg1 -> key
     if args.len() != 2 {

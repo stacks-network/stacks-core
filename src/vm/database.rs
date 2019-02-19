@@ -1,18 +1,18 @@
 use std::collections::HashMap;
 
-use vm::errors::Error;
-use vm::InterpreterResult;
+use vm::errors::{Error, InterpreterResult as Result};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 pub trait DataMap {
-    fn fetch_entry(&self, key: &Value) -> InterpreterResult;
-    fn set_entry(&mut self, key: Value, value: Value) -> Result<(), Error>;
-    fn insert_entry(&mut self, key: Value, value: Value) -> InterpreterResult;
-    fn delete_entry(&mut self, key: &Value) -> InterpreterResult;
+    fn fetch_entry(&self, key: &Value) -> Result<Value>;
+    fn set_entry(&mut self, key: Value, value: Value) -> Result<()>;
+    fn insert_entry(&mut self, key: Value, value: Value) -> Result<Value>;
+    fn delete_entry(&mut self, key: &Value) -> Result<Value>;
 }
 
 pub trait ContractDatabase {
-    fn get_data_map(&mut self, map_name: &str) -> Option<&mut DataMap>;
+    fn get_data_map(&mut self, map_name: &str) -> Option<&DataMap>;
+    fn get_mut_data_map(&mut self, map_name: &str) -> Option<&mut DataMap>;
     fn create_map(&mut self, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature);
 }
 
@@ -31,10 +31,8 @@ impl MemoryDataMap {
                value_type: TupleTypeSignature) -> MemoryDataMap {
         MemoryDataMap {
             map: HashMap::new(),
-            key_type: TypeSignature::new(
-                AtomTypeIdentifier::TupleType(key_type), 0),
-            value_type: TypeSignature::new(
-                AtomTypeIdentifier::TupleType(value_type), 0)
+            key_type: TypeSignature::new_atom(AtomTypeIdentifier::TupleType(key_type)),
+            value_type: TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type))
         }
     }
 }
@@ -46,8 +44,16 @@ impl MemoryContractDatabase {
 }
 
 impl ContractDatabase for MemoryContractDatabase {
-    fn get_data_map(&mut self, map_name: &str) -> Option<&mut DataMap> {
+    fn get_mut_data_map(&mut self, map_name: &str) -> Option<&mut DataMap> {
         if let Some(data_map) = self.maps.get_mut(map_name) {
+            Some(data_map)
+        } else {
+            None
+        }
+    }
+
+    fn get_data_map(&mut self, map_name: &str) -> Option<&DataMap> {
+        if let Some(data_map) = self.maps.get(map_name) {
             Some(data_map)
         } else {
             None
@@ -65,9 +71,8 @@ impl DataMap for MemoryDataMap {
     //   however, they should really be specified in the functions/database.rs file, whereas
     //   this file should really just be speccing out the database connection/requirement.
 
-    fn fetch_entry(&self, key: &Value) -> InterpreterResult {
-        let key_type = TypeSignature::type_of(key);
-        if self.key_type != key_type {
+    fn fetch_entry(&self, key: &Value) -> Result<Value> {
+        if !self.key_type.admits(key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), (*key).clone()))
         }
         if let Some(value) = self.map.get(key) {
@@ -77,26 +82,22 @@ impl DataMap for MemoryDataMap {
         }
     }
 
-    fn set_entry(&mut self, key: Value, value: Value) -> Result<(), Error> {
-        let key_type = TypeSignature::type_of(&key);
-        if self.key_type != key_type {
+    fn set_entry(&mut self, key: Value, value: Value) -> Result<()> {
+        if !self.key_type.admits(&key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), key))
         }
-        let value_type = TypeSignature::type_of(&value);
-        if self.value_type != value_type {
+        if !self.value_type.admits(&value) {
             return Err(Error::TypeError(format!("{:?}", self.value_type), value))
         }
         self.map.insert(key, value);
         Ok(())
     }
 
-    fn insert_entry(&mut self, key: Value, value: Value) -> InterpreterResult {
-        let key_type = TypeSignature::type_of(&key);
-        if self.key_type != key_type {
+    fn insert_entry(&mut self, key: Value, value: Value) -> Result<Value> {
+        if !self.key_type.admits(&key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), key))
         }
-        let value_type = TypeSignature::type_of(&value);
-        if self.value_type != value_type {
+        if !self.value_type.admits(&value) {
             return Err(Error::TypeError(format!("{:?}", self.value_type), value))
         }
         if self.map.contains_key(&key) {
@@ -107,9 +108,8 @@ impl DataMap for MemoryDataMap {
         }
     }
 
-    fn delete_entry(&mut self, key: &Value) -> InterpreterResult {
-        let key_type = TypeSignature::type_of(key);
-        if self.key_type != key_type {
+    fn delete_entry(&mut self, key: &Value) -> Result<Value> {
+        if !self.key_type.admits(key) {
             return Err(Error::TypeError(format!("{:?}", self.key_type), (*key).clone()))
         }
         if let Some(_value) = self.map.remove(key) {
