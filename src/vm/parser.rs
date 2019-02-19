@@ -152,8 +152,6 @@ pub fn parse_lexed(mut input: Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
 
     let mut output_list = Vec::new();
 
-    // TODO: we don't need to be cloning here, we can just seize item ownership from the
-    //    input iterator by popping.
     for item in input.drain(..) {
         match item {
             LexItem::LeftParen => {
