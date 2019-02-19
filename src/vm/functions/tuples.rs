@@ -1,11 +1,10 @@
-use super::InterpreterResult;
-use super::super::errors::Error;
-use super::super::types::{Value, TupleData};
-use super::super::representations::SymbolicExpression;
-use super::super::representations::SymbolicExpression::{NamedParameter};
-use super::super::{Context,Environment,eval};
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::types::{Value};
+use vm::representations::SymbolicExpression;
+use vm::representations::SymbolicExpression::{NamedParameter};
+use vm::{LocalContext, Environment, eval};
 
-pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     // (tuple #arg-name value
     //        #arg-name value ...)
     if args.len() % 2 != 0 {
@@ -13,9 +12,9 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
     }
     let num_pairs = args.len() / 2;
     // turn list into pairs.
-    let eval_result: Result<Vec<_>, Error> = (0..num_pairs).map(|i| {
+    let eval_result: Result<Vec<_>> = (0..num_pairs).map(|i| {
         let arg_name = match args[i * 2] {
-            NamedParameter(ref name) => Ok(name.as_str()),
+            NamedParameter(ref name) => Ok(name.clone()),
             _ => Err(Error::InvalidArguments("Named arguments must be supplied as #name-arg".to_string()))
         }?;
         let value = eval(&args[i * 2 + 1], env, context)?;
@@ -24,11 +23,10 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
 
     let evaled_pairs = eval_result?;
 
-    let tuple_data = TupleData::from_data(&evaled_pairs)?;
-    Ok(Value::Tuple(tuple_data))
+    Value::tuple_from_data(evaled_pairs)
 }
 
-pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     // (get arg-name (tuple ...))
     //    if the tuple argument is 'null, then return 'null.
     //  NOTE:  a tuple field value itself may _never_ be 'null

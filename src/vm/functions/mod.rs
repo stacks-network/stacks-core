@@ -5,15 +5,14 @@ mod boolean;
 mod database;
 mod tuples;
 
-use vm::types::{Value, CallableType};
+use vm::errors::{Error, InterpreterResult as Result};
+use vm::types::Value;
+use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
-use vm::{Context,Environment};
-use vm::InterpreterResult;
-use vm::errors::Error;
-use vm::eval;
+use vm::{LocalContext, Environment, eval};
 
 
-fn native_eq(args: &[Value]) -> InterpreterResult {
+fn native_eq(args: &[Value]) -> Result<Value> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
@@ -26,14 +25,14 @@ fn native_eq(args: &[Value]) -> InterpreterResult {
     }
 }
 
-fn native_begin(args: &[Value]) -> InterpreterResult {
+fn native_begin(args: &[Value]) -> Result<Value> {
     match args.last() {
         Some(v) => Ok(v.clone()),
         None => Ok(Value::Void)
     }
 }
 
-fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if !(args.len() == 2 || args.len() == 3) {
         return Err(Error::InvalidArguments("Wrong number of arguments to if (expect 2 or 3)".to_string()))
     }
@@ -55,7 +54,9 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Cont
     }
 }
 
-fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Context) -> InterpreterResult {
+fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    use vm::is_reserved;
+
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1 => body
@@ -63,37 +64,35 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Con
         return Err(Error::InvalidArguments("Wrong number of arguments to let (expect 2)".to_string()))
     }
     // create a new context.
-    let mut inner_context = context.extend();
+    let mut inner_context = context.extend()?;
 
     if let SymbolicExpression::List(ref bindings) = args[0] {
-        let bind_result = bindings.iter().try_for_each(|binding| {
+        for binding in bindings.iter() {
             if let SymbolicExpression::List(ref binding_exps) = *binding {
                 if binding_exps.len() != 2 {
-                    Err(Error::Generic("Passed non 2-length list as binding in let expression".to_string()))
+                    return Err(Error::Generic("Passed non 2-length list as binding in let expression".to_string()))
                 } else {
                     if let SymbolicExpression::Atom(ref var_name) = binding_exps[0] {
+                        if is_reserved(var_name) {
+                            return Err(Error::ReservedName(var_name.to_string()))
+                        }
                         let value = eval(&binding_exps[1], env, context)?;
                         match inner_context.variables.insert((*var_name).clone(), value) {
-                            Some(_val) => Err(Error::Generic("Multiply defined binding in let expression".to_string())),
-                            _ => Ok(())
+                            Some(_val) => return Err(Error::VariableDefinedMultipleTimes(var_name.to_string())),
+                            _ => continue
                         }
                     } else {
-                        Err(Error::Generic("Passed non-atomic variable name to let expression binding".to_string()))
+                        return Err(Error::InvalidArguments("Passed non-atomic variable name to let expression binding".to_string()))
                     }
                 }
             } else {
-                Err(Error::Generic("Passed non-list as binding in let expression.".to_string()))
+                return Err(Error::InvalidArguments("Passed non-list as binding in let expression.".to_string()))
             }
-        });
-        // if there was an error during binding, return error.
-        if let Err(e) = bind_result {
-            Err(e)
-        } else {
-            // otherwise, evaluate the let-body
-            eval(&args[1], env, &inner_context)
         }
+        // evaluate the let-body
+        eval(&args[1], env, &inner_context)
     } else {
-        Err(Error::Generic("Passed non-list as second argument to let expression.".to_string()))
+        Err(Error::InvalidArguments("Passed non-list as second argument to let expression.".to_string()))
     }
 }
 
