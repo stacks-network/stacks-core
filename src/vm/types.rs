@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 use std::fmt;
 use std::collections::BTreeMap;
 
@@ -8,12 +9,12 @@ use util::hash;
 
 const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TupleTypeSignature {
     type_map: BTreeMap<String, TypeSignature>
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AtomTypeIdentifier {
     VoidType,
     IntType,
@@ -23,13 +24,13 @@ pub enum AtomTypeIdentifier {
     TupleType(TupleTypeSignature)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ListTypeData {
     max_len: u32,
     dimension: u8
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeSignature {
     atomic_type: AtomTypeIdentifier,
     list_dimensions: Option<ListTypeData>,
@@ -37,7 +38,7 @@ pub struct TypeSignature {
     //       high dimensional lists are _expensive_ --- use lists of tuples!
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Eq)]
 pub struct TupleData {
     type_signature: TupleTypeSignature,
     data_map: BTreeMap<String, Value>
@@ -48,34 +49,44 @@ struct BuffData {
     data: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Eq, Hash)]
+#[derive(Debug, Clone, Eq)]
+pub struct ListData {
+    pub data: Vec<Value>,
+    type_signature: TypeSignature
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Value {
     Void,
     Int(i128),
     Bool(bool),
     Buffer(BuffData),
-    List(Vec<Value>, TypeSignature),
+    List(ListData),
     Principal(u8, [u8; 20]), // a principal is a version byte + hash160 (20 bytes)
     Tuple(TupleData)
 }
 
+impl PartialEq for ListData {
+    fn eq(&self, other: &ListData) -> bool {
+        self.data == other.data
+    }
+}
 
-impl PartialEq for Value {
-    fn eq(&self, other: &Value) -> bool {
-        match (self, other) {
-            (Value::Void, Value::Void) => { true },
-            (Value::Int(x), Value::Int(y)) => { x == y },
-            (Value::Bool(x), Value::Bool(y)) => { x == y },
-            (Value::Buffer(ref x), Value::Buffer(ref y)) => { x.data == y.data },
-            (Value::List(ref x_data, _), Value::List(ref y_data, _)) => { x_data == y_data },
-            (Value::Principal(x_version, ref x_data), Value::Principal(y_version, ref y_data)) => {
-                x_version == y_version && x_data == y_data
-            },
-            (Value::Tuple(ref x_data), Value::Tuple(ref y_data)) => {
-                x_data.data_map == y_data.data_map
-            },
-            _ => false
-        }
+impl Hash for ListData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.data.hash(state);
+    }
+}
+
+impl PartialEq for TupleData {
+    fn eq(&self, other: &TupleData) -> bool {
+        self.data_map == other.data_map
+    }
+}
+
+impl Hash for TupleData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.data_map.hash(state);
     }
 }
 
@@ -94,7 +105,7 @@ impl Value {
         if type_sig.size()? > MAX_VALUE_SIZE {
             return Err(Error::ValueTooLarge)
         }
-        Ok(Value::List(list_data, type_sig))
+        Ok(Value::List(ListData { data: list_data, type_signature: type_sig }))
     }
 
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
@@ -124,7 +135,7 @@ impl Value {
             Value::Principal(_,_) => AtomTypeIdentifier::PrincipalType.size(),
             Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
             Value::Tuple(ref tuple_data) => tuple_data.size(),
-            Value::List(ref _v, ref type_signature) => type_signature.size()
+            Value::List(ref list_data) => list_data.type_signature.size()
         }
     }
 
@@ -145,9 +156,9 @@ impl fmt::Display for Value {
                 };
                 write!(f, "{}", c32_str)
             },
-            Value::List(values, _type) => {
+            Value::List(list_data) => {
                 write!(f, "( ")?;
-                for v in values.iter() {
+                for v in list_data.data.iter() {
                     write!(f, "{} ", v)?;
                 }
                 write!(f, ")")
@@ -398,8 +409,8 @@ impl TypeSignature {
     }
 
     pub fn type_of(x: &Value) -> TypeSignature {
-        if let Value::List(_, type_signature) = x {
-            type_signature.clone()
+        if let Value::List(list_data) = x {
+            list_data.type_signature.clone()
         } else {
             let atom = match x {
                 Value::Void => AtomTypeIdentifier::VoidType,
@@ -409,7 +420,7 @@ impl TypeSignature {
                 Value::Buffer(buff_data) => AtomTypeIdentifier::BufferType(buff_data.data.len() as u32),
                 Value::Tuple(v) => AtomTypeIdentifier::TupleType(
                     v.type_signature.clone()),
-                Value::List(_,_) => panic!("Unreachable code")
+                Value::List(_) => panic!("Unreachable code")
             };
 
             TypeSignature::new_atom(atom)

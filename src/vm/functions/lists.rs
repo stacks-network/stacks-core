@@ -17,7 +17,7 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &L
         let list = eval(&args[1], env, context)?;
         let initial = eval(&args[2], env, context)?;
         match list {
-            Value::List(vector, _) => vector.iter().try_fold(
+            Value::List(list_data) => list_data.data.iter().try_fold(
                 initial,
                 |acc, x| {
                     let argument = [ AtomValue(x.clone()), AtomValue(acc) ];
@@ -39,8 +39,8 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
 
         let list = eval(&args[1], env, context)?;
         match list {
-            Value::List(vector, _) => {
-                let result: Result<Vec<_>> = vector.iter().map(|x| {
+            Value::List(list_data) => {
+                let result: Result<Vec<_>> = list_data.data.iter().map(|x| {
                     let argument = [ AtomValue(x.clone()) ];
                     apply(&function, &argument, env, context)
                 }).collect();

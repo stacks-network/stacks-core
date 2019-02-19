@@ -34,29 +34,22 @@ fn test_simple_tea_shop() {
               (consume 3))
         ";
 
-    if let Ok(type_sig) = TypeSignature::new_list(AtomTypeIdentifier::BoolType, 12, 1) {
-        let expected = Value::List(
-            vec![
-                Value::Bool(true),
-                Value::Bool(true),
-                Value::Bool(true),
-                Value::Bool(true),
-                Value::Bool(true),
-                Value::Bool(true),
-                Value::Bool(false),
-                Value::Bool(true),
-                Value::Bool(true),
-                Value::Bool(false),
-                Value::Bool(false),
-            Value::Bool(false)],
-            type_sig
-        );
-        
-        assert_eq!(Ok(expected), execute(test1));
-    } else {
-        panic!("Error in type construction")
-    }
+    let expected = Value::list_from(vec![
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(false),
+        Value::Bool(false)],
+    );
 
+    assert_eq!(expected, execute(test1));
 }
 
 #[test]
