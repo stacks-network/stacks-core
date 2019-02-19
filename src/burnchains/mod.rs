@@ -54,10 +54,24 @@ impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 
 pub const BLOCKSTACK_MAGIC_MAINNET : MagicBytes = MagicBytes([105, 100]);  // 'id'
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct BurnQuotaConfig {
+    pub inc: u64,
+    pub dec_num: u64,
+    pub dec_den: u64
+}
+
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub enum BurnchainInputType {
     BitcoinInput,
     BitcoinSegwitP2SHInput,
+
+    // TODO: expand this as more burnchains are supported
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub enum ConsensusHashLifetime {
+    Bitcoin = 24
 
     // TODO: expand this as more burnchains are supported
 }
@@ -105,14 +119,19 @@ pub struct BurnchainBlock<A, K> {
     pub txs: Vec<BurnchainTransaction<A, K>>
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Burnchain {
-    chain_name: String,
-    network_name: String,
-    working_dir: String
+    pub chain_name: String,
+    pub network_name: String,
+    pub working_dir: String,
+    pub burn_quota : BurnQuotaConfig,
+    pub consensus_hash_lifetime: u32
 }
 
 #[derive(Debug)]
 pub enum Error {
+    /// Unsupported burn chain
+    UnsupportedBurnchain,
     /// Bitcoin-related error
     Bitcoin(btc_error),
     /// burn database error 
@@ -134,6 +153,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            Error::UnsupportedBurnchain => f.write_str(error::Error::description(self)),
             Error::Bitcoin(ref btce) => fmt::Display::fmt(btce, f),
             Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
             Error::DownloadError(ref btce) => fmt::Display::fmt(btce, f),
@@ -149,6 +169,7 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn cause(&self) -> Option<&error::Error> {
         match *self {
+            Error::UnsupportedBurnchain => None,
             Error::Bitcoin(ref e) => Some(e),
             Error::DBError(ref e) => Some(e),
             Error::DownloadError(ref e) => Some(e),
@@ -162,6 +183,7 @@ impl error::Error for Error {
 
     fn description(&self) -> &str {
         match *self {
+            Error::UnsupportedBurnchain => "Unsupported burnchain",
             Error::Bitcoin(ref e) => e.description(),
             Error::DBError(ref e) => e.description(),
             Error::DownloadError(ref e) => e.description(),
