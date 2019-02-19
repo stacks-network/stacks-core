@@ -78,7 +78,7 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
                         }
                         let value = eval(&binding_exps[1], env, context)?;
                         match inner_context.variables.insert((*var_name).clone(), value) {
-                            Some(_val) => return Err(Error::MultiplyDefined(var_name.to_string())),
+                            Some(_val) => return Err(Error::VariableDefinedMultipleTimes(var_name.to_string())),
                             _ => continue
                         }
                     } else {

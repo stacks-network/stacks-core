@@ -171,3 +171,38 @@ pub fn execute(program: &str) -> Result<Value> {
     let parsed = parser::parse(program)?;
     eval_all(&parsed, &mut *db_instance, &mut global_context)
 }
+
+
+mod test {
+    #[test]
+    fn test_simple_user_function() {
+        //
+        //  test program:
+        //  (define (do_work x) (+ 5 x))
+        //  (define a 59)
+        //  (do_work a)
+        //
+
+        let content = [ SymbolicExpression::List(
+            Box::new([ SymbolicExpression::Atom("do_work".to_string()),
+                       SymbolicExpression::Atom("a".to_string()) ])) ];
+
+        let func_body = SymbolicExpression::List(
+            Box::new([ SymbolicExpression::Atom("+".to_string()),
+                       SymbolicExpression::AtomValue(Value::Int(5)),
+                       SymbolicExpression::Atom("x".to_string())]));
+
+        let func_args = vec!["x".to_string()];
+        let user_function = PrivateFunction::new(func_args, func_body);
+
+        let context = LocalContext::new();
+        let mut global_context = GlobalContext::new();
+        let mut db = MemoryContractDatabase::new();
+
+        global_context.variables.insert("a".to_string(), Value::Int(59));
+        global_context.functions.insert("do_work".to_string(), user_function);
+
+        let mut env = Environment::new(&global_context, &mut db);
+        assert_eq!(Ok(Value::Int(64)), eval(&content[0], &mut env, &context));
+    }
+}

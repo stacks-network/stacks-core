@@ -26,7 +26,7 @@ pub enum Error {
     BadSymbolicRepresentation(String),
     ReservedName(String),
     InterpreterError(String),
-    MultiplyDefined(String)
+    VariableDefinedMultipleTimes(String)
 }
 
 pub type InterpreterResult <R> = Result<R, Error>;

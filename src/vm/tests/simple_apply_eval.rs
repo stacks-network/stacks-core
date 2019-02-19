@@ -7,38 +7,6 @@ use vm::representations::SymbolicExpression;
 use vm::parser::parse;
 
 #[test]
-fn test_simple_user_function() {
-    //
-    //  test program:
-    //  (define (do_work x) (+ 5 x))
-    //  (define a 59)
-    //  (do_work a)
-    //
-
-    let content = [ SymbolicExpression::List(
-        Box::new([ SymbolicExpression::Atom("do_work".to_string()),
-                   SymbolicExpression::Atom("a".to_string()) ])) ];
-
-    let func_body = SymbolicExpression::List(
-        Box::new([ SymbolicExpression::Atom("+".to_string()),
-                   SymbolicExpression::AtomValue(Value::Int(5)),
-                   SymbolicExpression::Atom("x".to_string())]));
-
-    let func_args = vec!["x".to_string()];
-    let user_function = PrivateFunction::new(func_args, func_body);
-
-    let context = LocalContext::new();
-    let mut global_context = GlobalContext::new();
-    let mut db = MemoryContractDatabase::new();
-
-    global_context.variables.insert("a".to_string(), Value::Int(59));
-    global_context.functions.insert("do_work".to_string(), user_function);
-
-    let mut env = Environment::new(&global_context, &mut db);
-    assert_eq!(Ok(Value::Int(64)), eval(&content[0], &mut env, &context));
-}
-
-#[test]
 fn test_simple_let() {
     /*
       test program:
@@ -262,7 +230,7 @@ fn test_bad_lets() {
     let expectations: &[Result<Value, Error>] = &[
         Err(Error::ReservedName("tx-sender".to_string())),
         Err(Error::ReservedName("*".to_string())),
-        Err(Error::MultiplyDefined("a".to_string()))];
+        Err(Error::VariableDefinedMultipleTimes("a".to_string()))];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(*expectation, execute(program)));

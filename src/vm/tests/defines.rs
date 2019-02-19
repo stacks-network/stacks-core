@@ -39,7 +39,7 @@ fn test_bad_define_names() {
     assert_eq!(Err(Error::ReservedName("*".to_string())), execute(&test1));
     assert_eq!(Err(Error::InvalidArguments("Illegal operation: attempted to re-define a value type.".to_string())),
                execute(&test2));
-    assert_eq!(Err(Error::MultiplyDefined("foo".to_string())),
+    assert_eq!(Err(Error::VariableDefinedMultipleTimes("foo".to_string())),
                execute(&test3));
 }
 

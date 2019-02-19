@@ -54,7 +54,7 @@ impl PublicFunction {
                 return Err(Error::TypeError(format!("{:?}", type_sig), value.clone())) 
             }
             if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {
-                return Err(Error::MultiplyDefined(arg.clone()))
+                return Err(Error::VariableDefinedMultipleTimes(arg.clone()))
             }
         }
         eval(&self.body, env, &context)
@@ -74,7 +74,7 @@ impl PrivateFunction {
         let arg_iterator = self.arguments.iter().zip(args.iter());
         for (arg, value) in arg_iterator {
             if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {
-                return Err(Error::MultiplyDefined(arg.clone()))
+                return Err(Error::VariableDefinedMultipleTimes(arg.clone()))
             }
         }
         eval(&self.body, env, &context)

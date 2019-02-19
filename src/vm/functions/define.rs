@@ -19,7 +19,7 @@ fn check_legal_define(name: &str, global_context: &GlobalContext) -> Result<()> 
     if is_reserved(name) {
         Err(Error::ReservedName(name.to_string()))
     } else if global_context.variables.contains_key(name) || global_context.functions.contains_key(name) {
-        Err(Error::MultiplyDefined(name.to_string()))
+        Err(Error::VariableDefinedMultipleTimes(name.to_string()))
     } else {
         Ok(())
     }
