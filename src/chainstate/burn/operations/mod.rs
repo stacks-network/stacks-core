@@ -34,6 +34,7 @@ use chainstate::burn::db::Error as db_error;
 use chainstate::burn::db::DBConn;
 
 use burnchains::{Address, PublicKey, BurnchainHeaderHash, BurnchainTransaction};
+use burnchains::Burnchain;
 
 #[derive(Debug)]
 pub enum Error {
@@ -73,17 +74,58 @@ impl error::Error for Error {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum CheckResult {
+    BlockCommitOk,
+    BlockCommitPredatesGenesis,
+    BlockCommitBadEpoch,
+    BlockCommitNoLeaderKey,
+    BlockCommitLeaderKeyAlreadyUsed,
+    BlockCommitNoParent,
+    BlockCommitBadInput,
+
+    LeaderKeyOk,
+    LeaderKeyAlreadyRegistered,
+    LeaderKeyBadConsensusHash,
+
+    UserBurnSupportOk,
+    UserBurnSupportBadConsensusHash,
+    UserBurnSupportNoLeaderKey,
+}
+
+impl fmt::Display for CheckResult {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            CheckResult::BlockCommitOk => f.write_str("Block commit OK"),
+            CheckResult::BlockCommitPredatesGenesis => f.write_str("Block commit predates genesis block"),
+            CheckResult::BlockCommitBadEpoch => f.write_str("Block commit has a bad epoch value"),
+            CheckResult::BlockCommitNoLeaderKey => f.write_str("Block commit has no matching register key"),
+            CheckResult::BlockCommitLeaderKeyAlreadyUsed => f.write_str("Block commit register key already used"),
+            CheckResult::BlockCommitNoParent => f.write_str("Block commit parent does not exist"),
+            CheckResult::BlockCommitBadInput => f.write_str("Block commit tx input does not match register key tx output"),
+
+            CheckResult::LeaderKeyOk => f.write_str("Leader key OK"),
+            CheckResult::LeaderKeyAlreadyRegistered => f.write_str("Leader key has already been registered"),
+            CheckResult::LeaderKeyBadConsensusHash => f.write_str("Leader key has an invalid consensus hash"),
+
+            CheckResult::UserBurnSupportOk => f.write_str("User burn support OK"),
+            CheckResult::UserBurnSupportBadConsensusHash => f.write_str("User burn support has an invalid consensus hash"),
+            CheckResult::UserBurnSupportNoLeaderKey => f.write_str("User burn support does not match a registered leader key"),
+        }
+    }
+}
+
 pub trait BlockstackOperation<A, K> 
 where
     A: Address,
     K: PublicKey
 {
-    fn check(&self, conn: &DBConn) -> Result<bool, Error>;
+    fn check(&self, burnchain: &Burnchain, conn: &DBConn) -> Result<CheckResult, Error>;
     fn from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<Self, Error>
         where Self: Sized;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BlockstackOperationType<A, K>
 where
     A: Address,
