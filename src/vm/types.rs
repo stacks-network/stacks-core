@@ -45,7 +45,7 @@ pub struct TupleData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct BuffData {
+pub struct BuffData {
     data: Vec<u8>,
 }
 
@@ -114,7 +114,6 @@ impl Value {
         } else if buff_data.len() as i128 > MAX_VALUE_SIZE {
             Err(Error::ValueTooLarge)
         } else {
-            let length = buff_data.len() as u32;
             Ok(Value::Buffer(BuffData { data: buff_data }))
         }
     }

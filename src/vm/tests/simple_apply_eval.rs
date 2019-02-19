@@ -3,7 +3,6 @@ use vm::database::MemoryContractDatabase;
 use vm::errors::Error;
 use vm::{Value, LocalContext, GlobalContext, Environment};
 use vm::callables::PrivateFunction;
-use vm::representations::SymbolicExpression;
 use vm::parser::parse;
 
 #[test]

@@ -174,6 +174,12 @@ pub fn execute(program: &str) -> Result<Value> {
 
 
 mod test {
+    use vm::database::MemoryContractDatabase;
+    use vm::errors::Error;
+    use vm::{Value, LocalContext, GlobalContext, Environment, SymbolicExpression};
+    use vm::callables::PrivateFunction;
+    use vm::eval;
+
     #[test]
     fn test_simple_user_function() {
         //
@@ -182,7 +188,6 @@ mod test {
         //  (define a 59)
         //  (do_work a)
         //
-
         let content = [ SymbolicExpression::List(
             Box::new([ SymbolicExpression::Atom("do_work".to_string()),
                        SymbolicExpression::Atom("a".to_string()) ])) ];
