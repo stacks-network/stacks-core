@@ -70,15 +70,19 @@ def default_cache_off(response):
     return response
 
 def forwarded_get(url, params = None):
-    if params:
-        resp = requests.get(url, params = params, allow_redirects=False, timeout=PROXY_TIMEOUT)
-    else:
-        resp = requests.get(url, allow_redirects=False, timeout=PROXY_TIMEOUT)
+    try:
+        if params:
+            resp = requests.get(url, params = params, allow_redirects=False, timeout=PROXY_TIMEOUT)
+        else:
+            resp = requests.get(url, allow_redirects=False, timeout=PROXY_TIMEOUT)
+    except Exception as e:
+        log.error("Exception proxying request to blockstack core: {}".format(e))
+        return jsonify({'error': 'Server error processing request'}), 400
 
     try:
         log.debug("{} => {}".format(resp.url, resp.status_code))
 
-        if resp.headers['content-type'] and 'application/json' in resp.heads['content-type']:
+        if resp.headers['content-type'] and 'application/json' in resp.headers['content-type']:
             respData = jsonify(resp.json())
         else:
             respData = resp.text
@@ -87,7 +91,7 @@ def forwarded_get(url, params = None):
             return respData, resp.status_code, resp.headers['Location']
         else:
             return respData, resp.status_code
-    except:
+    except Exception as e:
         log.error("Bad response from API URL: {} \n {}".format(resp.url, resp.text))
         return jsonify({'error': 'Not found'}), resp.status_code
 
