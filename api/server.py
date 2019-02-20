@@ -39,6 +39,7 @@ from .parameters import parameters_required
 from .utils import get_api_calls, cache_control
 from .config import PUBLIC_NODE, PUBLIC_NODE_URL, BASE_API_URL, BASE_INDEXER_API_URL, DEFAULT_CACHE_TIMEOUT
 from .config import SEARCH_NODE_URL, SEARCH_API_ENDPOINT_ENABLED, API_BLOCKCHAIN_URL, API_PROFILE_URL
+from .config import PROXY_TIMEOUT
 
 # hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -70,9 +71,9 @@ def default_cache_off(response):
 
 def forwarded_get(url, params = None):
     if params:
-        resp = requests.get(url, params = params, allow_redirects=False)
+        resp = requests.get(url, params = params, allow_redirects=False, timeout=PROXY_TIMEOUT)
     else:
-        resp = requests.get(url, allow_redirects=False)
+        resp = requests.get(url, allow_redirects=False, timeout=PROXY_TIMEOUT)
 
     try:
         log.debug("{} => {}".format(resp.url, resp.status_code))
@@ -104,7 +105,7 @@ def search_people():
     search_url = SEARCH_NODE_URL + '/search'
 
     try:
-        resp = requests.get(url=search_url, params={'query': query})
+        resp = requests.get(url=search_url, params={'query': query}, timeout=PROXY_TIMEOUT)
     except (RequestsConnectionError, RequestsTimeout) as e:
         raise InternalProcessingError()
 
@@ -181,7 +182,7 @@ def catch_all_post(path):
 
     API_URL = BASE_API_URL + '/' + path
 
-    resp = requests.post(API_URL, data=requests.data)
+    resp = requests.post(API_URL, data=requests.data, timeout=PROXY_TIMEOUT)
 
     return jsonify(resp.json()), 200
 
