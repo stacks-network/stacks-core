@@ -61,4 +61,8 @@ BSK_API_TMPLTDIR=/src/blockstack/api/templates
 #  fetching index file dumps from /v1/index_files/blockchain and /v1/index_files/profiles
 BSK_API_BLOCKCHAIN_URL="https://storage.googleapis.com/blockstack-search_indexer_data/blockchain_data.json"
 BSK_API_PROFILE_URL="https://storage.googleapis.com/blockstack-search_indexer_data/profile_data.json"
+
+# Float that sets the timeout for requests getting proxied to blockstack-core
+BSK_SEARCH_API_TIMEOUT = 10
+
 ```

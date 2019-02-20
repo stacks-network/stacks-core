@@ -73,6 +73,9 @@ SEARCH_NODE_URL = os.getenv('SEARCH_NODE_URL', 'https://search.example.org')
 # SEARCH_DEFAULT_LIMIT sets the number of returns per call
 SEARCH_DEFAULT_LIMIT = int(os.getenv('SEARCH_DEFAULT_LIMIT', '50'))
 
+# sets the timeout for requests getting proxied to blockstack-core
+PROXY_TIMEOUT = float(os.getenv('BSK_SEARCH_API_TIMEOUT', '10'))
+
 # Control response to /v1/index_files
 API_BLOCKCHAIN_URL = os.getenv('BSK_API_BLOCKCHAIN_URL', '')
 API_PROFILE_URL = os.getenv('BSK_API_PROFILE_URL', '')
