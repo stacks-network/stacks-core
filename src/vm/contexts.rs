@@ -28,6 +28,7 @@ impl <'a> Environment <'a> {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct GlobalContext {
     pub variables: HashMap<String, Value>,
     pub functions: HashMap<String, DefinedFunction>,

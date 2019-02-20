@@ -12,6 +12,12 @@ pub struct Contract {
 }
 
 impl Contract {
+    pub fn new(db: Box<ContractDatabase>, global_context: GlobalContext) -> Contract {
+        Contract {
+            db: db,
+            global_context: global_context }
+    }
+
     pub fn make_in_memory_contract(contract: &str) -> Result<Contract> {
         let parsed: Vec<_> = parser::parse(contract)?;
         let mut global_context = GlobalContext::new();

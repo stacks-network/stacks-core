@@ -9,12 +9,12 @@ use util::hash;
 
 const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
     type_map: BTreeMap<String, TypeSignature>
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AtomTypeIdentifier {
     VoidType,
     IntType,
@@ -24,13 +24,13 @@ pub enum AtomTypeIdentifier {
     TupleType(TupleTypeSignature)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ListTypeData {
     max_len: u32,
     dimension: u8
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TypeSignature {
     atomic_type: AtomTypeIdentifier,
     list_dimensions: Option<ListTypeData>,
@@ -38,24 +38,24 @@ pub struct TypeSignature {
     //       high dimensional lists are _expensive_ --- use lists of tuples!
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
     type_signature: TupleTypeSignature,
     data_map: BTreeMap<String, Value>
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BuffData {
     data: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct ListData {
     pub data: Vec<Value>,
     type_signature: TypeSignature
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Value {
     Void,
     Int(i128),

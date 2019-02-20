@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use serde::{Serialize, Deserialize, Deserializer};
+
+use vm::contexts::GlobalContext;
+use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterResult as Result};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
@@ -11,17 +15,19 @@ pub trait DataMap {
 }
 
 pub trait ContractDatabase {
-    fn get_data_map(&mut self, map_name: &str) -> Option<&DataMap>;
+    fn get_data_map(&self, map_name: &str) -> Option<&DataMap>;
     fn get_mut_data_map(&mut self, map_name: &str) -> Option<&mut DataMap>;
     fn create_map(&mut self, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature);
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct MemoryDataMap {
     map: HashMap<Value, Value>,
     key_type: TypeSignature,
     value_type: TypeSignature
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct MemoryContractDatabase {
     maps: HashMap<String, MemoryDataMap>,
 }
@@ -52,7 +58,7 @@ impl ContractDatabase for MemoryContractDatabase {
         }
     }
 
-    fn get_data_map(&mut self, map_name: &str) -> Option<&DataMap> {
+    fn get_data_map(&self, map_name: &str) -> Option<&DataMap> {
         if let Some(data_map) = self.maps.get(map_name) {
             Some(data_map)
         } else {

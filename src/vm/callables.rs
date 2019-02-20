@@ -9,20 +9,20 @@ pub enum CallableType <'a> {
     SpecialFunction(&'a Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
 }
 
-#[derive(Clone)]
+#[derive(Clone,Serialize, Deserialize)]
 pub enum DefinedFunction {
     Public(PublicFunction),
     Private(PrivateFunction)
 }
 
-#[derive(Clone)]
+#[derive(Clone,Serialize, Deserialize)]
 pub struct PublicFunction {
     types: Vec<TypeSignature>,
     pub arguments: Vec<String>,
     pub body: SymbolicExpression
 }
 
-#[derive(Clone)]
+#[derive(Clone,Serialize, Deserialize)]
 pub struct PrivateFunction {
     pub arguments: Vec<String>,
     pub body: SymbolicExpression
