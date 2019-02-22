@@ -32,7 +32,7 @@ fn test_factorial_contract() {
         ";
 
 
-    let mut contract = Contract::make_in_memory_contract(contract_defn).unwrap();
+    let mut contract = Contract::initialize(contract_defn).unwrap();
 
     let tx_name = "compute";
     let arguments_to_test = [symbols_from_values(vec![Value::Int(1337)]),  
