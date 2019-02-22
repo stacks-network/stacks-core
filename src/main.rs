@@ -101,7 +101,7 @@ fn main() {
 
     if argv[1] == "init_contract" {
         use std::io;
-        use vm::super_context::{SuperContext, MemorySuperContext};
+        use vm::contexts::{MemoryGlobalContext, GlobalContext};
 
         if argv.len() < 5 {
             eprintln!("Usage: {} init_contract [vm-state.json] [contract-name] [program-file.scm]", argv[0]);
@@ -120,7 +120,7 @@ fn main() {
             },
             Err(_) => {
                 eprintln!("Could not open vm-state JSON file. Initializing empty VM state.");
-                MemorySuperContext::new()
+                MemoryGlobalContext::new()
             }
         };
 

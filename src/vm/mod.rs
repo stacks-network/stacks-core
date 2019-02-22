@@ -7,7 +7,7 @@ pub mod contracts;
 
 mod representations;
 mod parser;
-mod contexts;
+pub mod contexts;
 mod database;
 
 mod functions;
@@ -17,12 +17,11 @@ mod callables;
 #[cfg(test)]
 mod tests;
 
-pub mod super_context;
-
 use vm::types::Value;
 use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
-use vm::contexts::{GlobalContext, LocalContext, Environment};
+use vm::contexts::{ContractContext, LocalContext, Environment};
+use vm::contexts::{GlobalContext, MemoryGlobalContext};
 use vm::database::ContractDatabase;
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterResult as Result};
@@ -35,7 +34,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Res
     } else {
         if let Some(value) = context.lookup_variable(name) {
             Ok(value)
-        } else if let Some(value) = env.global_context.lookup_variable(name) {
+        } else if let Some(value) = env.contract_context.lookup_variable(name) {
             Ok(value)
         } else {
             Err(Error::Undefined(format!("No such variable found in context: {}", name)))
@@ -43,13 +42,13 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Res
     }
 }
 
-// Aaron:: todo -- now that global_context is an immutable reference when it's used here,
+// Aaron:: todo -- now that contract_context is an immutable reference when it's used here,
 //         I am pretty sure we can return a reference with lifetime 'a here.
 pub fn lookup_function<'a> (name: &str, env: &Environment)-> Result<CallableType<'a>> {
     if let Some(result) = functions::lookup_reserved_functions(name) {
         Ok(result)
     } else {
-        let user_function = env.global_context.lookup_function(name).ok_or(
+        let user_function = env.contract_context.lookup_function(name).ok_or(
             Error::Undefined(format!("No such function found in context: {}", name)))?;
         Ok(CallableType::UserFunction(user_function))
     }
@@ -127,24 +126,24 @@ pub fn is_reserved(name: &str) -> bool {
  */
 fn eval_all(expressions: &[SymbolicExpression],
             database: &mut ContractDatabase,
+            contract_context: &mut ContractContext,
             global_context: &mut GlobalContext) -> Result<Value> {
-
     let mut last_executed = None;
     let context = LocalContext::new();
 
     for exp in expressions {
         let try_define = {
             let mut env = Environment::new(
-                global_context, database);
+                global_context, contract_context, database);
 
             functions::define::evaluate_define(exp, &mut env)
         }?;
         match try_define {
             DefineResult::Variable(name, value) => {
-                global_context.variables.insert(name, value);
+                contract_context.variables.insert(name, value);
             },
             DefineResult::Function(name, value) => {
-                global_context.functions.insert(name, value);
+                contract_context.functions.insert(name, value);
             },
             DefineResult::Map(name, key_type, value_type) => {
                 database.create_map(&name, key_type, value_type);
@@ -152,7 +151,7 @@ fn eval_all(expressions: &[SymbolicExpression],
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
                 let mut env = Environment::new(
-                    global_context, database);
+                    global_context, contract_context, database);
                 last_executed = Some(eval(exp, &mut env, &context));
             }
         }
@@ -169,24 +168,25 @@ fn eval_all(expressions: &[SymbolicExpression],
  *  database.
  */
 pub fn execute(program: &str) -> Result<Value> {
-    let mut global_context = GlobalContext::new();
+    let mut contract_context = ContractContext::new();
     let mut db_instance = Box::new(database::MemoryContractDatabase::new());
+    let mut global_context = MemoryGlobalContext::new();
 
     let parsed = parser::parse(program)?;
-    eval_all(&parsed, &mut *db_instance, &mut global_context)
+    eval_all(&parsed, &mut *db_instance, &mut contract_context, &mut global_context)
 }
 
 
 #[cfg(test)]
 mod test {
+    use vm::database::MemoryContractDatabase;
+    use vm::errors::Error;
+    use vm::{Value, LocalContext, MemoryGlobalContext, ContractContext, Environment, SymbolicExpression};
+    use vm::callables::PrivateFunction;
+    use vm::eval;
+
     #[test]
     fn test_simple_user_function() {
-        use vm::database::MemoryContractDatabase;
-        use vm::errors::Error;
-        use vm::{Value, LocalContext, GlobalContext, Environment, SymbolicExpression};
-        use vm::callables::PrivateFunction;
-        use vm::eval;
-
         //
         //  test program:
         //  (define (do_work x) (+ 5 x))
@@ -206,13 +206,14 @@ mod test {
         let user_function = PrivateFunction::new(func_args, func_body);
 
         let context = LocalContext::new();
-        let mut global_context = GlobalContext::new();
+        let mut global_context = MemoryGlobalContext::new();
+        let mut contract_context = ContractContext::new();
         let mut db = MemoryContractDatabase::new();
 
-        global_context.variables.insert("a".to_string(), Value::Int(59));
-        global_context.functions.insert("do_work".to_string(), user_function);
+        contract_context.variables.insert("a".to_string(), Value::Int(59));
+        contract_context.functions.insert("do_work".to_string(), user_function);
 
-        let mut env = Environment::new(&global_context, &mut db);
+        let mut env = Environment::new(&mut global_context, &contract_context, &mut db);
         assert_eq!(Ok(Value::Int(64)), eval(&content[0], &mut env, &context));
     }
 }

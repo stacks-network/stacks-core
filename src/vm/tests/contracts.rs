@@ -1,5 +1,6 @@
 use vm::errors::Error;
 use vm::types::{Value};
+use vm::contexts::{MemoryGlobalContext};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 
@@ -32,6 +33,7 @@ fn test_factorial_contract() {
         ";
 
 
+    let mut global_context = MemoryGlobalContext::new();
     let mut contract = Contract::initialize(contract_defn).unwrap();
 
     let tx_name = "compute";
@@ -69,11 +71,13 @@ fn test_factorial_contract() {
                                                         contract.execute_transaction(
                                                             &sender,
                                                             &tx_name,
-                                                            arguments)));
+                                                            arguments,
+                                                            &mut global_context)));
 
     let err_result = contract.execute_transaction(&sender, &"init-factorial",
                                                   &symbols_from_values(vec![Value::Int(9000),
-                                                                            Value::Int(15)]));
+                                                                            Value::Int(15)]),
+                                                  &mut global_context);
     match err_result {
         Err(Error::Undefined(_)) => {},
         _ => {
@@ -83,7 +87,8 @@ fn test_factorial_contract() {
     }
 
     let err_result = contract.execute_transaction(&sender, &"compute",
-                                                  &symbols_from_values(vec![Value::Void]));
+                                                  &symbols_from_values(vec![Value::Void]),
+                                                  &mut global_context);
     match err_result {
         Err(Error::TypeError(_, _)) => {},
         _ => {

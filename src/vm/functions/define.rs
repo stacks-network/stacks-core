@@ -3,7 +3,7 @@ use vm::callables::{DefinedFunction, PublicFunction, PrivateFunction};
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpression::{Atom, AtomValue, List, NamedParameter};
 use vm::errors::{Error, InterpreterResult as Result};
-use vm::contexts::{GlobalContext, LocalContext, Environment};
+use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::eval;
 
 pub enum DefineResult {
@@ -13,12 +13,12 @@ pub enum DefineResult {
     NoDefine
 }
 
-fn check_legal_define(name: &str, global_context: &GlobalContext) -> Result<()> {
+fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<()> {
     use vm::is_reserved;
 
     if is_reserved(name) {
         Err(Error::ReservedName(name.to_string()))
-    } else if global_context.variables.contains_key(name) || global_context.functions.contains_key(name) {
+    } else if contract_context.variables.contains_key(name) || contract_context.functions.contains_key(name) {
         Err(Error::VariableDefinedMultipleTimes(name.to_string()))
     } else {
         Ok(())
@@ -27,7 +27,7 @@ fn check_legal_define(name: &str, global_context: &GlobalContext) -> Result<()> 
 
 fn handle_define_variable(variable: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     // is the variable name legal?
-    check_legal_define(variable, &env.global_context)?;
+    check_legal_define(variable, &env.contract_context)?;
     let context = LocalContext::new();
     let value = eval(expression, env, &context)?;
     Ok(DefineResult::Variable(variable.clone(), value))
@@ -49,7 +49,7 @@ fn handle_define_private_function(signature: &[SymbolicExpression],
     let (function_name, arg_names) = names.split_first()
         .ok_or(Error::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))?;
 
-    check_legal_define(&function_name, &env.global_context)?;
+    check_legal_define(&function_name, &env.contract_context)?;
     let function = PrivateFunction::new(
         arg_names.iter().map(|x| (*x).clone()).collect(),
         expression.clone());
@@ -68,7 +68,7 @@ fn handle_define_public_function(signature: &[SymbolicExpression],
         _ => Err(Error::InvalidArguments(format!("Invalid function name {:?}", function_symbol)))
     }?;
 
-    check_legal_define(&function_name, &env.global_context)?;
+    check_legal_define(&function_name, &env.contract_context)?;
 
     let arguments = parse_name_type_pairs(arg_symbols)?;
 
@@ -87,7 +87,7 @@ fn handle_define_map(map_name: &SymbolicExpression,
         _ => Err(Error::InvalidArguments("Non-name argument to define-map".to_string()))
     }?;
 
-    check_legal_define(&map_str, &env.global_context)?;
+    check_legal_define(&map_str, &env.contract_context)?;
 
     let key_type_signature = TupleTypeSignature::parse_name_type_pair_list(key_type)?;
     let value_type_signature = TupleTypeSignature::parse_name_type_pair_list(value_type)?;
