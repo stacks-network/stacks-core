@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use serde::{Serialize, Deserialize, Deserializer};
-
 use vm::contexts::GlobalContext;
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterResult as Result};

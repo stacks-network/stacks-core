@@ -15,6 +15,8 @@ mod variables;
 mod callables;
 mod tests;
 
+mod super_context;
+
 use vm::types::Value;
 use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
