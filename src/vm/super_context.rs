@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
 use vm::database::{MemoryContractDatabase};
-use vm::contexts::GlobalContext;
-use vm::{SymbolicExpression};
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterResult as Result};
-use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
+use vm::{SymbolicExpression, Value};
 
 pub trait SuperContext {
     fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()>;

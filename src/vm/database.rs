@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use vm::contexts::GlobalContext;
-use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterResult as Result};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 

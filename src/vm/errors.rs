@@ -13,7 +13,6 @@ pub enum Error {
     Arithmetic(String),
     ParseError(String),
     RecursionDetected,
-    ContractAlreadyInvoked,
     MaxStackDepthReached,
     MaxContextDepthReached,
     ListDimensionTooHigh,

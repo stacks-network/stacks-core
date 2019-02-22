@@ -1,6 +1,3 @@
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-
 use vm::{SymbolicExpression, Value, apply, eval_all};
 use vm::errors::{Error, InterpreterResult as Result};
 use vm::callables::CallableType;
@@ -16,12 +13,6 @@ pub struct Contract <T> where T: ContractDatabase {
 }
 
 impl Contract<MemoryContractDatabase> {
-    pub fn new(db: MemoryContractDatabase, global_context: GlobalContext) -> Contract<MemoryContractDatabase> {
-        Contract {
-            db: db,
-            global_context: global_context }
-    }
-
     pub fn initialize(contract: &str) -> Result<Contract<MemoryContractDatabase>> {
         let parsed: Vec<_> = parser::parse(contract)?;
         let mut global_context = GlobalContext::new();

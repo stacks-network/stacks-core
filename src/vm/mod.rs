@@ -13,9 +13,11 @@ mod database;
 mod functions;
 mod variables;
 mod callables;
+
+#[cfg(test)]
 mod tests;
 
-mod super_context;
+pub mod super_context;
 
 use vm::types::Value;
 use vm::callables::CallableType;
@@ -175,15 +177,16 @@ pub fn execute(program: &str) -> Result<Value> {
 }
 
 
+#[cfg(test)]
 mod test {
-    use vm::database::MemoryContractDatabase;
-    use vm::errors::Error;
-    use vm::{Value, LocalContext, GlobalContext, Environment, SymbolicExpression};
-    use vm::callables::PrivateFunction;
-    use vm::eval;
-
     #[test]
     fn test_simple_user_function() {
+        use vm::database::MemoryContractDatabase;
+        use vm::errors::Error;
+        use vm::{Value, LocalContext, GlobalContext, Environment, SymbolicExpression};
+        use vm::callables::PrivateFunction;
+        use vm::eval;
+
         //
         //  test program:
         //  (define (do_work x) (+ 5 x))
