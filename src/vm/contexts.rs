@@ -10,11 +10,16 @@ use vm::contracts::Contract;
 
 const MAX_CONTEXT_DEPTH: u16 = 256;
 
+
+// TODO:
+//    hide the environment's instance variables.
+//     we don't want many of these changing after instantiation.
 pub struct Environment <'a> {
     pub global_context: &'a mut GlobalContext,
     pub contract_context: &'a ContractContext,
     pub call_stack: CallStack,
-    pub database: &'a mut ContractDatabase
+    pub database: &'a mut ContractDatabase,
+    pub sender: Option<Value>
 }
 
 pub trait GlobalContext {
@@ -56,7 +61,8 @@ impl <'a> Environment <'a> {
             global_context: global_context,
             contract_context: contract_context,
             call_stack: CallStack::new(),
-            database: database
+            database: database,
+            sender: None
         }
     }
 }

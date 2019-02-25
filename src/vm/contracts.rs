@@ -53,7 +53,8 @@ impl Contract<MemoryContractDatabase> {
             }
 
             let mut local_context = LocalContext::new();
-            local_context.variables.insert(variables::TX_SENDER.to_string(), sender.clone());
+
+            env.sender = Some(sender.clone());
 
             apply(&CallableType::UserFunction(func), args, &mut env, &local_context)
         } else {

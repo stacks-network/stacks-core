@@ -2,6 +2,7 @@ use vm::types::{Value};
 use vm::representations::SymbolicExpression;
 use vm::errors::{Error, InterpreterResult as Result};
 use vm::database::DataMap;
+use vm::variables;
 use vm::{eval, LocalContext, Environment};
 
 fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> Result<&'a mut DataMap> {
@@ -13,6 +14,35 @@ fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> R
         Some(map) => Ok(map),
         None => Err(Error::Undefined(format!("No such map named: {}", map_name)))
     }
+}
+
+pub fn special_contract_call(args: &[SymbolicExpression],
+                         env: &mut Environment,
+                         context: &LocalContext) -> Result<Value> {
+    if args.len() < 2 {
+        return Err(Error::InvalidArguments(
+            "(contract-call ...) requires at least 2 arguments: the contract name and the public function name".to_string()))
+    }
+
+    let contract_name = match &args[0] {
+        SymbolicExpression::Atom(value) => Ok(value),
+        _ => Err(Error::InvalidArguments("First argument to (contract-call ...) must be contract name".to_string()))
+    }?;
+
+    let function_name = match &args[1] {
+        SymbolicExpression::Atom(value) => Ok(value),
+        _ => Err(Error::InvalidArguments("Second argument to (contract-call ...) must be function name".to_string()))
+    }?;
+
+    let rest_args = &args[2..];
+
+    let sender = env.sender.as_ref()
+        .ok_or(Error::InvalidArguments(
+            "No sender in current context. Did you attempt to (contract-call ...) from a non-contract aware environment?"
+                .to_string()))?;
+
+    env.global_context.execute_contract(
+        contract_name, sender, function_name, rest_args)
 }
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],

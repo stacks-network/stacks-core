@@ -124,6 +124,7 @@ pub fn lookup_reserved_functions<'a> (name: &str) -> Option<CallableType<'a>> {
         "tuple" => Some(CallableType::SpecialFunction(&tuples::tuple_cons)),
         "get" => Some(CallableType::SpecialFunction(&tuples::tuple_get)),
         "begin" => Some(CallableType::NativeFunction(&native_begin)),
+        "contract-call!" => Some(CallableType::SpecialFunction(&database::special_contract_call)),
         _ => None
     }
 }

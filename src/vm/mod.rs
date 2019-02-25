@@ -32,7 +32,9 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Res
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(Error::BadSymbolicRepresentation(format!("Unexpected variable name: {}", name)))
     } else {
-        if let Some(value) = context.lookup_variable(name) {
+        if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
+            Ok(value)
+        }else if let Some(value) = context.lookup_variable(name) {
             Ok(value)
         } else if let Some(value) = env.contract_context.lookup_variable(name) {
             Ok(value)
