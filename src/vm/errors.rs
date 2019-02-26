@@ -4,7 +4,6 @@ use vm::types::Value;
 
 #[derive(Debug,PartialEq)]
 pub enum Error {
-    Generic(String),
     NotImplemented,
     TypeError(String, Value),
     InvalidArguments(String),

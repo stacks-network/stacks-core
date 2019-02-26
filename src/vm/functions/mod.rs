@@ -70,7 +70,7 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
         for binding in bindings.iter() {
             if let SymbolicExpression::List(ref binding_exps) = *binding {
                 if binding_exps.len() != 2 {
-                    return Err(Error::Generic("Passed non 2-length list as binding in let expression".to_string()))
+                    return Err(Error::InvalidArguments("Passed non 2-length list as binding in let expression".to_string()))
                 } else {
                     if let SymbolicExpression::Atom(ref var_name) = binding_exps[0] {
                         if is_reserved(var_name) {

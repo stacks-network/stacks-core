@@ -27,7 +27,7 @@ impl Contract<MemoryContractDatabase> {
         let result = eval_all(&parsed, &mut db_instance, &mut contract_context, &mut global_context)?;
         match result {
             Value::Void => {},
-            _ => return Err(Error::Generic("Contract instantiation should return null.".to_string()))
+            _ => return Err(Error::InvalidArguments("Contract instantiation should return null.".to_string()))
         }
 
         Ok(Contract { db: db_instance,

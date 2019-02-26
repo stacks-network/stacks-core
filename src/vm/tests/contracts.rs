@@ -1,3 +1,4 @@
+use vm::execute;
 use vm::errors::Error;
 use vm::types::{Value};
 use vm::contexts::{MemoryGlobalContext, GlobalContext};
@@ -6,6 +7,72 @@ use vm::contracts::Contract;
 
 fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
     vec.drain(..).map(|value| SymbolicExpression::AtomValue(value)).collect()
+}
+
+#[test]
+fn test_simple_token_system() {
+    let tokens_contract = 
+        "(define-map tokens ((account principal)) ((balance int)))
+         (define-public (get-balance (account principal))
+            (let ((balance
+                  (get balance (fetch-entry tokens (tuple #account account)))))
+              (if (eq? balance 'null) 0 balance)))
+
+         (define (token-credit! account tokens)
+            (if (<= tokens 0)
+                'false
+                (let ((current-amount (get-balance account)))
+                  (begin
+                    (set-entry! tokens (tuple #account account)
+                                       (tuple #balance (+ tokens current-amount)))
+                    'true))))
+         (define-public (token-transfer (to principal) (amount int))
+          (let ((balance (get-balance tx-sender)))
+             (if (or (> amount balance) (<= amount 0))
+                 'false
+                 (begin
+                   (set-entry! tokens (tuple #account tx-sender)
+                                      (tuple #balance (- balance amount)))
+                   (token-credit! to amount)))))                     
+         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
+                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 100)
+                'null)";
+
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").unwrap();
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
+
+    let mut global_context = MemoryGlobalContext::new();
+
+    global_context.initialize_contract("tokens", tokens_contract).unwrap();
+
+    let expected = [Value::Bool(false),
+                    Value::Bool(true),
+                    Value::Bool(false)];
+    assert_eq!(
+        global_context.execute_contract("tokens", &p2, "token-transfer",
+                                        &symbols_from_values(vec![p1.clone(), Value::Int(110)])).unwrap(),
+        Value::Bool(false));
+    assert_eq!(
+        global_context.execute_contract("tokens", &p1, "token-transfer",
+                                        &symbols_from_values(vec![p2.clone(), Value::Int(9000)])).unwrap(),
+        Value::Bool(true));
+    assert_eq!(
+        global_context.execute_contract("tokens", &p1, "token-transfer",
+                                        &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap(),
+        Value::Bool(false));
+    assert_eq!( // send to self!
+        global_context.execute_contract("tokens", &p1, "token-transfer",
+                                        &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap(),
+        Value::Bool(true));
+    assert_eq!(
+        global_context.execute_contract("tokens", &p1, "get-balance",
+                                        &symbols_from_values(vec![p1.clone()])).unwrap(),
+        Value::Int(1000));
+    assert_eq!(
+        global_context.execute_contract("tokens", &p1, "get-balance",
+                                        &symbols_from_values(vec![p2.clone()])).unwrap(),
+        Value::Int(9100));
 }
 
 #[test]
@@ -133,6 +200,17 @@ fn test_factorial_contract() {
         _ => {
             println!("{:?}", err_result);
             assert!(false, "Attempt to call init-factorial should fail!")
+        }
+    }
+
+    let err_result = contract.execute_transaction(&Value::Void, &"compute",
+                                                  &symbols_from_values(vec![Value::Int(1337)]),
+                                                  &mut global_context);
+    match err_result {
+        Err(Error::BadSender(_)) => {},
+        _ => {
+            println!("{:?}", err_result);
+            assert!(false, "Attempt to call with bad sender should fail!")
         }
     }
 
