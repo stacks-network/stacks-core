@@ -31,7 +31,12 @@ pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Re
     use burnchains::bitcoin::indexer::BitcoinIndexerAddress;
     use burnchains::bitcoin::indexer::BitcoinIndexerPublicKey;
 
-    let mut burnchain = Burnchain::new(working_dir, &"bitcoin".to_string(), network_name);
+    let mut burnchain = Burnchain::new(working_dir, &"bitcoin".to_string(), network_name)
+        .map_err(|e| {
+            error!("Failed to instantiate burn chain driver for {}", network_name);
+            e
+        })?;
+
     let new_height_res = burnchain.sync::<BitcoinIndexer, BitcoinIndexerAddress, BitcoinIndexerPublicKey>();
     let new_height = new_height_res
         .map_err(|e| {

@@ -20,7 +20,9 @@
 /// This module contains the code for processing the burn chain state database
 
 pub mod db;
+pub mod distribution;
 pub mod operations;
+pub mod sortition;
 
 pub const CHAINSTATE_VERSION: &'static str = "21.0.0.0";
 pub const CONSENSUS_HASH_LIFETIME : u32 = 24;
@@ -31,10 +33,11 @@ use burnchains::PublicKey;
 use burnchains::BurnchainHeaderHash;
 use burnchains::BurnchainBlock;
 
-use sha2::Sha256;
 use util::hash::Hash160;
 
 use crypto::ripemd160::Ripemd160;
+use sha2::Sha256;
+use sha2::Digest;
 
 use rusqlite::Connection;
 use rusqlite::Transaction;
@@ -45,6 +48,7 @@ use self::db::Error as db_error;
 use core::SYSTEM_FORK_SET_VERSION;
 
 use util::log;
+use util::uint::Uint256;
 
 pub struct ConsensusHash([u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
@@ -56,22 +60,97 @@ impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
 impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
 
-impl BlockHeaderHash {
-    pub fn to_hash160(&self) -> Hash160 {
-        Hash160::from_sha256(&self.0)
-    }
-}
-
 pub struct VRFSeed([u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
 impl_array_hexstring_fmt!(VRFSeed);
 impl_byte_array_newtype!(VRFSeed, u8, 32);
+
+impl VRFSeed {
+    /// First-ever VRF seed from the genesis block.  It's all 0's
+    pub fn initial() -> VRFSeed {
+        VRFSeed::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()
+    }
+}
 
 // operations hash -- the sha256 hash of a sequence of transaction IDs 
 pub struct OpsHash([u8; 32]);
 impl_array_newtype!(OpsHash, u8, 32);
 impl_array_hexstring_fmt!(OpsHash);
 impl_byte_array_newtype!(OpsHash, u8, 32);
+
+// rolling hash of PoW outputs to mix with the VRF seed on sortition 
+pub struct SortitionHash([u8; 32]);
+impl_array_newtype!(SortitionHash, u8, 32);
+impl_array_hexstring_fmt!(SortitionHash);
+impl_byte_array_newtype!(SortitionHash, u8, 32);
+
+// a burnchain block snapshot
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlockSnapshot {
+    pub block_height: u64,
+    pub burn_header_hash: BurnchainHeaderHash,
+    pub consensus_hash: ConsensusHash,
+    pub ops_hash: OpsHash,
+    pub total_burn: u64,        // how many burn tokens have been destroyed since genesis
+    pub burn_quota: u64,        // how many burn tokens must be destroyed in this block for a sortition to occur
+    pub sortition: bool,        // whether or not a sortition happened in this block (will be false if either the burn quota isn't met, or no block commits occured)
+    pub sortition_hash: SortitionHash,  // rolling hash of the burn chain's block headers -- this gets mixed with the sortition VRF seed
+    pub winning_block_txid: Txid,       // txid of the leader block commit that won sortition.  Will all 0's if sortition is false. 
+    pub winning_block_burn_hash: BurnchainHeaderHash,   // burn header hash of the block containing the leader block commit that won sortition.  Will be all 0's if sortition is false.
+    pub canonical: bool         // whether or not this snapshot is on the canonical burn chain history
+}
+
+
+impl BlockHeaderHash {
+    pub fn to_hash160(&self) -> Hash160 {
+        Hash160::from_sha256(&self.0)
+    }
+}
+
+impl SortitionHash {
+    /// Calculate a new sortition hash from the given burn header hash
+    pub fn initial() -> SortitionHash {
+        SortitionHash([0u8; 32])
+    }
+
+    /// Mix in a burn blockchain header to make a new sortition hash
+    pub fn mix_burn_header(&self, burn_header_hash: &BurnchainHeaderHash) -> SortitionHash {
+        let mut sha2 = Sha256::new();
+        sha2.input(self.as_bytes());
+        sha2.input(burn_header_hash.as_bytes());
+        let mut ret = [0u8; 32];
+        ret.copy_from_slice(&sha2.result()[..]);
+        SortitionHash(ret)
+    }
+
+    /// Mix in a new VRF seed to make a new sortition hash.
+    pub fn mix_VRF_seed(&self, VRF_seed: &VRFSeed) -> SortitionHash {
+        let mut sha2 = Sha256::new();
+        sha2.input(self.as_bytes());
+        sha2.input(VRF_seed.as_bytes());
+        let mut ret = [0u8; 32];
+        ret.copy_from_slice(&sha2.result()[..]);
+        SortitionHash(ret)
+    }
+
+    /// Convert a SortitionHash into a (little-endian) uint256
+    pub fn to_uint256(&self) -> Uint256 {
+        let mut tmp = [0u64; 4];
+        for i in 0..4 {
+            let b = (self.0[8*i] as u64) +
+                    ((self.0[8*i + 1] as u64) << 8) +
+                    ((self.0[8*i + 2] as u64) << 16) +
+                    ((self.0[8*i + 3] as u64) << 24) +
+                    ((self.0[8*i + 4] as u64) << 32) +
+                    ((self.0[8*i + 5] as u64) << 40) +
+                    ((self.0[8*i + 6] as u64) << 48) +
+                    ((self.0[8*i + 7] as u64) << 56);
+
+            tmp[i] = b;
+        }
+        Uint256(tmp)
+    }
+}
 
 impl OpsHash {
     pub fn from_txids(txids: &Vec<Txid>) -> OpsHash {
@@ -149,7 +228,7 @@ impl ConsensusHash {
     {
         let mut i = 0;
         let mut prev_chs = vec![];
-        while block_height - (((1 as u64) << i) - 1) >= first_block_height {
+        while i < 64 && block_height - (((1 as u64) << i) - 1) >= first_block_height {
             let prev_block : u64 = block_height - (((1 as u64) << i) - 1);
             let prev_ch_opt = BurnDB::<A, K>::get_consensus_at(conn, prev_block)?;
             match prev_ch_opt {
@@ -168,6 +247,11 @@ impl ConsensusHash {
                 }
             };
         }
+        if i == 64 {
+            // won't happen for a long, long time 
+            panic!("FATAL ERROR: numeric overflow when calculating a consensus hash for {} from genesis block height {}", block_height, first_block_height);
+        }
+
         Ok(prev_chs)
     }
 
@@ -182,56 +266,6 @@ impl ConsensusHash {
     }
 }
 
-// a burnchain block snapshot
-#[derive(Debug, Clone, PartialEq)]
-pub struct BlockSnapshot {
-    pub block_height: u64,
-    pub burn_header_hash: BurnchainHeaderHash,
-    pub consensus_hash: ConsensusHash,
-    pub ops_hash: OpsHash,
-    pub total_burn: u64,
-    pub canonical: bool
-}
-
-impl BlockSnapshot {
-    /// Make a block snapshot from is block's data and the previous block
-    pub fn next_snapshot<A, K>(tx: &mut Transaction, first_block_height: u64, block: &BurnchainBlock<A, K>) -> Result<BlockSnapshot, db_error>
-    where
-        A: Address, 
-        K: PublicKey
-    {
-        let txids : Vec<Txid> = block.txs.iter()
-                                         .map(|tx| tx.txid.clone())
-                                         .collect();
-    
-        let block_burn_total = BurnDB::<A, K>::get_block_burn_amount(tx, block.block_height)?;
-        let last_block_snapshot_opt = BurnDB::<A, K>::get_block_snapshot(tx, block.block_height - 1)?;
-
-        let chain_burn_total = 
-            match last_block_snapshot_opt {
-                Some(prev_snapshot) => prev_snapshot.total_burn,
-                None => 0
-            };
-       
-        if block_burn_total.checked_add(chain_burn_total).is_none() {
-            panic!("FATAL ERROR burn total overflow ({} + {})", block_burn_total, chain_burn_total);
-        }
-
-        let total_burn = block_burn_total + chain_burn_total;
-
-        let ops_hash = OpsHash::from_txids(&txids);
-        let ch = ConsensusHash::from_block_data::<A, K>(tx, &ops_hash, block.block_height, first_block_height, total_burn)?;
-
-        Ok(BlockSnapshot {
-            block_height: block.block_height,
-            burn_header_hash: block.block_hash.clone(),
-            consensus_hash: ch,
-            ops_hash: ops_hash,
-            total_burn: total_burn,
-            canonical: true
-        })
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -239,6 +273,8 @@ mod tests {
     use super::ConsensusHash;
     use super::OpsHash;
     use super::BlockSnapshot;
+    use super::SortitionHash;
+    use super::Txid;
 
     use chainstate::burn::db::Error as db_error;
     use chainstate::burn::db::burndb::BurnDB;
@@ -269,6 +305,11 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
+                    burn_quota: 0,
+                    sortition: true,
+                    sortition_hash: SortitionHash::initial(),
+                    winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                    winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     canonical: true
                 };
                 BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
