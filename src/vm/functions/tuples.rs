@@ -7,23 +7,19 @@ use vm::{LocalContext, Environment, eval};
 pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     // (tuple #arg-name value
     //        #arg-name value ...)
-    if args.len() % 2 != 0 {
+
+    // or actually:
+    //    (tuple (arg-name value)
+    //           (arg-name value))
+    use super::parse_eval_bindings;
+
+    if args.len() < 1 {
         return Err(Error::InvalidArguments(format!("Tuples must be constructed with named-arguments and corresponding values")))
     }
-    let num_pairs = args.len() / 2;
-    // turn list into pairs.
-    let eval_result: Result<Vec<_>> = (0..num_pairs).map(|i| {
-        let arg_name = match args[i * 2] {
-            NamedParameter(ref name) => Ok(name.clone()),
-            _ => Err(Error::InvalidArguments("Named arguments must be supplied as #name-arg".to_string()))
-        }?;
-        let value = eval(&args[i * 2 + 1], env, context)?;
-        Ok((arg_name, value))
-    }).collect();
 
-    let evaled_pairs = eval_result?;
+    let bindings = parse_eval_bindings(args, env, context)?;
 
-    Value::tuple_from_data(evaled_pairs)
+    Value::tuple_from_data(bindings)
 }
 
 pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {

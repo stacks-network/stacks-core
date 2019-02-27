@@ -70,6 +70,28 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
     }
 }
 
+fn parse_eval_bindings(bindings: &[SymbolicExpression],
+                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(String, Value)>> {
+    let mut result = Vec::new();
+    for binding in bindings.iter() {
+        if let SymbolicExpression::List(ref binding_exps) = *binding {
+            if binding_exps.len() != 2 {
+                return Err(Error::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string()))
+            }
+            if let SymbolicExpression::Atom(ref var_name) = binding_exps[0] {
+                let value = eval(&binding_exps[1], env, context)?;
+                result.push((var_name.clone(), value));
+            } else {
+                return Err(Error::InvalidArguments("Passed bad variable name as a binding. Bindings should be of the form (name value).".to_string()))
+            }
+        } else {
+            return Err(Error::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string()))
+        }
+    }
+
+    Ok(result)
+}
+
 fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     use vm::is_reserved;
 
@@ -83,28 +105,18 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     let mut inner_context = context.extend()?;
 
     if let SymbolicExpression::List(ref bindings) = args[0] {
-        for binding in bindings.iter() {
-            if let SymbolicExpression::List(ref binding_exps) = *binding {
-                if binding_exps.len() != 2 {
-                    return Err(Error::InvalidArguments("Passed non 2-length list as binding in let expression".to_string()))
-                } else {
-                    if let SymbolicExpression::Atom(ref var_name) = binding_exps[0] {
-                        if is_reserved(var_name) {
-                            return Err(Error::ReservedName(var_name.to_string()))
-                        }
-                        let value = eval(&binding_exps[1], env, context)?;
-                        match inner_context.variables.insert((*var_name).clone(), value) {
-                            Some(_val) => return Err(Error::VariableDefinedMultipleTimes(var_name.to_string())),
-                            _ => continue
-                        }
-                    } else {
-                        return Err(Error::InvalidArguments("Passed non-atomic variable name to let expression binding".to_string()))
-                    }
-                }
-            } else {
-                return Err(Error::InvalidArguments("Passed non-list as binding in let expression.".to_string()))
+        // parse and eval the bindings.
+        let mut binding_results = parse_eval_bindings(bindings, env, context)?;
+        for (binding_name, binding_value) in binding_results.drain(..) {
+            if is_reserved(&binding_name) {
+                return Err(Error::ReservedName(binding_name))
             }
+            if inner_context.variables.contains_key(&binding_name) {
+                return Err(Error::VariableDefinedMultipleTimes(binding_name))
+            }
+            inner_context.variables.insert(binding_name, binding_value);
         }
+
         // evaluate the let-body
         eval(&args[1], env, &inner_context)
     } else {

@@ -8,14 +8,14 @@ fn test_simple_tea_shop() {
     let test1 =
         "(define-map proper-tea ((tea-type int)) ((amount int)))
          (define (stock tea amount)
-           (set-entry! proper-tea (tuple #tea-type tea) (tuple #amount amount)))
+           (set-entry! proper-tea (tuple (tea-type tea)) (tuple (amount amount))))
          (define (consume tea)
-           (let ((current (get amount (fetch-entry proper-tea (tuple #tea-type tea)))))
+           (let ((current (get amount (fetch-entry proper-tea (tuple (tea-type tea))))))
               (if (and (not (eq? current 'null)) 
                        (>= current 1))
                   (begin
-                    (set-entry! proper-tea (tuple #tea-type tea) 
-                                                  (tuple #amount (- current 1)))
+                    (set-entry! proper-tea (tuple (tea-type tea))
+                                           (tuple (amount (- current 1))))
                     'true)
                   'false)))
         (stock 1 3)
@@ -57,9 +57,9 @@ fn test_factorial_contract() {
     let test1 =
         "(define-map factorials ((id int)) ((current int) (index int)))
          (define (init-factorial id factorial)
-           (insert-entry! factorials (tuple #id id) (tuple #current 1 #index factorial)))
+           (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
          (define (compute id)
-           (let ((entry (fetch-entry factorials (tuple #id id))))
+           (let ((entry (fetch-entry factorials (tuple (id id)))))
                 (if (eq? entry 'null)
                     0
                     (let ((current (get current entry))
@@ -67,9 +67,9 @@ fn test_factorial_contract() {
                          (if (<= index 1)
                              current
                              (begin
-                               (set-entry! factorials (tuple #id id)
-                                                      (tuple #current (* current index)
-                                                             #index (- index 1)))
+                               (set-entry! factorials (tuple (id id))
+                                                      (tuple (current (* current index))
+                                                             (index (- index 1))))
                                0))))))
         (init-factorial 1337 3)
         (init-factorial 8008 5)
@@ -108,15 +108,15 @@ fn silly_naming_system() {
     let test1 =
         "(define-map silly-names ((name int)) ((owner int)))
          (define (register name owner)
-           (if (insert-entry! silly-names (tuple #name name) (tuple #owner owner))
+           (if (insert-entry! silly-names (tuple (name name)) (tuple (owner owner)))
                1 0))
          (define (who-owns? name)
-           (let ((owner (get owner (fetch-entry silly-names (tuple #name name)))))
+           (let ((owner (get owner (fetch-entry silly-names (tuple (name name))))))
                 (if (eq? 'null owner) (- 1) owner)))
          (define (invalidate! name owner)
-           (let ((current-owner (get owner (fetch-entry silly-names (tuple #name name)))))
+           (let ((current-owner (get owner (fetch-entry silly-names (tuple (name name))))))
                 (if (eq? current-owner owner)
-                    (if (delete-entry! silly-names (tuple #name name)) 1 0)
+                    (if (delete-entry! silly-names (tuple (name name))) 1 0)
                     0)))
         (list (register 0 0)
               (register 0 1)
@@ -148,8 +148,8 @@ fn silly_naming_system() {
 #[test]
 fn datamap_errors() {
     let tests = [
-        "(fetch-entry non-existent (tuple #name 1))",
-        "(delete-entry! non-existent (tuple #name 1))",
+        "(fetch-entry non-existent (tuple (name 1)))",
+        "(delete-entry! non-existent (tuple (name 1)))",
     ];
 
     let expected = [
@@ -167,10 +167,10 @@ fn lists_system() {
     let test1 =
         "(define-map lists ((name int)) ((contents (list 5 1 int))))
          (define (add-list name content)
-           (insert-entry! lists (tuple #name name)
-                                (tuple #contents content)))
+           (insert-entry! lists (tuple (name name))
+                                (tuple (contents content))))
          (define (get-list name)
-            (get contents (fetch-entry lists (tuple #name name))))
+            (get contents (fetch-entry lists (tuple (name name)))))
          (add-list 0 (list 1 2 3 4 5))
          (add-list 1 (list 1 2 3))
          (list      (get-list 0)
@@ -181,16 +181,16 @@ fn lists_system() {
     test_list_too_big.push_str("(add-list 2 (list 1 2 3 4 5 6))");
 
     let mut test_bad_tuple_1 = test1.to_string();
-    test_bad_tuple_1.push_str("(insert-entry! lists (tuple #name 1) (tuple #contentious (list 1 2 6)))");
+    test_bad_tuple_1.push_str("(insert-entry! lists (tuple (name 1)) (tuple (contentious (list 1 2 6))))");
 
     let mut test_bad_tuple_2 = test1.to_string();
-    test_bad_tuple_2.push_str("(insert-entry! lists (tuple #name 1) (tuple #contents (list 1 2 6) #discontents 1))");
+    test_bad_tuple_2.push_str("(insert-entry! lists (tuple (name 1)) (tuple (contents (list 1 2 6)) (discontents 1)))");
 
     let mut test_bad_tuple_3 = test1.to_string();
-    test_bad_tuple_3.push_str("(insert-entry! lists (tuple #name 1) (tuple #contents (list 'false 'true 'false)))");
+    test_bad_tuple_3.push_str("(insert-entry! lists (tuple (name 1)) (tuple (contents (list 'false 'true 'false))))");
 
     let mut test_bad_tuple_4 = test1.to_string();
-    test_bad_tuple_4.push_str("(insert-entry! lists (tuple #name (list 1)) (tuple #contents (list 1 2 3)))");
+    test_bad_tuple_4.push_str("(insert-entry! lists (tuple (name (list 1))) (tuple (contents (list 1 2 3))))");
 
     let expected = || {
         let list1 = Value::list_from(vec![
@@ -231,12 +231,12 @@ fn tuples_system() {
                                                (owner (buff 5)))))))
 
          (define (add-tuple name content)
-           (insert-entry! tuples (tuple #name name)
-                                 (tuple #contents
-                                   (tuple #name content
-                                          #owner content))))
+           (insert-entry! tuples (tuple (name name))
+                                 (tuple (contents
+                                   (tuple (name content)
+                                          (owner content))))))
          (define (get-tuple name)
-            (get name (get contents (fetch-entry tuples (tuple #name name)))))
+            (get name (get contents (fetch-entry tuples (tuple (name name))))))
 
 
          (add-tuple 0 \"abcde\")
@@ -249,7 +249,7 @@ fn tuples_system() {
     test_list_too_big.push_str("(add-tuple 2 \"abcdef\")");
 
     let mut test_bad_tuple_1 = test1.to_string();
-    test_bad_tuple_1.push_str("(insert-entry! tuples (tuple #name 1) (tuple #contents (tuple #name \"abcde\" #owner \"abcdef\")))");
+    test_bad_tuple_1.push_str("(insert-entry! tuples (tuple (name 1)) (tuple (contents (tuple (name \"abcde\") (owner \"abcdef\")))))");
 
     let expected = || {
         let buff1 = Value::buff_from("abcde".to_string().into_bytes())?;
@@ -307,13 +307,13 @@ fn bad_define_maps() {
 
 #[test]
 fn bad_tuples() {
-    let tests = ["(tuple #name 1 #name 3)",
-                 "(tuple #name 'null)",
+    let tests = ["(tuple (name 1) (name 3))",
+                 "(tuple (name 'null))",
                  "(tuple name 1)",
-                 "(tuple #name 1 #blame)",
-                 "(get value (tuple #name 1))",
-                 "(get name five (tuple #name 1))",
-                 "(get 1234 (tuple #name 1))"];
+                 "(tuple (name 1) (blame))",
+                 "(get value (tuple (name 1)))",
+                 "(get name five (tuple (name 1)))",
+                 "(get 1234 (tuple (name 1)))"];
 
     for test in tests.iter() {
         let outcome = execute(test);

@@ -15,7 +15,7 @@ fn test_simple_token_system() {
         "(define-map tokens ((account principal)) ((balance int)))
          (define-public (get-balance (account principal))
             (let ((balance
-                  (get balance (fetch-entry tokens (tuple #account account)))))
+                  (get balance (fetch-entry tokens (tuple (account account))))))
               (if (eq? balance 'null) 0 balance)))
 
          (define (token-credit! account tokens)
@@ -23,16 +23,16 @@ fn test_simple_token_system() {
                 'false
                 (let ((current-amount (get-balance account)))
                   (begin
-                    (set-entry! tokens (tuple #account account)
-                                       (tuple #balance (+ tokens current-amount)))
+                    (set-entry! tokens (tuple (account account))
+                                       (tuple (balance (+ tokens current-amount))))
                     'true))))
          (define-public (token-transfer (to principal) (amount int))
           (let ((balance (get-balance tx-sender)))
              (if (or (> amount balance) (<= amount 0))
                  'false
                  (begin
-                   (set-entry! tokens (tuple #account tx-sender)
-                                      (tuple #balance (- balance amount)))
+                   (set-entry! tokens (tuple (account tx-sender))
+                                      (tuple (balance (- balance amount))))
                    (token-credit! to amount)))))                     
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 100)
@@ -78,7 +78,7 @@ fn test_simple_naming_system() {
         "(define-map tokens ((account principal)) ((balance int)))
          (define-public (get-balance (account principal))
             (let ((balance
-                  (get balance (fetch-entry tokens (tuple #account account)))))
+                  (get balance (fetch-entry tokens (tuple (account account))))))
               (if (eq? balance 'null) 0 balance)))
 
          (define (token-credit! account tokens)
@@ -86,16 +86,16 @@ fn test_simple_naming_system() {
                 'false
                 (let ((current-amount (get-balance account)))
                   (begin
-                    (set-entry! tokens (tuple #account account)
-                                       (tuple #balance (+ tokens current-amount)))
+                    (set-entry! tokens (tuple (account account))
+                                       (tuple (balance (+ tokens current-amount))))
                     'true))))
          (define-public (token-transfer (to principal) (amount int))
           (let ((balance (get-balance tx-sender)))
              (if (or (> amount balance) (<= amount 0))
                  'false
                  (begin
-                   (set-entry! tokens (tuple #account tx-sender)
-                                      (tuple #balance (- balance amount)))
+                   (set-entry! tokens (tuple (account tx-sender))
+                                      (tuple (balance (- balance amount))))
                    (token-credit! to amount)))))                     
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 300)
@@ -118,9 +118,9 @@ fn test_simple_naming_system() {
            (if (contract-call! tokens token-transfer
                  burn-address name-price)
                (insert-entry! preorder-map
-                 (tuple #name-hash name-hash)
-                 (tuple #paid name-price
-                        #buyer tx-sender))
+                 (tuple (name-hash name-hash))
+                 (tuple (paid name-price)
+                        (buyer tx-sender)))
                'false))
 
          (define-public (register 
@@ -129,9 +129,9 @@ fn test_simple_naming_system() {
                         (salt int))
            (let ((preorder-entry
                    (fetch-entry preorder-map
-                                  (tuple #name-hash (hash160 (xor name salt)))))
+                                  (tuple (name-hash (hash160 (xor name salt))))))
                  (name-entry 
-                   (fetch-entry name-map (tuple #name name))))
+                   (fetch-entry name-map (tuple (name name)))))
              (if (and
                   ;; must be preordered
                   (not (eq? preorder-entry 'null))
@@ -145,10 +145,10 @@ fn test_simple_naming_system() {
                        (get buyer preorder-entry)))
                   (and
                     (insert-entry! name-map
-                      (tuple #name name)
-                      (tuple #owner recipient-principal))
+                      (tuple (name name))
+                      (tuple (owner recipient-principal)))
                     (delete-entry! preorder-map
-                      (tuple #name-hash (hash160 (xor name salt)))))
+                      (tuple (name-hash (hash160 (xor name salt))))))
                   'false)))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").unwrap();
@@ -215,9 +215,9 @@ fn test_simple_contract_call() {
     let contract_1 =
         "(define-map factorials ((id int)) ((current int) (index int)))
          (define (init-factorial id factorial)
-           (insert-entry! factorials (tuple #id id) (tuple #current 1 #index factorial)))
+           (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
          (define-public (compute (id int))
-           (let ((entry (fetch-entry factorials (tuple #id id))))
+           (let ((entry (fetch-entry factorials (tuple (id id)))))
                 (if (eq? entry 'null)
                     0
                     (let ((current (get current entry))
@@ -225,9 +225,9 @@ fn test_simple_contract_call() {
                          (if (<= index 1)
                              current
                              (begin
-                               (set-entry! factorials (tuple #id id)
-                                                      (tuple #current (* current index)
-                                                             #index (- index 1)))
+                               (set-entry! factorials (tuple (id id))
+                                                      (tuple (current (* current index))
+                                                             (index (- index 1))))
                                0))))))
         (begin (init-factorial 1337 3)
                (init-factorial 8008 5)
@@ -265,9 +265,9 @@ fn test_factorial_contract() {
     let contract_defn =
         "(define-map factorials ((id int)) ((current int) (index int)))
          (define (init-factorial id factorial)
-           (insert-entry! factorials (tuple #id id) (tuple #current 1 #index factorial)))
+           (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
          (define-public (compute (id int))
-           (let ((entry (fetch-entry factorials (tuple #id id))))
+           (let ((entry (fetch-entry factorials (tuple (id id)))))
                 (if (eq? entry 'null)
                     0
                     (let ((current (get current entry))
@@ -275,9 +275,9 @@ fn test_factorial_contract() {
                          (if (<= index 1)
                              current
                              (begin
-                               (set-entry! factorials (tuple #id id)
-                                                      (tuple #current (* current index)
-                                                             #index (- index 1)))
+                               (set-entry! factorials (tuple (id id))
+                                                      (tuple (current (* current index))
+                                                             (index (- index 1))))
                                0))))))
         (begin (init-factorial 1337 3)
                (init-factorial 8008 5)

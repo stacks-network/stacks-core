@@ -35,24 +35,24 @@ fn test_list_tuple_admission() {
     let test = 
         "(define (bufferize x) (if (eq? x 1) \"abc\" \"ab\"))
          (define (tuplize x)
-           (tuple #value (bufferize x)))
+           (tuple (value (bufferize x))))
          (map tuplize (list 0 1 0 1 0 1))";
 
     let expected_type = 
-        "(list (tuple #value \"012\")
-               (tuple #value \"012\")
-               (tuple #value \"012\")
-               (tuple #value \"012\")
-               (tuple #value \"012\")
-               (tuple #value \"012\"))";
+        "(list (tuple (value \"012\"))
+               (tuple (value \"012\"))
+               (tuple (value \"012\"))
+               (tuple (value \"012\"))
+               (tuple (value \"012\"))
+               (tuple (value \"012\")))";
 
     let not_expected_type = 
-        "(list (tuple #value \"01\")
-               (tuple #value \"02\")
-               (tuple #value \"12\")
-               (tuple #value \"12\")
-               (tuple #value \"01\")
-               (tuple #value \"02\"))";
+        "(list (tuple (value \"01\"))
+               (tuple (value \"02\"))
+               (tuple (value \"12\"))
+               (tuple (value \"12\"))
+               (tuple (value \"01\"))
+               (tuple (value \"02\")))";
 
     
     let result_type = TypeSignature::type_of(&execute(test).unwrap());
