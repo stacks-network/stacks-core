@@ -46,7 +46,7 @@ pub struct TupleData {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BuffData {
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]

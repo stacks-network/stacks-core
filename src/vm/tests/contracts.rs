@@ -46,9 +46,6 @@ fn test_simple_token_system() {
 
     global_context.initialize_contract("tokens", tokens_contract).unwrap();
 
-    let expected = [Value::Bool(false),
-                    Value::Bool(true),
-                    Value::Bool(false)];
     assert_eq!(
         global_context.execute_contract("tokens", &p2, "token-transfer",
                                         &symbols_from_values(vec![p1.clone(), Value::Int(110)])).unwrap(),
@@ -74,6 +71,144 @@ fn test_simple_token_system() {
                                         &symbols_from_values(vec![p2.clone()])).unwrap(),
         Value::Int(9100));
 }
+
+#[test]
+fn test_simple_naming_system() {
+    let tokens_contract = 
+        "(define-map tokens ((account principal)) ((balance int)))
+         (define-public (get-balance (account principal))
+            (let ((balance
+                  (get balance (fetch-entry tokens (tuple #account account)))))
+              (if (eq? balance 'null) 0 balance)))
+
+         (define (token-credit! account tokens)
+            (if (<= tokens 0)
+                'false
+                (let ((current-amount (get-balance account)))
+                  (begin
+                    (set-entry! tokens (tuple #account account)
+                                       (tuple #balance (+ tokens current-amount)))
+                    'true))))
+         (define-public (token-transfer (to principal) (amount int))
+          (let ((balance (get-balance tx-sender)))
+             (if (or (> amount balance) (<= amount 0))
+                 'false
+                 (begin
+                   (set-entry! tokens (tuple #account tx-sender)
+                                      (tuple #balance (- balance amount)))
+                   (token-credit! to amount)))))                     
+         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
+                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 300)
+                'null)";
+
+    let names_contract =
+        "(define burn-address 'SP000000000000000000002Q6VF78)
+         (define (price-function name)
+           (if (< name 100000) 1000 100))
+         
+         (define-map name-map 
+           ((name int)) ((owner principal)))
+         (define-map preorder-map
+           ((name-hash (buff 20)))
+           ((buyer principal) (paid int)))
+         
+         (define-public (preorder 
+                        (name-hash (buff 20))
+                        (name-price int))
+           (if (contract-call! tokens token-transfer
+                 burn-address name-price)
+               (insert-entry! preorder-map
+                 (tuple #name-hash name-hash)
+                 (tuple #paid name-price
+                        #buyer tx-sender))
+               'false))
+
+         (define-public (register 
+                        (recipient-principal principal)
+                        (name int)
+                        (salt int))
+           (let ((preorder-entry
+                   (fetch-entry preorder-map
+                                  (tuple #name-hash (hash160 (xor name salt)))))
+                 (name-entry 
+                   (fetch-entry name-map (tuple #name name))))
+             (if (and
+                  ;; must be preordered
+                  (not (eq? preorder-entry 'null))
+                  ;; name shouldn't *already* exist
+                  (eq? name-entry 'null)
+                  ;; preorder must have paid enough
+                  (<= (price-function name) 
+                      (get paid preorder-entry))
+                  ;; preorder must have been the current principal
+                  (eq? tx-sender
+                       (get buyer preorder-entry)))
+                  (and
+                    (insert-entry! name-map
+                      (tuple #name name)
+                      (tuple #owner recipient-principal))
+                    (delete-entry! preorder-map
+                      (tuple #name-hash (hash160 (xor name salt)))))
+                  'false)))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").unwrap();
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
+
+    let name_hash_expensive_0 = execute("(hash160 1)").unwrap();
+    let name_hash_expensive_1 = execute("(hash160 2)").unwrap();
+    let name_hash_cheap_0 = execute("(hash160 100001)").unwrap();
+
+    let mut global_context = MemoryGlobalContext::new();
+
+    global_context.initialize_contract("tokens", tokens_contract).unwrap();
+    global_context.initialize_contract("names", names_contract).unwrap();
+
+    assert_eq!(
+        global_context.execute_contract("names", &p2, "preorder",
+                                        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
+        Value::Bool(false));
+    assert_eq!(
+        global_context.execute_contract("names", &p1, "preorder",
+                                        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
+        Value::Bool(true));
+    assert_eq!(
+        global_context.execute_contract("names", &p1, "preorder",
+                                        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
+        Value::Bool(false));
+
+    // shouldn't be able to register a name you didn't preorder!
+    assert_eq!(
+        global_context.execute_contract("names", &p2, "register",
+                                        &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(),
+        Value::Bool(false));
+    // should work!
+    assert_eq!(
+        global_context.execute_contract("names", &p1, "register",
+                                        &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(),
+        Value::Bool(true));
+
+
+    // try to underpay!
+    assert_eq!(
+        global_context.execute_contract("names", &p2, "preorder",
+                                        &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap(),
+        Value::Bool(true));
+    assert_eq!(
+        global_context.execute_contract("names", &p2, "register",
+                                        &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap(),
+        Value::Bool(false));
+
+    // register a cheap name!
+    assert_eq!(
+        global_context.execute_contract("names", &p2, "preorder",
+                                        &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::Int(100)])).unwrap(),
+        Value::Bool(true));
+    assert_eq!(
+        global_context.execute_contract("names", &p2, "register",
+                                        &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap(),
+        Value::Bool(true));
+}
+
 
 #[test]
 fn test_simple_contract_call() {

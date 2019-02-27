@@ -48,7 +48,8 @@ impl Contract<MemoryContractDatabase> {
             for arg in args {
                 match arg {
                     SymbolicExpression::AtomValue(ref _v) => {},
-                    _ => return Err(Error::InterpreterError("Passed non-value expression to exec_tx!".to_string()))
+                    _ => return Err(Error::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
+                                                                    tx_name)))
                 }
             }
 

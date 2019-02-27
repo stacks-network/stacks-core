@@ -25,6 +25,22 @@ fn native_eq(args: &[Value]) -> Result<Value> {
     }
 }
 
+fn native_hash160(args: &[Value]) -> Result<Value> {
+    use util::hash::Hash160;
+
+    if !(args.len() == 1) {
+        return Err(Error::InvalidArguments("Wrong number of arguments to hash160 (expects 1)".to_string()))
+    }
+    let input = &args[0];
+    let bytes = match input {
+        Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
+        Value::Buffer(value) => Ok(value.data.clone()),
+        _ => Err(Error::NotImplemented)
+    }?;
+    let hash160 = Hash160::from_data(&bytes);
+    Value::buff_from(hash160.as_bytes().to_vec())
+}
+
 fn native_begin(args: &[Value]) -> Result<Value> {
     match args.last() {
         Some(v) => Ok(v.clone()),
@@ -108,6 +124,7 @@ pub fn lookup_reserved_functions<'a> (name: &str) -> Option<CallableType<'a>> {
         ">" => Some(CallableType::NativeFunction(&arithmetic::native_ge)),
         "mod" => Some(CallableType::NativeFunction(&arithmetic::native_mod)),
         "pow" => Some(CallableType::NativeFunction(&arithmetic::native_pow)),
+        "xor" => Some(CallableType::NativeFunction(&arithmetic::native_xor)),
         "and" => Some(CallableType::SpecialFunction(&boolean::special_and)),
         "or" => Some(CallableType::SpecialFunction(&boolean::special_or)),
         "not" => Some(CallableType::NativeFunction(&boolean::native_not)),
@@ -124,6 +141,7 @@ pub fn lookup_reserved_functions<'a> (name: &str) -> Option<CallableType<'a>> {
         "tuple" => Some(CallableType::SpecialFunction(&tuples::tuple_cons)),
         "get" => Some(CallableType::SpecialFunction(&tuples::tuple_get)),
         "begin" => Some(CallableType::NativeFunction(&native_begin)),
+        "hash160" => Some(CallableType::NativeFunction(&native_hash160)),
         "contract-call!" => Some(CallableType::SpecialFunction(&database::special_contract_call)),
         _ => None
     }

@@ -19,6 +19,16 @@ where F: Fn(i128, i128) -> bool {
     }
 }
 
+pub fn native_xor(args: &[Value]) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(Error::InvalidArguments("(xor ...) must be called with exactly 2 arguments".to_string()))
+    }
+    let x = type_force_integer(&args[0])?;
+    let y = type_force_integer(&args[1])?;
+
+    Ok(Value::Int(x ^ y))
+}
+
 pub fn native_geq(args: &[Value]) -> Result<Value> {
     binary_comparison(args, &|x, y| x >= y)
 }

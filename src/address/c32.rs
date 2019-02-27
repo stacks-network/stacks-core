@@ -188,6 +188,7 @@ pub fn c32_address(version: u8, data: &[u8]) -> Result<String, Error> {
     Ok(format!("S{}", c32_string))
 }
 
+#[cfg(test)]
 mod test {
     use util::hash::hex_bytes;
     use super::*;

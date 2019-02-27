@@ -54,7 +54,7 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
         LexMatcher::new("[ \n\t\r]+", TokenType::Whitespace),
         LexMatcher::new("(?P<value>[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false|null)", TokenType::QuoteLiteral),
-        LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{40,41})", TokenType::PrincipalLiteral),
+        LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("0x(?P<value>[[:xdigit:]])", TokenType::HexStringLiteral),
         LexMatcher::new("#(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::NamedParameter),
         LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),

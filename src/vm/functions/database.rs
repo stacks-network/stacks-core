@@ -36,13 +36,17 @@ pub fn special_contract_call(args: &[SymbolicExpression],
 
     let rest_args = &args[2..];
 
+    let rest_args: Result<Vec<_>> = rest_args.iter().map(|x| { eval(x, env, context) }).collect();
+    let mut rest_args = rest_args?;
+    let rest_args: Vec<_> = rest_args.drain(..).map(|x| { SymbolicExpression::AtomValue(x) }).collect();
+
     let sender = env.sender.as_ref()
         .ok_or(Error::InvalidArguments(
             "No sender in current context. Did you attempt to (contract-call ...) from a non-contract aware environment?"
                 .to_string()))?;
 
     env.global_context.execute_contract(
-        contract_name, sender, function_name, rest_args)
+        contract_name, sender, function_name, &rest_args)
 }
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],
