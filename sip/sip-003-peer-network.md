@@ -3,10 +3,15 @@
 ## Preamble
 
 Title: Peer Network
+
 Author: Jude Nelson <jude@blockstack.com>
+
 Status: Draft
+
 Type: Standard
+
 Created: 
+
 License: BSD 2-Clause
 
 ## Abstract
@@ -355,6 +360,7 @@ pub enum StacksMessageType {
 **Handshake**
 
 Type identifier: 0
+
 Structure:
 
 ```
@@ -379,6 +385,7 @@ pub struct HandshakeData {
 **HandshakeAccept**
 
 Type identifier: 1
+
 Structure:
 
 ```
@@ -396,16 +403,19 @@ pub struct HandshakeAcceptData {
 **HandshakeReject**
 
 Type identifier: 2
+
 Structure: [empty]
 
 **GetNeighbors**
 
 Type identifier: 3
+
 Structure: [empty]
 
 **Neighbors**
 
 Type identifier: 4
+
 Structure:
 
 ```
@@ -419,6 +429,7 @@ pub struct NeighborsData {
 **GetBlocksInv**
 
 Type identifier: 5
+
 Structure:
 
 ```
@@ -440,6 +451,7 @@ pub struct GetBlocksData {
 **BlocksInv**
 
 Type identifier: 6
+
 Structure:
 
 ```
@@ -477,11 +489,13 @@ pub struct MicroblocksInvData {
 **GetBlocks**
 
 Type identifier: 7
+
 Structure: Same as **GetBlocksInv**
 
 **Blocks**
 
 Type identifier: 8
+
 Structure:
 
 ```
@@ -500,6 +514,7 @@ pub struct StacksBlock {
 **GetMicroblocks**
 
 Type identifier: 9
+
 Structure:
 
 ```
@@ -524,6 +539,7 @@ pub struct GetMicroblocksData {
 **Microblocks**
 
 Type identifier: 10
+
 Structure:
 
 ```
@@ -546,6 +562,7 @@ pub struct StacksMicroblock {
 **Transaction**
 
 Type identifier: 11
+
 Structure:
 
 ```
@@ -557,6 +574,7 @@ pub struct StacksTransaction {
 **Nack**
 
 Type identifier: 12
+
 Structure:
 
 ```
