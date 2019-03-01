@@ -991,6 +991,7 @@ class SubdomainDB(object):
         self.blocked_table = "blocked_table"
         self.zonefiles_dir = zonefiles_dir
         self.conn = sqlite3.connect(db_path, isolation_level=None, timeout=2**30)
+        db_query_execute(self.conn, 'pragma mmap_size=536870912', ())
         self.conn.row_factory = SubdomainDB.subdomain_row_factory
         self._create_tables()
 
