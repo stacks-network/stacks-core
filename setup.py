@@ -55,7 +55,7 @@ setup(
         'keylib>=0.1.1',
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1, <=2.99',
-        'jsontokens>=0.0.4',
+        'jsontokens>=0.0.5',
         'pyparsing>=2.2.0',     # not required, but causes problems if not installed properly,
         'requests>=2.20',
     ],
