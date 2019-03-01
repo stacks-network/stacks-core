@@ -79,12 +79,12 @@ fn test_recursive_panic() {
 #[test]
 fn test_bad_variables() {
     let test0 = "(+ a 1)";
-    let expected = Err(Error::Undefined("No such variable found in context: a".to_string()));
+    let expected = Err(Error::UndefinedVariable("a".to_string(), vec![]));
     assert_eq!(expected, execute(&test0));
 
 
     let test1 = "(foo 2 1)";
-    let expected = Err(Error::Undefined("No such function found in context: foo".to_string()));
+    let expected = Err(Error::UndefinedFunction("foo".to_string(), vec![]));
     assert_eq!(expected, execute(&test1));
 
 

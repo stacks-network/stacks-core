@@ -331,7 +331,7 @@ fn test_factorial_contract() {
                                                                             Value::Int(15)]),
                                                   &mut global_context);
     match err_result {
-        Err(Error::Undefined(_)) => {},
+        Err(Error::NonPublicFunction(_,_)) => {},
         _ => {
             println!("{:?}", err_result);
             assert!(false, "Attempt to call init-factorial should fail!")

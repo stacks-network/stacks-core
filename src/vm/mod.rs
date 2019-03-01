@@ -51,9 +51,9 @@ pub fn lookup_function<'a> (name: &str, env: &Environment)-> Result<CallableType
     if let Some(result) = functions::lookup_reserved_functions(name) {
         Ok(result)
     } else {
-        let user_function = env.contract_context.lookup_function(name).ok_or(
-            Error::UndefinedFunction(name.to_string(),
-                                     env.call_stack.make_stack_trace()))?;
+        let user_function = env.contract_context.lookup_function(name).ok_or_else(
+            || { Error::UndefinedFunction(name.to_string(),
+                                     env.call_stack.make_stack_trace()) })?;
         Ok(CallableType::UserFunction(user_function))
     }
 }

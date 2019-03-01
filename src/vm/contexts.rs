@@ -79,13 +79,13 @@ impl MemoryGlobalContext {
 
     fn take_contract(&mut self, contract_name: &str) -> Result<Contract<MemoryContractDatabase>> {
         let contract = self.contracts.get_mut(contract_name)
-            .ok_or(Error::UndefinedContract(contract_name.to_string()))?;
+            .ok_or_else(|| { Error::UndefinedContract(contract_name.to_string()) })?;
         contract.take().ok_or(Error::ContractAlreadyInvoked)
     }
 
     fn replace_contract(&mut self, contract_name: &str, contract: Contract<MemoryContractDatabase>) -> Result<()> {
         let contract_holder = self.contracts.get_mut(contract_name)
-            .ok_or(Error::UndefinedContract(contract_name.to_string()))?;
+            .ok_or_else(|| { Error::UndefinedContract(contract_name.to_string()) })?;
         match contract_holder.replace(contract) {
             Some(_) => Err(Error::InterpreterError(
                 format!("Attempted to close invocation on a non-open contract {}", contract_name))),

@@ -37,7 +37,7 @@ impl Contract<MemoryContractDatabase> {
     pub fn execute_transaction(&mut self, sender: &Value, tx_name: &str,
                                args: &[SymbolicExpression], global_context: &mut GlobalContext) -> Result<Value> {
         let func = self.contract_context.lookup_function(tx_name)
-            .ok_or(Error::UndefinedFunction(tx_name.to_string(), vec![]))?;
+            .ok_or_else(|| { Error::UndefinedFunction(tx_name.to_string(), vec![]) })?;
         if !func.is_public() {
             return Err(Error::NonPublicFunction(tx_name.to_string(), vec![]));
         }

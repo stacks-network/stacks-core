@@ -152,13 +152,11 @@ fn datamap_errors() {
         "(delete-entry! non-existent (tuple (name 1)))",
     ];
 
-    let expected = [
-        Err(Error::Undefined("No such map named: non-existent".to_string())),
-        Err(Error::Undefined("No such map named: non-existent".to_string())),
-    ];
-
-    for (program, expectation) in tests.iter().zip(expected.iter()) {
-        assert_eq!(*expectation, execute(program));
+    for program in tests.iter() {
+        match execute(program) {
+            Err(Error::UndefinedVariable(_, _)) => {},
+            _ => panic!("Expected UndefinedVariable")
+        }
     }
 }
 
