@@ -39,7 +39,8 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Res
         } else if let Some(value) = env.contract_context.lookup_variable(name) {
             Ok(value)
         } else {
-            Err(Error::Undefined(format!("No such variable found in context: {}", name)))
+            Err(Error::UndefinedVariable(name.to_string(),
+                                         env.call_stack.make_stack_trace()))
         }
     }
 }
@@ -51,7 +52,8 @@ pub fn lookup_function<'a> (name: &str, env: &Environment)-> Result<CallableType
         Ok(result)
     } else {
         let user_function = env.contract_context.lookup_function(name).ok_or(
-            Error::Undefined(format!("No such function found in context: {}", name)))?;
+            Error::UndefinedFunction(name.to_string(),
+                                     env.call_stack.make_stack_trace()))?;
         Ok(CallableType::UserFunction(user_function))
     }
 }
@@ -76,7 +78,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
                         } else if env.call_stack.depth() >= MAX_CALL_STACK_DEPTH {
                             Err(Error::MaxStackDepthReached)
                         } else {
-                            env.call_stack.insert(&identifier);
+                            env.call_stack.insert(&identifier)?;
                             let resp = function.apply(&evaluated_args, env);
                             env.call_stack.remove(&identifier);
                             resp

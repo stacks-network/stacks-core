@@ -12,7 +12,7 @@ fn obtain_map <'a> (map_arg: &SymbolicExpression, env: &'a mut Environment) -> R
     }?;
     match env.database.get_mut_data_map(map_name) {
         Some(map) => Ok(map),
-        None => Err(Error::Undefined(format!("No such map named: {}", map_name)))
+        None => Err(Error::UndefinedVariable(map_name.clone(), env.call_stack.make_stack_trace()))
     }
 }
 
@@ -47,6 +47,13 @@ pub fn special_contract_call(args: &[SymbolicExpression],
 
     env.global_context.execute_contract(
         contract_name, sender, function_name, &rest_args)
+        .map_err(|x| {
+            if x.has_stack_trace() {
+                x.extend_with(env.call_stack.make_stack_trace())
+            } else {
+                x.clone()
+            }
+        })
 }
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],
@@ -67,7 +74,7 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
 
     let map = match env.database.get_data_map(&map_name) {
         Some(map) => Ok(map),
-        None => Err(Error::Undefined(format!("No such map named: {}", map_name)))
+        None => Err(Error::UndefinedVariable(map_name.clone(), env.call_stack.make_stack_trace()))
     }?;
 
     map.fetch_entry(&key)

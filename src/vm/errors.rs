@@ -1,13 +1,17 @@
 use std::fmt;
 use std::error;
 use vm::types::Value;
+use vm::contexts::StackTrace;
 
-#[derive(Debug,PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Error {
     NotImplemented,
+    NonPublicFunction(String, StackTrace),
     TypeError(String, Value),
     InvalidArguments(String),
-    Undefined(String),
+    UndefinedVariable(String, StackTrace),
+    UndefinedFunction(String, StackTrace),
+    UndefinedContract(String),
     TryEvalToFunction,
     Arithmetic(String),
     ParseError(String),
@@ -46,6 +50,16 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
+    }
+}
+
+impl Error {
+    pub fn has_stack_trace(&self) -> bool {
+        false
+    }
+
+    pub fn extend_with(&self, _extension: StackTrace) -> Error {
+        self.clone()
     }
 }
 

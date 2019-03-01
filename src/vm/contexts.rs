@@ -47,8 +47,11 @@ pub struct LocalContext <'a> {
 }
 
 pub struct CallStack {
-    pub stack: HashSet<FunctionIdentifier>,
+    stack: HashMap<FunctionIdentifier, usize>,
+    depth: usize
 }
+
+pub type StackTrace = Vec<FunctionIdentifier>;
 
 impl <'a> Environment <'a> {
     // Environments pack a reference to the global context, a mutable reference to a contract db,
@@ -76,13 +79,13 @@ impl MemoryGlobalContext {
 
     fn take_contract(&mut self, contract_name: &str) -> Result<Contract<MemoryContractDatabase>> {
         let contract = self.contracts.get_mut(contract_name)
-            .ok_or(Error::Undefined(contract_name.to_string()))?;
+            .ok_or(Error::UndefinedContract(contract_name.to_string()))?;
         contract.take().ok_or(Error::ContractAlreadyInvoked)
     }
 
     fn replace_contract(&mut self, contract_name: &str, contract: Contract<MemoryContractDatabase>) -> Result<()> {
         let contract_holder = self.contracts.get_mut(contract_name)
-            .ok_or(Error::Undefined(contract_name.to_string()))?;
+            .ok_or(Error::UndefinedContract(contract_name.to_string()))?;
         match contract_holder.replace(contract) {
             Some(_) => Err(Error::InterpreterError(
                 format!("Attempted to close invocation on a non-open contract {}", contract_name))),
@@ -174,25 +177,39 @@ impl <'a> LocalContext <'a> {
 impl CallStack {
     pub fn new() -> CallStack {
         CallStack {
-            stack: HashSet::new(),
+            stack: HashMap::new(),
+            depth: 0
         }
     }
 
     pub fn depth(&self) -> usize {
-        self.stack.len()
+        self.depth
     }
 
-    pub fn contains(&self, user_function: &FunctionIdentifier) -> bool {
-        self.stack.contains(user_function)
+    pub fn contains(&self, function: &FunctionIdentifier) -> bool {
+        self.stack.contains_key(function)
     }
 
-    pub fn insert(&mut self, user_function: &FunctionIdentifier) {
-        self.stack.insert(user_function.clone());
+    pub fn insert(&mut self, function: &FunctionIdentifier) -> Result<()> {
+        self.depth = self.depth.checked_add(1)
+            .ok_or(Error::MaxStackDepthReached)?;
+        self.stack.insert(function.clone(), self.depth);
+        Ok(())
     }
 
     pub fn remove(&mut self, user_function: &FunctionIdentifier) {
-        if !self.stack.remove(&user_function) {
+        if self.stack.remove(&user_function).is_none() {
             panic!("Tried to remove function from call stack, but could not find in current context.")
         }
+    }
+
+    pub fn make_stack_trace(&self) -> StackTrace {
+        let mut result = vec![None; self.depth];
+        for (function, depth) in self.stack.iter() {
+            result[*depth] = Some(function.clone());
+        }
+
+        let result: Vec<_> = result.drain(..).map(|x| { x.unwrap() }).collect();
+        result
     }
 }

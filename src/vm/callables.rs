@@ -28,7 +28,7 @@ pub struct PrivateFunction {
     pub body: SymbolicExpression
 }
 
-#[derive(Clone,PartialEq,Eq,Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct FunctionIdentifier {
     pub arguments: Vec<String>,
     pub body: SymbolicExpression
