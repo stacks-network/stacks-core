@@ -4,10 +4,16 @@ use vm::types::Value;
 use vm::contexts::StackTrace;
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Error {
+pub struct Error {
+    err_type: ErrType,
+    stack_trace: Option<StackTrace>
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ErrType {
     NotImplemented,
     NonPublicFunction(String, StackTrace),
-    TypeError(String, Value),
+    TypeError(String, Value, StackTrace),
     InvalidArguments(String),
     UndefinedVariable(String, StackTrace),
     UndefinedFunction(String, StackTrace),
@@ -38,10 +44,11 @@ pub type InterpreterResult <R> = Result<R, Error>;
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
+        match self.err_type {
             Error::RecursionDetected => write!(f, "Illegal operation: attempted recursion detected."),
             Error::TryEvalToFunction => write!(f, "Illegal operation: attempt to evaluate to function."),
-            Error::TypeError(ref expected, ref found) => write!(f, "TypeError: Expected {}, found {}.", expected, found),
+            Error::TypeError(ref expected, ref found) =>
+                write!(f, "TypeError: Expected {}, found {}.", expected, found),
             _ =>  write!(f, "{:?}", self)
         }
     }
@@ -54,6 +61,11 @@ impl error::Error for Error {
 }
 
 impl Error {
+    pub fn new(err_type: ErrType) -> Error {
+        Error { err_type: err_type,
+                stack_trace: None }
+    }
+
     pub fn has_stack_trace(&self) -> bool {
         false
     }
