@@ -17,119 +17,131 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::fs;
-use std::cmp;
-use std::sync::Arc;
-use std::sync::mpsc::{SyncSender, Receiver, sync_channel};
-use std::thread;
-use std::thread::JoinHandle;
 use std::ops::Deref;
 
-use bitcoin::blockdata::block::{LoneBlockHeader, BlockHeader, Block};
-use bitcoin::blockdata::transaction::{Transaction, TxIn, TxOut};
+use bitcoin::blockdata::block::{LoneBlockHeader, Block};
+use bitcoin::blockdata::transaction::Transaction;
 use bitcoin::blockdata::opcodes::All as btc_opcodes;
-use bitcoin::blockdata::opcodes::Class;
-use bitcoin::blockdata::script::{Script, Instruction, Instructions};
+use bitcoin::blockdata::script::{Script, Instruction};
 
-use bitcoin::network::encodable::{ConsensusEncodable, ConsensusDecodable, VarInt};
-use bitcoin::network::serialize::{RawEncoder, RawDecoder, serialize, deserialize, BitcoinHash};
+use bitcoin::network::serialize::BitcoinHash;
 use bitcoin::network::message as btc_message;
 
-use bitcoin::util::hash::{Sha256dHash, bitcoin_merkle_root};
-use bitcoin::util::uint::Uint256;
+use bitcoin::util::hash::bitcoin_merkle_root;
 
 use burnchains::bitcoin::indexer::BitcoinIndexer;
 use burnchains::bitcoin::Error as btc_error;
-use burnchains::bitcoin::spv::SpvClient;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
-use burnchains::bitcoin::network::PeerMessage;
+use burnchains::bitcoin::PeerMessage;
 use burnchains::bitcoin::bits;
 use burnchains::bitcoin::keys::BitcoinPublicKey;
-use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
-use burnchains::bitcoin::indexer::BitcoinNetworkType;
+use burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::BitcoinNetworkType;
+
+use burnchains::indexer::{BurnHeaderIPC, BurnBlockIPC, BurnchainBlockDownloader, BurnchainBlockParser};
+
+use burnchains::Error as burnchain_error;
+
+use util::log;
 
 use burnchains::{
     BurnchainBlock, 
     BurnchainTxInput, 
     BurnchainTxOutput, 
-    BurnchainTransaction, 
-    PublicKey, 
+    BurnchainTransaction,
     Txid,
-    BlockHash,
+    BurnchainHeaderHash,
     MagicBytes, 
-    Hash160, 
     MAGIC_BYTES_LENGTH
 };
 
-// IPC messages between threads
-pub struct IPCHeader {
-    pub height: u64,
-    pub header: LoneBlockHeader
+use util::hash::to_hex;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BitcoinHeaderIPC {
+    pub block_header: LoneBlockHeader,
+    pub block_height: u64
 }
 
-pub struct IPCBlock {
-    pub height: u64,
-    pub header: LoneBlockHeader,
-    pub block: PeerMessage
+impl BurnHeaderIPC for BitcoinHeaderIPC {
+    type H = LoneBlockHeader;
+
+    fn header(&self) -> LoneBlockHeader {
+        self.block_header.clone()
+    }
+
+    fn height(&self) -> u64 {
+        self.block_height
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BitcoinBlockIPC {
+    pub header_data: BitcoinHeaderIPC,
+    pub block_message: PeerMessage
+}
+
+impl BurnBlockIPC for BitcoinBlockIPC {
+    type H = BitcoinHeaderIPC;
+    type B = PeerMessage;
+
+    fn header(&self) -> BitcoinHeaderIPC {
+        self.header_data.clone()
+    }
+
+    fn height(&self) -> u64 {
+        self.header_data.height()
+    }
+
+    fn block(&self) -> PeerMessage {
+        self.block_message.clone()
+    }
 }
 
 pub struct BitcoinBlockDownloader {
-    headers_path: String,
-    cur_request: Option<Arc<IPCHeader>>,
-    network_id: BitcoinNetworkType,
-
-    pub chan_in: Option<Receiver<Arc<IPCHeader>>>,
-    pub chan_out: Option<SyncSender<Arc<IPCBlock>>>,
-    pub thread: Option<JoinHandle<()>>
+    cur_request: Option<BitcoinHeaderIPC>,
+    cur_block: Option<BitcoinBlockIPC>,
+    indexer: Option<BitcoinIndexer>
 }
 
 pub struct BitcoinBlockParser {
     network_id: BitcoinNetworkType,
-    magic_bytes: MagicBytes,
-
-    pub chan_in: Option<Receiver<Arc<IPCBlock>>>,
-    pub chan_out: Option<SyncSender<Arc<BurnchainBlock<BitcoinAddress, BitcoinPublicKey>>>>,
-    pub thread: Option<JoinHandle<()>>
+    magic_bytes: MagicBytes
 }
 
 impl BitcoinBlockDownloader {
-    pub fn new(headers_path: &str, start_block: u64, end_block: u64, network_id: BitcoinNetworkType) -> BitcoinBlockDownloader {
+    pub fn new(indexer: BitcoinIndexer) -> BitcoinBlockDownloader {
         BitcoinBlockDownloader {
-            headers_path: headers_path.to_owned(),
             cur_request: None,
-            network_id: network_id,
-            chan_in: None,
-            chan_out: None,
-            thread: None
+            cur_block: None,
+            indexer: Some(indexer)
         }
     }
 
-    // TODO: connection methods and thread start
-    // TODO: receive a block and send it off
+    pub fn run(&mut self, header: &BitcoinHeaderIPC) -> Result<BitcoinBlockIPC, btc_error> {
+        self.cur_request = Some((*header).clone());
+        
+        // should always work, since at most one thread can call this method at once
+        // due to &mut self.
+        let mut indexer = self.indexer.take().unwrap();
+        
+        indexer.peer_communicate(self, false)?; 
+        
+        self.indexer = Some(indexer);
 
-    /// Go get all the blocks.
-    /// keep trying forever.
-    pub fn run(&mut self, indexer: &mut BitcoinIndexer) -> Result<(), btc_error> {
-        return indexer.peer_communicate(self);
+        assert!(self.cur_block.is_some());
+        let ipc_block = self.cur_block.take().unwrap();
+        Ok(ipc_block)
     }
+}
 
-    /// Ask for the next block height to download.
-    /// Remember which request we're on.
-    fn request_next_block(&mut self, indexer: &mut BitcoinIndexer) -> Result<bool, btc_error> {
-        let ipc_header = 
-            match self.chan_in {
-                Some(ref chan) => {
-                    chan.recv()
-                        .map_err(|_e| btc_error::PipelineError)
-                },
-                None => Err(btc_error::PipelineError)
-            }?;
+impl BurnchainBlockDownloader for BitcoinBlockDownloader {
+    type H = BitcoinHeaderIPC;
+    type B = BitcoinBlockIPC;
 
-        let res = indexer.send_getblocks(&vec![ipc_header.header.header.bitcoin_hash()])
-            .and_then(|_r| Ok(true));
-
-        self.cur_request = Some(ipc_header);
-        res
+    fn download(&mut self, header: &BitcoinHeaderIPC) -> Result<BitcoinBlockIPC, burnchain_error> {
+        self.run(header)
+            .map_err(burnchain_error::DownloadError)
     }
 }
 
@@ -138,62 +150,66 @@ impl BitcoinMessageHandler for BitcoinBlockDownloader {
     /// Trait message handler 
     /// initiate the conversation with the bitcoin peer
     fn begin_session(&mut self, indexer: &mut BitcoinIndexer) -> Result<bool, btc_error> {
-        // sanity check
-        fs::metadata(&self.headers_path)
-            .map_err(btc_error::FilesystemError)?;
-
-        // ask for the block 
-        self.request_next_block(indexer)
+        match self.cur_request {
+            None => panic!("No block header set"),
+            Some(ref ipc_header) => {
+                let block_hash = ipc_header.block_header.header.bitcoin_hash().clone();
+                indexer.send_getdata(&vec![block_hash])
+                    .and_then(|_r| Ok(true))
+            }
+        }
     }
 
     /// Trait message handler
-    /// Take headers, validate them, and ask for more
-    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: &PeerMessage) -> Result<bool, btc_error> {
+    /// Wait for a block to arrive that matches self.cur_request
+    fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: PeerMessage) -> Result<bool, btc_error> {
         // send to our consumer thread for parsing
-        let mut ask_next = false;
+        if self.cur_block.is_some() {
+            debug!("Already have a block");
+            return Ok(false);
+        }
+
+        if self.cur_request.is_none() {
+            panic!("No block header set");
+        }
+
+        let ipc_header = self.cur_request.clone().unwrap();
+
+        let height;
+        let header;
+        let block_hash;
+
         match msg.deref() {
-            btc_message::NetworkMessage::Block(ref block) => {
-                match self.cur_request {
-                    Some(ref ipc_header) => {
-                        debug!("Got block {}: {}", ipc_header.height, block.bitcoin_hash());
-
-                        // forward block to parser
-                        let ipc_block = Arc::new(IPCBlock {
-                            height: ipc_header.height,
-                            header: ipc_header.header.clone(),
-                            block: msg.clone()
-                        });
-
-                        // send off to parser
-                        match self.chan_out {
-                            Some(ref chan) => {
-                                chan.send(ipc_block)
-                                    .map_err(|_e| btc_error::PipelineError)?;
-                            }
-                            None => {}
-                        };
-                        
-                        // get the next-requested block
-                        ask_next = true;
-                    },
-                    None => {
-                        debug!("No outstanding block request");
-                        return Ok(false);
-                    }
+            btc_message::NetworkMessage::Block(block) => {
+                // make sure this block matches
+                if !BitcoinBlockParser::check_block(&block, &ipc_header.block_header) {
+                    debug!("Requested block {}, got block {}", &to_hex(ipc_header.block_header.header.bitcoin_hash().as_bytes()), &to_hex(block.bitcoin_hash().as_bytes()));
+                    
+                    // try again 
+                    indexer.send_getdata(&vec![ipc_header.block_header.header.bitcoin_hash()])?;
+                    return Ok(true);
                 }
+
+                // got valid data!
+                height = ipc_header.block_height;
+                header = ipc_header.clone();
+                block_hash = ipc_header.block_header.header.bitcoin_hash();
             },
             _ => { 
-                return Err(btc_error::UnhandledMessage);
+                return Err(btc_error::UnhandledMessage(msg.clone()));
             }
         }
 
-        if ask_next {
-            self.request_next_block(indexer);
-            Ok(true)
-        }
-        else {
-            Ok(false)
-        }
+        debug!("Got block {}: {}", height, &to_hex(BurnchainHeaderHash::from_bitcoin_hash(&block_hash).as_bytes()));
+
+        // store response. we're done.
+        let ipc_block = BitcoinBlockIPC {
+            header_data: header,
+            block_message: msg
+        };
+
+        self.cur_block = Some(ipc_block);
+        Ok(false)
     }
 }
 
@@ -202,13 +218,29 @@ impl BitcoinBlockParser {
     pub fn new(network_id: BitcoinNetworkType, magic_bytes: MagicBytes) -> BitcoinBlockParser {
         BitcoinBlockParser {
             network_id: network_id,
-            magic_bytes: magic_bytes.clone(),
-            chan_in: None,
-            chan_out: None,
-            thread: None
+            magic_bytes: magic_bytes.clone()
         }
     }
-    
+   
+    /// Verify that a block matches a header 
+    pub fn check_block(block: &Block, header: &LoneBlockHeader) -> bool {
+        if header.header.bitcoin_hash() != block.bitcoin_hash() {
+            return false;
+        }
+
+        // block transactions must match header merkle root
+        let tx_merkle_root = bitcoin_merkle_root(block.txdata
+                                                 .iter()
+                                                 .map(|ref tx| { tx.txid() })
+                                                 .collect());
+
+        if block.header.merkle_root != tx_merkle_root {
+            return false;
+        }
+
+        true
+    }
+
     /// Parse the data output to get a byte payload 
     fn parse_data(&self, data_output: &Script) -> Option<(u8, Vec<u8>)> {
         if !data_output.is_op_return() {
@@ -278,6 +310,7 @@ impl BitcoinBlockParser {
         for inp in &tx.input {
             match BurnchainTxInput::from_bitcoin_txin(&inp) {
                 None => {
+                    test_debug!("Failed to parse input");
                     return None;
                 }
                 Some(i) => {
@@ -296,6 +329,7 @@ impl BitcoinBlockParser {
         for outp in &tx.output[1..tx.output.len()] {
             match BurnchainTxOutput::from_bitcoin_txout(self.network_id, &outp) {
                 None => {
+                    test_debug!("Failed to parse output");
                     return None;
                 }
                 Some(o) => {
@@ -309,11 +343,13 @@ impl BitcoinBlockParser {
     /// Parse a Bitcoin transaction into a Burnchain transaction 
     pub fn parse_tx(&self, tx: &Transaction, vtxindex: usize) -> Option<BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>> {
         if !self.maybe_burnchain_tx(tx) {
+            test_debug!("Not a burnchain tx");
             return None;
         }
 
         let data_opt = self.parse_data(&tx.output[0].script_pubkey);
         if data_opt.is_none() {
+            test_debug!("No OP_RETURN script");
             return None;
         }
 
@@ -325,14 +361,17 @@ impl BitcoinBlockParser {
             (Some(inputs), Some(outputs)) => {
                 Some(BurnchainTransaction {
                     txid: Txid::from_vec_be(&tx.txid().as_bytes().to_vec()).unwrap(), // txids are little-endian in Blockstack, and this *should* panic if it fails
-                    vtxindex: vtxindex as u64,
+                    vtxindex: vtxindex as u32,
                     opcode: opcode,
                     data: data,
                     inputs: inputs,
                     outputs: outputs
                 })
             }
-            (_, _) => None
+            (_, _) => {
+                test_debug!("Failed to parse inputs and/or outputs");
+                None
+            }
         }
     }
     
@@ -355,7 +394,7 @@ impl BitcoinBlockParser {
 
         BurnchainBlock {
             block_height: block_height,
-            block_hash: BlockHash::from_vec_be(&block.bitcoin_hash().as_bytes().to_vec()).unwrap(),    // block hashes are little-endian in Blockstack, and this *should* panic if it fails
+            block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.bitcoin_hash()),
             txs: accepted_txs
         }
     }
@@ -367,25 +406,34 @@ impl BitcoinBlockParser {
     /// (in which case, we should re-start the conversation with the peer and try again).
     pub fn process_block(&self, block: &Block, header: &LoneBlockHeader, height: u64) -> Option<BurnchainBlock<BitcoinAddress, BitcoinPublicKey>> {
         // block header contents must match
-        if header.header.bitcoin_hash() != block.bitcoin_hash() {
+        if !BitcoinBlockParser::check_block(block, header) {
             error!("Expected block {} does not match received block {}", header.header.bitcoin_hash(), block.bitcoin_hash());
-            return None;
-        }
-
-        // block transactions must match header merkle root
-        let tx_merkle_root = bitcoin_merkle_root(block.txdata
-                                                 .iter()
-                                                 .map(|ref tx| { tx.txid() })
-                                                 .collect());
-
-        if block.header.merkle_root != tx_merkle_root {
-            error!("Expected block {} merkle root {}, got {}", block.bitcoin_hash(), block.header.merkle_root, tx_merkle_root);
             return None;
         }
 
         // parse it 
         let burn_block = self.parse_block(&block, height);
         Some(burn_block)
+    }
+}
+
+impl BurnchainBlockParser for BitcoinBlockParser {
+    type D = BitcoinBlockDownloader;
+    type A = BitcoinAddress;
+    type K = BitcoinPublicKey;
+
+    fn parse(&mut self, ipc_block: &BitcoinBlockIPC) -> Result<BurnchainBlock<BitcoinAddress, BitcoinPublicKey>, burnchain_error> {
+        match ipc_block.block_message.deref() {
+            btc_message::NetworkMessage::Block(ref block) => { 
+                match self.process_block(&block, &ipc_block.header_data.block_header, ipc_block.header_data.block_height) {
+                    None => Err(burnchain_error::ParseError),
+                    Some(block_data) => Ok(block_data)
+                }
+            },
+            _ => {
+                panic!("Did not receive a Block message");      // should never happen 
+            }
+        }
     }
 }
 
@@ -405,19 +453,17 @@ mod tests {
         BurnchainTxInput, 
         BurnchainTxOutput, 
         BurnchainTransaction, 
-        PublicKey, 
         Txid,
-        BlockHash,
+        BurnchainHeaderHash,
         MagicBytes, 
-        Hash160, 
-        MAGIC_BYTES_LENGTH
+        BurnchainInputType,
     };
 
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};
-    use burnchains::bitcoin::indexer::BitcoinNetworkType;
+    use burnchains::bitcoin::BitcoinNetworkType;
 
-    use util::log as logger;
+    use util::log;
 
     struct TxFixture<T> {
         txstr: String,
@@ -462,16 +508,15 @@ mod tests {
         Txid(ret)
     }
     
-    fn to_block_hash(inp: &Vec<u8>) -> BlockHash {
+    fn to_block_hash(inp: &Vec<u8>) -> BurnchainHeaderHash {
         let mut ret = [0; 32];
         let bytes = &inp[..inp.len()];
         ret.copy_from_slice(bytes);
-        BlockHash(ret)
+        BurnchainHeaderHash(ret)
     }
 
     #[test]
     fn maybe_burnchain_tx_test() {
-        logger::init();
         let tx_fixtures = vec![
             TxFixture {
                 // valid
@@ -490,7 +535,7 @@ mod tests {
             }
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::testnet, MagicBytes([105, 100]));   // "id"
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]));   // "id"
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let res = parser.maybe_burnchain_tx(&tx);
@@ -500,8 +545,6 @@ mod tests {
 
     #[test]
     fn parse_tx_test() {
-        logger::init();
-
         let vtxindex = 4;
         let tx_fixtures = vec![
             TxFixture {
@@ -518,34 +561,31 @@ mod tests {
                                 BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
                             ],
                             num_required: 1,
-                            sender_pubkey: Some(BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap()),
-                            sender_scriptpubkey: hex_bytes("76a914395f3643cea07ec4eec73b4d9a973dcce56b9bf188ac").unwrap().to_vec()
+                            in_type: BurnchainInputType::BitcoinInput,
                         },
                         BurnchainTxInput {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap(),
                             ],
                             num_required: 1,
-                            sender_pubkey: Some(BitcoinPublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap()),
-                            sender_scriptpubkey: hex_bytes("76a914395f3643cea07ec4eec73b4d9a973dcce56b9bf188ac").unwrap().to_vec()
+                            in_type: BurnchainInputType::BitcoinInput,
                         },
                         BurnchainTxInput {
                             keys: vec![
                                 BitcoinPublicKey::from_hex("04c77f262dda02580d65c9069a8a34c56bd77325bba4110b693b90216f5a3edc0bebc8ce28d61aa86b414aa91ecb29823b11aeed06098fcd97fee4bc73d54b1e96").unwrap(),
                             ],
                             num_required: 1,
-                            sender_pubkey: Some(BitcoinPublicKey::from_hex("04c77f262dda02580d65c9069a8a34c56bd77325bba4110b693b90216f5a3edc0bebc8ce28d61aa86b414aa91ecb29823b11aeed06098fcd97fee4bc73d54b1e96").unwrap()),
-                            sender_scriptpubkey: hex_bytes("76a9149f2660e75380675206b6f1e2b4f106ae33266be488ac").unwrap().to_vec()
+                            in_type: BurnchainInputType::BitcoinInput,
                         }
                     ],
                     outputs: vec![
                         BurnchainTxOutput {
                             units: 27500,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap()).unwrap()
                         },
                         BurnchainTxOutput {
                             units: 70341,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("9f2660e75380675206b6f1e2b4f106ae33266be4").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("9f2660e75380675206b6f1e2b4f106ae33266be4").unwrap()).unwrap()
                         }
                     ]
                 }
@@ -566,8 +606,7 @@ mod tests {
                                 BitcoinPublicKey::from_hex("046fd8c7330fbe307a0fad0bf9472ca080f4941f4b6edea7ab090e3e26075e7277a0bd61f42eff54daf3e6141de46a98a5a8265c9e8d58bd1a86cf36d418788ab8").unwrap(),
                             ],
                             num_required: 2,
-                            sender_pubkey: None,
-                            sender_scriptpubkey: hex_bytes("a914eb1881fb0682c2eb37e478bf918525a2c61bc40487").unwrap().to_vec()
+                            in_type: BurnchainInputType::BitcoinInput,
                         },
                         BurnchainTxInput {
                             keys: vec![
@@ -576,18 +615,17 @@ mod tests {
                                 BitcoinPublicKey::from_hex("044c9f30b4546c1f30087001fa6450e52c645bd49e91a18c9c16965b72f5153f0e4b04712218b42b2bc578017b471beaa7d8c0a9eb69174ad50714d7ef4117863d").unwrap(),
                             ],
                             num_required: 2,
-                            sender_pubkey: None,
-                            sender_scriptpubkey: hex_bytes("a914c26afc6cb80ca477c280780902b40cbef8cd804d87").unwrap().to_vec()
+                            in_type: BurnchainInputType::BitcoinInput,
                         },
                     ],
                     outputs: vec![
                         BurnchainTxOutput {
                             units: 11000,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::ScriptHash, &hex_bytes("eb1881fb0682c2eb37e478bf918525a2c61bc404").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("eb1881fb0682c2eb37e478bf918525a2c61bc404").unwrap()).unwrap()
                         },
                         BurnchainTxOutput {
                             units: 1293677,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::ScriptHash, &hex_bytes("c26afc6cb80ca477c280780902b40cbef8cd804d").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("c26afc6cb80ca477c280780902b40cbef8cd804d").unwrap()).unwrap()
                         }
                     ]
                 }
@@ -606,18 +644,17 @@ mod tests {
                                 BitcoinPublicKey::from_hex("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap()
                             ],
                             num_required: 1,
-                            sender_pubkey: None,
-                            sender_scriptpubkey: hex_bytes("a91431f8968eb1730c83fb58409a9a560a0a0835027f87").unwrap().to_vec()
+                            in_type: BurnchainInputType::BitcoinSegwitP2SHInput,
                         }
                     ],
                     outputs: vec![
                         BurnchainTxOutput {
                             units: 5500,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::ScriptHash, &hex_bytes("4b85301ba8e42bf98472b8ed4939d5f76b98fcea").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("4b85301ba8e42bf98472b8ed4939d5f76b98fcea").unwrap()).unwrap()
                         },
                         BurnchainTxOutput {
                             units: 4993076500,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
                         }
                     ]
                 }
@@ -638,25 +675,24 @@ mod tests {
                                 BitcoinPublicKey::from_hex("028791dc45c049107fb99e673265a38a096536aacdf78aa90710a32fff7750f9f9").unwrap()
                             ],
                             num_required: 2,
-                            sender_pubkey: None,
-                            sender_scriptpubkey: hex_bytes("a91487a0487869af70b6b1cc79bd374b75ba1be5cff987").unwrap().to_vec()
+                            in_type: BurnchainInputType::BitcoinSegwitP2SHInput,
                         }
                     ],
                     outputs: vec![
                         BurnchainTxOutput {
                             units: 4993326000,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::ScriptHash, &hex_bytes("87a0487869af70b6b1cc79bd374b75ba1be5cff9").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("87a0487869af70b6b1cc79bd374b75ba1be5cff9").unwrap()).unwrap()
                         },
                         BurnchainTxOutput {
                             units: 6400000,
-                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
+                            address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap()
                         },
                     ]
                 }
             }
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::testnet, MagicBytes([105, 100]));   // "id"
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]));   // "id"
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize);
@@ -682,7 +718,7 @@ mod tests {
             // TODO: add more transactions with non-standard scripts that we don't care about
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::testnet, MagicBytes([105, 100]));   // "id"
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]));   // "id"
         for tx_fixture in tx_fixtures_strange {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
             let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize);
@@ -714,18 +750,17 @@ mod tests {
                                         BitcoinPublicKey::from_hex("02d341f728783eb93e6fb5921a1ebe9d149e941de31e403cd69afa2f0f1e698e81").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: None,
-                                    sender_scriptpubkey: hex_bytes("a91431f8968eb1730c83fb58409a9a560a0a0835027f87").unwrap().to_vec()
+                                    in_type: BurnchainInputType::BitcoinSegwitP2SHInput,
                                 }
                             ],
                             outputs: vec![
                                 BurnchainTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::ScriptHash, &hex_bytes("4b85301ba8e42bf98472b8ed4939d5f76b98fcea").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("4b85301ba8e42bf98472b8ed4939d5f76b98fcea").unwrap()).unwrap()
                                 },
                                 BurnchainTxOutput {
                                     units: 4993076500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::ScriptHash, &hex_bytes("31f8968eb1730c83fb58409a9a560a0a0835027f").unwrap()).unwrap()
                                 }
                             ]
                         }
@@ -753,18 +788,17 @@ mod tests {
                                         BitcoinPublicKey::from_hex("03d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: Some(BitcoinPublicKey::from_hex("03d6fd1ba0effaf1e8d94ea7b7a3d0ef26fea00a14ce5ffcc1495fe588a2c6d0f3").unwrap()),
-                                    sender_scriptpubkey: hex_bytes("76a91474178497e927ff3ff1428a241be454d393c3c91c88ac").unwrap().to_vec()
+                                    in_type: BurnchainInputType::BitcoinInput,
                                 }
                             ],
                             outputs: vec![
                                 BurnchainTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("41a349571d89decfac52ffecd92300b6a97b2841").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("41a349571d89decfac52ffecd92300b6a97b2841").unwrap()).unwrap()
                                 },
                                 BurnchainTxOutput {
                                     units: 4986192000,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()).unwrap()
                                 }
                             ]
                         },
@@ -780,18 +814,17 @@ mod tests {
                                         BitcoinPublicKey::from_hex("04ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: Some(BitcoinPublicKey::from_hex("04ef29f16c10aa2d0468d7841cfedb8b5729689ebca4db38fb8f3fc9ab158e799b6d6dfc2bca52fe490f7acd38e351bf1d28b8f1f48736a0b022f806dd107a8385").unwrap()),
-                                    sender_scriptpubkey: hex_bytes("76a91441a349571d89decfac52ffecd92300b6a97b284188ac").unwrap().to_vec()
+                                    in_type: BurnchainInputType::BitcoinInput,
                                 }
                             ],
                             outputs: vec![
                                 BurnchainTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("e1762290e3f035ea4e7f8cbf72a9d9386c4020ab").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("e1762290e3f035ea4e7f8cbf72a9d9386c4020ab").unwrap()).unwrap()
                                 },
                                 BurnchainTxOutput {
                                     units: 211500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("41a349571d89decfac52ffecd92300b6a97b2841").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("41a349571d89decfac52ffecd92300b6a97b2841").unwrap()).unwrap()
                                 }
                             ]
                         },
@@ -807,18 +840,17 @@ mod tests {
                                         BitcoinPublicKey::from_hex("0479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: Some(BitcoinPublicKey::from_hex("0479ff722ee4dfd880e307d06fc50a248a9f73a57998a65fd95c48436400280372cf9e99a9952ded7723a68118d4dcf658efbaed2a73265fc63b44789d2d459637").unwrap()),
-                                    sender_scriptpubkey: hex_bytes("76a914e1762290e3f035ea4e7f8cbf72a9d9386c4020ab88ac").unwrap().to_vec()
+                                    in_type: BurnchainInputType::BitcoinInput,
                                 }
                             ],
                             outputs: vec![
                                 BurnchainTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("f3c49407d41b82f30636f5180718bb658ce7fe94").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("f3c49407d41b82f30636f5180718bb658ce7fe94").unwrap()).unwrap()
                                 },
                                 BurnchainTxOutput {
                                     units: 211500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("e1762290e3f035ea4e7f8cbf72a9d9386c4020ab").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("e1762290e3f035ea4e7f8cbf72a9d9386c4020ab").unwrap()).unwrap()
                                 }
                             ]
                         },
@@ -834,18 +866,17 @@ mod tests {
                                         BitcoinPublicKey::from_hex("04447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebc").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: Some(BitcoinPublicKey::from_hex("04447019ded953edd1bcecffbc66a555f822675257bacc0d357c1dc5194849367354c551e2c2e2048cb927985c8528e24120addd9aa0a2c68b23b462f337caaebc").unwrap()),
-                                    sender_scriptpubkey: hex_bytes("76a914f3c49407d41b82f30636f5180718bb658ce7fe9488ac").unwrap().to_vec()
+                                    in_type: BurnchainInputType::BitcoinInput,
                                 }
                             ],
                             outputs: vec![
                                 BurnchainTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("afc75a8f8fbcb922248a663dec927b33dccaed37").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("afc75a8f8fbcb922248a663dec927b33dccaed37").unwrap()).unwrap()
                                 },
                                 BurnchainTxOutput {
                                     units: 211500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("f3c49407d41b82f30636f5180718bb658ce7fe94").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("f3c49407d41b82f30636f5180718bb658ce7fe94").unwrap()).unwrap()
                                 }
                             ]
                         },
@@ -861,18 +892,17 @@ mod tests {
                                         BitcoinPublicKey::from_hex("04a96a8355b6c3597bb9425c2ef264ab8179ca8acd3032b62980d2067261b37666b66510983e6d60d49bbd28129f0bae4dbcaa97c2bc61a6b2e48ca1625ce81335").unwrap()
                                     ],
                                     num_required: 1,
-                                    sender_pubkey: Some(BitcoinPublicKey::from_hex("04a96a8355b6c3597bb9425c2ef264ab8179ca8acd3032b62980d2067261b37666b66510983e6d60d49bbd28129f0bae4dbcaa97c2bc61a6b2e48ca1625ce81335").unwrap()),
-                                    sender_scriptpubkey: hex_bytes("76a914afc75a8f8fbcb922248a663dec927b33dccaed3788ac").unwrap().to_vec()
+                                    in_type: BurnchainInputType::BitcoinInput,
                                 }
                             ],
                             outputs: vec![
                                 BurnchainTxOutput {
                                     units: 5500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("74178497e927ff3ff1428a241be454d393c3c91c").unwrap()).unwrap()
                                 },
                                 BurnchainTxOutput {
                                     units: 211500,
-                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("afc75a8f8fbcb922248a663dec927b33dccaed37").unwrap()).unwrap()
+                                    address: BitcoinAddress::from_bytes(BitcoinNetworkType::Testnet, BitcoinAddressType::PublicKeyHash, &hex_bytes("afc75a8f8fbcb922248a663dec927b33dccaed37").unwrap()).unwrap()
                                 }
                             ]
                         }
@@ -888,7 +918,7 @@ mod tests {
             }
         ];
 
-        let parser = BitcoinBlockParser::new(BitcoinNetworkType::testnet, MagicBytes([105, 100]));   // "id"
+        let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, MagicBytes([105, 100]));   // "id"
         for block_fixture in block_fixtures {
             let block = make_block(&block_fixture.block).unwrap();
             let header = make_block_header(&block_fixture.header).unwrap();

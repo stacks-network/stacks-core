@@ -17,18 +17,4 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::fs;
-use std::cmp;
-use std::sync::Arc;
-use std::sync::mpsc::{SyncSender, sync_channel};
-use std::thread;
-use std::thread::JoinHandle;
-
-/*
-pub trait ThreadPipelineStage {
-    pub fn get_input(&self) -> Result<SyncSender, Error>;
-    pub fn get_output(&self) -> Result<
-
-    // pub fn connect<T: ThreadPipelineStage>(&next_stage: T) -> Result<(), &'static str>;
-}
-*/
+// This module contains all the code for the Stacks blockchain

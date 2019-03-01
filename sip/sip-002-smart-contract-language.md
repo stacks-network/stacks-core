@@ -206,7 +206,7 @@ from the current principal to another principal:
 
 This function itself _requires_ that the operation have been signed by
 the transferring principal. The `integer` type in our smart contracting
-language is an 8-byte unsigned integer, which allows it to specify the
+language is an 16-byte signed integer, which allows it to specify the
 maximum amount of microstacks spendable in a single Stacks transfer.
 
 Like any other public smart contract function, this function call

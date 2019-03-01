@@ -17,96 +17,181 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+/// This module contains drivers and types for all burn chains we support.
+
 pub mod bitcoin;
 pub mod indexer;
+pub mod burnchain;
 
-use self::bitcoin::address::BitcoinAddress;
-use self::bitcoin::keys::BitcoinPublicKey;
+use std::fmt;
+use std::error;
+use std::io;
 
-use crypto::ripemd160::Ripemd160;
-use crypto::sha2::Sha256;
-use crypto::digest::Digest;
+use self::bitcoin::Error as btc_error;
 
-use util::hash::hex_bytes;
+use chainstate::burn::db::Error as burndb_error;
+use chainstate::burn::operations::Error as op_error;
 
+use util::hash::Hash160;
+
+#[derive(Serialize, Deserialize)]
 pub struct Txid([u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
 impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
 
-pub struct BlockHash([u8; 32]);
-impl_array_newtype!(BlockHash, u8, 32);
-impl_array_hexstring_fmt!(BlockHash);
-impl_byte_array_newtype!(BlockHash, u8, 32);
-
-pub struct Hash160([u8; 20]);
-impl_array_newtype!(Hash160, u8, 20);
-impl_array_hexstring_fmt!(Hash160);
-impl_byte_array_newtype!(Hash160, u8, 20);
-
-impl Hash160 {
-    /// Create a hash by hashing some data
-    /// (borrwed from Andrew Poelstra)
-    pub fn from_data(data: &[u8]) -> Hash160 {
-        let mut tmp = [0; 32];
-        let mut ret = [0; 20];
-        let mut sha2 = Sha256::new();
-        let mut rmd = Ripemd160::new();
-        sha2.input(data);
-        sha2.result(&mut tmp);
-        rmd.input(&tmp);
-        rmd.result(&mut ret);
-        Hash160(ret)
-    }
-}
+#[derive(Serialize, Deserialize)]
+pub struct BurnchainHeaderHash([u8; 32]);
+impl_array_newtype!(BurnchainHeaderHash, u8, 32);
+impl_array_hexstring_fmt!(BurnchainHeaderHash);
+impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MagicBytes([u8; MAGIC_BYTES_LENGTH]);
 impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 
 pub const BLOCKSTACK_MAGIC_MAINNET : MagicBytes = MagicBytes([105, 100]);  // 'id'
 
-pub trait PublicKey {
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct BurnQuotaConfig {
+    pub inc: u64,
+    pub dec_num: u64,
+    pub dec_den: u64
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub enum BurnchainInputType {
+    BitcoinInput,
+    BitcoinSegwitP2SHInput,
+
+    // TODO: expand this as more burnchains are supported
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub enum ConsensusHashLifetime {
+    Bitcoin = 24
+
+    // TODO: expand this as more burnchains are supported
+}
+
+pub trait PublicKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn verify(&self, data_hash: &[u8], sig: &[u8]) -> Result<bool, &'static str>;
 }
 
-pub trait Address {
+pub trait Address : Clone + fmt::Debug {
     fn to_bytes(&self) -> Vec<u8>;
+    fn to_string(&self) -> String;
+    fn from_string(&String) -> Option<Self>
+        where Self: Sized;
+    fn burn_bytes() -> Vec<u8>;
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct BurnchainTxOutput<A: Address> {
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct BurnchainTxOutput<A> {
     pub address: A,
     pub units: u64
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct BurnchainTxInput<K: PublicKey> {
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BurnchainTxInput<K> {
     pub keys: Vec<K>,
     pub num_required: usize,
-
-    // TODO: these can be removed if we're never going to use them
-    pub sender_scriptpubkey: Vec<u8>,             // LEGACY: required for consensus in Bitcoin for some operations -- this is the sender's deduced scriptpubkey (derived from the transaction scriptsig)
-    pub sender_pubkey: Option<K>                  // LEGACY: required for consensus in Bitcoin for some operations -- this is the sender's public key extracted from the scriptsig (but only if this spends a p2pkh)
+    pub in_type: BurnchainInputType
 }
 
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct BurnchainTransaction<A: Address, K: PublicKey> {
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct BurnchainTransaction<A, K> {
     pub txid: Txid,
-    pub vtxindex: u64,
+    pub vtxindex: u32,
     pub opcode: u8,
     pub data: Vec<u8>,
     pub inputs: Vec<BurnchainTxInput<K>>,
     pub outputs: Vec<BurnchainTxOutput<A>>
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct BurnchainBlock<A: Address, K: PublicKey> {
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct BurnchainBlock<A, K> {
     pub block_height: u64,
-    pub block_hash: BlockHash,
+    pub block_hash: BurnchainHeaderHash,
     pub txs: Vec<BurnchainTransaction<A, K>>
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct Burnchain {
+    pub chain_name: String,
+    pub network_name: String,
+    pub working_dir: String,
+    pub burn_quota : BurnQuotaConfig,
+    pub consensus_hash_lifetime: u32
+}
+
+#[derive(Debug)]
+pub enum Error {
+    /// Unsupported burn chain
+    UnsupportedBurnchain,
+    /// Bitcoin-related error
+    Bitcoin(btc_error),
+    /// burn database error 
+    DBError(burndb_error),
+    /// Download error 
+    DownloadError(btc_error),
+    /// Parse error 
+    ParseError,
+    /// Thread channel error 
+    ThreadChannelError,
+    /// Missing headers 
+    MissingHeaders,
+    /// filesystem error 
+    FSError(io::Error),
+    /// Operation processing error 
+    OpError(op_error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::UnsupportedBurnchain => f.write_str(error::Error::description(self)),
+            Error::Bitcoin(ref btce) => fmt::Display::fmt(btce, f),
+            Error::DBError(ref dbe) => fmt::Display::fmt(dbe, f),
+            Error::DownloadError(ref btce) => fmt::Display::fmt(btce, f),
+            Error::ParseError => f.write_str(error::Error::description(self)),
+            Error::MissingHeaders => f.write_str(error::Error::description(self)),
+            Error::ThreadChannelError => f.write_str(error::Error::description(self)),
+            Error::FSError(ref e) => fmt::Display::fmt(e, f),
+            Error::OpError(ref e) => fmt::Display::fmt(e, f),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            Error::UnsupportedBurnchain => None,
+            Error::Bitcoin(ref e) => Some(e),
+            Error::DBError(ref e) => Some(e),
+            Error::DownloadError(ref e) => Some(e),
+            Error::ParseError => None,
+            Error::MissingHeaders => None,
+            Error::ThreadChannelError => None,
+            Error::FSError(ref e) => Some(e),
+            Error::OpError(ref e) => Some(e),
+        }
+    }
+
+    fn description(&self) -> &str {
+        match *self {
+            Error::UnsupportedBurnchain => "Unsupported burnchain",
+            Error::Bitcoin(ref e) => e.description(),
+            Error::DBError(ref e) => e.description(),
+            Error::DownloadError(ref e) => e.description(),
+            Error::ParseError => "Parse error",
+            Error::MissingHeaders => "Missing block headers",
+            Error::ThreadChannelError => "Error in thread channel",
+            Error::FSError(ref e) => e.description(),
+            Error::OpError(ref e) => e.description(),
+        }
+    }
+}

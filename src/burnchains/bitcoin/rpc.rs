@@ -17,6 +17,7 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+// TODO: can we just get rid of this?
 use jsonrpc::client::Client as jsonrpc_client;
 
 use burnchains::bitcoin::Error as btc_error;
@@ -24,12 +25,6 @@ use burnchains::bitcoin::Error as btc_error;
 // grab-bag of JSONRPC methods that we use
 pub struct BitcoinRPC {
     pub client: jsonrpc_client
-}
-
-// return value for getblockcount 
-#[derive(Deserialize)]
-struct GetBlockCount {
-    block_count: u64
 }
 
 impl BitcoinRPC {
@@ -41,17 +36,9 @@ impl BitcoinRPC {
 
     pub fn getblockcount(&self) -> Result<u64, btc_error> {
         let req = self.client.build_request("getblockcount".to_owned(), vec![]);
-        let res = self.client.send_request(&req)
-                .and_then(|resp| resp.into_result::<GetBlockCount>());
-
-        return match res {
-            Ok(getblockcount) => {
-                Ok(getblockcount.block_count)
-            }
-            Err(e) => {
-                Err(btc_error::JSONRPCError(e))
-            }
-        };
+        self.client.send_request(&req)
+                .and_then(|resp| resp.into_result::<u64>())
+                .map_err(btc_error::JSONRPCError)
     }
 }
         

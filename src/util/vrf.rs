@@ -17,6 +17,10 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(dead_code)]        // TODO: remove once we start using the VRF for things 
+
 /// This codebase is based on routines defined in the IETF draft for verifiable random functions
 /// over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
 ///
@@ -26,7 +30,6 @@
 ///
 /// THIS CODE HAS NOT BEEN AUDITED.  DO NOT USE IN PRODUCTION SYSTEMS.
 
-use util::hash::hex_bytes;
 use util::hash::to_hex;
 
 use ed25519_dalek::PublicKey as ed25519_PublicKey;
@@ -39,8 +42,6 @@ use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 
 use sha2::Digest;
 use sha2::Sha512;
-
-use rand::rngs::OsRng;
 
 use std::fmt;
 use std::error;
@@ -215,7 +216,7 @@ fn ECVRF_expand_privkey(secret: &ed25519_PrivateKey) -> (ed25519_PublicKey, ed25
     let mut hasher = Sha512::new();
     let mut h = [0u8; 64];
     let mut trunc_hash = [0u8; 32];
-    let pubkey = ed25519_PublicKey::from_secret::<Sha512>(secret);
+    let pubkey = ed25519_PublicKey::from(secret);
     let privkey_buf = secret.to_bytes();
 
     // hash secret key to produce nonce and intermediate private key
@@ -308,6 +309,7 @@ fn ECVRF_ed25519_PublicKey_to_RistrettoPoint(public_key: &ed25519_PublicKey) -> 
     let public_key_ed = public_key_ed_opt.unwrap();
     
     // RistrettoPoint is just a wrapper around EdwardsPoint
+    // TODO: see about getting a public constructor here
     use std::mem::transmute;
     let rp = unsafe { transmute::<EdwardsPoint, RistrettoPoint>(public_key_ed) };
     return Ok(rp);
@@ -333,22 +335,47 @@ pub fn ECVRF_verify(Y_point: &ed25519_PublicKey, proof: &ECVRF_Proof, alpha: &Ve
     Ok(c_prime == proof.c)
 }
 
+/// Verify that a given byte string is a well-formed EdDSA public key (i.e. it's a compressed
+/// Edwards point that is valid).
+pub fn ECVRF_check_public_key(pubkey_bytes: &Vec<u8>) -> Option<ed25519_PublicKey> {
+    match pubkey_bytes.len() {
+        32 => {
+            let mut pubkey_slice = [0; 32];
+            pubkey_slice.copy_from_slice(&pubkey_bytes[0..32]);
+
+            let checked_pubkey = CompressedEdwardsY(pubkey_slice);
+            let full_checked_pubkey = checked_pubkey.decompress();
+            if full_checked_pubkey.is_none() {
+                // invalid 
+                return None;
+            }
+
+            let key_res = ed25519_PublicKey::from_bytes(&pubkey_slice);
+            match key_res {
+                Ok(key) => Some(key),
+                Err(_e) => None
+            }
+        },
+        _ => None
+    }
+}
+
+/// Helper method to turn a public key into a hex string 
+pub fn ECVRF_public_key_to_hex(pubkey: &ed25519_PublicKey) -> String {
+    to_hex(pubkey.as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use util::hash::hex_bytes;
-    use util::hash::to_hex;
 
     use ed25519_dalek::PublicKey as ed25519_PublicKey;
     use ed25519_dalek::SecretKey as ed25519_PrivateKey;
 
-    use curve25519_dalek::ristretto::{RistrettoPoint, CompressedRistretto};
     use curve25519_dalek::scalar::Scalar as ed25519_Scalar;
-    use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
-    use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 
-    use sha2::Digest;
     use sha2::Sha512;
 
     use rand::rngs::OsRng;
@@ -467,10 +494,10 @@ mod tests {
 
     #[test]
     fn test_random_proof_roundtrip() {
-        for i in 0..100 {
+        for _i in 0..100 {
             let mut csprng: OsRng = OsRng::new().unwrap();
             let secret_key: ed25519_PrivateKey = ed25519_PrivateKey::generate(&mut csprng);
-            let public_key = ed25519_PublicKey::from_secret::<Sha512>(&secret_key);
+            let public_key = ed25519_PublicKey::from(&secret_key);
 
             let mut msg = [0u8, 1024];
             csprng.fill_bytes(&mut msg);
@@ -554,5 +581,14 @@ mod tests {
 
         let bad_proof_bytes_res = bad_proof.to_bytes();
         assert!(bad_proof_bytes_res.is_err());
+    }
+
+    #[test]
+    fn check_valid_public_key() {
+        let res1 = ECVRF_check_public_key(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap().to_vec());
+        assert!(res1.is_some());
+
+        let res2 = ECVRF_check_public_key(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7b").unwrap().to_vec());
+        assert!(res2.is_none());
     }
 }
