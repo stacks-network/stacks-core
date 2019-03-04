@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::Value;
@@ -47,8 +46,8 @@ pub struct LocalContext <'a> {
 }
 
 pub struct CallStack {
-    stack: HashMap<FunctionIdentifier, usize>,
-    depth: usize
+    stack: Vec<FunctionIdentifier>,
+    set: HashSet<FunctionIdentifier>
 }
 
 pub type StackTrace = Vec<FunctionIdentifier>;
@@ -177,42 +176,41 @@ impl <'a> LocalContext <'a> {
 impl CallStack {
     pub fn new() -> CallStack {
         CallStack {
-            stack: HashMap::new(),
-            depth: 0
+            stack: Vec::new(),
+            set: HashSet::new()
         }
     }
 
     pub fn depth(&self) -> usize {
-        self.depth
+        self.stack.len()
     }
 
     pub fn contains(&self, function: &FunctionIdentifier) -> bool {
-        self.stack.contains_key(function)
+        self.set.contains(function)
     }
 
-    pub fn insert(&mut self, function: &FunctionIdentifier) -> Result<()> {
-        self.stack.insert(function.clone(), self.depth);
-        self.depth = self.depth.checked_add(1)
-            .ok_or(Error::new(ErrType::MaxStackDepthReached))?;
-        Ok(())
-    }
-
-    pub fn remove(&mut self, user_function: &FunctionIdentifier) -> Result<()> {
-        if self.stack.remove(&user_function).is_none() {
-            panic!("Tried to remove function from call stack, but could not find in current context.")
+    pub fn insert(&mut self, function: &FunctionIdentifier, track: bool) {
+        self.stack.push(function.clone());
+        if track {
+            self.set.insert(function.clone());
         }
-        self.depth = self.depth.checked_sub(1)
-            .ok_or(Error::new(ErrType::InterpreterError("Tried to remove item from empty call stack.".to_string())))?;
-        Ok(())
+    }
+
+    pub fn remove(&mut self, function: &FunctionIdentifier, tracked: bool) -> Result<()> {
+        if let Some(removed) = self.stack.pop() {
+            if removed != *function {
+                return Err(Error::new(ErrType::InterpreterError("Tried to remove item from empty call stack.".to_string())))
+            }
+            if tracked && !self.set.remove(&function) {
+                panic!("Tried to remove tracked function from call stack, but could not find in current context.")
+            }
+            Ok(())
+        } else {
+            return Err(Error::new(ErrType::InterpreterError("Tried to remove item from empty call stack.".to_string())))
+        }
     }
 
     pub fn make_stack_trace(&self) -> StackTrace {
-        let mut result = vec![None; self.depth];
-        for (function, depth) in self.stack.iter() {
-            result[*depth] = Some(function.clone());
-        }
-
-        let result: Vec<_> = result.drain(..).map(|x| { x.unwrap() }).collect();
-        result
+        self.stack.clone()
     }
 }

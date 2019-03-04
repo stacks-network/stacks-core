@@ -44,9 +44,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Res
     }
 }
 
-// Aaron:: todo -- now that contract_context is an immutable reference when it's used here,
-//         I am pretty sure we can return a reference with lifetime 'a here.
-pub fn lookup_function<'a> (name: &str, env: &Environment)-> Result<CallableType<'a>> {
+pub fn lookup_function(name: &str, env: &Environment)-> Result<CallableType> {
     if let Some(result) = functions::lookup_reserved_functions(name) {
         Ok(result)
     } else {
@@ -66,37 +64,45 @@ fn add_stack_trace(result: &mut Result<Value>, env: &Environment) {
 
 pub fn apply(function: &CallableType, args: &[SymbolicExpression],
              env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    if let CallableType::SpecialFunction(function) = function {
-        function(&args, env, context)
+    let identifier = function.get_identifier();
+    // Aaron: in non-debug executions, we shouldn't track a full call-stack.
+    //        only enough to do recursion detection.
+
+    // do recursion check on user functions.
+    let track_recursion = match function {
+        CallableType::UserFunction(_) => true,
+        _ => false
+    };
+
+    if track_recursion && env.call_stack.contains(&identifier) {
+        return Err(Error::new(ErrType::RecursionDetected))
+    }
+
+    if env.call_stack.depth() >= MAX_CALL_STACK_DEPTH {
+        return Err(Error::new(ErrType::MaxStackDepthReached))
+    }
+
+    if let CallableType::SpecialFunction(_, function) = function {
+        env.call_stack.insert(&identifier, track_recursion);
+        let mut resp = function(args, env, context);
+        add_stack_trace(&mut resp, env);
+        env.call_stack.remove(&identifier, track_recursion)?;
+        resp
     } else {
         let eval_tried: Result<Vec<Value>> =
             args.iter().map(|x| eval(x, env, context)).collect();
-        match eval_tried {
-            Ok(evaluated_args) => {
-                match function {
-                    CallableType::NativeFunction(function) => function(&evaluated_args),
-                    CallableType::UserFunction(function) => {
-                        // check for recursion.
-                        // TODO: we must check for recursion during our static checks!
-                        let identifier = function.get_identifier();
-                        if env.call_stack.contains(&identifier) {
-                            Err(Error::new(ErrType::RecursionDetected))
-                        } else if env.call_stack.depth() >= MAX_CALL_STACK_DEPTH {
-                            Err(Error::new(ErrType::MaxStackDepthReached))
-                        } else {
-                            env.call_stack.insert(&identifier)?;
-                            let mut resp = function.apply(&evaluated_args, env);
-                            add_stack_trace(&mut resp, env);
-                            env.call_stack.remove(&identifier)?;
-                            resp
-                        }
-                    },
-                    _ => panic!("Should be unreachable.")
-                }
-            },
-            Err(e) => Err(e)
-        }
+        let evaluated_args = eval_tried?;
+        env.call_stack.insert(&identifier, track_recursion);
+        let mut resp = match function {
+            CallableType::NativeFunction(_, function) => function(&evaluated_args),
+            CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
+            _ => panic!("Should be unreachable.")
+        };
+        add_stack_trace(&mut resp, env);
+        env.call_stack.remove(&identifier, track_recursion)?;
+        resp
     }
+            
 }
 
 pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &LocalContext) -> Result<Value> {
@@ -214,7 +220,7 @@ mod test {
 
         let func_args = vec!["x".to_string()];
         let user_function = PrivateFunction::new(func_args, func_body,
-                                                 "do_work".to_string(), "".to_string());
+                                                 &"do_work", &"");
 
         let context = LocalContext::new();
         let mut global_context = MemoryGlobalContext::new();

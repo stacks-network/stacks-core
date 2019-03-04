@@ -89,10 +89,10 @@ fn test_simple_if_functions() {
         let func_args1 = vec!["x".to_string()];
         let func_args2 = vec!["x".to_string()];
         let user_function1 = PrivateFunction::new(func_args1, parsed_bodies[0].clone(),
-                                                  "with_else".to_string(), "".to_string());
+                                                  &"with_else", &"");
 
         let user_function2 = PrivateFunction::new(func_args2, parsed_bodies[1].clone(),
-                                                  "without_else".to_string(), "".to_string());
+                                                  &"without_else", &"");
         let context = LocalContext::new();
         let mut global_context = MemoryGlobalContext::new();
         let mut contract_context = ContractContext::new();

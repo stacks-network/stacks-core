@@ -1,5 +1,5 @@
 use vm::errors::{Error, ErrType};
-use vm::types::{Value, TypeSignature, AtomTypeIdentifier};
+use vm::types::{Value};
 
 use vm::execute;
 

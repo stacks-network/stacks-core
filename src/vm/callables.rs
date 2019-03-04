@@ -5,10 +5,10 @@ use vm::representations::SymbolicExpression;
 use vm::types::TypeSignature;
 use vm::{eval, Value, LocalContext, Environment};
 
-pub enum CallableType <'a> {
+pub enum CallableType {
     UserFunction(DefinedFunction),
-    NativeFunction(&'a Fn(&[Value]) -> Result<Value>),
-    SpecialFunction(&'a Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
+    NativeFunction(&'static str, &'static Fn(&[Value]) -> Result<Value>),
+    SpecialFunction(&'static str, &'static Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>)
 }
 
 #[derive(Clone,Serialize, Deserialize)]
@@ -19,8 +19,7 @@ pub enum DefinedFunction {
 
 #[derive(Clone,Serialize, Deserialize)]
 pub struct PublicFunction {
-    name: String,
-    context: String,
+    identifier: FunctionIdentifier,
     types: Vec<TypeSignature>,
     pub arguments: Vec<String>,
     pub body: SymbolicExpression
@@ -28,31 +27,29 @@ pub struct PublicFunction {
 
 #[derive(Clone,Serialize, Deserialize)]
 pub struct PrivateFunction {
-    name: String,
-    context: String,
+    identifier: FunctionIdentifier,
     pub arguments: Vec<String>,
     pub body: SymbolicExpression
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct FunctionIdentifier {
     identifier: String
 }
 
 impl fmt::Display for FunctionIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "UserFunction({})", self.identifier)
-    }    
+        write!(f, "{}", self.identifier)
+    }
 }
 
 impl PublicFunction {
     pub fn new(mut arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
-               name: String, context_name: String) -> DefinedFunction {
+               name: &str, context_name: &str) -> DefinedFunction {
         let (argument_names, types) = arguments.drain(..).unzip();
 
         DefinedFunction::Public(PublicFunction {
-            name: name,
-            context: context_name,
+            identifier: FunctionIdentifier::new_user_function(name, context_name),
             arguments: argument_names,
             body: body,
             types: types
@@ -77,10 +74,9 @@ impl PublicFunction {
 
 impl PrivateFunction {
     pub fn new(arguments: Vec<String>, body: SymbolicExpression,
-               name: String, context_name: String) -> DefinedFunction {
+               name: &str, context_name: &str) -> DefinedFunction {
         DefinedFunction::Private(PrivateFunction {
-            name: name,
-            context: context_name,
+            identifier: FunctionIdentifier::new_user_function(name, context_name),
             arguments: arguments,
             body: body,
         })
@@ -114,13 +110,31 @@ impl DefinedFunction {
     }
 
     pub fn get_identifier(&self) -> FunctionIdentifier {
-        let (name, context) = match self {
-            DefinedFunction::Private(f) => (&f.name, &f.context),
-            DefinedFunction::Public(f) => (&f.name, &f.context)
-        };
-        let identifier = format!("{}:{}", context, name);
+        match self {
+            DefinedFunction::Public(f) => f.identifier.clone(),
+            DefinedFunction::Private(f) => f.identifier.clone()
+        }
+    }
+}
 
-        return FunctionIdentifier {
-            identifier: identifier }
+impl CallableType {
+    pub fn get_identifier(&self) -> FunctionIdentifier {
+        match self {
+            CallableType::UserFunction(f) => f.get_identifier(),
+            CallableType::NativeFunction(s, _) => FunctionIdentifier::new_native_function(s),
+            CallableType::SpecialFunction(s, _) => FunctionIdentifier::new_native_function(s),
+        }
+    }
+}
+
+impl FunctionIdentifier {
+    fn new_native_function(name: &str) -> FunctionIdentifier {
+        let identifier = format!("_native_:{}", name);
+        FunctionIdentifier { identifier: identifier }
+    }
+
+    fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
+        let identifier = format!("{}:{}", context, name);
+        FunctionIdentifier { identifier: identifier }
     }
 }

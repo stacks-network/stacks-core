@@ -53,14 +53,14 @@ fn test_stack_depth() {
                     i, i-1));
     }
     function_defines.push(
-        format!("(foo-255 1)"));
+        format!("(foo-254 1)"));
 
     let test0 = function_defines.join("\n");
     function_defines.push(
-        format!("(foo-256 2)"));
+        format!("(foo-255 2)"));
     let test1 = function_defines.join("\n");
 
-    assert_eq!(Ok(Value::Int(257)), execute(&test0));
+    assert_eq!(Ok(Value::Int(256)), execute(&test0));
     assert_eq!(ErrType::MaxStackDepthReached, execute(&test1).unwrap_err().err_type);
 }
 
