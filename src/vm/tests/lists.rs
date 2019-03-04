@@ -1,7 +1,7 @@
 use vm::types::{Value, TypeSignature};
 
 use vm::execute;
-use vm::errors::Error;
+use vm::errors::{ErrType};
 
 #[test]
 fn test_simple_map() {
@@ -80,31 +80,31 @@ fn test_simple_folds() {
 fn test_construct_bad_list() {
     let test1 = "(list 1 2 3 'true)";
     assert!(
-        match execute(test1) {
-            Err(Error::BadTypeConstruction) => true,
+        match execute(test1).unwrap_err().err_type {
+            ErrType::BadTypeConstruction => true,
             _ => false
         });
 
     let test2 = "(define (bad-function x) (if (eq? x 1) 'true x))
                  (map bad-function (list 0 1 2 3))";
     assert!(
-        match execute(test2) {
-            Err(Error::BadTypeConstruction) => true,
+        match execute(test2).unwrap_err().err_type {
+            ErrType::BadTypeConstruction => true,
             _ => false
         });
 
     let bad_2d_list = "(list (list 1 2 3) (list 'true 'false 'true))";
     let bad_high_order_list = "(list (list 1 2 3) (list (list 1 2 3)))";
 
-    let expected_err_1 = match execute(bad_2d_list) {
-        Err(Error::BadTypeConstruction) => true,
+    let expected_err_1 = match execute(bad_2d_list).unwrap_err().err_type {
+        ErrType::BadTypeConstruction => true,
         _ => false
     };
 
     assert!(expected_err_1);
 
-    let expected_err_2 = match execute(bad_high_order_list) {
-        Err(Error::BadTypeConstruction) => true,
+    let expected_err_2 = match execute(bad_high_order_list).unwrap_err().err_type {
+        ErrType::BadTypeConstruction => true,
         _ => false
     };
 
@@ -114,19 +114,19 @@ fn test_construct_bad_list() {
 #[test]
 fn test_eval_func_arg_panic() {
     let test1 = "(fold (lambda (x y) (* x y)) (list 1 2 3 4) 1)";
-    assert_eq!(Err(Error::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string())),
-               execute(test1));
+    assert_eq!(ErrType::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string()),
+               execute(test1).unwrap_err().err_type);
 
     let test2 = "(map (lambda (x) (* x x)) (list 1 2 3 4))";
-    assert_eq!(Err(Error::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string())),
-               execute(test2));
+    assert_eq!(ErrType::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string()),
+               execute(test2).unwrap_err().err_type);
 
     let test3 = "(map square (list 1 2 3 4) 2)";
-    assert_eq!(Err(Error::InvalidArguments("Wrong number of arguments (3) to map".to_string())),
-               execute(test3));
+    assert_eq!(ErrType::InvalidArguments("Wrong number of arguments (3) to map".to_string()),
+               execute(test3).unwrap_err().err_type);
 
     let test4 = "(define (multiply-all x acc) (* x acc))
          (fold multiply-all (list 1 2 3 4))";
-    assert_eq!(Err(Error::InvalidArguments("Wrong number of arguments (2) to fold".to_string())),
-               execute(test4));
+    assert_eq!(ErrType::InvalidArguments("Wrong number of arguments (2) to fold".to_string()),
+               execute(test4).unwrap_err().err_type);
 }

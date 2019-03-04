@@ -1,6 +1,6 @@
 use regex::{Regex, Captures};
 use address::c32::c32_address_decode;
-use vm::errors::{Error, InterpreterResult as Result};
+use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
 use vm::types::Value;
 
@@ -38,7 +38,7 @@ impl LexMatcher {
 
 fn get_value_or_err(input: &str, captures: Captures) -> Result<String> {
     let matched = captures.name("value").ok_or(
-        Error::ParseError("Failed to capture value from input".to_string()))?;
+        Error::new(ErrType::ParseError("Failed to capture value from input".to_string())))?;
     Ok(input[matched.start()..matched.end()].to_string())
 }
 
@@ -79,14 +79,14 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                     TokenType::NamedParameter => {
                         let value = get_value_or_err(current_slice, captures)?;
                         if value.contains("#") {
-                            return Err(Error::ParseError(format!("Illegal variable name: '{}'", value)))
+                            return Err(Error::new(ErrType::ParseError(format!("Illegal variable name: '{}'", value))))
                         }
                         Ok(LexItem::NamedParameter(value))
                     },
                     TokenType::Variable => {
                         let value = get_value_or_err(current_slice, captures)?;
                         if value.contains("#") {
-                            return Err(Error::ParseError(format!("Illegal variable name: '{}'", value)))
+                            return Err(Error::new(ErrType::ParseError(format!("Illegal variable name: '{}'", value))))
                         }
                         Ok(LexItem::Variable(value))
                     },
@@ -96,7 +96,7 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                             "null" => Ok(Value::Void),
                             "true" => Ok(Value::Bool(true)),
                             "false" => Ok(Value::Bool(false)),
-                            _ => Err(Error::ParseError(format!("Unknown 'quoted value '{}'", str_value)))
+                            _ => Err(Error::new(ErrType::ParseError(format!("Unknown 'quoted value '{}'", str_value))))
                         }?;
                         Ok(LexItem::LiteralValue(value))
                     },
@@ -104,16 +104,16 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match i128::from_str_radix(&str_value, 10) {
                             Ok(parsed) => Ok(Value::Int(parsed)),
-                            Err(_e) => Err(Error::ParseError(format!("Failed to parse int literal '{}'", str_value)))
+                            Err(_e) => Err(Error::new(ErrType::ParseError(format!("Failed to parse int literal '{}'", str_value))))
                         }?;
                         Ok(LexItem::LiteralValue(value))
                     },
                     TokenType::PrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let (version, data) = c32_address_decode(&str_value)
-                            .map_err(|x| { Error::ParseError(format!("Invalid principal literal: {}", x)) })?;
+                            .map_err(|x| { Error::new(ErrType::ParseError(format!("Invalid principal literal: {}", x))) })?;
                         if data.len() != 20 {
-                            Err(Error::ParseError("Invalid principal literal: Expected 20 data bytes.".to_string()))
+                            Err(Error::new(ErrType::ParseError("Invalid principal literal: Expected 20 data bytes.".to_string())))
                         } else {
                             let mut fixed_data = [0; 20];
                             fixed_data.copy_from_slice(&data[..20]);
@@ -143,7 +143,7 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
     if munch_index == input.len() {
         Ok(result)
     } else {
-        Err(Error::ParseError(format!("Failed to lex input remainder: {}", &input[munch_index..])))
+        Err(Error::new(ErrType::ParseError(format!("Failed to lex input remainder: {}", &input[munch_index..]))))
     }
 }
 
@@ -180,7 +180,7 @@ pub fn parse_lexed(mut input: Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
                         }
                     };
                 } else {
-                    return Err(Error::ParseError("Tried to close list which isn't open.".to_string()))
+                    return Err(Error::new(ErrType::ParseError("Tried to close list which isn't open.".to_string())))
                 }
             },
             LexItem::Variable(value) => {
@@ -201,7 +201,7 @@ pub fn parse_lexed(mut input: Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
 
     // check unfinished stack:
     if parse_stack.len() > 0 {
-        Err(Error::ParseError("List expressions (..) left opened.".to_string()))
+        Err(Error::new(ErrType::ParseError("List expressions (..) left opened.".to_string())))
     } else {
         Ok(output_list)
     }
@@ -263,7 +263,7 @@ mod test {
     #[test]
     fn test_parse_failures() {
         use vm::representations::SymbolicExpression;
-        use vm::errors::Error;
+        use vm::errors::ErrType;
         use vm::types::Value;
         use vm::parser;
 
@@ -272,27 +272,27 @@ mod test {
         let middle_hash = "(let ((x 1) (y#not 2)) x)";
         let unicode = "(let ((x🎶 1)) (eq x🎶 1))";
 
-        assert!(match parser::parse(&too_much_closure) {
-            Err(Error::ParseError(_)) => true,
+        assert!(match parser::parse(&too_much_closure).unwrap_err().err_type {
+            ErrType::ParseError(_) => true,
             _ => false
         }, "Should have failed to parse with too many right parens");
         
-        assert!(match parser::parse(&not_enough_closure) {
-            Err(Error::ParseError(_)) => true,
+        assert!(match parser::parse(&not_enough_closure).unwrap_err().err_type {
+            ErrType::ParseError(_) => true,
             _ => false
         }, "Should have failed to parse with too few right parens");
         
-        let x = parser::parse(&middle_hash);
+        let x = parser::parse(&middle_hash).unwrap_err().err_type;
         assert!(match x {
-            Err(Error::ParseError(_)) => true,
+            ErrType::ParseError(_) => true,
             _ => {
                 println!("Expected parser error. Unexpected value is:\n {:?}", x);
                 false
             }
         }, "Should have failed to parse with a middle hash");
 
-        assert!(match parser::parse(&unicode) {
-            Err(Error::ParseError(_)) => true,
+        assert!(match parser::parse(&unicode).unwrap_err().err_type {
+            ErrType::ParseError(_) => true,
             _ => false
         }, "Should have failed to parse a unicode variable name");
 

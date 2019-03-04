@@ -1,4 +1,4 @@
-use vm::errors::Error;
+use vm::errors::{Error, ErrType};
 use vm::types::{Value, TypeSignature, AtomTypeIdentifier};
 
 use vm::execute;
@@ -153,10 +153,8 @@ fn datamap_errors() {
     ];
 
     for program in tests.iter() {
-        match execute(program) {
-            Err(Error::UndefinedVariable(_, _)) => {},
-            _ => panic!("Expected UndefinedVariable")
-        }
+        assert_eq!( ErrType::UndefinedVariable("non-existent".to_string()),
+                    execute(program).unwrap_err().err_type );
     }
 }
 
@@ -209,7 +207,9 @@ fn lists_system() {
     for test in [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2,
                  test_bad_tuple_3, test_bad_tuple_4].iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::TypeError(_,_)) => true,
+            Err(Error{
+                err_type: ErrType::TypeError(_,_),
+                stack_trace: _ }) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -259,7 +259,9 @@ fn tuples_system() {
 
     for test in [test_list_too_big, test_bad_tuple_1].iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::TypeError(_,_)) => true,
+            Err(Error{
+                err_type: ErrType::TypeError(_,_),
+                stack_trace: _ }) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -288,18 +290,20 @@ fn bad_define_maps() {
     
     for test in test_list_pairs.iter() {
         println!("Test: {:?}", test);
-        assert_eq!(Err(Error::ExpectedListPairs), execute(test));
+        assert_eq!(ErrType::ExpectedListPairs, execute(test).unwrap_err().err_type);
     }
 
     for test in test_define_args.iter() {
         assert!(match execute(test) {
-            Err(Error::InvalidArguments(_)) => true,
+            Err(Error{
+                err_type: ErrType::InvalidArguments(_),
+                stack_trace: _ }) => true,
             _ => false
         })
     }
 
     for test in test_bad_type.iter() {
-        assert_eq!(Err(Error::InvalidTypeDescription), execute(test));
+        assert_eq!(ErrType::InvalidTypeDescription, execute(test).unwrap_err().err_type);
     }
 }
 
@@ -316,7 +320,9 @@ fn bad_tuples() {
     for test in tests.iter() {
         let outcome = execute(test);
         match outcome {
-            Err(Error::InvalidArguments(_)) => continue,
+            Err(Error{
+                err_type: ErrType::InvalidArguments(_),
+                stack_trace: _ }) => continue,
             _ => {
                 println!("Expected InvalidArguments Error, but found {:?}", outcome);
                 assert!(false)

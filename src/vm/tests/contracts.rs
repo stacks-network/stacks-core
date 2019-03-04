@@ -1,5 +1,5 @@
 use vm::execute;
-use vm::errors::Error;
+use vm::errors::{Error, ErrType};
 use vm::types::{Value};
 use vm::contexts::{MemoryGlobalContext, GlobalContext};
 use vm::representations::SymbolicExpression;
@@ -331,10 +331,12 @@ fn test_factorial_contract() {
                                                                             Value::Int(15)]),
                                                   &mut global_context);
     match err_result {
-        Err(Error::NonPublicFunction(_,_)) => {},
+        Err(Error{
+            err_type: ErrType::NonPublicFunction(_),
+            stack_trace: _ }) => {},
         _ => {
             println!("{:?}", err_result);
-            assert!(false, "Attempt to call init-factorial should fail!")
+            panic!("Attempt to call init-factorial should fail!")
         }
     }
 
@@ -342,7 +344,9 @@ fn test_factorial_contract() {
                                                   &symbols_from_values(vec![Value::Int(1337)]),
                                                   &mut global_context);
     match err_result {
-        Err(Error::BadSender(_)) => {},
+        Err(Error{
+            err_type: ErrType::BadSender(_),
+            stack_trace: _ }) => {},
         _ => {
             println!("{:?}", err_result);
             assert!(false, "Attempt to call with bad sender should fail!")
@@ -353,7 +357,9 @@ fn test_factorial_contract() {
                                                   &symbols_from_values(vec![Value::Void]),
                                                   &mut global_context);
     match err_result {
-        Err(Error::TypeError(_, _)) => {},
+        Err(Error{
+            err_type: ErrType::TypeError(_, _),
+            stack_trace: _ }) => {},
         _ => {
             println!("{:?}", err_result);
             assert!(false, "Attempt to call compute with void type should fail!")

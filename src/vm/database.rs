@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use vm::errors::{Error, InterpreterResult as Result};
+use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 pub trait DataMap {
@@ -75,7 +75,7 @@ impl DataMap for MemoryDataMap {
 
     fn fetch_entry(&self, key: &Value) -> Result<Value> {
         if !self.key_type.admits(key) {
-            return Err(Error::TypeError(format!("{:?}", self.key_type), (*key).clone()))
+            return Err(Error::new(ErrType::TypeError(format!("{:?}", self.key_type), (*key).clone())))
         }
         if let Some(value) = self.map.get(key) {
             return Ok((*value).clone())
@@ -86,10 +86,10 @@ impl DataMap for MemoryDataMap {
 
     fn set_entry(&mut self, key: Value, value: Value) -> Result<()> {
         if !self.key_type.admits(&key) {
-            return Err(Error::TypeError(format!("{:?}", self.key_type), key))
+            return Err(Error::new(ErrType::TypeError(format!("{:?}", self.key_type), key)))
         }
         if !self.value_type.admits(&value) {
-            return Err(Error::TypeError(format!("{:?}", self.value_type), value))
+            return Err(Error::new(ErrType::TypeError(format!("{:?}", self.value_type), value)))
         }
         self.map.insert(key, value);
         Ok(())
@@ -97,10 +97,10 @@ impl DataMap for MemoryDataMap {
 
     fn insert_entry(&mut self, key: Value, value: Value) -> Result<Value> {
         if !self.key_type.admits(&key) {
-            return Err(Error::TypeError(format!("{:?}", self.key_type), key))
+            return Err(Error::new(ErrType::TypeError(format!("{:?}", self.key_type), key)))
         }
         if !self.value_type.admits(&value) {
-            return Err(Error::TypeError(format!("{:?}", self.value_type), value))
+            return Err(Error::new(ErrType::TypeError(format!("{:?}", self.value_type), value)))
         }
         if self.map.contains_key(&key) {
             Ok(Value::Bool(false))
@@ -112,7 +112,7 @@ impl DataMap for MemoryDataMap {
 
     fn delete_entry(&mut self, key: &Value) -> Result<Value> {
         if !self.key_type.admits(key) {
-            return Err(Error::TypeError(format!("{:?}", self.key_type), (*key).clone()))
+            return Err(Error::new(ErrType::TypeError(format!("{:?}", self.key_type), (*key).clone())))
         }
         if let Some(_value) = self.map.remove(key) {
             Ok(Value::Bool(true))

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use vm::errors::{Error, InterpreterResult as Result};
+use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::Value;
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ContractDatabase, MemoryContractDatabase};
@@ -79,16 +79,16 @@ impl MemoryGlobalContext {
 
     fn take_contract(&mut self, contract_name: &str) -> Result<Contract<MemoryContractDatabase>> {
         let contract = self.contracts.get_mut(contract_name)
-            .ok_or_else(|| { Error::UndefinedContract(contract_name.to_string()) })?;
-        contract.take().ok_or(Error::ContractAlreadyInvoked)
+            .ok_or_else(|| { Error::new(ErrType::UndefinedContract(contract_name.to_string())) })?;
+        contract.take().ok_or(Error::new(ErrType::ContractAlreadyInvoked))
     }
 
     fn replace_contract(&mut self, contract_name: &str, contract: Contract<MemoryContractDatabase>) -> Result<()> {
         let contract_holder = self.contracts.get_mut(contract_name)
-            .ok_or_else(|| { Error::UndefinedContract(contract_name.to_string()) })?;
+            .ok_or_else(|| { Error::new(ErrType::UndefinedContract(contract_name.to_string())) })?;
         match contract_holder.replace(contract) {
-            Some(_) => Err(Error::InterpreterError(
-                format!("Attempted to close invocation on a non-open contract {}", contract_name))),
+            Some(_) => Err(Error::new(ErrType::InterpreterError(
+                format!("Attempted to close invocation on a non-open contract {}", contract_name)))),
             None => Ok(())
         }
     }
@@ -108,7 +108,7 @@ impl GlobalContext for MemoryGlobalContext {
 
     fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
         if self.contracts.contains_key(contract_name) {
-            Err(Error::ContractAlreadyExists(contract_name.to_string()))
+            Err(Error::new(ErrType::ContractAlreadyExists(contract_name.to_string())))
         } else {
             let contract = Contract::initialize(contract_content)?;
             self.contracts.insert(contract_name.to_string(), Some(contract));
@@ -151,7 +151,7 @@ impl <'a> LocalContext <'a> {
     
     pub fn extend(&'a self) -> Result<LocalContext<'a>> {
         if self.depth >= MAX_CONTEXT_DEPTH {
-            Err(Error::MaxContextDepthReached)
+            Err(Error::new(ErrType::MaxContextDepthReached))
         } else {
             Ok(LocalContext {
                 parent: Some(self),
@@ -191,16 +191,19 @@ impl CallStack {
     }
 
     pub fn insert(&mut self, function: &FunctionIdentifier) -> Result<()> {
-        self.depth = self.depth.checked_add(1)
-            .ok_or(Error::MaxStackDepthReached)?;
         self.stack.insert(function.clone(), self.depth);
+        self.depth = self.depth.checked_add(1)
+            .ok_or(Error::new(ErrType::MaxStackDepthReached))?;
         Ok(())
     }
 
-    pub fn remove(&mut self, user_function: &FunctionIdentifier) {
+    pub fn remove(&mut self, user_function: &FunctionIdentifier) -> Result<()> {
         if self.stack.remove(&user_function).is_none() {
             panic!("Tried to remove function from call stack, but could not find in current context.")
         }
+        self.depth = self.depth.checked_sub(1)
+            .ok_or(Error::new(ErrType::InterpreterError("Tried to remove item from empty call stack.".to_string())))?;
+        Ok(())
     }
 
     pub fn make_stack_trace(&self) -> StackTrace {

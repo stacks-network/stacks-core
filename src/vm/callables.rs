@@ -1,4 +1,6 @@
-use vm::errors::{InterpreterResult as Result, Error};
+use std::fmt;
+
+use vm::errors::{InterpreterResult as Result, Error, ErrType};
 use vm::representations::SymbolicExpression;
 use vm::types::TypeSignature;
 use vm::{eval, Value, LocalContext, Environment};
@@ -17,6 +19,8 @@ pub enum DefinedFunction {
 
 #[derive(Clone,Serialize, Deserialize)]
 pub struct PublicFunction {
+    name: String,
+    context: String,
     types: Vec<TypeSignature>,
     pub arguments: Vec<String>,
     pub body: SymbolicExpression
@@ -24,21 +28,31 @@ pub struct PublicFunction {
 
 #[derive(Clone,Serialize, Deserialize)]
 pub struct PrivateFunction {
+    name: String,
+    context: String,
     pub arguments: Vec<String>,
     pub body: SymbolicExpression
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct FunctionIdentifier {
-    pub arguments: Vec<String>,
-    pub body: SymbolicExpression
+    identifier: String
+}
+
+impl fmt::Display for FunctionIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "UserFunction({})", self.identifier)
+    }    
 }
 
 impl PublicFunction {
-    pub fn new(mut arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression) -> DefinedFunction {
+    pub fn new(mut arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
+               name: String, context_name: String) -> DefinedFunction {
         let (argument_names, types) = arguments.drain(..).unzip();
 
         DefinedFunction::Public(PublicFunction {
+            name: name,
+            context: context_name,
             arguments: argument_names,
             body: body,
             types: types
@@ -51,10 +65,10 @@ impl PublicFunction {
         let arg_iterator = self.arguments.iter().zip(self.types.iter()).zip(args.iter());
         for ((arg, type_sig), value) in arg_iterator {
             if !type_sig.admits(value) {
-                return Err(Error::TypeError(format!("{:?}", type_sig), value.clone())) 
+                return Err(Error::new(ErrType::TypeError(format!("{:?}", type_sig), value.clone()))) 
             }
             if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {
-                return Err(Error::VariableDefinedMultipleTimes(arg.clone()))
+                return Err(Error::new(ErrType::VariableDefinedMultipleTimes(arg.clone())))
             }
         }
         eval(&self.body, env, &context)
@@ -62,8 +76,11 @@ impl PublicFunction {
 }
 
 impl PrivateFunction {
-    pub fn new(arguments: Vec<String>, body: SymbolicExpression) -> DefinedFunction {
+    pub fn new(arguments: Vec<String>, body: SymbolicExpression,
+               name: String, context_name: String) -> DefinedFunction {
         DefinedFunction::Private(PrivateFunction {
+            name: name,
+            context: context_name,
             arguments: arguments,
             body: body,
         })
@@ -74,7 +91,7 @@ impl PrivateFunction {
         let arg_iterator = self.arguments.iter().zip(args.iter());
         for (arg, value) in arg_iterator {
             if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {
-                return Err(Error::VariableDefinedMultipleTimes(arg.clone()))
+                return Err(Error::new(ErrType::VariableDefinedMultipleTimes(arg.clone())))
             }
         }
         eval(&self.body, env, &context)
@@ -97,12 +114,13 @@ impl DefinedFunction {
     }
 
     pub fn get_identifier(&self) -> FunctionIdentifier {
-        let (body, arguments) = match self {
-            DefinedFunction::Private(f) => (f.body.clone(), f.arguments.clone()),
-            DefinedFunction::Public(f) => (f.body.clone(), f.arguments.clone())
+        let (name, context) = match self {
+            DefinedFunction::Private(f) => (&f.name, &f.context),
+            DefinedFunction::Public(f) => (&f.name, &f.context)
         };
+        let identifier = format!("{}:{}", context, name);
+
         return FunctionIdentifier {
-            body: body,
-            arguments: arguments }
+            identifier: identifier }
     }
 }

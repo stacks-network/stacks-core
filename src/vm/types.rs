@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use address::c32;
 use vm::representations::SymbolicExpression;
-use vm::errors::{Error, InterpreterResult as Result};
+use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use util::hash;
 
 const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
@@ -103,16 +103,16 @@ impl Value {
         //     this is a problem _if_ the static analyzer cannot already prevent
         //     this case. This applies to all the constructor size checks.
         if type_sig.size()? > MAX_VALUE_SIZE {
-            return Err(Error::ValueTooLarge)
+            return Err(Error::new(ErrType::ValueTooLarge))
         }
         Ok(Value::List(ListData { data: list_data, type_signature: type_sig }))
     }
 
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
         if buff_data.len() > u32::max_value() as usize {
-            Err(Error::BufferTooLarge)
+            Err(Error::new(ErrType::BufferTooLarge))
         } else if buff_data.len() as i128 > MAX_VALUE_SIZE {
-            Err(Error::ValueTooLarge)
+            Err(Error::new(ErrType::ValueTooLarge))
         } else {
             Ok(Value::Buffer(BuffData { data: buff_data }))
         }
@@ -121,7 +121,7 @@ impl Value {
     pub fn tuple_from_data(paired_tuple_data: Vec<(String, Value)>) -> Result<Value> {
         let tuple_data = TupleData::from_data(paired_tuple_data)?;
         if tuple_data.size()? > MAX_VALUE_SIZE {
-            return Err(Error::ValueTooLarge)
+            return Err(Error::new(ErrType::ValueTooLarge))
         }
         Ok(Value::Tuple(tuple_data))
     }
@@ -187,21 +187,21 @@ impl AtomTypeIdentifier {
                     }
                     Ok(())
                 } else {
-                    Err(Error::BadTypeConstruction)
+                    Err(Error::new(ErrType::BadTypeConstruction))
                 }
             },
             AtomTypeIdentifier::TupleType(ref mut tuple_sig) => {
                 if let AtomTypeIdentifier::TupleType(ref other_tuple_sig) = other {
                     tuple_sig.expand_to_admit(other_tuple_sig)
                 } else {
-                    Err(Error::BadTypeConstruction)
+                    Err(Error::new(ErrType::BadTypeConstruction))
                 }
             },
             _ => {
                 if other == self {
                     Ok(())
                 } else {
-                    Err(Error::BadTypeConstruction)
+                    Err(Error::new(ErrType::BadTypeConstruction))
                 }
             }
         }
@@ -234,7 +234,7 @@ impl TupleTypeSignature {
         let mut type_map = BTreeMap::new();
         for (name, type_info) in type_data {
             if let Some(_v) = type_map.insert(name, type_info) {
-                return Err(Error::InvalidArguments("Cannot use named argument twice in tuple construction.".to_string()))
+                return Err(Error::new(ErrType::InvalidArguments("Cannot use named argument twice in tuple construction.".to_string())))
             }
         }
         Ok(TupleTypeSignature { type_map: type_map })
@@ -264,24 +264,24 @@ impl TupleTypeSignature {
         for (name, type_signature) in self.type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
             name_size = name_size.checked_add(name.len() as i128)
-                .ok_or(Error::ValueTooLarge)?;
+                .ok_or(Error::new(ErrType::ValueTooLarge))?;
             value_size = value_size.checked_add(type_signature.size()? as i128)
-                .ok_or(Error::ValueTooLarge)?;
+                .ok_or(Error::new(ErrType::ValueTooLarge))?;
         }
         let name_total_size = name_size.checked_mul(2)
-            .ok_or(Error::ValueTooLarge)?;
+            .ok_or(Error::new(ErrType::ValueTooLarge))?;
         value_size.checked_add(name_total_size)
-            .ok_or(Error::ValueTooLarge)
+            .ok_or(Error::new(ErrType::ValueTooLarge))
     }
 
     // NOTE: this function mutates self _even if it returns an error_.
     fn expand_to_admit(&mut self, other: &TupleTypeSignature) -> Result<()> {
         if self.type_map.len() != other.type_map.len() {
-            return Err(Error::BadTypeConstruction)
+            return Err(Error::new(ErrType::BadTypeConstruction))
         }
 
         for (name, my_type_sig) in self.type_map.iter_mut() {
-            let other_type_sig = other.type_map.get(name).ok_or(Error::BadTypeConstruction)?;
+            let other_type_sig = other.type_map.get(name).ok_or(Error::new(ErrType::BadTypeConstruction))?;
             my_type_sig.expand_to_admit(other_type_sig)?;
         }
 
@@ -293,7 +293,7 @@ impl TupleTypeSignature {
             let mapped_key_types = parse_name_type_pairs(name_type_pairs)?;
             TupleTypeSignature::new(mapped_key_types)
         } else {
-            Err(Error::ExpectedListPairs)
+            Err(Error::new(ErrType::ExpectedListPairs))
         }
     }
 }
@@ -305,10 +305,10 @@ impl TupleData {
         for (name, value) in data.drain(..) {
             let type_info = TypeSignature::type_of(&value);
             if type_info.atomic_type == AtomTypeIdentifier::VoidType {
-                return Err(Error::InvalidArguments("Cannot use VoidTypes in tuples.".to_string()))
+                return Err(Error::new(ErrType::InvalidArguments("Cannot use VoidTypes in tuples.".to_string())))
             }
             if let Some(_v) = type_map.insert(name.to_string(), type_info) {
-                return Err(Error::InvalidArguments("Cannot use named argument twice in tuple construction.".to_string()))
+                return Err(Error::new(ErrType::InvalidArguments("Cannot use named argument twice in tuple construction.".to_string())))
             }
             data_map.insert(name.to_string(), value);
         }
@@ -321,7 +321,7 @@ impl TupleData {
         if let Some(value) = self.data_map.get(name) {
             Ok(value.clone())
         } else {
-            Err(Error::InvalidArguments(format!("No such field {:?} in tuple", name)))
+            Err(Error::new(ErrType::InvalidArguments(format!("No such field {:?} in tuple", name))))
         }
         
     }
@@ -354,16 +354,16 @@ impl TypeSignature {
 
     pub fn new_list(atomic_type: AtomTypeIdentifier, max_len: i128, dimension: i128) -> Result<TypeSignature> {
         if dimension == 0 {
-            Err(Error::InvalidTypeDescription)
+            Err(Error::new(ErrType::InvalidTypeDescription))
         } else if max_len > u32::max_value() as i128 || dimension > u8::max_value() as i128 {
-            Err(Error::ListTooLarge)
+            Err(Error::new(ErrType::ListTooLarge))
         } else {
             let list_dimensions = Some(ListTypeData { max_len: max_len as u32,
                                                       dimension: dimension as u8 });
             let type_sig = TypeSignature { atomic_type: atomic_type,
                                            list_dimensions: list_dimensions };
             if type_sig.size()? > MAX_VALUE_SIZE {
-                Err(Error::ValueTooLarge)
+                Err(Error::new(ErrType::ValueTooLarge))
             } else {
                 Ok(type_sig)
             }
@@ -372,7 +372,7 @@ impl TypeSignature {
 
     fn new_atom_checked(atom_type: AtomTypeIdentifier) -> Result<TypeSignature> {
         if atom_type.size()? > MAX_VALUE_SIZE {
-            Err(Error::ValueTooLarge)
+            Err(Error::new(ErrType::ValueTooLarge))
         } else {
             Ok(TypeSignature::new_atom(atom_type))
         }
@@ -384,7 +384,7 @@ impl TypeSignature {
 
     fn new_buffer(buff_len: i128) -> Result<TypeSignature> {
         if buff_len > u32::max_value() as i128 {
-            Err(Error::BufferTooLarge)
+            Err(Error::new(ErrType::BufferTooLarge))
         } else {
             let atom_type = AtomTypeIdentifier::BufferType(buff_len as u32);
             TypeSignature::new_atom_checked(atom_type)
@@ -400,11 +400,11 @@ impl TypeSignature {
     pub fn size(&self) -> Result<i128> {
         let list_multiplier = match self.list_dimensions {
                 Some(ref list_data) => (list_data.max_len as i128).checked_mul(list_data.dimension as i128)
-                .ok_or(Error::ValueTooLarge),
+                .ok_or(Error::new(ErrType::ValueTooLarge)),
                 None => Ok(1)
         }?;
         list_multiplier.checked_mul(self.atomic_type.size()?)
-            .ok_or(Error::ValueTooLarge)
+            .ok_or(Error::new(ErrType::ValueTooLarge))
     }
 
     pub fn type_of(x: &Value) -> TypeSignature {
@@ -430,17 +430,17 @@ impl TypeSignature {
         if let Some(ref mut my_list_dimensions) = self.list_dimensions {
             if let Some(ref x_list_dimensions) = x_type.list_dimensions {
                 if my_list_dimensions.dimension != x_list_dimensions.dimension {
-                    return Err(Error::BadTypeConstruction)
+                    return Err(Error::new(ErrType::BadTypeConstruction))
                 }
                 if my_list_dimensions.max_len < x_list_dimensions.max_len {
                     my_list_dimensions.max_len = x_list_dimensions.max_len;
                 }
             } else {
-                return Err(Error::BadTypeConstruction)
+                return Err(Error::new(ErrType::BadTypeConstruction))
             }
         } else {
             if let Some(_) = x_type.list_dimensions {
-                return Err(Error::BadTypeConstruction)
+                return Err(Error::new(ErrType::BadTypeConstruction))
             }
         }
 
@@ -469,7 +469,7 @@ impl TypeSignature {
             let mut parent_max_len = {
                 let args_len = args.len();
                 if args_len > (u32::max_value() as usize) {
-                    Err(Error::ListTooLarge)
+                    Err(Error::new(ErrType::ListTooLarge))
                 } else {
                     Ok(args_len as u32)
                 }
@@ -481,7 +481,7 @@ impl TypeSignature {
                         parent_max_len = type_data.max_len
                     }
                     type_data.dimension.checked_add(1)
-                        .ok_or(Error::ListDimensionTooHigh)
+                        .ok_or(Error::new(ErrType::ListDimensionTooHigh))
                 },
                 None => {
                     Ok(1)
@@ -522,7 +522,7 @@ impl TypeSignature {
             "void" => Ok(AtomTypeIdentifier::VoidType),
             "bool" => Ok(AtomTypeIdentifier::BoolType),
             "principal" => Ok(AtomTypeIdentifier::PrincipalType),
-            _ => Err(Error::ParseError(format!("Unknown type name: '{:?}'", typename)))
+            _ => Err(Error::new(ErrType::ParseError(format!("Unknown type name: '{:?}'", typename))))
         }
     }
 
@@ -531,7 +531,7 @@ impl TypeSignature {
     // (list maximum-length atomic-type) -> denotes list of dimension 1
     fn parse_list_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
         if type_args.len() != 2 && type_args.len() != 3 {
-            return Err(Error::InvalidTypeDescription);
+            return Err(Error::new(ErrType::InvalidTypeDescription));
         }
         let dimension = {
             if type_args.len() == 2 {
@@ -540,7 +540,7 @@ impl TypeSignature {
                 if let SymbolicExpression::AtomValue(Value::Int(dimension)) = &type_args[1] {
                     Ok(*dimension)
                 } else {
-                    Err(Error::InvalidTypeDescription)
+                    Err(Error::new(ErrType::InvalidTypeDescription))
                 }
             }
         }?;
@@ -550,7 +550,7 @@ impl TypeSignature {
             let atomic_type = TypeSignature::parse_type_repr(atomic_type_arg, false)?;
             TypeSignature::new_list(atomic_type.atomic_type, *max_len, dimension)
         } else {
-            Err(Error::InvalidTypeDescription)
+            Err(Error::new(ErrType::InvalidTypeDescription))
         }
     }
 
@@ -558,7 +558,7 @@ impl TypeSignature {
     // (tuple ((key-name-0 value-type-0) (key-name-1 value-type-1)))
     fn parse_tuple_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
         if type_args.len() != 1 {
-            return Err(Error::InvalidTypeDescription)
+            return Err(Error::new(ErrType::InvalidTypeDescription))
         }
         let tuple_type_signature = TupleTypeSignature::parse_name_type_pair_list(&type_args[0])?;
         TypeSignature::new_tuple(tuple_type_signature)
@@ -568,12 +568,12 @@ impl TypeSignature {
     // (buff 10)
     fn parse_buff_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
         if type_args.len() != 1 {
-            return Err(Error::InvalidTypeDescription)
+            return Err(Error::new(ErrType::InvalidTypeDescription))
         }
         if let SymbolicExpression::AtomValue(Value::Int(buff_len)) = &type_args[0] {
             TypeSignature::new_buffer(*buff_len)
         } else {
-            Err(Error::InvalidTypeDescription)
+            Err(Error::new(ErrType::InvalidTypeDescription))
         }
     }
 
@@ -585,24 +585,24 @@ impl TypeSignature {
             },
             SymbolicExpression::List(list_contents) => {
                 let (compound_type, rest) = list_contents.split_first()
-                    .ok_or(Error::InvalidTypeDescription)?;
+                    .ok_or(Error::new(ErrType::InvalidTypeDescription))?;
                 if let SymbolicExpression::Atom(compound_type) = compound_type {
                     match compound_type.as_str() {
                         "list" =>
                             if !allow_list {
-                                Err(Error::InvalidTypeDescription)
+                                Err(Error::new(ErrType::InvalidTypeDescription))
                             } else {
                                 TypeSignature::parse_list_type_repr(rest)
                             },
                         "buff" => TypeSignature::parse_buff_type_repr(rest),
                         "tuple" => TypeSignature::parse_tuple_type_repr(rest),
-                        _ => Err(Error::InvalidTypeDescription)
+                        _ => Err(Error::new(ErrType::InvalidTypeDescription))
                     }
                 } else {
-                    Err(Error::InvalidTypeDescription)
+                    Err(Error::new(ErrType::InvalidTypeDescription))
                 }
             },
-            _ => Err(Error::InvalidTypeDescription)
+            _ => Err(Error::new(ErrType::InvalidTypeDescription))
         }
     }
 }
@@ -621,12 +621,12 @@ pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<V
             |key_type_pair| {
                 if let List(ref as_vec) = key_type_pair {
                     if as_vec.len() != 2 {
-                        Err(Error::ExpectedListPairs)
+                        Err(Error::new(ErrType::ExpectedListPairs))
                     } else {
                         Ok((&as_vec[0], &as_vec[1]))
                     }
                 } else {
-                    Err(Error::ExpectedListPairs)
+                    Err(Error::new(ErrType::ExpectedListPairs))
                 }
             }).collect();
 
@@ -635,7 +635,7 @@ pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<V
         (as_pairs?).iter().map(|(name_symbol, type_symbol)| {
             let name = match name_symbol {
                 Atom(ref var) => Ok(var.clone()),
-                _ => Err(Error::ExpectedListPairs)
+                _ => Err(Error::new(ErrType::ExpectedListPairs))
             }?;
             let type_info = TypeSignature::parse_type_repr(type_symbol, true)?;
             Ok((name, type_info))

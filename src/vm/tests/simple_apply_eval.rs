@@ -1,6 +1,6 @@
 use vm::{eval, execute};
 use vm::database::MemoryContractDatabase;
-use vm::errors::Error;
+use vm::errors::{ErrType};
 use vm::{Value, LocalContext, ContractContext, MemoryGlobalContext, Environment};
 use vm::callables::PrivateFunction;
 use vm::parser::parse;
@@ -88,9 +88,11 @@ fn test_simple_if_functions() {
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec!["x".to_string()];
         let func_args2 = vec!["x".to_string()];
-        let user_function1 = PrivateFunction::new(func_args1, parsed_bodies[0].clone());
-        let user_function2 = PrivateFunction::new(func_args2, parsed_bodies[1].clone());
+        let user_function1 = PrivateFunction::new(func_args1, parsed_bodies[0].clone(),
+                                                  "with_else".to_string(), "".to_string());
 
+        let user_function2 = PrivateFunction::new(func_args2, parsed_bodies[1].clone(),
+                                                  "without_else".to_string(), "".to_string());
         let context = LocalContext::new();
         let mut global_context = MemoryGlobalContext::new();
         let mut contract_context = ContractContext::new();
@@ -176,24 +178,24 @@ fn test_arithmetic_errors() {
          "(pow 2 (- 1))"];
 
     let expectations = [
-        Err(Error::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string())),
-        Err(Error::TypeError("IntType".to_string(), Value::Bool(true))),
-        Err(Error::Arithmetic("Divide by 0".to_string())),
-        Err(Error::Arithmetic("Modulus by 0".to_string())),
-        Err(Error::Arithmetic("Overflowed in power".to_string())),
-        Err(Error::Arithmetic("Overflowed in multiplication".to_string())),
-        Err(Error::Arithmetic("Overflowed in addition".to_string())),
-        Err(Error::Arithmetic("Underflowed in subtraction".to_string())),
-        Err(Error::InvalidArguments("(- ...) must be called with at least 1 argument".to_string())),
-        Err(Error::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string())),
-        Err(Error::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string())),
-        Err(Error::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string())),
-        Err(Error::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())),
-        Err(Error::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()))
+        ErrType::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()),
+        ErrType::TypeError("IntType".to_string(), Value::Bool(true)),
+        ErrType::Arithmetic("Divide by 0".to_string()),
+        ErrType::Arithmetic("Modulus by 0".to_string()),
+        ErrType::Arithmetic("Overflowed in power".to_string()),
+        ErrType::Arithmetic("Overflowed in multiplication".to_string()),
+        ErrType::Arithmetic("Overflowed in addition".to_string()),
+        ErrType::Arithmetic("Underflowed in subtraction".to_string()),
+        ErrType::InvalidArguments("(- ...) must be called with at least 1 argument".to_string()),
+        ErrType::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string()),
+        ErrType::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string()),
+        ErrType::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()),
+        ErrType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()),
+        ErrType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, execute(program));
+        assert_eq!(*expectation, execute(program).unwrap_err().err_type);
     }
 }
 
@@ -228,11 +230,11 @@ fn test_bad_lets() {
         "(let ((* 1)) (+ * *))",
         "(let ((a 1) (a 2)) (+ a a))"];
 
-    let expectations: &[Result<Value, Error>] = &[
-        Err(Error::ReservedName("tx-sender".to_string())),
-        Err(Error::ReservedName("*".to_string())),
-        Err(Error::VariableDefinedMultipleTimes("a".to_string()))];
+    let expectations = [
+        ErrType::ReservedName("tx-sender".to_string()),
+        ErrType::ReservedName("*".to_string()),
+        ErrType::VariableDefinedMultipleTimes("a".to_string())];
 
     tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(*expectation, execute(program)));
+        .for_each(|(program, expectation)| assert_eq!(*expectation, execute(program).unwrap_err().err_type));
 }

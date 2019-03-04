@@ -1,5 +1,5 @@
 use vm::{SymbolicExpression, Value, apply, eval_all};
-use vm::errors::{Error, InterpreterResult as Result};
+use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::callables::CallableType;
 use vm::contexts::{Environment, LocalContext, ContractContext, GlobalContext, MemoryGlobalContext};
 use vm::database::{MemoryContractDatabase, ContractDatabase};
@@ -27,7 +27,7 @@ impl Contract<MemoryContractDatabase> {
         let result = eval_all(&parsed, &mut db_instance, &mut contract_context, &mut global_context)?;
         match result {
             Value::Void => {},
-            _ => return Err(Error::InvalidArguments("Contract instantiation should return null.".to_string()))
+            _ => return Err(Error::new(ErrType::InvalidArguments("Contract instantiation should return null.".to_string())))
         }
 
         Ok(Contract { db: db_instance,
@@ -37,9 +37,9 @@ impl Contract<MemoryContractDatabase> {
     pub fn execute_transaction(&mut self, sender: &Value, tx_name: &str,
                                args: &[SymbolicExpression], global_context: &mut GlobalContext) -> Result<Value> {
         let func = self.contract_context.lookup_function(tx_name)
-            .ok_or_else(|| { Error::UndefinedFunction(tx_name.to_string(), vec![]) })?;
+            .ok_or_else(|| { Error::new(ErrType::UndefinedFunction(tx_name.to_string())) })?;
         if !func.is_public() {
-            return Err(Error::NonPublicFunction(tx_name.to_string(), vec![]));
+            return Err(Error::new(ErrType::NonPublicFunction(tx_name.to_string())));
         }
 
         if let Value::Principal(_, _) = sender {
@@ -48,8 +48,8 @@ impl Contract<MemoryContractDatabase> {
             for arg in args {
                 match arg {
                     SymbolicExpression::AtomValue(ref _v) => {},
-                    _ => return Err(Error::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
-                                                                    tx_name)))
+                    _ => return Err(Error::new(ErrType::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
+                                                                    tx_name))))
                 }
             }
 
@@ -59,7 +59,7 @@ impl Contract<MemoryContractDatabase> {
 
             apply(&CallableType::UserFunction(func), args, &mut env, &local_context)
         } else {
-            Err(Error::BadSender(sender.clone()))
+            Err(Error::new(ErrType::BadSender(sender.clone())))
         }
     }
 }

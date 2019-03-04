@@ -5,7 +5,7 @@ mod boolean;
 mod database;
 mod tuples;
 
-use vm::errors::{Error, InterpreterResult as Result};
+use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::Value;
 use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
@@ -29,13 +29,13 @@ fn native_hash160(args: &[Value]) -> Result<Value> {
     use util::hash::Hash160;
 
     if !(args.len() == 1) {
-        return Err(Error::InvalidArguments("Wrong number of arguments to hash160 (expects 1)".to_string()))
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to hash160 (expects 1)".to_string())))
     }
     let input = &args[0];
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(Error::NotImplemented)
+        _ => Err(Error::new(ErrType::NotImplemented))
     }?;
     let hash160 = Hash160::from_data(&bytes);
     Value::buff_from(hash160.as_bytes().to_vec())
@@ -50,7 +50,7 @@ fn native_begin(args: &[Value]) -> Result<Value> {
 
 fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if !(args.len() == 2 || args.len() == 3) {
-        return Err(Error::InvalidArguments("Wrong number of arguments to if (expect 2 or 3)".to_string()))
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to if (expect 2 or 3)".to_string())))
     }
     // handle the conditional clause.
     let conditional = eval(&args[0], env, context)?;
@@ -66,7 +66,7 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
                 }
             }
         },
-        _ => Err(Error::TypeError("BoolType".to_string(), conditional))
+        _ => Err(Error::new(ErrType::TypeError("BoolType".to_string(), conditional)))
     }
 }
 
@@ -76,16 +76,16 @@ fn parse_eval_bindings(bindings: &[SymbolicExpression],
     for binding in bindings.iter() {
         if let SymbolicExpression::List(ref binding_exps) = *binding {
             if binding_exps.len() != 2 {
-                return Err(Error::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string()))
+                return Err(Error::new(ErrType::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string())))
             }
             if let SymbolicExpression::Atom(ref var_name) = binding_exps[0] {
                 let value = eval(&binding_exps[1], env, context)?;
                 result.push((var_name.clone(), value));
             } else {
-                return Err(Error::InvalidArguments("Passed bad variable name as a binding. Bindings should be of the form (name value).".to_string()))
+                return Err(Error::new(ErrType::InvalidArguments("Passed bad variable name as a binding. Bindings should be of the form (name value).".to_string())))
             }
         } else {
-            return Err(Error::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string()))
+            return Err(Error::new(ErrType::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string())))
         }
     }
 
@@ -99,7 +99,7 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     // arg0 => binding list
     // arg1 => body
     if args.len() != 2 {
-        return Err(Error::InvalidArguments("Wrong number of arguments to let (expect 2)".to_string()))
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to let (expect 2)".to_string())))
     }
     // create a new context.
     let mut inner_context = context.extend()?;
@@ -109,10 +109,10 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
         let mut binding_results = parse_eval_bindings(bindings, env, context)?;
         for (binding_name, binding_value) in binding_results.drain(..) {
             if is_reserved(&binding_name) {
-                return Err(Error::ReservedName(binding_name))
+                return Err(Error::new(ErrType::ReservedName(binding_name)))
             }
             if inner_context.variables.contains_key(&binding_name) {
-                return Err(Error::VariableDefinedMultipleTimes(binding_name))
+                return Err(Error::new(ErrType::VariableDefinedMultipleTimes(binding_name)))
             }
             inner_context.variables.insert(binding_name, binding_value);
         }
@@ -120,7 +120,7 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
         // evaluate the let-body
         eval(&args[1], env, &inner_context)
     } else {
-        Err(Error::InvalidArguments("Passed non-list as second argument to let expression.".to_string()))
+        Err(Error::new(ErrType::InvalidArguments("Passed non-list as second argument to let expression.".to_string())))
     }
 }
 

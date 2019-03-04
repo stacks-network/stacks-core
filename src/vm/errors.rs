@@ -5,18 +5,18 @@ use vm::contexts::StackTrace;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Error {
-    err_type: ErrType,
-    stack_trace: Option<StackTrace>
+    pub err_type: ErrType,
+    pub stack_trace: Option<StackTrace>
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ErrType {
     NotImplemented,
-    NonPublicFunction(String, StackTrace),
-    TypeError(String, Value, StackTrace),
+    NonPublicFunction(String),
+    TypeError(String, Value),
     InvalidArguments(String),
-    UndefinedVariable(String, StackTrace),
-    UndefinedFunction(String, StackTrace),
+    UndefinedVariable(String),
+    UndefinedFunction(String),
     UndefinedContract(String),
     TryEvalToFunction,
     Arithmetic(String),
@@ -45,12 +45,21 @@ pub type InterpreterResult <R> = Result<R, Error>;
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.err_type {
-            Error::RecursionDetected => write!(f, "Illegal operation: attempted recursion detected."),
-            Error::TryEvalToFunction => write!(f, "Illegal operation: attempt to evaluate to function."),
-            Error::TypeError(ref expected, ref found) =>
+            ErrType::RecursionDetected => write!(f, "Illegal operation: attempted recursion detected."),
+            ErrType::TryEvalToFunction => write!(f, "Illegal operation: attempt to evaluate to function."),
+            ErrType::TypeError(ref expected, ref found) =>
                 write!(f, "TypeError: Expected {}, found {}.", expected, found),
-            _ =>  write!(f, "{:?}", self)
+            _ =>  write!(f, "{:?}", self.err_type)
+        }?;
+
+        if let Some(ref stack_trace) = self.stack_trace {
+            write!(f, "\n Stack Trace: \n")?;
+            for item in stack_trace.iter() {
+                write!(f, "{}\n", item)?;
+            }
         }
+
+        Ok(())
     }
 }
 
@@ -75,14 +84,19 @@ impl Error {
     }
 }
 
-#[test]
-fn error_formats() {
-    assert_eq!(format!("{}", Error::RecursionDetected),
-               "Illegal operation: attempted recursion detected.");
-    assert_eq!(format!("{}", Error::TryEvalToFunction),
-               "Illegal operation: attempt to evaluate to function.");
-    assert_eq!(format!("{}", Error::TypeError("Test".to_string(), Value::Void)),
-               "TypeError: Expected Test, found null.");
-    assert_eq!(format!("{}", Error::NotImplemented),
-               "NotImplemented");
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn error_formats() {
+        assert_eq!(format!("{}", Error::new(ErrType::RecursionDetected)),
+                   "Illegal operation: attempted recursion detected.");
+        assert_eq!(format!("{}", Error::new(ErrType::TryEvalToFunction)),
+                   "Illegal operation: attempt to evaluate to function.");
+        assert_eq!(format!("{}", Error::new(ErrType::TypeError("Test".to_string(), Value::Void))),
+                   "TypeError: Expected Test, found null.");
+        assert_eq!(format!("{}", Error::new(ErrType::NotImplemented)),
+                   "NotImplemented");
+    }
 }
