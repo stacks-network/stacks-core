@@ -428,21 +428,22 @@ def namedb_create(path, genesis_block):
 
     con.row_factory = namedb_row_factory
 
-    # create genesis block 
+    # create genesis block
     namedb_create_token_genesis(con, genesis_block['rows'], genesis_block['history'])
     return con
 
 
 def namedb_open( path ):
     """
-    Open a connection to our database 
+    Open a connection to our database
     """
     con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
+    db_query_execute(con, 'pragma mmap_size=536870912', ())
     con.row_factory = namedb_row_factory
 
     version = namedb_get_version(con)
     if not semver_equal(version, VERSION):
-        # wrong version 
+        # wrong version
         raise Exception('Database has version {}, but this node is version {}.  Please update your node database (such as with fast_sync).'.format(version, VERSION))
 
     return con

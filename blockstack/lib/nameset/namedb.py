@@ -101,7 +101,8 @@ class BlockstackDB(virtualchain.StateEngine):
 
         self.disposition = disposition
 
-        self.genesis_block = copy.deepcopy(genesis_block)
+        #self.genesis_block = copy.deepcopy(genesis_block)
+        self.genesis_block = genesis_block
 
         # announcers to track
         blockstack_opts = default_blockstack_opts(working_dir, virtualchain.get_config_filename(virtualchain_hooks, working_dir))
