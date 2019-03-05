@@ -477,12 +477,18 @@ pub struct MicroblocksInvData {
     /// bitvec[bit_index / 8] & (1 << (bit_index % 8))
     pub bit_index: u32,
 
-    /// Whether or not the complete set of microblocks is available.
-    pub complete: u8,
+    /// The number of bits in the microblock_bitvec that represent the inventory.
+    pub microblock_bitlen: u16,
 
-    /// The root of a Merkle tree composed of the sequence of microblocks'
-    /// header hashes appended to this Stacks block.
-    pub merkle_root: DoubleSha256;
+    /// A bit vector of which microblocks are available, like the bitvec in
+    /// a BlocksInvData structure.  microblock_bitvec[0] & 0x01 represents the
+    /// first microblock, whose parent is the on-chain Stacks block indexed
+    /// by bit_index.
+    pub microblock_bitvec: Vec<u8>, 
+
+    /// Merkle root over the microblock headers of all microblocks represented
+    /// in microblock_bitvec
+    pub merkle_root: DoubleSha256
 }
 ```
 
