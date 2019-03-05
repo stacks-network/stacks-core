@@ -150,22 +150,22 @@ a separate record to improve readability.
 
 ```
 80                               # msg.a
-91 90                            # msg.b in network byte order
-a3 a2 a1 a0                      # msg.c in network byte order
-b7 b6 b5 b4 b3 b2 b1 b0          # msg.d in network byte order
-03 00 00 00                      # length of message.e, in network byte order
-c7 c6 c5 c4 c3 c2 c1 c0          # msg.e[0] in network byte order
-d7 d6 d5 d4 d3 d2 d1 d0          # msg.e[1] in network byte order
-e7 e6 e5 e4 e3 e2 e1 e0          # msg.e[2] in network byte order
+90 91                            # msg.b in network byte order
+a0 a1 a2 a3                      # msg.c in network byte order
+b0 b1 b2 b3 b4 b5 b6 b7          # msg.d in network byte order
+00 00 00 03                      # length of message.e, in network byte order
+c0 c1 c2 c3 c4 c5 c6 c7          # msg.e[0] in network byte order
+d0 d1 d2 d3 d4 d5 d6 d7          # msg.e[1] in network byte order
+e0 e1 e2 e3 e4 e5 e6 e7          # msg.e[2] in network byte order
 00                               # PayloadVariant::Foo type ID
-bb aa                            # msg.payload.aa, where msg.payload is PayloadVariant::Foo(ExampleMessagePayload)
+aa bb                            # msg.payload.aa, where msg.payload is PayloadVariant::Foo(ExampleMessagePayload)
 00 01 02 03 04 05 06 07 08 09    # msg.payload.bytes, where msg.payload is PayloadVariant::Foo(ExampleMessagePayload)
-02 00 00 00                      # length of msg.payload_list, in network byte order
+00 00 00 02                      # length of msg.payload_list, in network byte order
 00                               # PayloadVariant::Foo type ID
-dd cc                            # msg.payload_list[0].aa, where msg.payload_list[0] is a PayloadVariant::Foo(ExampleMessagePayload)
+cc dd                            # msg.payload_list[0].aa, where msg.payload_list[0] is a PayloadVariant::Foo(ExampleMessagePayload)
 0a 0b 0c 0d 0e 0f 10 11 12 13    # msg.payload_list[0].bytes, where msg.payload_list[0] is a PayloadVariant::Foo(ExampleMessagePayload)
 01                               # PayloadVariant::Bar type ID
-33 22 11 00                      # msg.payload_list[1].0, where msg.payload_list[1] is a PayloadVariant::Bar(u32)
+00 11 22 33                      # msg.payload_list[1].0, where msg.payload_list[1] is a PayloadVariant::Bar(u32) in network byte order
 ```
 
 ### Byte Buffer Types
@@ -806,12 +806,16 @@ the connection and blacklists the receiver.
 
 ### Forwarding Data
 
-Chain data may be forwarded to other peers without requesting them.  In such
+The Stacks peer network implements a flooding network for blocks and
+transactions in order to ensure that all peers receive a full copy of the chain
+state as it arrives on the network.  Chain data may be forwarded to other
+peers without requesting them.  In such
 case, a peer receives an unsolicited and un-asked-for `BlocksData`, `MicroblocksData`,
 or `Transaction` message.
 
 If the data has not been seen before by the peer, and the data is valid, then the peer
-forwards it to a subset of its neighbors.  If it has seen the data before, it does not forward
+forwards it to a subset of its neighbors (excluding the one that sent the data). 
+If it has seen the data before, it does not forward
 it.  The process for determining whether or not a block or transaction is valid
 will be discussed in a future SIP.  However, at a high level, the following
 policies hold:
@@ -829,30 +833,164 @@ relay the data.
   top of a Stacks blockchain tip.  A peer will _neither_ cache _nor_ relay a
 `Transaction` message if it cannot determine that it is valid.
 
+### Choosing Neighbors
+
+The core design principle of the Stacks peer network is to maximize the entropy
+of the peer graph.  Doing so helps ensure that the network's connectivity
+avoids depending too much on a small number of popular peers and network edges.
+While this may slow down message propagation relative to more structured peer graphs,
+the _lack of_ structure is the key to making the Stacks peer network
+resilient.
+
+This principle is realized through a randomized neighbor selection algorithm.
+The neighbor selection algorithm is designed to be able to address the following
+concerns:
+
+* It helps a peer discover possible "choke points" in the network, and devise
+  alternative paths around them.
+* It helps a peer detect network disruptions (in particular, BGP prefix hijacks) --
+observed as a sets of peers with the same network prefix suddenly not relaying
+messages, or sets of paths through particular IP blocks no longer being taken.
+* It helps a peer discover the "jurisdictional path" its messages could travel through, 
+which helps a peer route around hostile networks that would delay, block, or
+track the messages.
+
+To achieve this, the Stacks peer network is structured as a K-regular random graph,
+where _any_ peer may be chosen as a peer's neighbor.  The network forms
+a _reachability_ network, with the intention of being "maximally difficult" for a
+network adversary to disrupt by way of censoring individual nodes and network
+hops.  A random graph topology is suitable for this,
+since the possibility that any peer may be a neighbor means that the only way to
+cut off a peer from the network is to ensure it never discovers another honest
+peer.
+
+To choose their neighbors in the peer graph, peers maintain two views of the network:
+
+* The **frontier** -- the set of peers that have either sent a message to this
+  peer or have responded to a request in the past _L_ days (where _L_ is the
+amount of time for which a peer may remain in the frontier set before being
+considered for eviction).  The size of the frontier is significantly larger than
+K.  Peer records in the frontier set may expire and may be stale, but are only
+evicted when the space is needed.  The **fresh frontier set** is the subset of
+the frontier set whose information is assumed to be valid at the time of query.
+
+* The **neighbor set** -- the set of K peers that the peer will announce as its
+  neighbors when asked.  The neighbor set is a randomized subset of the frontier.
+Unlike the frontier set, the peer continuously refreshes knowledge of the state
+of the neighbor sets' blocks and transactions in order to form a transaction and
+block relay network.
+
+Using these views of the network, the peers execute a link-state routing
+protocol whereby each peer determines each of its neighbors' neighbors,
+and in doing so, builds up a partial view of the routing graph made up of
+recently-visited nodes.  Peers execute a route recording protocol whereby each 
+message is structured to record the _path_ it took
+through the graph's nodes.  This enables a peer to determine how often other peers
+in its frontier, as well as the network links between them, are responsible for
+relaying messages.  This knowledge, in turn, is used to help the peer seek out
+new neighbors and neighbor links to avoid depending on popular peers and 
+links too heavily.
+
+**Discovering Other Peers**
+
+To construct a K-regular random graph topology, peers execute a Metropolis-Hastings
+random graph walk with delayed acceptance (MHRWDA) [1] to decide which peers belong to
+their neighbor set and to grow their frontiers.
+
+A peer keeps track of which peers are neighbors of which other peers, and in
+doing so, is able to calculate the in-degree and out-degree of each peer in
+the neighbor set.  This is used to help calculate the probability of walking
+from one peer to another.  A peer measures the in-degree of a remote peer
+simply by counting up the number of distinct neighbors it has.  It measures
+the out-degree of a remote peer by counting up how many other peers have
+included it in their K-neighbor sets recently.  A peer is walked to with
+probability that is around `out-degree / in-degree` (but see [1] for details --
+the exact probability formula is omitted for brevity).
+
+A peer keeps its neighbor set limited to K neighbors by evicting the
+least-recently-visited node while walking through the neighbors' neighbors.  It
+does not forget the evicted neighbor; it merely stops reporting it as a neighbor
+when responding to a `GetNeighbors` query.
+
+A peer keeps its neighbor set fresh by periodically re-handshaking with its K
+neighbors.  It will measure the health of each neighbor by measuring how often
+it responds to a query.  A peer will probabilistically evict a peer from its
+neighbor set if its response rate drops too low, where the probability of
+eviction is proportional both to the peer's perceived uptime and to the peer's
+recent downtime.
+
+**Curating a Frontier**
+
+In addition to finding neighbors, a peer curates a frontier set to (1) maintain knowledge
+of backup peers to contact in case a significant portion of their neighbors goes
+offline, and (2) to make inferences about the global connectivity of the peer
+graph.  A peer can't crawl each and every other peer in the
+frontier set (this would be too expensive), but a peer can infer over time which
+nodes and edges are likely to be online.  The set of peers thought to be online
+is called the _fresh frontier set_.
+
+The fresh frontier set is used primarily to estimate the connectivity of the
+peer network in terms of the _autonomous systems_ that host them.  All that a
+peer needs to know about remote peers in the fresh frontier set is that they are
+likely to be online; it does _not_ need to know their current public keys and
+block inventories.  That said, a peer remembers the following information for
+peers in its frontier:
+
+* the time it was inserted into the frontier (`T-insert`)
+* the time it was last successfully contacted (`T-contact`)
+* the number of times it has been successfully contacted in the last 10 days (`C-success`)
+* the number of times it has failed to respond in the last 10 days (`C-failure`)
+
+A peer is considered to be in the fresh frontier set if the following are true:
+
+* `T-contact` is less than 10 days ago.
+* `C-success / (C-success + C-failure) >= 0.5`: the peer replied at least 50% of the time in the last 10 days if this peer contacted it.
+
+The frontier set grows whenever new neighbors are discovered.  A neighbor
+inserted deterministically into the frontier set by hashing its address with a
+peer-specific secret and the values `0` through `8` in order to identify eight
+slots into which its address can be inserted.  If any of the resulting slots are
+empty, the peer is added to the frontier.
+
+The frontier set is large, but not infinite.  As more peers are discovered, it
+becomes possible that a newly-discovered peer cannot be inserted
+determinstically.  This will become more likely than not to happen once the
+frontier set has `8 * sqrt(F)` slots full, where `F` is the maximum size of
+the frontier.  In such cases, a random existing peer in one of the slots is
+chosen for possible eviction, but only if it is offline.  The peer will attempt
+to handshake with the existing peer before evicting it, and if it responds, the
+new node is discarded and no eviction takes place.
+
+In addition to crawling neighbors, the peer will select a small number of frontier
+peers to ping, with probability proportional to how long ago they were contacted
+(according to `T-contact`).  This periodic ping bumps the frontier peers'
+`C-success`, `C-failure`, and `T-contact` measurements.
+
 **Mapping the Peer Network**
+
+The Stacks protocol includes a route recording mechanism for peers to probe network paths.
+This is used to measure how frequently peers and connections are used in the peer
+graph.  This information is encoded in the `relayers` vector in each message.
 
 When relaying data, the relaying peer must re-sign the message preamble and update its
 sequence number to match each recipient peer's expectations on what the signature 
 and message sequence will be.  In addition, the relaying peer appends the
 upstream peer's message signature and previous sequence number in the
-message's relayer vector.  In doing so, the recipient peers learn about the
-_path_ that a message took through the peer network.  This serves the following
-purposes:
+message's `relayer` vector.  In doing so, the recipient peers learn about the
+_path_ that a message took through the peer network.  This information will be
+used over time to promote message route diversity (see below).
 
-* It helps a peer discover possible "choke points" in the network -- observed
-  as the same few peers relaying most pmessages.
-* It helps a peer detect network disruptions (in particular, BGP prefix hijacks) --
-observed as a sets of peers with the same network prefix suddenly not relaying
-messages.
-* It helps a peer detect network churn (e.g. node outages, BGP updates) -- observed as
-  frequently-seen paths no longer being used, or being replaced by other paths.
-* It helps a peer discover more efficient routing paths than it would have
-  through a naive store-and-forward relay algorithm.
-* It helps a peer discover the "jurisdictional path" its messages could travel through, 
-which helps a peer route around hostile networks that would delay, block, or
-track the messages.
+A peer must always include itself in the `relayers` vector when it forwards a message,
+with two exceptions (described below).
+If it does not do so, a correct downstream peer can detect this by checking that
+the upstream peer inserted its previously-announced address (i.e. the IP
+address, port, and public key it sent in its `HandshakeData`).  If a relaying
+peer does not update the `relayers` vector correctly, a downstream peer should
+close the connection and blacklist the peer for a time.  It is important that
+the `relayers` vector remains complete in order to detect and resist routing
+disruptions in the Internet.
 
-To avoid making itself into a target for network adversaries to harass,
+However, to avoid making itself into a target for network adversaries to harass,
 a peer that originates a `BlocksData`, `MicroblocksData`, or `Transaction`
 message should _not_ include itself in the `relayers` vector.  This is done to
 protect the privacy of the originating peer, since (1) network attackers seeking to
@@ -862,150 +1000,85 @@ or controlled the IP address of the victim's peer.  The fact that network
 adversaries can be expected to harass message originators also serves to
 discourage relaying peers from stripping the `relayers` vector from messsages,
 lest they become the target of an attack.
-
-A peer must include itself in the `relayers` vector when it forwards a message.
-If it does not do so, a correct downstream peer can detect this by checking that
-the upstream peer inserted its previously-announced address (i.e. the IP
-address, port, and public key it sent in its `HandshakeData`).  If a relaying
-peer does not update the `relayers` vector correctly, a downstream peer should
-close the connection and blacklist the peer for a time.  It is important that
-the `relayers` vector remains complete in order to detect and resist routing
-disruptions in the Internet.
-
-Nevertheless, not all peers are obligated to relay Stacks data.  If a peer does
+ 
+Not all peers are obligated to relay Stacks data.  If a peer does
 not intend to relay messages, it _must_ clear the `SERVICE_RELAY` bit in its
 `services` field when it executes a handshake with neighbor peer.  This way, the
-neighbor will not expect any block, microblock, or transaction data from it.
+neighbor will not expect any block, microblock, or transaction data from it.  If
+it does receive such a message, the sender peer will be blacklisted for a time
+for violating the protocol.
 
-### Choosing Neighbors
-
-The Stacks peer network is designed to implement a K-regular random graph
-topology, where _any_ peer may be chosen as a peer's neighbor.  The network is
-a reachability network, anad is designed to be "maximally difficult" for a
-network adversary to partition.  A random graph topology is suitable for this,
-since the possibility that any peer may be a neighbor means that the only way to
-cut off a peer from the network is to ensure it never discovers another honest
-peer.
-
-Peers maintain two views of the network:
-
-* The **frontier** -- the set of peers that have either sent a message to this
-  peer or have responded to a request in the past _L_ days (where _L_ is the
-amount of time for which a peer may remain in the frontier set before being
-considered for eviction).  The size of the frontier is significantly larger than
-K.  Peer records in the frontier set may expire and may be stale, but are only
-evicted when the space is needed.
-
-* The **neighbor set** -- the set of K peers that the peer will announce as its
-  neighbors when asked.  The neighbor set is a randomized subset of the frontier.
-
-**Discovering Other Peers**
-
-To construct a K-regular network topology, peers execute a Metropolis-Hastings
-random graph walk with delayed acceptance [1] to decide which peers belong to
-their neighbor set and to grow their frontiers.  A peer keeps track of which
-peers are neighbors of which other peers, and in doing so, is able to calculate
-the in-degree and out-degree of each peer in the neighbor set.  This is used to
-calculate the probability of walking from one peer to another.
-
-A peer keeps its neighbor set limited to K neighbors by evicting the
-least-recently-visited node while walking through the neighbors' neighbors.  It
-does not forget the evicted neighbor; it merely stops reporting it as a neighbor
-when responding to a `GetNeighbors` query.
-
-A peer adds nodes to its frontier by discovering them through this random graph walk, through
-`Handshake` requests, and through the `relayers` vectors in the messages it
-receives.  A peer is first added to the frontier set, and if it is fresh (or its
-information can be refreshed), it may be walked to by the graph walk algorithm.
-The graph walk algorithm will attempt to refresh a stale peer's data before
-walking to it.
-
-A peer remembers the network address and the
-RIPEMD160-SHA256 hash of the public key given in the discovered `NeighborAddress` structure,
-and uses the `NeighborAddress` data to later determine the legitimacy of the
-discovered neighbor.  A remote peer in the frontier set is _not_
-treated as a neighbor until the peer has had a chance to talk to it directly and
-obtained its public key.  The RIPEMD160-SHA256 hash is used as a hint for
-authenticating nodes discovered through the `relayer` vector in a message, and
-for estimating a remote peer's in-degree and out-degree.
-
-When the peer receives a `Neighbors` response while walking the graph, some of
-the nodes will be in the peer's neighbor set already, some will only be
-present in the frontier set (and may be stale), and some will be completely new.
-For the remote peers' neighbors who are _not_ in the neighbor set already and
-are either completely new or are stale, the peer executes 
-a handshake with each of them to obtain or refresh its
-knowledge of their public keys.  If a remote peer neighbor responds, its public
-key is updated, its address and public key are added to the frontier set,
-and the graph walk algorithm will consider walking to it.  If the remote
-peer neighbor's public key hashes to the RIPEMD160-SHA256 key hash given by the
-remote peer, then the remote peer's out-degree count is incremented (i.e. this
-is a "legitimate" neighbor).  The in-degree of the remote peer neighbor is
-incremented if the peer did not already know that this remote peer neighbor
-listed the remote peer as its neighbor.  That is, if A is asking B for its
-neighbors, and C is a neighbor of B, then A's in-degree count for C will be
-incremented only if A learned that C was B's neighbor.
-
-When a peer sees a relay peer in the `relayers` vector that is either not in its
-frontier set or has an expired frontier record, the peer will attempt to
-`Handshake` with it.  If the peer (a) responds with a `HandshakeAccept`, and (b)
-the public key hashes to the expected public key hash from the `relayers` entry,
-then the remote peer is both added to the frontier and its public key is
-updated (i.e. the remote peer will be fresh).
-This newly-added peer may be walked to from the neighbor set.  If on
-the other hand the public key does _not_ match the public key hash in the
-`relayers` vector, then the peer's address is stored to the frontier set and its
-public key is marked as expired (i.e. the peer in the `relayers` list is marked
-as stale in the frontier set).  The graph walk may eventually walk to this
-node sometime in the future, but it is not treated as a candidate for the neighbor set
-at this time.
+If a peer receives a message with an
+empty `relayers` vector, and the peer has `SERVICE_RELAY` set in its `services`
+field, then the peer should expect never to see this peer in a `relayers` vector
+from any message.  If this is not the case, then the peer should terminate the
+connection with the remote peer and blacklist it for a time, since this would be
+evidence that the sender peer had been stripping its `relayer` vectors.
 
 **Promoting Route Diversity**
 
-The neighbor selection algorithm attempts to select neighbors from a diverse set
-of autonomous systems (ASs) in different jurisdictions.  This is important for
-ensuring that a peer remains connected in the face of inter-AS partitions, which
-would (from the peer's perspective) cause many nodes to suddenly go offline.
-Such phenomena can occur as a result of BGP prefix hijacking, which has been
-successfully deployed to attack existing cryptocurrencies.
+Over time, the peer will count up how frequently nodes and edges are used to
+relay messages in order to determine whether or not the peer graph has become
+_implicitly_ structured -- that is, whether or not its reachability has come to rely 
+on substantially fewer nodes and edges than would be expected in a random peer
+graph.  This is used to inform the graph walk algorithm and the
+forwarding algorithm to select _against_ frequently-used nodes and edges, so
+that alternative network paths will be maintained by the peer network.
 
-Because messages include an authenticated network path, peers can infer over the
-course of many peer messages which remote peers forward messages from other
-peers.  A peer will build up a set of frequently-seen network path segments, and
-measure how often future messages continue to pass through them.  From this, a
-peer can infer which ASs their messages pass through by looking up the
-autonomous system number (ASN) from the remote peer's IP address prefix.  Using this
-information, the peer can add or remove neighbors to its neighbor set as a
-function of how many distinct ASs are represented in the _path_ that would be
-taken by a message.
+The peer network employs two heuristics to achieve this:
 
-This is realized by tweaking the Metropolis-Hastings graph walk algorithm.  A
-peer weights the probability of walking to a neighbor by _also_ considering how many
-ASs are reachable from it as part of calculating its in-degree and out-degree.
-That is, the number of ASs reachable from a neighbor act as edge weights that
-improve its chances of remaining in the neighbor set -- a neighbor's
-out-degree/in-degree ratio is multiplied by the number of ASs it can reach, and
-divided by the total number of ASs known across the peer's neighbor set.  As
-such, all other things being equal, a peer will tend to add neighbors that
-can reach many ASs, and will tend to drop peers that reach few ASs.
+* Considering the AS-degree:  the graph walk algorithm will consider a peer's
+connectivity to different _autonomous systems_
+(ASs) when considering adding it to the neighbor set.
 
-The authenticated paths in the `relayers` vector also serves to help a peer
-identify network "choke points."  These are peers that are included in many paths,
-such that if they went offline, a large number of paths would be broken.
-To ensure that the peer does not end up relying on a few choke points for
-connectivity, the graph walk algorithm will reduce the chance that a choke point
-will remain in the neighbor set.  It does so by calculating the expected number of paths
-that should pass through a given peer if the peer graph were truly random (call
-this `P_E`), and calculating the number of paths that actually pass through the
-peer (call this `P_N`).  Then the probability that the graph walk algorithm will
-walk to this peer will be multiplied by `P_E / max(P_E, P_N)`.  This lowers the
-probability that a choke point will remain in the neighbor set.
+* Relaying in rarest-AS-first order:  the relay algorithm will probabilistically
+  rank its neighbors in order by how rare their AS is the fresh peers in the frontier set.
 
-A full empirical evaluation on the effectiveness of this strategy at encouraging
-route diversity will be done before this SIP is accepted.
+When calculating the probability that a peer will be visited, the graph walk
+algorithm calculates an additional measure of the peer's degree in the peer graph:
+the in-degree and out-degree of the ASs represented by its neighbors.  The graph walk
+algorithm will visit a new node with probability proportional to
+`(out-degree / in-degree) * (out-AS-degree / in-AS-degree)`.  In doing so,
+responsive peers that have high out-degrees relative to in-degrees will be prioritized for
+inclusion in the neighbor set.
+
+To forward messages to as many different ASs as possible, the peer will
+probabilistically prioritize neighbors to receive a forwarded message based on how _rare_
+their AS is in the frontier set.  This forwarding heuristic is
+meant to ensure that a message quickly reaches many different networks in the
+Internet.
+
+The rarest-AS-first heuristic is implemented as follows:
+
+1. The peer examines the `relayers` vector in the message to determine which ASs
+   have peers that have already received the message.
+2. The peer builds a table `N[AS]` that maps its neighbors' ASs to the list of neighbors
+   contained within.  `len(N[AS])` is the number of neighbors in `AS`.
+3. The peer assigns each neighbor a probability of being selected to receive the
+   message next.  The probability depends on whether or not the neighbor is in
+   one of the ASs represented in the `relayers` vector:  the probability is
+   `1 - len(N[AS]) / K` if `AS` is absent from the `relayers` vector, or with probability 
+   `1 - (len(N[AS]) + 1) / K` otherwise.
+4.  The peer selects a neighbor according to the distribution, forwards the message to it, and
+    removes the neighbor from consideration for this message.  The peer repeats step 3 until all neighbors have
+    been sent the message.
+
+The probability distribution in step 3 ensures that ASs that are less
+well-represented by this peer are more likely to receive the message next.  The
+`relayers` vector serves to decrease the chance of a neighbor being selected if
+it is in an AS that has already been visited.  Nevertheless, the probability
+distribution helps ensure that as a message is relayed more and more times,
+peers will become increasingly prone to sending the message to
+neighbors in ASs that have not yet seen the message.
+
+A full empirical evaluation on the effectiveness of these heuristics at encouraging
+route diversity will be carried out before this SIP is accepted.
 
 ## Reference Implementation
 
-Implemented in Rust.
+Implemented in Rust.  The neighbor set size K is set to 16.  The frontier set size
+is set to hold 2^24 peers (with evictions becoming likely after insertions once
+it has 32768 entries).
 
 [1] See https://arxiv.org/abs/1204.4140 for details on the MHRWDA algorithm.
+[2] https://stuff.mit.edu/people/medard/rls.pdf
