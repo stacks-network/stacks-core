@@ -26,11 +26,11 @@ use std::fs;
 use std::convert::From;
 use std::marker::PhantomData;
 
-use chainstate::burn::db::{FromRow, RowOrder};
-use chainstate::burn::db::VRFPublicKey_from_row;
-use chainstate::burn::db::ChainstateDB;
-use chainstate::burn::db::Error as db_error;
+use chainstate::{FromRow, RowOrder};
+use chainstate::Error as db_error;
+use chainstate::ChainstateDB;
 
+use chainstate::burn::db::VRFPublicKey_from_row;
 use chainstate::burn::CHAINSTATE_VERSION;
 use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, BlockSnapshot, SortitionHash};
 
@@ -144,7 +144,7 @@ where
 
 impl RowOrder for BlockSnapshot {
     fn row_order() -> Vec<&'static str> {
-        vec!["block_height","burn_header_hash","consensus_hash","ops_hash","total_burn","burn_quota","sortition","sortition_hash","winning_block_txid","winning_block_burn_hash","canonical"]
+        vec!["block_height","burn_header_hash","parent_burn_header_hash","consensus_hash","ops_hash","total_burn","sortition_burn","burn_quota","sortition","sortition_hash","winning_block_txid","winning_block_burn_hash","canonical"]
     }
 }
 
@@ -152,15 +152,17 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
     fn from_row<'a>(row: &'a Row, index: usize) -> Result<BlockSnapshot, db_error> {
         let block_height_i64 : i64 = row.get(0 + index);
         let burn_header_hash = BurnchainHeaderHash::from_row(row, 1 + index)?;
-        let consensus_hash = ConsensusHash::from_row(row, 2 + index)?;
-        let ops_hash = OpsHash::from_row(row, 3 + index)?;
-        let total_burn_str : String = row.get(4 + index);
-        let burn_quota_str : String = row.get(5 + index);
-        let sortition : bool = row.get(6 + index);
-        let sortition_hash = SortitionHash::from_row(row, 7 + index)?;
-        let winning_block_txid = Txid::from_row(row, 8 + index)?;
-        let winning_block_burn_hash = BurnchainHeaderHash::from_row(row, 9 + index)?;
-        let canonical : bool = row.get(10 + index);
+        let parent_burn_header_hash = BurnchainHeaderHash::from_row(row, 2 + index)?;
+        let consensus_hash = ConsensusHash::from_row(row, 3 + index)?;
+        let ops_hash = OpsHash::from_row(row, 4 + index)?;
+        let total_burn_str : String = row.get(5 + index);
+        let sortition_burn_str : String = row.get(6 + index);
+        let burn_quota_str : String = row.get(7 + index);
+        let sortition : bool = row.get(8 + index);
+        let sortition_hash = SortitionHash::from_row(row, 9 + index)?;
+        let winning_block_txid = Txid::from_row(row, 10 + index)?;
+        let winning_block_burn_hash = BurnchainHeaderHash::from_row(row, 11 + index)?;
+        let canonical : bool = row.get(12 + index);
 
         if block_height_i64 < 0 {
             return Err(db_error::ParseError);
@@ -169,15 +171,20 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let total_burn = total_burn_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
+        let sortition_burn = sortition_burn_str.parse::<u64>()
+            .map_err(|_e| db_error::ParseError)?;
+
         let burn_quota = burn_quota_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
         let snapshot = BlockSnapshot {
             block_height: block_height_i64 as u64,
             burn_header_hash: burn_header_hash,
+            parent_burn_header_hash: parent_burn_header_hash,
             consensus_hash: consensus_hash,
             ops_hash: ops_hash,
             total_burn: total_burn,
+            sortition_burn: sortition_burn,
             burn_quota: burn_quota,
             sortition: sortition,
             sortition_hash: sortition_hash,
@@ -394,9 +401,11 @@ const BURNDB_SETUP : &'static [&'static str]= &[
     CREATE TABLE snapshots(
         block_height INTEGER NOT NULL,
         burn_header_hash TEXT NOT NULL,
+        parent_burn_header_hash TEXT NOT NULL,
         consensus_hash TEXT NOT NULL,
         ops_hash TEXT NOT NULL,
         total_burn TEXT NOT NULL,
+        sortition_burn TEXT NOT NULL,
         burn_quota TEXT NOT NULL,
         sortition INTEGER NOT NULL,
         sortition_hash TEXT NOT NULL,
@@ -499,9 +508,11 @@ where
         let first_snapshot = BlockSnapshot {
             block_height: self.first_block_height,
             burn_header_hash: self.first_burn_header_hash.clone(),
+            parent_burn_header_hash: self.first_burn_header_hash.clone(),
             consensus_hash: ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
             ops_hash: OpsHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             total_burn: 0,
+            sortition_burn: 0,
             burn_quota: 0,
             sortition: true,
             sortition_hash: SortitionHash::initial(),
@@ -725,13 +736,14 @@ where
         }
 
         let total_burn_str = format!("{}", snapshot.total_burn);
+        let sortition_burn_str = format!("{}", snapshot.sortition_burn);
         let burn_quota_str = format!("{}", snapshot.burn_quota);
 
         tx.execute("INSERT OR REPLACE INTO snapshots \
-                   (block_height, burn_header_hash, consensus_hash, ops_hash, total_burn, burn_quota, sortition, sortition_hash, winning_block_txid, winning_block_burn_hash, canonical) \
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                   &[&(snapshot.block_height as i64) as &ToSql, &snapshot.burn_header_hash.to_hex(), &snapshot.consensus_hash.to_hex(), &snapshot.ops_hash.to_hex(), &total_burn_str,
-                     &burn_quota_str, &snapshot.sortition as &ToSql, &snapshot.sortition_hash.to_hex(), &snapshot.winning_block_txid.to_hex(), &snapshot.winning_block_burn_hash.to_hex(),
+                   (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition_burn, burn_quota, sortition, sortition_hash, winning_block_txid, winning_block_burn_hash, canonical) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                   &[&(snapshot.block_height as i64) as &ToSql, &snapshot.burn_header_hash.to_hex(), &snapshot.parent_burn_header_hash.to_hex(), &snapshot.consensus_hash.to_hex(), &snapshot.ops_hash.to_hex(), &total_burn_str,
+                     &sortition_burn_str, &burn_quota_str, &snapshot.sortition as &ToSql, &snapshot.sortition_hash.to_hex(), &snapshot.winning_block_txid.to_hex(), &snapshot.winning_block_burn_hash.to_hex(),
                      &snapshot.canonical as &ToSql])
             .map_err(|e| db_error::SqliteError(e))?;
 
@@ -1102,6 +1114,10 @@ where
 
         match rows.len() {
             1 => Ok(rows[0].clone()),
+            0 => {
+                // should never happen -- the first block we insert has a sortition 
+                panic!("No block found before {} with a sortition", block_height);
+            }
             _ => {
                 // should never happen -- there is always a last-block-with-sortition.  Even the sentinel initial snapshot has a sortition.
                 panic!("Found more than one last canonical block snapshot with sortition");
@@ -1120,6 +1136,31 @@ where
 
         BurnDB::<A, K>::query_rows::<Txid, _>(conn, &qry.to_string(), &args)
     }
+
+    /// Get the sequence of winning block commits over a range (i.e. block commits that won
+    /// sortition) in the canonical chain history.
+    pub fn get_winning_block_commits(conn: &Connection, block_height_start: u64, block_height_end: u64) -> Result<Vec<LeaderBlockCommitOp<A, K>>, db_error>
+    where
+        LeaderBlockCommitOp<A, K>: FromRow<LeaderBlockCommitOp<A, K>> + RowOrder
+    {
+        if block_height_start > ((1 as u64) << 63) - 1 {
+            return Err(db_error::TypeError);
+        }
+        if block_height_end > ((1 as u64) << 63) - 1 {
+            return Err(db_error::TypeError);
+        }
+        if block_height_start > block_height_end {
+            return Err(db_error::TypeError);
+        }
+
+        let row_order = LeaderBlockCommitOp::row_order().join(",");
+        let qry = format!("SELECT {} FROM block_commits JOIN snapshots ON block_commits.txid = snapshots.winning_block_txid AND block_commits.burn_header_hash = snapshots.winning_block_burn_hash \
+                           WHERE snapshots.canonical = 1 AND block_commits.block_height >= ?1 AND block_commits.block_height < ?2 \
+                           ORDER BY block_commits.block_height ASC, block_commits.vtxindex ASC", row_order);
+        let args = [&(block_height_start as i64) as &ToSql, &(block_height_end as i64) as &ToSql];
+
+        BurnDB::<A, K>::query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)
+    }
 }
 
 impl<A, K> ChainstateDB for BurnDB<A, K>
@@ -1136,7 +1177,7 @@ where
 mod tests {
     use super::*;
 
-    use chainstate::burn::db::Error as db_error;
+    use chainstate::Error as db_error;
 
     use chainstate::burn::operations::leader_block_commit::LeaderBlockCommitOp;
     use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
@@ -1368,9 +1409,11 @@ mod tests {
                 let snapshot_row = BlockSnapshot {
                     block_height: i,
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
+                    sortition_burn: i,
                     burn_quota: 0,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
@@ -1412,9 +1455,11 @@ mod tests {
                 let snapshot_row = BlockSnapshot {
                     block_height: i,
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
+                    sortition_burn: i,
                     burn_quota: 0,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
@@ -1843,9 +1888,11 @@ mod tests {
         let first_snapshot = BlockSnapshot {
             block_height: block_height - 2,
             burn_header_hash: first_burn_hash.clone(),
+            parent_burn_header_hash: first_burn_hash.clone(),
             consensus_hash: ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
             ops_hash: OpsHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             total_burn: 0,
+            sortition_burn: 0,
             burn_quota: 0,
             sortition: true,
             sortition_hash: SortitionHash::initial(),
@@ -1857,9 +1904,11 @@ mod tests {
         let snapshot_with_sortition = BlockSnapshot {
             block_height: block_height,
             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
+            parent_burn_header_hash: first_burn_hash.clone(),
             consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
             ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
             total_burn: total_burn_sortition,
+            sortition_burn: total_burn_sortition,
             burn_quota: 0,
             sortition: true,
             sortition_hash: SortitionHash::initial(),
@@ -1871,9 +1920,11 @@ mod tests {
         let snapshot_without_sortition = BlockSnapshot {
             block_height: block_height - 1,
             burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
+            parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
             consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
             ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
             total_burn: total_burn_no_sortition,
+            sortition_burn: total_burn_no_sortition,
             burn_quota: 0,
             sortition: false,
             sortition_hash: SortitionHash::initial(),
