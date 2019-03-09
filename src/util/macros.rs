@@ -17,6 +17,11 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+// is this machine big-endian?
+fn is_big_endian() -> bool {
+    u32::from_be(0x1Au32) == 0x1Au32
+}
+
 /// Borrowed from Andrew Poelstra's rust-bitcoin
 macro_rules! impl_array_newtype {
     ($thing:ident, $ty:ty, $len:expr) => {
@@ -220,7 +225,7 @@ macro_rules! impl_byte_array_newtype {
                 }
             }
 
-            /// Instantiates from a (little-endian) slice of bytes 
+            /// Instantiates from a slice of bytes 
             #[allow(dead_code)]
             pub fn from_bytes(inp: &[u8]) -> Option<$thing> {
                 match inp.len() {
@@ -233,13 +238,13 @@ macro_rules! impl_byte_array_newtype {
                 }
             }
 
-            /// Instantiates from a (big-endian) slice of bytes 
+            /// Instantiates from a slice of bytes, converting to host byte order
             #[allow(dead_code)]
             pub fn from_bytes_be(inp: &[u8]) -> Option<$thing> {
                 $thing::from_vec_be(&inp.to_vec())
             }
 
-            /// Instantiates from a (little-endian) vector of bytes
+            /// Instantiates from a vector of bytes
             #[allow(dead_code)]
             pub fn from_vec(inp: &Vec<u8>) -> Option<$thing> {
                 match inp.len() {
@@ -253,15 +258,15 @@ macro_rules! impl_byte_array_newtype {
                 }
             }
 
-            /// Instantiates from a big-endian vector of bytes
+            /// Instantiates from a big-endian vector of bytes, converting to host byte order
             #[allow(dead_code)]
             pub fn from_vec_be(b: &Vec<u8>) -> Option<$thing> {
                 match b.len() {
                     $len => {
                         let mut ret = [0; $len];
                         let bytes = &b[0..b.len()];
+                        // flip endian to le if we are le
                         for i in 0..$len {
-                            // flip endian to le
                             ret[$len - 1 - i] = bytes[i];
                         }
                         Some($thing(ret))
