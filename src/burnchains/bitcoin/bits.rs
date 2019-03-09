@@ -130,22 +130,22 @@ where
         res
     }
 
-    pub fn to_address_bits(input: &BurnchainTxInput<K>) -> Vec<u8> {
-        match input.in_type {
+    pub fn to_address_bits(&self) -> Vec<u8> {
+        match self.in_type {
             BurnchainInputType::BitcoinInput => {
-                if input.keys.len() == 1 {
-                    BurnchainTxInput::to_address_bits_bitcoin_singlesig(&input.keys[0])
+                if self.keys.len() == 1 {
+                    BurnchainTxInput::to_address_bits_bitcoin_singlesig(&self.keys[0])
                 }
                 else {
-                    BurnchainTxInput::to_address_bits_bitcoin_multisig(input.num_required, &input.keys)
+                    BurnchainTxInput::to_address_bits_bitcoin_multisig(self.num_required, &self.keys)
                 }
             },
             BurnchainInputType::BitcoinSegwitP2SHInput => {
-                if input.keys.len() == 1 {
-                    BurnchainTxInput::to_address_bits_bitcoin_singlesig_p2sh(&input.keys[0])
+                if self.keys.len() == 1 {
+                    BurnchainTxInput::to_address_bits_bitcoin_singlesig_p2sh(&self.keys[0])
                 }
                 else {
-                    BurnchainTxInput::to_address_bits_bitcoin_multisig_p2sh(input.num_required, &input.keys)
+                    BurnchainTxInput::to_address_bits_bitcoin_multisig_p2sh(self.num_required, &self.keys)
                 }
             }
         }
