@@ -27,6 +27,8 @@ use bitcoin::util::base58;
 use util::hash::Hash160;
 use util::log;
 
+use address::c32::c32_address;
+
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub enum BitcoinAddressType {
     PublicKeyHash,
@@ -45,6 +47,11 @@ pub const ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 5;
 pub const ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 111;
 pub const ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 196;
 
+pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22;       // P
+pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20;        // M
+pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26;       // T
+pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21;        // N
+
 fn address_type_to_version_byte(addrtype: BitcoinAddressType, network_id: BitcoinNetworkType) -> u8 {
     match (addrtype, network_id) {
         (BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Mainnet) => ADDRESS_VERSION_MAINNET_SINGLESIG,
@@ -60,6 +67,16 @@ fn version_byte_to_address_type(version: u8) -> Option<(BitcoinAddressType, Bitc
         ADDRESS_VERSION_MAINNET_MULTISIG => Some((BitcoinAddressType::ScriptHash, BitcoinNetworkType::Mainnet)),
         ADDRESS_VERSION_TESTNET_SINGLESIG => Some((BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Testnet)),
         ADDRESS_VERSION_TESTNET_MULTISIG => Some((BitcoinAddressType::ScriptHash, BitcoinNetworkType::Testnet)),
+        _ => None
+    }
+}
+
+fn to_c32_version_byte(version: u8) -> Option<u8> {
+    match version {
+        ADDRESS_VERSION_MAINNET_SINGLESIG => Some(C32_ADDRESS_VERSION_MAINNET_SINGLESIG),
+        ADDRESS_VERSION_MAINNET_MULTISIG => Some(C32_ADDRESS_VERSION_MAINNET_MULTISIG),
+        ADDRESS_VERSION_TESTNET_SINGLESIG => Some(C32_ADDRESS_VERSION_TESTNET_SINGLESIG),
+        ADDRESS_VERSION_TESTNET_MULTISIG => Some(C32_ADDRESS_VERSION_TESTNET_MULTISIG),
         _ => None
     }
 }
@@ -162,8 +179,9 @@ impl BitcoinAddress {
     }
 
     pub fn to_c32(&self) -> String {
-        // TODO
-        String::from("")
+        let version_byte = address_type_to_version_byte(self.addrtype, self.network_id);
+        let c32_address_byte = to_c32_version_byte(version_byte).unwrap();  // NOTE: should never panic, since (addrtype, network_id) always maps to a valid Bitcoin version byte 
+        c32_address(c32_address_byte, self.bytes.as_bytes()).unwrap()       // NOTE; should never panic, since to_c32_version_byte() returns a valid version
     }
 }
 
