@@ -34,12 +34,17 @@ extern crate regex;
 
 #[macro_use] extern crate serde_derive;
 
-#[macro_use] mod util;
-mod burnchains;
+#[macro_use]
+mod util;
+
+#[macro_use]
 mod chainstate;
-mod core;
-mod vm;
+
 mod address;
+mod burnchains;
+mod core;
+mod net;
+mod vm;
 
 use std::fs;
 use std::env;
