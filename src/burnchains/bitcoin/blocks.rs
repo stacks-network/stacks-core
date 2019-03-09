@@ -360,7 +360,7 @@ impl BitcoinBlockParser {
         match (inputs_opt, outputs_opt) {
             (Some(inputs), Some(outputs)) => {
                 Some(BurnchainTransaction {
-                    txid: Txid::from_vec_be(&tx.txid().as_bytes().to_vec()).unwrap(), // txids are little-endian in Blockstack, and this *should* panic if it fails
+                    txid: Txid::from_vec_be(&tx.txid().as_bytes().to_vec()).unwrap(), // this *should* panic if it fails
                     vtxindex: vtxindex as u32,
                     opcode: opcode,
                     data: data,
@@ -395,6 +395,7 @@ impl BitcoinBlockParser {
         BurnchainBlock {
             block_height: block_height,
             block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.bitcoin_hash()),
+            parent_block_hash: BurnchainHeaderHash::from_bitcoin_hash(&block.header.prev_blockhash),
             txs: accepted_txs
         }
     }
@@ -736,6 +737,7 @@ mod tests {
                 height: 32,
                 result: Some(BurnchainBlock {
                     block_height: 32,
+                    parent_block_hash: to_block_hash(&hex_bytes("1dbc979696b7a853a962a6c0d42c41b47f57d9b6aa62c7d54d29f419cd4cef9c").unwrap()),
                     block_hash: to_block_hash(&hex_bytes("7483b1104341d596c1d0d2499cb1821b0e078329deabc4e7504c016a5b393e08").unwrap()),
                     txs: vec![
                         BurnchainTransaction {
@@ -775,6 +777,7 @@ mod tests {
                 result: Some(BurnchainBlock {
                     block_height: 32,
                     block_hash: to_block_hash(&hex_bytes("4f3757bc236e58b87d6208aa795115002b739bf39268cf69640f0b092e8cdafe").unwrap()),
+                    parent_block_hash: to_block_hash(&hex_bytes("25af4b7151b77f6f8235bda83a8062fba621591beef57e18f4697c8b88a298ad").unwrap()),
                     txs: vec![
                         BurnchainTransaction {
                             // TOKEN_TRANSFER
