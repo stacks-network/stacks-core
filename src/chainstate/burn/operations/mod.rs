@@ -30,8 +30,8 @@ use self::leader_key_register::LeaderKeyRegisterOp;
 use self::leader_block_commit::LeaderBlockCommitOp;
 use self::user_burn_support::UserBurnSupportOp;
 
-use chainstate::burn::db::Error as db_error;
-use chainstate::burn::db::DBConn;
+use chainstate::Error as db_error;
+use chainstate::DBConn;
 
 use burnchains::{Address, PublicKey, BurnchainHeaderHash, BurnchainTransaction};
 use burnchains::Burnchain;
