@@ -25,6 +25,14 @@ use util::log;
 // fork set identifier -- to be mixed with the consensus hash (encodes the version)
 pub const SYSTEM_FORK_SET_VERSION : [u8; 4] = [21u8, 0u8, 0u8, 0u8];
 
+// p2p network version 
+pub const PEER_VERSION : u32 = 0x15000000;      // 21.0.0.0
+
+// network identifiers (big-endian)
+// highest bit is 1 if this is testnet; 0 if mainnet
+pub const NETWORK_ID_MAINNET : u32 = 0x15000000;
+pub const NETWORK_ID_TESTNET : u32 = 0x15000001;
+
 /// Synchronize burn transactions from the Bitcoin blockchain 
 pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Result<u64, burnchain_error> {
     use burnchains::bitcoin::indexer::BitcoinIndexer;
