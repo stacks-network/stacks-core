@@ -81,7 +81,9 @@ A typed container is encoded as a 1-byte type identifier, followed by zero or
 more encoded structures.  Typed containers are used in practice to encode
 type variants, such as types of message payloads or types of transactions.
 Typed containers are recursively-defined in terms of other scalars, byte
-buffers, vectors, and type containers.
+buffers, vectors, and type containers.  Unlike a vector, there is no length
+field for a typed container -- the parser will begin consuming the container's
+items immediately following the 1-byte type identifier.
 
 **Example**
 
@@ -153,7 +155,7 @@ a separate record to improve readability.
 90 91                            # msg.b in network byte order
 a0 a1 a2 a3                      # msg.c in network byte order
 b0 b1 b2 b3 b4 b5 b6 b7          # msg.d in network byte order
-00 00 00 03                      # length of message.e, in network byte order
+00 00 00 03                      # length of message.e, in network byte order (note that vector lengths are always 4 bytes)
 c0 c1 c2 c3 c4 c5 c6 c7          # msg.e[0] in network byte order
 d0 d1 d2 d3 d4 d5 d6 d7          # msg.e[1] in network byte order
 e0 e1 e2 e3 e4 e5 e6 e7          # msg.e[2] in network byte order
@@ -178,6 +180,27 @@ pub struct MessageSignature([u8; 80]);
 
 This is a fixed-length container for storing a cryptographic signature.
 Not all bytes will be used, since signatures may have a variable length.
+Unused bytes are at the highest addresses (on the "right").  For example, 
+if the encoded signature data is `0x12 0x34 0x56 0x78`, then the `MessageSignature`
+would be represented as
+
+```
+12 34 56 78             # the actual data
+00 00 00 00 ...         # padding
+```
+
+Any value can be used as padding.
+
+Each signature scheme will have its own way of using these bytes.  The encoding
+scheme for a secp256k1 signature is described below, since it is used to help
+make neighbor selections:
+
+1. Encode the secp256k1 signature as a DER-encoded byte string
+2. Set `MessageSignature[0]` to be the length fo the DER-encoded string
+3. Copy the DER-encoded string to `MessageSignature[1..79]`
+
+Any high-address unused bytes beyond the length of the DER-encoded string
+will be ignored.
 
 ```
 pub struct PeerAddress([u8; 16]);
@@ -308,22 +331,22 @@ pub struct Preamble {
 
     /// This is the height of the last burn chain block this peer processed.
     /// If the peer is all caught up, this is the height of the burn chain tip.
-    pub block_height: u64,
+    pub burn_block_height: u64,
 
-    /// This is the consensus hash calculated at the block_height above.
+    /// This is the consensus hash calculated at the burn_block_height above.
     /// The consensus hash identifies the _fork set_ this peer belongs to, and
     /// is calculated as a digest over all burn chain transactions it has
     /// processed.
-    pub consensus_hash: ConsensusHash,
+    pub burn_consensus_hash: ConsensusHash,
 
     /// This is the height of the last stable block height -- i.e. the largest
     /// block height at which a block can be considered stable in the burn
     /// chain history.  In Bitcoin, this is at least 7 blocks behind block_height.
-    pub stable_block_height: u64,
+    pub stable_burn_block_height: u64,
 
     /// This is the height of the last stable consensus hash -- the consensus
     /// hash calculated for the stable_block_height above.
-    pub stable_consensus_hash: ConsensusHash,
+    pub stable_burn_consensus_hash: ConsensusHash,
 
     /// This is a signature over the entire message (preamble and payload).
     /// When generating this value, the signature bytes below must all be 0's.
@@ -351,7 +374,8 @@ pub enum StacksMessageType {
     GetMicroblocks(GetMicroblocksData),
     Microblocks(MicroblocksData),
     Transaction(StacksTransaction),
-    Nack(NackData)
+    Nack(NackData),
+    Ping
 }
 ```
 
@@ -371,7 +395,8 @@ pub struct HandshakeData {
 
     /// Bit field of services this peer offers.
     /// Supported bits:
-    /// -- SERVICE_RELAY = 0x0001 // must be set if the node relays messages
+    /// -- SERVICE_RELAY = 0x0001 -- must be set if the node relays messages
+    ///                              for other nodes.
     pub services: u16,
 
     /// This peer's public key
@@ -448,6 +473,14 @@ pub struct GetBlocksData {
 }
 ```
 
+Notes:
+
+* Expected reply is a `BlocksInvData`.
+* `burn_height_end` can't be more than `burn_height_start + 4096`
+* A `BlocksInvData` reply may not cover the entire range if it cannot fit into
+  the maximum message size, or if `burn_height_end` exceeds the burn chain
+height.
+
 **BlocksInv**
 
 Type identifier: 6
@@ -457,7 +490,10 @@ Structure:
 ```
 pub struct BlocksInvData {
     /// Number of bits represented in the bit vector below.
-    pub bitlen: u32,
+    /// Represents the number of blocks in this inventory.
+    /// This will be at most burn_height_end - burn_height_start from the
+    /// GetBlocksData, but it may be fewer if the message would be too big.
+    pub bitlen: u16,
 
     /// A bit vector of which blocks this peer has.  bitvec[i]
     /// represents the availability of the next 8*i blocks, where
@@ -468,29 +504,22 @@ pub struct BlocksInvData {
     pub bitvec: Vec<u8>,
 
     /// A list of microblocks this peer has data for.
+    /// Has length equal to bitlen, and entries are in order by block --
+    /// the ith bit in bitvec corresponds to the ith entry in this vector.
     pub microblocks_inventory: Vec<MicroblocksInvData>
 }
 
 pub struct MicroblocksInvData {
-    /// The offset of the bit in the BlocksInvData bitvec to which this
-    /// this item corresponds.  i.e. this structure corresponds to bit
-    /// bitvec[bit_index / 8] & (1 << (bit_index % 8))
-    pub bit_index: u32,
-
-    /// The number of bits in the microblock_bitvec that represent the inventory.
-    pub microblock_bitlen: u16,
-
-    /// A bit vector of which microblocks are available, like the bitvec in
-    /// a BlocksInvData structure.  microblock_bitvec[0] & 0x01 represents the
-    /// first microblock, whose parent is the on-chain Stacks block indexed
-    /// by bit_index.
-    pub microblock_bitvec: Vec<u8>, 
-
-    /// Merkle root over the microblock headers of all microblocks represented
-    /// in microblock_bitvec
-    pub merkle_root: DoubleSha256
+    /// The sequence of microblock hashes.
+    pub hashes: Vec<BlockHeaderHash>
 }
 ```
+
+Notes:
+
+* `BlocksInvData.bitlen` will never exceed 4096
+* `BlocksInvData.bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
+* `MicroblocksInvData.hashes` will never have more than 4096 elements.
 
 **GetBlocks**
 
@@ -589,6 +618,12 @@ pub struct NackData {
    pub error_code: u32
 }
 ```
+
+**Ping**
+
+Type identifier: 13
+
+Structure: [empty]
 
 ## Protocol Description
 
@@ -691,6 +726,27 @@ only to indicate that the sender peer will be blacklisted.  If the `Handshake`
 request cannot be processed for a _recoverable_ reason, then the receiver should
 reply with a `Nack` with the appropriate error code to tell the sender to try
 again.
+
+A sender should only attempt to `Handshake` with a receiver if it believes that
+the receiver has either not seen the sender peer before, or if its knowledge of
+teh sender's public key is expired.  This is important since it stops a network
+attacker from flooding a peer's neighbor table with invalid entries.  If the
+receiver receives an "early" `Handshake` from a sender -- i.e. the receiver's
+knowledge of the sender is still fresh, the receiver should reply with a `Nack`
+to indicate so.
+
+When executing a handshake, a peer should _not_ include any other peers in the
+`relayers` vector except for itself.  A receiver should `Nack` a `Handshake`
+with a `relayers` vector with more than one entry.
+
+### Checking a Peer's Liveness
+
+A sender peer can check that a peer is still alive by sending it a `Ping`
+message.  The receiver should reply with a `Pong` message, and include the same
+data it would have included in a `HandshakeAccept` response.  Both the sender
+and receiver peers would update their metrics for measuring each other's
+resposniveness, but they do _not_ alter any information about each other's
+public keys and expirations.
 
 ### Exchanging Neighbors
 
@@ -817,7 +873,9 @@ transactions in order to ensure that all peers receive a full copy of the chain
 state as it arrives on the network.  Chain data may be forwarded to other
 peers without requesting them.  In such
 case, a peer receives an unsolicited and un-asked-for `BlocksData`, `MicroblocksData`,
-or `Transaction` message.
+or `Transaction` message.  Per the `Handshake` documentation, note that a downstream 
+peer will only accept a relayed message if the relayer had set the
+`SERVICE_RELAY` bit in its handshake's `services` bitfield.
 
 If the data has not been seen before by the peer, and the data is valid, then the peer
 forwards it to a subset of its neighbors (excluding the one that sent the data). 
@@ -935,7 +993,7 @@ frontier set (this would be too expensive), but a peer can infer over time which
 nodes and edges are likely to be online.  The set of peers thought to be online
 is called the _fresh frontier set_.
 
-The fresh frontier set is used primarily to estimate the connectivity of the
+The fresh frontier set is used to estimate the connectivity of the
 peer network in terms of the _autonomous systems_ that host them.  All that a
 peer needs to know about remote peers in the fresh frontier set is that they are
 likely to be online; it does _not_ need to know their current public keys and
@@ -964,13 +1022,14 @@ determinstically.  This will become more likely than not to happen once the
 frontier set has `8 * sqrt(F)` slots full, where `F` is the maximum size of
 the frontier.  In such cases, a random existing peer in one of the slots is
 chosen for possible eviction, but only if it is offline.  The peer will attempt
-to handshake with the existing peer before evicting it, and if it responds, the
+to ping or (if its data is expired) handshake with the existing peer
+before evicting it, and if it responds, the
 new node is discarded and no eviction takes place.
 
-In addition to crawling neighbors, the peer will select a small number of frontier
-peers to ping, with probability proportional to how long ago they were contacted
-(according to `T-contact`).  This periodic ping bumps the frontier peers'
-`C-success`, `C-failure`, and `T-contact` measurements.
+Insertion and deletion are deterministic (and in deletion's case, predicated on
+a failure to ping) in order to prevent a malicious remote peer from filling up
+the frontier set with junk.  The ping-then-evict test is in place also to
+prevent peers with a longer uptime from being easily replaced by short-lived peers.
 
 **Mapping the Peer Network**
 
@@ -986,59 +1045,66 @@ message's `relayer` vector.  In doing so, the recipient peers learn about the
 _path_ that a message took through the peer network.  This information will be
 used over time to promote message route diversity (see below).
 
-A peer must always include itself in the `relayers` vector when it forwards a message,
-with two exceptions (described below).
+A peer that relays messages _must_ include itself at the end of the
+`relayers` vector when it forwards a message.
 If it does not do so, a correct downstream peer can detect this by checking that
 the upstream peer inserted its previously-announced address (i.e. the IP
 address, port, and public key it sent in its `HandshakeData`).  If a relaying
 peer does not update the `relayers` vector correctly, a downstream peer should
-close the connection and blacklist the peer for a time.  It is important that
-the `relayers` vector remains complete in order to detect and resist routing
+close the connection and possibly throttle the peer (blacklisting should not
+be used since this can happen for benign reasons -- for example, a node on a
+laptop may change IP addresses between a suspend/resume cycle).  Nevertheless,
+it is important that the `relayers` vector remains complete in order to detect and resist routing
 disruptions in the Internet.
 
-However, to avoid making itself into a target for network adversaries to harass,
-a peer that originates a `BlocksData`, `MicroblocksData`, or `Transaction`
-message should _not_ include itself in the `relayers` vector.  This is done to
-protect the privacy of the originating peer, since (1) network attackers seeking to
-disrupt the chain could do so by attacking block and microblock originators, and
+Not all peers are relaying peers -- only peers that set the `SERVICE_RELAY`
+bit in their handshakes are required to relay messages and list themselves in the `relayers` vector.
+Peers that do not do this may nevertheless _originate_ an unsolicited `BlocksData`,
+`MicroblocksData`, or `Transaction` message.  However, its `relayers` vector _must_ be
+empty.  This option is available to protect the privacy of the originating peer, since
+(1) network attackers seeking to disrupt the chain could do
+so by attacking block and microblock originators, and
 (2) network attackers seeking to go after Stacks users could do so if they knew
 or controlled the IP address of the victim's peer.  The fact that network
-adversaries can be expected to harass message originators also serves to
-discourage relaying peers from stripping the `relayers` vector from messsages,
-lest they become the target of an attack.
- 
-Not all peers are obligated to relay Stacks data.  If a peer does
-not intend to relay messages, it _must_ clear the `SERVICE_RELAY` bit in its
-`services` field when it executes a handshake with neighbor peer.  This way, the
-neighbor will not expect any block, microblock, or transaction data from it.  If
-it does receive such a message, the sender peer will be blacklisted for a time
-for violating the protocol.
+adversaries can be expected to harass originators who advertise their network
+addresses serves to discourage relaying peers from stripping the
+`relayers` vector from messsages, lest they become the target of an attack.
 
-If a peer receives a message with an
-empty `relayers` vector, and the peer has `SERVICE_RELAY` set in its `services`
-field, then the peer should expect never to see this peer in a `relayers` vector
-from any message.  If this is not the case, then the peer should terminate the
-connection with the remote peer and blacklist it for a time, since this would be
-evidence that the sender peer had been stripping its `relayer` vectors.
+A peer may transition between being a relaying peer and a non-relaying peer by
+closing a connection and re-establishing it with a new handshake.  A peer that
+violates the protocol by advertising their `SERVICE_RELAY` bit and not
+updating the `relayers` vector should be blacklisted by downstream
+peers.
+
+A peer must not forward messages with invalid `relayer` vectors.  At a minimum,
+the peer should authenticate the upstream peer's signature on the last entry of
+the `relayers` vector.  If the message is invalid, then the message must not be
+forwarded (and the sender may be throttled).  In addition, 
+a peer that receives a message from an upstream peer without the
+ `SERVICE_RELAY` bit that includes a `relayers` vector _must not_ forward it.
+A peer that receives a message that contains duplicate entries in the `relayers`
+vector (or sees itself in the `relayers` vector) _must not_ forward the message
+either, since the message has been passed in a cycle.
 
 **Promoting Route Diversity**
 
-Over time, the peer will count up how frequently nodes and edges are used to
-relay messages in order to determine whether or not the peer graph has become
-_implicitly_ structured -- that is, whether or not its reachability has come to rely 
+Over time, the peer will measure the routes taken by messages to determine
+whether or not the network is _implicitly_ structured -- that is, whether
+or not network reachability has come to rely 
 on substantially fewer nodes and edges than would be expected in a random peer
 graph.  This is used to inform the graph walk algorithm and the
 forwarding algorithm to select _against_ frequently-used nodes and edges, so
 that alternative network paths will be maintained by the peer network.
 
-The peer network employs two heuristics to achieve this:
+The peer network employs two heuristics to prevent the network from becoming
+implicitly structured:
 
 * Considering the AS-degree:  the graph walk algorithm will consider a peer's
 connectivity to different _autonomous systems_
 (ASs) when considering adding it to the neighbor set.
 
 * Relaying in rarest-AS-first order:  the relay algorithm will probabilistically
-  rank its neighbors in order by how rare their AS is the fresh peers in the frontier set.
+  rank its neighbors in order by how rare their AS is the fresh frontier set.
 
 When calculating the probability that a peer will be visited, the graph walk
 algorithm calculates an additional measure of the peer's degree in the peer graph:
@@ -1056,15 +1122,19 @@ Internet.
 
 The rarest-AS-first heuristic is implemented as follows:
 
-1. The peer examines the `relayers` vector in the message to determine which ASs
-   have peers that have already received the message.
-2. The peer builds a table `N[AS]` that maps its neighbors' ASs to the list of neighbors
-   contained within.  `len(N[AS])` is the number of neighbors in `AS`.
+1. The peer examines the `relayers` vector and attempts to handshake with a 
+   peer if it is not in the fresh frontier set.  Any peers that fail the handshake, or have
+public keys that differ from the relayer entry's public key hash will be dropped
+from consideration.  This lets the peer add nodes in as-of-yet-unreached ASs to its
+frontier, and lets the peer build up the set `AuthAS` of autonomous systems
+represented by the authenticated portions of the `relayers` vector.
+2. The peer builds a table `N[AS]` that maps its fresh frontier set's ASs to the list of peers
+   contained within.  `len(N[AS])` is the number of fresh frontier peers in `AS`.
 3. The peer assigns each neighbor a probability of being selected to receive the
    message next.  The probability depends on whether or not the neighbor is in
-   one of the ASs represented in the `relayers` vector:  the probability is
-   `1 - len(N[AS]) / K` if `AS` is absent from the `relayers` vector, or with probability 
-   `1 - (len(N[AS]) + 1) / K` otherwise.
+   one of the ASs in `AuthAS`:  the probability is
+   `1 - len(N[AS]) / K` if `AS` is not in `AuthAS`, 
+   `1 - (len(N[AS]) + 1) / K` if `AS` is present in `AuthAS`.
 4.  The peer selects a neighbor according to the distribution, forwards the message to it, and
     removes the neighbor from consideration for this message.  The peer repeats step 3 until all neighbors have
     been sent the message.
@@ -1079,6 +1149,26 @@ neighbors in ASs that have not yet seen the message.
 
 A full empirical evaluation on the effectiveness of these heuristics at encouraging
 route diversity will be carried out before this SIP is accepted.
+
+**Miner-Assisted Peer Discovery**
+
+Stacks miners are already incentivized to maintain good connectivity with one
+another and with the peer network in order to ensure that they work on the
+canonical fork.  As such, a correct miner may include the root of a Merkle tree of a set
+of "reputable" peers that are known by the miner to be well-connected.  Other
+peers in the peer network would include these reputable nodes in their frontiers
+by default.
+
+A peer ultimately makes its own decisions on who its neighbors are, but by 
+default, a peer selects a miner-recommended peer only if over 75% of the mining power recommends
+the peer for a long-ish interval (on the order of weeks).  The 75% threshold
+follows from selfish mining -- the Stacks blockchain prevents selfish mining as
+long as at least 75% of the hash power is honest.  If over 75% of the mining
+power recommends a peer, then the peer has been recommended through an honest
+process and may be presumed "safe" to include in the frontier set.
+
+A recommended peer would not be evicted from the frontier set unless it could
+not be contacted, or unless overridden by a local configuration option.
 
 ## Reference Implementation
 
