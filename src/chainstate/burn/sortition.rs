@@ -32,8 +32,8 @@ use chainstate::burn::{
     BurnchainHeaderHash
 };
 
+use chainstate::Error as db_error;
 use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::Error as db_error;
 use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
 use chainstate::burn::operations::leader_block_commit::LeaderBlockCommitOp;
@@ -185,7 +185,8 @@ impl BlockSnapshot {
     /// All of this is rolled into the BlockSnapshot struct.
     /// 
     /// Call this *after* you store all of the block's transactions to the burn db.
-    pub fn make_snapshot<'a, A, K>(tx: &mut Transaction<'a>, burnchain: &Burnchain, first_block_height: u64, block_height: u64, block_hash: &BurnchainHeaderHash, burn_dist: &Vec<BurnSamplePoint<A, K>>) -> Result<BlockSnapshot, db_error>
+    pub fn make_snapshot<'a, A, K>(tx: &mut Transaction<'a>, burnchain: &Burnchain, first_block_height: u64,
+                                   block_height: u64, block_hash: &BurnchainHeaderHash, parent_block_hash: &BurnchainHeaderHash, burn_dist: &Vec<BurnSamplePoint<A, K>>) -> Result<BlockSnapshot, db_error>
     where
         A: Address, 
         K: PublicKey
@@ -204,43 +205,51 @@ impl BlockSnapshot {
         let last_burn_quota;
         let last_sortition_hash;
         let last_burn_total;
+        let last_sortition_burn_total;
+        let last_sortition;
 
         let next_sortition;
+        let next_sortition_burn_total;
         let next_burn_quota;
         let winning_block_txid;
         let winning_block_burn_hash;
 
         let last_block_snapshot_opt = BurnDB::<A, K>::get_block_snapshot(tx, block_height - 1)?;
-
         match last_block_snapshot_opt {
             Some(prev_snapshot) => {
                 last_burn_total = prev_snapshot.total_burn;
+                last_sortition_burn_total = prev_snapshot.sortition_burn;
                 last_burn_quota = prev_snapshot.burn_quota;
                 last_sortition_hash = prev_snapshot.sortition_hash;
+                last_sortition = prev_snapshot.sortition;
             },
-            None =>  {
+            None => {
+                // initial block snapshot
                 last_burn_total = 0;
+                last_sortition_burn_total = 0;
                 last_burn_quota = 0;
                 last_sortition_hash = SortitionHash::initial();
+                last_sortition = true;
             }
         };
-        
+
+        let sortition_burn_total = BlockSnapshot::burn_total_checked(block_burn_total, last_sortition_burn_total); 
         let next_sortition_hash = last_sortition_hash.mix_burn_header(block_hash);
        
         // did we burn enough?
-        // TODO do we have to be sticklers about the burn quota?  can't we just leave it alone if it's "close enough" to the last burn quota?
-        if block_burn_total >= last_burn_quota {
+        if sortition_burn_total >= last_burn_quota {
             // can do a sortition in this block
             // Try to pick a next block.
             let winning_block_opt : Option<LeaderBlockCommitOp<A, K>> = BlockSnapshot::select_winning_block(tx, block_height, &next_sortition_hash, burn_dist)?;
             match winning_block_opt {
                 None => {
-                    // we burned enough for a sortition, but no winner was picked 
+                    // we burned enough for a sortition, but no winner was picked.
+                    // can happen if the burn quota is 0.
                     next_sortition = false;
                     winning_block_txid = Txid::from_bytes(&[0u8; 32]).unwrap();
                     winning_block_burn_hash = BurnchainHeaderHash::from_bytes(&[0u8; 32]).unwrap();
 
-                    info!("SORTITION: Burn quota met ({}), but NO BLOCK CHOSEN", block_burn_total);
+                    info!("SORTITION({}): Burn quota met ({}), but NO BLOCK CHOSEN", block_height, block_burn_total);
                 },
                 Some(winning_block) => {
                     // we burned enough for a sortition, and a winner was picked! 
@@ -248,22 +257,40 @@ impl BlockSnapshot {
                     winning_block_txid = winning_block.txid.clone();
                     winning_block_burn_hash = winning_block.burn_header_hash.clone();
 
-                    info!("SORTITION: Burn quota met ({}). WINNER is {} (at {})", block_burn_total, &winning_block.block_header_hash.to_hex(), &winning_block_txid.to_hex());
+                    info!("SORTITION({}): Burn quota met ({}). WINNER BLOCK is {}", block_height, block_burn_total, &winning_block.block_header_hash.to_hex());
                 }
             };
 
-            // either way, we burned enough.  Increaes the quota for the next block.
-            next_burn_quota = BlockSnapshot::burn_quota_inc_checked(last_burn_quota, burnchain.burn_quota.inc);
+            // either way, we burned enough that we can alter the burn quota.
+            // -- we INCREMENT if the burn quota was met in the _last_ block
+            //      -- we either did a sortition last block, OR
+            //      -- no blocks were committed (so no sortition) and the burn quota was 0
+            // -- we DECREMENT otherwise
+            if last_sortition || (last_sortition_burn_total == 0 && last_burn_quota == 0) {
+                debug!("SORTITION({}): burned enough for sortition last block, so QUOTA INCREMENT", block_height);
+                next_burn_quota = BlockSnapshot::burn_quota_inc_checked(last_burn_quota, burnchain.burn_quota.inc);
+            }
+            else {
+                debug!("SORTITION({}): did no burn enough for sortition last block, so QUOTA DECREASE", block_height);
+                next_burn_quota = BlockSnapshot::burn_quota_dec_checked(last_burn_quota, burnchain.burn_quota.dec_num, burnchain.burn_quota.dec_den);
+            }
+
+            // we will have burned 0 towards the next sortition.
+            next_sortition_burn_total = 0;
         }
         else {
-            // cannot do a sortition in this block.  Decrease the quota.
+            // cannot do a sortition in this block, but don't change the burn quota -- it will only
+            // be decremented once we meet it!  Instead, keep a running total of how much we burned
+            // since the last sortition, and use that in the next epoch to see if we can adjust the
+            // burn quota.
             next_sortition = false;
-            next_burn_quota = BlockSnapshot::burn_quota_dec_checked(last_burn_quota, burnchain.burn_quota.dec_num, burnchain.burn_quota.dec_den);
+            next_burn_quota = last_burn_quota;
+            next_sortition_burn_total = sortition_burn_total;
 
             winning_block_txid = Txid::from_bytes(&[0u8; 32]).unwrap();
             winning_block_burn_hash = BurnchainHeaderHash::from_bytes(&[0u8; 32]).unwrap();
 
-            info!("SORTITION: Burn quota NOT MET ({} < {})", block_burn_total, last_burn_quota);
+            info!("SORTITION({}): Burn quota not met ({} < {}), so NO QUOTA CHANGE", block_height, block_burn_total, last_burn_quota);
         }
 
         let next_burn_total = BlockSnapshot::burn_total_checked(last_burn_total, block_burn_total);
@@ -274,9 +301,11 @@ impl BlockSnapshot {
         Ok(BlockSnapshot {
             block_height: block_height,
             burn_header_hash: block_hash.clone(),
+            parent_burn_header_hash: parent_block_hash.clone(), 
             consensus_hash: next_ch,
             ops_hash: next_ops_hash,
             total_burn: next_burn_total,
+            sortition_burn: next_sortition_burn_total,
             burn_quota: next_burn_quota,
             sortition: next_sortition,
             sortition_hash: next_sortition_hash,
