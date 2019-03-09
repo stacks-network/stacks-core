@@ -1,0 +1,385 @@
+/*
+ copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
+
+ This file is part of Blockstack.
+
+ Blockstack is free software. You may redistribute or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License or
+ (at your option) any later version.
+
+ Blockstack is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY, including without the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License
+ along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
+*/
+
+pub mod codec;
+
+use std::fmt;
+use std::error;
+
+use burnchains::BurnchainHeaderHash;
+
+use chainstate::burn::ConsensusHash;
+use chainstate::burn::CONSENSUS_HASH_ENCODED_SIZE;
+use chainstate::burn::BlockHeaderHash;
+
+use chainstate::stacks::StacksBlock;
+use chainstate::stacks::StacksMicroblock;
+use chainstate::stacks::StacksTransaction;
+
+use chainstate::stacks::MAX_BLOCK_SIZE;
+
+use util::hash::DoubleSha256;
+use util::hash::Hash160;
+use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
+use util::hash::HASH160_ENCODED_SIZE;
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    /// Failed to encode
+    SerializeError,
+    /// Failed to decode 
+    DeserializeError,
+    /// Failed to recognize message
+    UnrecognizedMessageID,
+    /// Underflow -- not enough bytes to form the message
+    UnderflowError,
+    /// Overflow -- message too big 
+    OverflowError,
+    /// Array is too big 
+    ArrayTooLong,
+    /// Receive timed out 
+    RecvTimeout,
+    /// Error signing a message
+    SigningError(String),
+    /// Error verifying a message 
+    VerifyingError(String),
+    /// Read stream is drained.  Try again
+    TemporarilyDrained,
+    /// Read stream has reached EOF (socket closed, end-of-file reached, etc.)
+    PermanentlyDrained,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::SerializeError => f.write_str(error::Error::description(self)),
+            Error::DeserializeError => f.write_str(error::Error::description(self)),
+            Error::UnrecognizedMessageID => f.write_str(error::Error::description(self)),
+            Error::UnderflowError => f.write_str(error::Error::description(self)),
+            Error::OverflowError => f.write_str(error::Error::description(self)),
+            Error::ArrayTooLong => f.write_str(error::Error::description(self)),
+            Error::RecvTimeout => f.write_str(error::Error::description(self)),
+            Error::SigningError(ref s) => fmt::Display::fmt(s, f),
+            Error::VerifyingError(ref s) => fmt::Display::fmt(s, f),
+            Error::TemporarilyDrained => f.write_str(error::Error::description(self)),
+            Error::PermanentlyDrained => f.write_str(error::Error::description(self)),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            Error::SerializeError => None,
+            Error::DeserializeError => None,
+            Error::UnrecognizedMessageID => None,
+            Error::UnderflowError => None,
+            Error::OverflowError => None,
+            Error::ArrayTooLong => None,
+            Error::RecvTimeout => None,
+            Error::SigningError(ref _s) => None,
+            Error::VerifyingError(ref _s) => None,
+            Error::TemporarilyDrained => None,
+            Error::PermanentlyDrained => None,
+        }
+    }
+
+    fn description(&self) -> &str {
+        match *self {
+            Error::SerializeError => "Failed to serialize message payload",
+            Error::DeserializeError => "Failed to deserialize message payload",
+            Error::UnrecognizedMessageID => "Failed to recognize message type",
+            Error::UnderflowError => "Not enough remaining data to parse",
+            Error::OverflowError => "Message is too long",
+            Error::ArrayTooLong => "Array too long",
+            Error::RecvTimeout => "Packet receive timeout",
+            Error::SigningError(ref s) => s.as_str(),
+            Error::VerifyingError(ref s) => s.as_str(),
+            Error::TemporarilyDrained => "Temporarily out of bytes to read; try again later",
+            Error::PermanentlyDrained => "Out of bytes to read",
+        }
+    }
+}
+
+// helper trait for various primitive types that make up Stacks messages
+pub trait StacksMessageCodec {
+    fn serialize(&self) -> Vec<u8>
+        where Self: Sized;
+    fn deserialize(buf: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<Self, Error>
+        where Self: Sized;
+}
+
+/// Fixed-length buffer for storing an ECDSA public key signature, as well as
+/// (if space permits) a few bytes of metadata for future use.
+/// Rules:
+/// -- First byte is always the length of the signature.
+/// -- Second - length+1 bytes are the signature data.
+/// -- Remaining bytes can be anything
+/// Notes:
+/// -- secp256k1 signatures are no greater than 75 bytes when DER-encoded
+/// -- eddsa signatures are 2x public key length (64 bytes)
+pub struct MessageSignature([u8; 80]);
+impl_array_newtype!(MessageSignature, u8, 80);
+impl_array_hexstring_fmt!(MessageSignature);
+impl_byte_array_newtype!(MessageSignature, u8, 80);
+pub const MESSAGE_SIGNATURE_ENCODED_SIZE : u32 = 80;
+
+/// A container for an IPv4 or IPv6 address
+pub struct PeerAddress([u8; 16]);
+impl_array_newtype!(PeerAddress, u8, 16);
+impl_array_hexstring_fmt!(PeerAddress);
+impl_byte_array_newtype!(PeerAddress, u8, 16);
+pub const PEER_ADDRESS_ENCODED_SIZE : u32 = 16;
+
+/// A container for public keys (compressed secp256k1 public keys)
+pub struct StacksPublicKeyBuffer([u8; 33]);
+impl_array_newtype!(StacksPublicKeyBuffer, u8, 33);
+impl_array_hexstring_fmt!(StacksPublicKeyBuffer);
+impl_byte_array_newtype!(StacksPublicKeyBuffer, u8, 33);
+
+/// Message preamble -- included in all network messages
+#[derive(Debug, Clone, PartialEq)]
+pub struct Preamble {
+    pub peer_version: u32,                          // software version
+    pub network_id: u32,                            // mainnet, testnet, etc.
+    pub seq: u32,                                   // message count from this peer
+    pub burn_block_height: u64,                     // last-seen block height (at chain tip)
+    pub burn_consensus_hash: ConsensusHash,         // consensus hash at block_height
+    pub burn_stable_block_height: u64,              // latest stable block height (e.g. chain tip minus 7)
+    pub burn_stable_consensus_hash: ConsensusHash,  // consensus hash for burn_stable_block_height
+    pub additional_data: DoubleSha256,              // RESERVED; pointer to additional data (should be all 0's if not used)
+    pub signature: MessageSignature,                // signature from the peer that sent this
+    pub payload_len: u32                            // length of the following payload, including relayers vector
+}
+
+// addands correspond to fields above
+pub const PREAMBLE_ENCODED_SIZE: u32 = 
+    4 +
+    4 +
+    4 +
+    8 +
+    CONSENSUS_HASH_ENCODED_SIZE +
+    8 +
+    CONSENSUS_HASH_ENCODED_SIZE +
+    DOUBLE_SHA256_ENCODED_SIZE +
+    MESSAGE_SIGNATURE_ENCODED_SIZE +
+    4;
+
+/// Request for a block inventory or a list of blocks
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetBlocksData {
+    pub burn_height_start: u64,
+    pub burn_header_hash_start: BurnchainHeaderHash,
+    pub burn_height_end: u64,
+    pub burn_header_hash_end: BurnchainHeaderHash
+}
+
+/// A sequence of microblocks, relative to the block commit to which it was appended.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MicroblocksInvData {
+    // note -- this has to be list of hashes, since unlike chain-anchored Stacks blocks, 
+    // the peer node doesn't yet know the microblock header hashes.
+    hashes: Vec<BlockHeaderHash>
+}
+
+/// A bit vector that describes which on-chain blocks this node has data for in a given block
+/// range.  Sent in reply to a GetBlocksData.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlocksInvData {
+    pub bitlen: u16,                            // number of bits represented in bitvec (not to exceed BLOCKS_INV_DATA_MAX_BITLEN)
+    pub bitvec: Vec<u8>,                        // bitvec[0] & 0x01 is the _earliest_ block.  Has length = ceil(bitlen / 8)
+    pub microblocks_inventory: Vec<MicroblocksInvData>  // each block's microblock inventories.  Has length = bitlen
+}
+
+/// List of blocks returned
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlocksData {
+    pub blocks: Vec<StacksBlock>
+}
+
+/// Get a batch of microblocks 
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetMicroblocksData {
+    pub burn_header_height: u64,
+    pub burn_header_hash: BurnchainHeaderHash,
+    pub block_header_hash: BlockHeaderHash,
+    pub microblocks_header_hash: BlockHeaderHash
+}
+
+/// Microblocks batch (reply to GetMicroblcoks)
+#[derive(Debug, Clone, PartialEq)]
+pub struct MicroblocksData {
+    pub microblocks: Vec<StacksMicroblock>
+}
+
+/// A descriptor of a peer
+#[derive(Debug, Clone, PartialEq)]
+pub struct NeighborAddress {
+    pub addrbytes: PeerAddress,
+    pub port: u16,
+    pub public_key_hash: Hash160        // used as a hint; useful for when a node trusts another node to be honest about this
+}
+pub const NEIGHBOR_ADDRESS_ENCODED_SIZE : u32 =
+    PEER_ADDRESS_ENCODED_SIZE +
+    2 +
+    HASH160_ENCODED_SIZE;
+
+/// A descriptor of a list of known peers
+#[derive(Debug, Clone, PartialEq)]
+pub struct NeighborsData {
+    pub neighbors: Vec<NeighborAddress>
+}
+
+/// Handshake request -- this is the first message sent to a peer.
+/// The remote peer will reply a HandshakeAccept with just a preamble
+/// if the peer accepts.  Otherwise it will get a HandshakeReject with just
+/// a preamble.
+///
+/// To keep peer knowledge fresh, nodes will send handshakes to each other
+/// as heartbeat messages.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HandshakeData {
+    pub addrbytes: PeerAddress,
+    pub port: u16,
+    pub services: u16,                          // bit field representing services this node offers
+    pub node_public_key: StacksPublicKeyBuffer,
+    pub expire_block_height: u64,               // burn block height after which this node's key will be revoked
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HandshakeAcceptData {
+    pub heartbeat_interval: u32,        // hint as to how long this peer will remember you
+    pub node_public_key: StacksPublicKeyBuffer
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NackData {
+    pub error_code: u32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RelayData {
+    pub peer: NeighborAddress,
+    pub seq: u32,
+    pub signature: MessageSignature
+}
+pub const RELAY_DATA_ENCODED_SIZE : u32 =
+    NEIGHBOR_ADDRESS_ENCODED_SIZE +
+    4 +
+    MESSAGE_SIGNATURE_ENCODED_SIZE;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StacksMessageType {
+    Handshake(HandshakeData),
+    HandshakeAccept(HandshakeAcceptData),
+    HandshakeReject,
+    GetNeighbors,
+    Neighbors(NeighborsData),
+    GetBlocksInv(GetBlocksData),
+    BlocksInv(BlocksInvData),
+    GetBlocks(GetBlocksData),
+    Blocks(BlocksData),
+    GetMicroblocks(GetMicroblocksData),
+    Microblocks(MicroblocksData),
+    Transaction(StacksTransaction),
+    Nack(NackData),
+    Ping,
+}
+
+// I would do this as an enum, but there's no easy way to match on an enum's numeric representation
+pub mod StacksMessageID {
+    pub const Handshake : u8 = 0;
+    pub const HandshakeAccept : u8 = 1;
+    pub const HandshakeReject : u8 = 2;
+    pub const GetNeighbors : u8 = 3;
+    pub const Neighbors : u8 = 4;
+    pub const GetBlocksInv : u8 = 5;
+    pub const BlocksInv : u8 = 6;
+    pub const GetBlocks : u8 = 7;
+    pub const Blocks : u8 = 8;
+    pub const GetMicroblocks : u8 = 9;
+    pub const Microblocks : u8 = 10;
+    pub const Transaction : u8 = 11;
+    pub const Nack : u8 = 12;
+    pub const Ping : u8 = 13;
+    pub const Reserved : u8 = 255;
+}
+
+/// Container for all Stacks network messages
+#[derive(Debug, Clone, PartialEq)]
+pub struct StacksMessage {
+    pub preamble: Preamble,
+    pub relayers: Vec<RelayData>,
+    pub payload: StacksMessageType,
+}
+
+// an array in our protocol can't exceed this many items
+pub const ARRAY_MAX_LEN : u32 = u32::max_value();
+
+// maximum number of neighbors in a NeighborsData
+pub const MAX_NEIGHBORS_DATA_LEN : u32 = 128;
+
+// maximum number of relayers -- will be an upper bound on the peer graph diameter
+pub const MAX_RELAYERS_LEN : u32 = 16;
+
+// messages can't be bigger than 32MB plus the preamble and relayers
+// (note that MAX_BLOCK_SIZE is less than this)
+pub const MAX_MESSAGE_LEN : u32 = (1 + 32 * 1024 * 1024) + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
+
+// maximum length of a microblock's hash list
+pub const MICROBLOCKS_INV_DATA_MAX_HASHES : u32 = 4096;
+
+// maximum value of a blocks's inv data bitlen 
+pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 4096;
+
+macro_rules! impl_byte_array_message_codec {
+    ($thing:ident, $len:expr) => {
+        impl StacksMessageCodec for $thing {
+            fn serialize(&self) -> Vec<u8> {
+                self.as_bytes().to_vec()
+            }
+            fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<$thing, ::net::Error> {
+                let index = *index_ptr;
+                if index > u32::max_value() - ($len) {
+                    return Err(::net::Error::OverflowError);
+                }
+                if index + ($len) > max_size {
+                    return Err(::net::Error::OverflowError);
+                }
+                if (buf.len() as u32) < index + ($len) {
+                    return Err(::net::Error::UnderflowError);
+                }
+                let ret = $thing::from_bytes(&buf[(index as usize)..((index+($len)) as usize)])
+                    .ok_or(::net::Error::UnderflowError)?;
+
+                *index_ptr += $len;
+                Ok(ret)
+            }
+        }
+    }
+}
+
+impl_byte_array_message_codec!(ConsensusHash, 20);
+impl_byte_array_message_codec!(DoubleSha256, 32);
+impl_byte_array_message_codec!(Hash160, 20);
+impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
+impl_byte_array_message_codec!(BlockHeaderHash, 32);
+impl_byte_array_message_codec!(MessageSignature, 80);
+impl_byte_array_message_codec!(PeerAddress, 16);
+impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
