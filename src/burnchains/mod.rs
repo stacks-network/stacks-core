@@ -29,7 +29,7 @@ use std::io;
 
 use self::bitcoin::Error as btc_error;
 
-use chainstate::burn::db::Error as burndb_error;
+use chainstate::Error as burndb_error;
 use chainstate::burn::operations::Error as op_error;
 
 use util::hash::Hash160;
@@ -39,12 +39,14 @@ pub struct Txid([u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
 impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
+pub const TXID_ENCODED_SIZE : u32 = 32;
 
 #[derive(Serialize, Deserialize)]
 pub struct BurnchainHeaderHash([u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
 impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
+pub const BURNCHAIN_HEADER_HASH_ENCODED_SIZE : u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 
@@ -79,6 +81,11 @@ pub enum ConsensusHashLifetime {
 pub trait PublicKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn verify(&self, data_hash: &[u8], sig: &[u8]) -> Result<bool, &'static str>;
+}
+
+pub trait PrivateKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
+    fn to_bytes(&self) -> Vec<u8>;
+    fn sign(&self, data_hash: &[u8]) -> Result<Vec<u8>, &'static str>;
 }
 
 pub trait Address : Clone + fmt::Debug {
@@ -116,6 +123,7 @@ pub struct BurnchainTransaction<A, K> {
 pub struct BurnchainBlock<A, K> {
     pub block_height: u64,
     pub block_hash: BurnchainHeaderHash,
+    pub parent_block_hash: BurnchainHeaderHash,
     pub txs: Vec<BurnchainTransaction<A, K>>
 }
 
