@@ -42,8 +42,8 @@ use sha2::Digest;
 use rusqlite::Connection;
 use rusqlite::Transaction;
 
-use self::db::burndb::BurnDB;
-use self::db::Error as db_error;
+use chainstate::burn::db::burndb::BurnDB;
+use chainstate::Error as db_error;
 
 use core::SYSTEM_FORK_SET_VERSION;
 
@@ -54,16 +54,19 @@ pub struct ConsensusHash([u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);
 impl_byte_array_newtype!(ConsensusHash, u8, 20);
+pub const CONSENSUS_HASH_ENCODED_SIZE : u32 = 20;
 
 pub struct BlockHeaderHash([u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
 impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
+pub const BLOCK_HEADER_HASH_ENCODED_SIZE : u32 = 32;
 
 pub struct VRFSeed([u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
 impl_array_hexstring_fmt!(VRFSeed);
 impl_byte_array_newtype!(VRFSeed, u8, 32);
+pub const VRF_SEED_ENCODED_SIZE : u32 = 32;
 
 impl VRFSeed {
     /// First-ever VRF seed from the genesis block.  It's all 0's
@@ -89,9 +92,11 @@ impl_byte_array_newtype!(SortitionHash, u8, 32);
 pub struct BlockSnapshot {
     pub block_height: u64,
     pub burn_header_hash: BurnchainHeaderHash,
+    pub parent_burn_header_hash: BurnchainHeaderHash,
     pub consensus_hash: ConsensusHash,
     pub ops_hash: OpsHash,
     pub total_burn: u64,        // how many burn tokens have been destroyed since genesis
+    pub sortition_burn: u64,    // how many burn tokens have been destroyed since the last sortition
     pub burn_quota: u64,        // how many burn tokens must be destroyed in this block for a sortition to occur
     pub sortition: bool,        // whether or not a sortition happened in this block (will be false if either the burn quota isn't met, or no block commits occured)
     pub sortition_hash: SortitionHash,  // rolling hash of the burn chain's block headers -- this gets mixed with the sortition VRF seed
@@ -276,7 +281,7 @@ mod tests {
     use super::SortitionHash;
     use super::Txid;
 
-    use chainstate::burn::db::Error as db_error;
+    use chainstate::Error as db_error;
     use chainstate::burn::db::burndb::BurnDB;
 
     use burnchains::BurnchainHeaderHash;
@@ -302,9 +307,11 @@ mod tests {
                 let snapshot_row = BlockSnapshot {
                     block_height: i,
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i-1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
+                    sortition_burn: i,
                     burn_quota: 0,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
