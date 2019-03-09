@@ -104,9 +104,20 @@ where
 {
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
-         
+            TODO: pick one of these
+
+            Hybrid PoB/PoW Wire format:
+            0      2  3               34               67     68     70    71   72     76    80
+            |------|--|----------------|---------------|------|------|-----|-----|-----|-----|
+             magic  op   block hash       new seed     parent parent key   key   epoch  PoW
+                       (31-byte; lead 0)               delta  txoff  delta txoff num.   nonce
+
+             Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
+
+             The values parent-txoff and key-txoff are in network byte order
+
             Wire format:
-            0      2  3           35               67     69     71    73   75     79    80
+            0      2  3            35               67     69     71    73   75     79    80
             |------|--|-------------|---------------|------|------|-----|-----|-----|-----|
              magic  op   block hash     new seed     parent parent key   key   epoch  memo
                                                      delta  txoff  delta txoff num.
@@ -115,6 +126,7 @@ where
 
              The values parent-delta, parent-txoff, key-delta, and key-txoff are in network byte order
         */
+
         if data.len() < 77 {
             // too short
             warn!("LEADER_BLOCK_COMMIT payload is malformed ({} bytes)", data.len());
@@ -307,7 +319,7 @@ where
         // reveal the keys that hash to the address's hash.
         /////////////////////////////////////////////////////////////////////////////////////
 
-        let input_address_bytes = BurnchainTxInput::to_address_bits(&self.input);
+        let input_address_bytes = self.input.to_address_bits();
         let addr_bytes = register_key.address.to_bytes();
 
         if input_address_bytes != addr_bytes {
