@@ -33,7 +33,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::{mem, u32};
 
-use util::hash::DoubleSha256 as Sha256dHash;
+use deps::bitcoin::util::hash::Sha256dHash;
 use deps::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 
 /// Maximum size, in bytes, of a vector we are allowed to decode

@@ -20,7 +20,6 @@
 //! these blocks and the blockchain.
 //!
 
-use util::hash::DoubleSha256 as Sha256dHash;
 use util::uint::Uint256;
 
 use deps;
@@ -31,6 +30,7 @@ use deps::bitcoin::network::serialize::BitcoinHash;
 use deps::bitcoin::network::constants::Network;
 use deps::bitcoin::blockdata::transaction::Transaction;
 use deps::bitcoin::blockdata::constants::max_target;
+use deps::bitcoin::util::hash::Sha256dHash;
 
 /// A block header, which contains all the block's information except
 /// the actual transactions

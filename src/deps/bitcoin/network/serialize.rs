@@ -29,8 +29,7 @@ use util::hash::to_hex as hex_encode;
 use address;
 
 use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-
-use util::hash::DoubleSha256 as Sha256dHash;
+use deps::bitcoin::util::hash::Sha256dHash;
 
 /// Serialization error
 #[derive(Debug)]

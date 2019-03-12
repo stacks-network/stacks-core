@@ -27,19 +27,28 @@ use std::mem;
 use byteorder::{LittleEndian, WriteBytesExt};
 
 use ripemd160::Ripemd160;
-
-use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use deps::bitcoin::network::serialize::{self, SimpleEncoder, RawEncoder, BitcoinHash};
-
-use util::uint::Uint256;
-use util::hash::DoubleSha256 as Sha256dHash;
-use util::hash::Hash160;
-
 use sha2::Sha256;
 use sha2::Digest;
 
+use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
+use deps::bitcoin::network::serialize::{self, SimpleEncoder, RawEncoder, BitcoinHash};
+use util::uint::Uint256;
+use util::HexError;
+
+/// A Bitcoin hash, 32-bytes, computed from x as SHA256(SHA256(x))
+pub struct Sha256dHash([u8; 32]);
+impl_array_newtype!(Sha256dHash, u8, 32);
+
 /// An object that allows serializing data into a sha256d
 pub struct Sha256dEncoder(Sha256);
+
+/// A RIPEMD-160 hash
+pub struct Ripemd160Hash([u8; 20]);
+impl_array_newtype!(Ripemd160Hash, u8, 20);
+
+/// A Bitcoin hash160, 20-bytes, computed from x as RIPEMD160(SHA256(x))
+pub struct Hash160([u8; 20]);
+impl_array_newtype!(Hash160, u8, 20);
 
 impl Sha256dEncoder {
     /// Create a new encoder
@@ -117,11 +126,123 @@ impl SimpleEncoder for Sha256dEncoder {
     }
 }
 
+impl Ripemd160Hash {
+    /// Create a hash by hashing some data
+    pub fn from_data(data: &[u8]) -> Ripemd160Hash {
+        let mut ret = [0; 20];
+        let mut rmd = Ripemd160::new();
+        rmd.input(data);
+        ret.copy_from_slice(rmd.result().as_slice());
+        Ripemd160Hash(ret)
+    }
+}
+
+impl Hash160 {
+    /// Create a hash by hashing some data
+    pub fn from_data(data: &[u8]) -> Hash160 {
+        let mut tmp = [0; 32];
+        let mut ret = [0; 20];
+        let mut sha2 = Sha256::new();
+        let mut rmd = Ripemd160::new();
+        sha2.input(data);
+        tmp.copy_from_slice(sha2.result().as_slice());
+        rmd.input(&tmp);
+        ret.copy_from_slice(rmd.result().as_slice());
+        Hash160(ret)
+    }
+}
+
 // This doesn't make much sense to me, but is implicit behaviour
 // in the C++ reference client, so we need it for consensus.
 impl Default for Sha256dHash {
     #[inline]
     fn default() -> Sha256dHash { Sha256dHash([0u8; 32]) }
+}
+
+impl Sha256dHash {
+    /// Create a hash by hashing some data
+    pub fn from_data(data: &[u8]) -> Sha256dHash {
+        use sha2::Digest;
+
+        let Sha256dHash(mut ret): Sha256dHash = Default::default();
+        let mut sha2 = Sha256::new();
+        let mut sha2_2 = Sha256::new();
+        sha2.input(data);
+        ret.copy_from_slice(sha2.result().as_slice());
+        sha2_2.input(&ret);
+        ret.copy_from_slice(sha2_2.result().as_slice());
+        Sha256dHash(ret)
+    }
+
+    /// Converts a hash to a little-endian Uint256
+    #[inline]
+    pub fn into_le(self) -> Uint256 {
+        let Sha256dHash(data) = self;
+        let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
+        for x in (&mut ret).iter_mut() { *x = x.to_le(); }
+        Uint256(ret)
+    }
+
+    /// Converts a hash to a big-endian Uint256
+    #[inline]
+    pub fn into_be(self) -> Uint256 {
+        let Sha256dHash(mut data) = self;
+        data.reverse();
+        let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
+        for x in (&mut ret).iter_mut() { *x = x.to_be(); }
+        Uint256(ret)
+    }
+
+    // Human-readable hex output
+
+    /// Decodes a big-endian (i.e. reversed vs sha256sum output) hex string as a Sha256dHash
+    #[inline]
+    pub fn from_hex(s: &str) -> Result<Sha256dHash, HexError> {
+        if s.len() != 64 {
+            return Err(HexError::BadLength(s.len()));
+        }
+
+        let bytes = s.as_bytes();
+        let mut ret = [0; 32];
+        for i in 0..32 {
+           let hi = match bytes[2*i] {
+               b @ b'0'...b'9' => (b - b'0') as u8,
+               b @ b'a'...b'f' => (b - b'a' + 10) as u8,
+               b @ b'A'...b'F' => (b - b'A' + 10) as u8,
+               b => return Err(HexError::BadCharacter(b as char))
+           };
+           let lo = match bytes[2*i + 1] {
+               b @ b'0'...b'9' => (b - b'0') as u8,
+               b @ b'a'...b'f' => (b - b'a' + 10) as u8,
+               b @ b'A'...b'F' => (b - b'A' + 10) as u8,
+               b => return Err(HexError::BadCharacter(b as char))
+           };
+           ret[31 - i] = hi * 0x10 + lo;
+        }
+        Ok(Sha256dHash(ret))
+    }
+
+    /// Human-readable hex output
+    pub fn le_hex_string(&self) -> String {
+        let &Sha256dHash(data) = self;
+        let mut ret = String::with_capacity(64);
+        for item in data.iter().take(32) {
+            ret.push(from_digit((*item / 0x10) as u32, 16).unwrap());
+            ret.push(from_digit((*item & 0x0f) as u32, 16).unwrap());
+        }
+        ret
+    }
+
+    /// Human-readable hex output
+    pub fn be_hex_string(&self) -> String {
+        let &Sha256dHash(data) = self;
+        let mut ret = String::with_capacity(64);
+        for i in (0..32).rev() {
+            ret.push(from_digit((data[i] / 0x10) as u32, 16).unwrap());
+            ret.push(from_digit((data[i] & 0x0f) as u32, 16).unwrap());
+        }
+        ret
+    }
 }
 
 #[cfg(feature = "serde")]
@@ -191,6 +312,29 @@ impl serde::Serialize for Sha256dHash {
 
         let hex_str = unsafe { str::from_utf8_unchecked(&string) };
         serializer.serialize_str(hex_str)
+    }
+}
+
+// Debug encodings (no reversing)
+impl fmt::Debug for Sha256dHash {
+    /// Output the raw sha256d hash, not reversing it (unlike Display and what Core does for user display)
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let &Sha256dHash(data) = self;
+        for ch in data.iter() {
+            write!(f, "{:02x}", ch)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for Hash160 {
+    /// Output the raw hash160 hash, not reversing it (nothing reverses the output of ripemd160 in Bitcoin)
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let &Hash160(data) = self;
+        for ch in data.iter() {
+            write!(f, "{:02x}", ch)?;
+        }
+        Ok(())
     }
 }
 
@@ -270,6 +414,7 @@ impl <T: BitcoinHash> MerkleRoot for Vec<T> {
 
 #[cfg(test)]
 mod tests {
+
     use deps::bitcoin::network::encodable::{ConsensusEncodable, VarInt};
     use deps::bitcoin::network::serialize::{serialize, deserialize};
     use util::uint::Uint256;
@@ -348,6 +493,15 @@ mod tests {
         let serial = serialize(&hash).unwrap();
         let deserial = deserialize(&serial).unwrap();
         assert_eq!(hash, deserial);
+    }
+
+    #[test]
+    fn test_sighash_single_vec() {
+        let one = Sha256dHash([1, 0, 0, 0, 0, 0, 0, 0,
+                               0, 0, 0, 0, 0, 0, 0, 0,
+                               0, 0, 0, 0, 0, 0, 0, 0,
+                               0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(one.into_le(), Uint256::from_u64(1));
     }
 }
 

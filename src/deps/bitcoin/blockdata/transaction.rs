@@ -27,7 +27,7 @@ use byteorder::{LittleEndian, WriteBytesExt};
 use std::default::Default;
 use std::fmt;
 
-use util::hash::DoubleSha256 as Sha256dHash;
+use deps::bitcoin::util::hash::Sha256dHash;
 use deps::bitcoin::blockdata::script::Script;
 use deps::bitcoin::network::serialize::{self, serialize, BitcoinHash, SimpleEncoder, SimpleDecoder};
 use deps::bitcoin::network::encodable::{ConsensusEncodable, ConsensusDecodable, VarInt};
@@ -475,7 +475,7 @@ mod tests {
     use deps::bitcoin::blockdata::script::Script;
     use deps::bitcoin::network::serialize::BitcoinHash;
     use deps::bitcoin::network::serialize::deserialize;
-    use util::hash::DoubleSha256 as Sha256dHash;
+    use deps::bitcoin::util::hash::Sha256dHash;
     use util::hash::hex_bytes;
 
     #[test]

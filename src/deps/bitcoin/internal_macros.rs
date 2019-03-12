@@ -327,7 +327,7 @@ macro_rules! display_from_debug {
 macro_rules! hex_script (($s:expr) => (::deps::bitcoin::blockdata::script::Script::from(::util::hash::hex_bytes($s).unwrap())));
 
 #[cfg(test)]
-macro_rules! hex_hash (($s:expr) => (::util::hash::DoubleSha256::from(&::util::hash::hex_bytes($s).unwrap()[..])));
+macro_rules! hex_hash (($s:expr) => (::deps::bitcoin::util::hash::Sha256dHash::from(&::util::hash::hex_bytes($s).unwrap()[..])));
 
 macro_rules! serde_struct_impl {
     ($name:ident, $($fe:ident),*) => (

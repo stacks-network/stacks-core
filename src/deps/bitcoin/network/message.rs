@@ -24,6 +24,7 @@ use std::io::Cursor;
 
 use deps::bitcoin::blockdata::block;
 use deps::bitcoin::blockdata::transaction;
+use deps::bitcoin::network::address::Address;
 use deps::bitcoin::network::message_network;
 use deps::bitcoin::network::message_blockdata;
 use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
@@ -75,6 +76,8 @@ pub enum NetworkMessage {
     Version(message_network::VersionMessage),
     /// `verack`
     Verack,
+    /// `addr`
+    Addr(Vec<(u32, Address)>),    
     /// `inv`
     Inv(Vec<message_blockdata::Inventory>),
     /// `getdata`
@@ -93,6 +96,8 @@ pub enum NetworkMessage {
     Block(block::Block),
     /// `headers`
     Headers(Vec<block::LoneBlockHeader>),
+    /// `getaddr`
+    GetAddr,    
     /// `ping`
     Ping(u64),
     /// `pong`
@@ -107,6 +112,7 @@ impl RawNetworkMessage {
         match self.payload {
             NetworkMessage::Version(_) => "version",
             NetworkMessage::Verack     => "verack",
+            NetworkMessage::Addr(_)    => "addr",
             NetworkMessage::Inv(_)     => "inv",
             NetworkMessage::GetData(_) => "getdata",
             NetworkMessage::NotFound(_) => "notfound",
@@ -116,6 +122,7 @@ impl RawNetworkMessage {
             NetworkMessage::Tx(_)      => "tx",
             NetworkMessage::Block(_)   => "block",
             NetworkMessage::Headers(_) => "headers",
+            NetworkMessage::GetAddr    => "getaddr",            
             NetworkMessage::Ping(_)    => "ping",
             NetworkMessage::Pong(_)    => "pong",
             NetworkMessage::Alert(_)    => "alert",
@@ -130,6 +137,7 @@ impl<S: SimpleEncoder> ConsensusEncodable<S> for RawNetworkMessage {
         CheckedData(match self.payload {
             NetworkMessage::Version(ref dat) => serialize(dat),
             NetworkMessage::Verack           => Ok(vec![]),
+            NetworkMessage::Addr(ref dat)    => serialize(dat),            
             NetworkMessage::Inv(ref dat)     => serialize(dat),
             NetworkMessage::GetData(ref dat) => serialize(dat),
             NetworkMessage::NotFound(ref dat) => serialize(dat),
@@ -139,6 +147,7 @@ impl<S: SimpleEncoder> ConsensusEncodable<S> for RawNetworkMessage {
             NetworkMessage::Tx(ref dat)      => serialize(dat),
             NetworkMessage::Block(ref dat)   => serialize(dat),
             NetworkMessage::Headers(ref dat) => serialize(dat),
+            NetworkMessage::GetAddr          => Ok(vec![]),            
             NetworkMessage::Ping(ref dat)    => serialize(dat),
             NetworkMessage::Pong(ref dat)    => serialize(dat),
             NetworkMessage::Alert(ref dat)    => serialize(dat)
@@ -157,6 +166,7 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for RawNetworkMessage {
         let payload = match &cmd[..] {
             "version" => NetworkMessage::Version(ConsensusDecodable::consensus_decode(&mut mem_d)?),
             "verack"  => NetworkMessage::Verack,
+            "addr"    => NetworkMessage::Addr(ConsensusDecodable::consensus_decode(&mut mem_d)?),            
             "inv"     => NetworkMessage::Inv(ConsensusDecodable::consensus_decode(&mut mem_d)?),
             "getdata" => NetworkMessage::GetData(ConsensusDecodable::consensus_decode(&mut mem_d)?),
             "notfound" => NetworkMessage::NotFound(ConsensusDecodable::consensus_decode(&mut mem_d)?),
@@ -165,6 +175,7 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for RawNetworkMessage {
             "mempool" => NetworkMessage::MemPool,
             "block"   => NetworkMessage::Block(ConsensusDecodable::consensus_decode(&mut mem_d)?),
             "headers" => NetworkMessage::Headers(ConsensusDecodable::consensus_decode(&mut mem_d)?),
+            "getaddr" => NetworkMessage::GetAddr,            
             "ping"    => NetworkMessage::Ping(ConsensusDecodable::consensus_decode(&mut mem_d)?),
             "pong"    => NetworkMessage::Pong(ConsensusDecodable::consensus_decode(&mut mem_d)?),
             "tx"      => NetworkMessage::Tx(ConsensusDecodable::consensus_decode(&mut mem_d)?),
@@ -225,4 +236,12 @@ mod test {
                                        0x6f, 0x6f, 0x6c, 0x00, 0x00, 0x00, 0x00, 0x00, 
                                        0x00, 0x00, 0x00, 0x00, 0x5d, 0xf6, 0xe0, 0xe2]));
     }
+
+    #[test]
+    fn serialize_getaddr_test() {
+        assert_eq!(serialize(&RawNetworkMessage { magic: 0xd9b4bef9, payload: NetworkMessage::GetAddr }).ok(),
+                             Some(vec![0xf9, 0xbe, 0xb4, 0xd9, 0x67, 0x65, 0x74, 0x61,
+                                       0x64, 0x64, 0x72, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                       0x00, 0x00, 0x00, 0x00, 0x5d, 0xf6, 0xe0, 0xe2]));
+    }    
 }

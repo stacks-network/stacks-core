@@ -21,8 +21,7 @@
 use deps::bitcoin::network::constants;
 use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use deps::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
-
-use util::hash::DoubleSha256 as Sha256dHash;
+use deps::bitcoin::util::hash::Sha256dHash;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 /// The type of an inventory object

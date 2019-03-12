@@ -33,7 +33,8 @@ use deps::bitcoin::blockdata::opcodes;
 use deps::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use deps::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
 
-use util::hash::Hash160;
+// careful...
+use deps::bitcoin::util::hash::Hash160;
 
 use sha2::Sha256;
 use sha2::Digest;
