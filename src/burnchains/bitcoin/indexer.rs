@@ -31,7 +31,6 @@ use ini::Ini;
 use burnchains::Burnchain;
 use burnchains::indexer::*;
 use burnchains::bitcoin::spv::*;
-use burnchains::bitcoin::rpc::BitcoinRPC;
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::messages::BitcoinMessageHandler;
 use burnchains::bitcoin::blocks::BitcoinHeaderIPC;
@@ -45,9 +44,9 @@ use burnchains::BurnchainHeaderHash;
 use burnchains::Error as burnchain_error;
 use burnchains::MagicBytes;
 
-use bitcoin::blockdata::block::LoneBlockHeader;
-use bitcoin::network::message::NetworkMessage;
-use bitcoin::network::serialize::BitcoinHash;
+use deps::bitcoin::blockdata::block::LoneBlockHeader;
+use deps::bitcoin::network::message::NetworkMessage;
+use deps::bitcoin::network::serialize::BitcoinHash;
 
 use util::log;
 
@@ -103,7 +102,8 @@ pub struct BitcoinIndexerRuntime {
     pub services: u64,
     pub user_agent: String,
     pub version_nonce: u64,
-    pub network_id: BitcoinNetworkType
+    pub network_id: BitcoinNetworkType,
+    pub block_height: u64,
 }
 
 pub struct BitcoinIndexer {
@@ -276,7 +276,8 @@ impl BitcoinIndexerRuntime {
             services: 0,
             user_agent: USER_AGENT.to_owned(),
             version_nonce: rng.gen(),
-            network_id: network_id
+            network_id: network_id,
+            block_height: 0,
         }
     }
 }
@@ -321,15 +322,6 @@ impl BitcoinIndexer {
         self.runtime.sock.lock()
     }
 
-    /// Open an RPC connection to bitcoind 
-    pub fn get_bitcoin_client(&self) -> BitcoinRPC {
-        BitcoinRPC::new(
-            format!("{}://{}:{}", if self.config.rpc_ssl { "https" } else { "http" }, self.config.peer_host.as_str(), self.config.rpc_port),
-            self.config.username.clone(),
-            self.config.password.clone()
-        )
-    }
-
     /// Are we connected?
     fn is_connected(&mut self) -> bool {
         let sock_locked = self.socket_locked();
@@ -366,7 +358,7 @@ impl BitcoinIndexer {
                 initiated = false;
                 let handshake_result = self.connect_handshake_backoff();
                 match handshake_result {
-                    Ok(()) => {
+                    Ok(_block_height) => {
                         // connection established!
                         do_handshake = false;
                     }
@@ -436,25 +428,21 @@ impl BitcoinIndexer {
                 }
                 Err(e) => {
                     warn!("Unhandled error while receiving a message: {:?}", e);
-                    return Err(e);
+                    do_handshake = true;
                 }
             }
         }
         Ok(())
     }
 
-    pub fn get_bitcoin_blockchain_height(&self) -> Result<u64, btc_error> {
-        let bitcoin_client = self.get_bitcoin_client();
-        bitcoin_client.getblockcount()
-    }
-
-    /// Synchronize the last N headers from bitcoin to a specific file.
-    /// Returns the number of headers fetched.
-    pub fn sync_last_headers(&mut self, path: &String, start_block: u64, last_block: u64) -> Result<u64, btc_error> {
-        debug!("Sync all headers for blocks {} - {}", start_block, last_block);
+    /// Synchronize a range of headers from bitcoin to a specific file.
+    /// If last_block is None, then sync as many headers as the remote peer has to offer.
+    /// Returns the height of the last block fetched
+    pub fn sync_last_headers(&mut self, path: &String, start_block: u64, last_block: Option<u64>) -> Result<u64, btc_error> {
+        debug!("Sync all headers starting at block {}", start_block);
         let mut spv_client = SpvClient::new(&path, start_block, last_block, self.runtime.network_id);
         spv_client.run(self)
-                  .and_then(|_r| Ok(last_block - start_block))
+                  .and_then(|_r| Ok(spv_client.end_block_height.unwrap()))
     }
 
     /// Get a range of block headers from a file.
@@ -526,7 +514,7 @@ impl BitcoinIndexer {
 
             let existing_headers = self.read_spv_headers(&headers_path, copy_height_start, start_block + 1)?;
 
-            let mut spv_client = SpvClient::new(&reorg_headers_path, start_block, start_block + REORG_BATCH_SIZE, self.runtime.network_id);
+            let mut spv_client = SpvClient::new(&reorg_headers_path, start_block, Some(start_block + REORG_BATCH_SIZE), self.runtime.network_id);
             spv_client.write_block_headers(copy_height_start - 1, &existing_headers)
                 .map_err(|e| {
                     error!("Failed to write block header {} to {}", start_block, &reorg_headers_path);
@@ -650,12 +638,6 @@ impl BurnchainIndexer for BitcoinIndexer {
         Ok(first_block_header_hash)
     }
 
-    /// Get the height of the blockchain 
-    fn get_blockchain_height(&self) -> Result<u64, burnchain_error> {
-        self.get_bitcoin_blockchain_height()
-            .map_err(burnchain_error::Bitcoin)
-    }
-
     /// Read downloaded headers within a range 
     fn read_headers(&self, headers_path: &String, start_block: u64, end_block: u64) -> Result<Vec<BitcoinHeaderIPC>, burnchain_error> {
         let headers = self.read_spv_headers(headers_path, start_block, end_block)
@@ -679,14 +661,15 @@ impl BurnchainIndexer for BitcoinIndexer {
     }
 
     /// Download and store all headers between two block heights 
-    fn sync_headers(&mut self, headers_path: &String, start_height: u64, end_height: u64) -> Result<(), burnchain_error> {
-        if end_height <= start_height {
-            return Ok(());
+    /// end_heights, if given, is inclusive.
+    /// Returns the height of the last header fetched
+    fn sync_headers(&mut self, headers_path: &String, start_height: u64, end_height: Option<u64>) -> Result<u64, burnchain_error> {
+        if end_height.is_some() && end_height <= Some(start_height) {
+            return Ok(end_height.unwrap());
         }
 
-        self.sync_last_headers(headers_path, start_height, end_height - 1)
+        self.sync_last_headers(headers_path, start_height, end_height)
             .map_err(burnchain_error::Bitcoin)
-            .and_then(|_num_fetched| Ok(()))
     }
 
     /// Drop headers after a given height
