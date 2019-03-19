@@ -41,7 +41,7 @@ pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Re
 
     let mut burnchain = Burnchain::new(working_dir, &"bitcoin".to_string(), network_name)
         .map_err(|e| {
-            error!("Failed to instantiate burn chain driver for {}", network_name);
+            error!("Failed to instantiate burn chain driver for {}: {:?}", network_name, e);
             e
         })?;
 
