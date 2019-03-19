@@ -17,111 +17,13 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::fmt;
-use std::error;
+#[macro_use]
+use util::db;
 
-use rusqlite::Error as sqlite_error;
-use rusqlite::Connection;
-use rusqlite::Row;
-
-pub type DBConn = rusqlite::Connection;
-
-use serde_json::Error as serde_error;
-
-#[derive(Debug)]
-pub enum Error {
-    /// Not implemented 
-    NotImplemented,
-    /// Database doesn't exist
-    NoDBError,
-    /// Read-only and tried to write
-    ReadOnly,
-    /// Type error -- can't represent the given data in the database 
-    TypeError,
-    /// Database is corrupt -- we got data that shouldn't be there, or didn't get data when we
-    /// should have 
-    Corruption,
-    /// Serialization error -- can't serialize data
-    SerializationError(serde_error),
-    /// Parse error -- failed to load data we stored directly 
-    ParseError,
-    /// Overflow 
-    Overflow,
-    /// Sqlite3 error
-    SqliteError(sqlite_error)
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::NotImplemented => f.write_str(error::Error::description(self)),
-            Error::NoDBError => f.write_str(error::Error::description(self)),
-            Error::ReadOnly => f.write_str(error::Error::description(self)),
-            Error::TypeError => f.write_str(error::Error::description(self)),
-            Error::Corruption => f.write_str(error::Error::description(self)),
-            Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
-            Error::ParseError => f.write_str(error::Error::description(self)),
-            Error::Overflow => f.write_str(error::Error::description(self)),
-            Error::SqliteError(ref e) => fmt::Display::fmt(e, f)
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&error::Error> {
-        match *self {
-            Error::NotImplemented => None,
-            Error::NoDBError => None,
-            Error::ReadOnly => None,
-            Error::TypeError => None,
-            Error::Corruption => None,
-            Error::SerializationError(ref e) => Some(e),
-            Error::ParseError => None,
-            Error::Overflow => None,
-            Error::SqliteError(ref e) => Some(e)
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::NotImplemented => "Not implemented",
-            Error::NoDBError => "Database does not exist",
-            Error::ReadOnly => "Database is opened read-only",
-            Error::TypeError => "Invalid or unrepresentable database type",
-            Error::Corruption => "Database is corrupt",
-            Error::SerializationError(ref e) => e.description(),
-            Error::ParseError => "Parse error",
-            Error::Overflow => "Numeric overflow",
-            Error::SqliteError(ref e) => e.description()
-        }
-    }
-}
+use util::db::Error as db_error;
 
 pub trait ChainstateDB {
-    fn backup(backup_path: &String) -> Result<(), Error>;
-}
-
-pub trait RowOrder {
-    fn row_order() -> Vec<&'static str>;
-}
-
-pub trait FromRow<T> {
-    fn from_row<'a>(row: &'a Row, index: usize) -> Result<T, Error>;
-}
-
-macro_rules! impl_byte_array_from_row {
-    ($thing:ident) => {
-        impl FromRow<$thing> for $thing {
-            fn from_row<'a>(row: &'a Row, index: usize) -> Result<$thing, chainstate::Error> {
-                let hex_str : String = row.get(index);
-                let byte_str = hex_bytes(&hex_str)
-                    .map_err(|_e| chainstate::Error::ParseError)?;
-                let inst = $thing::from_bytes(&byte_str)
-                    .ok_or(chainstate::Error::ParseError)?;
-                Ok(inst)
-            }
-        }
-    }
+    fn backup(backup_path: &String) -> Result<(), db_error>;
 }
 
 // needs to come _after_ the macro def above, since they both use this macro
