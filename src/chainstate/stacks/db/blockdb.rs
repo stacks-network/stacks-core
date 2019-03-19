@@ -26,9 +26,10 @@ use std::fs;
 use std::convert::From;
 use std::marker::PhantomData;
 
-use chainstate::{FromRow, RowOrder};
 use chainstate::ChainstateDB;
-use chainstate::Error as db_error;
+
+use util::db::{FromRow, RowOrder};
+use util::db::Error as db_error;
 
 use util::log;
 use util::hash::{to_hex, hex_bytes, Hash160};
