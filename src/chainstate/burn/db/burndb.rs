@@ -26,8 +26,9 @@ use std::fs;
 use std::convert::From;
 use std::marker::PhantomData;
 
-use chainstate::{FromRow, RowOrder};
-use chainstate::Error as db_error;
+use util::db::{FromRow, RowOrder};
+use util::db::Error as db_error;
+
 use chainstate::ChainstateDB;
 
 use chainstate::burn::db::VRFPublicKey_from_row;
@@ -1177,7 +1178,7 @@ where
 mod tests {
     use super::*;
 
-    use chainstate::Error as db_error;
+    use util::db::Error as db_error;
 
     use chainstate::burn::operations::leader_block_commit::LeaderBlockCommitOp;
     use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
