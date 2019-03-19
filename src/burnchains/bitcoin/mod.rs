@@ -27,7 +27,6 @@ pub mod messages;
 pub mod keys;
 pub mod indexer;
 pub mod network;
-pub mod rpc;
 pub mod spv;
 
 use std::fmt;
@@ -35,12 +34,13 @@ use std::io;
 use std::error;
 use std::sync::Arc;
 
-use bitcoin::network::serialize::Error as btc_serialize_error;
-use bitcoin::util::hash::HexError as btc_hex_error;
+use deps;
 
-use jsonrpc::Error as jsonrpc_error;
+use deps::bitcoin::network::serialize::Error as btc_serialize_error;
 
-pub type PeerMessage = Arc<bitcoin::network::message::NetworkMessage>;
+use util::HexError as btc_hex_error;
+
+pub type PeerMessage = Arc<deps::bitcoin::network::message::NetworkMessage>;
 
 // Borrowed from Andrew Poelstra's rust-bitcoin 
 
@@ -77,8 +77,6 @@ pub enum Error {
     MissingHeader,
     /// Invalid target 
     InvalidPoW,
-    /// RPC error with bitcoin 
-    JSONRPCError(jsonrpc_error),
     /// Wrong number of bytes for constructing an address
     InvalidByteSequence,
     /// Configuration error 
@@ -104,7 +102,6 @@ impl fmt::Display for Error {
             Error::NoncontiguousHeader => f.write_str(error::Error::description(self)),
             Error::MissingHeader => f.write_str(error::Error::description(self)),
             Error::InvalidPoW => f.write_str(error::Error::description(self)),
-            Error::JSONRPCError(ref e) => fmt::Display::fmt(e, f),
             Error::InvalidByteSequence => f.write_str(error::Error::description(self)),
             Error::ConfigError(ref e_str) => fmt::Display::fmt(e_str, f),
             Error::BlockchainHeight => f.write_str(error::Error::description(self)),
@@ -129,7 +126,6 @@ impl error::Error for Error {
             Error::NoncontiguousHeader => None,
             Error::MissingHeader => None,
             Error::InvalidPoW => None,
-            Error::JSONRPCError(ref e) => Some(e),
             Error::InvalidByteSequence => None,
             Error::ConfigError(ref _e_str) => None,
             Error::BlockchainHeight => None,
@@ -153,7 +149,6 @@ impl error::Error for Error {
             Error::NoncontiguousHeader => "Non-contiguous header",
             Error::MissingHeader => "Missing header",
             Error::InvalidPoW => "Invalid proof of work",
-            Error::JSONRPCError(ref e) => e.description(),
             Error::InvalidByteSequence => "Invalid sequence of bytes",
             Error::ConfigError(ref e_str) => e_str.as_str(),
             Error::BlockchainHeight => "Value is beyond the end of the blockchain",
