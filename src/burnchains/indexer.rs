@@ -64,11 +64,10 @@ pub trait BurnchainIndexer {
     fn get_first_block_height(&self) -> u64;
     fn get_first_block_header_hash(&self, headers_path: &String) -> Result<BurnchainHeaderHash, burnchain_error>;
 
-    fn get_blockchain_height(&self) -> Result<u64, burnchain_error>;
     fn get_headers_path(&self) -> String;
     fn get_headers_height(&self, headers_path: &String) -> Result<u64, burnchain_error>;
     fn find_chain_reorg(&mut self, headers_path: &String, start_height: u64) -> Result<u64, burnchain_error>;
-    fn sync_headers(&mut self, headers_path: &String, start_height: u64, end_height: u64) -> Result<(), burnchain_error>;
+    fn sync_headers(&mut self, headers_path: &String, start_height: u64, end_height: Option<u64>) -> Result<u64, burnchain_error>;
     fn drop_headers(&mut self, headers_path: &String, new_height: u64) -> Result<(), burnchain_error>;
 
     fn read_headers(&self, headers_path: &String, start_block: u64, end_block: u64) -> Result<Vec<<<<Self as BurnchainIndexer>::P as BurnchainBlockParser>::D as BurnchainBlockDownloader>::H>, burnchain_error>;
