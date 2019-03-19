@@ -32,7 +32,8 @@ use chainstate::burn::{
     BurnchainHeaderHash
 };
 
-use chainstate::Error as db_error;
+use util::db::Error as db_error;
+
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::operations::BlockstackOperationType;
 use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
