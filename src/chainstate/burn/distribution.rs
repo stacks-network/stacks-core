@@ -186,13 +186,7 @@ where
 
         // total burns for valid blocks?
         // NOTE: this can't overflow -- there's no way we get that many (u64) burns
-        let total_burns_u128: u128 = burn_sample
-            .iter()
-            .fold(0u128, |mut total_burns, sample| {
-                total_burns = total_burns + (sample.burns as u128);
-                total_burns
-            });
-
+        let total_burns_u128 = BurnSamplePoint::get_total_burns(&burn_sample).unwrap() as u128;
         let total_burns = Uint512::from_u128(total_burns_u128);
 
         // determine range start/end for each sample.
