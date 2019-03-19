@@ -49,10 +49,10 @@ use chainstate::burn::operations::user_burn_support::OPCODE as USER_BURN_SUPPORT
 use chainstate::burn::operations::CheckResult;
 use chainstate::burn::BlockSnapshot;
 
-use chainstate::Error as db_error;
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::distribution::BurnSamplePoint;
 
+use util::db::Error as db_error;
 use util::log;
 use util::hash::to_hex;
 
@@ -74,10 +74,10 @@ impl Burnchain {
 
     pub fn new(working_dir: &String, chain_name: &String, network_name: &String) -> Result<Burnchain, burnchain_error> {
         let (ch_lifetime, burn_quota_info) =
-            match network_name.as_str() {
+            match chain_name.as_str() {
                 "bitcoin" => {
                     (ConsensusHashLifetime::Bitcoin as u32,
-                     get_burn_quota_config(network_name).unwrap())
+                     get_burn_quota_config(chain_name).unwrap())
                 }
                 _ => {
                     return Err(burnchain_error::UnsupportedBurnchain)
@@ -150,8 +150,7 @@ impl Burnchain {
 
         if !headers_pathbuf.exists() || headers_height < indexer.get_first_block_height() {
             debug!("Fetch initial headers");
-            let blockchain_height = indexer.get_blockchain_height()?;
-            indexer.sync_headers(&headers_path, headers_height, blockchain_height)
+            indexer.sync_headers(&headers_path, headers_height, None)
                 .map_err(|e| {
                     error!("Failed to sync initial headers");
                     e
@@ -528,7 +527,7 @@ impl Burnchain {
         Ok(())
     }
 
-    fn sync_reorg<I, A, K>(indexer: &mut I, burndb: &mut BurnDB<A, K>) -> Result<(u64, u64), burnchain_error> 
+    fn sync_reorg<I, A, K>(indexer: &mut I, burndb: &mut BurnDB<A, K>) -> Result<u64, burnchain_error> 
     where
         I: BurnchainIndexer,
         A: Address,
@@ -558,17 +557,10 @@ impl Burnchain {
             return Err(burnchain_error::MissingHeaders);
         }
 
-        // how big is the blockchain now?
-        let block_height = indexer.get_blockchain_height()
-            .map_err(|e| {
-                error!("Failed to query blockchain height");
-                e
-            })?;
-
         // did we encounter a reorg since last sync?
         let new_height = indexer.find_chain_reorg(&headers_path, db_height)
             .map_err(|e| {
-                error!("Failed to check for reorgs between {} and {}", db_height, block_height);
+                error!("Failed to check for reorgs from {}", db_height);
                 e
             })?;
         
@@ -601,7 +593,7 @@ impl Burnchain {
         else {
             sync_height = db_height;
         }
-        Ok((sync_height, block_height))
+        Ok(sync_height)
     }
 
     pub fn sync<I, A, K>(&mut self) -> Result<u64, burnchain_error>
@@ -626,12 +618,7 @@ impl Burnchain {
 
         // handle reorgs
         let sync_reorg_res = Burnchain::sync_reorg(&mut indexer, &mut burndb);
-        let (sync_height, end_block) = sync_reorg_res?;
-
-        if db_height >= end_block {
-            // all caught up
-            return Ok(db_height);
-        }
+        let sync_height = sync_reorg_res?;
 
         // get latest headers 
         let header_height_res = indexer.get_headers_height(&headers_path);
@@ -639,8 +626,16 @@ impl Burnchain {
         
         // TODO: do this atomically -- write to headers_path.new, do the sync, and then merge the files
         // and rename the merged file over the headers file (atomic)
-        debug!("Sync headers from {} - {}", header_height, end_block);
-        indexer.sync_headers(&headers_path, header_height, end_block)?;
+        debug!("Sync headers from {}", header_height);
+        let end_block_res = indexer.sync_headers(&headers_path, header_height, None);
+        let end_block = end_block_res?;
+        
+        debug!("Sync'ed headers from {} to {}", header_height, end_block);
+
+        if db_height >= end_block {
+            // all caught up
+            return Ok(db_height);
+        }
 
         // initial inputs
         // TODO: stream this -- don't need to load them all into RAM
@@ -734,7 +729,6 @@ mod tests {
     use burnchains::{Txid, BurnchainHeaderHash};
     use chainstate::burn::{ConsensusHash, OpsHash, BlockSnapshot, SortitionHash, VRFSeed, BlockHeaderHash};
 
-    use chainstate::Error as db_error;
     use chainstate::burn::db::burndb::BurnDB;
 
     use burnchains::Address;
@@ -777,7 +771,8 @@ mod tests {
     use util::uint::BitArray;
     use util::vrf::ECVRF_public_key_to_hex;
     use util::secp256k1::Secp256k1PrivateKey;
-
+    use util::db::Error as db_error;
+    
     use serde::Serialize;
 
     use super::get_burn_quota_config;
