@@ -25,7 +25,6 @@ use secp256k1::SecretKey as LibSecp256k1PrivateKey;
 use secp256k1::Message as LibSecp256k1Message;
 use secp256k1::Signature as LibSecp256k1Signature;
 use secp256k1::Error as LibSecp256k1Error;
-use secp256k1::rand::thread_rng;
 
 use burnchains::PublicKey;
 use burnchains::PrivateKey;
@@ -35,6 +34,14 @@ use serde::Serialize;
 use serde::ser::Error as ser_Error;
 use serde::de::Deserialize;
 use serde::de::Error as de_Error;
+
+use util::db::FromRow;
+use util::db::Error as db_error;
+
+use rusqlite::Row;
+
+use rand::RngCore;
+use rand::thread_rng;
 
 // per-thread Secp256k1 context
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
@@ -57,8 +64,9 @@ pub struct Secp256k1PrivateKey {
 
 impl Secp256k1PublicKey {
     pub fn from_hex(hex_string: &str) -> Result<Secp256k1PublicKey, &'static str> {
-        hex_bytes(hex_string)
-            .and_then(|vec_bytes| Secp256k1PublicKey::from_slice(&vec_bytes[..]))
+        let data = hex_bytes(hex_string)
+            .map_err(|_e| "Failed to decode hex public key")?;
+        Secp256k1PublicKey::from_slice(&data[..])
             .map_err(|_e| "Invalid public key hex string")
     }
     
@@ -123,20 +131,45 @@ impl PublicKey for Secp256k1PublicKey {
     }
 }
 
+/// Make public keys loadable from a sqlite database
+impl FromRow<Secp256k1PublicKey> for Secp256k1PublicKey {
+    fn from_row<'a>(row: &'a Row, index: usize) -> Result<Secp256k1PublicKey, db_error> {
+        let pubkey_hex : String = row.get(index);
+        let pubkey = Secp256k1PublicKey::from_hex(&pubkey_hex)
+            .map_err(|_e| db_error::ParseError)?;
+        Ok(pubkey)
+    }
+}
+
 impl Secp256k1PrivateKey {
+
     pub fn new() -> Secp256k1PrivateKey {
         _secp256k1.with(|ctx| {
-            let (pk, _) = ctx.generate_keypair(&mut secp256k1::rand::thread_rng());
-            Secp256k1PrivateKey {
-                key: pk,
-                compress_public: true
+            let mut rng = rand::thread_rng();
+            loop {
+                // keep trying to generate valid bytes
+                let mut random_32_bytes = [0u8; 32];
+                rng.fill_bytes(&mut random_32_bytes);
+                let pk_res = LibSecp256k1PrivateKey::from_slice(&ctx, &random_32_bytes);
+                match pk_res {
+                    Ok(pk) => {
+                        return Secp256k1PrivateKey {
+                            key: pk,
+                            compress_public: true
+                        };
+                    },
+                    Err(_) => {
+                        continue;
+                    }
+                }
             }
         })
     }
 
     pub fn from_hex(hex_string: &str) -> Result<Secp256k1PrivateKey, &'static str> {
-        hex_bytes(hex_string)
-            .and_then(|vec_bytes| Secp256k1PrivateKey::from_slice(&vec_bytes[..]))
+        let data = hex_bytes(hex_string)
+            .map_err(|_e| "Failed to decode hex private key")?;
+        Secp256k1PrivateKey::from_slice(&data[..])
             .map_err(|_e| "Invalid private key hex string")
     }
 
@@ -190,6 +223,16 @@ impl PrivateKey for Secp256k1PrivateKey {
             sig.normalize_s(ctx);
             Ok(sig.serialize_der(ctx))
         })
+    }
+}
+
+/// Make private keys loadable from a sqlite database
+impl FromRow<Secp256k1PrivateKey> for Secp256k1PrivateKey {
+    fn from_row<'a>(row: &'a Row, index: usize) -> Result<Secp256k1PrivateKey, db_error> {
+        let privkey_hex : String = row.get(index);
+        let privkey = Secp256k1PrivateKey::from_hex(&privkey_hex)
+            .map_err(|_e| db_error::ParseError)?;
+        Ok(privkey)
     }
 }
 
