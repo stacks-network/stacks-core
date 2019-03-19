@@ -226,8 +226,8 @@ mod tests {
     use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash, BlockSnapshot};
     use chainstate::burn::operations::CheckResult;
     
-    use bitcoin::network::serialize::deserialize;
-    use bitcoin::blockdata::transaction::Transaction;
+    use deps::bitcoin::network::serialize::deserialize;
+    use deps::bitcoin::blockdata::transaction::Transaction;
 
     use util::hash::{hex_bytes, Hash160};
     use util::log;
@@ -245,7 +245,8 @@ mod tests {
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
-        let tx_bin = hex_bytes(hex_str)?;
+        let tx_bin = hex_bytes(hex_str)
+            .map_err(|_e| "failed to decode hex string")?;
         let tx = deserialize(&tx_bin.to_vec())
             .map_err(|_e| "failed to deserialize")?;
         Ok(tx)

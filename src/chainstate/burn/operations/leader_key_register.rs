@@ -24,8 +24,9 @@ use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::operations::CheckResult;
 use chainstate::burn::ConsensusHash;
 
+use util::db::DBConn;
+
 use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::db::DBConn;
 
 use burnchains::BurnchainTransaction;
 use burnchains::Txid;
@@ -204,8 +205,8 @@ mod tests {
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
     use burnchains::burnchain::get_burn_quota_config;
 
-    use bitcoin::network::serialize::deserialize;
-    use bitcoin::blockdata::transaction::Transaction;
+    use deps::bitcoin::network::serialize::deserialize;
+    use deps::bitcoin::blockdata::transaction::Transaction;
 
     use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash, BlockSnapshot};
     use chainstate::burn::operations::CheckResult;
@@ -226,7 +227,8 @@ mod tests {
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
-        let tx_bin = hex_bytes(hex_str)?;
+        let tx_bin = hex_bytes(hex_str)
+            .map_err(|_e| "failed to decode hex string")?;
         let tx = deserialize(&tx_bin.to_vec())
             .map_err(|_e| "failed to deserialize")?;
         Ok(tx)
