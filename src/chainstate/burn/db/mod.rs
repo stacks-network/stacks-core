@@ -39,9 +39,9 @@ use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, Sortiti
 
 use ed25519_dalek::PublicKey as VRFPublicKey;
 
-use chainstate;
-use chainstate::FromRow;
-use chainstate::Error as db_error;
+use util::db;
+use util::db::FromRow;
+use util::db::Error as db_error;
 
 impl_byte_array_from_row!(Txid);
 impl_byte_array_from_row!(ConsensusHash);
