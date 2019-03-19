@@ -18,13 +18,17 @@
 */
 
 use std::fmt;
+use std::mem;
+use std::char::from_digit;
 
 use util::pair::*;
 use util::log;
+use util::HexError;
 
-use crypto::ripemd160::Ripemd160;
-use crypto::sha2::Sha256;
-use crypto::digest::Digest;
+use ripemd160::Ripemd160;
+use sha2::Sha256;
+
+use util::uint::Uint256;
 
 // hash function for Merkle trees
 pub trait MerkleHashFunc {
@@ -67,20 +71,22 @@ const MERKLE_PATH_NODE_TAG : u8 = 0x01;
 
 impl Hash160 {
     pub fn from_sha256(sha256_hash: &[u8; 32]) -> Hash160 {
+        use ripemd160::Digest;
         let mut rmd = Ripemd160::new();
         let mut ret = [0u8; 20];
         rmd.input(sha256_hash);
-        rmd.result(&mut ret);
+        ret.copy_from_slice(rmd.result().as_slice());
         Hash160(ret)
     }
     
     /// Create a hash by hashing some data
     /// (borrwed from Andrew Poelstra)
     pub fn from_data(data: &[u8]) -> Hash160 {
+        use sha2::Digest;
         let mut tmp = [0u8; 32];
         let mut sha2 = Sha256::new();
         sha2.input(data);
-        sha2.result(&mut tmp);
+        tmp.copy_from_slice(sha2.result().as_slice());
         Hash160::from_sha256(&tmp)
     }
 }
@@ -91,11 +97,12 @@ impl MerkleHashFunc for Hash160 {
     }
 
     fn from_tagged_data(tag: u8, data: &[u8]) -> Hash160 {
+        use sha2::Digest;
         let mut tmp = [0u8; 32];
         let mut sha2 = Sha256::new();
         sha2.input(&[tag]);
         sha2.input(data);
-        sha2.result(&mut tmp);
+        tmp.copy_from_slice(sha2.result().as_slice());
         Hash160::from_sha256(&tmp)
     }
 
@@ -110,12 +117,13 @@ impl MerkleHashFunc for Sha256Sum {
     }
 
     fn from_tagged_data(tag: u8, data: &[u8]) -> Sha256Sum {
+        use sha2::Digest;
         let mut tmp = [0u8; 32];
 
         let mut sha2 = Sha256::new();
         sha2.input(&[tag]);
         sha2.input(data);
-        sha2.result(&mut tmp);
+        tmp.copy_from_slice(sha2.result().as_slice());
 
         Sha256Sum(tmp)
     }
@@ -131,17 +139,18 @@ impl MerkleHashFunc for DoubleSha256 {
     }
 
     fn from_tagged_data(tag: u8, data: &[u8]) -> DoubleSha256 {
+        use sha2::Digest;
         let mut tmp = [0u8; 32];
         let mut tmp2 = [0u8; 32];
 
         let mut sha2_1 = Sha256::new();
         sha2_1.input(&[tag]);
         sha2_1.input(data);
-        sha2_1.result(&mut tmp);
+        tmp.copy_from_slice(sha2_1.result().as_slice());
 
         let mut sha2_2 = Sha256::new();
         sha2_2.input(&tmp);
-        sha2_2.result(&mut tmp2);
+        tmp2.copy_from_slice(sha2_2.result().as_slice());
 
         DoubleSha256(tmp2)
     }
@@ -151,20 +160,72 @@ impl MerkleHashFunc for DoubleSha256 {
     }
 }
 
-impl DoubleSha256 {
-    pub fn from_data(data: &[u8]) -> DoubleSha256 {
+impl Sha256Sum {
+    pub fn from_data(data: &[u8]) -> Sha256Sum {
+        use sha2::Digest;
         let mut tmp = [0u8; 32];
-        let mut tmp2 = [0u8; 32];
-
         let mut sha2_1 = Sha256::new();
         sha2_1.input(data);
-        sha2_1.result(&mut tmp);
+        tmp.copy_from_slice(sha2_1.result().as_slice());
+        Sha256Sum(tmp)
+    }
+}
+
+impl DoubleSha256 {
+    pub fn from_data(data: &[u8]) -> DoubleSha256 {
+        use sha2::Digest;
+        let mut tmp = [0u8; 32];
+        
+        let mut sha2 = Sha256::new();
+        sha2.input(data);
+        tmp.copy_from_slice(sha2.result().as_slice());
 
         let mut sha2_2 = Sha256::new();
         sha2_2.input(&tmp);
-        sha2_2.result(&mut tmp2);
+        tmp.copy_from_slice(sha2_2.result().as_slice());
 
-        DoubleSha256(tmp2)
+        DoubleSha256(tmp)
+    }
+
+    /// Converts a hash to a little-endian Uint256
+    #[inline]
+    pub fn into_le(self) -> Uint256 {
+        let DoubleSha256(data) = self;
+        let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
+        for x in (&mut ret).iter_mut() { *x = x.to_le(); }
+        Uint256(ret)
+    }
+
+    /// Converts a hash to a big-endian Uint256
+    #[inline]
+    pub fn into_be(self) -> Uint256 {
+        let DoubleSha256(mut data) = self;
+        data.reverse();
+        let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
+        for x in (&mut ret).iter_mut() { *x = x.to_be(); }
+        Uint256(ret)
+    }
+
+    /// Human-readable hex output
+    pub fn le_hex_string(&self) -> String {
+        let &DoubleSha256(data) = self;
+        let mut ret = String::with_capacity(64);
+        for item in data.iter().take(32) {
+            ret.push(from_digit((*item / 0x10) as u32, 16).unwrap());
+            ret.push(from_digit((*item & 0x0f) as u32, 16).unwrap());
+        }
+        ret
+    }
+
+    /// Human-readable hex output
+    pub fn be_hex_string(&self) -> String {
+        let &DoubleSha256(data) = self;
+        let mut ret = String::with_capacity(64);
+        for i in (0..32).rev() {
+            ret.push(from_digit((data[i] / 0x10) as u32, 16).unwrap());
+            ret.push(from_digit((data[i] & 0x0f) as u32, 16).unwrap());
+        }
+        ret
     }
 }
 
@@ -389,7 +450,7 @@ where
 
 // borrowed from Andrew Poelstra's rust-bitcoin library
 /// Convert a hexadecimal-encoded string to its corresponding bytes
-pub fn hex_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
+pub fn hex_bytes(s: &str) -> Result<Vec<u8>, HexError> {
     let mut v = vec![];
     let mut iter = s.chars().pair();
     // Do the parsing
@@ -397,15 +458,15 @@ pub fn hex_bytes(s: &str) -> Result<Vec<u8>, &'static str> {
         if e.is_err() { e }
         else {
             match (f.to_digit(16), s.to_digit(16)) {
-                (None, _) => Err("unexpected hex digit"),
-                (_, None) => Err("unexpected hex digit"),
+                (None, _) => Err(HexError::BadCharacter(f)),
+                (_, None) => Err(HexError::BadCharacter(s)),
                 (Some(f), Some(s)) => { v.push((f * 0x10 + s) as u8); Ok(()) }
             }
         }
     )?;
     // Check that there was no remainder
     match iter.remainder() {
-        Some(_) => Err("hexstring of odd length"),
+        Some(_) => Err(HexError::BadLength(s.len())),
         None => Ok(v)
     }
 }
@@ -416,6 +477,11 @@ pub fn to_hex(s: &[u8]) -> String {
     return r.join("");
 }
 
+/// Convert a vec of u8 to a hex string
+pub fn bytes_to_hex(s: &Vec<u8>) -> String {
+    to_hex(&s[..])
+}
+
 #[cfg(test)]
 mod test {
     use super::MerkleTree;
@@ -423,10 +489,6 @@ mod test {
     use super::DoubleSha256;
     use super::hex_bytes;
     use super::MerkleHashFunc;
-
-    use crypto::ripemd160::Ripemd160;
-    use crypto::sha2::Sha256;
-    use crypto::digest::Digest;
 
     struct MerkleTreeFixture {
         data: Vec<Vec<u8>>,
