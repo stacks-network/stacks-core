@@ -19,15 +19,16 @@
 
 use std::ops::Deref;
 
-use bitcoin::blockdata::block::{LoneBlockHeader, Block};
-use bitcoin::blockdata::transaction::Transaction;
-use bitcoin::blockdata::opcodes::All as btc_opcodes;
-use bitcoin::blockdata::script::{Script, Instruction};
+use deps;
+use deps::bitcoin::blockdata::block::{LoneBlockHeader, Block};
+use deps::bitcoin::blockdata::transaction::Transaction;
+use deps::bitcoin::blockdata::opcodes::All as btc_opcodes;
+use deps::bitcoin::blockdata::script::{Script, Instruction};
 
-use bitcoin::network::serialize::BitcoinHash;
-use bitcoin::network::message as btc_message;
+use deps::bitcoin::network::serialize::BitcoinHash;
+use deps::bitcoin::network::message as btc_message;
 
-use bitcoin::util::hash::bitcoin_merkle_root;
+use deps::bitcoin::util::hash::bitcoin_merkle_root;
 
 use burnchains::bitcoin::indexer::BitcoinIndexer;
 use burnchains::bitcoin::Error as btc_error;
@@ -444,10 +445,10 @@ mod tests {
     use super::BitcoinBlockParser;
     use util::hash::hex_bytes;
 
-    use bitcoin::network::serialize::deserialize;
-    use bitcoin::network::encodable::VarInt;
-    use bitcoin::blockdata::transaction::Transaction;
-    use bitcoin::blockdata::block::{Block, LoneBlockHeader};
+    use deps::bitcoin::network::serialize::deserialize;
+    use deps::bitcoin::network::encodable::VarInt;
+    use deps::bitcoin::blockdata::transaction::Transaction;
+    use deps::bitcoin::blockdata::block::{Block, LoneBlockHeader};
 
     use burnchains::{
         BurnchainBlock, 
@@ -479,21 +480,24 @@ mod tests {
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
-        let tx_bin = hex_bytes(hex_str)?;
+        let tx_bin = hex_bytes(hex_str)
+            .map_err(|_e| "failed to decode hex")?;
         let tx = deserialize(&tx_bin.to_vec())
             .map_err(|_e| "failed to deserialize")?;
         Ok(tx)
     }
 
     fn make_block(hex_str: &str) -> Result<Block, &'static str> {
-        let block_bin = hex_bytes(hex_str)?;
+        let block_bin = hex_bytes(hex_str)
+            .map_err(|_e| "failed to decode hex")?;
         let block = deserialize(&block_bin.to_vec())
             .map_err(|_e| "failed to deserialize block")?;
         Ok(block)
     }
 
     fn make_block_header(hex_str: &str) -> Result<LoneBlockHeader, &'static str> {
-        let header_bin = hex_bytes(hex_str)?;
+        let header_bin = hex_bytes(hex_str)
+            .map_err(|_e| "failed to decode hex")?;
         let header = deserialize(&header_bin.to_vec())
             .map_err(|_e| "failed to deserialize header")?;
         Ok(LoneBlockHeader {
