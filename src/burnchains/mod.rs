@@ -29,10 +29,10 @@ use std::io;
 
 use self::bitcoin::Error as btc_error;
 
-use chainstate::Error as burndb_error;
 use chainstate::burn::operations::Error as op_error;
 
 use util::hash::Hash160;
+use util::db::Error as db_error;
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid([u8; 32]);
@@ -143,7 +143,7 @@ pub enum Error {
     /// Bitcoin-related error
     Bitcoin(btc_error),
     /// burn database error 
-    DBError(burndb_error),
+    DBError(db_error),
     /// Download error 
     DownloadError(btc_error),
     /// Parse error 
