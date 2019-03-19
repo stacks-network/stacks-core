@@ -35,15 +35,15 @@ use burnchains::BurnchainBlock;
 
 use util::hash::Hash160;
 
-use crypto::ripemd160::Ripemd160;
 use sha2::Sha256;
-use sha2::Digest;
+use ripemd160::Ripemd160;
 
 use rusqlite::Connection;
 use rusqlite::Transaction;
 
 use chainstate::burn::db::burndb::BurnDB;
-use chainstate::Error as db_error;
+
+use util::db::Error as db_error;
 
 use core::SYSTEM_FORK_SET_VERSION;
 
@@ -120,16 +120,18 @@ impl SortitionHash {
 
     /// Mix in a burn blockchain header to make a new sortition hash
     pub fn mix_burn_header(&self, burn_header_hash: &BurnchainHeaderHash) -> SortitionHash {
+        use sha2::Digest;
         let mut sha2 = Sha256::new();
         sha2.input(self.as_bytes());
         sha2.input(burn_header_hash.as_bytes());
         let mut ret = [0u8; 32];
-        ret.copy_from_slice(&sha2.result()[..]);
+        ret.copy_from_slice(sha2.result().as_slice());
         SortitionHash(ret)
     }
 
     /// Mix in a new VRF seed to make a new sortition hash.
     pub fn mix_VRF_seed(&self, VRF_seed: &VRFSeed) -> SortitionHash {
+        use sha2::Digest;
         let mut sha2 = Sha256::new();
         sha2.input(self.as_bytes());
         sha2.input(VRF_seed.as_bytes());
@@ -168,10 +170,8 @@ impl OpsHash {
         for txid in txids {
             hasher.input(txid.as_bytes());
         }
-        let result = hasher.result();
-
         let mut result_32 = [0u8; 32];
-        result_32.copy_from_slice(&result[0..32]);
+        result_32.copy_from_slice(hasher.result().as_slice());
         OpsHash(result_32)
     }
 }
@@ -214,12 +214,12 @@ impl ConsensusHash {
             result = hasher.result();
         }
 
-        use crypto::digest::Digest;
+        use ripemd160::Digest;
         let mut r160 = Ripemd160::new();
         r160.input(&result);
         
         let mut ch_bytes = [0u8; 20];
-        r160.result(&mut ch_bytes);
+        ch_bytes.copy_from_slice(r160.result().as_slice());
         ConsensusHash(ch_bytes)
     }
 
@@ -281,7 +281,6 @@ mod tests {
     use super::SortitionHash;
     use super::Txid;
 
-    use chainstate::Error as db_error;
     use chainstate::burn::db::burndb::BurnDB;
 
     use burnchains::BurnchainHeaderHash;
@@ -293,6 +292,7 @@ mod tests {
 
     use util::hash::{hex_bytes, Hash160};
     use util::log;
+    use util::db::Error as db_error;
 
     use rusqlite::Connection;
 
