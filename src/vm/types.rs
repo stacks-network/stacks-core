@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use address::c32;
 use vm::representations::SymbolicExpression;
-use vm::errors::{Error, ErrType, InterpreterResult as Result};
+use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
 use util::hash;
 
 const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
@@ -368,6 +368,18 @@ impl TypeSignature {
                 Ok(type_sig)
             }
         }
+    }
+
+    pub fn deserialize(json: &str) -> Result<TypeSignature> {
+        serde_json::from_str(json)
+            .map_err(|x| Error::new(ErrType::DeserializationFailure(
+                IncomparableError { err: x } )))
+    }
+
+    pub fn serialize(&self) -> Result<String> {
+        serde_json::to_string(self)
+            .map_err(|x| Error::new(ErrType::SerializationFailure(
+                IncomparableError { err: x } )))
     }
 
     fn new_atom_checked(atom_type: AtomTypeIdentifier) -> Result<TypeSignature> {

@@ -35,6 +35,7 @@ pub struct MemoryGlobalContext {
 
 #[derive(Serialize, Deserialize)]
 pub struct ContractContext {
+    pub name: String,
     pub variables: HashMap<String, Value>,
     pub functions: HashMap<String, DefinedFunction>,
 }
@@ -109,7 +110,7 @@ impl GlobalContext for MemoryGlobalContext {
         if self.contracts.contains_key(contract_name) {
             Err(Error::new(ErrType::ContractAlreadyExists(contract_name.to_string())))
         } else {
-            let contract = Contract::initialize(contract_content)?;
+            let contract = Contract::initialize(contract_name, contract_content)?;
             self.contracts.insert(contract_name.to_string(), Some(contract));
             Ok(())
         }
@@ -117,8 +118,9 @@ impl GlobalContext for MemoryGlobalContext {
 }
 
 impl ContractContext {
-    pub fn new() -> ContractContext {
+    pub fn new(name: String) -> ContractContext {
         ContractContext {
+            name: name,
             variables: HashMap::new(),
             functions: HashMap::new()
         }

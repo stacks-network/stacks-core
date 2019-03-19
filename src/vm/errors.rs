@@ -3,13 +3,21 @@ use std::error;
 use vm::types::Value;
 use vm::contexts::StackTrace;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Error {
-    pub err_type: ErrType,
-    pub stack_trace: Option<StackTrace>
+use serde_json::Error as SerdeJSONErr;
+use rusqlite::Error as SqliteError;
+
+#[derive(Debug)]
+pub struct IncomparableError<T> {
+    pub err: T
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
+pub struct Error {
+    pub err_type: ErrType,
+    pub stack_trace: Option<StackTrace>,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum ErrType {
     NotImplemented,
     NonPublicFunction(String),
@@ -37,10 +45,19 @@ pub enum ErrType {
     ReservedName(String),
     InterpreterError(String),
     ContractAlreadyExists(String),
-    VariableDefinedMultipleTimes(String)
+    VariableDefinedMultipleTimes(String),
+    DeserializationFailure(IncomparableError<SerdeJSONErr>),
+    SerializationFailure(IncomparableError<SerdeJSONErr>),
+    SqliteError(IncomparableError<SqliteError>)
 }
 
 pub type InterpreterResult <R> = Result<R, Error>;
+
+impl <T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
+    fn eq(&self, _other: &IncomparableError<T>) -> bool {
+        return false
+    }
+}
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -65,7 +82,11 @@ impl fmt::Display for Error {
 
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
+        match self.err_type {
+            ErrType::DeserializationFailure(ref err) => Some(&err.err),
+            ErrType::SerializationFailure(ref err) => Some(&err.err),
+            _ => None
+        }
     }
 }
 
@@ -75,12 +96,16 @@ impl Error {
                 stack_trace: None }
     }
 
+
     pub fn has_stack_trace(&self) -> bool {
         false
     }
 
-    pub fn extend_with(&self, _extension: StackTrace) -> Error {
-        self.clone()
+    pub fn extend_with(&mut self, mut extension: StackTrace) {
+        if let Some(ref mut stack_trace) = self.stack_trace {
+            extension.extend(stack_trace.drain(..));
+        }
+        self.stack_trace = Some(extension)
     }
 }
 

@@ -13,9 +13,9 @@ pub struct Contract <T> where T: ContractDatabase {
 }
 
 impl Contract<MemoryContractDatabase> {
-    pub fn initialize(contract: &str) -> Result<Contract<MemoryContractDatabase>> {
+    pub fn initialize(name: &str, contract: &str) -> Result<Contract<MemoryContractDatabase>> {
         let parsed: Vec<_> = parser::parse(contract)?;
-        let mut contract_context = ContractContext::new();
+        let mut contract_context = ContractContext::new(name.to_string());
         let mut db_instance = MemoryContractDatabase::new();
 
         // TODO: should contract initialization have access to the normal
@@ -33,7 +33,10 @@ impl Contract<MemoryContractDatabase> {
         Ok(Contract { db: db_instance,
                       contract_context: contract_context })
     }
+}
 
+impl <T> Contract<T>
+where T: ContractDatabase {
     pub fn execute_transaction(&mut self, sender: &Value, tx_name: &str,
                                args: &[SymbolicExpression], global_context: &mut GlobalContext) -> Result<Value> {
         let func = self.contract_context.lookup_function(tx_name)

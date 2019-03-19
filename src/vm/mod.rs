@@ -163,7 +163,7 @@ fn eval_all(expressions: &[SymbolicExpression],
                 contract_context.functions.insert(name, value);
             },
             DefineResult::Map(name, key_type, value_type) => {
-                database.create_map(&name, key_type, value_type);
+                database.create_map(&contract_context.name, &name, key_type, value_type);
             },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
@@ -185,7 +185,7 @@ fn eval_all(expressions: &[SymbolicExpression],
  *  database.
  */
 pub fn execute(program: &str) -> Result<Value> {
-    let mut contract_context = ContractContext::new();
+    let mut contract_context = ContractContext::new("transient".to_string());
     let mut db_instance = Box::new(database::MemoryContractDatabase::new());
     let mut global_context = MemoryGlobalContext::new();
 
@@ -224,7 +224,7 @@ mod test {
 
         let context = LocalContext::new();
         let mut global_context = MemoryGlobalContext::new();
-        let mut contract_context = ContractContext::new();
+        let mut contract_context = ContractContext::new("transient".to_string());
         let mut db = MemoryContractDatabase::new();
 
         contract_context.variables.insert("a".to_string(), Value::Int(59));
