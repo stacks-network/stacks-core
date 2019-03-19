@@ -18,7 +18,7 @@
 */
 
 // is this machine big-endian?
-fn is_big_endian() -> bool {
+pub fn is_big_endian() -> bool {
     u32::from_be(0x1Au32) == 0x1Au32
 }
 
@@ -209,22 +209,24 @@ macro_rules! impl_byte_array_newtype {
         impl $thing {
             /// Instantiates from a hex string 
             #[allow(dead_code)]
-            pub fn from_hex(hex_str: &str) -> Option<$thing> {
-                use util::hash::hex_bytes;
+            pub fn from_hex(hex_str: &str) -> Result<$thing, ::util::HexError> {
+                use ::util::hash::hex_bytes;
                 let _hex_len = $len * 2;
                 match (hex_str.len(), hex_bytes(hex_str)) {
                     (_hex_len, Ok(bytes)) => {
-                        assert!(bytes.len() == $len);
+                        if bytes.len() != $len {
+                            return Err(::util::HexError::BadLength(hex_str.len()));
+                        }
                         let mut ret = [0; $len];
                         ret.copy_from_slice(&bytes);
-                        Some($thing(ret))
+                        Ok($thing(ret))
                     },
-                    (_, _) => {
-                        None
+                    (_, Err(e)) => {
+                        Err(e)
                     }
                 }
             }
-
+            
             /// Instantiates from a slice of bytes 
             #[allow(dead_code)]
             pub fn from_bytes(inp: &[u8]) -> Option<$thing> {
@@ -288,10 +290,13 @@ macro_rules! impl_byte_array_newtype {
 // print debug statements while testing
 #[allow(unused_macros)]
 macro_rules! test_debug {
-    ($($arg:tt)*) => ({
-        use std::env;
-        if env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
-            debug!($($arg)*);
+    ($($arg:tt)*) => (
+        #[cfg(test)]
+        {
+            use std::env;
+            if env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
+                debug!($($arg)*);
+            }
         }
-    })
+    )
 }
