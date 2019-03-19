@@ -41,8 +41,8 @@ use net::Error as net_error;
 
 use core::PEER_VERSION;
 
-use crypto::sha2::Sha256;
-use crypto::digest::Digest;
+use sha2::Sha256;
+use sha2::Digest;
 
 use util::log;
 
@@ -76,7 +76,7 @@ impl MessageSignature {
             return None;
         }
         let mut ret = vec![];
-        ret.copy_from_slice(&self.0[1..((buflen+1) as usize)]);
+        ret.extend_from_slice(&self.0[1..((buflen+1) as usize)]);
         Some(ret)
     }
 }
@@ -330,7 +330,7 @@ where
 
 impl Preamble {
     /// Make an empty preamble with the given version and fork-set identifier, and payload length.
-    pub fn new(network_id: u32, block_height: u64, consensus_hash: &ConsensusHash, stable_block_height: u64, stable_consensus_hash: ConsensusHash, payload_len: u32) -> Preamble {
+    pub fn new(network_id: u32, block_height: u64, consensus_hash: &ConsensusHash, stable_block_height: u64, stable_consensus_hash: &ConsensusHash, payload_len: u32) -> Preamble {
         Preamble {
             peer_version: PEER_VERSION as u32,
             network_id: network_id,
@@ -338,7 +338,7 @@ impl Preamble {
             burn_block_height: block_height,
             burn_consensus_hash: consensus_hash.clone(),
             burn_stable_block_height: stable_block_height,
-            burn_stable_consensus_hash: stable_consensus_hash,
+            burn_stable_consensus_hash: stable_consensus_hash.clone(),
             additional_data: DoubleSha256::empty(),
             signature: MessageSignature::empty(),
             payload_len: payload_len,
@@ -346,8 +346,8 @@ impl Preamble {
     }
 
     /// Given the serialized message type and bits, sign the resulting message and store the
-    /// signature.
-    pub fn sign<PK>(&mut self, message_type: u8, message_bits: &Vec<u8>, privkey: &PK) -> Result<(), net_error>
+    /// signature.  message_bits includes the relayers, payload type, and payload.
+    pub fn sign<PK>(&mut self, message_bits: &[u8], privkey: &PK) -> Result<(), net_error>
     where
         PK: PrivateKey
     {
@@ -361,10 +361,9 @@ impl Preamble {
         self.signature = old_signature;
 
         sha2.input(&preamble_bits[..]);
-        sha2.input(&[message_type]);
-        sha2.input(&message_bits[..]);
+        sha2.input(message_bits);
         
-        sha2.result(&mut digest_bits);
+        digest_bits.copy_from_slice(sha2.result().as_slice());
 
         let sig_bits = privkey.sign(&digest_bits)
             .map_err(|se| net_error::SigningError(se.to_string()))?;
@@ -377,7 +376,8 @@ impl Preamble {
     }
 
     /// Given the serialized message type and bits, verify the signature.
-    pub fn verify<PUBK>(&mut self, message_type: u8, message_bits: &Vec<u8>, pubkey: &PUBK) -> Result<(), net_error>
+    /// message_bits includes the relayers, payload type, and payload
+    pub fn verify<PUBK>(&mut self, message_bits: &[u8], pubkey: &PUBK) -> Result<(), net_error>
     where
         PUBK: PublicKey
     {
@@ -391,10 +391,9 @@ impl Preamble {
         self.signature = sig_bits;
 
         sha2.input(&preamble_bits[..]);
-        sha2.input(&[message_type]);
-        sha2.input(&message_bits[..]);
+        sha2.input(message_bits);
 
-        sha2.result(&mut digest_bits);
+        digest_bits.copy_from_slice(sha2.result().as_slice());
         let sig = self.signature.to_sig()
             .ok_or(net_error::DeserializeError)?;
 
@@ -438,6 +437,19 @@ impl StacksMessageCodec for Preamble {
         let additional_data : DoubleSha256              = read_next(buf, &mut index, max_size)?;
         let signature : MessageSignature                = read_next(buf, &mut index, max_size)?;
         let payload_len : u32                           = read_next(buf, &mut index, max_size)?;
+
+        // test_debug!("preamble {}-{:?}/{}-{:?}, {} bytes", burn_block_height, burn_consensus_hash, burn_stable_block_height, burn_stable_consensus_hash, payload_len);
+
+        // minimum is 5 bytes -- a zero-length vector (4 bytes of 0) plus a type identifier (1 byte)
+        if payload_len < 5 {
+            test_debug!("Payload len is too small: {}", payload_len);
+            return Err(net_error::DeserializeError);
+        }
+
+        if payload_len >= MAX_MESSAGE_LEN {
+            test_debug!("Payload len is too big: {}", payload_len);
+            return Err(net_error::DeserializeError);
+        }
 
         *index_ptr = index;
 
@@ -757,7 +769,7 @@ impl StacksMessageCodec for RelayData {
 }
 
 /// Serialize a Stacks message to its wireformat.
-fn message_serialize(msg: &StacksMessageType) -> Vec<u8> {
+pub fn message_serialize(msg: &StacksMessageType) -> Vec<u8> {
     match msg {
         StacksMessageType::Handshake(ref m) => m.serialize(),
         StacksMessageType::HandshakeAccept(ref m) => m.serialize(),
@@ -777,7 +789,7 @@ fn message_serialize(msg: &StacksMessageType) -> Vec<u8> {
 }
 
 /// Deserialize a Stacks message from its wireformat
-fn message_deserialize(message_id: u8, bits: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<StacksMessageType, net_error> {
+pub fn message_deserialize(message_id: u8, bits: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<StacksMessageType, net_error> {
     match message_id {
         StacksMessageID::Handshake => { let m = HandshakeData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Handshake(m)) },
         StacksMessageID::HandshakeAccept => { let m = HandshakeAcceptData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::HandshakeAccept(m)) },
@@ -798,7 +810,7 @@ fn message_deserialize(message_id: u8, bits: &Vec<u8>, index: &mut u32, max_size
 }
 
 /// Match up a message type to its message ID 
-fn message_type_to_id(msg: &StacksMessageType) -> u8 {
+pub fn message_type_to_id(msg: &StacksMessageType) -> u8 {
     match msg {
         StacksMessageType::Handshake(ref _m) => StacksMessageID::Handshake,
         StacksMessageType::HandshakeAccept(ref _m) => StacksMessageID::HandshakeAccept,
@@ -833,35 +845,116 @@ impl StacksMessageCodec for StacksMessage {
 
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMessage, net_error> {
         let mut index = *index_ptr;
-        let preamble: Preamble          = read_next(buf, &mut index, max_size)?;
+        let mut preamble: Preamble = read_next(buf, &mut index, max_size)?;
+        let msg = StacksMessage::payload_parse(&mut preamble, buf, &mut index, max_size)?;
+        *index_ptr = index;
+        Ok(msg)
+    }
+}
 
-        // index now points to the start of the relayers + payload
+impl StacksMessage {
+    /// Create an unsigned Stacks message
+    pub fn new(network_id: u32, block_height: u64, consensus_hash: &ConsensusHash, stable_block_height: u64, stable_consensus_hash: &ConsensusHash, message: StacksMessageType) -> StacksMessage {
+        let preamble = Preamble::new(network_id, block_height, consensus_hash, stable_block_height, stable_consensus_hash, 0);
+        StacksMessage {
+            preamble: preamble, 
+            relayers: vec![],
+            payload: message
+        }
+    }
+
+    /// Sign the stacks message 
+    fn do_sign<PRIVK: PrivateKey>(&mut self, private_key: &PRIVK) -> Result<(), net_error> {
+        let mut message_bits = vec![];
+        message_bits.append(&mut self.relayers.serialize());
+        message_bits.push(message_type_to_id(&self.payload));
+        message_bits.append(&mut message_serialize(&self.payload));
+
+        self.preamble.payload_len = message_bits.len() as u32;
+        self.preamble.sign(&message_bits[..], private_key)
+    }
+
+    /// Sign the StacksMessage.  The StacksMessage must _not_ have any relayers (i.e. we're
+    /// originating this messsage).
+    pub fn sign<PRIVK: PrivateKey>(&mut self, seq: u32, private_key: &PRIVK) -> Result<(), net_error> {
+        if self.relayers.len() > 0 {
+            return Err(net_error::InvalidMessage);
+        }
+        self.preamble.seq = seq;
+        self.do_sign(private_key)
+    }
+
+    /// Sign the StacksMessage and add ourselves as a relayer.
+    /// Fails if the relayers vector would be too long 
+    pub fn sign_relay<PRIVK: PrivateKey>(&mut self, private_key: &PRIVK, our_seq: u32, our_addr: &NeighborAddress) -> Result<(), net_error> {
+        if self.relayers.len() >= (MAX_RELAYERS_LEN as usize) {
+            return Err(net_error::InvalidMessage);
+        }
+        
+        // don't sign if signed more than once 
+        for relayer in &self.relayers {
+            if relayer.peer.public_key_hash == our_addr.public_key_hash {
+                return Err(net_error::InvalidMessage);
+            }
+        }
+
+        // save relayer state 
+        let our_relay = RelayData {
+            peer: our_addr.clone(),
+            seq: self.preamble.seq,
+            signature: self.preamble.signature.clone()
+        };
+
+        self.relayers.push(our_relay);
+        self.preamble.seq = our_seq;
+        self.do_sign(private_key)
+    }
+
+    fn do_payload_deserialize<PUBK: PublicKey>(public_key_opt: Option<&PUBK>, preamble: &mut Preamble, buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMessage, net_error> {
+        let mut index = *index_ptr;
+
         // don't numeric overflow
         if index > u32::max_value() - preamble.payload_len {
             return Err(net_error::OverflowError);
         }
 
-        // length of the encoded relayers + payload
-        let message_size_clamp = 
-            if index + preamble.payload_len < max_size {
-                index + preamble.payload_len
-            }
-            else {
-                max_size
-            };
+        if index + preamble.payload_len > max_size {
+            return Err(net_error::OverflowError);
+        }
+
+        // don't read over the buffer 
+        if index + preamble.payload_len > (buf.len() as u32) {
+            return Err(net_error::UnderflowError);
+        }
+
+        // verify signature
+        if public_key_opt.is_some() {
+            let payload_len = preamble.payload_len;
+            preamble.verify(&buf[(index as usize)..((index + payload_len) as usize)], public_key_opt.unwrap())?;
+        }
+
+        let max_payload_size = if index + preamble.payload_len < max_size { index + preamble.payload_len } else { max_size };
 
         // consume the rest of the message
-        let relayers: Vec<RelayData>    = read_next_at_most::<RelayData>(buf, &mut index, message_size_clamp, MAX_RELAYERS_LEN)?;
-        let message_id : u8             = read_next(buf, &mut index, message_size_clamp)?;
-        let payload: StacksMessageType  = message_deserialize(message_id, buf, &mut index, message_size_clamp)?;
+        let relayers: Vec<RelayData>    = read_next_at_most::<RelayData>(buf, &mut index, max_payload_size, MAX_RELAYERS_LEN)?;
+        let message_id : u8             = read_next(buf, &mut index, max_payload_size)?;
+        let payload: StacksMessageType  = message_deserialize(message_id, buf, &mut index, max_payload_size)?;
 
         *index_ptr = index;
 
         Ok(StacksMessage {
-            preamble,
-            relayers,
-            payload,
+            preamble: preamble.clone(),
+            relayers: relayers,
+            payload: payload,
         })
+    }
+    
+    pub fn payload_deserialize<PUBK: PublicKey>(public_key: &PUBK, preamble: &mut Preamble, buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMessage, net_error> {
+        StacksMessage::do_payload_deserialize(Some(public_key), preamble, buf, index_ptr, max_size)
+    }
+
+    pub fn payload_parse(preamble: &mut Preamble, buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMessage, net_error> {
+        StacksMessage::do_payload_deserialize::<Secp256k1PublicKey>(None, preamble, buf, index_ptr, max_size)
     }
 }
 
@@ -1405,7 +1498,7 @@ mod test {
     #[test]
     fn codec_BlocksInvData() {
         // maximially big BlocksInvData
-        let mut maximal_bitvec : Vec<u8> = vec![0xff, 0xff, 0xff, 0xfe];
+        let maximal_bitvec : Vec<u8> = vec![0xff, 0xff, 0xff, 0xfe];
         let mut too_big_bitvec : Vec<u8> = vec![];
         for i in 0..BLOCKS_INV_DATA_MAX_BITLEN+1 {
             too_big_bitvec.push(0xff);
