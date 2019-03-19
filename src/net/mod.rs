@@ -17,10 +17,19 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+pub mod asn;
 pub mod codec;
+pub mod connection;
+pub mod db;
+pub mod p2p;
 
 use std::fmt;
 use std::error;
+use std::io;
+use std::net::SocketAddr;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 
 use burnchains::BurnchainHeaderHash;
 
@@ -38,6 +47,10 @@ use util::hash::DoubleSha256;
 use util::hash::Hash160;
 use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
 use util::hash::HASH160_ENCODED_SIZE;
+
+use util::db::Error as db_error;
+
+use util::secp256k1::Secp256k1PublicKey;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -63,6 +76,32 @@ pub enum Error {
     TemporarilyDrained,
     /// Read stream has reached EOF (socket closed, end-of-file reached, etc.)
     PermanentlyDrained,
+    /// Failed to read from the FS 
+    FilesystemError,
+    /// Database error 
+    DBError,
+    /// Socket mutex was poisoned
+    SocketMutexPoisoned,
+    /// Not connected to peer
+    SocketNotConnectedToPeer,
+    /// Connection is broken and ought to be re-established
+    ConnectionBroken,
+    /// Connection could not be (re-)established
+    ConnectionError,
+    /// Too many outgoing messages 
+    OutboxOverflow,
+    /// Too many incoming messages 
+    InboxOverflow,
+    /// Send error 
+    SendError(String),
+    /// Recv error 
+    RecvError(String),
+    /// Invalid message 
+    InvalidMessage,
+    /// Invalid network handle
+    InvalidHandle,
+    /// No such neighbor 
+    NoSuchNeighbor
 }
 
 impl fmt::Display for Error {
@@ -79,6 +118,18 @@ impl fmt::Display for Error {
             Error::VerifyingError(ref s) => fmt::Display::fmt(s, f),
             Error::TemporarilyDrained => f.write_str(error::Error::description(self)),
             Error::PermanentlyDrained => f.write_str(error::Error::description(self)),
+            Error::FilesystemError => f.write_str(error::Error::description(self)),
+            Error::DBError => f.write_str(error::Error::description(self)),
+            Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => f.write_str(error::Error::description(self)),
+            Error::ConnectionBroken => f.write_str(error::Error::description(self)),
+            Error::ConnectionError => f.write_str(error::Error::description(self)),
+            Error::OutboxOverflow => f.write_str(error::Error::description(self)),
+            Error::InboxOverflow => f.write_str(error::Error::description(self)),
+            Error::SendError(ref s) => fmt::Display::fmt(s, f),
+            Error::RecvError(ref s) => fmt::Display::fmt(s, f),
+            Error::InvalidMessage => f.write_str(error::Error::description(self)),
+            Error::InvalidHandle => f.write_str(error::Error::description(self)),
+            Error::NoSuchNeighbor => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -97,6 +148,18 @@ impl error::Error for Error {
             Error::VerifyingError(ref _s) => None,
             Error::TemporarilyDrained => None,
             Error::PermanentlyDrained => None,
+            Error::FilesystemError => None,
+            Error::DBError => None,
+            Error::SocketMutexPoisoned | Error::SocketNotConnectedToPeer => None,
+            Error::ConnectionBroken => None,
+            Error::ConnectionError => None,
+            Error::OutboxOverflow => None,
+            Error::InboxOverflow => None,
+            Error::SendError(ref _s) => None,
+            Error::RecvError(ref _s) => None,
+            Error::InvalidMessage => None,
+            Error::InvalidHandle => None,
+            Error::NoSuchNeighbor => None,
         }
     }
 
@@ -113,6 +176,19 @@ impl error::Error for Error {
             Error::VerifyingError(ref s) => s.as_str(),
             Error::TemporarilyDrained => "Temporarily out of bytes to read; try again later",
             Error::PermanentlyDrained => "Out of bytes to read",
+            Error::FilesystemError => "Disk I/O error",
+            Error::DBError => "Database error",
+            Error::SocketMutexPoisoned => "socket mutex was poisoned",
+            Error::SocketNotConnectedToPeer => "not connected to peer",
+            Error::ConnectionBroken => "connection to peer node is broken",
+            Error::ConnectionError => "connection to peer could not be (re-)established",
+            Error::OutboxOverflow => "too many outgoing messages queued",
+            Error::InboxOverflow => "too many messages pending",
+            Error::SendError(ref s) => s.as_str(),
+            Error::RecvError(ref s) => s.as_str(),
+            Error::InvalidMessage => "invalid message (malformed or bad signature)",
+            Error::InvalidHandle => "invalid network handle",
+            Error::NoSuchNeighbor => "no such neighbor"
         }
     }
 }
@@ -140,12 +216,72 @@ impl_array_hexstring_fmt!(MessageSignature);
 impl_byte_array_newtype!(MessageSignature, u8, 80);
 pub const MESSAGE_SIGNATURE_ENCODED_SIZE : u32 = 80;
 
-/// A container for an IPv4 or IPv6 address
+/// A container for an IPv4 or IPv6 address.
+/// Rules:
+/// -- If this is an IPv6 address, the octets are in network byte order
+/// -- If this is an IPv4 address, the octets must encode an IPv6-to-IPv4-mapped address
 pub struct PeerAddress([u8; 16]);
 impl_array_newtype!(PeerAddress, u8, 16);
 impl_array_hexstring_fmt!(PeerAddress);
 impl_byte_array_newtype!(PeerAddress, u8, 16);
 pub const PEER_ADDRESS_ENCODED_SIZE : u32 = 16;
+
+impl PeerAddress {
+    /// Is this an IPv4 address?
+    pub fn is_ipv4(&self) -> bool {
+        self.ipv4_octets().is_some()
+    }
+    
+    /// Get the octet representation of this peer address as an IPv4 address.
+    /// The last 4 bytes of the list contain the IPv4 address.
+    /// This method returns None if the bytes don't encode a valid IPv4-mapped address (i.e. ::ffff:0:0/96)
+    pub fn ipv4_octets(&self) -> Option<[u8; 4]> {
+        if self.0[0..12] != [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff] {
+            return None;
+        }
+        let mut ret = [0u8; 4];
+        ret.copy_from_slice(&self.0[12..16]);
+        Some(ret)
+    }
+
+    /// Return the bit representation of this peer address as an IPv4 address, in network byte
+    /// order.  Return None if this is not an IPv4 address.
+    pub fn ipv4_bits(&self) -> Option<u32> {
+        let octets_opt = self.ipv4_octets();
+        if octets_opt.is_none() {
+            return None;
+        }
+
+        let octets = octets_opt.unwrap();
+        Some(
+            ((octets[0] as u32) << 24) | 
+            ((octets[1] as u32) << 16) | 
+            ((octets[2] as u32) << 8) |
+            ((octets[3] as u32))
+        )
+    }
+
+    /// Convert to SocketAddr
+    pub fn to_socketaddr(&self, port: u16) -> SocketAddr {
+        if self.is_ipv4() {
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(self.0[12], self.0[13], self.0[14], self.0[15])), port)
+        }
+        else {
+            let addr_words : [u16; 8] = [
+                ((self.0[0] as u16) << 8) | (self.0[1] as u16),
+                ((self.0[2] as u16) << 8) | (self.0[3] as u16),
+                ((self.0[4] as u16) << 8) | (self.0[5] as u16),
+                ((self.0[6] as u16) << 8) | (self.0[7] as u16),
+                ((self.0[8] as u16) << 8) | (self.0[9] as u16),
+                ((self.0[10] as u16) << 8) | (self.0[11] as u16),
+                ((self.0[12] as u16) << 8) | (self.0[13] as u16),
+                ((self.0[14] as u16) << 8) | (self.0[15] as u16)
+            ];
+
+            SocketAddr::new(IpAddr::V6(Ipv6Addr::new(addr_words[0], addr_words[1], addr_words[2], addr_words[3], addr_words[4], addr_words[5], addr_words[6], addr_words[7])), port)
+        }
+    }
+}
 
 /// A container for public keys (compressed secp256k1 public keys)
 pub struct StacksPublicKeyBuffer([u8; 33]);
@@ -158,7 +294,7 @@ impl_byte_array_newtype!(StacksPublicKeyBuffer, u8, 33);
 pub struct Preamble {
     pub peer_version: u32,                          // software version
     pub network_id: u32,                            // mainnet, testnet, etc.
-    pub seq: u32,                                   // message count from this peer
+    pub seq: u32,                                   // message sequence number -- pairs this message to a request
     pub burn_block_height: u64,                     // last-seen block height (at chain tip)
     pub burn_consensus_hash: ConsensusHash,         // consensus hash at block_height
     pub burn_stable_block_height: u64,              // latest stable block height (e.g. chain tip minus 7)
@@ -338,9 +474,9 @@ pub const MAX_NEIGHBORS_DATA_LEN : u32 = 128;
 // maximum number of relayers -- will be an upper bound on the peer graph diameter
 pub const MAX_RELAYERS_LEN : u32 = 16;
 
-// messages can't be bigger than 32MB plus the preamble and relayers
+// messages can't be bigger than 16MB plus the preamble and relayers
 // (note that MAX_BLOCK_SIZE is less than this)
-pub const MAX_MESSAGE_LEN : u32 = (1 + 32 * 1024 * 1024) + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
+pub const MAX_MESSAGE_LEN : u32 = (1 + 16 * 1024 * 1024) + (PREAMBLE_ENCODED_SIZE + MAX_RELAYERS_LEN * RELAY_DATA_ENCODED_SIZE);
 
 // maximum length of a microblock's hash list
 pub const MICROBLOCKS_INV_DATA_MAX_HASHES : u32 = 4096;
@@ -383,3 +519,33 @@ impl_byte_array_message_codec!(BlockHeaderHash, 32);
 impl_byte_array_message_codec!(MessageSignature, 80);
 impl_byte_array_message_codec!(PeerAddress, 16);
 impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
+
+/// "stable" portions of a neighbor struct
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NeighborKey {
+    pub peer_version: u32,
+    pub network_id: u32,
+    pub addrbytes: PeerAddress,
+    pub port: u16,
+}
+
+/// Entry in the neighbor set
+#[derive(Debug, Clone, PartialEq)]
+pub struct Neighbor {
+    pub addr: NeighborKey,
+    
+    // fields below this can change at runtime
+    pub public_key: Secp256k1PublicKey,
+    pub expire_block: u64,
+    pub last_contact_time: u64,
+    
+    whitelisted: i64,       // whitelist deadline (negative == "forever")
+    blacklisted: i64,       // blacklist deadline (negative == "forever")
+
+    pub asn: u32,               // AS number
+    pub org: u32,               // organization identifier
+
+    pub in_degree: u32,         // number of peers who list this peer as a neighbor
+    pub out_degree: u32,        // number of neighbors this peer has
+}
+
