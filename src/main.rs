@@ -18,19 +18,19 @@
 */
 
 extern crate rand;
-extern crate bitcoin;
 extern crate ini;
-extern crate jsonrpc;
 extern crate secp256k1;
 extern crate serde;
 extern crate serde_json;
-extern crate crypto;
 extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
 extern crate sha2;
+extern crate ripemd160;
 extern crate dirs;
 extern crate regex;
+extern crate byteorder;
+extern crate mio;
 
 #[macro_use] extern crate serde_derive;
 
@@ -43,6 +43,7 @@ mod chainstate;
 mod address;
 mod burnchains;
 mod core;
+mod deps;
 mod net;
 mod vm;
 
@@ -71,7 +72,7 @@ fn main() {
         use burnchains::BurnchainHeaderHash;
         use burnchains::bitcoin::spv;
         use util::hash::to_hex;
-        use bitcoin::network::serialize::BitcoinHash;
+        use deps::bitcoin::network::serialize::BitcoinHash;
 
         let height = argv[2].parse::<u64>().unwrap();
         let headers_path = &argv[3];
