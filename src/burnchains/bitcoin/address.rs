@@ -22,11 +22,10 @@ use burnchains::bitcoin::BitcoinNetworkType;
 
 use burnchains::bitcoin::Error as btc_error;
 
-use bitcoin::util::base58;
-
 use util::hash::Hash160;
 use util::log;
 
+use address::b58 as base58;
 use address::c32::c32_address;
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
