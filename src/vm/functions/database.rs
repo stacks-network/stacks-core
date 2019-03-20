@@ -59,7 +59,7 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
         _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
     }?;
 
-    env.database.fetch_entry(&env.contract_context.name, &map_name, &key)
+    env.global_context.database.fetch_entry(&env.contract_context.name, &map_name, &key)
 }
 
 pub fn special_set_entry(args: &[SymbolicExpression],
@@ -80,7 +80,7 @@ pub fn special_set_entry(args: &[SymbolicExpression],
         _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
     }?;
 
-    env.database.set_entry(&env.contract_context.name, &map_name, key, value)
+    env.global_context.database.set_entry(&env.contract_context.name, &map_name, key, value)
 }
 
 pub fn special_insert_entry(args: &[SymbolicExpression],
@@ -101,7 +101,7 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
         _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
     }?;
 
-    env.database.insert_entry(&env.contract_context.name, &map_name, key, value)
+    env.global_context.database.insert_entry(&env.contract_context.name, &map_name, key, value)
 }
 
 pub fn special_delete_entry(args: &[SymbolicExpression],
@@ -120,5 +120,5 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
         _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
     }?;
 
-    env.database.delete_entry(&env.contract_context.name, &map_name, &key)
+    env.global_context.database.delete_entry(&env.contract_context.name, &map_name, &key)
 }

@@ -17,20 +17,12 @@ pub struct Environment <'a> {
     pub global_context: &'a mut GlobalContext,
     pub contract_context: &'a ContractContext,
     pub call_stack: CallStack,
-    pub database: &'a mut ContractDatabase,
     pub sender: Option<Value>
 }
 
-pub trait GlobalContext {
-    fn execute_contract(&mut self, contract_name: &str, 
-                        sender: &Value, tx_name: &str,
-                        args: &[SymbolicExpression]) -> Result<Value>;
-    fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()>;        
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct MemoryGlobalContext {
-    contracts: HashMap<String, Option<Contract<MemoryContractDatabase>>>
+pub struct GlobalContext {
+    contracts: HashMap<String, Option<Contract>>,
+    pub database: Box<ContractDatabase>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -58,32 +50,31 @@ impl <'a> Environment <'a> {
     //   together with a call stack. Generally, the environment structure is intended to be reconstructed
     //   for every transaction.
     pub fn new(global_context: &'a mut GlobalContext,
-               contract_context: &'a ContractContext,
-               database: &'a mut ContractDatabase) -> Environment<'a> {
+               contract_context: &'a ContractContext) -> Environment<'a> {
         Environment {
             global_context: global_context,
             contract_context: contract_context,
             call_stack: CallStack::new(),
-            database: database,
             sender: None
         }
     }
 }
 
-impl MemoryGlobalContext {
-    pub fn new() -> MemoryGlobalContext {
-        MemoryGlobalContext {
-            contracts: HashMap::new()
+impl GlobalContext {
+    pub fn new(database: Box<ContractDatabase>) -> GlobalContext {
+        GlobalContext {
+            contracts: HashMap::new(),
+            database: database
         }
     }
 
-    fn take_contract(&mut self, contract_name: &str) -> Result<Contract<MemoryContractDatabase>> {
+    fn take_contract(&mut self, contract_name: &str) -> Result<Contract> {
         let contract = self.contracts.get_mut(contract_name)
             .ok_or_else(|| { Error::new(ErrType::UndefinedContract(contract_name.to_string())) })?;
         contract.take().ok_or(Error::new(ErrType::ContractAlreadyInvoked))
     }
 
-    fn replace_contract(&mut self, contract_name: &str, contract: Contract<MemoryContractDatabase>) -> Result<()> {
+    fn replace_contract(&mut self, contract_name: &str, contract: Contract) -> Result<()> {
         let contract_holder = self.contracts.get_mut(contract_name)
             .ok_or_else(|| { Error::new(ErrType::UndefinedContract(contract_name.to_string())) })?;
         match contract_holder.replace(contract) {
@@ -92,10 +83,8 @@ impl MemoryGlobalContext {
             None => Ok(())
         }
     }
-}
 
-impl GlobalContext for MemoryGlobalContext {
-    fn execute_contract(&mut self, contract_name: &str, 
+    pub fn execute_contract(&mut self, contract_name: &str, 
                         sender: &Value, tx_name: &str,
                         args: &[SymbolicExpression]) -> Result<Value> {
         let mut contract = self.take_contract(contract_name)?;
@@ -106,11 +95,11 @@ impl GlobalContext for MemoryGlobalContext {
         result
     }
 
-    fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
+    pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
         if self.contracts.contains_key(contract_name) {
             Err(Error::new(ErrType::ContractAlreadyExists(contract_name.to_string())))
         } else {
-            let contract = Contract::initialize(contract_name, contract_content)?;
+            let contract = Contract::initialize(contract_name, contract_content, self)?;
             self.contracts.insert(contract_name.to_string(), Some(contract));
             Ok(())
         }

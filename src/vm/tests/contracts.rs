@@ -1,7 +1,8 @@
 use vm::execute;
 use vm::errors::{Error, ErrType};
 use vm::types::{Value};
-use vm::contexts::{MemoryGlobalContext, GlobalContext};
+use vm::contexts::{GlobalContext};
+use vm::database::{MemoryContractDatabase, SqliteContractDatabase};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 
@@ -42,7 +43,8 @@ fn test_simple_token_system() {
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").unwrap();
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
 
-    let mut global_context = MemoryGlobalContext::new();
+    let db = Box::new(MemoryContractDatabase::new());
+    let mut global_context = GlobalContext::new(db);
 
     global_context.initialize_contract("tokens", tokens_contract).unwrap();
 
@@ -158,7 +160,8 @@ fn test_simple_naming_system() {
     let name_hash_expensive_1 = execute("(hash160 2)").unwrap();
     let name_hash_cheap_0 = execute("(hash160 100001)").unwrap();
 
-    let mut global_context = MemoryGlobalContext::new();
+    let db = Box::new(MemoryContractDatabase::new());
+    let mut global_context = GlobalContext::new(db);
 
     global_context.initialize_contract("tokens", tokens_contract).unwrap();
     global_context.initialize_contract("names", names_contract).unwrap();
@@ -238,7 +241,8 @@ fn test_simple_contract_call() {
             (contract-call! factorial-contract compute 8008))
         ";
 
-    let mut global_context = MemoryGlobalContext::new();
+    let db = Box::new(MemoryContractDatabase::new());
+    let mut global_context = GlobalContext::new(db);
 
     global_context.initialize_contract("factorial-contract", contract_1).unwrap();
     global_context.initialize_contract("proxy-compute", contract_2).unwrap();
@@ -285,8 +289,10 @@ fn test_factorial_contract() {
         ";
 
 
-    let mut global_context = MemoryGlobalContext::new();
-    let mut contract = Contract::initialize("factorial", contract_defn).unwrap();
+    let db = Box::new(MemoryContractDatabase::new());
+    let mut global_context = GlobalContext::new(db);
+
+    let mut contract = Contract::initialize("factorial", contract_defn, &mut global_context).unwrap();
 
     let tx_name = "compute";
     let arguments_to_test = [symbols_from_values(vec![Value::Int(1337)]),  

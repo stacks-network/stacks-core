@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
-use vm::contexts::{GlobalContext, MemoryGlobalContext};
+use vm::contexts::{GlobalContext};
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 mod sqlite;
+
+pub use self::sqlite::SqliteContractDatabase;
 
 pub trait ContractDatabase {
     fn create_map(&mut self,   contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature);

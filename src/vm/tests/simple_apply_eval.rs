@@ -1,7 +1,7 @@
 use vm::{eval, execute};
 use vm::database::MemoryContractDatabase;
 use vm::errors::{ErrType};
-use vm::{Value, LocalContext, ContractContext, MemoryGlobalContext, Environment};
+use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment};
 use vm::callables::PrivateFunction;
 use vm::parser::parse;
 
@@ -25,9 +25,9 @@ fn test_simple_let() {
     if let Ok(parsed_program) = parse(&program) {
         let context = LocalContext::new();
         let contract_context = ContractContext::new("transient".to_string());
-        let mut global_context = MemoryGlobalContext::new();
-        let mut db = MemoryContractDatabase::new();
-        let mut env = Environment::new(&mut global_context, &contract_context, &mut db);
+        let db = Box::new(MemoryContractDatabase::new());
+        let mut global_context = GlobalContext::new(db);
+        let mut env = Environment::new(&mut global_context, &contract_context);
 
         assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env, &context));        
     } else {
@@ -94,14 +94,14 @@ fn test_simple_if_functions() {
         let user_function2 = PrivateFunction::new(func_args2, parsed_bodies[1].clone(),
                                                   &"without_else", &"");
         let context = LocalContext::new();
-        let mut global_context = MemoryGlobalContext::new();
         let mut contract_context = ContractContext::new("transient".to_string());
-        let mut db = MemoryContractDatabase::new();
+        let db = Box::new(MemoryContractDatabase::new());
+        let mut global_context = GlobalContext::new(db);
 
         contract_context.functions.insert("with_else".to_string(), user_function1);
         contract_context.functions.insert("without_else".to_string(), user_function2);
 
-        let mut env = Environment::new(&mut global_context, &contract_context, &mut db);
+        let mut env = Environment::new(&mut global_context, &contract_context);
 
         if let Ok(tests) = evals {
             assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));

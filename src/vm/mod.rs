@@ -21,7 +21,7 @@ use vm::types::Value;
 use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
 use vm::contexts::{ContractContext, LocalContext, Environment};
-use vm::contexts::{GlobalContext, MemoryGlobalContext};
+use vm::contexts::{GlobalContext};
 use vm::database::ContractDatabase;
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
@@ -142,7 +142,6 @@ pub fn is_reserved(name: &str) -> bool {
  * It returns the final evaluated result.
  */
 fn eval_all(expressions: &[SymbolicExpression],
-            database: &mut ContractDatabase,
             contract_context: &mut ContractContext,
             global_context: &mut GlobalContext) -> Result<Value> {
     let mut last_executed = None;
@@ -151,7 +150,7 @@ fn eval_all(expressions: &[SymbolicExpression],
     for exp in expressions {
         let try_define = {
             let mut env = Environment::new(
-                global_context, contract_context, database);
+                global_context, contract_context);
 
             functions::define::evaluate_define(exp, &mut env)
         }?;
@@ -163,12 +162,12 @@ fn eval_all(expressions: &[SymbolicExpression],
                 contract_context.functions.insert(name, value);
             },
             DefineResult::Map(name, key_type, value_type) => {
-                database.create_map(&contract_context.name, &name, key_type, value_type);
+                global_context.database.create_map(&contract_context.name, &name, key_type, value_type);
             },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
                 let mut env = Environment::new(
-                    global_context, contract_context, database);
+                    global_context, contract_context);
                 last_executed = Some(eval(exp, &mut env, &context));
             }
         }
@@ -187,17 +186,17 @@ fn eval_all(expressions: &[SymbolicExpression],
 pub fn execute(program: &str) -> Result<Value> {
     let mut contract_context = ContractContext::new("transient".to_string());
     let mut db_instance = Box::new(database::MemoryContractDatabase::new());
-    let mut global_context = MemoryGlobalContext::new();
+    let mut global_context = GlobalContext::new(db_instance);
 
     let parsed = parser::parse(program)?;
-    eval_all(&parsed, &mut *db_instance, &mut contract_context, &mut global_context)
+    eval_all(&parsed, &mut contract_context, &mut global_context)
 }
 
 
 #[cfg(test)]
 mod test {
     use vm::database::MemoryContractDatabase;
-    use vm::{Value, LocalContext, MemoryGlobalContext, ContractContext, Environment, SymbolicExpression};
+    use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression};
     use vm::callables::PrivateFunction;
     use vm::eval;
 
@@ -223,14 +222,14 @@ mod test {
                                                  &"do_work", &"");
 
         let context = LocalContext::new();
-        let mut global_context = MemoryGlobalContext::new();
         let mut contract_context = ContractContext::new("transient".to_string());
-        let mut db = MemoryContractDatabase::new();
+        let db = Box::new(MemoryContractDatabase::new());
+        let mut global_context = GlobalContext::new(db);
 
         contract_context.variables.insert("a".to_string(), Value::Int(59));
         contract_context.functions.insert("do_work".to_string(), user_function);
 
-        let mut env = Environment::new(&mut global_context, &contract_context, &mut db);
+        let mut env = Environment::new(&mut global_context, &contract_context);
         assert_eq!(Ok(Value::Int(64)), eval(&content[0], &mut env, &context));
     }
 }
