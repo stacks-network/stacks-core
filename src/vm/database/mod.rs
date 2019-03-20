@@ -4,6 +4,8 @@ use vm::contexts::{GlobalContext, MemoryGlobalContext};
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
+mod sqlite;
+
 pub trait ContractDatabase {
     fn create_map(&mut self,   contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature);
     fn fetch_entry(&self,      contract_name: &str, map_name: &str, key: &Value) -> Result<Value>;

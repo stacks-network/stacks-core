@@ -91,6 +91,18 @@ impl Hash for TupleData {
 }
 
 impl Value {
+    pub fn deserialize(json: &str) -> Result<Value> {
+        serde_json::from_str(json)
+            .map_err(|x| Error::new(ErrType::DeserializationFailure(
+                IncomparableError { err: x } )))
+    }
+
+    pub fn serialize(&self) -> Result<String> {
+        serde_json::to_string(self)
+            .map_err(|x| Error::new(ErrType::SerializationFailure(
+                IncomparableError { err: x } )))
+    }
+
     pub fn new_list(list_data: &[Value]) -> Result<Value> {
         let vec_data = Vec::from(list_data);
         Value::list_from(vec_data)
