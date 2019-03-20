@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rusqlite::{Connection, Result as SqliteResult};
+use rusqlite::{Connection, Result as SqliteResult, NO_PARAMS};
 use rusqlite::types::ToSql;
 
 use vm::database::{ContractDatabase};
@@ -20,7 +20,27 @@ pub struct SqliteDataMap {
 }
 
 impl SqliteContractDatabase {
-    fn open(filename: &str) -> Result<SqliteContractDatabase> {
+    pub fn initialize(filename: &str) -> Result<SqliteContractDatabase> {
+        let contract_db = SqliteContractDatabase::open(filename)?;
+        contract_db.conn.execute("CREATE TABLE IF NOT EXISTS maps_table
+                      (map_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
+                       contract_name TEXT,
+                       map_name TEXT,
+                       key_type TEXT,
+                       value_type TEXT)",
+                                 NO_PARAMS)
+            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+        contract_db.conn.execute("CREATE TABLE IF NOT EXISTS data_table
+                      (data_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
+                       map_identifier INTEGER,
+                       key TEXT,
+                       value TEXT)",
+                                 NO_PARAMS)
+            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+        Ok(contract_db)
+    }
+
+    pub fn open(filename: &str) -> Result<SqliteContractDatabase> {
         let conn = Connection::open(filename)
             .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
         Ok(SqliteContractDatabase {
@@ -49,7 +69,7 @@ impl ContractDatabase for SqliteContractDatabase {
         let key_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(key_type));
         let value_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type));
 
-        self.conn.execute("INSERT INTO maps_table (contract_name, map_name, key_type, value_type) VALUES (?, ?, ?)",
+        self.conn.execute("INSERT INTO maps_table (contract_name, map_name, key_type, value_type) VALUES (?, ?, ?, ?)",
                           &[contract_name, map_name, &key_type.serialize().unwrap(), &value_type.serialize().unwrap()])
             .unwrap();
     }
@@ -60,10 +80,13 @@ impl ContractDatabase for SqliteContractDatabase {
             return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.key_type), (*key).clone())))
         }
 
+        let params: [&ToSql; 2] = [&map_descriptor.map_identifier,
+                                   &key.serialize()?];
+
         let sql_result: SqliteResult<Option<String>> = 
             self.conn.query_row(
-                "SELECT value FROM data_table WHERE map_identifier = ? AND key = ?",
-                &[contract_name, map_name],
+                "SELECT value FROM data_table WHERE map_identifier = ? AND key = ? ORDER BY data_identifier DESC",
+                &params,
                 |row| {
                     row.get(0)
                 });
@@ -154,6 +177,6 @@ impl ContractDatabase for SqliteContractDatabase {
             &params)
             .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
 
-        return Ok(Value::Bool(!exists))
+        return Ok(Value::Bool(exists))
     }
 }

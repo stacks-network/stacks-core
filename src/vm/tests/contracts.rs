@@ -160,7 +160,7 @@ fn test_simple_naming_system() {
     let name_hash_expensive_1 = execute("(hash160 2)").unwrap();
     let name_hash_cheap_0 = execute("(hash160 100001)").unwrap();
 
-    let db = Box::new(MemoryContractDatabase::new());
+    let db = Box::new(SqliteContractDatabase::initialize(":memory:").unwrap());
     let mut global_context = GlobalContext::new(db);
 
     global_context.initialize_contract("tokens", tokens_contract).unwrap();
