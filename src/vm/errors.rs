@@ -26,6 +26,7 @@ pub enum ErrType {
     UndefinedVariable(String),
     UndefinedFunction(String),
     UndefinedContract(String),
+    UndefinedMap(String),
     TryEvalToFunction,
     Arithmetic(String),
     ParseError(String),
@@ -48,7 +49,9 @@ pub enum ErrType {
     VariableDefinedMultipleTimes(String),
     DeserializationFailure(IncomparableError<SerdeJSONErr>),
     SerializationFailure(IncomparableError<SerdeJSONErr>),
-    SqliteError(IncomparableError<SqliteError>)
+    SqliteError(IncomparableError<SqliteError>),
+    SqlConnectionClosed,
+    ContractMustReturnBoolean
 }
 
 pub type InterpreterResult <R> = Result<R, Error>;

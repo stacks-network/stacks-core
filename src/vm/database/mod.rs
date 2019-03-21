@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use vm::contexts::{GlobalContext};
+use vm::contracts::Contract;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
@@ -14,6 +14,14 @@ pub trait ContractDatabase {
     fn set_entry(&mut self,    contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value>;
     fn insert_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value>;
     fn delete_entry(&mut self, contract_name: &str, map_name: &str, key: &Value) -> Result<Value>;
+
+    fn take_contract(&mut self, contract_name: &str) -> Result<Contract>;
+    fn replace_contract(&mut self, contract_name: &str, contract: Contract) -> Result<()>;
+    fn insert_contract(&mut self, contract_name: &str, contract: Contract) -> Result<()>;
+
+    fn begin_save_point(&mut self) -> Result<()>;
+    fn roll_back(&mut self) -> Result<()>;
+    fn commit(&mut self) -> Result<()>;
 }
 
 #[derive(Serialize, Deserialize)]
@@ -26,11 +34,13 @@ pub struct MemoryDataMap {
 #[derive(Serialize, Deserialize)]
 pub struct MemoryContractDatabase {
     maps: HashMap<(String, String), MemoryDataMap>,
+    contracts: HashMap<String, Option<Contract>>
 }
 
 impl MemoryContractDatabase {
     pub fn new() -> MemoryContractDatabase {
-        MemoryContractDatabase { maps: HashMap::new() }
+        MemoryContractDatabase { maps: HashMap::new(),
+                                 contracts: HashMap::new() }
     }
 
     fn get_mut_data_map(&mut self, contract_name: &str, map_name: &str) -> Result<&mut MemoryDataMap> {
@@ -77,6 +87,42 @@ impl ContractDatabase for MemoryContractDatabase {
         let data_map = self.get_mut_data_map(contract_name, map_name)?;
         data_map.delete_entry(key)
     }
+
+    fn take_contract(&mut self, contract_name: &str) -> Result<Contract> {
+        let contract = self.contracts.get_mut(contract_name)
+            .ok_or_else(|| { Error::new(ErrType::UndefinedContract(contract_name.to_string())) })?;
+        contract.take().ok_or(Error::new(ErrType::ContractAlreadyInvoked))
+    }
+
+    fn replace_contract(&mut self, contract_name: &str, contract: Contract) -> Result<()> {
+        let contract_holder = self.contracts.get_mut(contract_name)
+            .ok_or_else(|| { Error::new(ErrType::UndefinedContract(contract_name.to_string())) })?;
+        match contract_holder.replace(contract) {
+            Some(_) => Err(Error::new(ErrType::InterpreterError(
+                format!("Attempted to close invocation on a non-open contract {}", contract_name)))),
+            None => Ok(())
+        }
+    }
+
+    fn insert_contract(&mut self, contract_name: &str, contract: Contract) -> Result<()> {
+        if self.contracts.contains_key(contract_name) {
+            Err(Error::new(ErrType::ContractAlreadyExists(contract_name.to_string())))
+        } else {
+            self.contracts.insert(contract_name.to_string(), Some(contract));
+            Ok(())
+        }
+    }
+
+    fn begin_save_point(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn roll_back(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn commit(&mut self) -> Result<()> {
+        Ok(())
+    }
+
 }
 
 impl MemoryDataMap {

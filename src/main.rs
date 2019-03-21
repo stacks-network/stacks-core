@@ -99,6 +99,41 @@ fn main() {
         return
     }
 
+    if argv[1] == "init_contract" {
+        use std::io;
+        use vm::contexts::GlobalContext;
+        use vm::database::{ContractDatabase, SqliteContractDatabase, MemoryContractDatabase};
+
+        if argv.len() < 5 {
+            eprintln!("Usage: {} init_contract [vm-state.sqlite.db] [contract-name] [program-file.scm]", argv[0]);
+            process::exit(1);
+        }
+        let vm_filename = &argv[2];
+
+        let db: Box<ContractDatabase> = match SqliteContractDatabase::open(vm_filename) {
+            Ok(db) => Box::new(db),
+            Err(_) => {
+                eprintln!("Could not open vm-state db file. Initializing empty, VM state.");
+                Box::new(MemoryContractDatabase::new())
+            }
+        };
+
+        let mut global_context = GlobalContext::new(db);
+
+        let contract_name = &argv[3];
+
+        let contract_content: String = fs::read_to_string(&argv[4])
+            .expect(&format!("Error reading file: {}", argv[4]));
+
+        match global_context.initialize_contract(&contract_name, &contract_content) {
+            Ok(_) => {
+                println!("Contract initialized!");
+            },
+            Err(error) => println!("Contract initialization error: \n {}", error)
+        }
+        return
+    }
+
     if argv.len() < 4 {
         eprintln!("Usage: {} blockchain network working_dir", argv[0]);
         process::exit(1);

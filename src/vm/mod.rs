@@ -8,7 +8,7 @@ pub mod contracts;
 mod representations;
 mod parser;
 pub mod contexts;
-mod database;
+pub mod database;
 
 mod functions;
 mod variables;
@@ -22,7 +22,6 @@ use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
 use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::contexts::{GlobalContext};
-use vm::database::ContractDatabase;
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 
@@ -185,7 +184,7 @@ fn eval_all(expressions: &[SymbolicExpression],
  */
 pub fn execute(program: &str) -> Result<Value> {
     let mut contract_context = ContractContext::new("transient".to_string());
-    let mut db_instance = Box::new(database::MemoryContractDatabase::new());
+    let db_instance = Box::new(database::MemoryContractDatabase::new());
     let mut global_context = GlobalContext::new(db_instance);
 
     let parsed = parser::parse(program)?;

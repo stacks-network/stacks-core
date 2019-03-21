@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::Value;
 use vm::callables::{DefinedFunction, FunctionIdentifier};
-use vm::database::{ContractDatabase, MemoryContractDatabase};
+use vm::database::{ContractDatabase};
 use vm::{SymbolicExpression};
 use vm::contracts::Contract;
 
@@ -21,7 +21,6 @@ pub struct Environment <'a> {
 }
 
 pub struct GlobalContext {
-    contracts: HashMap<String, Option<Contract>>,
     pub database: Box<ContractDatabase>
 }
 
@@ -63,46 +62,46 @@ impl <'a> Environment <'a> {
 impl GlobalContext {
     pub fn new(database: Box<ContractDatabase>) -> GlobalContext {
         GlobalContext {
-            contracts: HashMap::new(),
             database: database
-        }
-    }
-
-    fn take_contract(&mut self, contract_name: &str) -> Result<Contract> {
-        let contract = self.contracts.get_mut(contract_name)
-            .ok_or_else(|| { Error::new(ErrType::UndefinedContract(contract_name.to_string())) })?;
-        contract.take().ok_or(Error::new(ErrType::ContractAlreadyInvoked))
-    }
-
-    fn replace_contract(&mut self, contract_name: &str, contract: Contract) -> Result<()> {
-        let contract_holder = self.contracts.get_mut(contract_name)
-            .ok_or_else(|| { Error::new(ErrType::UndefinedContract(contract_name.to_string())) })?;
-        match contract_holder.replace(contract) {
-            Some(_) => Err(Error::new(ErrType::InterpreterError(
-                format!("Attempted to close invocation on a non-open contract {}", contract_name)))),
-            None => Ok(())
         }
     }
 
     pub fn execute_contract(&mut self, contract_name: &str, 
                         sender: &Value, tx_name: &str,
                         args: &[SymbolicExpression]) -> Result<Value> {
-        let mut contract = self.take_contract(contract_name)?;
-        let result = contract.execute_transaction(sender, tx_name, args, self);
-        // Aaron: TODO: we need to _also_ handle the case of an error in result if
-        //  replace_contract errors.
-        self.replace_contract(contract_name, contract)?;
-        result
+        let mut contract = self.database.take_contract(contract_name)?;
+        self.database.begin_save_point();
+        let contract_result = contract.execute_transaction(sender, tx_name, args, self);
+        // error in replace_contract will supercede any errors in contract's result.
+        let replace_result = self.database.replace_contract(contract_name, contract);
+        if let Err(error) = replace_result {
+            self.database.roll_back();
+            return Err(error)
+        }
+        match contract_result {
+            Ok(x) => {
+                if let Value::Bool(bool_result) = x {
+                    if bool_result {
+                        self.database.commit();
+                    } else {
+                        self.database.roll_back();
+                    }
+                    return Ok(x)
+                } else {
+                    self.database.commit();
+                    return Ok(x)
+                }
+            },
+            Err(_) => {
+                self.database.roll_back();
+                return contract_result
+            }
+        }
     }
 
     pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
-        if self.contracts.contains_key(contract_name) {
-            Err(Error::new(ErrType::ContractAlreadyExists(contract_name.to_string())))
-        } else {
-            let contract = Contract::initialize(contract_name, contract_content, self)?;
-            self.contracts.insert(contract_name.to_string(), Some(contract));
-            Ok(())
-        }
+        let contract = Contract::initialize(contract_name, contract_content, self)?;
+        self.database.insert_contract(contract_name, contract)
     }
 }
 

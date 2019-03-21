@@ -1,10 +1,8 @@
 use vm::{SymbolicExpression, Value, apply, eval_all};
-use vm::errors::{Error, ErrType, InterpreterResult as Result};
+use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
 use vm::callables::CallableType;
 use vm::contexts::{Environment, LocalContext, ContractContext, GlobalContext};
-use vm::database::{MemoryContractDatabase, ContractDatabase};
 use vm::parser;
-use vm::variables;
 
 #[derive(Serialize, Deserialize)]
 pub struct Contract {
@@ -15,12 +13,6 @@ impl Contract {
     pub fn initialize(name: &str, contract: &str, global_context: &mut GlobalContext) -> Result<Contract> {
         let parsed: Vec<_> = parser::parse(contract)?;
         let mut contract_context = ContractContext::new(name.to_string());
-
-        // TODO: should contract initialization have access to the normal
-        //       global context? i.e., should contract initialization be allowed
-        //       to call out to other contracts during initialization?
-        //         if so, we need to pass in the global_context to this function.
-        // let mut global_context = MemoryGlobalContext::new();
 
         let result = eval_all(&parsed, &mut contract_context, global_context)?;
         match result {
@@ -58,5 +50,17 @@ impl Contract {
         } else {
             Err(Error::new(ErrType::BadSender(sender.clone())))
         }
+    }
+
+    pub fn deserialize(json: &str) -> Result<Contract> {
+        serde_json::from_str(json)
+            .map_err(|x| Error::new(ErrType::DeserializationFailure(
+                IncomparableError { err: x } )))
+    }
+
+    pub fn serialize(&self) -> Result<String> {
+        serde_json::to_string(self)
+            .map_err(|x| Error::new(ErrType::SerializationFailure(
+                IncomparableError { err: x } )))
     }
 }

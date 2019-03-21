@@ -2,7 +2,7 @@ use vm::execute;
 use vm::errors::{Error, ErrType};
 use vm::types::{Value};
 use vm::contexts::{GlobalContext};
-use vm::database::{MemoryContractDatabase, SqliteContractDatabase};
+use vm::database::{ContractDatabase, MemoryContractDatabase, SqliteContractDatabase};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 
@@ -76,6 +76,13 @@ fn test_simple_token_system() {
 
 #[test]
 fn test_simple_naming_system() {
+    let db1 = Box::new(SqliteContractDatabase::initialize(":memory:").unwrap());
+    let db2 = Box::new(MemoryContractDatabase::new());
+    inner_test_simple_naming_system(db1);
+    inner_test_simple_naming_system(db2);
+}
+
+fn inner_test_simple_naming_system(db: Box<ContractDatabase>) {
     let tokens_contract = 
         "(define-map tokens ((account principal)) ((balance int)))
          (define-public (get-balance (account principal))
@@ -160,7 +167,6 @@ fn test_simple_naming_system() {
     let name_hash_expensive_1 = execute("(hash160 2)").unwrap();
     let name_hash_cheap_0 = execute("(hash160 100001)").unwrap();
 
-    let db = Box::new(SqliteContractDatabase::initialize(":memory:").unwrap());
     let mut global_context = GlobalContext::new(db);
 
     global_context.initialize_contract("tokens", tokens_contract).unwrap();

@@ -1,7 +1,6 @@
 use vm::types::{Value};
 use vm::representations::SymbolicExpression;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
-use vm::variables;
 use vm::{eval, LocalContext, Environment};
 
 pub fn special_contract_call(args: &[SymbolicExpression],
