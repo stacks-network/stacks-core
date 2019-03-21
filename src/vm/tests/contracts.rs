@@ -43,7 +43,7 @@ fn test_simple_token_system() {
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").unwrap();
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
 
-    let db = Box::new(MemoryContractDatabase::new());
+    let db = Box::new(MemoryContractDatabase::new().unwrap());
     let mut global_context = GlobalContext::new(db);
 
     global_context.initialize_contract("tokens", tokens_contract).unwrap();
@@ -76,13 +76,6 @@ fn test_simple_token_system() {
 
 #[test]
 fn test_simple_naming_system() {
-    let db1 = Box::new(SqliteContractDatabase::initialize(":memory:").unwrap());
-    let db2 = Box::new(MemoryContractDatabase::new());
-    inner_test_simple_naming_system(db1);
-    inner_test_simple_naming_system(db2);
-}
-
-fn inner_test_simple_naming_system(db: Box<ContractDatabase>) {
     let tokens_contract = 
         "(define-map tokens ((account principal)) ((balance int)))
          (define-public (get-balance (account principal))
@@ -167,6 +160,7 @@ fn inner_test_simple_naming_system(db: Box<ContractDatabase>) {
     let name_hash_expensive_1 = execute("(hash160 2)").unwrap();
     let name_hash_cheap_0 = execute("(hash160 100001)").unwrap();
 
+    let db = Box::new(MemoryContractDatabase::new().unwrap());
     let mut global_context = GlobalContext::new(db);
 
     global_context.initialize_contract("tokens", tokens_contract).unwrap();
@@ -247,7 +241,7 @@ fn test_simple_contract_call() {
             (contract-call! factorial-contract compute 8008))
         ";
 
-    let db = Box::new(MemoryContractDatabase::new());
+    let db = Box::new(MemoryContractDatabase::new().unwrap());
     let mut global_context = GlobalContext::new(db);
 
     global_context.initialize_contract("factorial-contract", contract_1).unwrap();
@@ -295,7 +289,7 @@ fn test_factorial_contract() {
         ";
 
 
-    let db = Box::new(MemoryContractDatabase::new());
+    let db = Box::new(MemoryContractDatabase::new().unwrap());
     let mut global_context = GlobalContext::new(db);
 
     let mut contract = Contract::initialize("factorial", contract_defn, &mut global_context).unwrap();

@@ -113,8 +113,9 @@ fn main() {
         let db: Box<ContractDatabase> = match SqliteContractDatabase::open(vm_filename) {
             Ok(db) => Box::new(db),
             Err(_) => {
-                eprintln!("Could not open vm-state db file. Initializing empty, VM state.");
-                Box::new(MemoryContractDatabase::new())
+                eprintln!("Could not open vm-state db file. Initializing empty, transient VM state.");
+                Box::new(MemoryContractDatabase::new()
+                         .expect("Failed to initialize in-memory vm-state db"))
             }
         };
 

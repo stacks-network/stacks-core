@@ -48,6 +48,14 @@ fn native_begin(args: &[Value]) -> Result<Value> {
     }
 }
 
+fn native_print(args: &[Value]) -> Result<Value> {
+    if !(args.len() == 1) {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to print (expects 1)".to_string())))
+    }
+    eprintln!("{:?}", args[0]);
+    Ok(args[0].clone())
+}
+
 fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if !(args.len() == 2 || args.len() == 3) {
         return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to if (expect 2 or 3)".to_string())))
@@ -154,6 +162,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
         "get" => Some(CallableType::SpecialFunction("native_get-tuple", &tuples::tuple_get)),
         "begin" => Some(CallableType::NativeFunction("native_begin", &native_begin)),
         "hash160" => Some(CallableType::NativeFunction("native_hash160", &native_hash160)),
+        "print" => Some(CallableType::NativeFunction("native_print", &native_print)),
         "contract-call!" => Some(CallableType::SpecialFunction("native_contract-call", &database::special_contract_call)),
         _ => None
     }

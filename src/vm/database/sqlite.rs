@@ -177,11 +177,6 @@ impl ContractDatabase for SqliteContractDatabase {
     }
 
     fn insert_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {
-        let exists = self.fetch_entry(contract_name, map_name, &key)? != Value::Void;
-        if exists {
-            return Ok(Value::Bool(false))
-        }
-
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(&key) {
             return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.key_type), key)))
@@ -189,6 +184,12 @@ impl ContractDatabase for SqliteContractDatabase {
         if !map_descriptor.value_type.admits(&value) {
             return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.value_type), value)))
         }
+
+        let exists = self.fetch_entry(contract_name, map_name, &key)? != Value::Void;
+        if exists {
+            return Ok(Value::Bool(false))
+        }
+
         let params: [&ToSql; 3] = [&map_descriptor.map_identifier,
                                    &key.serialize()?,
                                    &Some(value.serialize()?)];

@@ -25,7 +25,7 @@ fn test_simple_let() {
     if let Ok(parsed_program) = parse(&program) {
         let context = LocalContext::new();
         let contract_context = ContractContext::new("transient".to_string());
-        let db = Box::new(MemoryContractDatabase::new());
+        let db = Box::new(MemoryContractDatabase::new().unwrap());
         let mut global_context = GlobalContext::new(db);
         let mut env = Environment::new(&mut global_context, &contract_context);
 
@@ -95,7 +95,7 @@ fn test_simple_if_functions() {
                                                   &"without_else", &"");
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new("transient".to_string());
-        let db = Box::new(MemoryContractDatabase::new());
+        let db = Box::new(MemoryContractDatabase::new().unwrap());
         let mut global_context = GlobalContext::new(db);
 
         contract_context.functions.insert("with_else".to_string(), user_function1);

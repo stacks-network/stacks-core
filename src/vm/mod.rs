@@ -184,7 +184,7 @@ fn eval_all(expressions: &[SymbolicExpression],
  */
 pub fn execute(program: &str) -> Result<Value> {
     let mut contract_context = ContractContext::new("transient".to_string());
-    let db_instance = Box::new(database::MemoryContractDatabase::new());
+    let db_instance = Box::new(database::MemoryContractDatabase::new()?);
     let mut global_context = GlobalContext::new(db_instance);
 
     let parsed = parser::parse(program)?;
@@ -222,7 +222,7 @@ mod test {
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new("transient".to_string());
-        let db = Box::new(MemoryContractDatabase::new());
+        let db = Box::new(MemoryContractDatabase::new().unwrap());
         let mut global_context = GlobalContext::new(db);
 
         contract_context.variables.insert("a".to_string(), Value::Int(59));
