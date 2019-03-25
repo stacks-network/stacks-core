@@ -1,15 +1,13 @@
-use std::collections::HashMap;
-
 use vm::contracts::Contract;
-use vm::errors::{Error, ErrType, InterpreterResult as Result};
-use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
+use vm::errors::{InterpreterResult as Result};
+use vm::types::{Value, TupleTypeSignature};
 
 mod sqlite;
 
 pub use self::sqlite::SqliteContractDatabase;
 
 pub trait ContractDatabase {
-    fn create_map(&mut self,   contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature);
+    fn create_map(&mut self,   contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) -> Result<()>;
     fn fetch_entry(&self,      contract_name: &str, map_name: &str, key: &Value) -> Result<Value>;
     fn set_entry(&mut self,    contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value>;
     fn insert_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value>;
@@ -37,7 +35,7 @@ impl MemoryContractDatabase {
 
 impl ContractDatabase for MemoryContractDatabase {
 
-    fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {
+    fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) -> Result<()> {
         self.db.create_map(contract_name, map_name, key_type, value_type)
     }
 

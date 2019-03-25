@@ -1,4 +1,4 @@
-use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Result as SqlResult, Row};
+use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row};
 use rusqlite::types::ToSql;
 
 use vm::contracts::Contract;
@@ -20,7 +20,7 @@ pub struct SqliteDataMap {
 
 impl SqliteContractDatabase {
     pub fn initialize(filename: &str) -> Result<SqliteContractDatabase> {
-        let mut contract_db = SqliteContractDatabase::open(filename)?;
+        let mut contract_db = SqliteContractDatabase::inner_open(filename)?;
         contract_db.execute("CREATE TABLE IF NOT EXISTS maps_table
                       (map_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
                        contract_name TEXT,
@@ -39,10 +39,38 @@ impl SqliteContractDatabase {
                        contract_name TEXT,
                        contract_data TEXT)",
                             NO_PARAMS)?;
+
+        contract_db.check_schema()?;
+
         Ok(contract_db)
     }
 
     pub fn open(filename: &str) -> Result<SqliteContractDatabase> {
+        let contract_db = SqliteContractDatabase::inner_open(filename)?;
+
+        contract_db.check_schema()?;
+        Ok(contract_db)
+    }
+
+    fn check_schema(&self) -> Result<()> {
+        let sql = "SELECT sql FROM sqlite_master WHERE name=?";
+        if let Some(ref conn) = self.conn {
+            let _: String = conn.query_row(sql, &["maps_table"],
+                                           |row| row.get(0))
+                .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+            let _: String = conn.query_row(sql, &["contracts"],
+                           |row| row.get(0))
+                .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+            let _: String = conn.query_row(sql, &["data_table"],
+                           |row| row.get(0))
+                .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+            Ok(())
+        } else {
+            Err(Error::new(ErrType::SqlConnectionClosed))
+        }
+    }
+
+    fn inner_open(filename: &str) -> Result<SqliteContractDatabase> {
         let conn = Connection::open(filename)
             .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
         Ok(SqliteContractDatabase {
@@ -86,19 +114,21 @@ impl SqliteContractDatabase {
     where
         P: IntoIterator,
         P::Item: ToSql {
-        if self.conn.is_some() {
-            let conn = self.conn.take().unwrap();
-            let result = conn.execute(sql, params)
-                .map_err(|x| {
-                    eprintln!("SQL Execution Error: {:?}", x);
-                    Error::new(ErrType::SqliteError(IncomparableError{ err: x }))
-                })?;
-            // if execution error'ed, return _without_ replacing connection!
-            //    this closes the connection.
-            self.conn.replace(conn);
-            Ok(result)
-        } else {
-            Err(Error::new(ErrType::SqlConnectionClosed))
+        match self.conn.take() {
+            Some(conn) => {
+                let result = conn.execute(sql, params)
+                    .map_err(|x| {
+                        eprintln!("SQL Execution Error: {:?}", x);
+                        Error::new(ErrType::SqliteError(IncomparableError{ err: x }))
+                    })?;
+                // if execution error'ed, return _without_ replacing connection!
+                //    this closes the connection.
+                self.conn.replace(conn);
+                Ok(result)
+            },
+            None => {
+                Err(Error::new(ErrType::SqlConnectionClosed))
+            }
         }
     }
 
@@ -118,13 +148,13 @@ impl SqliteContractDatabase {
 }
 
 impl ContractDatabase for SqliteContractDatabase {
-    fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {
+    fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) -> Result<()> {
         let key_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(key_type));
         let value_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type));
 
         self.execute("INSERT INTO maps_table (contract_name, map_name, key_type, value_type) VALUES (?, ?, ?, ?)",
-                     &[contract_name, map_name, &key_type.serialize().unwrap(), &value_type.serialize().unwrap()])
-            .unwrap();
+                     &[contract_name, map_name, &key_type.serialize()?, &value_type.serialize()?])?;
+        Ok(())
     }
 
     fn fetch_entry(&self, contract_name: &str, map_name: &str, key: &Value) -> Result<Value> {

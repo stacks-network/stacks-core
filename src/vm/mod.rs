@@ -6,7 +6,7 @@ pub mod types;
 pub mod contracts;
 
 mod representations;
-mod parser;
+pub mod parser;
 pub mod contexts;
 pub mod database;
 
@@ -19,11 +19,11 @@ mod tests;
 
 use vm::types::Value;
 use vm::callables::CallableType;
-use vm::representations::SymbolicExpression;
 use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
+pub use vm::representations::SymbolicExpression;
 
 const MAX_CALL_STACK_DEPTH: usize = 256;
 
@@ -161,7 +161,7 @@ fn eval_all(expressions: &[SymbolicExpression],
                 contract_context.functions.insert(name, value);
             },
             DefineResult::Map(name, key_type, value_type) => {
-                global_context.database.create_map(&contract_context.name, &name, key_type, value_type);
+                global_context.database.create_map(&contract_context.name, &name, key_type, value_type)?;
             },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.

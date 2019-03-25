@@ -70,30 +70,30 @@ impl GlobalContext {
                         sender: &Value, tx_name: &str,
                         args: &[SymbolicExpression]) -> Result<Value> {
         let mut contract = self.database.take_contract(contract_name)?;
-        self.database.begin_save_point();
+        self.database.begin_save_point()?;
         let contract_result = contract.execute_transaction(sender, tx_name, args, self);
         // error in replace_contract will supercede any errors in contract's result.
         let replace_result = self.database.replace_contract(contract_name, contract);
         if let Err(error) = replace_result {
-            self.database.roll_back();
+            self.database.roll_back()?;
             return Err(error)
         }
         match contract_result {
             Ok(x) => {
                 if let Value::Bool(bool_result) = x {
                     if bool_result {
-                        self.database.commit();
+                        self.database.commit()?;
                     } else {
-                        self.database.roll_back();
+                        self.database.roll_back()?;
                     }
                     return Ok(x)
                 } else {
-                    self.database.commit();
+                    self.database.commit()?;
                     return Ok(x)
                 }
             },
             Err(_) => {
-                self.database.roll_back();
+                self.database.roll_back()?;
                 return contract_result
             }
         }
