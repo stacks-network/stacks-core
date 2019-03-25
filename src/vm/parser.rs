@@ -1,3 +1,4 @@
+use util::hash::hex_bytes;
 use regex::{Regex, Captures};
 use address::c32::c32_address_decode;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
@@ -46,16 +47,20 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
     // Aaron: I'd like these to be static, but that'd require using
     //    lazy_static (or just hand implementing that), and I'm not convinced
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
+
+    // Aaron: Note: this lexer will _split_ tokens currently.
+    //        e.g., 1234abc will lex to IntLiteral(1234), Variable(abc).
+    //        this behavior should be fixed!
     let lex_matchers: &[LexMatcher] = &[
         LexMatcher::new(r##""(?P<value>((\\")|([[:print:]&&[^"\n\r\t]]))*)""##, TokenType::StringLiteral),
         LexMatcher::new(";;[[:print:]&&[^\n\r\t]]*", TokenType::Whitespace), // ;; comments.
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
         LexMatcher::new("[ \n\t\r]+", TokenType::Whitespace),
+        LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("(?P<value>[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false|null)", TokenType::QuoteLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
-        LexMatcher::new("0x(?P<value>[[:xdigit:]])", TokenType::HexStringLiteral),
         LexMatcher::new("#(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::NamedParameter),
         LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
     ];
@@ -121,7 +126,11 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                         }
                     },
                     TokenType::HexStringLiteral => {
-                        panic!("Not implemented")
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let byte_vec = hex_bytes(&str_value)
+                            .map_err(|x| { Error::new(ErrType::ParseError(format!("Invalid hex-string literal {}: {}", &str_value, x))) })?;
+                        let value = Value::buff_from(byte_vec)?;
+                        Ok(LexItem::LiteralValue(value))
                     },
                     TokenType::StringLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;

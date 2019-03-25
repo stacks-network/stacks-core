@@ -54,7 +54,7 @@ fn handle_define_private_function(signature: &[SymbolicExpression],
         arg_names.iter().map(|x| (*x).clone()).collect(),
         expression.clone(),
         *function_name,
-        &"");
+        &env.contract_context.name);
 
     Ok(DefineResult::Function((*function_name).clone(), function))
 }
@@ -77,7 +77,7 @@ fn handle_define_public_function(signature: &[SymbolicExpression],
     let function = PublicFunction::new(arguments,
                                        expression.clone(),
                                        function_name,
-                                       &"");
+                                       &env.contract_context.name);
 
 
     Ok(DefineResult::Function(function_name.clone(), function))

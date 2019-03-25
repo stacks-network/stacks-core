@@ -168,7 +168,7 @@ fn main() {
             let contract_name = &argv[3];
             let tx_name = &argv[4];
 
-            let mut sender = vm::parser::parse(&argv[5])
+            let mut sender = vm::parser::parse(&format!("'{}", argv[5]))
                 .expect(&format!("Error parsing sender {}", argv[5]));
             let sender = {
                 if let Some(SymbolicExpression::AtomValue(
@@ -193,11 +193,11 @@ fn main() {
                 })
                 .collect();
 
-            match global_context.execute_contract(&contract_name, &sender, &tx_name, &[]) {
+            match global_context.execute_contract(&contract_name, &sender, &tx_name, &arguments) {
                 Ok(x) => {
                     println!("Transaction executed successfully! Output: {}", x);
                 },
-                Err(error) => println!("Contract initialization error: \n {}", error)
+                Err(error) => println!("Transaction execution error: \n {}", error)
             }
             return
         },
