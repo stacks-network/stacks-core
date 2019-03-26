@@ -28,6 +28,11 @@ struct LexMatcher {
     handler: TokenType
 }
 
+enum LexContext {
+    ExpectNothing,
+    ExpectClosing
+}
+
 impl LexMatcher {
     fn new(regex_str: &str, handles: TokenType) -> LexMatcher {
         LexMatcher {
@@ -48,9 +53,6 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
     //    lazy_static (or just hand implementing that), and I'm not convinced
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
 
-    // Aaron: Note: this lexer will _split_ tokens currently.
-    //        e.g., 1234abc will lex to IntLiteral(1234), Variable(abc).
-    //        this behavior should be fixed!
     let lex_matchers: &[LexMatcher] = &[
         LexMatcher::new(r##""(?P<value>((\\")|([[:print:]&&[^"\n\r\t]]))*)""##, TokenType::StringLiteral),
         LexMatcher::new(";;[[:print:]&&[^\n\r\t]]*", TokenType::Whitespace), // ;; comments.
@@ -65,6 +67,7 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
         LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
     ];
 
+    let mut context = LexContext::ExpectNothing;
 
     let mut result = Vec::new();
     let mut munch_index = 0;
@@ -77,10 +80,37 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                 let whole_match = captures.get(0).unwrap();
                 assert_eq!(whole_match.start(), 0);
                 munch_index += whole_match.end();
+
+                match context {
+                    LexContext::ExpectNothing => Ok(()),
+                    LexContext::ExpectClosing => {
+                        // expect the next lexed item to be something that typically
+                        // "closes" an atom -- i.e., whitespace or a right-parens.
+                        // this prevents an atom like 1234abc from getting split into "1234" and "abc"
+                        match matcher.handler {
+                            TokenType::RParens => Ok(()),
+                            TokenType::Whitespace => Ok(()),
+                            _ => Err(Error::new(ErrType::ParseError(format!("Expected whitespace or a close parens. Found: '{}'",
+                                                                            &current_slice[..whole_match.end()]))))
+                        }
+                    }
+                }?;
+
+                // default to expect a closing
+                context = LexContext::ExpectClosing;
+
                 let token = match matcher.handler {
-                    TokenType::LParens => Ok(LexItem::LeftParen),
-                    TokenType::RParens => Ok(LexItem::RightParen),
-                    TokenType::Whitespace => Ok(LexItem::Whitespace),
+                    TokenType::LParens => { 
+                        context = LexContext::ExpectNothing;
+                        Ok(LexItem::LeftParen)
+                    },
+                    TokenType::RParens => {
+                        Ok(LexItem::RightParen)
+                    },
+                    TokenType::Whitespace => {
+                        context = LexContext::ExpectNothing;
+                        Ok(LexItem::Whitespace)
+                    },
                     TokenType::NamedParameter => {
                         let value = get_value_or_err(current_slice, captures)?;
                         if value.contains("#") {
@@ -230,7 +260,7 @@ mod test {
         use vm::types::Value;
         use vm::parser;
 
-        let input = "z (let((x 1) (y 2))
+        let input = "z (let ((x 1) (y 2))
                       (+ x ;; \"comments section?\"
                          ;; this is also a comment!
                          (let ((x 3)) ;; more commentary
@@ -280,6 +310,12 @@ mod test {
         let not_enough_closure = "(let ((x 1) (y 2))";
         let middle_hash = "(let ((x 1) (y#not 2)) x)";
         let unicode = "(let ((x🎶 1)) (eq x🎶 1))";
+        let split_tokens = "(let ((023ab13 1)))";
+
+        assert!(match parser::parse(&split_tokens).unwrap_err().err_type {
+            ErrType::ParseError(_) => true,
+            _ => false
+        }, "Should have failed to parse with an expectation of whitespace or parens");
 
         assert!(match parser::parse(&too_much_closure).unwrap_err().err_type {
             ErrType::ParseError(_) => true,
