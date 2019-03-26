@@ -265,6 +265,93 @@ fn test_simple_contract_call() {
 }
 
 #[test]
+fn test_aborts() {
+    let contract_1 ="
+(define-map data ((id int)) ((value int)))
+
+;; this will return false if id != value,
+;;   which _aborts_ any data that is modified during
+;;   the routine.
+(define-public (modify-data
+                 (id int)
+                 (value int))
+   (begin
+     (set-entry! data (tuple (id id))
+                      (tuple (value value)))
+     (eq? id value)))
+
+
+(define-public (get-data (id int))
+  (get value (fetch-entry data (tuple (id id)))))
+";
+
+    let contract_2 ="
+(define-public (fail-in-other)
+  (begin
+    (contract-call! contract-1 modify-data 100 101)
+    'true))
+
+(define-public (fail-in-self)
+  (begin
+    (contract-call! contract-1 modify-data 105 105)
+    'false))
+";
+
+    let db = Box::new(MemoryContractDatabase::new().unwrap());
+    let mut global_context = GlobalContext::new(db);
+
+    global_context.initialize_contract("contract-1", contract_1).unwrap();
+    global_context.initialize_contract("contract-2", contract_2).unwrap();
+
+    let args = symbols_from_values(vec![]);
+    let sender = Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]);
+
+
+    assert_eq!(
+        global_context.execute_contract("contract-1", &sender, "modify-data",
+                                        &symbols_from_values(vec![Value::Int(10), Value::Int(10)])).unwrap(),
+        Value::Bool(true));
+
+    assert_eq!(
+        global_context.execute_contract("contract-1", &sender, "modify-data",
+                                        &symbols_from_values(vec![Value::Int(20), Value::Int(10)])).unwrap(),
+        Value::Bool(false));
+
+    assert_eq!(
+        global_context.execute_contract("contract-1", &sender, "get-data",
+                                        &symbols_from_values(vec![Value::Int(20)])).unwrap(),
+        Value::Void);
+
+    assert_eq!(
+        global_context.execute_contract("contract-1", &sender, "get-data",
+                                        &symbols_from_values(vec![Value::Int(10)])).unwrap(),
+        Value::Int(10));
+
+    assert_eq!(
+        global_context.execute_contract("contract-2", &sender, "fail-in-other",
+                                        &symbols_from_values(vec![])).unwrap(),
+        Value::Bool(true));
+
+    assert_eq!(
+        global_context.execute_contract("contract-2", &sender, "fail-in-self",
+                                        &symbols_from_values(vec![])).unwrap(),
+        Value::Bool(false));
+
+    assert_eq!(
+        global_context.execute_contract("contract-1", &sender, "get-data",
+                                        &symbols_from_values(vec![Value::Int(105)])).unwrap(),
+        Value::Void);
+
+
+    assert_eq!(
+        global_context.execute_contract("contract-1", &sender, "get-data",
+                                        &symbols_from_values(vec![Value::Int(100)])).unwrap(),
+        Value::Void);
+
+    
+}
+
+#[test]
 fn test_factorial_contract() {
     let contract_defn =
         "(define-map factorials ((id int)) ((current int) (index int)))
