@@ -9,7 +9,6 @@ use vm::types::Value;
 pub enum LexItem {
     LeftParen,
     RightParen,
-    NamedParameter(String),
     LiteralValue(Value),
     Variable(String),
     Whitespace
@@ -20,7 +19,7 @@ enum TokenType {
     LParens, RParens, Whitespace,
     StringLiteral, HexStringLiteral,
     IntLiteral, QuoteLiteral,
-    Variable, NamedParameter, PrincipalLiteral
+    Variable, PrincipalLiteral
 }
 
 struct LexMatcher {
@@ -63,7 +62,6 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
         LexMatcher::new("(?P<value>[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false|null)", TokenType::QuoteLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
-        LexMatcher::new("#(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::NamedParameter),
         LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
     ];
 
@@ -110,13 +108,6 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                     TokenType::Whitespace => {
                         context = LexContext::ExpectNothing;
                         Ok(LexItem::Whitespace)
-                    },
-                    TokenType::NamedParameter => {
-                        let value = get_value_or_err(current_slice, captures)?;
-                        if value.contains("#") {
-                            return Err(Error::new(ErrType::ParseError(format!("Illegal variable name: '{}'", value))))
-                        }
-                        Ok(LexItem::NamedParameter(value))
                     },
                     TokenType::Variable => {
                         let value = get_value_or_err(current_slice, captures)?;
@@ -197,13 +188,6 @@ pub fn parse_lexed(mut input: Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
                 // start new list.
                 let new_list = Vec::new();
                 parse_stack.push(new_list);
-            },
-            LexItem::NamedParameter(value) => {
-                let symbol_out = SymbolicExpression::NamedParameter(value);
-                match parse_stack.last_mut() {
-                    None => output_list.push(symbol_out),
-                    Some(ref mut list) => list.push(symbol_out)
-                };
             },
             LexItem::RightParen => {
                 // end current list.

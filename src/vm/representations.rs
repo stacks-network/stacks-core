@@ -11,5 +11,4 @@ pub enum SymbolicExpression {
     AtomValue(Value),
     Atom(String),
     List(Box<[SymbolicExpression]>),
-    NamedParameter(String)
 }

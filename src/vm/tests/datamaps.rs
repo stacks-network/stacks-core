@@ -306,15 +306,14 @@ fn bad_define_maps() {
     let test_list_pairs = [
         "(define-map lists ((name int)) ((contents int bool)))",
         "(define-map lists ((name int)) (contents bool))",
-        "(define-map lists ((#name int)) (contents bool))",
+        "(define-map lists ((name int)) (contents bool))",
         "(define-map lists ((name int)) contents)"];
     let test_define_args = [
-        "(define-map (lists) ((name #int)) contents)",
-        "(define-map lists ((name #int)) contents 5)"];
+        "(define-map (lists) ((name int)) contents)",
+        "(define-map lists ((name int)) contents 5)"];
 
     let test_bad_type = [
-        "(define-map lists ((name int)) ((contents (list 5 0 int))))",
-        "(define-map lists ((name #int)) (contents bool))"];
+        "(define-map lists ((name int)) ((contents (list 5 0 int))))"];
     
     for test in test_list_pairs.iter() {
         println!("Test: {:?}", test);

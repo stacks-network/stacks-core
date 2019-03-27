@@ -108,8 +108,6 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
     match exp {
         &SymbolicExpression::AtomValue(ref value) => Ok(value.clone()),
         &SymbolicExpression::Atom(ref value) => lookup_variable(&value, context, env),
-        &SymbolicExpression::NamedParameter(ref _name) => 
-            Err(Error::new(ErrType::InvalidArguments("Cannot eval a named parameter".to_string()))),
         &SymbolicExpression::List(ref children) => {
             if let Some((function_variable, rest)) = children.split_first() {
                 match function_variable {

@@ -92,10 +92,6 @@ fn test_bad_variables() {
     let expected = ErrType::TryEvalToFunction;
     assert_eq!(expected, execute(&test2).unwrap_err().err_type);
 
-    let test3 = "#foo";
-    let expected = ErrType::InvalidArguments("Cannot eval a named parameter".to_string());
-    assert_eq!(expected, execute(&test3).unwrap_err().err_type);
-
     let test4 = "()";
     let expected = Ok(Value::Void);
     assert_eq!(expected, execute(&test4));

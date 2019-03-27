@@ -1,7 +1,7 @@
 use vm::types::{Value, TupleTypeSignature, parse_name_type_pairs};
 use vm::callables::{DefinedFunction, PublicFunction, PrivateFunction};
 use vm::representations::SymbolicExpression;
-use vm::representations::SymbolicExpression::{Atom, AtomValue, List, NamedParameter};
+use vm::representations::SymbolicExpression::{Atom, AtomValue, List};
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::eval;
@@ -112,8 +112,6 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                             Atom(ref variable) => handle_define_variable(variable, &elements[2], env),
                             AtomValue(ref _value) => Err(Error::new(ErrType::InvalidArguments(
                                 "Illegal operation: attempted to re-define a value type.".to_string()))),
-                            NamedParameter(ref _value) => Err(Error::new(ErrType::InvalidArguments(
-                                "Illegal operation: attempted to re-define a named parameter.".to_string()))),
                             List(ref function_signature) =>
                                 handle_define_private_function(&function_signature, &elements[2], env)
                         }
