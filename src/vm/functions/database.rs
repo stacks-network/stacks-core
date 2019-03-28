@@ -1,5 +1,5 @@
 use vm::types::{Value};
-use vm::representations::SymbolicExpression;
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::{eval, LocalContext, Environment};
 
@@ -11,13 +11,13 @@ pub fn special_contract_call(args: &[SymbolicExpression],
             "(contract-call ...) requires at least 2 arguments: the contract name and the public function name".to_string())))
     }
 
-    let contract_name = match &args[0] {
-        SymbolicExpression::Atom(value) => Ok(value),
+    let contract_name = match &args[0].expr {
+        SymbolicExpressionType::Atom(value) => Ok(value),
         _ => Err(Error::new(ErrType::InvalidArguments("First argument to (contract-call ...) must be contract name".to_string())))
     }?;
 
-    let function_name = match &args[1] {
-        SymbolicExpression::Atom(value) => Ok(value),
+    let function_name = match &args[1].expr {
+        SymbolicExpressionType::Atom(value) => Ok(value),
         _ => Err(Error::new(ErrType::InvalidArguments("Second argument to (contract-call ...) must be function name".to_string())))
     }?;
 
@@ -25,7 +25,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
 
     let rest_args: Result<Vec<_>> = rest_args.iter().map(|x| { eval(x, env, context) }).collect();
     let mut rest_args = rest_args?;
-    let rest_args: Vec<_> = rest_args.drain(..).map(|x| { SymbolicExpression::AtomValue(x) }).collect();
+    let rest_args: Vec<_> = rest_args.drain(..).map(|x| { SymbolicExpression::atom_value(x) }).collect();
 
     let sender = env.sender.as_ref()
         .ok_or(Error::new(ErrType::InvalidArguments(
@@ -53,8 +53,8 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
 
     let key = eval(&args[1], env, context)?;
 
-    let map_name = match &args[0] {
-        SymbolicExpression::Atom(value) => Ok(value),
+    let map_name = match &args[0].expr {
+        SymbolicExpressionType::Atom(value) => Ok(value),
         _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
     }?;
 
@@ -74,8 +74,8 @@ pub fn special_set_entry(args: &[SymbolicExpression],
     let key = eval(&args[1], env, context)?;
     let value = eval(&args[2], env, context)?;
 
-    let map_name = match &args[0] {
-        SymbolicExpression::Atom(value) => Ok(value),
+    let map_name = match &args[0].expr {
+        SymbolicExpressionType::Atom(value) => Ok(value),
         _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
     }?;
 
@@ -95,8 +95,8 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
     let key = eval(&args[1], env, context)?;
     let value = eval(&args[2], env, context)?;
 
-    let map_name = match &args[0] {
-        SymbolicExpression::Atom(value) => Ok(value),
+    let map_name = match &args[0].expr {
+        SymbolicExpressionType::Atom(value) => Ok(value),
         _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
     }?;
 
@@ -114,8 +114,8 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
 
     let key = eval(&args[1], env, context)?;
 
-    let map_name = match &args[0] {
-        SymbolicExpression::Atom(value) => Ok(value),
+    let map_name = match &args[0].expr {
+        SymbolicExpressionType::Atom(value) => Ok(value),
         _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
     }?;
 

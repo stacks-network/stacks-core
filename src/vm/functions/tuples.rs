@@ -1,6 +1,6 @@
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::{Value};
-use vm::representations::SymbolicExpression;
+use vm::representations::{SymbolicExpression,SymbolicExpressionType};
 use vm::{LocalContext, Environment, eval};
 
 pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
@@ -29,8 +29,8 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
     if args.len() != 2 {
         return Err(Error::new(ErrType::InvalidArguments(format!("(get ..) requires exactly 2 arguments"))))
     }
-    let arg_name = match args[0] {
-        SymbolicExpression::Atom(ref name) => Ok(name),
+    let arg_name = match args[0].expr {
+        SymbolicExpressionType::Atom(ref name) => Ok(name),
         _ => Err(Error::new(ErrType::InvalidArguments(format!("Second argument to (get ..) must be a name, found: {:?}", args[0]))))
     }?;
 

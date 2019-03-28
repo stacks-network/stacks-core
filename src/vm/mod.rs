@@ -14,6 +14,8 @@ mod functions;
 mod variables;
 mod callables;
 
+//mod typecheck;
+
 #[cfg(test)]
 mod tests;
 
@@ -23,7 +25,7 @@ use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
-pub use vm::representations::SymbolicExpression;
+pub use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 
 const MAX_CALL_STACK_DEPTH: usize = 256;
 
@@ -105,13 +107,15 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
 }
 
 pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &LocalContext) -> Result<Value> {
-    match exp {
-        &SymbolicExpression::AtomValue(ref value) => Ok(value.clone()),
-        &SymbolicExpression::Atom(ref value) => lookup_variable(&value, context, env),
-        &SymbolicExpression::List(ref children) => {
+    use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+
+    match exp.expr {
+        AtomValue(ref value) => Ok(value.clone()),
+        Atom(ref value) => lookup_variable(&value, context, env),
+        List(ref children) => {
             if let Some((function_variable, rest)) = children.split_first() {
-                match function_variable {
-                    &SymbolicExpression::Atom(ref value) => {
+                match function_variable.expr {
+                    Atom(ref value) => {
                         let f = lookup_function(&value, env)?;
                         apply(&f, &rest, env, context)
                     },
@@ -205,14 +209,14 @@ mod test {
         //  (define a 59)
         //  (do_work a)
         //
-        let content = [ SymbolicExpression::List(
-            Box::new([ SymbolicExpression::Atom("do_work".to_string()),
-                       SymbolicExpression::Atom("a".to_string()) ])) ];
+        let content = [ SymbolicExpression::list(
+            Box::new([ SymbolicExpression::atom("do_work".to_string()),
+                       SymbolicExpression::atom("a".to_string()) ])) ];
 
-        let func_body = SymbolicExpression::List(
-            Box::new([ SymbolicExpression::Atom("+".to_string()),
-                       SymbolicExpression::AtomValue(Value::Int(5)),
-                       SymbolicExpression::Atom("x".to_string())]));
+        let func_body = SymbolicExpression::list(
+            Box::new([ SymbolicExpression::atom("+".to_string()),
+                       SymbolicExpression::atom_value(Value::Int(5)),
+                       SymbolicExpression::atom("x".to_string())]));
 
         let func_args = vec!["x".to_string()];
         let user_function = PrivateFunction::new(func_args, func_body,

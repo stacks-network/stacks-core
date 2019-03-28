@@ -1,7 +1,7 @@
 use vm::types::{Value, TupleTypeSignature, parse_name_type_pairs};
 use vm::callables::{DefinedFunction, PublicFunction, PrivateFunction};
 use vm::representations::SymbolicExpression;
-use vm::representations::SymbolicExpression::{Atom, AtomValue, List};
+use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List};
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::eval;
@@ -37,7 +37,7 @@ fn handle_define_private_function(signature: &[SymbolicExpression],
                                   expression: &SymbolicExpression,
                                   env: &Environment) -> Result<DefineResult> {
     let coerced_atoms: Result<Vec<_>> = signature.iter().map(|x| {
-        if let Atom(name) = x {
+        if let Atom(ref name) = x.expr {
             Ok(name)
         } else {
             Err(Error::new(ErrType::InvalidArguments("Non-atomic argument to method signature in define".to_string())))
@@ -53,7 +53,7 @@ fn handle_define_private_function(signature: &[SymbolicExpression],
     let function = PrivateFunction::new(
         arg_names.iter().map(|x| (*x).clone()).collect(),
         expression.clone(),
-        *function_name,
+        function_name,
         &env.contract_context.name);
 
     Ok(DefineResult::Function((*function_name).clone(), function))
@@ -65,8 +65,8 @@ fn handle_define_public_function(signature: &[SymbolicExpression],
     let (function_symbol, arg_symbols) = signature.split_first()
         .ok_or(Error::new(ErrType::InvalidArguments("Must supply atleast a name argument to define a function".to_string())))?;
 
-    let function_name = match function_symbol {
-        Atom(name) => Ok(name),
+    let function_name = match function_symbol.expr {
+        Atom(ref name) => Ok(name),
         _ => Err(Error::new(ErrType::InvalidArguments(format!("Invalid function name {:?}", function_symbol))))
     }?;
 
@@ -87,7 +87,7 @@ fn handle_define_map(map_name: &SymbolicExpression,
                      key_type: &SymbolicExpression,
                      value_type: &SymbolicExpression,
                      env: &Environment) -> Result<DefineResult> {
-    let map_str = match map_name {
+    let map_str = match map_name.expr {
         Atom(ref map_name) => Ok(map_name.clone()),
         _ => Err(Error::new(ErrType::InvalidArguments("Non-name argument to define-map".to_string())))
     }?;
@@ -101,14 +101,14 @@ fn handle_define_map(map_name: &SymbolicExpression,
 }
 
 pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
-    if let SymbolicExpression::List(elements) = expression {
-        if let Some(Atom(func_name)) = elements.get(0) {
+    if let List(ref elements) = expression.expr {
+        if let Some(SymbolicExpression{ expr: Atom(func_name), id: _}) = elements.get(0) {
             return match func_name.as_str() {
                 "define" => {
                     if elements.len() != 3 {
                         Err(Error::new(ErrType::InvalidArguments("(define ...) requires 2 arguments".to_string())))
                     } else {
-                        match elements[1] {
+                        match elements[1].expr {
                             Atom(ref variable) => handle_define_variable(variable, &elements[2], env),
                             AtomValue(ref _value) => Err(Error::new(ErrType::InvalidArguments(
                                 "Illegal operation: attempted to re-define a value type.".to_string()))),
@@ -121,7 +121,7 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                     if elements.len() != 3 {
                         Err(Error::new(ErrType::InvalidArguments("(define-public ...) requires 2 arguments".to_string())))
                     } else {
-                        if let List(ref function_signature) =  elements[1] {
+                        if let List(ref function_signature) =  elements[1].expr {
                             handle_define_public_function(&function_signature, &elements[2], env)
                         } else {
                             Err(Error::new(ErrType::InvalidArguments(

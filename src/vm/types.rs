@@ -3,7 +3,7 @@ use std::fmt;
 use std::collections::BTreeMap;
 
 use address::c32;
-use vm::representations::SymbolicExpression;
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
 use util::hash;
 
@@ -16,6 +16,8 @@ pub struct TupleTypeSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AtomTypeIdentifier {
+    AnyType,
+    NoType,
     VoidType,
     IntType,
     BoolType,
@@ -181,6 +183,10 @@ impl fmt::Display for Value {
 impl AtomTypeIdentifier {
     pub fn size(&self) -> Result<i128> {
         match self {
+            // AnyType/NoType should _never_ be asked for size. It is only ever used
+            //   in type checking native functions.
+            AtomTypeIdentifier::AnyType => Err(Error::new(ErrType::BadTypeConstruction)),
+            AtomTypeIdentifier::NoType => Err(Error::new(ErrType::BadTypeConstruction)),
             AtomTypeIdentifier::VoidType => Ok(1),
             AtomTypeIdentifier::IntType => Ok(16),
             AtomTypeIdentifier::BoolType => Ok(1),
@@ -221,6 +227,12 @@ impl AtomTypeIdentifier {
 
     fn admits(&self, other: &AtomTypeIdentifier) -> bool {
         match self {
+            AtomTypeIdentifier::AnyType => {
+                true
+            },
+            AtomTypeIdentifier::NoType => {
+                false
+            },
             AtomTypeIdentifier::BufferType(ref my_len) => {
                 if let AtomTypeIdentifier::BufferType(ref other_len) = other {
                     my_len >= other_len
@@ -301,7 +313,7 @@ impl TupleTypeSignature {
     }
 
     pub fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature> {
-        if let SymbolicExpression::List(ref name_type_pairs) = type_def {
+        if let SymbolicExpressionType::List(ref name_type_pairs) = type_def.expr {
             let mapped_key_types = parse_name_type_pairs(name_type_pairs)?;
             TupleTypeSignature::new(mapped_key_types)
         } else {
@@ -561,7 +573,7 @@ impl TypeSignature {
             if type_args.len() == 2 {
                 Ok(1)
             } else {
-                if let SymbolicExpression::AtomValue(Value::Int(dimension)) = &type_args[1] {
+                if let SymbolicExpressionType::AtomValue(Value::Int(dimension)) = &type_args[1].expr {
                     Ok(*dimension)
                 } else {
                     Err(Error::new(ErrType::InvalidTypeDescription))
@@ -569,7 +581,7 @@ impl TypeSignature {
             }
         }?;
 
-        if let SymbolicExpression::AtomValue(Value::Int(max_len)) = &type_args[0] {            
+        if let SymbolicExpressionType::AtomValue(Value::Int(max_len)) = &type_args[0].expr {            
             let atomic_type_arg = &type_args[type_args.len()-1];
             let atomic_type = TypeSignature::parse_type_repr(atomic_type_arg, false)?;
             TypeSignature::new_list(atomic_type.atomic_type, *max_len, dimension)
@@ -594,7 +606,7 @@ impl TypeSignature {
         if type_args.len() != 1 {
             return Err(Error::new(ErrType::InvalidTypeDescription))
         }
-        if let SymbolicExpression::AtomValue(Value::Int(buff_len)) = &type_args[0] {
+        if let SymbolicExpressionType::AtomValue(Value::Int(buff_len)) = &type_args[0].expr {
             TypeSignature::new_buffer(*buff_len)
         } else {
             Err(Error::new(ErrType::InvalidTypeDescription))
@@ -602,15 +614,15 @@ impl TypeSignature {
     }
 
     fn parse_type_repr(x: &SymbolicExpression, allow_list: bool) -> Result<TypeSignature> {
-        match x {
-            SymbolicExpression::Atom(atom_type_str) => {
+        match x.expr {
+            SymbolicExpressionType::Atom(ref atom_type_str) => {
                 let atomic_type = TypeSignature::parse_atom_type(atom_type_str)?;
                 Ok(TypeSignature::new_atom(atomic_type))
             },
-            SymbolicExpression::List(list_contents) => {
+            SymbolicExpressionType::List(ref list_contents) => {
                 let (compound_type, rest) = list_contents.split_first()
                     .ok_or(Error::new(ErrType::InvalidTypeDescription))?;
-                if let SymbolicExpression::Atom(compound_type) = compound_type {
+                if let SymbolicExpressionType::Atom(ref compound_type) = compound_type.expr {
                     match compound_type.as_str() {
                         "list" =>
                             if !allow_list {
@@ -637,13 +649,13 @@ pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<V
     // the form:
     // ((name1 type1) (name2 type2) (name3 type3) ...)
     // which is a list of 2-length lists of atoms.
-    use vm::representations::SymbolicExpression::{List, Atom};
+    use vm::representations::SymbolicExpressionType::{List, Atom};
 
     // step 1: parse it into a vec of symbolicexpression pairs.
     let as_pairs: Result<Vec<_>> = 
         name_type_pairs.iter().map(
             |key_type_pair| {
-                if let List(ref as_vec) = key_type_pair {
+                if let List(ref as_vec) = key_type_pair.expr {
                     if as_vec.len() != 2 {
                         Err(Error::new(ErrType::ExpectedListPairs))
                     } else {
@@ -657,7 +669,7 @@ pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<V
     // step 2: turn into a vec of (name, typesignature) pairs.
     let key_types: Result<Vec<_>> =
         (as_pairs?).iter().map(|(name_symbol, type_symbol)| {
-            let name = match name_symbol {
+            let name = match name_symbol.expr {
                 Atom(ref var) => Ok(var.clone()),
                 _ => Err(Error::new(ErrType::ExpectedListPairs))
             }?;

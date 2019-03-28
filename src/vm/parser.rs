@@ -192,7 +192,7 @@ pub fn parse_lexed(mut input: Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
             LexItem::RightParen => {
                 // end current list.
                 if let Some(value) = parse_stack.pop() {
-                    let expression = SymbolicExpression::List(value.into_boxed_slice());
+                    let expression = SymbolicExpression::list(value.into_boxed_slice());
                     match parse_stack.last_mut() {
                         None => {
                             // no open lists on stack, add current to result.
@@ -208,14 +208,14 @@ pub fn parse_lexed(mut input: Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
             },
             LexItem::Variable(value) => {
                 match parse_stack.last_mut() {
-                    None => output_list.push(SymbolicExpression::Atom(value)),
-                    Some(ref mut list) => list.push(SymbolicExpression::Atom(value))
+                    None => output_list.push(SymbolicExpression::atom(value)),
+                    Some(ref mut list) => list.push(SymbolicExpression::atom(value))
                 };
             },
             LexItem::LiteralValue(value) => {
                 match parse_stack.last_mut() {
-                    None => output_list.push(SymbolicExpression::AtomValue(value)),
-                    Some(ref mut list) => list.push(SymbolicExpression::AtomValue(value))
+                    None => output_list.push(SymbolicExpression::atom_value(value)),
+                    Some(ref mut list) => list.push(SymbolicExpression::atom_value(value))
                 };
             },
             LexItem::Whitespace => ()
@@ -251,32 +251,32 @@ mod test {
                          (+ x y))     
                          x)) x y";
         let program = vec![
-            SymbolicExpression::Atom("z".to_string()),
-            SymbolicExpression::List(Box::new([
-                SymbolicExpression::Atom("let".to_string()),
-                SymbolicExpression::List(Box::new([
-                    SymbolicExpression::List(Box::new([
-                        SymbolicExpression::Atom("x".to_string()),
-                        SymbolicExpression::AtomValue(Value::Int(1))])),
-                    SymbolicExpression::List(Box::new([
-                        SymbolicExpression::Atom("y".to_string()),
-                        SymbolicExpression::AtomValue(Value::Int(2))]))])),
-                SymbolicExpression::List(Box::new([
-                    SymbolicExpression::Atom("+".to_string()),
-                    SymbolicExpression::Atom("x".to_string()),
-                    SymbolicExpression::List(Box::new([
-                        SymbolicExpression::Atom("let".to_string()),
-                        SymbolicExpression::List(Box::new([
-                            SymbolicExpression::List(Box::new([
-                                SymbolicExpression::Atom("x".to_string()),
-                                SymbolicExpression::AtomValue(Value::Int(3))]))])),
-                        SymbolicExpression::List(Box::new([
-                            SymbolicExpression::Atom("+".to_string()),
-                            SymbolicExpression::Atom("x".to_string()),
-                            SymbolicExpression::Atom("y".to_string())]))])),
-                    SymbolicExpression::Atom("x".to_string())]))])),
-            SymbolicExpression::Atom("x".to_string()),
-            SymbolicExpression::Atom("y".to_string()),
+            SymbolicExpression::atom("z".to_string()),
+            SymbolicExpression::list(Box::new([
+                SymbolicExpression::atom("let".to_string()),
+                SymbolicExpression::list(Box::new([
+                    SymbolicExpression::list(Box::new([
+                        SymbolicExpression::atom("x".to_string()),
+                        SymbolicExpression::atom_value(Value::Int(1))])),
+                    SymbolicExpression::list(Box::new([
+                        SymbolicExpression::atom("y".to_string()),
+                        SymbolicExpression::atom_value(Value::Int(2))]))])),
+                SymbolicExpression::list(Box::new([
+                    SymbolicExpression::atom("+".to_string()),
+                    SymbolicExpression::atom("x".to_string()),
+                    SymbolicExpression::list(Box::new([
+                        SymbolicExpression::atom("let".to_string()),
+                        SymbolicExpression::list(Box::new([
+                            SymbolicExpression::list(Box::new([
+                                SymbolicExpression::atom("x".to_string()),
+                                SymbolicExpression::atom_value(Value::Int(3))]))])),
+                        SymbolicExpression::list(Box::new([
+                            SymbolicExpression::atom("+".to_string()),
+                            SymbolicExpression::atom("x".to_string()),
+                            SymbolicExpression::atom("y".to_string())]))])),
+                    SymbolicExpression::atom("x".to_string())]))])),
+            SymbolicExpression::atom("x".to_string()),
+            SymbolicExpression::atom("y".to_string()),
         ];
 
         let parsed = parser::parse(&input);

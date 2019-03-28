@@ -146,7 +146,7 @@ fn main() {
         "exec_tx" => {
             use std::io;
             use vm::contexts::GlobalContext;
-            use vm::SymbolicExpression;
+            use vm::{SymbolicExpression, SymbolicExpressionType};
             use vm::types::Value;
             use vm::database::{ContractDatabase, SqliteContractDatabase};
 
@@ -171,8 +171,8 @@ fn main() {
             let mut sender = vm::parser::parse(&format!("'{}", argv[5]))
                 .expect(&format!("Error parsing sender {}", argv[5]));
             let sender = {
-                if let Some(SymbolicExpression::AtomValue(
-                    Value::Principal(version, principal))) = sender.pop() {
+                if let Some(SymbolicExpression{ expr: SymbolicExpressionType::AtomValue(Value::Principal(version, principal)),
+                                                id: _ }) = sender.pop() {
                     Value::Principal(version, principal)
                 } else {
                     eprintln!("Unexpected result parsing sender: {}", argv[5]);
@@ -184,8 +184,9 @@ fn main() {
                 .map(|argument| {
                     let mut argument_parsed = vm::parser::parse(argument)
                         .expect(&format!("Error parsing argument \"{}\"", argument));
-                    if let Some(SymbolicExpression::AtomValue(x)) = argument_parsed.pop() {
-                        SymbolicExpression::AtomValue(x.clone())
+                    if let Some(SymbolicExpression{ expr: SymbolicExpressionType::AtomValue(x),
+                                                    id: _ }) = argument_parsed.pop() {
+                        SymbolicExpression::atom_value(x.clone())
                     } else {
                         eprintln!("Unexpected result parsing argument: {}", argument);
                         process::exit(1);

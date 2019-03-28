@@ -9,6 +9,7 @@ use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::Value;
 use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
+use vm::representations::SymbolicExpressionType::{List, Atom, AtomValue};
 use vm::{LocalContext, Environment, eval};
 
 
@@ -82,11 +83,11 @@ fn parse_eval_bindings(bindings: &[SymbolicExpression],
                        env: &mut Environment, context: &LocalContext)-> Result<Vec<(String, Value)>> {
     let mut result = Vec::new();
     for binding in bindings.iter() {
-        if let SymbolicExpression::List(ref binding_exps) = *binding {
+        if let List(ref binding_exps) = binding.expr {
             if binding_exps.len() != 2 {
                 return Err(Error::new(ErrType::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string())))
             }
-            if let SymbolicExpression::Atom(ref var_name) = binding_exps[0] {
+            if let Atom(ref var_name) = binding_exps[0].expr {
                 let value = eval(&binding_exps[1], env, context)?;
                 result.push((var_name.clone(), value));
             } else {
@@ -112,7 +113,7 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     // create a new context.
     let mut inner_context = context.extend()?;
 
-    if let SymbolicExpression::List(ref bindings) = args[0] {
+    if let List(ref bindings) = args[0].expr {
         // parse and eval the bindings.
         let mut binding_results = parse_eval_bindings(bindings, env, context)?;
         for (binding_name, binding_value) in binding_results.drain(..) {

@@ -1,4 +1,5 @@
-use vm::{SymbolicExpression, Value, apply, eval_all};
+use vm::{Value, apply, eval_all};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
 use vm::callables::CallableType;
 use vm::contexts::{Environment, LocalContext, ContractContext, GlobalContext};
@@ -35,8 +36,8 @@ impl Contract {
             let mut env = Environment::new(global_context, &self.contract_context);
 
             for arg in args {
-                match arg {
-                    SymbolicExpression::AtomValue(ref _v) => {},
+                match arg.expr {
+                    SymbolicExpressionType::AtomValue(ref _v) => {},
                     _ => return Err(Error::new(ErrType::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
                                                                     tx_name))))
                 }

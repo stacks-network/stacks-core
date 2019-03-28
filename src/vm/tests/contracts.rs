@@ -7,7 +7,7 @@ use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 
 fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
-    vec.drain(..).map(|value| SymbolicExpression::AtomValue(value)).collect()
+    vec.drain(..).map(|value| SymbolicExpression::atom_value(value)).collect()
 }
 
 #[test]
