@@ -6,19 +6,40 @@ pub type CheckResult <T> = Result<T, CheckError>;
 
 #[derive(Debug, PartialEq)]
 pub enum CheckErrors {
-    MaxContextDepthReached,
-    BadSyntaxBinding,
-    BadLetSyntax,
-    VariadicNeedsOneArgument,
-    TypeAlreadyAnnotatedFailure,
-    TypeNotAnnotatedFailure,
-    UnboundVariable(String),
-    IncorrectArgumentCount(usize, usize),
+    // list typing errors
+    UnknownListConstructionFailure,
+    ListTypesMustMatch,
+    ConstructedListTooLarge,
+
+    // simple type expectation mismatch
     TypeError(TypeSignature, TypeSignature),
-    IfArmsMustMatch(TypeSignature, TypeSignature),
+
+    // Checker runtime failures
+    TypeAlreadyAnnotatedFailure,
+    CheckerImplementationFailure,
+    TypeNotAnnotatedFailure,
     NotImplemented,
-    TooManyExpressions,
+
+    // tuples
+    BadTupleFieldName,
+    ExpectedTuple(TypeSignature),
+    NoSuchTupleField(String),
+    BadTupleConstruction,
+    TupleExpectsPairs,
+
+    // expect a function, or applying a function to a list
     NonFunctionApplication,
+    ExpectedListApplication,
+    // let syntax
+    BadLetSyntax,
+    BadSyntaxBinding,
+    MaxContextDepthReached,
+    UnboundVariable(String),
+    VariadicNeedsOneArgument,
+    IncorrectArgumentCount(usize, usize),
+    IfArmsMustMatch(TypeSignature, TypeSignature),
+    TooManyExpressions,
+    IllegalOrUnknownFunctionApplication(String),
     UnknownFunction(String),
     Generic(String)
 }

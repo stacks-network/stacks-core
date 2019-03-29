@@ -264,6 +264,10 @@ impl TupleTypeSignature {
         Ok(TupleTypeSignature { type_map: type_map })
     }
 
+    pub fn field_type(&self, field: &str) -> Option<&TypeSignature> {
+        self.type_map.get(field)
+    }
+
     pub fn admits(&self, other: &TupleTypeSignature) -> bool {
         if self.type_map.len() != other.type_map.len() {
             return false
@@ -394,6 +398,36 @@ impl TypeSignature {
         }
     }
 
+    pub fn list_max_len(&self) -> Option<u32> {
+        if let Some(ListTypeData{ max_len, dimension: _ }) = self.list_dimensions {
+            Some(max_len.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn list_of(item_type: TypeSignature, max_len: u32) -> Result<TypeSignature> {
+        let next_dimensions = {
+            if let Some(ListTypeData{ max_len: item_max_len, dimension: item_dim }) = item_type.list_dimensions {
+                let dimension = item_dim.checked_add(1)
+                    .ok_or(Error::new(ErrType::ListTooLarge))?;
+                let max_len = {
+                    if item_max_len > max_len {
+                        item_max_len
+                    } else {
+                        max_len
+                    }
+                };
+                ListTypeData { max_len: max_len, dimension: dimension }
+            } else {
+                ListTypeData { max_len: max_len, dimension: 1 }
+            }
+        };
+
+        Ok(TypeSignature { atomic_type: item_type.atomic_type,
+                           list_dimensions: Some(next_dimensions) })
+    }
+
     pub fn deserialize(json: &str) -> Result<TypeSignature> {
         serde_json::from_str(json)
             .map_err(|x| Error::new(ErrType::DeserializationFailure(
@@ -428,6 +462,9 @@ impl TypeSignature {
     }
 
     pub fn get_empty_list_type() -> TypeSignature {
+        // TODO: empty list type should be typed/handled differently.
+        //         any list type should _admit_
+        //         an empty list type
         TypeSignature { atomic_type: AtomTypeIdentifier::IntType,
                         list_dimensions: Some(ListTypeData { max_len: 0,
                                                              dimension: 1 })}
@@ -493,17 +530,21 @@ impl TypeSignature {
     //       my feeling is that this should probably be allowed, and the resulting
     //       type should be (list 2 (buffer 4)) 
     fn construct_parent_list_type(args: &[Value]) -> Result<TypeSignature> {
-        if let Some((first, rest)) = args.split_first() {
+        let children_types:Vec<_> = args.iter().map(|x| TypeSignature::type_of(x)).collect();
+        TypeSignature::parent_list_type(&children_types)
+    }
+
+    pub fn parent_list_type(children: &[TypeSignature]) -> Result<TypeSignature> {
+        if let Some((first, rest)) = children.split_first() {
             // children must be all of identical types, though we're a little more permissive about
             //   children which are _lists_: we don't care about their max_len, we just take the max()
-            let mut child_type = TypeSignature::type_of(first);
-            for x in rest {
-                let x_type_signature = TypeSignature::type_of(x);
-                child_type.expand_to_admit(&x_type_signature)?;
+            let mut child_type = first.clone();
+            for cur_child_type in rest {
+                child_type.expand_to_admit(&cur_child_type)?;
             }
 
             let mut parent_max_len = {
-                let args_len = args.len();
+                let args_len = children.len();
                 if args_len > (u32::max_value() as usize) {
                     Err(Error::new(ErrType::ListTooLarge))
                 } else {
@@ -549,6 +590,33 @@ impl TypeSignature {
             }
         } else {
             self.atomic_type.admits(&x_type.atomic_type)
+        }
+    }
+
+    // Returns Some(AtomTypeIdentifier) in the case that this type
+    //   is an atomic type.
+    //  If this type is a _list_, however, return None
+    pub fn match_atomic(&self) -> Option<&AtomTypeIdentifier> {
+        if self.list_dimensions.is_some() {
+            return None
+        }
+        Some(&self.atomic_type)
+    }
+
+    pub fn get_list_item_type(&self) -> Option<TypeSignature> {
+        if let Some(ref my_dimensions) = self.list_dimensions {
+            if my_dimensions.dimension == 0 {
+                None // should never occur, but this case will handle it gracefully anyways...
+            } else if my_dimensions.dimension == 1 {
+                Some(TypeSignature::new_atom(self.atomic_type.clone()))
+            } else {
+                let list_dimensions = Some(ListTypeData { max_len: my_dimensions.max_len.clone(),
+                                                          dimension: my_dimensions.dimension - 1 });
+                Some(TypeSignature { atomic_type: self.atomic_type.clone(),
+                                     list_dimensions: list_dimensions })
+            }
+        } else {
+            None
         }
     }
 
