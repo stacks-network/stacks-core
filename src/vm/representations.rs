@@ -19,6 +19,12 @@ pub enum SymbolicExpressionType {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct SymbolicExpression {
     pub expr: SymbolicExpressionType,
+    // this id field is used by compiler passes to store information in
+    //  maps.
+    // first pass       -> fill out unique ids
+    // ...typing passes -> store information in hashmap according to id.
+    // 
+    // this is a fairly standard technique in compiler passes
     pub id: u64
 }
 
