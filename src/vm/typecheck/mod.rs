@@ -471,7 +471,6 @@ fn check_special_tuple_cons(args: &[SymbolicExpression], context: &TypingContext
     "set-entry!" => Some(CallableType::SpecialFunction("native_set-entry", &database::special_set_entry)),
     "insert-entry!" => Some(CallableType::SpecialFunction("native_insert-entry", &database::special_insert_entry)),
     "delete-entry!" => Some(CallableType::SpecialFunction("native_delete-entry", &database::special_delete_entry)),
-    "tuple" => Some(CallableType::SpecialFunction("native_tuple", &tuples::tuple_cons)),
     "contract-call!" => Some(CallableType::SpecialFunction("native_contract-call", &database::special_contract_call)), */
 
 fn try_special_function_check(function: &str, args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> Option<TypeResult> {
@@ -479,6 +478,7 @@ fn try_special_function_check(function: &str, args: &[SymbolicExpression], conte
         "if" => Some(check_special_if(args, context, type_map)),
         "let" => Some(check_special_let(args, context, type_map)),
         "get" => Some(check_special_get(args, context, type_map)),
+        "tuple" => Some(check_special_tuple_cons(args, context, type_map)),
         "map" => Some(check_special_map(args, context, type_map)),
         "fold" => Some(check_special_fold(args, context, type_map)),
         "list" => Some(check_special_list_cons(args, context, type_map)),
@@ -616,4 +616,23 @@ mod test {
             assert!(type_check(&bad_test[0], &TypingContext::new(), &mut TypeMap::new()).is_err())
         }
     }
+
+    #[test]
+    fn test_tuples() {
+        let good = ["(+ 1 2     (get abc (tuple (abc 1) (def 'true))))",
+                    "(and 'true (get def (tuple (abc 1) (def 'true))))"];
+        let bad = ["(+ 1 2      (get def (tuple (abc 1) (def 'true))))",
+                   "(and 'true  (get abc (tuple (abc 1) (def 'true))))"];
+                   
+        for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
+            identity_pass::identity_pass(&mut good_test).unwrap();
+            type_check(&good_test[0], &TypingContext::new(), &mut TypeMap::new()).unwrap();
+        }
+
+        for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
+            identity_pass::identity_pass(&mut bad_test).unwrap();
+            assert!(type_check(&bad_test[0], &TypingContext::new(), &mut TypeMap::new()).is_err())
+        }
+    }
+
 }
