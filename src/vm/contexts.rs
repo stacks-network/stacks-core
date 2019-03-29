@@ -7,7 +7,7 @@ use vm::database::{ContractDatabase};
 use vm::{SymbolicExpression};
 use vm::contracts::Contract;
 
-const MAX_CONTEXT_DEPTH: u16 = 256;
+pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
 
 // TODO:

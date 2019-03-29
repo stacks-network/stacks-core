@@ -49,4 +49,33 @@ impl SymbolicExpression {
             expr: SymbolicExpressionType::List(val)
         }
     }
+
+    // These match functions are used to simplify calling code
+    //   areas a lot. There is a frequent code pattern where
+    //   a block _expects_ specific symbolic expressions, leading
+    //   to a lot of very verbose `if let x = {` expressions. 
+
+    pub fn match_list(&self) -> Option<&[SymbolicExpression]> {
+        if let SymbolicExpressionType::List(ref list) = self.expr {
+            Some(list)
+        } else {
+            None
+        }
+    }
+
+    pub fn match_atom(&self) -> Option<&String> {
+        if let SymbolicExpressionType::Atom(ref value) = self.expr {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn match_atom_value(&self) -> Option<&Value> {
+        if let SymbolicExpressionType::AtomValue(ref value) = self.expr {
+            Some(value)
+        } else {
+            None
+        }
+    }
 }

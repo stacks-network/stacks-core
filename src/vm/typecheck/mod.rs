@@ -3,6 +3,8 @@ use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{AtomTypeIdentifier, TypeSignature, Value};
 
+use vm::contexts::MAX_CONTEXT_DEPTH;
+
 mod errors;
 mod identity_pass;
 
@@ -39,7 +41,8 @@ pub enum FunctionType {
 pub struct TypingContext <'a> {
     variable_types: HashMap<String, TypeSignature>,
     function_types: HashMap<String, FunctionType>,
-    parent: Option<&'a TypingContext<'a>>
+    parent: Option<&'a TypingContext<'a>>,
+    depth: u16
 }
 
 fn no_type() -> TypeSignature {
@@ -70,14 +73,46 @@ impl <'a> TypingContext <'a> {
         TypingContext {
             variable_types: HashMap::new(),
             function_types: HashMap::new(),
+            depth: 0,
             parent: None
         }
     }
-    pub fn lookup_function_type(&self, name: &str) -> Option<FunctionType> {
-        None
+
+    pub fn extend<'b>(&'b self) -> CheckResult<TypingContext<'b>> {
+        if self.depth >= MAX_CONTEXT_DEPTH {
+            Err(CheckError::new(CheckErrors::MaxContextDepthReached))
+        } else {
+            Ok(TypingContext {
+                variable_types: HashMap::new(),
+                function_types: HashMap::new(),
+                parent: Some(self),
+                depth: self.depth + 1
+            })
+        }
     }
-    pub fn lookup_variable_type(&self, name: &str) -> Option<TypeSignature> {
-        None
+
+    pub fn lookup_function_type(&self, name: &str) -> Option<&FunctionType> {
+        match self.function_types.get(name) {
+            Some(value) => Some(value),
+            None => {
+                match self.parent {
+                    Some(parent) => parent.lookup_function_type(name),
+                    None => None
+                }
+            }
+        }
+    }
+
+    pub fn lookup_variable_type(&self, name: &str) -> Option<&TypeSignature> {
+        match self.variable_types.get(name) {
+            Some(value) => Some(value),
+            None => {
+                match self.parent {
+                    Some(parent) => parent.lookup_variable_type(name),
+                    None => None
+                }
+            }
+        }
     }
 }
 
@@ -218,42 +253,48 @@ fn check_special_if(args: &[SymbolicExpression], context: &TypingContext, type_m
     Ok(return_type)
 }
 
-/*fn type_check_list_pairs<'a> (bindings: &[SymbolicExpression],
-                              context: &TypingContext) -> Result<(TypingContext<'a>, TypeAnnotatedSymbolicExpression), String> {
-    let mut result = Vec::new();
-    let mut out_context = TypingContext::new();
-    out_context.parent = Some(context);
+fn type_check_list_pairs<'a> (bindings: &[SymbolicExpression],
+                              context: &'a TypingContext,
+                              type_map: &mut TypeMap) -> CheckResult<TypingContext<'a>> {
+    let mut out_context = context.extend()?;
     for binding in bindings.iter() {
-        if let SymbolicExpression::list(ref binding_exps) = *binding {
-            if binding_exps.len() != 2 {
-                return Err(format!("Passed non 2-length list as a binding. Bindings should be of the form (name value)."))
-            }
-            if let SymbolicExpression::Atom(ref var_name) = binding_exps[0] {
-                let typed_result = type_check(&binding_exps[1], context)?;
-                result.push(
-                    TypeAnnotatedSymbolicExpression::binding(var_name.clone(),
-                                                             typed_result));
-                out_context.variable_types.insert(var_name.clone(),
-                                                  typed_result.annotation.clone());
-            } else {
-                return Err(Error::new(ErrType::InvalidArguments("Passed bad variable name as a binding. Bindings should be of the form (name value).".to_string())))
-            }
-        } else {
-            return Err(format!("Passed non-list as bindings."))
+        let binding_exps = binding.match_list()
+            .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
+
+        if binding_exps.len() != 2 {
+            return Err(CheckError::new(CheckErrors::BadSyntaxBinding))
         }
+
+        let var_name = binding_exps[0].match_atom()
+            .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
+
+        type_map.set_type(&binding_exps[0], no_type())?;
+        let typed_result = type_check(&binding_exps[1], context, type_map)?;
+        out_context.variable_types.insert(var_name.clone(),
+                                          typed_result);
     }
 
-    Ok((out_context,
-        TypeAnnotatedSymbolicExpression::bindings(result)))
-}*/
+    Ok(out_context)
+}
 
-fn check_special_let(args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    return Err(CheckError::new(CheckErrors::NotImplemented))
+fn check_special_let(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
+    if args.len() != 2 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+    }
+
+    type_map.set_type(&args[0], no_type())?;
+    let binding_list = args[0].match_list()
+        .ok_or(CheckError::new(CheckErrors::BadLetSyntax))?;
+
+    let let_context = type_check_list_pairs(binding_list, context, type_map)?;
+
+    let body_return_type = type_check(&args[1], &let_context, type_map)?;
+
+    Ok(body_return_type)
 }
 
 
 /*
-    "let" => Some(CallableType::SpecialFunction("native_let", &special_let)),
     "map" => Some(CallableType::SpecialFunction("native_map", &lists::list_map)),
     "fold" => Some(CallableType::SpecialFunction("native_fold", &lists::list_fold)),
     "list" => Some(CallableType::NativeFunction("native_cons", &lists::list_cons)),
@@ -270,6 +311,7 @@ fn check_special_let(args: &[SymbolicExpression], context: &TypingContext) -> Ty
 fn try_special_function_check(function: &str, args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> Option<TypeResult> {
     match function {
         "if" => Some(check_special_if(args, context, type_map)),
+        "let" => Some(check_special_let(args, context, type_map)),
         _ => None
     }
 }
@@ -305,6 +347,7 @@ pub fn type_check(expr: &SymbolicExpression, context: &TypingContext, type_map: 
         Atom(ref name) => {
             context.lookup_variable_type(name)
                 .ok_or(CheckError::new(CheckErrors::UnboundVariable(name.clone())))?
+                .clone()
         },
         List(ref expression) => {
             type_check_function_application(expression, context, type_map)?
@@ -328,6 +371,7 @@ mod test {
         let bad = ["(+ 1 2 3 (>= 5 7))",
                    "(-)",
                    "(xor 1)",
+                   "(+ x y z)", // unbound variables.
                    "(+ 1 2 3 (eq? 1 2))",
                    "(and (or 'true 'false) (+ 1 2 3))"];
         for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
@@ -347,6 +391,25 @@ mod test {
                     "(if 'true 'true)",
                     "(if 'true \"abcdef\" \"abc\")",
                     "(if 'true \"a\" \"abcdef\")" ];
+        let bad = ["(if 'true 'true 1)",
+                   "(if 'true \"a\" 'false)",
+                   "(if)",
+                   "(if 0 1 0)"];
+        for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
+            identity_pass::identity_pass(&mut good_test).unwrap();
+            type_check(&good_test[0], &TypingContext::new(), &mut TypeMap::new()).unwrap();
+        }
+
+        for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
+            identity_pass::identity_pass(&mut bad_test).unwrap();
+            assert!(type_check(&bad_test[0], &TypingContext::new(), &mut TypeMap::new()).is_err())
+        }
+    }
+
+    #[test]
+    fn test_simple_lets() {
+        let good = ["(let ((x 1) (y 2) (z 3)) (if (> x 2) (+ 1 x y) (- 1 z)))",
+                    "(let ((x 'true) (y (+ 1 2)) (z 3)) (if x (+ 1 z y) (- 1 z)))"];
         let bad = ["(if 'true 'true 1)",
                    "(if 'true \"a\" 'false)",
                    "(if)",
