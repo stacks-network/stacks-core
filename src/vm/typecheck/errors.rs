@@ -7,6 +7,7 @@ pub type CheckResult <T> = Result<T, CheckError>;
 #[derive(Debug, PartialEq)]
 pub enum CheckErrors {
     VariadicNeedsOneArgument,
+    TypeAlreadyAnnotatedFailure,
     TypeNotAnnotatedFailure,
     UnboundVariable(String),
     IncorrectArgumentCount(usize, usize),

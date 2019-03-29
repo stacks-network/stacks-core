@@ -27,11 +27,9 @@ Is illegally typed in our language.
 
 pub type TypeResult = CheckResult<TypeSignature>;
 
-
-// TODO
-//  probably want to implement typemap ourselves.
-//   it should, e.g., error on overwriting inserts.
-pub type TypeMap = HashMap<u64, TypeSignature>;
+pub struct TypeMap {
+    map: HashMap<u64, TypeSignature>
+}
 
 pub enum FunctionType {
     Variadic(TypeSignature, TypeSignature),
@@ -46,6 +44,25 @@ pub struct TypingContext <'a> {
 
 fn no_type() -> TypeSignature {
     TypeSignature::new_atom(AtomTypeIdentifier::NoType)
+}
+
+impl TypeMap {
+    fn new() -> TypeMap {
+        TypeMap { map: HashMap::new() }
+    }
+
+    fn set_type(&mut self, expr: &SymbolicExpression, type_sig: TypeSignature) -> CheckResult<()> {
+        if self.map.insert(expr.id, type_sig).is_some() {
+            Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn get_type(&self, expr: &SymbolicExpression) -> CheckResult<&TypeSignature> {
+        self.map.get(&expr.id)
+            .ok_or(CheckError::new(CheckErrors::TypeNotAnnotatedFailure))
+    }
 }
 
 impl <'a> TypingContext <'a> {
@@ -163,11 +180,6 @@ fn native_function_type_lookup(function: &str) -> Option<FunctionType> {
     }
 }
 
-fn get_type<'a>(expr: &SymbolicExpression, type_map: &'a TypeMap) -> CheckResult<&'a TypeSignature> {
-    type_map.get(&expr.id)
-        .ok_or(CheckError::new(CheckErrors::TypeNotAnnotatedFailure))
-}
-
 fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> CheckResult<()> {
     let expected = TypeSignature::new_atom(atom);
     if !expected.admits_type(to_check) {
@@ -184,15 +196,15 @@ fn check_special_if(args: &[SymbolicExpression], context: &TypingContext, type_m
 
     type_check_all(args, context, type_map)?;
 
-    check_atomic_type(AtomTypeIdentifier::BoolType, get_type(&args[0], type_map)?)?;
+    check_atomic_type(AtomTypeIdentifier::BoolType, type_map.get_type(&args[0])?)?;
 
     let return_type = {
         if args.len() == 2 {
-            get_type(&args[1], type_map)?
+            type_map.get_type(&args[1])?
                 .clone()
         } else {
-            let expr1 = get_type(&args[1], type_map)?;
-            let expr2 = get_type(&args[2], type_map)?;
+            let expr1 = type_map.get_type(&args[1])?;
+            let expr2 = type_map.get_type(&args[2])?;
             if expr1.admits_type(expr2) {
                 expr1.clone()
             } else if expr2.admits_type(expr1) {
@@ -264,7 +276,7 @@ fn try_special_function_check(function: &str, args: &[SymbolicExpression], conte
 
 fn type_check_function_application(expression: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
     if let Some((function_name, args)) = expression.split_first() {
-        type_map.insert(function_name.id, no_type());
+        type_map.set_type(function_name, no_type())?;
         if let SymbolicExpressionType::Atom(ref function_name) = function_name.expr {
             if let Some(type_result) = try_special_function_check(function_name, args, context, type_map) {
                 type_result
@@ -299,7 +311,7 @@ pub fn type_check(expr: &SymbolicExpression, context: &TypingContext, type_map: 
         }
     };
 
-    type_map.insert(expr.id, type_sig.clone());
+    type_map.set_type(expr, type_sig.clone())?;
     Ok(type_sig)
 }
 
@@ -320,12 +332,12 @@ mod test {
                    "(and (or 'true 'false) (+ 1 2 3))"];
         for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0], &TypingContext::new(), &mut HashMap::new()).unwrap();
+            type_check(&good_test[0], &TypingContext::new(), &mut TypeMap::new()).unwrap();
         }
 
         for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0], &TypingContext::new(), &mut HashMap::new()).is_err())
+            assert!(type_check(&bad_test[0], &TypingContext::new(), &mut TypeMap::new()).is_err())
         }
     }
 
@@ -341,12 +353,12 @@ mod test {
                    "(if 0 1 0)"];
         for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0], &TypingContext::new(), &mut HashMap::new()).unwrap();
+            type_check(&good_test[0], &TypingContext::new(), &mut TypeMap::new()).unwrap();
         }
 
         for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0], &TypingContext::new(), &mut HashMap::new()).is_err())
+            assert!(type_check(&bad_test[0], &TypingContext::new(), &mut TypeMap::new()).is_err())
         }
     }
 }
