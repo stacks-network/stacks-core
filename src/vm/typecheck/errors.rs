@@ -27,6 +27,9 @@ pub enum CheckErrors {
     BadTupleConstruction,
     TupleExpectsPairs,
 
+    // data map
+    BadMapName,
+
     // expect a function, or applying a function to a list
     NonFunctionApplication,
     ExpectedListApplication,

@@ -465,9 +465,30 @@ fn check_special_tuple_cons(args: &[SymbolicExpression], context: &TypingContext
     Ok(TypeSignature::new_atom(
         AtomTypeIdentifier::TupleType(tuple_signature)))
 }
+/*
+fn check_special_fetch_entry(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
+    if args.len() < 2 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+    }
+
+    let map_name = args[0].match_atom()
+        .ok_or(CheckError::new(CheckErrors::BadMapName))?;
+
+    type_map.set_type(&args[0], no_type())?;
+
+    let key_type = type_check(&args[1], context, type_map)?;
+
+    let expected_key_type = context.get_map_key_type(map_name)?;
+
+    if !expected_key_type.admits(key_type) {
+        return Err(CheckError::new(CheckErrors::TypeError(expected_key_type, key_type)))
+    } else {
+        return Ok(context.get_map_value_type(map_name)?)
+    }
+}
+*/
 
 /*
-    "fetch-entry" => Some(CallableType::SpecialFunction("native_fetch-entry", &database::special_fetch_entry)),
     "set-entry!" => Some(CallableType::SpecialFunction("native_set-entry", &database::special_set_entry)),
     "insert-entry!" => Some(CallableType::SpecialFunction("native_insert-entry", &database::special_insert_entry)),
     "delete-entry!" => Some(CallableType::SpecialFunction("native_delete-entry", &database::special_delete_entry)),
