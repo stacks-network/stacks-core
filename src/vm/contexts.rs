@@ -67,14 +67,12 @@ impl <'a> GlobalContext <'a> {
     }
 
     pub fn begin_from(database: &'a mut ContractDatabaseTransacter) -> GlobalContext<'a> {
-        let db = database.begin_save_point()
-            .expect("PANIC: Failed to begin save point");
+        let db = database.begin_save_point();
         GlobalContext::new(db)
     }
 
     pub fn commit(self) {
         self.database.commit()
-            .expect("PANIC: Failed to commit database context")
     }
 
     pub fn execute_contract(&mut self, contract_name: &str, 
@@ -89,18 +87,18 @@ impl <'a> GlobalContext <'a> {
                 Ok(x) => {
                     if let Value::Bool(bool_result) = x {
                         if bool_result {
-                            nested_context.database.commit()?;
+                            nested_context.commit();
                         } else {
-                            nested_context.database.roll_back()?;
+                            nested_context.database.roll_back();
                         }
                         Ok(x)
                     } else {
-                        nested_context.database.commit()?;
+                        nested_context.commit();
                         Ok(x)
                     }
                 },
                 Err(_) => {
-                    nested_context.database.roll_back()?;
+                    nested_context.database.roll_back();
                     contract_result
                 }
             }
@@ -116,10 +114,12 @@ impl <'a> GlobalContext <'a> {
                                               &mut nested_context);
             match result {
                 Ok(_) => {
-                    nested_context.database.commit().unwrap();
+                    nested_context.commit();
                 },
                 Err(_) => {
-                    nested_context.database.roll_back().unwrap();
+                    // not strictly necessary, since the database will roll back when it's reference
+                    // is destroyed.
+                    nested_context.database.roll_back();
                 }
             };
 

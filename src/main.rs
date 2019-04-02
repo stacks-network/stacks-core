@@ -112,7 +112,6 @@ fn main() {
             return
         },
         "init_contract" => {
-            use std::io;
             use vm::contexts::GlobalContext;
             use vm::database::{ContractDatabaseConnection};
 
@@ -146,7 +145,6 @@ fn main() {
             return
         },
         "exec_tx" => {
-            use std::io;
             use vm::contexts::GlobalContext;
             use vm::SymbolicExpression;
             use vm::types::Value;

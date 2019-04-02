@@ -23,7 +23,7 @@ use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
-use vm::database::{ContractDatabaseConnection, ContractDatabaseTransacter};
+use vm::database::{ContractDatabaseConnection};
 pub use vm::representations::SymbolicExpression;
 
 const MAX_CALL_STACK_DEPTH: usize = 256;

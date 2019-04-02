@@ -5,6 +5,7 @@ use vm::contracts::Contract;
 use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
+const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 
 pub struct ContractDatabaseConnection {
     conn: Connection
@@ -21,7 +22,7 @@ pub struct SqliteDataMap {
 }
 
 pub trait ContractDatabaseTransacter {
-    fn begin_save_point(&mut self) -> Result<ContractDatabase<'_>>;
+    fn begin_save_point(&mut self) -> ContractDatabase<'_>;
 }
 
 impl ContractDatabaseConnection {
@@ -33,18 +34,18 @@ impl ContractDatabaseConnection {
                        map_name TEXT,
                        key_type TEXT,
                        value_type TEXT)",
-                            NO_PARAMS)?;
+                            NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS data_table
                       (data_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
                        map_identifier INTEGER,
                        key TEXT,
                        value TEXT)",
-                            NO_PARAMS)?;
+                            NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS contracts
                       (contract_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
                        contract_name TEXT,
                        contract_data TEXT)",
-                            NO_PARAMS)?;
+                            NO_PARAMS);
 
         contract_db.check_schema()?;
 
@@ -84,32 +85,20 @@ impl ContractDatabaseConnection {
         })
     }
 
-    pub fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize>
+    pub fn execute<P>(&mut self, sql: &str, params: P) -> usize
     where
         P: IntoIterator,
         P::Item: ToSql {
         self.conn.execute(sql, params)
-            .map_err(|x| {
-                eprintln!("SQL Execution Error: {:?}", x);
-                Error::new(ErrType::SqliteError(IncomparableError{ err: x }))
-            })
-    }
-
-    pub fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> Result<Option<T>>
-    where
-        P: IntoIterator,
-        P::Item: ToSql,
-        F: FnOnce(&Row) -> T {
-        self.conn.query_row(sql, params, f)
-            .optional()
-            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))
+            .expect(SQL_FAIL_MESSAGE)
     }
 }
 
 impl ContractDatabaseTransacter for ContractDatabaseConnection {
-    fn begin_save_point(&mut self) -> Result<ContractDatabase<'_>> {
-        let sp = self.conn.savepoint().unwrap();
-        Ok(ContractDatabase::from_savepoint(sp))
+    fn begin_save_point(&mut self) -> ContractDatabase<'_> {
+        let sp = self.conn.savepoint()
+            .expect(SQL_FAIL_MESSAGE);
+        ContractDatabase::from_savepoint(sp)
     }
 }
 
@@ -120,25 +109,22 @@ impl <'a> ContractDatabase <'a> {
     }
 
 
-    pub fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize>
+    pub fn execute<P>(&mut self, sql: &str, params: P) -> usize
     where
         P: IntoIterator,
         P::Item: ToSql {
         self.savepoint.execute(sql, params)
-            .map_err(|x| {
-                eprintln!("SQL Execution Error: {:?}", x);
-                Error::new(ErrType::SqliteError(IncomparableError{ err: x }))
-            })
+            .expect(SQL_FAIL_MESSAGE)
     }
 
-    fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> Result<Option<T>>
+    fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> Option<T>
     where
         P: IntoIterator,
         P::Item: ToSql,
         F: FnOnce(&Row) -> T {
         self.savepoint.query_row(sql, params, f)
             .optional()
-            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))
+            .expect(SQL_FAIL_MESSAGE)
     }
 
 
@@ -149,7 +135,7 @@ impl <'a> ContractDatabase <'a> {
                 &[contract_name, map_name],
                 |row| {
                     (row.get(0), row.get(1), row.get(2))
-                })?
+                })
             .ok_or(Error::new(ErrType::UndefinedMap(map_name.to_string())))?;
 
         Ok(SqliteDataMap {
@@ -166,7 +152,7 @@ impl <'a> ContractDatabase <'a> {
                 &[contract_name],
                 |row| {
                     row.get(0)
-                })?;
+                });
         match contract {
             None => Ok(None),
             Some(ref contract) => Ok(Some(Contract::deserialize(contract)?))
@@ -178,7 +164,7 @@ impl <'a> ContractDatabase <'a> {
         let value_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type));
 
         self.execute("INSERT INTO maps_table (contract_name, map_name, key_type, value_type) VALUES (?, ?, ?, ?)",
-                     &[contract_name, map_name, &key_type.serialize()?, &value_type.serialize()?])?;
+                     &[contract_name, map_name, &key_type.serialize()?, &value_type.serialize()?]);
         Ok(())
     }
 
@@ -197,7 +183,7 @@ impl <'a> ContractDatabase <'a> {
                 &params,
                 |row| {
                     row.get(0)
-                })?;
+                });
         match sql_result {
             None => {
                 Ok(Value::Void)
@@ -226,7 +212,7 @@ impl <'a> ContractDatabase <'a> {
 
         self.execute(
             "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
-            &params)?;
+            &params);
 
         return Ok(Value::Void)
     }
@@ -251,7 +237,7 @@ impl <'a> ContractDatabase <'a> {
 
         self.execute(
             "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
-            &params)?;
+            &params);
 
         return Ok(Value::Bool(true))
     }
@@ -274,7 +260,7 @@ impl <'a> ContractDatabase <'a> {
 
         self.execute(
             "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
-            &params)?;
+            &params);
 
         return Ok(Value::Bool(exists))
     }
@@ -290,25 +276,26 @@ impl <'a> ContractDatabase <'a> {
             Err(Error::new(ErrType::ContractAlreadyExists(contract_name.to_string())))
         } else {
             self.execute("INSERT INTO contracts (contract_name, contract_data) VALUES (?, ?)",
-                         &[contract_name, &contract.serialize()?])?;
+                         &[contract_name, &contract.serialize()?]);
             Ok(())
         }
     }
 
-    pub fn roll_back(&mut self) -> Result<()> {
-        self.savepoint.rollback().unwrap();
-        Ok(())
+    pub fn roll_back(&mut self) {
+        self.savepoint.rollback()
+            .expect(SQL_FAIL_MESSAGE);
     }
 
-    pub fn commit(self) -> Result<()> {
-        self.savepoint.commit().unwrap();
-        Ok(())
+    pub fn commit(self) {
+        self.savepoint.commit()
+            .expect(SQL_FAIL_MESSAGE);
     }
 }
 
 impl <'a> ContractDatabaseTransacter for ContractDatabase<'a> {
-    fn begin_save_point(&mut self) -> Result<ContractDatabase> {
-        let sp = self.savepoint.savepoint().unwrap();
-        Ok(ContractDatabase::from_savepoint(sp))
+    fn begin_save_point(&mut self) -> ContractDatabase {
+        let sp = self.savepoint.savepoint()
+            .expect(SQL_FAIL_MESSAGE);
+        ContractDatabase::from_savepoint(sp)
     }
 }
