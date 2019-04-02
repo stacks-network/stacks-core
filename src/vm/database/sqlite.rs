@@ -1,15 +1,17 @@
-use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row};
+use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
 use rusqlite::types::ToSql;
 
 use vm::contracts::Contract;
-use vm::database::{ContractDatabase};
 use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 
-pub struct SqliteContractDatabase {
-    conn: Option<Connection>,
-    save_point: u16
+pub struct ContractDatabaseConnection {
+    conn: Connection
+}
+
+pub struct ContractDatabase <'a> {
+    savepoint: Savepoint<'a>
 }
 
 pub struct SqliteDataMap {
@@ -18,9 +20,13 @@ pub struct SqliteDataMap {
     value_type: TypeSignature
 }
 
-impl SqliteContractDatabase {
-    pub fn initialize(filename: &str) -> Result<SqliteContractDatabase> {
-        let mut contract_db = SqliteContractDatabase::inner_open(filename)?;
+pub trait ContractDatabaseTransacter {
+    fn begin_save_point(&mut self) -> Result<ContractDatabase<'_>>;
+}
+
+impl ContractDatabaseConnection {
+    pub fn initialize(filename: &str) -> Result<ContractDatabaseConnection> {
+        let mut contract_db = ContractDatabaseConnection::inner_open(filename)?;
         contract_db.execute("CREATE TABLE IF NOT EXISTS maps_table
                       (map_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
                        contract_name TEXT,
@@ -45,39 +51,96 @@ impl SqliteContractDatabase {
         Ok(contract_db)
     }
 
-    pub fn open(filename: &str) -> Result<SqliteContractDatabase> {
-        let contract_db = SqliteContractDatabase::inner_open(filename)?;
+    pub fn memory() -> Result<ContractDatabaseConnection> {
+        ContractDatabaseConnection::initialize(":memory:")
+    }
+
+    pub fn open(filename: &str) -> Result<ContractDatabaseConnection> {
+        let contract_db = ContractDatabaseConnection::inner_open(filename)?;
 
         contract_db.check_schema()?;
         Ok(contract_db)
     }
 
-    fn check_schema(&self) -> Result<()> {
+    pub fn check_schema(&self) -> Result<()> {
         let sql = "SELECT sql FROM sqlite_master WHERE name=?";
-        if let Some(ref conn) = self.conn {
-            let _: String = conn.query_row(sql, &["maps_table"],
-                                           |row| row.get(0))
-                .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
-            let _: String = conn.query_row(sql, &["contracts"],
-                           |row| row.get(0))
-                .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
-            let _: String = conn.query_row(sql, &["data_table"],
-                           |row| row.get(0))
-                .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
-            Ok(())
-        } else {
-            Err(Error::new(ErrType::SqlConnectionClosed))
-        }
+        let _: String = self.conn.query_row(sql, &["maps_table"],
+                                            |row| row.get(0))
+            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+        let _: String = self.conn.query_row(sql, &["contracts"],
+                                            |row| row.get(0))
+            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+        let _: String = self.conn.query_row(sql, &["data_table"],
+                                            |row| row.get(0))
+            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+        Ok(())
     }
 
-    fn inner_open(filename: &str) -> Result<SqliteContractDatabase> {
+    pub fn inner_open(filename: &str) -> Result<ContractDatabaseConnection> {
         let conn = Connection::open(filename)
             .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
-        Ok(SqliteContractDatabase {
-            conn: Some(conn),
-            save_point: 0
+        Ok(ContractDatabaseConnection {
+            conn: conn
         })
     }
+
+    pub fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize>
+    where
+        P: IntoIterator,
+        P::Item: ToSql {
+        self.conn.execute(sql, params)
+            .map_err(|x| {
+                eprintln!("SQL Execution Error: {:?}", x);
+                Error::new(ErrType::SqliteError(IncomparableError{ err: x }))
+            })
+    }
+
+    pub fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> Result<Option<T>>
+    where
+        P: IntoIterator,
+        P::Item: ToSql,
+        F: FnOnce(&Row) -> T {
+        self.conn.query_row(sql, params, f)
+            .optional()
+            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))
+    }
+}
+
+impl ContractDatabaseTransacter for ContractDatabaseConnection {
+    fn begin_save_point(&mut self) -> Result<ContractDatabase<'_>> {
+        let sp = self.conn.savepoint().unwrap();
+        Ok(ContractDatabase::from_savepoint(sp))
+    }
+}
+
+impl <'a> ContractDatabase <'a> {
+    pub fn from_savepoint(sp: Savepoint<'a>) -> ContractDatabase<'a> {
+        ContractDatabase {
+            savepoint: sp }
+    }
+
+
+    pub fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize>
+    where
+        P: IntoIterator,
+        P::Item: ToSql {
+        self.savepoint.execute(sql, params)
+            .map_err(|x| {
+                eprintln!("SQL Execution Error: {:?}", x);
+                Error::new(ErrType::SqliteError(IncomparableError{ err: x }))
+            })
+    }
+
+    fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> Result<Option<T>>
+    where
+        P: IntoIterator,
+        P::Item: ToSql,
+        F: FnOnce(&Row) -> T {
+        self.savepoint.query_row(sql, params, f)
+            .optional()
+            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))
+    }
+
 
     fn load_map(&self, contract_name: &str, map_name: &str) -> Result<SqliteDataMap> {
         let (map_identifier, key_type, value_type): (_, String, String) =
@@ -110,45 +173,7 @@ impl SqliteContractDatabase {
         }
     }
 
-    fn execute<P>(&mut self, sql: &str, params: P) -> Result<usize>
-    where
-        P: IntoIterator,
-        P::Item: ToSql {
-        match self.conn.take() {
-            Some(conn) => {
-                let result = conn.execute(sql, params)
-                    .map_err(|x| {
-                        eprintln!("SQL Execution Error: {:?}", x);
-                        Error::new(ErrType::SqliteError(IncomparableError{ err: x }))
-                    })?;
-                // if execution error'ed, return _without_ replacing connection!
-                //    this closes the connection.
-                self.conn.replace(conn);
-                Ok(result)
-            },
-            None => {
-                Err(Error::new(ErrType::SqlConnectionClosed))
-            }
-        }
-    }
-
-    fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> Result<Option<T>>
-    where
-        P: IntoIterator,
-        P::Item: ToSql,
-        F: FnOnce(&Row) -> T {
-        if let Some(ref conn) = self.conn {
-            conn.query_row(sql, params, f)
-                .optional()
-                .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))
-        } else {
-            Err(Error::new(ErrType::SqlConnectionClosed))
-        }
-    }
-}
-
-impl ContractDatabase for SqliteContractDatabase {
-    fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) -> Result<()> {
+    pub fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) -> Result<()> {
         let key_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(key_type));
         let value_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type));
 
@@ -157,7 +182,7 @@ impl ContractDatabase for SqliteContractDatabase {
         Ok(())
     }
 
-    fn fetch_entry(&self, contract_name: &str, map_name: &str, key: &Value) -> Result<Value> {
+    pub fn fetch_entry(&self, contract_name: &str, map_name: &str, key: &Value) -> Result<Value> {
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(key) {
             return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.key_type), (*key).clone())))
@@ -186,7 +211,7 @@ impl ContractDatabase for SqliteContractDatabase {
         }
     }
 
-    fn set_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {
+    pub fn set_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(&key) {
             return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.key_type), key)))
@@ -206,7 +231,7 @@ impl ContractDatabase for SqliteContractDatabase {
         return Ok(Value::Void)
     }
 
-    fn insert_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {
+    pub fn insert_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(&key) {
             return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.key_type), key)))
@@ -231,7 +256,7 @@ impl ContractDatabase for SqliteContractDatabase {
         return Ok(Value::Bool(true))
     }
 
-    fn delete_entry(&mut self, contract_name: &str, map_name: &str, key: &Value) -> Result<Value> {
+    pub fn delete_entry(&mut self, contract_name: &str, map_name: &str, key: &Value) -> Result<Value> {
         let exists = self.fetch_entry(contract_name, map_name, &key)? != Value::Void;
         if !exists {
             return Ok(Value::Bool(false))
@@ -255,16 +280,12 @@ impl ContractDatabase for SqliteContractDatabase {
     }
 
 
-    fn take_contract(&mut self, contract_name: &str) -> Result<Contract> {
+    pub fn get_contract(&mut self, contract_name: &str) -> Result<Contract> {
         self.load_contract(contract_name)?
             .ok_or_else(|| { Error::new(ErrType::UndefinedContract(contract_name.to_string())) })
     }
 
-    fn replace_contract(&mut self, _contract_name: &str, _contract: Contract) -> Result<()> {
-        Ok(())
-    }
-
-    fn insert_contract(&mut self, contract_name: &str, contract: Contract) -> Result<()> {
+    pub fn insert_contract(&mut self, contract_name: &str, contract: Contract) -> Result<()> {
         if self.load_contract(contract_name)?.is_some() {
             Err(Error::new(ErrType::ContractAlreadyExists(contract_name.to_string())))
         } else {
@@ -274,32 +295,20 @@ impl ContractDatabase for SqliteContractDatabase {
         }
     }
 
-    fn begin_save_point(&mut self) -> Result<()> {
-        self.save_point = self.save_point.checked_add(1)
-            .ok_or(Error::new(ErrType::MaxContextDepthReached))?;
-        let sql = format!("SAVEPOINT \"{}\"", self.save_point);
-        self.execute(&sql, NO_PARAMS)?;
+    pub fn roll_back(&mut self) -> Result<()> {
+        self.savepoint.rollback().unwrap();
         Ok(())
     }
 
-    fn roll_back(&mut self) -> Result<()> {
-        if self.save_point == 0 {
-            return Err(Error::new(ErrType::InterpreterError("Attempted to roll back non-existent savepoint.".to_string())))
-        }
-        let sql = format!("ROLLBACK TRANSACTION TO SAVEPOINT \"{}\"", self.save_point);
-        self.execute(&sql, NO_PARAMS)?;
-        self.save_point = self.save_point - 1;
+    pub fn commit(self) -> Result<()> {
+        self.savepoint.commit().unwrap();
         Ok(())
     }
+}
 
-    fn commit(&mut self) -> Result<()> {
-        if self.save_point == 0 {
-            return Err(Error::new(ErrType::InterpreterError("Attempted to commit non-existent savepoint.".to_string())))
-        }
-        let sql = format!("RELEASE SAVEPOINT \"{}\"", self.save_point);
-        self.execute(&sql, NO_PARAMS)?;
-        self.save_point = self.save_point - 1;
-        Ok(())
+impl <'a> ContractDatabaseTransacter for ContractDatabase<'a> {
+    fn begin_save_point(&mut self) -> Result<ContractDatabase> {
+        let sp = self.savepoint.savepoint().unwrap();
+        Ok(ContractDatabase::from_savepoint(sp))
     }
-
 }

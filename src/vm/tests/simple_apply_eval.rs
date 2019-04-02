@@ -1,5 +1,5 @@
 use vm::{eval, execute};
-use vm::database::MemoryContractDatabase;
+use vm::database::ContractDatabaseConnection;
 use vm::errors::{ErrType};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment};
 use vm::callables::PrivateFunction;
@@ -25,8 +25,10 @@ fn test_simple_let() {
     if let Ok(parsed_program) = parse(&program) {
         let context = LocalContext::new();
         let contract_context = ContractContext::new("transient".to_string());
-        let db = Box::new(MemoryContractDatabase::new().unwrap());
-        let mut global_context = GlobalContext::new(db);
+
+        let mut conn = ContractDatabaseConnection::memory().unwrap();
+        let mut global_context = GlobalContext::begin_from(&mut conn);
+
         let mut env = Environment::new(&mut global_context, &contract_context);
 
         assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env, &context));        
@@ -95,8 +97,8 @@ fn test_simple_if_functions() {
                                                   &"without_else", &"");
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new("transient".to_string());
-        let db = Box::new(MemoryContractDatabase::new().unwrap());
-        let mut global_context = GlobalContext::new(db);
+        let mut conn = ContractDatabaseConnection::memory().unwrap();
+        let mut global_context = GlobalContext::begin_from(&mut conn);
 
         contract_context.functions.insert("with_else".to_string(), user_function1);
         contract_context.functions.insert("without_else".to_string(), user_function2);
