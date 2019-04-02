@@ -105,16 +105,15 @@ fn main() {
                 eprintln!("Usage: {} init_db [vm-state.sqlite.db]", argv[0]);
                 process::exit(1);
             }
-            match vm::database::SqliteContractDatabase::initialize(&argv[2]) {
+            match vm::database::ContractDatabaseConnection::initialize(&argv[2]) {
                 Ok(_) => println!("Database created."),
                 Err(error) => eprintln!("Initialization error: \n {}", error)
             }
             return
         },
         "init_contract" => {
-            use std::io;
             use vm::contexts::GlobalContext;
-            use vm::database::{ContractDatabase, SqliteContractDatabase};
+            use vm::database::{ContractDatabaseConnection};
 
             if argv.len() < 5 {
                 eprintln!("Usage: {} init_contract [vm-state.sqlite.db] [contract-name] [program-file.scm]", argv[0]);
@@ -122,21 +121,23 @@ fn main() {
             }
             let vm_filename = &argv[2];
 
-            let db: Box<ContractDatabase> = match SqliteContractDatabase::open(vm_filename) {
-                Ok(db) => Box::new(db),
+            let mut db = match ContractDatabaseConnection::open(vm_filename) {
+                Ok(db) => db,
                 Err(error) => {
                     eprintln!("Could not open vm-state: \n {}", error);
                     process::exit(1);
                 }
             };
 
-            let mut global_context = GlobalContext::new(db);
+            let mut global_context = GlobalContext::begin_from(&mut db);
             let contract_name = &argv[3];
             let contract_content: String = fs::read_to_string(&argv[4])
                 .expect(&format!("Error reading file: {}", argv[4]));
 
-            match global_context.initialize_contract(&contract_name, &contract_content) {
+            let result = global_context.initialize_contract(&contract_name, &contract_content);
+            match result {
                 Ok(_) => {
+                    global_context.commit();
                     println!("Contract initialized!");
                 },
                 Err(error) => println!("Contract initialization error: \n {}", error)
@@ -144,11 +145,10 @@ fn main() {
             return
         },
         "exec_tx" => {
-            use std::io;
             use vm::contexts::GlobalContext;
             use vm::{SymbolicExpression, SymbolicExpressionType};
             use vm::types::Value;
-            use vm::database::{ContractDatabase, SqliteContractDatabase};
+            use vm::database::{ContractDatabaseConnection};
 
             if argv.len() < 5 {
                 eprintln!("Usage: {} exec_tx [vm-state.sqlite.db] [contract-name] [transaction-name] [sender-address] [args...]", argv[0]);
@@ -156,15 +156,15 @@ fn main() {
             }
             let vm_filename = &argv[2];
 
-            let db: Box<ContractDatabase> = match SqliteContractDatabase::open(vm_filename) {
-                Ok(db) => Box::new(db),
+            let mut db = match ContractDatabaseConnection::open(vm_filename) {
+                Ok(db) => db,
                 Err(error) => {
                     eprintln!("Could not open vm-state: \n {}", error);
                     process::exit(1);
                 }
             };
 
-            let mut global_context = GlobalContext::new(db);
+            let mut global_context = GlobalContext::begin_from(&mut db);
             let contract_name = &argv[3];
             let tx_name = &argv[4];
 
@@ -194,8 +194,10 @@ fn main() {
                 })
                 .collect();
 
-            match global_context.execute_contract(&contract_name, &sender, &tx_name, &arguments) {
+            let result = global_context.execute_contract(&contract_name, &sender, &tx_name, &arguments);
+            match result {
                 Ok(x) => {
+                    global_context.commit();
                     println!("Transaction executed successfully! Output: {}", x);
                 },
                 Err(error) => println!("Transaction execution error: \n {}", error)

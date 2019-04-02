@@ -11,7 +11,7 @@ pub struct Contract {
 }
 
 impl Contract {
-    pub fn initialize(name: &str, contract: &str, global_context: &mut GlobalContext) -> Result<Contract> {
+    pub fn initialize <'b> (name: &str, contract: &str, global_context: &mut GlobalContext<'b>) -> Result<Contract> {
         let parsed: Vec<_> = parser::parse(contract)?;
         let mut contract_context = ContractContext::new(name.to_string());
 
@@ -24,8 +24,8 @@ impl Contract {
         Ok(Contract { contract_context: contract_context })
     }
 
-    pub fn execute_transaction(&mut self, sender: &Value, tx_name: &str,
-                               args: &[SymbolicExpression], global_context: &mut GlobalContext) -> Result<Value> {
+    pub fn execute_transaction<'b> (&mut self, sender: &Value, tx_name: &str,
+                               args: &[SymbolicExpression], global_context: &mut GlobalContext<'b>) -> Result<Value> {
         let func = self.contract_context.lookup_function(tx_name)
             .ok_or_else(|| { Error::new(ErrType::UndefinedFunction(tx_name.to_string())) })?;
         if !func.is_public() {

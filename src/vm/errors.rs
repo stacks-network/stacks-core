@@ -31,7 +31,6 @@ pub enum ErrType {
     Arithmetic(String),
     ParseError(String),
     RecursionDetected,
-    ContractAlreadyInvoked,
     MaxStackDepthReached,
     MaxContextDepthReached,
     ListDimensionTooHigh,
@@ -50,7 +49,6 @@ pub enum ErrType {
     DeserializationFailure(IncomparableError<SerdeJSONErr>),
     SerializationFailure(IncomparableError<SerdeJSONErr>),
     SqliteError(IncomparableError<SqliteError>),
-    SqlConnectionClosed,
     ContractMustReturnBoolean
 }
 
