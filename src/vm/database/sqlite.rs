@@ -184,7 +184,7 @@ impl <'a> ContractDatabase <'a> {
 
         let sql_result: Option<Option<String>> = 
             self.query_row(
-                "SELECT value FROM data_table WHERE map_identifier = ? AND key = ? ORDER BY data_identifier DESC",
+                "SELECT value FROM data_table WHERE map_identifier = ? AND key = ? ORDER BY data_identifier DESC LIMIT 1",
                 &params,
                 |row| {
                     row.get(0)
