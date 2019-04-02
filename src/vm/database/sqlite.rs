@@ -6,6 +6,7 @@ use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError}
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
+const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in Smart Contract VM.";
 
 pub struct ContractDatabaseConnection {
     conn: Connection
@@ -140,8 +141,10 @@ impl <'a> ContractDatabase <'a> {
 
         Ok(SqliteDataMap {
             map_identifier: map_identifier,
-            key_type: TypeSignature::deserialize(&key_type)?,
-            value_type: TypeSignature::deserialize(&value_type)?
+            key_type: TypeSignature::deserialize(&key_type)
+                .expect(DESERIALIZE_FAIL_MESSAGE),
+            value_type: TypeSignature::deserialize(&value_type)
+                .expect(DESERIALIZE_FAIL_MESSAGE)
         })
     }
 
@@ -155,7 +158,9 @@ impl <'a> ContractDatabase <'a> {
                 });
         match contract {
             None => Ok(None),
-            Some(ref contract) => Ok(Some(Contract::deserialize(contract)?))
+            Some(ref contract) => Ok(Some(
+                Contract::deserialize(contract)
+                    .expect(DESERIALIZE_FAIL_MESSAGE)))
         }
     }
 
@@ -191,7 +196,8 @@ impl <'a> ContractDatabase <'a> {
             Some(sql_result) => {
                 match sql_result {
                     None => Ok(Value::Void),
-                    Some(value_data) => Value::deserialize(&value_data)
+                    Some(value_data) => Ok(Value::deserialize(&value_data)
+                                           .expect(DESERIALIZE_FAIL_MESSAGE))
                 }
             }
         }
