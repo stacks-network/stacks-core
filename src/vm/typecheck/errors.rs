@@ -29,6 +29,12 @@ pub enum CheckErrors {
 
     // data map
     BadMapName,
+    NoSuchMap(String),
+
+    // defines
+    DefineFunctionBadSignature,
+    BadFunctionName,
+    BadMapTypeDefinition,
 
     // expect a function, or applying a function to a list
     NonFunctionApplication,

@@ -448,7 +448,7 @@ impl TypeSignature {
         }
     }
 
-    fn new_tuple(tuple_type_sig: TupleTypeSignature) -> Result<TypeSignature> {
+    pub fn new_tuple(tuple_type_sig: TupleTypeSignature) -> Result<TypeSignature> {
         TypeSignature::new_atom_checked(AtomTypeIdentifier::TupleType(tuple_type_sig))
     }
 

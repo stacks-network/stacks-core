@@ -1,15 +1,18 @@
 use std::collections::HashMap;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{AtomTypeIdentifier, TypeSignature, Value, TupleTypeSignature};
+use vm::types::{AtomTypeIdentifier, TypeSignature, Value, TupleTypeSignature, parse_name_type_pairs};
 use vm::errors::{ErrType as InterpError};
 
 use vm::contexts::MAX_CONTEXT_DEPTH;
 
+mod typecheck;
 mod errors;
 mod identity_pass;
 
 pub use self::errors::{CheckResult, CheckError, CheckErrors};
+
+use self::typecheck::maps;
 
 /*
 
@@ -41,6 +44,7 @@ pub enum FunctionType {
 }
 
 pub struct TypingContext <'a> {
+    map_types: HashMap<String, (TypeSignature, TypeSignature)>,
     variable_types: HashMap<String, TypeSignature>,
     function_types: HashMap<String, FunctionType>,
     parent: Option<&'a TypingContext<'a>>,
@@ -75,6 +79,7 @@ impl <'a> TypingContext <'a> {
         TypingContext {
             variable_types: HashMap::new(),
             function_types: HashMap::new(),
+            map_types: HashMap::new(),
             depth: 0,
             parent: None
         }
@@ -87,21 +92,24 @@ impl <'a> TypingContext <'a> {
             Ok(TypingContext {
                 variable_types: HashMap::new(),
                 function_types: HashMap::new(),
+                map_types: HashMap::new(),
                 parent: Some(self),
                 depth: self.depth + 1
             })
         }
     }
 
+    pub fn get_map_type(&self, map_name: &str) -> Option<&(TypeSignature, TypeSignature)> {
+        match self.parent {
+            Some(parent) => parent.get_map_type(map_name),
+            None => self.map_types.get(map_name)
+        }
+    }
+
     pub fn lookup_function_type(&self, name: &str) -> Option<&FunctionType> {
-        match self.function_types.get(name) {
-            Some(value) => Some(value),
-            None => {
-                match self.parent {
-                    Some(parent) => parent.lookup_function_type(name),
-                    None => None
-                }
-            }
+        match self.parent {
+            Some(parent) => parent.lookup_function_type(name),
+            None => self.function_types.get(name)
         }
     }
 
@@ -465,28 +473,41 @@ fn check_special_tuple_cons(args: &[SymbolicExpression], context: &TypingContext
     Ok(TypeSignature::new_atom(
         AtomTypeIdentifier::TupleType(tuple_signature)))
 }
-/*
-fn check_special_fetch_entry(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    if args.len() < 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+
+fn type_check_define_function(function_expression: &[SymbolicExpression],
+                              context: &TypingContext, type_map: &mut TypeMap) -> CheckResult<(String, FunctionType)> {
+    if function_expression.len() != 3 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, function_expression.len() - 1)))
     }
 
-    let map_name = args[0].match_atom()
-        .ok_or(CheckError::new(CheckErrors::BadMapName))?;
+    type_map.set_type(&function_expression[0], no_type())?;
+    type_map.set_type(&function_expression[1], no_type())?;
+    // should we set the type of the subexpressions of the signature to no-type as well?
 
-    type_map.set_type(&args[0], no_type())?;
+    let signature = function_expression[1].match_list()
+        .ok_or(CheckError::new(CheckErrors::DefineFunctionBadSignature))?;
+    let body = &function_expression[2];
 
-    let key_type = type_check(&args[1], context, type_map)?;
+    let (function_name, args) = signature.split_first()
+        .ok_or(CheckError::new(CheckErrors::VariadicNeedsOneArgument))?;
+    let function_name = function_name.match_atom()
+        .ok_or(CheckError::new(CheckErrors::BadFunctionName))?;
+    let mut args = parse_name_type_pairs(args)
+        .map_err(|_| { CheckError::new(CheckErrors::BadSyntaxBinding) })?;
 
-    let expected_key_type = context.get_map_key_type(map_name)?;
-
-    if !expected_key_type.admits(key_type) {
-        return Err(CheckError::new(CheckErrors::TypeError(expected_key_type, key_type)))
-    } else {
-        return Ok(context.get_map_value_type(map_name)?)
+    let mut function_context = context.extend()?;
+    for (arg_name, arg_type) in args.iter() {
+        function_context.variable_types.insert(arg_name.clone(),
+                                               arg_type.clone());
     }
+
+
+    let return_type = type_check(body, &function_context, type_map)?;
+    let arg_types: Vec<TypeSignature> = args.drain(..)
+        .map(|(_, arg_type)| arg_type).collect();
+
+    Ok((function_name.to_string(), FunctionType::Fixed(arg_types, return_type)))
 }
-*/
 
 /*
     "set-entry!" => Some(CallableType::SpecialFunction("native_set-entry", &database::special_set_entry)),
@@ -505,6 +526,10 @@ fn try_special_function_check(function: &str, args: &[SymbolicExpression], conte
         "list" => Some(check_special_list_cons(args, context, type_map)),
         "print" => Some(check_special_print(args, context, type_map)),
         "begin" => Some(check_special_begin(args, context, type_map)),
+        "fetch-entry" => Some(maps::check_special_fetch_entry(args, context, type_map)),
+        "set-entry!" =>  Some(maps::check_special_set_entry(args, context, type_map)),
+        "insert-entry!" =>  Some(maps::check_special_insert_entry(args, context, type_map)),
+        "delete-entry!" =>  Some(maps::check_special_delete_entry(args, context, type_map)),
         _ => None
     }
 }
@@ -544,6 +569,64 @@ pub fn type_check(expr: &SymbolicExpression, context: &TypingContext, type_map: 
 
     type_map.set_type(expr, type_sig.clone())?;
     Ok(type_sig)
+}
+
+pub fn try_type_check_define(expr: &SymbolicExpression, context: &mut TypingContext, type_map: &mut TypeMap) -> CheckResult<Option<()>> {
+    if let Some(ref expression) = expr.match_list() {
+        if let Some((function_name, _)) = expression.split_first() {
+            if let Some(function_name) = function_name.match_atom() {
+                match function_name.as_str() {
+                    "define" => {
+                        let (f_name, f_type) = type_check_define_function(expression,
+                                                                          context,
+                                                                          type_map)?;
+                        context.function_types.insert(f_name, f_type);
+                        Ok(Some(()))
+                    },
+                    "define-public" => {
+                        let (f_name, f_type) = type_check_define_function(expression,
+                                                                          context,
+                                                                          type_map)?;
+                        context.function_types.insert(f_name, f_type);
+                        Ok(Some(()))
+                    },
+                    "define-map" => {
+                        let (f_name, f_type) = maps::type_check_define_map(expression,
+                                                                           context,
+                                                                           type_map)?;
+                        context.map_types.insert(f_name, f_type);
+                        Ok(Some(()))
+                    },
+                    _ => {
+                        Ok(None)
+                    }
+                }
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None) // not a define
+        }
+    } else {
+        Ok(None) // not a define.
+    }
+}
+
+pub fn type_check_contract(contract: &mut [SymbolicExpression]) -> CheckResult<()> {
+    let mut type_map = TypeMap::new();
+    let mut contract_context = TypingContext::new();
+
+    identity_pass::identity_pass(contract)?;
+
+    for exp in contract {
+        if try_type_check_define(exp, &mut contract_context, &mut type_map)?
+            .is_none() {
+                // was _not_ a define statement, so handle like a normal statement.
+                type_check(exp, &contract_context, &mut type_map)?;
+            }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -653,6 +736,27 @@ mod test {
         for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut bad_test).unwrap();
             assert!(type_check(&bad_test[0], &TypingContext::new(), &mut TypeMap::new()).is_err())
+        }
+    }
+
+    #[test]
+    fn test_define() {
+        let good = ["(define (foo (x int) (y int)) (+ x y))
+                     (define (bar (x int) (y bool)) (if y (+ 1 x) 0))
+                     (* (foo 1 2) (bar 3 'false))",
+        ];
+
+        let bad = ["(define (foo ((x int) (y int)) (+ x y)))
+                     (define (bar ((x int) (y bool)) (if y (+ 1 x) 0)))
+                     (* (foo 1 2) (bar 3 3))",
+        ];
+
+        for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
+            type_check_contract(&mut good_test).unwrap();
+        }
+
+        for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
+            assert!(type_check_contract(&mut bad_test).is_err());
         }
     }
 

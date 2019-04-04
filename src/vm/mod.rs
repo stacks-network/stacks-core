@@ -152,7 +152,6 @@ fn eval_all (expressions: &[SymbolicExpression],
 
     for exp in expressions {
         let try_define = {
-                // not a define function, evaluate normally.
             let mut global_context = GlobalContext::begin_from(&mut global_context.database);
             let define_result = {
                 let mut env = Environment::new(
