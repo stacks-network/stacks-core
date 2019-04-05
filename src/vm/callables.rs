@@ -13,21 +13,14 @@ pub enum CallableType {
 
 #[derive(Clone,Serialize, Deserialize)]
 pub enum DefinedFunction {
-    Public(PublicFunction),
-    Private(PrivateFunction)
+    Public(Function),
+    Private(Function)
 }
 
 #[derive(Clone,Serialize, Deserialize)]
-pub struct PublicFunction {
+pub struct Function {
     identifier: FunctionIdentifier,
     types: Vec<TypeSignature>,
-    pub arguments: Vec<String>,
-    pub body: SymbolicExpression
-}
-
-#[derive(Clone,Serialize, Deserialize)]
-pub struct PrivateFunction {
-    identifier: FunctionIdentifier,
     pub arguments: Vec<String>,
     pub body: SymbolicExpression
 }
@@ -43,17 +36,17 @@ impl fmt::Display for FunctionIdentifier {
     }
 }
 
-impl PublicFunction {
+impl Function {
     pub fn new(mut arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
-               name: &str, context_name: &str) -> DefinedFunction {
+               name: &str, context_name: &str) -> Function {
         let (argument_names, types) = arguments.drain(..).unzip();
 
-        DefinedFunction::Public(PublicFunction {
+        Function {
             identifier: FunctionIdentifier::new_user_function(name, context_name),
             arguments: argument_names,
             body: body,
             types: types
-        })
+        }
     }
 
     fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
@@ -72,29 +65,17 @@ impl PublicFunction {
     }
 }
 
-impl PrivateFunction {
-    pub fn new(arguments: Vec<String>, body: SymbolicExpression,
-               name: &str, context_name: &str) -> DefinedFunction {
-        DefinedFunction::Private(PrivateFunction {
-            identifier: FunctionIdentifier::new_user_function(name, context_name),
-            arguments: arguments,
-            body: body,
-        })
-    }
-
-    fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
-        let mut context = LocalContext::new();
-        let arg_iterator = self.arguments.iter().zip(args.iter());
-        for (arg, value) in arg_iterator {
-            if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {
-                return Err(Error::new(ErrType::VariableDefinedMultipleTimes(arg.clone())))
-            }
-        }
-        eval(&self.body, env, &context)
-    }
-}
-
 impl DefinedFunction {
+    pub fn new_public(mut arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
+                      name: &str, context_name: &str) -> DefinedFunction {
+        DefinedFunction::Public(Function::new(arguments, body, name, context_name))
+    }
+
+    pub fn new_private(mut arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
+                       name: &str, context_name: &str) -> DefinedFunction {
+        DefinedFunction::Private(Function::new(arguments, body, name, context_name))
+    }
+
     pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
         match self {
             DefinedFunction::Private(f) => f.apply(args, env),

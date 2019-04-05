@@ -211,7 +211,8 @@ pub fn execute(program: &str) -> Result<Value> {
 mod test {
     use vm::database::ContractDatabaseConnection;
     use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression};
-    use vm::callables::PrivateFunction;
+    use vm::types::{TypeSignature, AtomTypeIdentifier};
+    use vm::callables::DefinedFunction;
     use vm::eval;
 
     #[test]
@@ -231,9 +232,9 @@ mod test {
                        SymbolicExpression::atom_value(Value::Int(5)),
                        SymbolicExpression::atom("x".to_string())]));
 
-        let func_args = vec!["x".to_string()];
-        let user_function = PrivateFunction::new(func_args, func_body,
-                                                 &"do_work", &"");
+        let func_args = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let user_function = DefinedFunction::new_private(func_args, func_body,
+                                                         &"do_work", &"");
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new("transient".to_string());

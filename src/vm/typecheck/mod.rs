@@ -510,9 +510,6 @@ fn type_check_define_function(function_expression: &[SymbolicExpression],
 }
 
 /*
-    "set-entry!" => Some(CallableType::SpecialFunction("native_set-entry", &database::special_set_entry)),
-    "insert-entry!" => Some(CallableType::SpecialFunction("native_insert-entry", &database::special_insert_entry)),
-    "delete-entry!" => Some(CallableType::SpecialFunction("native_delete-entry", &database::special_delete_entry)),
     "contract-call!" => Some(CallableType::SpecialFunction("native_contract-call", &database::special_contract_call)), */
 
 fn try_special_function_check(function: &str, args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> Option<TypeResult> {
@@ -587,8 +584,13 @@ pub fn try_type_check_define(expr: &SymbolicExpression, context: &mut TypingCont
                         let (f_name, f_type) = type_check_define_function(expression,
                                                                           context,
                                                                           type_map)?;
-                        context.function_types.insert(f_name, f_type);
-                        Ok(Some(()))
+                        if !TypeSignature::new_atom(AtomTypeIdentifier::BoolType).admits_type(
+                            &f_type.return_type()) {
+                            Err(CheckError::new(CheckErrors::PublicFunctionMustReturnBool))
+                        } else {
+                            context.function_types.insert(f_name, f_type);
+                            Ok(Some(()))
+                        }
                     },
                     "define-map" => {
                         let (f_name, f_type) = maps::type_check_define_map(expression,
@@ -760,4 +762,30 @@ mod test {
         }
     }
 
+    #[test]
+    fn test_factorial() {
+        let contract = 
+            "(define-map factorials ((id int)) ((current int) (index int)))
+             (define (init-factorial (id int) (factorial int))
+                (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
+             (define-public (compute (id int))
+                (let ((entry (fetch-entry factorials (tuple (id id)))))
+                  (if (eq? entry 'null)
+                    'true
+                    (let ((current (get current entry))
+                          (index   (get index entry)))
+                         (if (<= index 1)
+                             'true
+                             (begin
+                               (set-entry! factorials (tuple (id id))
+                                                      (tuple (current (* current index))
+                                                             (index (- index 1))))
+                               'true))))))
+             (begin (init-factorial 1337 3)
+                (init-factorial 8008 5)
+                'null)";
+
+        let mut contract = parse(contract).unwrap();
+        type_check_contract(&mut contract).unwrap();
+    }
 }

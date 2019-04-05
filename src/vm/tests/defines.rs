@@ -8,7 +8,7 @@ fn test_defines() {
     let tests =
         "(define x 10)
          (define y 15)
-         (define (f a b) (+ x y a b))
+         (define (f (a int) (b int)) (+ x y a b))
          (f 3 1)";
 
     assert_eq!(Ok(Value::Int(29)), execute(&tests));
@@ -46,10 +46,10 @@ fn test_bad_define_names() {
 #[test]
 fn test_stack_depth() {
     let mut function_defines = Vec::new();
-    function_defines.push("(define (foo-0 x) (+ 1 x))".to_string());
+    function_defines.push("(define (foo-0 (x int)) (+ 1 x))".to_string());
     for i in 1..257 {
         function_defines.push(
-            format!("(define (foo-{} x) (foo-{} (+ 1 x)))",
+            format!("(define (foo-{} (x int)) (foo-{} (+ 1 x)))",
                     i, i-1));
     }
     function_defines.push(
@@ -67,7 +67,7 @@ fn test_stack_depth() {
 #[test]
 fn test_recursive_panic() {
     let tests =
-        "(define (factorial a)
+        "(define (factorial (a int))
           (if (eq? a 0)
               1
               (* a (factorial (- a 1)))))
@@ -108,7 +108,7 @@ fn test_define_parse_panic() {
 fn test_define_parse_panic_2() {
     let tests = "(define (a b (d)) 1)";
     assert_eq!(
-        ErrType::InvalidArguments("Non-atomic argument to method signature in define".to_string()),
+        ErrType::ExpectedListPairs,
         execute(&tests).unwrap_err().err_type);
 }
 

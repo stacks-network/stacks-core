@@ -19,7 +19,7 @@ fn test_simple_token_system() {
                   (get balance (fetch-entry tokens (tuple (account account))))))
               (if (eq? balance 'null) 0 balance)))
 
-         (define (token-credit! account tokens)
+         (define (token-credit! (account principal) (tokens int))
             (if (<= tokens 0)
                 'false
                 (let ((current-amount (get-balance account)))
@@ -83,7 +83,7 @@ fn test_simple_naming_system() {
                   (get balance (fetch-entry tokens (tuple (account account))))))
               (if (eq? balance 'null) 0 balance)))
 
-         (define (token-credit! account tokens)
+         (define (token-credit! (account principal) (tokens int))
             (if (<= tokens 0)
                 'false
                 (let ((current-amount (get-balance account)))
@@ -105,7 +105,7 @@ fn test_simple_naming_system() {
 
     let names_contract =
         "(define burn-address 'SP000000000000000000002Q6VF78)
-         (define (price-function name)
+         (define (price-function (name int))
            (if (< name 100000) 1000 100))
          
          (define-map name-map 
@@ -217,7 +217,7 @@ fn test_simple_naming_system() {
 fn test_simple_contract_call() {
     let contract_1 =
         "(define-map factorials ((id int)) ((current int) (index int)))
-         (define (init-factorial id factorial)
+         (define (init-factorial (id int) (factorial int))
            (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
          (define-public (compute (id int))
            (let ((entry (fetch-entry factorials (tuple (id id)))))
@@ -355,7 +355,7 @@ fn test_aborts() {
 fn test_factorial_contract() {
     let contract_defn =
         "(define-map factorials ((id int)) ((current int) (index int)))
-         (define (init-factorial id factorial)
+         (define (init-factorial (id int) (factorial int))
            (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
          (define-public (compute (id int))
            (let ((entry (fetch-entry factorials (tuple (id id)))))

@@ -35,6 +35,7 @@ pub enum CheckErrors {
     DefineFunctionBadSignature,
     BadFunctionName,
     BadMapTypeDefinition,
+    PublicFunctionMustReturnBool,
 
     // expect a function, or applying a function to a list
     NonFunctionApplication,

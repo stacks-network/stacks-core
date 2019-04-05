@@ -7,9 +7,9 @@ use vm::execute;
 fn test_simple_tea_shop() {
     let test1 =
         "(define-map proper-tea ((tea-type int)) ((amount int)))
-         (define (stock tea amount)
+         (define (stock (tea int) (amount int))
            (set-entry! proper-tea (tuple (tea-type tea)) (tuple (amount amount))))
-         (define (consume tea)
+         (define (consume (tea int))
            (let ((current (get amount (fetch-entry proper-tea (tuple (tea-type tea))))))
               (if (and (not (eq? current 'null)) 
                        (>= current 1))
@@ -56,9 +56,9 @@ fn test_simple_tea_shop() {
 fn test_factorial_contract() {
     let test1 =
         "(define-map factorials ((id int)) ((current int) (index int)))
-         (define (init-factorial id factorial)
+         (define (init-factorial (id int) (factorial int))
            (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
-         (define (compute id)
+         (define (compute (id int))
            (let ((entry (fetch-entry factorials (tuple (id id)))))
                 (if (eq? entry 'null)
                     0
@@ -107,13 +107,13 @@ fn test_factorial_contract() {
 fn silly_naming_system() {
     let test1 =
         "(define-map silly-names ((name int)) ((owner int)))
-         (define (register name owner)
+         (define (register (name int) (owner int))
            (if (insert-entry! silly-names (tuple (name name)) (tuple (owner owner)))
                1 0))
-         (define (who-owns? name)
+         (define (who-owns? (name int))
            (let ((owner (get owner (fetch-entry silly-names (tuple (name name))))))
                 (if (eq? 'null owner) (- 1) owner)))
-         (define (invalidate! name owner)
+         (define (invalidate! (name int) (owner int))
            (let ((current-owner (get owner (fetch-entry silly-names (tuple (name name))))))
                 (if (eq? current-owner owner)
                     (if (delete-entry! silly-names (tuple (name name))) 1 0)
@@ -162,10 +162,10 @@ fn datamap_errors() {
 fn lists_system_2() {
     let test = 
         "(define-map lists ((name int)) ((contents (list 5 1 int))))
-         (define (add-list name content)
+         (define (add-list (name int) (content (list 5 1 int)))
            (insert-entry! lists (tuple (name name))
                                 (tuple (contents content))))
-         (define (get-list name)
+         (define (get-list (name int))
             (get contents (fetch-entry lists (tuple (name name)))))
          (add-list 0 (list 1 2 3 4 5))
          (add-list 1 (list 1 2 3))
@@ -186,10 +186,10 @@ fn lists_system_2() {
 fn lists_system() {
     let test1 =
         "(define-map lists ((name int)) ((contents (list 5 1 int))))
-         (define (add-list name content)
+         (define (add-list (name int) (content (list 5 1 int)))
            (insert-entry! lists (tuple (name name))
                                 (tuple (contents content))))
-         (define (get-list name)
+         (define (get-list (name int))
             (get contents (fetch-entry lists (tuple (name name)))))
          (print 10)
          (print (add-list 0 (list 1 2 3 4 5)))
@@ -256,12 +256,12 @@ fn tuples_system() {
                             ((contents (tuple ((name (buff 5))
                                                (owner (buff 5)))))))
 
-         (define (add-tuple name content)
+         (define (add-tuple (name int) (content (buff 5)))
            (insert-entry! tuples (tuple (name name))
                                  (tuple (contents
                                    (tuple (name content)
                                           (owner content))))))
-         (define (get-tuple name)
+         (define (get-tuple (name int))
             (get name (get contents (fetch-entry tuples (tuple (name name))))))
 
 

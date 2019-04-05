@@ -1,5 +1,5 @@
 use vm::types::{Value, TupleTypeSignature, parse_name_type_pairs};
-use vm::callables::{DefinedFunction, PublicFunction, PrivateFunction};
+use vm::callables::{DefinedFunction};
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List};
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
@@ -33,52 +33,35 @@ fn handle_define_variable(variable: &String, expression: &SymbolicExpression, en
     Ok(DefineResult::Variable(variable.clone(), value))
 }
 
-fn handle_define_private_function(signature: &[SymbolicExpression],
-                                  expression: &SymbolicExpression,
-                                  env: &Environment) -> Result<DefineResult> {
-    let coerced_atoms: Result<Vec<_>> = signature.iter().map(|x| {
-        if let Atom(ref name) = x.expr {
-            Ok(name)
-        } else {
-            Err(Error::new(ErrType::InvalidArguments("Non-atomic argument to method signature in define".to_string())))
-        }
-    }).collect();
-
-    let names = coerced_atoms?;
-
-    let (function_name, arg_names) = names.split_first()
-        .ok_or(Error::new(ErrType::InvalidArguments("Must supply atleast a name argument to define a function".to_string())))?;
-
-    check_legal_define(&function_name, &env.contract_context)?;
-    let function = PrivateFunction::new(
-        arg_names.iter().map(|x| (*x).clone()).collect(),
-        expression.clone(),
-        function_name,
-        &env.contract_context.name);
-
-    Ok(DefineResult::Function((*function_name).clone(), function))
-}
-
-fn handle_define_public_function(signature: &[SymbolicExpression],
-                                 expression: &SymbolicExpression,
-                                 env: &Environment) -> Result<DefineResult> {
+fn handle_define_function(signature: &[SymbolicExpression],
+                          expression: &SymbolicExpression,
+                          env: &Environment,
+                          is_public: bool) -> Result<DefineResult> {
     let (function_symbol, arg_symbols) = signature.split_first()
         .ok_or(Error::new(ErrType::InvalidArguments("Must supply atleast a name argument to define a function".to_string())))?;
 
-    let function_name = match function_symbol.expr {
-        Atom(ref name) => Ok(name),
-        _ => Err(Error::new(ErrType::InvalidArguments(format!("Invalid function name {:?}", function_symbol))))
-    }?;
+    let function_name = function_symbol.match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments(format!("Invalid function name {:?}", function_symbol))))?;
 
     check_legal_define(&function_name, &env.contract_context)?;
 
     let arguments = parse_name_type_pairs(arg_symbols)?;
 
-    let function = PublicFunction::new(arguments,
-                                       expression.clone(),
-                                       function_name,
-                                       &env.contract_context.name);
-
+    let function = {
+        if is_public {
+            DefinedFunction::new_public(
+                arguments,
+                expression.clone(),
+                function_name,
+                &env.contract_context.name)
+        } else {
+            DefinedFunction::new_private(
+                arguments,
+                expression.clone(),
+                function_name,
+                &env.contract_context.name)
+        }
+    };
 
     Ok(DefineResult::Function(function_name.clone(), function))
 }
@@ -113,7 +96,7 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                             AtomValue(ref _value) => Err(Error::new(ErrType::InvalidArguments(
                                 "Illegal operation: attempted to re-define a value type.".to_string()))),
                             List(ref function_signature) =>
-                                handle_define_private_function(&function_signature, &elements[2], env)
+                                handle_define_function(&function_signature, &elements[2], env, false)
                         }
                     }
                 },
@@ -122,7 +105,7 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                         Err(Error::new(ErrType::InvalidArguments("(define-public ...) requires 2 arguments".to_string())))
                     } else {
                         if let List(ref function_signature) =  elements[1].expr {
-                            handle_define_public_function(&function_signature, &elements[2], env)
+                            handle_define_function(&function_signature, &elements[2], env, true)
                         } else {
                             Err(Error::new(ErrType::InvalidArguments(
                                 "Illegal operation: attempted to define-public a non-function.".to_string())))
