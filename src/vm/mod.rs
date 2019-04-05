@@ -14,7 +14,7 @@ mod functions;
 mod variables;
 mod callables;
 
-mod typecheck;
+pub mod checker;
 
 #[cfg(test)]
 mod tests;

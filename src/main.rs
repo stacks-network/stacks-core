@@ -111,6 +111,24 @@ fn main() {
             }
             return
         },
+        "check" => {
+            use vm::checker::type_check;
+            use vm::parser::parse;
+
+            if argv.len() < 3 {
+                eprintln!("Usage: {} check [program-file.scm]", argv[0]);
+                process::exit(1);
+            }
+
+            let content: String = fs::read_to_string(&argv[2])
+                .expect(&format!("Error reading file: {}", argv[2]));
+
+            let mut ast = parse(&content).expect("Failed to parse program.");
+
+            type_check(&mut ast).expect("Type check error.");
+
+            return
+        },
         "init_contract" => {
             use vm::contexts::GlobalContext;
             use vm::database::{ContractDatabaseConnection};
