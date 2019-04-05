@@ -4,8 +4,8 @@ use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{AtomTypeIdentifier, TypeSignature, Value, TupleTypeSignature, parse_name_type_pairs};
 use vm::errors::{ErrType as InterpError};
 
-use vm::typecheck::{TypeResult, TypeMap, TypingContext, type_check, 
-                    CheckError, CheckResult, CheckErrors, no_type};
+use super::{TypeResult, TypeMap, TypingContext, type_check, 
+            CheckError, CheckResult, CheckErrors, no_type};
 
 
 pub fn type_check_define_map(map_expression: &[SymbolicExpression],
