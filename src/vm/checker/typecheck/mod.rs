@@ -12,6 +12,9 @@ pub use super::errors::{CheckResult, CheckError, CheckErrors};
 
 mod maps;
 
+#[cfg(test)]
+mod tests;
+
 /*
 
 Type-checking in our language is achieved through a single-direction inference.
@@ -210,6 +213,12 @@ impl FunctionType {
     }
 }
 
+fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
+    match variable_name {
+        "tx-sender" => Some(TypeSignature::new_atom( AtomTypeIdentifier::PrincipalType )),
+        _ => None
+    }
+}
 
 fn get_function_type(function_name: &str, context: &TypingContext) -> Option<FunctionType> {
     if let Some(function_type) = native_function_type_lookup(function_name) {
@@ -623,9 +632,14 @@ impl <'a> TypeChecker <'a> {
                 TypeSignature::type_of(value)
             },
             Atom(ref name) => {
-                context.lookup_variable_type(name)
-                    .ok_or(CheckError::new(CheckErrors::UnboundVariable(name.clone())))?
-                    .clone()
+                match type_reserved_variable(name) {
+                    Some(result) => result,
+                    None => {
+                        context.lookup_variable_type(name)
+                            .ok_or(CheckError::new(CheckErrors::UnboundVariable(name.clone())))?
+                            .clone()
+                    }
+                }
             },
             List(ref expression) => {
                 self.type_check_function_application(expression, context)?
@@ -636,17 +650,39 @@ impl <'a> TypeChecker <'a> {
         Ok(type_sig)
     }
 
+    fn type_check_define_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
+        if args.len() != 2 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+        }
+        let var_name = args[0].match_atom()
+            .ok_or(CheckError::new(CheckErrors::DefineVariableBadSignature))?
+            .clone();
+        let var_type = self.type_check(&args[1], context)?;
+        Ok((var_name, var_type))
+    }
+
     pub fn try_type_check_define(&mut self, expr: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
         if let Some(ref expression) = expr.match_list() {
-            if let Some((function_name, _)) = expression.split_first() {
+            if let Some((function_name, function_args)) = expression.split_first() {
                 if let Some(function_name) = function_name.match_atom() {
                     // TODO: these inserts need to check if the name already exists!
                     match function_name.as_str() {
                         "define" => {
-                            let (f_name, f_type) = self.type_check_define_function(expression,
-                                                                                   context)?;
-                            context.function_types.insert(f_name, f_type);
-                            Ok(Some(()))
+                            if function_args.len() < 1 {
+                                return Err(CheckError::new(CheckErrors::DefineFunctionBadSignature))
+                            } else {
+                                if function_args[0].match_list().is_some() {
+                                    let (f_name, f_type) = self.type_check_define_function(expression,
+                                                                                           context)?;
+                                    context.function_types.insert(f_name, f_type);
+                                    Ok(Some(()))
+                                } else {
+                                    let (v_name, v_type) = self.type_check_define_variable(function_args,
+                                                                                           context)?;
+                                    context.variable_types.insert(v_name, v_type);
+                                    Ok(Some(()))
+                                }
+                            }
                         },
                         "define-public" => {
                             let (f_name, f_type) = self.type_check_define_function(expression,
@@ -699,202 +735,4 @@ pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &An
     }
 
     Ok(contract_analysis)
-}
-
-#[cfg(test)]
-mod test {
-    use vm::parser::parse;
-    use vm::representations::SymbolicExpression;
-    use vm::checker::AnalysisDatabase;
-    use super::{TypeResult, TypeChecker, TypingContext};
-    use super::super::identity_pass;
-
-    fn type_check(exp: &SymbolicExpression) -> TypeResult {
-        let analysis_db = AnalysisDatabase::memory();
-        let mut type_checker = TypeChecker::new(&analysis_db);
-        let contract_context = TypingContext::new();
-        type_checker.type_check(exp, &contract_context)
-    }
-
-    #[test]
-    fn test_simple_arithmetic_checks() {
-        let good = ["(>= (+ 1 2 3) (- 1 2))",
-                    "(eq? (+ 1 2 3) 'true 'false)",
-                    "(and (or 'true 'false) 'false)"];
-        let bad = ["(+ 1 2 3 (>= 5 7))",
-                   "(-)",
-                   "(xor 1)",
-                   "(+ x y z)", // unbound variables.
-                   "(+ 1 2 3 (eq? 1 2))",
-                   "(and (or 'true 'false) (+ 1 2 3))"];
-        for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-            identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0]).unwrap();
-        }
-
-        for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-            identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0]).is_err())
-        }
-    }
-
-    #[test]
-    fn test_simple_ifs() {
-        let good = ["(if (> 1 2) (+ 1 2 3) (- 1 2))",
-                    "(if 'true 'true)",
-                    "(if 'true \"abcdef\" \"abc\")",
-                    "(if 'true \"a\" \"abcdef\")" ];
-        let bad = ["(if 'true 'true 1)",
-                   "(if 'true \"a\" 'false)",
-                   "(if)",
-                   "(if 0 1 0)"];
-        for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-            identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0]).unwrap();
-        }
-
-        for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-            identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0]).is_err())
-        }
-    }
-
-    #[test]
-    fn test_simple_lets() {
-        let good = ["(let ((x 1) (y 2) (z 3)) (if (> x 2) (+ 1 x y) (- 1 z)))",
-                    "(let ((x 'true) (y (+ 1 2)) (z 3)) (if x (+ 1 z y) (- 1 z)))"];
-        let bad = ["(let ((1)) (+ 1 2))",
-                   "(let ((1 2)) (+ 1 2))"];
-        for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-            identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0]).unwrap();
-        }
-
-        for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-            identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0]).is_err())
-        }
-    }
-
-    #[test]
-    fn test_lists() {
-        let good = ["(map hash160 (list 1 2 3 4 5))",
-                    "(list (list 1 2) (list 3 4) (list 5 1 7))",
-                    "(fold and (list 'true 'true 'false 'false) 'true)",
-                    "(map - (list (+ 1 2) 3 (+ 4 5) (* (+ 1 2) 3)))"];
-        let bad = [
-            "(fold and (list 'true 'false) 2)",
-            "(fold hash160 (list 1 2 3 4) 2)",
-            "(fold >= (list 1 2 3 4) 2)",
-            "(list (list 1 2) (list 'true) (list 5 1 7))",
-            "(list 1 2 3 'true 'false 4 5 6)",
-            "(map mod (list 1 2 3 4 5))",
-            "(map - (list 'true 'false 'true 'false))",
-            "(map hash160 (+ 1 2))",];
-                   
-        for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-            identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0]).unwrap();
-        }
-
-        for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-            identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0]).is_err())
-        }
-    }
-
-    #[test]
-    fn test_tuples() {
-        let good = ["(+ 1 2     (get abc (tuple (abc 1) (def 'true))))",
-                    "(and 'true (get def (tuple (abc 1) (def 'true))))"];
-        let bad = ["(+ 1 2      (get def (tuple (abc 1) (def 'true))))",
-                   "(and 'true  (get abc (tuple (abc 1) (def 'true))))"];
-                   
-        for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-            identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0]).unwrap();
-        }
-
-        for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-            identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0]).is_err())
-        }
-    }
-
-    #[test]
-    fn test_define() {
-        use super::super::type_check;
-
-        let good = ["(define (foo (x int) (y int)) (+ x y))
-                     (define (bar (x int) (y bool)) (if y (+ 1 x) 0))
-                     (* (foo 1 2) (bar 3 'false))",
-        ];
-
-        let bad = ["(define (foo ((x int) (y int)) (+ x y)))
-                     (define (bar ((x int) (y bool)) (if y (+ 1 x) 0)))
-                     (* (foo 1 2) (bar 3 3))",
-        ];
-
-        for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-            type_check(&"transient", &mut good_test, &mut AnalysisDatabase::memory()).unwrap();
-        }
-
-        for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-            assert!(type_check(&"transient", &mut bad_test, &mut AnalysisDatabase::memory()).is_err());
-        }
-    }
-
-    #[test]
-    fn test_factorial() {
-        use super::super::type_check;
-        let contract = 
-            "(define-map factorials ((id int)) ((current int) (index int)))
-             (define (init-factorial (id int) (factorial int))
-                (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
-             (define-public (compute (id int))
-                (let ((entry (fetch-entry factorials (tuple (id id)))))
-                  (if (eq? entry 'null)
-                    'true
-                    (let ((current (get current entry))
-                          (index   (get index entry)))
-                         (if (<= index 1)
-                             'true
-                             (begin
-                               (set-entry! factorials (tuple (id id))
-                                                      (tuple (current (* current index))
-                                                             (index (- index 1))))
-                               'true))))))
-             (begin (init-factorial 1337 3)
-                (init-factorial 8008 5)
-                'null)";
-
-        let mut contract = parse(contract).unwrap();
-        type_check(&"transient", &mut contract, &mut AnalysisDatabase::memory()).unwrap();
-    }
-
-    #[test]
-    fn test_tuple_map() {
-        use super::super::type_check;
-        let t = "(define-map tuples ((name int)) 
-                            ((contents (tuple ((name (buff 5))
-                                               (owner (buff 5)))))))
-
-         (define (add-tuple (name int) (content (buff 5)))
-           (insert-entry! tuples (tuple (name name))
-                                 (tuple (contents
-                                   (tuple (name content)
-                                          (owner content))))))
-         (define (get-tuple (name int))
-            (get name (get contents (fetch-entry tuples (tuple (name name))))))
-
-
-         (add-tuple 0 \"abcde\")
-         (add-tuple 1 \"abcd\")
-         (list      (get-tuple 0)
-                    (get-tuple 1))
-        ";
-
-        let mut t = parse(t).unwrap();
-        type_check(&"transient", &mut t, &mut AnalysisDatabase::memory()).unwrap();
-    }
 }

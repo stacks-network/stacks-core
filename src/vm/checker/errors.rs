@@ -36,6 +36,7 @@ pub enum CheckErrors {
     BadFunctionName,
     BadMapTypeDefinition,
     PublicFunctionMustReturnBool,
+    DefineVariableBadSignature,
 
     // contract-call erros
     NoSuchContract(String),
