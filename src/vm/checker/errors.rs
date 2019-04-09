@@ -41,6 +41,7 @@ pub enum CheckErrors {
     NoSuchContract(String),
     NoSuchPublicFunction(String, String),
     ContractAlreadyExists(String),
+    ContractCallExpectName,
 
     // expect a function, or applying a function to a list
     NonFunctionApplication,

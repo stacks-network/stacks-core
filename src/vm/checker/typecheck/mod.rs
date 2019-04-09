@@ -180,7 +180,7 @@ impl FunctionType {
                 }
                 for found_type in args.iter() {
                     if !expected_type.admits_type(found_type) {
-                        return Err(CheckError::new(CheckErrors::TypeError(//format!("Bad type supplied to function. Expected {:?}, Found {:?}.",
+                        return Err(CheckError::new(CheckErrors::TypeError(
                             expected_type.clone(), found_type.clone())))
                     }                    
                 }
@@ -193,7 +193,7 @@ impl FunctionType {
                 }
                 for (expected_type, found_type) in arg_types.iter().zip(args) {
                     if !expected_type.admits_type(found_type) {
-                        return Err(CheckError::new(CheckErrors::TypeError(//format!("Bad type supplied to function. Expected {:?}, Found {:?}.",
+                        return Err(CheckError::new(CheckErrors::TypeError(
                             expected_type.clone(), found_type.clone())))
                     }
                 }
@@ -560,8 +560,24 @@ impl <'a> TypeChecker <'a> {
         Ok((function_name.to_string(), FunctionType::Fixed(arg_types, return_type)))
     }
 
-/*
-    "contract-call!" => Some(CallableType::SpecialFunction("native_contract-call", &database::special_contract_call)), */
+    fn check_contract_call(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        if args.len() < 2 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+        }
+        let contract_name = args[0].match_atom()
+            .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
+        let function_name = args[1].match_atom()
+            .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
+        self.type_map.set_type(&args[0], no_type())?;
+        self.type_map.set_type(&args[1], no_type())?;
+
+        let contract_call_function_type = self.db.get_public_function_type(contract_name, function_name)?;
+        let contract_call_args = self.type_check_all(&args[2..], context)?;
+
+        contract_call_function_type.check_args(&contract_call_args)?;
+
+        Ok(contract_call_function_type.return_type())
+    }
 
     fn try_special_function_check(&mut self, function: &str, args: &[SymbolicExpression], context: &TypingContext) -> Option<TypeResult> {
         match function {
@@ -578,6 +594,7 @@ impl <'a> TypeChecker <'a> {
             "set-entry!" =>  Some(self.check_special_set_entry(args, context)),
             "insert-entry!" =>  Some(self.check_special_insert_entry(args, context)),
             "delete-entry!" =>  Some(self.check_special_delete_entry(args, context)),
+            "contract-call!" => Some(self.check_contract_call(args, context)),
             _ => None
         }
     }
@@ -687,11 +704,12 @@ pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &An
 #[cfg(test)]
 mod test {
     use vm::parser::parse;
+    use vm::representations::SymbolicExpression;
     use vm::checker::AnalysisDatabase;
+    use super::{TypeResult, TypeChecker, TypingContext};
     use super::super::identity_pass;
-    use super::*;
 
-    pub fn type_check(exp: &SymbolicExpression) -> TypeResult {
+    fn type_check(exp: &SymbolicExpression) -> TypeResult {
         let analysis_db = AnalysisDatabase::memory();
         let mut type_checker = TypeChecker::new(&analysis_db);
         let contract_context = TypingContext::new();
@@ -818,11 +836,11 @@ mod test {
         ];
 
         for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-            type_check(&mut good_test).unwrap();
+            type_check(&"transient", &mut good_test, &mut AnalysisDatabase::memory()).unwrap();
         }
 
         for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-            assert!(type_check(&mut bad_test).is_err());
+            assert!(type_check(&"transient", &mut bad_test, &mut AnalysisDatabase::memory()).is_err());
         }
     }
 
@@ -851,7 +869,7 @@ mod test {
                 'null)";
 
         let mut contract = parse(contract).unwrap();
-        type_check(&mut contract).unwrap();
+        type_check(&"transient", &mut contract, &mut AnalysisDatabase::memory()).unwrap();
     }
 
     #[test]
@@ -877,6 +895,6 @@ mod test {
         ";
 
         let mut t = parse(t).unwrap();
-        type_check(&mut t).unwrap();
+        type_check(&"transient", &mut t, &mut AnalysisDatabase::memory()).unwrap();
     }
 }
