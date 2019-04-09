@@ -1,10 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{AtomTypeIdentifier, TypeSignature, Value, TupleTypeSignature, parse_name_type_pairs};
 use vm::errors::{ErrType as InterpError};
 
 use vm::contexts::MAX_CONTEXT_DEPTH;
+
+use super::AnalysisDatabase;
 
 pub use super::errors::{CheckResult, CheckError, CheckErrors};
 
@@ -33,16 +35,51 @@ pub struct TypeMap {
     map: HashMap<u64, TypeSignature>
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FunctionType {
     Variadic(TypeSignature, TypeSignature),
     Fixed(Vec<TypeSignature>, TypeSignature)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractAnalysis {
+    public_function_types: BTreeMap<String, FunctionType>
+}
+
+const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
+const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
+
+impl ContractAnalysis {
+    pub fn new() -> ContractAnalysis {
+        ContractAnalysis {
+            public_function_types: BTreeMap::new()
+        }
+    }
+
+    pub fn deserialize(json: &str) -> ContractAnalysis {
+        serde_json::from_str(json)
+            .expect(DESERIALIZE_FAIL_MESSAGE)
+    }
+
+    pub fn serialize(&self) -> String {
+        serde_json::to_string(self)
+            .expect(SERIALIZE_FAIL_MESSAGE)
+    }
+
+    pub fn add_public_function(&mut self, name: &str, function_type: &FunctionType) {
+        self.public_function_types.insert(name.to_string(), function_type.clone());
+    }
+
+    pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {
+        self.public_function_types.get(name)
+    }
 }
 
 pub struct TypingContext <'a> {
     map_types: HashMap<String, (TypeSignature, TypeSignature)>,
     variable_types: HashMap<String, TypeSignature>,
     function_types: HashMap<String, FunctionType>,
+    public_function_types: HashMap<String, FunctionType>,
     parent: Option<&'a TypingContext<'a>>,
     depth: u16
 }
@@ -75,6 +112,7 @@ impl <'a> TypingContext <'a> {
         TypingContext {
             variable_types: HashMap::new(),
             function_types: HashMap::new(),
+            public_function_types: HashMap::new(),
             map_types: HashMap::new(),
             depth: 0,
             parent: None
@@ -87,6 +125,7 @@ impl <'a> TypingContext <'a> {
         } else {
             Ok(TypingContext {
                 variable_types: HashMap::new(),
+                public_function_types: HashMap::new(),
                 function_types: HashMap::new(),
                 map_types: HashMap::new(),
                 parent: Some(self),
@@ -105,7 +144,12 @@ impl <'a> TypingContext <'a> {
     pub fn lookup_function_type(&self, name: &str) -> Option<&FunctionType> {
         match self.parent {
             Some(parent) => parent.lookup_function_type(name),
-            None => self.function_types.get(name)
+            None => {
+                match self.public_function_types.get(name) {
+                    Some(f_type) => Some(f_type),
+                    None => self.function_types.get(name)
+                }
+            }
         }
     }
 
@@ -120,6 +164,11 @@ impl <'a> TypingContext <'a> {
             }
         }
     }
+}
+
+pub struct TypeChecker <'a> {
+    type_map: TypeMap,
+    db: &'a AnalysisDatabase
 }
 
 impl FunctionType {
@@ -170,22 +219,6 @@ fn get_function_type(function_name: &str, context: &TypingContext) -> Option<Fun
     } else {
         None
     }
-}
-
-fn type_check_all(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> CheckResult<Vec<TypeSignature>> {
-    let mut result = Vec::new();
-    for arg in args.iter() {
-        // don't use map here, since type_check has side-effects.
-        result.push(type_check(arg, context, type_map)?)
-    }
-    Ok(result)
-}
-
-fn type_check_function_type(func_name: &str, func_type: &FunctionType,
-                            args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    let typed_args = type_check_all(args, context, type_map)?;
-    func_type.check_args(&typed_args)?;
-    Ok(func_type.return_type().clone())
 }
 
 fn arithmetic_type(variadic: bool) -> FunctionType {
@@ -247,22 +280,46 @@ fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> Chec
     }
 }
 
-fn check_special_if(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    if args.len() != 2 && args.len() != 3 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+impl <'a> TypeChecker <'a> {
+    pub fn new(db: &'a AnalysisDatabase) -> TypeChecker {
+        TypeChecker {
+            db: db,
+            type_map: TypeMap::new()
+        }
     }
 
-    type_check_all(args, context, type_map)?;
+    fn type_check_all(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> CheckResult<Vec<TypeSignature>> {
+        let mut result = Vec::new();
+        for arg in args.iter() {
+            // don't use map here, since type_check has side-effects.
+            result.push(self.type_check(arg, context)?)
+        }
+        Ok(result)
+    }
 
-    check_atomic_type(AtomTypeIdentifier::BoolType, type_map.get_type(&args[0])?)?;
+    fn type_check_function_type(&mut self, func_name: &str, func_type: &FunctionType,
+                                args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        let typed_args = self.type_check_all(args, context)?;
+        func_type.check_args(&typed_args)?;
+        Ok(func_type.return_type().clone())
+    }
 
-    let return_type = {
-        if args.len() == 2 {
-            type_map.get_type(&args[1])?
-                .clone()
-        } else {
-            let expr1 = type_map.get_type(&args[1])?;
-            let expr2 = type_map.get_type(&args[2])?;
+    fn check_special_if(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        if args.len() != 2 && args.len() != 3 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+        }
+
+        self.type_check_all(args, context)?;
+
+        check_atomic_type(AtomTypeIdentifier::BoolType, self.type_map.get_type(&args[0])?)?;
+
+        let return_type = {
+            if args.len() == 2 {
+                self.type_map.get_type(&args[1])?
+                    .clone()
+            } else {
+            let expr1 = self.type_map.get_type(&args[1])?;
+            let expr2 = self.type_map.get_type(&args[2])?;
             if expr1.admits_type(expr2) {
                 expr1.clone()
             } else if expr2.admits_type(expr1) {
@@ -271,365 +328,375 @@ fn check_special_if(args: &[SymbolicExpression], context: &TypingContext, type_m
                 return Err(CheckError::new(CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone())));
             }
         }
-    };
+        };
 
-    Ok(return_type)
-}
-
-fn type_check_list_pairs<'a> (bindings: &[SymbolicExpression],
-                              context: &'a TypingContext,
-                              type_map: &mut TypeMap) -> CheckResult<TypingContext<'a>> {
-    let mut out_context = context.extend()?;
-    for binding in bindings.iter() {
-        let binding_exps = binding.match_list()
-            .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
-
-        if binding_exps.len() != 2 {
-            return Err(CheckError::new(CheckErrors::BadSyntaxBinding))
-        }
-
-        let var_name = binding_exps[0].match_atom()
-            .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
-
-        type_map.set_type(&binding_exps[0], no_type())?;
-        let typed_result = type_check(&binding_exps[1], context, type_map)?;
-        out_context.variable_types.insert(var_name.clone(),
-                                          typed_result);
-    }
-
-    Ok(out_context)
-}
-
-fn check_special_let(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    if args.len() != 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
-    }
-
-    type_map.set_type(&args[0], no_type())?;
-    let binding_list = args[0].match_list()
-        .ok_or(CheckError::new(CheckErrors::BadLetSyntax))?;
-
-    let let_context = type_check_list_pairs(binding_list, context, type_map)?;
-
-    let body_return_type = type_check(&args[1], &let_context, type_map)?;
-
-    Ok(body_return_type)
-}
-
-fn check_special_map(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    if args.len() != 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
-    }
-
-    let function_name = args[0].match_atom()
-        .ok_or(CheckError::new(CheckErrors::NonFunctionApplication))?;
-    // we will only lookup native or defined functions here.
-    //   you _cannot_ map a special function.
-    let function_type = get_function_type(function_name, context)
-        .ok_or(CheckError::new(CheckErrors::IllegalOrUnknownFunctionApplication(function_name.clone())))?;
-
-    type_map.set_type(&args[0], no_type())?;
-
-    let argument_type = type_check(&args[1], context, type_map)?;
-
-    let argument_length = argument_type.list_max_len()
-        .ok_or(CheckError::new(CheckErrors::ExpectedListApplication))?;
-
-    let argument_items_type = argument_type.get_list_item_type()
-        .ok_or(CheckError::new(CheckErrors::ExpectedListApplication))?;
-
-    function_type.check_args(&[argument_items_type])?;
-
-    let mapped_type = function_type.return_type();
-
-    TypeSignature::list_of(mapped_type, argument_length)
-        .map_err(|_| CheckError::new(CheckErrors::ConstructedListTooLarge))
-}
-
-fn check_special_fold(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    if args.len() != 3 {
-        eprintln!("{:?}", args);
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
-    }
-
-    let function_name = args[0].match_atom()
-        .ok_or(CheckError::new(CheckErrors::NonFunctionApplication))?;
-    // we will only lookup native or defined functions here.
-    //   you _cannot_ fold a special function.
-    let function_type = get_function_type(function_name, context)
-        .ok_or(CheckError::new(CheckErrors::IllegalOrUnknownFunctionApplication(function_name.clone())))?;
-
-    type_map.set_type(&args[0], no_type())?;
-
-    let list_argument_type = type_check(&args[1], context, type_map)?;
-
-    let list_items_type = list_argument_type.get_list_item_type()
-        .ok_or(CheckError::new(CheckErrors::ExpectedListApplication))?;
-
-    let initial_value_type = type_check(&args[2], context, type_map)?;
-    let return_type = function_type.return_type();
-
-    // fold: f(A, B) -> A
-    //     where A = initial_value_type
-    //           B = list items type
-
-    // f must accept the initial value and the list items type
-    function_type.check_args(&[initial_value_type.clone(), list_items_type.clone()])?;
-    // f must _also_ accepts its own return type!
-    function_type.check_args(&[return_type.clone(), list_items_type.clone()])?;
-    // TODO: those clones _should_ be removed.
-
-    Ok(return_type)
-}
-
-fn check_special_list_cons(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    let typed_args = type_check_all(args, context, type_map)?;
-    TypeSignature::parent_list_type(&typed_args)
-        .map_err(|x| {
-            let error_type = match x.err_type {
-                InterpError::BadTypeConstruction => CheckErrors::ListTypesMustMatch,
-                InterpError::ListTooLarge => CheckErrors::ConstructedListTooLarge,
-                InterpError::ListDimensionTooHigh => CheckErrors::ConstructedListTooLarge,
-                _ => CheckErrors::UnknownListConstructionFailure
-            };
-            CheckError::new(error_type)
-        })
-}
-
-fn check_special_print(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    if args.len() != 1 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
-    }
-
-    type_check(&args[0], context, type_map)
-}
-
-fn check_special_begin(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    if args.len() < 1 {
-        return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
-    }
-
-    let mut typed_args = type_check_all(args, context, type_map)?;
-
-    let last_return = typed_args.pop()
-        .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
-
-    Ok(last_return)
-}
-
-fn check_special_get(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    if args.len() != 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
-    }
-
-    let field_to_get = args[0].match_atom()
-        .ok_or(CheckError::new(CheckErrors::BadTupleFieldName))?;
-
-    type_map.set_type(&args[0], no_type())?;
-
-    let argument_type = type_check(&args[1], context, type_map)?;
-    let atomic_type = argument_type
-        .match_atomic()
-        .ok_or(CheckError::new(CheckErrors::ExpectedTuple(argument_type.clone())))?;
-
-    if let AtomTypeIdentifier::TupleType(tuple_type_sig) = atomic_type {
-        let return_type = tuple_type_sig.field_type(field_to_get)
-            .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.clone())))?
-            .clone();
         Ok(return_type)
-    } else {
-        Err(CheckError::new(CheckErrors::ExpectedTuple(argument_type.clone())))
-    }
-}
-
-fn check_special_tuple_cons(args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    if args.len() < 1 {
-        return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
     }
 
-    let mut tuple_type_data = Vec::new();
-    for pair in args.iter() {
-        let pair_expression = pair.match_list()
-            .ok_or(CheckError::new(CheckErrors::TupleExpectsPairs))?;
-        if pair_expression.len() != 2 {
-            return Err(CheckError::new(CheckErrors::TupleExpectsPairs))
+    fn type_check_list_pairs<'b> (&mut self, bindings: &[SymbolicExpression],
+                                  context: &'b TypingContext) -> CheckResult<TypingContext<'b>> {
+        let mut out_context = context.extend()?;
+        for binding in bindings.iter() {
+            let binding_exps = binding.match_list()
+                .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
+            
+            if binding_exps.len() != 2 {
+                return Err(CheckError::new(CheckErrors::BadSyntaxBinding))
+            }
+
+            let var_name = binding_exps[0].match_atom()
+                .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
+
+            self.type_map.set_type(&binding_exps[0], no_type())?;
+            let typed_result = self.type_check(&binding_exps[1], context)?;
+            out_context.variable_types.insert(var_name.clone(),
+                                              typed_result);
         }
 
-        let var_name = pair_expression[0].match_atom()
-            .ok_or(CheckError::new(CheckErrors::TupleExpectsPairs))?;
-        type_map.set_type(&pair_expression[0], no_type())?;
-
-        let var_type = type_check(&pair_expression[1], context, type_map)?;
-        tuple_type_data.push((var_name.clone(), var_type))
+        Ok(out_context)
     }
 
-    let tuple_signature = TupleTypeSignature::new(tuple_type_data)
-        .map_err(|_| CheckError::new(CheckErrors::BadTupleConstruction))?;
+    fn check_special_let(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        if args.len() != 2 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+        }
 
-    Ok(TypeSignature::new_atom(
-        AtomTypeIdentifier::TupleType(tuple_signature)))
-}
+        self.type_map.set_type(&args[0], no_type())?;
+        let binding_list = args[0].match_list()
+            .ok_or(CheckError::new(CheckErrors::BadLetSyntax))?;
 
-fn type_check_define_function(function_expression: &[SymbolicExpression],
-                              context: &TypingContext, type_map: &mut TypeMap) -> CheckResult<(String, FunctionType)> {
-    if function_expression.len() != 3 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, function_expression.len() - 1)))
+        let let_context = self.type_check_list_pairs(binding_list, context)?;
+
+        let body_return_type = self.type_check(&args[1], &let_context)?;
+
+        Ok(body_return_type)
     }
 
-    type_map.set_type(&function_expression[0], no_type())?;
-    type_map.set_type(&function_expression[1], no_type())?;
-    // should we set the type of the subexpressions of the signature to no-type as well?
+    fn check_special_map(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        if args.len() != 2 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+        }
 
-    let signature = function_expression[1].match_list()
-        .ok_or(CheckError::new(CheckErrors::DefineFunctionBadSignature))?;
-    let body = &function_expression[2];
+        let function_name = args[0].match_atom()
+            .ok_or(CheckError::new(CheckErrors::NonFunctionApplication))?;
+        // we will only lookup native or defined functions here.
+        //   you _cannot_ map a special function.
+        let function_type = get_function_type(function_name, context)
+            .ok_or(CheckError::new(CheckErrors::IllegalOrUnknownFunctionApplication(function_name.clone())))?;
 
-    let (function_name, args) = signature.split_first()
-        .ok_or(CheckError::new(CheckErrors::VariadicNeedsOneArgument))?;
-    let function_name = function_name.match_atom()
-        .ok_or(CheckError::new(CheckErrors::BadFunctionName))?;
-    let mut args = parse_name_type_pairs(args)
-        .map_err(|_| { CheckError::new(CheckErrors::BadSyntaxBinding) })?;
+        self.type_map.set_type(&args[0], no_type())?;
 
-    let mut function_context = context.extend()?;
-    for (arg_name, arg_type) in args.iter() {
-        function_context.variable_types.insert(arg_name.clone(),
-                                               arg_type.clone());
+        let argument_type = self.type_check(&args[1], context)?;
+
+        let argument_length = argument_type.list_max_len()
+            .ok_or(CheckError::new(CheckErrors::ExpectedListApplication))?;
+
+        let argument_items_type = argument_type.get_list_item_type()
+            .ok_or(CheckError::new(CheckErrors::ExpectedListApplication))?;
+
+        function_type.check_args(&[argument_items_type])?;
+
+        let mapped_type = function_type.return_type();
+
+        TypeSignature::list_of(mapped_type, argument_length)
+            .map_err(|_| CheckError::new(CheckErrors::ConstructedListTooLarge))
     }
 
+    fn check_special_fold(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        if args.len() != 3 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
+        }
 
-    let return_type = type_check(body, &function_context, type_map)?;
-    let arg_types: Vec<TypeSignature> = args.drain(..)
-        .map(|(_, arg_type)| arg_type).collect();
+        let function_name = args[0].match_atom()
+            .ok_or(CheckError::new(CheckErrors::NonFunctionApplication))?;
+        // we will only lookup native or defined functions here.
+        //   you _cannot_ fold a special function.
+        let function_type = get_function_type(function_name, context)
+            .ok_or(CheckError::new(CheckErrors::IllegalOrUnknownFunctionApplication(function_name.clone())))?;
+        
+        self.type_map.set_type(&args[0], no_type())?;
 
-    Ok((function_name.to_string(), FunctionType::Fixed(arg_types, return_type)))
-}
+        let list_argument_type = self.type_check(&args[1], context)?;
+
+        let list_items_type = list_argument_type.get_list_item_type()
+            .ok_or(CheckError::new(CheckErrors::ExpectedListApplication))?;
+        
+        let initial_value_type = self.type_check(&args[2], context)?;
+        let return_type = function_type.return_type();
+
+        // fold: f(A, B) -> A
+        //     where A = initial_value_type
+        //           B = list items type
+
+        // f must accept the initial value and the list items type
+        function_type.check_args(&[initial_value_type.clone(), list_items_type.clone()])?;
+        // f must _also_ accepts its own return type!
+        function_type.check_args(&[return_type.clone(), list_items_type.clone()])?;
+        // TODO: those clones _should_ be removed.
+
+        Ok(return_type)
+    }
+
+    fn check_special_list_cons(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        let typed_args = self.type_check_all(args, context)?;
+        TypeSignature::parent_list_type(&typed_args)
+            .map_err(|x| {
+                let error_type = match x.err_type {
+                    InterpError::BadTypeConstruction => CheckErrors::ListTypesMustMatch,
+                    InterpError::ListTooLarge => CheckErrors::ConstructedListTooLarge,
+                    InterpError::ListDimensionTooHigh => CheckErrors::ConstructedListTooLarge,
+                    _ => CheckErrors::UnknownListConstructionFailure
+                };
+                CheckError::new(error_type)
+            })
+    }
+
+    fn check_special_print(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        if args.len() != 1 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
+        }
+
+        self.type_check(&args[0], context)
+    }
+
+    fn check_special_begin(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        if args.len() < 1 {
+            return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
+        }
+
+        let mut typed_args = self.type_check_all(args, context)?;
+
+        let last_return = typed_args.pop()
+            .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
+
+        Ok(last_return)
+    }
+
+    fn check_special_get(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        if args.len() != 2 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+        }
+
+        let field_to_get = args[0].match_atom()
+            .ok_or(CheckError::new(CheckErrors::BadTupleFieldName))?;
+
+        self.type_map.set_type(&args[0], no_type())?;
+
+        let argument_type = self.type_check(&args[1], context)?;
+        let atomic_type = argument_type
+            .match_atomic()
+            .ok_or(CheckError::new(CheckErrors::ExpectedTuple(argument_type.clone())))?;
+
+        if let AtomTypeIdentifier::TupleType(tuple_type_sig) = atomic_type {
+            let return_type = tuple_type_sig.field_type(field_to_get)
+                .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.clone())))?
+                .clone();
+            Ok(return_type)
+        } else {
+            Err(CheckError::new(CheckErrors::ExpectedTuple(argument_type.clone())))
+        }
+    }
+
+    fn check_special_tuple_cons(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        if args.len() < 1 {
+            return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
+        }
+
+        let mut tuple_type_data = Vec::new();
+        for pair in args.iter() {
+            let pair_expression = pair.match_list()
+                .ok_or(CheckError::new(CheckErrors::TupleExpectsPairs))?;
+            if pair_expression.len() != 2 {
+                return Err(CheckError::new(CheckErrors::TupleExpectsPairs))
+            }
+            
+            let var_name = pair_expression[0].match_atom()
+                .ok_or(CheckError::new(CheckErrors::TupleExpectsPairs))?;
+            self.type_map.set_type(&pair_expression[0], no_type())?;
+
+            let var_type = self.type_check(&pair_expression[1], context)?;
+            tuple_type_data.push((var_name.clone(), var_type))
+        }
+        
+        let tuple_signature = TupleTypeSignature::new(tuple_type_data)
+            .map_err(|_| CheckError::new(CheckErrors::BadTupleConstruction))?;
+
+        Ok(TypeSignature::new_atom(
+            AtomTypeIdentifier::TupleType(tuple_signature)))
+    }
+
+    fn type_check_define_function(&mut self, function_expression: &[SymbolicExpression],
+                                  context: &TypingContext) -> CheckResult<(String, FunctionType)> {
+        if function_expression.len() != 3 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, function_expression.len() - 1)))
+        }
+
+        self.type_map.set_type(&function_expression[0], no_type())?;
+        self.type_map.set_type(&function_expression[1], no_type())?;
+        // should we set the type of the subexpressions of the signature to no-type as well?
+
+        let signature = function_expression[1].match_list()
+            .ok_or(CheckError::new(CheckErrors::DefineFunctionBadSignature))?;
+        let body = &function_expression[2];
+
+        let (function_name, args) = signature.split_first()
+            .ok_or(CheckError::new(CheckErrors::VariadicNeedsOneArgument))?;
+        let function_name = function_name.match_atom()
+            .ok_or(CheckError::new(CheckErrors::BadFunctionName))?;
+        let mut args = parse_name_type_pairs(args)
+            .map_err(|_| { CheckError::new(CheckErrors::BadSyntaxBinding) })?;
+
+        let mut function_context = context.extend()?;
+        for (arg_name, arg_type) in args.iter() {
+            function_context.variable_types.insert(arg_name.clone(),
+                                                   arg_type.clone());
+        }
+
+
+        let return_type = self.type_check(body, &function_context)?;
+        let arg_types: Vec<TypeSignature> = args.drain(..)
+            .map(|(_, arg_type)| arg_type).collect();
+
+        Ok((function_name.to_string(), FunctionType::Fixed(arg_types, return_type)))
+    }
 
 /*
     "contract-call!" => Some(CallableType::SpecialFunction("native_contract-call", &database::special_contract_call)), */
 
-fn try_special_function_check(function: &str, args: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> Option<TypeResult> {
-    match function {
-        "if" => Some(check_special_if(args, context, type_map)),
-        "let" => Some(check_special_let(args, context, type_map)),
-        "get" => Some(check_special_get(args, context, type_map)),
-        "tuple" => Some(check_special_tuple_cons(args, context, type_map)),
-        "map" => Some(check_special_map(args, context, type_map)),
-        "fold" => Some(check_special_fold(args, context, type_map)),
-        "list" => Some(check_special_list_cons(args, context, type_map)),
-        "print" => Some(check_special_print(args, context, type_map)),
-        "begin" => Some(check_special_begin(args, context, type_map)),
-        "fetch-entry" => Some(maps::check_special_fetch_entry(args, context, type_map)),
-        "set-entry!" =>  Some(maps::check_special_set_entry(args, context, type_map)),
-        "insert-entry!" =>  Some(maps::check_special_insert_entry(args, context, type_map)),
-        "delete-entry!" =>  Some(maps::check_special_delete_entry(args, context, type_map)),
-        _ => None
-    }
-}
-
-fn type_check_function_application(expression: &[SymbolicExpression], context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    if let Some((function_name, args)) = expression.split_first() {
-        type_map.set_type(function_name, no_type())?;
-        let function_name = function_name.match_atom()
-            .ok_or(CheckError::new(CheckErrors::NonFunctionApplication))?;
-
-        if let Some(type_result) = try_special_function_check(function_name, args, context, type_map) {
-            type_result
-        } else {
-            let function_type = get_function_type(function_name, context)
-                .ok_or(CheckError::new(CheckErrors::UnknownFunction(function_name.clone())))?;
-            type_check_function_type(function_name, &function_type, args, context, type_map)
+    fn try_special_function_check(&mut self, function: &str, args: &[SymbolicExpression], context: &TypingContext) -> Option<TypeResult> {
+        match function {
+            "if" => Some(self.check_special_if(args, context)),
+            "let" => Some(self.check_special_let(args, context)),
+            "get" => Some(self.check_special_get(args, context)),
+            "tuple" => Some(self.check_special_tuple_cons(args, context)),
+            "map" => Some(self.check_special_map(args, context)),
+            "fold" => Some(self.check_special_fold(args, context)),
+            "list" => Some(self.check_special_list_cons(args, context)),
+            "print" => Some(self.check_special_print(args, context)),
+            "begin" => Some(self.check_special_begin(args, context)),
+            "fetch-entry" => Some(self.check_special_fetch_entry(args, context)),
+            "set-entry!" =>  Some(self.check_special_set_entry(args, context)),
+            "insert-entry!" =>  Some(self.check_special_insert_entry(args, context)),
+            "delete-entry!" =>  Some(self.check_special_delete_entry(args, context)),
+            _ => None
         }
-    } else {
-        Err(CheckError::new(CheckErrors::NonFunctionApplication))
     }
-}
 
-pub fn type_check(expr: &SymbolicExpression, context: &TypingContext, type_map: &mut TypeMap) -> TypeResult {
-    let type_sig = match expr.expr {
-        AtomValue(ref value) => {
-            TypeSignature::type_of(value)
-        },
-        Atom(ref name) => {
-            context.lookup_variable_type(name)
-                .ok_or(CheckError::new(CheckErrors::UnboundVariable(name.clone())))?
-                .clone()
-        },
-        List(ref expression) => {
-            type_check_function_application(expression, context, type_map)?
-        }
-    };
+    fn type_check_function_application(&mut self, expression: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        if let Some((function_name, args)) = expression.split_first() {
+            self.type_map.set_type(function_name, no_type())?;
+            let function_name = function_name.match_atom()
+                .ok_or(CheckError::new(CheckErrors::NonFunctionApplication))?;
 
-    type_map.set_type(expr, type_sig.clone())?;
-    Ok(type_sig)
-}
-
-pub fn try_type_check_define(expr: &SymbolicExpression, context: &mut TypingContext, type_map: &mut TypeMap) -> CheckResult<Option<()>> {
-    if let Some(ref expression) = expr.match_list() {
-        if let Some((function_name, _)) = expression.split_first() {
-            if let Some(function_name) = function_name.match_atom() {
-                match function_name.as_str() {
-                    "define" => {
-                        let (f_name, f_type) = type_check_define_function(expression,
-                                                                          context,
-                                                                          type_map)?;
-                        context.function_types.insert(f_name, f_type);
-                        Ok(Some(()))
-                    },
-                    "define-public" => {
-                        let (f_name, f_type) = type_check_define_function(expression,
-                                                                          context,
-                                                                          type_map)?;
-                        if !TypeSignature::new_atom(AtomTypeIdentifier::BoolType).admits_type(
-                            &f_type.return_type()) {
-                            Err(CheckError::new(CheckErrors::PublicFunctionMustReturnBool))
-                        } else {
-                            context.function_types.insert(f_name, f_type);
-                            Ok(Some(()))
-                        }
-                    },
-                    "define-map" => {
-                        let (f_name, f_type) = maps::type_check_define_map(expression,
-                                                                           context,
-                                                                           type_map)?;
-                        context.map_types.insert(f_name, f_type);
-                        Ok(Some(()))
-                    },
-                    _ => {
-                        Ok(None)
-                    }
-                }
+            if let Some(type_result) = self.try_special_function_check(function_name, args, context) {
+                type_result
             } else {
-                Ok(None)
+                let function_type = get_function_type(function_name, context)
+                    .ok_or(CheckError::new(CheckErrors::UnknownFunction(function_name.clone())))?;
+                self.type_check_function_type(function_name, &function_type, args, context)
             }
         } else {
-            Ok(None) // not a define
+            Err(CheckError::new(CheckErrors::NonFunctionApplication))
         }
-    } else {
-        Ok(None) // not a define.
+    }
+
+    pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
+        let type_sig = match expr.expr {
+            AtomValue(ref value) => {
+                TypeSignature::type_of(value)
+            },
+            Atom(ref name) => {
+                context.lookup_variable_type(name)
+                    .ok_or(CheckError::new(CheckErrors::UnboundVariable(name.clone())))?
+                    .clone()
+            },
+            List(ref expression) => {
+                self.type_check_function_application(expression, context)?
+            }
+        };
+
+        self.type_map.set_type(expr, type_sig.clone())?;
+        Ok(type_sig)
+    }
+
+    pub fn try_type_check_define(&mut self, expr: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
+        if let Some(ref expression) = expr.match_list() {
+            if let Some((function_name, _)) = expression.split_first() {
+                if let Some(function_name) = function_name.match_atom() {
+                    // TODO: these inserts need to check if the name already exists!
+                    match function_name.as_str() {
+                        "define" => {
+                            let (f_name, f_type) = self.type_check_define_function(expression,
+                                                                                   context)?;
+                            context.function_types.insert(f_name, f_type);
+                            Ok(Some(()))
+                        },
+                        "define-public" => {
+                            let (f_name, f_type) = self.type_check_define_function(expression,
+                                                                                   context)?;
+                            if !TypeSignature::new_atom(AtomTypeIdentifier::BoolType).admits_type(
+                                &f_type.return_type()) {
+                                Err(CheckError::new(CheckErrors::PublicFunctionMustReturnBool))
+                            } else {
+                                context.public_function_types.insert(f_name, f_type);
+                                Ok(Some(()))
+                            }
+                        },
+                        "define-map" => {
+                            let (f_name, f_type) = self.type_check_define_map(expression,
+                                                                              context)?;
+                            context.map_types.insert(f_name, f_type);
+                            Ok(Some(()))
+                        },
+                        _ => {
+                            Ok(None)
+                        }
+                    }
+                } else {
+                    Ok(None)
+                }
+            } else {
+                Ok(None) // not a define
+            }
+        } else {
+            Ok(None) // not a define.
+        }
     }
 }
 
-pub fn type_check_contract(contract: &mut [SymbolicExpression]) -> CheckResult<()> {
-    let mut type_map = TypeMap::new();
+pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<ContractAnalysis> {
+    let mut type_checker = TypeChecker::new(analysis_db);
     let mut contract_context = TypingContext::new();
 
     for exp in contract {
-        if try_type_check_define(exp, &mut contract_context, &mut type_map)?
+        if type_checker.try_type_check_define(exp, &mut contract_context)?
             .is_none() {
                 // was _not_ a define statement, so handle like a normal statement.
-                type_check(exp, &contract_context, &mut type_map)?;
+                type_checker.type_check(exp, &contract_context)?;
             }
     }
 
-    Ok(())
+    let mut contract_analysis = ContractAnalysis::new();
+    for (name, function_type) in contract_context.public_function_types.iter() {
+        contract_analysis.add_public_function(name, function_type);
+    }
+
+    Ok(contract_analysis)
 }
 
 #[cfg(test)]
 mod test {
     use vm::parser::parse;
+    use vm::checker::AnalysisDatabase;
     use super::super::identity_pass;
     use super::*;
+
+    pub fn type_check(exp: &SymbolicExpression) -> TypeResult {
+        let analysis_db = AnalysisDatabase::memory();
+        let mut type_checker = TypeChecker::new(&analysis_db);
+        let contract_context = TypingContext::new();
+        type_checker.type_check(exp, &contract_context)
+    }
 
     #[test]
     fn test_simple_arithmetic_checks() {
@@ -644,12 +711,12 @@ mod test {
                    "(and (or 'true 'false) (+ 1 2 3))"];
         for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0], &TypingContext::new(), &mut TypeMap::new()).unwrap();
+            type_check(&good_test[0]).unwrap();
         }
 
         for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0], &TypingContext::new(), &mut TypeMap::new()).is_err())
+            assert!(type_check(&bad_test[0]).is_err())
         }
     }
 
@@ -665,12 +732,12 @@ mod test {
                    "(if 0 1 0)"];
         for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0], &TypingContext::new(), &mut TypeMap::new()).unwrap();
+            type_check(&good_test[0]).unwrap();
         }
 
         for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0], &TypingContext::new(), &mut TypeMap::new()).is_err())
+            assert!(type_check(&bad_test[0]).is_err())
         }
     }
 
@@ -682,12 +749,12 @@ mod test {
                    "(let ((1 2)) (+ 1 2))"];
         for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0], &TypingContext::new(), &mut TypeMap::new()).unwrap();
+            type_check(&good_test[0]).unwrap();
         }
 
         for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0], &TypingContext::new(), &mut TypeMap::new()).is_err())
+            assert!(type_check(&bad_test[0]).is_err())
         }
     }
 
@@ -709,12 +776,12 @@ mod test {
                    
         for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0], &TypingContext::new(), &mut TypeMap::new()).unwrap();
+            type_check(&good_test[0]).unwrap();
         }
 
         for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0], &TypingContext::new(), &mut TypeMap::new()).is_err())
+            assert!(type_check(&bad_test[0]).is_err())
         }
     }
 
@@ -727,12 +794,12 @@ mod test {
                    
         for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0], &TypingContext::new(), &mut TypeMap::new()).unwrap();
+            type_check(&good_test[0]).unwrap();
         }
 
         for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
             identity_pass::identity_pass(&mut bad_test).unwrap();
-            assert!(type_check(&bad_test[0], &TypingContext::new(), &mut TypeMap::new()).is_err())
+            assert!(type_check(&bad_test[0]).is_err())
         }
     }
 

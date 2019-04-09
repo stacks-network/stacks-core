@@ -37,6 +37,11 @@ pub enum CheckErrors {
     BadMapTypeDefinition,
     PublicFunctionMustReturnBool,
 
+    // contract-call erros
+    NoSuchContract(String),
+    NoSuchPublicFunction(String, String),
+    ContractAlreadyExists(String),
+
     // expect a function, or applying a function to a list
     NonFunctionApplication,
     ExpectedListApplication,

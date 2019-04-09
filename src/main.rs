@@ -112,20 +112,28 @@ fn main() {
             return
         },
         "check" => {
-            use vm::checker::type_check;
+            use vm::checker::{type_check, AnalysisDatabase};
             use vm::parser::parse;
 
             if argv.len() < 3 {
-                eprintln!("Usage: {} check [program-file.scm]", argv[0]);
+                eprintln!("Usage: {} check [program-file.scm] (analysis_db.sqlite)", argv[0]);
                 process::exit(1);
             }
 
             let content: String = fs::read_to_string(&argv[2])
                 .expect(&format!("Error reading file: {}", argv[2]));
 
+            let mut db = {
+                if argv.len() >= 4 {
+                    AnalysisDatabase::open(&argv[3])
+                } else {
+                    AnalysisDatabase::memory()
+                }
+            };
+
             let mut ast = parse(&content).expect("Failed to parse program.");
 
-            type_check(&mut ast).expect("Type check error.");
+            type_check(&"transient", &mut ast, &mut db).expect("Type check error.");
 
             return
         },
