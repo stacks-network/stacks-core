@@ -627,6 +627,18 @@ impl <'a> TypeChecker <'a> {
     }
 
     pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
+        let mut result = self.inner_type_check(expr, context);
+
+        if let Err(ref mut error) = result {
+            if !error.has_expression() {
+                error.set_expression(expr);
+            }
+        }
+
+        result
+    }
+
+    fn inner_type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
         let type_sig = match expr.expr {
             AtomValue(ref value) => {
                 TypeSignature::type_of(value)

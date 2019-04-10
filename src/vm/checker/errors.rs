@@ -1,3 +1,4 @@
+use vm::representations::SymbolicExpression;
 use vm::types::TypeSignature;
 use std::error;
 use std::fmt;
@@ -63,14 +64,24 @@ pub enum CheckErrors {
 
 #[derive(Debug, PartialEq)]
 pub struct CheckError {
-    pub err: CheckErrors
+    pub err: CheckErrors,
+    pub expression: Option<SymbolicExpression>
 }
 
 impl CheckError {
     pub fn new(err: CheckErrors) -> CheckError {
         CheckError {
-            err: err
+            err: err,
+            expression: None
         }
+    }
+
+    pub fn has_expression(&self) -> bool {
+        self.expression.is_some()
+    }
+
+    pub fn set_expression(&mut self, expr: &SymbolicExpression) {
+        self.expression.replace(expr.clone());
     }
 }
 
@@ -80,6 +91,10 @@ impl fmt::Display for CheckError {
         match self.err {
             _ =>  write!(f, "{:?}", self.err)
         }?;
+
+        if let Some(ref e) = self.expression {
+            write!(f, "\nNear:\n{}", e)?;
+        }
 
         Ok(())
     }

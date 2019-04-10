@@ -6,8 +6,6 @@ use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 use vm::checker::typecheck::{ContractAnalysis, FunctionType};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in contract analysis.";
-const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
-const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
 
 pub struct AnalysisDatabase {
     conn: Connection

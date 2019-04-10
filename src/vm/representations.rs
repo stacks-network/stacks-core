@@ -1,3 +1,4 @@
+use std::fmt;
 use vm::types::{Value};
 
 /*
@@ -77,5 +78,27 @@ impl SymbolicExpression {
         } else {
             None
         }
+    }
+}
+
+impl fmt::Display for SymbolicExpression {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.expr {
+            SymbolicExpressionType::List(ref list) => {
+                write!(f, "(")?;
+                for item in list.iter() {
+                    write!(f, " {}", item)?;
+                }
+                write!(f, " )")?;
+            },
+            SymbolicExpressionType::Atom(ref value) => {
+                write!(f, "{}", value)?;
+            },
+            SymbolicExpressionType::AtomValue(ref value) => {
+                write!(f, "{}", value)?;
+            }
+        };
+        
+        Ok(())
     }
 }
