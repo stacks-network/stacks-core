@@ -41,7 +41,7 @@ Service](docs/blockstack_naming_service.md)
 blockchain.  It handles storage using [Gaia](https://github.com/blockstack/gaia), a scalable decentralized
 key/value storage system that looks and feels like `localStorage`,
 but lets users securely store and share application data
-via existing storage systems like Dropbox or S3.
+via user-selected storage systems.
 
 Blockstack applications differ from traditional Web applications in two key
 ways.  First, **users own their identities**.
