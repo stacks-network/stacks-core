@@ -14,7 +14,7 @@ fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
 fn test_simple_token_system() {
     let tokens_contract = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define-public (get-balance (account principal))
+         (define (get-balance (account principal))
             (let ((balance
                   (get balance (fetch-entry tokens (tuple (account account))))))
               (if (eq? balance 'null) 0 balance)))
@@ -65,12 +65,12 @@ fn test_simple_token_system() {
                                         &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap(),
         Value::Bool(true));
     assert_eq!(
-        global_context.execute_contract("tokens", &p1, "get-balance",
-                                        &symbols_from_values(vec![p1.clone()])).unwrap(),
+        global_context.read_only_eval("tokens",
+                                      "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
         Value::Int(1000));
     assert_eq!(
-        global_context.execute_contract("tokens", &p1, "get-balance",
-                                        &symbols_from_values(vec![p2.clone()])).unwrap(),
+        global_context.read_only_eval("tokens",
+                                      "(get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
         Value::Int(9100));
 }
 
@@ -78,7 +78,7 @@ fn test_simple_token_system() {
 fn test_simple_naming_system() {
     let tokens_contract = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define-public (get-balance (account principal))
+         (define (get-balance (account principal))
             (let ((balance
                   (get balance (fetch-entry tokens (tuple (account account))))))
               (if (eq? balance 'null) 0 balance)))
@@ -222,16 +222,16 @@ fn test_simple_contract_call() {
          (define-public (compute (id int))
            (let ((entry (fetch-entry factorials (tuple (id id)))))
                 (if (eq? entry 'null)
-                    0
+                    'false
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
-                             current
+                             'true
                              (begin
                                (set-entry! factorials (tuple (id id))
                                                       (tuple (current (* current index))
                                                              (index (- index 1))))
-                               0))))))
+                               'true))))))
         (begin (init-factorial 1337 3)
                (init-factorial 8008 5)
                'null)
@@ -250,18 +250,19 @@ fn test_simple_contract_call() {
     let args = symbols_from_values(vec![]);
     let sender = Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]);
 
-    let expected = [Value::Int(0),
-                    Value::Int(0),
-                    Value::Int(0),
-                    Value::Int(0),
+    let expected = [Value::Int(5),
+                    Value::Int(20),
+                    Value::Int(60),
+                    Value::Int(120),
                     Value::Int(120),
                     Value::Int(120)];
     for expected_result in &expected {
+        global_context.execute_contract("proxy-compute", &sender, "proxy-compute", &args).unwrap();
         assert_eq!(
-            global_context.execute_contract("proxy-compute", &sender, "proxy-compute", &args).unwrap(),
+            global_context.read_only_eval("factorial-contract",
+                                          "(get current (fetch-entry factorials (tuple (id 8008))))").unwrap(),
             *expected_result);
     }
-                                    
 }
 
 #[test]
@@ -281,7 +282,7 @@ fn test_aborts() {
      (eq? id value)))
 
 
-(define-public (get-data (id int))
+(define (get-data (id int))
   (get value (fetch-entry data (tuple (id id)))))
 ";
 
@@ -318,13 +319,11 @@ fn test_aborts() {
         Value::Bool(false));
 
     assert_eq!(
-        global_context.execute_contract("contract-1", &sender, "get-data",
-                                        &symbols_from_values(vec![Value::Int(20)])).unwrap(),
+        global_context.read_only_eval("contract-1", "(get-data 20)").unwrap(),
         Value::Void);
 
     assert_eq!(
-        global_context.execute_contract("contract-1", &sender, "get-data",
-                                        &symbols_from_values(vec![Value::Int(10)])).unwrap(),
+        global_context.read_only_eval("contract-1", "(get-data 10)").unwrap(),
         Value::Int(10));
 
     assert_eq!(
@@ -338,14 +337,12 @@ fn test_aborts() {
         Value::Bool(false));
 
     assert_eq!(
-        global_context.execute_contract("contract-1", &sender, "get-data",
-                                        &symbols_from_values(vec![Value::Int(105)])).unwrap(),
+        global_context.read_only_eval("contract-1", "(get-data 105)").unwrap(),
         Value::Void);
 
 
     assert_eq!(
-        global_context.execute_contract("contract-1", &sender, "get-data",
-                                        &symbols_from_values(vec![Value::Int(100)])).unwrap(),
+        global_context.read_only_eval("contract-1", "(get-data 100)").unwrap(),
         Value::Void);
 
     
@@ -360,16 +357,16 @@ fn test_factorial_contract() {
          (define-public (compute (id int))
            (let ((entry (fetch-entry factorials (tuple (id id)))))
                 (if (eq? entry 'null)
-                    0
+                    'false
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
-                             current
+                             'true
                              (begin
                                (set-entry! factorials (tuple (id id))
                                                       (tuple (current (* current index))
                                                              (index (- index 1))))
-                               0))))))
+                               'true))))))
         (begin (init-factorial 1337 3)
                (init-factorial 8008 5)
                'null)
@@ -396,28 +393,31 @@ fn test_factorial_contract() {
 
 
     let expected = vec![
-        Value::Int(0),
-        Value::Int(0),
+        Value::Int(3),
         Value::Int(6),
         Value::Int(6),
         Value::Int(6),
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(0),
+        Value::Int(6),
+        Value::Int(5),
+        Value::Int(20),
+        Value::Int(60),
+        Value::Int(120),
         Value::Int(120),
         Value::Int(120),
     ];
         
     let sender = Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]);
 
-    arguments_to_test.iter().zip(expected.iter())
-        .for_each(|(arguments, expectation)| assert_eq!(Ok(expectation.clone()),
-                                                        contract.execute_transaction(
-                                                            &sender,
-                                                            &tx_name,
-                                                            arguments,
-                                                            &mut global_context)));
+    for (arguments, expectation) in arguments_to_test.iter().zip(expected.iter()) {
+        contract.execute_transaction(
+            &sender,
+            &tx_name,
+            arguments,
+            &mut global_context).unwrap();
+        assert_eq!(Ok(expectation.clone()),
+                   contract.eval(&format!("(get current (fetch-entry factorials (tuple (id {}))))", arguments[0]),
+                                 &mut global_context))
+    }
 
     let err_result = contract.execute_transaction(&sender, &"init-factorial",
                                                   &symbols_from_values(vec![Value::Int(9000),

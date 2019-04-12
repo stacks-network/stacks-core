@@ -49,7 +49,7 @@ impl Function {
         }
     }
 
-    fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
+    pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
         //   since self is a malformed object.
         let mut context = LocalContext::new();
         let arg_iterator = self.arguments.iter().zip(self.types.iter()).zip(args.iter());
@@ -79,7 +79,7 @@ impl DefinedFunction {
     pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
         match self {
             DefinedFunction::Private(f) => f.apply(args, env),
-            DefinedFunction::Public(f) => f.apply(args, env),
+            DefinedFunction::Public(_) => env.execute_function_as_transaction(self, args)
         }
     }
 

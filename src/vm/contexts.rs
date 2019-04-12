@@ -16,7 +16,7 @@ pub const MAX_CONTEXT_DEPTH: u16 = 256;
 pub struct Environment <'a,'b> {
     pub global_context: &'a mut GlobalContext <'b>,
     pub contract_context: &'a ContractContext,
-    pub call_stack: CallStack,
+    pub call_stack: &'a mut CallStack,
     pub sender: Option<Value>
 }
 
@@ -49,14 +49,55 @@ impl <'a, 'b> Environment <'a, 'b> {
     //   together with a call stack. Generally, the environment structure is intended to be reconstructed
     //   for every transaction.
     pub fn new(global_context: &'a mut GlobalContext<'b>,
-               contract_context: &'a ContractContext) -> Environment<'a,'b> {
+               contract_context: &'a ContractContext,
+               call_stack: &'a mut CallStack) -> Environment<'a,'b> {
         Environment {
             global_context: global_context,
             contract_context: contract_context,
-            call_stack: CallStack::new(),
+            call_stack: call_stack,
             sender: None
         }
     }
+
+
+    pub fn execute_function_as_transaction(&mut self, function: &DefinedFunction, args: &[Value]) -> Result<Value> {
+        let function = match function {
+            DefinedFunction::Private(_) => Err(Error::new(ErrType::NonPublicFunction(format!("{}", function.get_identifier())))),
+            DefinedFunction::Public(f) => Ok(f)
+        }?;
+
+        let mut nested_context = GlobalContext::begin_from(&mut self.global_context.database);
+
+        let result = {
+            // this is kind of weird. we jump through a lot of hoops here to satisfy the borrow checker.
+            //     this could probably be dramatically simplified by moving the "global context" _out_ of the env
+            //     struct, which would be a pretty big refactor, but should probably be done.
+            let mut nested_env = Environment::new(&mut nested_context, self.contract_context, self.call_stack);
+            nested_env.sender = self.sender.clone();
+
+            function.apply(args, &mut nested_env)
+        };
+
+        match result {
+            Ok(x) => {
+                if let Value::Bool(bool_result) = x {
+                    if bool_result {
+                        nested_context.commit();
+                    } else {
+                        nested_context.database.roll_back();
+                    }
+                    Ok(x)
+                } else {
+                    Err(Error::new(ErrType::ContractMustReturnBoolean))
+                }
+            },
+            Err(_) => {
+                nested_context.database.roll_back();
+                result
+            }
+        }
+    }
+
 }
 
 impl <'a> GlobalContext <'a> {
@@ -93,8 +134,7 @@ impl <'a> GlobalContext <'a> {
                         }
                         Ok(x)
                     } else {
-                        nested_context.commit();
-                        Ok(x)
+                        Err(Error::new(ErrType::ContractMustReturnBoolean))
                     }
                 },
                 Err(_) => {
@@ -105,6 +145,14 @@ impl <'a> GlobalContext <'a> {
         };
 
         contract_result
+    }
+
+    pub fn read_only_eval(&mut self, contract_name: &str, program: &str) -> Result<Value> {
+        let mut contract = self.database.get_contract(contract_name)?;
+        let mut nested_context = GlobalContext::begin_from(&mut self.database);
+        let result = contract.eval(program, &mut nested_context);
+        nested_context.database.roll_back();
+        result
     }
 
     pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {

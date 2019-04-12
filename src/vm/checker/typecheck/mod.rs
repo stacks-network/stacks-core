@@ -1,16 +1,17 @@
-use std::collections::{HashMap, BTreeMap};
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+mod contexts;
+mod maps;
+
+use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{AtomTypeIdentifier, TypeSignature, Value, TupleTypeSignature, parse_name_type_pairs};
+use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
 use vm::errors::{ErrType as InterpError};
 
-use vm::contexts::MAX_CONTEXT_DEPTH;
-
 use super::AnalysisDatabase;
+use self::contexts::{TypeMap, TypingContext, ContractContext};
 
+pub use self::contexts::ContractAnalysis;
 pub use super::errors::{CheckResult, CheckError, CheckErrors};
 
-mod maps;
 
 #[cfg(test)]
 mod tests;
@@ -33,144 +34,15 @@ Is illegally typed in our language.
 
 
 pub type TypeResult = CheckResult<TypeSignature>;
-
-pub struct TypeMap {
-    map: HashMap<u64, TypeSignature>
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FunctionType {
     Variadic(TypeSignature, TypeSignature),
     Fixed(Vec<TypeSignature>, TypeSignature)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ContractAnalysis {
-    public_function_types: BTreeMap<String, FunctionType>
-}
-
-const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
-const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
-
-impl ContractAnalysis {
-    pub fn new() -> ContractAnalysis {
-        ContractAnalysis {
-            public_function_types: BTreeMap::new()
-        }
-    }
-
-    pub fn deserialize(json: &str) -> ContractAnalysis {
-        serde_json::from_str(json)
-            .expect(DESERIALIZE_FAIL_MESSAGE)
-    }
-
-    pub fn serialize(&self) -> String {
-        serde_json::to_string(self)
-            .expect(SERIALIZE_FAIL_MESSAGE)
-    }
-
-    pub fn add_public_function(&mut self, name: &str, function_type: &FunctionType) {
-        self.public_function_types.insert(name.to_string(), function_type.clone());
-    }
-
-    pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {
-        self.public_function_types.get(name)
-    }
-}
-
-pub struct TypingContext <'a> {
-    map_types: HashMap<String, (TypeSignature, TypeSignature)>,
-    variable_types: HashMap<String, TypeSignature>,
-    function_types: HashMap<String, FunctionType>,
-    public_function_types: HashMap<String, FunctionType>,
-    parent: Option<&'a TypingContext<'a>>,
-    depth: u16
-}
-
-fn no_type() -> TypeSignature {
-    TypeSignature::new_atom(AtomTypeIdentifier::NoType)
-}
-
-impl TypeMap {
-    fn new() -> TypeMap {
-        TypeMap { map: HashMap::new() }
-    }
-
-    fn set_type(&mut self, expr: &SymbolicExpression, type_sig: TypeSignature) -> CheckResult<()> {
-        if self.map.insert(expr.id, type_sig).is_some() {
-            Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn get_type(&self, expr: &SymbolicExpression) -> CheckResult<&TypeSignature> {
-        self.map.get(&expr.id)
-            .ok_or(CheckError::new(CheckErrors::TypeNotAnnotatedFailure))
-    }
-}
-
-impl <'a> TypingContext <'a> {
-    pub fn new() -> TypingContext<'static> {
-        TypingContext {
-            variable_types: HashMap::new(),
-            function_types: HashMap::new(),
-            public_function_types: HashMap::new(),
-            map_types: HashMap::new(),
-            depth: 0,
-            parent: None
-        }
-    }
-
-    pub fn extend<'b>(&'b self) -> CheckResult<TypingContext<'b>> {
-        if self.depth >= MAX_CONTEXT_DEPTH {
-            Err(CheckError::new(CheckErrors::MaxContextDepthReached))
-        } else {
-            Ok(TypingContext {
-                variable_types: HashMap::new(),
-                public_function_types: HashMap::new(),
-                function_types: HashMap::new(),
-                map_types: HashMap::new(),
-                parent: Some(self),
-                depth: self.depth + 1
-            })
-        }
-    }
-
-    pub fn get_map_type(&self, map_name: &str) -> Option<&(TypeSignature, TypeSignature)> {
-        match self.parent {
-            Some(parent) => parent.get_map_type(map_name),
-            None => self.map_types.get(map_name)
-        }
-    }
-
-    pub fn lookup_function_type(&self, name: &str) -> Option<&FunctionType> {
-        match self.parent {
-            Some(parent) => parent.lookup_function_type(name),
-            None => {
-                match self.public_function_types.get(name) {
-                    Some(f_type) => Some(f_type),
-                    None => self.function_types.get(name)
-                }
-            }
-        }
-    }
-
-    pub fn lookup_variable_type(&self, name: &str) -> Option<&TypeSignature> {
-        match self.variable_types.get(name) {
-            Some(value) => Some(value),
-            None => {
-                match self.parent {
-                    Some(parent) => parent.lookup_variable_type(name),
-                    None => None
-                }
-            }
-        }
-    }
-}
-
 pub struct TypeChecker <'a> {
     type_map: TypeMap,
+    contract_context: ContractContext,
     db: &'a AnalysisDatabase
 }
 
@@ -220,14 +92,8 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
     }
 }
 
-fn get_function_type(function_name: &str, context: &TypingContext) -> Option<FunctionType> {
-    if let Some(function_type) = native_function_type_lookup(function_name) {
-        Some(function_type)
-    } else if let Some(function_type) = context.lookup_function_type(function_name) {
-        Some(function_type.clone())
-    } else {
-        None
-    }
+fn no_type() -> TypeSignature {
+    TypeSignature::new_atom(AtomTypeIdentifier::NoType)
 }
 
 fn arithmetic_type(variadic: bool) -> FunctionType {
@@ -293,6 +159,7 @@ impl <'a> TypeChecker <'a> {
     pub fn new(db: &'a AnalysisDatabase) -> TypeChecker {
         TypeChecker {
             db: db,
+            contract_context: ContractContext::new(),
             type_map: TypeMap::new()
         }
     }
@@ -381,6 +248,17 @@ impl <'a> TypeChecker <'a> {
         Ok(body_return_type)
     }
 
+
+    fn get_function_type(&self, function_name: &str) -> Option<FunctionType> {
+        if let Some(function_type) = native_function_type_lookup(function_name) {
+            Some(function_type)
+        } else if let Some(function_type) = self.contract_context.get_function_type(function_name) {
+            Some(function_type.clone())
+        } else {
+            None
+        }
+    }
+
     fn check_special_map(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
         if args.len() != 2 {
             return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
@@ -390,7 +268,7 @@ impl <'a> TypeChecker <'a> {
             .ok_or(CheckError::new(CheckErrors::NonFunctionApplication))?;
         // we will only lookup native or defined functions here.
         //   you _cannot_ map a special function.
-        let function_type = get_function_type(function_name, context)
+        let function_type = self.get_function_type(function_name)
             .ok_or(CheckError::new(CheckErrors::IllegalOrUnknownFunctionApplication(function_name.clone())))?;
 
         self.type_map.set_type(&args[0], no_type())?;
@@ -420,7 +298,7 @@ impl <'a> TypeChecker <'a> {
             .ok_or(CheckError::new(CheckErrors::NonFunctionApplication))?;
         // we will only lookup native or defined functions here.
         //   you _cannot_ fold a special function.
-        let function_type = get_function_type(function_name, context)
+        let function_type = self.get_function_type(function_name)
             .ok_or(CheckError::new(CheckErrors::IllegalOrUnknownFunctionApplication(function_name.clone())))?;
         
         self.type_map.set_type(&args[0], no_type())?;
@@ -617,7 +495,7 @@ impl <'a> TypeChecker <'a> {
             if let Some(type_result) = self.try_special_function_check(function_name, args, context) {
                 type_result
             } else {
-                let function_type = get_function_type(function_name, context)
+                let function_type = self.get_function_type(function_name)
                     .ok_or(CheckError::new(CheckErrors::UnknownFunction(function_name.clone())))?;
                 self.type_check_function_type(function_name, &function_type, args, context)
             }
@@ -638,20 +516,25 @@ impl <'a> TypeChecker <'a> {
         result
     }
 
+    fn lookup_variable(&self, name: &str, context: &TypingContext) -> TypeResult {
+        if let Some(type_result) = type_reserved_variable(name) {
+            Ok(type_result)
+        } else if let Some(type_result) = self.contract_context.get_variable_type(name) {
+            Ok(type_result.clone())
+        } else if let Some(type_result) = context.lookup_variable_type(name) {
+            Ok(type_result.clone())
+        } else {
+            Err(CheckError::new(CheckErrors::UnboundVariable(name.to_string())))
+        }
+    }
+
     fn inner_type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
         let type_sig = match expr.expr {
             AtomValue(ref value) => {
                 TypeSignature::type_of(value)
             },
             Atom(ref name) => {
-                match type_reserved_variable(name) {
-                    Some(result) => result,
-                    None => {
-                        context.lookup_variable_type(name)
-                            .ok_or(CheckError::new(CheckErrors::UnboundVariable(name.clone())))?
-                            .clone()
-                    }
-                }
+                self.lookup_variable(name, context)?
             },
             List(ref expression) => {
                 self.type_check_function_application(expression, context)?
@@ -686,12 +569,12 @@ impl <'a> TypeChecker <'a> {
                                 if function_args[0].match_list().is_some() {
                                     let (f_name, f_type) = self.type_check_define_function(expression,
                                                                                            context)?;
-                                    context.function_types.insert(f_name, f_type);
+                                    self.contract_context.function_types.insert(f_name, f_type);
                                     Ok(Some(()))
                                 } else {
                                     let (v_name, v_type) = self.type_check_define_variable(function_args,
                                                                                            context)?;
-                                    context.variable_types.insert(v_name, v_type);
+                                    self.contract_context.variable_types.insert(v_name, v_type);
                                     Ok(Some(()))
                                 }
                             }
@@ -703,14 +586,14 @@ impl <'a> TypeChecker <'a> {
                                 &f_type.return_type()) {
                                 Err(CheckError::new(CheckErrors::PublicFunctionMustReturnBool))
                             } else {
-                                context.public_function_types.insert(f_name, f_type);
+                                self.contract_context.public_function_types.insert(f_name, f_type);
                                 Ok(Some(()))
                             }
                         },
                         "define-map" => {
                             let (f_name, f_type) = self.type_check_define_map(expression,
                                                                               context)?;
-                            context.map_types.insert(f_name, f_type);
+                            self.contract_context.map_types.insert(f_name, f_type);
                             Ok(Some(()))
                         },
                         _ => {
@@ -742,7 +625,7 @@ pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &An
     }
 
     let mut contract_analysis = ContractAnalysis::new();
-    for (name, function_type) in contract_context.public_function_types.iter() {
+    for (name, function_type) in type_checker.contract_context.public_function_types.iter() {
         contract_analysis.add_public_function(name, function_type);
     }
 

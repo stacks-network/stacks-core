@@ -1,7 +1,7 @@
 use vm::{eval, execute};
 use vm::database::ContractDatabaseConnection;
 use vm::errors::{ErrType};
-use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment};
+use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::callables::DefinedFunction;
 use vm::types::{TypeSignature, AtomTypeIdentifier};
 use vm::parser::parse;
@@ -29,8 +29,9 @@ fn test_simple_let() {
 
         let mut conn = ContractDatabaseConnection::memory().unwrap();
         let mut global_context = GlobalContext::begin_from(&mut conn);
+        let mut call_stack = CallStack::new();
 
-        let mut env = Environment::new(&mut global_context, &contract_context);
+        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack);
 
         assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env, &context));        
     } else {
@@ -105,7 +106,8 @@ fn test_simple_if_functions() {
         contract_context.functions.insert("with_else".to_string(), user_function1);
         contract_context.functions.insert("without_else".to_string(), user_function2);
 
-        let mut env = Environment::new(&mut global_context, &contract_context);
+        let mut call_stack = CallStack::new();
+        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack);
 
         if let Ok(tests) = evals {
             assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));

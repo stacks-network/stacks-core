@@ -19,7 +19,6 @@ pub enum CheckErrors {
     TypeAlreadyAnnotatedFailure,
     CheckerImplementationFailure,
     TypeNotAnnotatedFailure,
-    NotImplemented,
 
     // tuples
     BadTupleFieldName,
@@ -59,7 +58,6 @@ pub enum CheckErrors {
     TooManyExpressions,
     IllegalOrUnknownFunctionApplication(String),
     UnknownFunction(String),
-    Generic(String)
 }
 
 #[derive(Debug, PartialEq)]

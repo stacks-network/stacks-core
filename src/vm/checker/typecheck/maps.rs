@@ -53,7 +53,7 @@ impl <'a> TypeChecker <'a> {
 
         let key_type = self.type_check(&args[1], context)?;
 
-        let (expected_key_type, value_type) = context.get_map_type(map_name)
+        let (expected_key_type, value_type) = self.contract_context.get_map_type(map_name)
             .ok_or(CheckError::new(CheckErrors::NoSuchMap(map_name.clone())))?;
 
         if !expected_key_type.admits_type(&key_type) {
@@ -75,7 +75,7 @@ impl <'a> TypeChecker <'a> {
 
         let key_type = self.type_check(&args[1], context)?;
 
-        let (expected_key_type, _) = context.get_map_type(map_name)
+        let (expected_key_type, _) = self.contract_context.get_map_type(map_name)
             .ok_or(CheckError::new(CheckErrors::NoSuchMap(map_name.clone())))?;
 
         if !expected_key_type.admits_type(&key_type) {
@@ -98,7 +98,7 @@ impl <'a> TypeChecker <'a> {
         let key_type = self.type_check(&args[1], context)?;
         let value_type = self.type_check(&args[2], context)?;
 
-        let (expected_key_type, expected_value_type) = context.get_map_type(map_name)
+        let (expected_key_type, expected_value_type) = self.contract_context.get_map_type(map_name)
             .ok_or(CheckError::new(CheckErrors::NoSuchMap(map_name.clone())))?;
 
         if !expected_key_type.admits_type(&key_type) {
@@ -123,7 +123,7 @@ impl <'a> TypeChecker <'a> {
         let key_type = self.type_check(&args[1], context)?;
         let value_type = self.type_check(&args[2], context)?;
 
-        let (expected_key_type, expected_value_type) = context.get_map_type(map_name)
+        let (expected_key_type, expected_value_type) = self.contract_context.get_map_type(map_name)
             .ok_or(CheckError::new(CheckErrors::NoSuchMap(map_name.clone())))?;
 
         if !expected_key_type.admits_type(&key_type) {

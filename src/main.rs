@@ -137,6 +137,42 @@ fn main() {
 
             return
         },
+        "eval" => {
+            use vm::contexts::GlobalContext;
+            use vm::{SymbolicExpression, SymbolicExpressionType};
+            use vm::types::Value;
+            use vm::database::{ContractDatabaseConnection};
+
+            if argv.len() < 4 {
+                eprintln!("Usage: {} eval [vm-state.sqlite.db] [contract-name] [program.scm]", argv[0]);
+                process::exit(1);
+            }
+            let vm_filename = &argv[2];
+
+            let mut db = match ContractDatabaseConnection::open(vm_filename) {
+                Ok(db) => db,
+                Err(error) => {
+                    eprintln!("Could not open vm-state: \n {}", error);
+                    process::exit(1);
+                }
+            };
+            let content: String = fs::read_to_string(&argv[3])
+                .expect(&format!("Error reading file: {}", argv[3]));
+
+            let mut global_context = GlobalContext::begin_from(&mut db);
+            let contract_name = &argv[2];
+
+            let result = global_context.read_only_eval(contract_name, &content);
+
+            match result {
+                Ok(x) => {
+                    global_context.commit();
+                    println!("Program executed successfully! Output: \n {}", x);
+                },
+                Err(error) => println!("Transaction execution error: \n {}", error)
+            }
+            return
+        }
         "init_contract" => {
             use vm::contexts::GlobalContext;
             use vm::database::{ContractDatabaseConnection};

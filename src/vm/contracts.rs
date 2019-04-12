@@ -1,8 +1,8 @@
-use vm::{Value, apply, eval_all};
+use vm::{Value, apply, eval_all, eval};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
 use vm::callables::CallableType;
-use vm::contexts::{Environment, LocalContext, ContractContext, GlobalContext};
+use vm::contexts::{Environment, LocalContext, ContractContext, GlobalContext, CallStack};
 use vm::parser;
 
 #[derive(Serialize, Deserialize)]
@@ -24,6 +24,17 @@ impl Contract {
         Ok(Contract { contract_context: contract_context })
     }
 
+    pub fn eval<'b> (&mut self, program: &str, global_context: &mut GlobalContext<'b>) -> Result<Value> {
+        let parsed = parser::parse(program)?;
+        if parsed.len() < 1 {
+            return Err(Error::new(ErrType::ParseError("Expected a program of atleast length 1".to_string())))
+        }
+        let mut call_stack = CallStack::new();
+        let mut env = Environment::new(global_context, &self.contract_context, &mut call_stack);
+        let local_context = LocalContext::new();
+        eval(&parsed[0], &mut env, &local_context)
+    }
+
     pub fn execute_transaction<'b> (&mut self, sender: &Value, tx_name: &str,
                                args: &[SymbolicExpression], global_context: &mut GlobalContext<'b>) -> Result<Value> {
         let func = self.contract_context.lookup_function(tx_name)
@@ -33,7 +44,8 @@ impl Contract {
         }
 
         if let Value::Principal(_, _) = sender {
-            let mut env = Environment::new(global_context, &self.contract_context);
+            let mut call_stack = CallStack::new();
+            let mut env = Environment::new(global_context, &self.contract_context, &mut call_stack);
 
             for arg in args {
                 match arg.expr {

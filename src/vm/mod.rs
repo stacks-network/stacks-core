@@ -21,7 +21,7 @@ mod tests;
 
 use vm::types::Value;
 use vm::callables::CallableType;
-use vm::contexts::{ContractContext, LocalContext, Environment};
+use vm::contexts::{ContractContext, LocalContext, Environment, CallStack};
 use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
@@ -154,8 +154,9 @@ fn eval_all (expressions: &[SymbolicExpression],
         let try_define = {
             let mut global_context = GlobalContext::begin_from(&mut global_context.database);
             let define_result = {
+                let mut call_stack = CallStack::new();
                 let mut env = Environment::new(
-                    &mut global_context, contract_context);
+                    &mut global_context, contract_context, &mut call_stack);
                 functions::define::evaluate_define(exp, &mut env)
             }?;
             global_context.commit();
@@ -175,8 +176,9 @@ fn eval_all (expressions: &[SymbolicExpression],
                 // not a define function, evaluate normally.
                 let mut global_context = GlobalContext::begin_from(&mut global_context.database);
                 {
+                    let mut call_stack = CallStack::new();
                     let mut env = Environment::new(
-                        &mut global_context, contract_context);
+                        &mut global_context, contract_context, &mut call_stack);
                     last_executed = Some(eval(exp, &mut env, &context));
                 }
                 global_context.commit();
@@ -210,7 +212,7 @@ pub fn execute(program: &str) -> Result<Value> {
 #[cfg(test)]
 mod test {
     use vm::database::ContractDatabaseConnection;
-    use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression};
+    use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression, CallStack};
     use vm::types::{TypeSignature, AtomTypeIdentifier};
     use vm::callables::DefinedFunction;
     use vm::eval;
@@ -245,7 +247,8 @@ mod test {
         contract_context.variables.insert("a".to_string(), Value::Int(59));
         contract_context.functions.insert("do_work".to_string(), user_function);
 
-        let mut env = Environment::new(&mut global_context, &contract_context);
+        let mut call_stack = CallStack::new();
+        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack);
         assert_eq!(Ok(Value::Int(64)), eval(&content[0], &mut env, &context));
     }
 }
