@@ -157,7 +157,7 @@ where
                 Some(ref_block_idx) => {
                     // user burn matches a (key, block) pair committed to in this block
                     let idx = *ref_block_idx;
-                    burn_sample[idx].burns += (user_burn.burn_fee as u128);
+                    burn_sample[idx].burns += user_burn.burn_fee as u128;
                     burn_sample[idx].user_burns.push(user_burn);
                 },
                 None => {
