@@ -17,7 +17,6 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#[macro_use]
 use util::db;
 
 use util::db::Error as db_error;
