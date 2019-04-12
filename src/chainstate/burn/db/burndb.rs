@@ -44,6 +44,8 @@ use chainstate::burn::operations::user_burn_support::OPCODE as UserBurnSupportOp
 
 use burnchains::BurnchainTxInput;
 use burnchains::{Txid, BurnchainHeaderHash, PublicKey, Address};
+use burnchains::BurnchainView;
+use burnchains::Burnchain;
 
 use util::log;
 use util::vrf::ECVRF_public_key_to_hex;
@@ -489,7 +491,6 @@ where
 {
     pub conn: Connection,
     pub readwrite: bool,
-    pub tx_active: bool,
     pub first_block_height: u64,
     pub first_burn_header_hash: BurnchainHeaderHash,
 
@@ -570,7 +571,6 @@ where
         let mut db = BurnDB {
             conn: conn,
             readwrite: readwrite,
-            tx_active: false,
             first_block_height: first_block_height,
             first_burn_header_hash: first_burn_hash.clone(),
             
@@ -614,7 +614,6 @@ where
         let mut db = BurnDB {
             conn: conn,
             readwrite: true,
-            tx_active: false,
             first_block_height: first_block_height,
             first_burn_header_hash: first_burn_hash.clone(),
             
@@ -623,6 +622,35 @@ where
         };
 
         db.instantiate()?;
+        Ok(db)
+    }
+
+    /// Open the database on disk.  It must already exist and be instantiated.
+    /// It's best not to call this if you are able to call connect().  If you must call this, do so
+    /// after you call connect() somewhere else, since connect() performs additional validations.
+    pub fn open(path: &String, readwrite: bool) -> Result<BurnDB<A, K>, db_error> {
+        let open_flags =
+            if readwrite {
+                OpenFlags::SQLITE_OPEN_READ_WRITE
+            }
+            else {
+                OpenFlags::SQLITE_OPEN_READ_ONLY
+            };
+
+        let conn = Connection::open_with_flags(path, open_flags)
+            .map_err(|e| db_error::SqliteError(e))?;
+
+        let first_snapshot = BurnDB::<A, K>::get_first_block_snapshot(&conn)?;
+
+        let db = BurnDB {
+            conn: conn,
+            readwrite: readwrite,
+            first_block_height: first_snapshot.block_height,
+            first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
+            
+            _phantom_a: PhantomData,
+            _phantom_k: PhantomData
+        };
         Ok(db)
     }
 
@@ -676,33 +704,13 @@ where
     /// What is the height of our burn chain database?  only consider the sequence of snapshots
     /// that correspond to the canonical burn chain history.
     pub fn get_block_height(conn: &Connection) -> Result<u64, db_error> {
-        let sql_qry = "SELECT MAX(block_height) FROM snapshots WHERE canonical = 1";
-        let args = NO_PARAMS;
-        let res = BurnDB::<A, K>::query_count(conn, &sql_qry.to_string(), args)?;
-        Ok(res as u64)
+        get_block_height(conn)
     }
 
     /// Get a consensus hash at a particular block height 
     /// Returns None if there is no consensus hash at this given block height
     pub fn get_consensus_at(conn: &Connection, block_height: u64) -> Result<Option<ConsensusHash>, db_error> {
-        if block_height > ((1 as u64) << 63) - 1 {
-            return Err(db_error::TypeError);
-        }
-
-        let qry = "SELECT consensus_hash FROM snapshots WHERE canonical = 1 AND block_height = ?1";
-        let args = [&(block_height as i64) as &ToSql];
-
-        let mut stmt = conn.prepare(qry)
-            .map_err(|e| db_error::SqliteError(e))?;
-
-        stmt.query_row(&args,
-            |row| {
-                match ConsensusHash::from_row(&row, 0) {
-                    Ok(ch) => Some(ch),
-                    Err(_e) => None
-                }
-            })
-            .map_err(|e| db_error::SqliteError(e))
+        get_consensus_at(conn, block_height)
     }
 
     /// Begin a transaction.  TODO: use immediate mode?
@@ -1174,6 +1182,83 @@ where
     }
 }
 
+/// What is the height of our burn chain database?  only consider the sequence of snapshots
+/// that correspond to the canonical burn chain history.
+pub fn get_block_height(conn: &Connection) -> Result<u64, db_error> {
+    let sql_qry = "SELECT MAX(block_height) FROM snapshots WHERE canonical = 1";
+    let mut stmt = conn.prepare(sql_qry)
+        .map_err(|e| db_error::SqliteError(e))?;
+
+    let c = stmt.query_row(NO_PARAMS,
+        |row| {
+            let res : i64 = row.get(0);
+            res
+        })
+        .map_err(|e| db_error::SqliteError(e))?;
+
+    Ok(c as u64)
+}
+
+/// Get a consensus hash at a particular block height 
+/// Returns None if there is no consensus hash at this given block height
+pub fn get_consensus_at(conn: &Connection, block_height: u64) -> Result<Option<ConsensusHash>, db_error> {
+    if block_height > ((1 as u64) << 63) - 1 {
+        return Err(db_error::TypeError);
+    }
+
+    let qry = "SELECT consensus_hash FROM snapshots WHERE canonical = 1 AND block_height = ?1";
+    let args = [&(block_height as i64) as &ToSql];
+
+    let mut stmt = conn.prepare(qry)
+        .map_err(|e| db_error::SqliteError(e))?;
+
+    stmt.query_row(&args,
+        |row| {
+            match ConsensusHash::from_row(&row, 0) {
+                Ok(ch) => Some(ch),
+                Err(_e) => None
+            }
+        })
+        .map_err(|e| db_error::SqliteError(e))
+}
+
+/// Get a burn blockchain snapshot, given a burnchain configuration struct 
+pub fn get_burnchain_view(conn: &Connection, burnchain: &Burnchain) -> Result<BurnchainView, db_error> {
+    let height = get_block_height(conn)?;
+    let qry = "SELECT block_height,consensus_hash FROM snapshots WHERE canonical = 1 AND (block_height = ?1 OR block_height = ?2) ORDER BY block_height DESC";
+    let args = [&(height as i64) as &ToSql, &((height - (burnchain.stable_confirmations as u64)) as i64) as &ToSql];
+
+    let mut stmt = conn.prepare(qry)
+        .map_err(|e| db_error::SqliteError(e))?;
+
+    let mut rows = stmt.query(&args)
+        .map_err(|e| db_error::SqliteError(e))?;
+
+    // gather 
+    let mut row_data = vec![];
+    while let Some(row_res) = rows.next() {
+        match row_res {
+            Ok(row) => {
+                let h_i64 : i64 = row.get(0);
+                let ch : ConsensusHash = ConsensusHash::from_row(&row, 1)?;
+                let h = h_i64 as u64;
+                row_data.push((h, ch));
+            },
+            Err(e) => {
+                return Err(db_error::SqliteError(e));
+            }
+        };
+    }
+
+    assert!(row_data.len() == 2);
+    Ok(BurnchainView {
+        burn_block_height: row_data[0].0,
+        burn_consensus_hash: row_data[0].1,
+        burn_stable_block_height: row_data[1].0,
+        burn_stable_consensus_hash: row_data[1].1
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1392,7 +1477,7 @@ mod tests {
         {
             let mut tx = db.tx_begin().unwrap();
             BurnDB::insert_leader_key(&mut tx, &leader_key).unwrap();
-            tx.commit();
+            tx.commit().unwrap();
         }
 
         let has_key_after = BurnDB::<BitcoinAddress, BitcoinPublicKey>::has_VRF_public_key(db.conn(), &public_key).unwrap();
@@ -1425,7 +1510,7 @@ mod tests {
                 BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
             }
 
-            tx.commit();
+            tx.commit().unwrap();
         }
 
         let ch_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255]).unwrap();
@@ -1476,7 +1561,7 @@ mod tests {
                 assert_eq!(ch, snapshot_row.consensus_hash);
             }
 
-            tx.commit();
+            tx.commit().unwrap();
         }
 
         for i in 0..256 {
@@ -1614,7 +1699,7 @@ mod tests {
             assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
             assert_eq!(BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
 
-            tx.commit();
+            tx.commit().unwrap();
         }
     }
 
@@ -1647,7 +1732,7 @@ mod tests {
         {
             let mut tx = db.tx_begin().unwrap();
             BurnDB::insert_leader_key(&mut tx, &leader_key).unwrap();
-            tx.commit();
+            tx.commit().unwrap();
         }
 
         let key_after = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_leader_key_by_VRF_key(db.conn(), &public_key).unwrap();
@@ -1942,7 +2027,7 @@ mod tests {
         {
             let mut tx = db.tx_begin().unwrap();
             BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_without_sortition).unwrap();
-            tx.commit();
+            tx.commit().unwrap();
         }
 
         let next_snapshot = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_last_snapshot_with_sortition(db.conn(), block_height).unwrap();
@@ -1951,7 +2036,7 @@ mod tests {
         {
             let mut tx = db.tx_begin().unwrap();
             BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_with_sortition).unwrap();
-            tx.commit();
+            tx.commit().unwrap();
         }
 
         let next_snapshot_2 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_last_snapshot_with_sortition(db.conn(), block_height).unwrap();
