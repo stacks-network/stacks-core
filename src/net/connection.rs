@@ -28,6 +28,7 @@ use std::collections::VecDeque;
 use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::Receiver;
+use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::RecvError;
 use std::sync::mpsc::RecvTimeoutError;
 
@@ -42,8 +43,6 @@ use net::StacksMessage;
 use net::StacksMessageType;
 use net::StacksMessageID;
 use net::PeerAddress;
-use net::Neighbor;
-use net::NeighborKey;
 use net::codec::*;
 use net::PREAMBLE_ENCODED_SIZE;
 
@@ -51,6 +50,7 @@ use chainstate::burn::ConsensusHash;
 
 use util::log;
 use util::secp256k1::Secp256k1PublicKey;
+use util::get_epoch_time_secs;
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
@@ -59,19 +59,25 @@ use util::secp256k1::Secp256k1PublicKey;
 struct ReceiverNotify {
     expected_seq: u32,
     receiver_input: SyncSender<StacksMessage>,
+    ttl: u64        // absolute deadline by which this message needs a reply (in seconds since the epoch)
 }
 
 impl ReceiverNotify {
-    pub fn new(seq: u32, input: SyncSender<StacksMessage>) -> ReceiverNotify {
+    pub fn new(seq: u32, input: SyncSender<StacksMessage>, ttl: u64) -> ReceiverNotify {
         ReceiverNotify {
             expected_seq: seq,
-            receiver_input: input
+            receiver_input: input,
+            ttl: ttl
         }
     }
 
     /// Send this message to the waiting receiver, consuming this notification handle.
+    /// May fail silently.
     pub fn send(self, msg: StacksMessage) -> () {
-        self.receiver_input.send(msg);
+        match self.receiver_input.send(msg) {
+            Ok(_) => {},
+            Err(e) => {}
+        }
     }
 }
 
@@ -85,6 +91,18 @@ impl NetworkReplyHandle {
     pub fn new(output: Receiver<StacksMessage>) -> NetworkReplyHandle {
         NetworkReplyHandle {
             receiver_output: output
+        }
+    }
+
+    /// Poll on this handle.
+    /// Consumes this handle if it succeeds in getting a message.
+    /// Returns itself if there is no pending message.
+    pub fn try_recv(self) -> Result<StacksMessage, Result<NetworkReplyHandle, net_error>> {
+        let res = self.receiver_output.try_recv();
+        match res {
+            Ok(message) => Ok(message),
+            Err(TryRecvError::Empty) => Err(Ok(self)),      // try again,
+            Err(TryRecvError::Disconnected) => Err(Err(net_error::ConnectionBroken))
         }
     }
 
@@ -113,10 +131,7 @@ struct InflightMessage {
 
 #[derive(Debug)]
 struct ConnectionInbox {
-    // gleaned from the neighbor struct this connection is for
-    addr: NeighborKey,
-    expire_block_height: u64,
-    public_key: Secp256k1PublicKey,
+    public_key: Option<Secp256k1PublicKey>,
 
     // completely-parsed incoming messages that do _not_ get sent out to a waiting receiver 
     inbox: VecDeque<StacksMessage>,
@@ -130,8 +145,6 @@ struct ConnectionInbox {
 
 #[derive(Debug)]
 struct ConnectionOutbox {
-    addr: NeighborKey,
-
     // message to send
     outbox: VecDeque<InflightMessage>,
     outbox_maxlen: usize,
@@ -147,12 +160,28 @@ pub struct ConnectionOptions {
     pub keepalive: u64,
     pub nodelay: bool,
     pub inbox_maxlen: usize,
-    pub outbox_maxlen: usize
+    pub outbox_maxlen: usize,
+    pub timeout: u64,
+    pub heartbeat: u32,
+    pub private_key_lifetime: u64
+}
+
+impl std::default::Default for ConnectionOptions {
+    fn default() -> ConnectionOptions {
+        ConnectionOptions {
+            keepalive: 60,
+            nodelay: true,
+            inbox_maxlen: 5,
+            outbox_maxlen: 5,
+            timeout: 30,
+            heartbeat: 2592000,
+            private_key_lifetime: 4302,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct Connection {
-    pub addr: NeighborKey,
     pub options: ConnectionOptions,
 
     inbox: ConnectionInbox,
@@ -160,39 +189,15 @@ pub struct Connection {
 }
 
 impl ConnectionInbox {
-    pub fn new(neighbor: &Neighbor, max_messages: usize) -> ConnectionInbox {
+    pub fn new(max_messages: usize, public_key_opt: Option<Secp256k1PublicKey> ) -> ConnectionInbox {
         ConnectionInbox {
-            expire_block_height: neighbor.expire_block,
-            public_key: neighbor.public_key.clone(),
-            addr: neighbor.addr.clone(),
+            public_key: public_key_opt,
             inbox: VecDeque::with_capacity(max_messages),
             inbox_maxlen: max_messages,
             preamble: None,
             payload_data: vec![],
             preamble_buf: vec![],
         }
-    }
-
-    /// Is this connection's key expired, given the block height?
-    pub fn is_expired(&self, block_height: u64) -> bool {
-        self.expire_block_height <= block_height
-    }
-
-    /// Disconnect from the remote peer 
-    pub fn disconnect(&mut self) -> () {
-        self.inbox.clear();
-        self.preamble = None;
-        self.payload_data.clear();
-        self.preamble_buf.clear();
-    }
-    
-    /// Disconnect and reconnect
-    pub fn reconnect(&mut self, neighbor: &Neighbor) -> () {
-        self.disconnect();
-
-        self.expire_block_height = neighbor.expire_block;
-        self.public_key = neighbor.public_key.clone();
-        self.addr = neighbor.addr.clone();
     }
 
     /// consume data to form a message preamble.
@@ -229,7 +234,7 @@ impl ConnectionInbox {
                     },
                     Err(_) => {
                         // invalid message
-                        debug!("Invalid message preamble from {:?}:{}", &self.addr.addrbytes, self.addr.port);
+                        debug!("Invalid message preamble");
                         return Err(net_error::InvalidMessage);
                     }
                 }
@@ -268,7 +273,16 @@ impl ConnectionInbox {
                 if self.payload_data.len() >= (preamble.payload_len as usize) {
                     let mut index = 0;
                     let max_len = preamble.payload_len;
-                    let message_res = StacksMessage::payload_deserialize(&self.public_key, preamble, &self.payload_data, &mut index, max_len);
+                    let message_res = 
+                        match self.public_key {
+                            Some(pubk) => {
+                                StacksMessage::payload_deserialize(&pubk, preamble, &self.payload_data, &mut index, max_len)
+                            }
+                            None => {
+                                StacksMessage::payload_parse(preamble, &self.payload_data, &mut index, max_len)
+                            }
+                        };
+
                     match message_res {
                         Ok(message) => {
                             // got a message!
@@ -280,7 +294,7 @@ impl ConnectionInbox {
                         Err(e) => {
                             // invalid message 
                             test_debug!("Failed to deserialize: {:?}", e);
-                            debug!("Invalid message payload from {:?}:{}", &self.addr.addrbytes, self.addr.port);
+                            debug!("Invalid message payload");
                             return Err(net_error::InvalidMessage);
                         }
                     }
@@ -330,6 +344,7 @@ impl ConnectionInbox {
 
     /// Read bytes from an input stream, and enqueue them into our inbox.
     /// Importantly, this method can be tested with non-sockets.
+    /// Returns net_error::RecvError if we couldn't read from the fd 
     fn recv_bytes<R: Read>(&mut self, fd: &mut R) -> Result<usize, net_error> {
         if self.inbox.len() > self.inbox_maxlen {
             return Err(net_error::InboxOverflow);
@@ -351,7 +366,7 @@ impl ConnectionInbox {
                             Ok(0)
                         }
                         else {
-                            Err(net_error::RecvError(format!("Failed to read from {:?}:{}", &self.addr.addrbytes, self.addr.port)))
+                            Err(net_error::RecvError(format!("Failed to read")))
                         }
                     }
                 }?;
@@ -370,48 +385,26 @@ impl ConnectionInbox {
         Ok(total_read)
     }
 
-    /// Work on receiving the next messages from our socket.
-    pub fn recv(&mut self, socket: &mut Option<mio_net::TcpStream>) -> Result<usize, net_error> {
-        match socket {
-            None => {
-                Err(net_error::SocketNotConnectedToPeer)
-            },
-            Some(ref mut s) => {
-                self.recv_bytes(s)
-            }
-        }
-    }
-
     /// Get the oldest message received in the inbox 
     pub fn next_message(&mut self) -> Option<StacksMessage> {
         self.inbox.pop_front()
     }
+
+    /// How many queued messsages do we have?
+    pub fn num_messages(&self) -> usize {
+        self.inbox.len()
+    }
 }
 
 impl ConnectionOutbox {
-    pub fn new(neighbor: &Neighbor, outbox_maxlen: usize) -> ConnectionOutbox {
+    pub fn new(outbox_maxlen: usize) -> ConnectionOutbox {
         ConnectionOutbox {
-            addr: neighbor.addr.clone(),
             outbox: VecDeque::with_capacity(outbox_maxlen),
             outbox_maxlen: outbox_maxlen,
             socket_out_buf: vec![],
             socket_out_ptr: 0,
             inflight: VecDeque::new()
         }
-    }
-
-    /// Disconnect
-    fn disconnect(&mut self) -> () {
-        self.outbox.clear();
-        self.inflight.clear();
-        self.socket_out_buf.clear();
-        self.socket_out_ptr = 0;
-    }
-
-    /// Disconnect and reconnect
-    fn reconnect(&mut self, neighbor: &Neighbor) -> () {
-        self.disconnect();
-        self.addr = neighbor.addr.clone();
     }
 
     /// queue up a message to be sent 
@@ -427,7 +420,8 @@ impl ConnectionOutbox {
     }
 
     /// Write messages into a write stream.
-    /// Importantly, this can be used without a socket (for testing purposes)
+    /// Importantly, this can be used without a socket (for testing purposes).
+    /// Getting back net_error::SendError indicates that the fd is bad and should be closed
     fn send_bytes<W: Write>(&mut self, fd: &mut W) -> Result<usize, net_error> {
         test_debug!("send bytes!");
         if self.outbox.len() == 0 {
@@ -461,7 +455,7 @@ impl ConnectionOutbox {
                             Ok(0)
                         }
                         else {
-                            Err(net_error::SendError(format!("Failed to send {} bytes to {:?}:{}", (self.socket_out_buf.len() as u32) - self.socket_out_ptr, &self.addr.addrbytes, self.addr.port)))
+                            Err(net_error::SendError(format!("Failed to send {} bytes", (self.socket_out_buf.len() as u32) - self.socket_out_ptr)))
                         }
                     }
                 }?;
@@ -472,7 +466,7 @@ impl ConnectionOutbox {
                 blocked = true;
             }
 
-            self.socket_out_ptr += (num_written as u32);
+            self.socket_out_ptr += num_written as u32;
             if self.socket_out_buf.len() > 0 && self.socket_out_ptr == (self.socket_out_buf.len() as u32) {
                 // finished sending a message!
                 // remember to wake up any receivers when (if) we get a reply
@@ -498,64 +492,50 @@ impl ConnectionOutbox {
         }
         Ok(num_sent)
     }
-
-    /// work on sending the next message.
-    /// Send as many bytes as we can.
-    pub fn send(&mut self, socket: &mut Option<mio_net::TcpStream>) -> Result<usize, net_error> {
-        match socket {
-            None => {
-                Err(net_error::SocketNotConnectedToPeer)
-            },
-            Some(ref mut s) => {
-                self.send_bytes(s)
-            }
-        }
-    }
 }
 
 impl Connection {
-    pub fn new(neighbor: &Neighbor, options: &ConnectionOptions) -> Connection {
+    pub fn new(options: &ConnectionOptions, public_key_opt: Option<Secp256k1PublicKey>) -> Connection {
         Connection {
-            addr: neighbor.addr.clone(),
             options: (*options).clone(),
 
-            inbox: ConnectionInbox::new(neighbor, options.inbox_maxlen),
-            outbox: ConnectionOutbox::new(neighbor, options.outbox_maxlen)
+            inbox: ConnectionInbox::new(options.inbox_maxlen, public_key_opt),
+            outbox: ConnectionOutbox::new(options.outbox_maxlen)
         }
     }
 
-    /// Connect to the neighbor, and (re)set the inbox and outbox.
-    /// Blows away all outstanding messages and invalidates all NetworkReplyHandles -- attempting to
-    /// recieve a message from one will result in an error.
-    /// Returns the new socket on success.
-    /// Returns an error if we fail to connect.
-    fn reconnect(&mut self, neighbor: &Neighbor) -> Result<mio_net::TcpStream, net_error> {
-        let addr = neighbor.addr.addrbytes.to_socketaddr(neighbor.addr.port);
-        match mio_net::TcpStream::connect(&addr) {
-            Ok(s) => {
-                s.set_keepalive(Some(Duration::new(self.options.keepalive, 0)))
-                    .map_err(|_e| net_error::ConnectionError)?;
-
-                s.set_nodelay(self.options.nodelay)
-                    .map_err(|_e| net_error::ConnectionError)?;
-
-                self.addr = neighbor.addr.clone();
-                self.inbox.reconnect(neighbor);
-                self.outbox.reconnect(neighbor);
-                Ok(s)
-            },
-            Err(_e) => {
-                Err(net_error::ConnectionError)
+    /// Fulfill an outstanding request with a message.
+    /// Return the message itself if the message was unsolicited
+    pub fn fulfill_request(&mut self, msg: StacksMessage) -> Option<StacksMessage> {
+        // relay to next waiting receiver 
+        let mut outbox_index = 0;
+        let mut solicited = false;
+        for i in 0..self.outbox.inflight.len() {
+            let inflight = self.outbox.inflight.get(i).unwrap();
+            if inflight.expected_seq == msg.preamble.seq {
+                // this message is in reply to this inflight message
+                outbox_index = i;
+                solicited = true;
+                break;
             }
+        }
+
+        if solicited {
+            let fulfilled = self.outbox.inflight.remove(outbox_index).unwrap();
+            fulfilled.send(msg);
+            None
+        }
+        else {
+            Some(msg)
         }
     }
 
     /// Send any messages we got to waiting receivers.
+    /// Called by the p2p main loop to dispatch replies.
     /// Return the list of unsolicited messages (such as blocks and transactions).
-    fn drain_inbox(&mut self) -> Vec<StacksMessage> {
+    pub fn drain_inbox(&mut self) -> Vec<StacksMessage> {
         let inflight_index = 0;
         let mut unsolicited = vec![];
-
         loop {
             let in_msg_opt = self.inbox.next_message();
             match in_msg_opt {
@@ -564,26 +544,12 @@ impl Connection {
                     break;
                 }
                 Some(msg) => {
-                    // relay to next waiting receiver 
-                    let mut outbox_index = 0;
-                    let mut solicited = false;
-                    for i in 0..self.outbox.inflight.len() {
-                        let inflight = self.outbox.inflight.get(i).unwrap();
-                        if inflight.expected_seq == msg.preamble.seq {
-                            // this message is in reply to this inflight message
-                            outbox_index = i;
-                            solicited = true;
-                            break;
-                        }
-                    }
-
-                    if solicited {
-                        let fulfilled = self.outbox.inflight.remove(outbox_index).unwrap();
-                        fulfilled.send(msg);
-                    }
-                    else {
-                        unsolicited.push(msg);
-                    }
+                    // relay to next waiting receiver
+                    let out_msg_opt = self.fulfill_request(msg);
+                    match out_msg_opt {
+                        None => {},
+                        Some(m) => unsolicited.push(m)
+                    };
                 }
             }
         }
@@ -591,10 +557,35 @@ impl Connection {
         return unsolicited;
     }
 
+    /// Clear out timed-out requests.
+    /// Called from the p2p main loop.
+    pub fn drain_timeouts(&mut self) -> () {
+        let now = get_epoch_time_secs();
+        let mut to_remove = vec![];
+        for i in 0..self.outbox.inflight.len() {
+            match self.outbox.inflight.get_mut(i) {
+                None => {
+                    continue;
+                }
+                Some(inflight) => {
+                    if inflight.ttl < now {
+                        // expired
+                        to_remove.push(i);
+                    }
+                }
+            }
+        }
+
+        for i in to_remove {
+            // destroy the channel, causing anyone waiting for a reply to get an error.
+            self.outbox.inflight.remove(i);
+        }
+    } 
+
     /// Send a signed message and expect a reply.
-    pub fn send_signed_message(&mut self, message: StacksMessage) -> Result<NetworkReplyHandle, net_error> {
+    pub fn send_signed_message(&mut self, message: StacksMessage, ttl: u64) -> Result<NetworkReplyHandle, net_error> {
         let (send_ch, recv_ch) = sync_channel(1);
-        let recv_notify = ReceiverNotify::new(message.preamble.seq, send_ch);
+        let recv_notify = ReceiverNotify::new(message.preamble.seq, send_ch, ttl);
         let recv_handle = NetworkReplyHandle::new(recv_ch);
 
         self.outbox.queue_message(message, Some(recv_notify))?;
@@ -616,11 +607,40 @@ impl Connection {
     pub fn recv_data<R: Read>(&mut self, fd: &mut R) -> Result<usize, net_error> {
         self.inbox.recv_bytes(fd)
     }
+
+    /// how many inbox messages pending?
+    pub fn inbox_len(&self) -> usize {
+        self.inbox.num_messages()
+    }
+
+    /// get the next inbox message 
+    pub fn next_inbox_message(&mut self) -> Option<StacksMessage> {
+        self.inbox.next_message()
+    }
+    
+    /// set the public key 
+    pub fn set_public_key(&mut self, pubk: Option<Secp256k1PublicKey>) -> () {
+        self.inbox.public_key = pubk;
+    }
+
+    /// Get the public key 
+    pub fn get_public_key(&self) -> Option<Secp256k1PublicKey> {
+        match self.inbox.public_key {
+            Some(pubk) => Some(pubk.clone()),
+            None => None
+        }
+    }
+
+    /// do we have a public key 
+    pub fn has_public_key(&self) -> bool {
+        self.inbox.public_key.is_some()
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use net::*;
     use util::secp256k1::*;
     use std::io;
 
@@ -629,7 +649,7 @@ mod test {
         let neighbor = Neighbor {
             addr: NeighborKey {
                 peer_version: 0x12345678,
-                network_id: 0x9abcdef01,
+                network_id: 0x9abcdef0,
                 addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
                 port: 12345,
             },
@@ -644,31 +664,28 @@ mod test {
             out_degree: 0
         };
 
-        let conn_opts = ConnectionOptions {
-            keepalive: 60,
-            nodelay: true,
-            inbox_maxlen: 5,
-            outbox_maxlen: 5
-        };
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.inbox_maxlen = 5;
+        conn_opts.outbox_maxlen = 5;
 
-        let mut conn = Connection::new(&neighbor, &conn_opts);
+        let mut conn = Connection::new(&conn_opts, None);
 
         // send
-        let mut ping = StacksMessage::new(0x9abcdef01,
+        let mut ping = StacksMessage::new(0x9abcdef0,
                                           12345,
                                           &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
                                           12339,
                                           &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
-                                          StacksMessageType::Ping);
+                                          StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
 
         let privkey = Secp256k1PrivateKey::new();
-        ping.sign(1, &privkey);
+        ping.sign(1, &privkey).unwrap();
 
-        conn.relay_signed_message(ping.clone());
-        conn.relay_signed_message(ping.clone());
-        conn.relay_signed_message(ping.clone());
-        conn.relay_signed_message(ping.clone());
-        conn.relay_signed_message(ping.clone());
+        conn.relay_signed_message(ping.clone()).unwrap();
+        conn.relay_signed_message(ping.clone()).unwrap();
+        conn.relay_signed_message(ping.clone()).unwrap();
+        conn.relay_signed_message(ping.clone()).unwrap();
+        conn.relay_signed_message(ping.clone()).unwrap();
 
         // 5 ping messages queued; no one expecting a reply
         for i in 0..5 {
@@ -677,7 +694,7 @@ mod test {
         }
 
         // size of one ping 
-        let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1) as usize;
+        let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1 + 4) as usize;
         let mut ping_vec = vec![0; ping_size];
 
         let mut write_buf = io::Cursor::new(ping_vec.as_mut_slice());
@@ -749,7 +766,7 @@ mod test {
         let neighbor = Neighbor {
             addr: NeighborKey {
                 peer_version: 0x12345678,
-                network_id: 0x9abcdef01,
+                network_id: 0x9abcdef0,
                 addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
                 port: 12345,
             },
@@ -764,33 +781,30 @@ mod test {
             out_degree: 0
         };
 
-        let conn_opts = ConnectionOptions {
-            keepalive: 60,
-            nodelay: true,
-            inbox_maxlen: 5,
-            outbox_maxlen: 5
-        };
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.inbox_maxlen = 5;
+        conn_opts.outbox_maxlen = 5;
 
-        let mut conn = Connection::new(&neighbor, &conn_opts);
+        let mut conn = Connection::new(&conn_opts, Some(neighbor.public_key));
 
         // send
         let mut ping_vec = vec![];
         for i in 0..5 {
-            let mut ping = StacksMessage::new(0x9abcdef01,
+            let mut ping = StacksMessage::new(0x9abcdef0,
                                               12345 + i,
                                               &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
                                               12339 + i,
                                               &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
-                                              StacksMessageType::Ping);
+                                              StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
 
-            ping.sign(i as u32, &privkey);
+            ping.sign(i as u32, &privkey).unwrap();
             
-            conn.relay_signed_message(ping.clone());
+            conn.relay_signed_message(ping.clone()).unwrap();
             ping_vec.push(ping);
         }
         
         // buffer to send/receive everything
-        let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1) as usize;
+        let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1 + 4) as usize;
         let mut ping_buf = vec![0u8; 5*ping_size];
 
         {
@@ -818,7 +832,7 @@ mod test {
         let neighbor = Neighbor {
             addr: NeighborKey {
                 peer_version: 0x12345678,
-                network_id: 0x9abcdef01,
+                network_id: 0x9abcdef0,
                 addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
                 port: 12345,
             },
@@ -833,35 +847,32 @@ mod test {
             out_degree: 0
         };
 
-        let conn_opts = ConnectionOptions {
-            keepalive: 60,
-            nodelay: true,
-            inbox_maxlen: 5,
-            outbox_maxlen: 5
-        };
-
-        let mut conn = Connection::new(&neighbor, &conn_opts);
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.inbox_maxlen = 5;
+        conn_opts.outbox_maxlen = 5;
+        
+        let mut conn = Connection::new(&conn_opts, Some(neighbor.public_key));
 
         // send
         let mut ping_vec = vec![];
         let mut handle_vec = vec![];
         for i in 0..5 {
-            let mut ping = StacksMessage::new(0x9abcdef01,
+            let mut ping = StacksMessage::new(0x9abcdef0,
                                               12345 + i,
                                               &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
                                               12339 + i,
                                               &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
-                                              StacksMessageType::Ping);
+                                              StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
 
-            ping.sign(i as u32, &privkey);
+            ping.sign(i as u32, &privkey).unwrap();
             
-            let handle = conn.send_signed_message(ping.clone()).unwrap();
+            let handle = conn.send_signed_message(ping.clone(), get_epoch_time_secs() + 60).unwrap();
             handle_vec.push(handle);
             ping_vec.push(ping);
         }
         
         // buffer to send/receive everything
-        let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1) as usize;
+        let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1 + 4) as usize;
         let mut ping_buf = vec![0u8; 5*ping_size];
 
         {
