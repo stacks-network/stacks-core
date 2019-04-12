@@ -22,6 +22,7 @@ use std::mem::size_of;
 use burnchains::BurnchainHeaderHash;
 use burnchains::PrivateKey;
 use burnchains::PublicKey;
+use burnchains::BurnchainView;
 
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::BlockHeaderHash;
@@ -38,6 +39,7 @@ use util::secp256k1::Secp256k1PublicKey;
 
 use net::*;
 use net::Error as net_error;
+use net::db::LocalPeer;
 
 use core::PEER_VERSION;
 
@@ -45,6 +47,9 @@ use sha2::Sha256;
 use sha2::Digest;
 
 use util::log;
+
+use rand;
+use rand::Rng;
 
 // macro for determining how big an inv bitvec can be, given its bitlen 
 macro_rules! BITVEC_LEN {
@@ -130,7 +135,7 @@ fn read_next_vec<T: StacksMessageCodec + Sized>(buf: &Vec<u8>, index_ptr: &mut u
     vec_index = index + len_index;
 
     let mut ret = vec![];
-    for i in 0..len {
+    for _i in 0..len {
         let next_item = T::deserialize(buf, &mut vec_index, max_size_bytes)?;
         ret.push(next_item);
     }
@@ -451,6 +456,11 @@ impl StacksMessageCodec for Preamble {
             return Err(net_error::DeserializeError);
         }
 
+        if burn_block_height <= burn_stable_block_height {
+            test_debug!("burn block height {} <= burn stable block height {}", burn_block_height, burn_stable_block_height);
+            return Err(net_error::DeserializeError);
+        }
+
         *index_ptr = index;
 
         Ok(Preamble {
@@ -620,6 +630,16 @@ impl StacksMessageCodec for MicroblocksData {
     }
 }
 
+impl NeighborAddress {
+    pub fn from_neighbor(n: &Neighbor) -> NeighborAddress {
+        NeighborAddress {
+            addrbytes: n.addr.addrbytes.clone(),
+            port: n.addr.port,
+            public_key_hash: Hash160::from_data(&n.public_key.to_bytes()[..])
+        }
+    }
+}
+
 impl StacksMessageCodec for NeighborAddress {
     fn serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
@@ -667,6 +687,18 @@ impl StacksMessageCodec for NeighborsData {
     }
 }
 
+impl HandshakeData {
+    pub fn from_local_peer(local_peer: &LocalPeer) -> HandshakeData {
+        HandshakeData {
+            addrbytes: local_peer.addrbytes.clone(),
+            port: local_peer.port,
+            services: local_peer.services,
+            node_public_key: StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer.private_key)),
+            expire_block_height: local_peer.private_key_expire
+        }
+    }
+}
+
 impl StacksMessageCodec for HandshakeData {
     fn serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
@@ -699,26 +731,43 @@ impl StacksMessageCodec for HandshakeData {
     }
 }
 
+impl HandshakeAcceptData {
+    pub fn new(local_peer: &LocalPeer, heartbeat_interval: u32) -> HandshakeAcceptData {
+        HandshakeAcceptData {
+            handshake: HandshakeData::from_local_peer(local_peer),
+            heartbeat_interval: heartbeat_interval
+        }
+    }
+}
+
 impl StacksMessageCodec for HandshakeAcceptData {
     fn serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
+        write_next(&mut ret, &self.handshake);
         write_next(&mut ret, &self.heartbeat_interval);
-        write_next(&mut ret, &self.node_public_key);
         ret
     }
 
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<HandshakeAcceptData, net_error> {
         let mut index = *index_ptr;
 
+        let handshake : HandshakeData               = read_next(buf, &mut index, max_size)?;
         let heartbeat_interval : u32                = read_next(buf, &mut index, max_size)?;
-        let node_public_key : StacksPublicKeyBuffer = read_next(buf, &mut index, max_size)?;
 
         *index_ptr = index;
 
         Ok(HandshakeAcceptData {
+            handshake,
             heartbeat_interval,
-            node_public_key
         })
+    }
+}
+
+impl NackData {
+    pub fn new(error_code: u32) -> NackData {
+        NackData {
+            error_code
+        }
     }
 }
 
@@ -731,13 +780,65 @@ impl StacksMessageCodec for NackData {
 
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<NackData, net_error> {
         let mut index = *index_ptr;
-
         let error_code : u32 = read_next(buf, &mut index, max_size)?;
-
         *index_ptr = index;
 
         Ok(NackData {
             error_code
+        })
+    }
+}
+
+impl PingData {
+    pub fn new() -> PingData {
+        let mut rng = rand::thread_rng();
+        let n = rng.gen();
+        PingData {
+            nonce: n
+        }
+    }
+}
+
+impl StacksMessageCodec for PingData {
+    fn serialize(&self) -> Vec<u8> {
+        let mut ret = vec![];
+        write_next(&mut ret, &self.nonce);
+        ret
+    }
+
+    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<PingData, net_error> {
+        let mut index = *index_ptr;
+        let nonce : u32 = read_next(buf, &mut index, max_size)?;
+        *index_ptr = index;
+
+        Ok(PingData {
+            nonce
+        })
+    }
+}
+
+impl PongData {
+    pub fn from_ping(p: &PingData) -> PongData {
+        PongData {
+            nonce: p.nonce
+        }
+    }
+}
+
+impl StacksMessageCodec for PongData {
+    fn serialize(&self) -> Vec<u8> {
+        let mut ret = vec![];
+        write_next(&mut ret, &self.nonce);
+        ret
+    }
+
+    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<PongData, net_error> {
+        let mut index = *index_ptr;
+        let nonce: u32 = read_next(buf, &mut index, max_size)?;
+        *index_ptr = index;
+
+        Ok(PongData {
+            nonce
         })
     }
 }
@@ -784,7 +885,8 @@ pub fn message_serialize(msg: &StacksMessageType) -> Vec<u8> {
         StacksMessageType::Microblocks(ref m) => m.serialize(),
         StacksMessageType::Transaction(ref m) => m.serialize(),
         StacksMessageType::Nack(ref m) => m.serialize(),
-        StacksMessageType::Ping => vec![],
+        StacksMessageType::Ping(ref m) => m.serialize(),
+        StacksMessageType::Pong(ref m) => m.serialize()
     }
 }
 
@@ -804,7 +906,8 @@ pub fn message_deserialize(message_id: u8, bits: &Vec<u8>, index: &mut u32, max_
         StacksMessageID::Microblocks => { let m = MicroblocksData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Microblocks(m)) },
         StacksMessageID::Transaction => { let m = StacksTransaction::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Transaction(m)) },
         StacksMessageID::Nack => { let m = NackData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Nack(m)) },
-        StacksMessageID::Ping => { Ok(StacksMessageType::Ping) },
+        StacksMessageID::Ping => { let m = PingData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Ping(m)) },
+        StacksMessageID::Pong => { let m = PongData::deserialize(bits, index, max_size)?; Ok(StacksMessageType::Pong(m)) },
         _ => { Err(net_error::UnrecognizedMessageID) }
     }
 }
@@ -825,7 +928,8 @@ pub fn message_type_to_id(msg: &StacksMessageType) -> u8 {
         StacksMessageType::Microblocks(ref _m) => StacksMessageID::Microblocks,
         StacksMessageType::Transaction(ref _m) => StacksMessageID::Transaction,
         StacksMessageType::Nack(ref _m) => StacksMessageID::Nack,
-        StacksMessageType::Ping => StacksMessageID::Ping,
+        StacksMessageType::Ping(ref _m) => StacksMessageID::Ping,
+        StacksMessageType::Pong(ref _m) => StacksMessageID::Pong
     }
 }
 
@@ -861,6 +965,11 @@ impl StacksMessage {
             relayers: vec![],
             payload: message
         }
+    }
+
+    /// Create an unsigned Stacks message
+    pub fn from_chain_view(network_id: u32, chain_view: &BurnchainView, message: StacksMessageType) -> StacksMessage {
+        StacksMessage::new(network_id, chain_view.burn_block_height, &chain_view.burn_consensus_hash, chain_view.burn_stable_block_height, &chain_view.burn_stable_consensus_hash, message)
     }
 
     /// Sign the stacks message 
@@ -956,6 +1065,23 @@ impl StacksMessage {
     pub fn payload_parse(preamble: &mut Preamble, buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMessage, net_error> {
         StacksMessage::do_payload_deserialize::<Secp256k1PublicKey>(None, preamble, buf, index_ptr, max_size)
     }
+
+    /// Verify this message by treating the public key buffer as a secp256k1 public key.
+    /// Fails if:
+    /// * the signature doesn't match
+    /// * the buffer doesn't encode a secp256k1 public key
+    pub fn verify_secp256k1(&mut self, public_key: &StacksPublicKeyBuffer) -> Result<(), net_error> {
+        let secp256k1_pubkey = public_key.to_public_key()?;
+
+        let mut message_bits = vec![];
+        message_bits.append(&mut self.relayers.serialize());
+        message_bits.push(message_type_to_id(&self.payload));
+        message_bits.append(&mut message_serialize(&self.payload));
+
+        let mut index = 0;
+        StacksMessage::payload_deserialize::<Secp256k1PublicKey>(&secp256k1_pubkey, &mut self.preamble, &message_bits, &mut index, MAX_MESSAGE_LEN)
+            .and_then(|_m| Ok(()))
+    }
 }
 
 #[cfg(test)]
@@ -963,6 +1089,7 @@ mod test {
     use super::*;
 
     use util::hash::hex_bytes;
+    use util::secp256k1::*;
 
     #[test]
     fn codec_primitive_types() {
@@ -1753,14 +1880,28 @@ mod test {
     #[test]
     fn codec_HandshakeAcceptData() {
         let data = HandshakeAcceptData {
+            handshake: HandshakeData { 
+                addrbytes: PeerAddress([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]),
+                port: 12345,
+                services: 0x0001,
+                node_public_key: StacksPublicKeyBuffer::from_bytes(&hex_bytes("034e316be04870cef1795fba64d581cf64bad0c894b01a068fb9edf85321dcd9bb").unwrap()).unwrap(),
+                expire_block_height: 0x0102030405060708
+            },
             heartbeat_interval: 0x01020304,
-            node_public_key: StacksPublicKeyBuffer::from_bytes(&hex_bytes("034e316be04870cef1795fba64d581cf64bad0c894b01a068fb9edf85321dcd9bb").unwrap()).unwrap(),
         };
         let bytes = vec![
+            // addrbytes 
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+            // port 
+            0x30, 0x39,
+            // services 
+            0x00, 0x01,
+            // public key 
+            0x03, 0x4e, 0x31, 0x6b, 0xe0, 0x48, 0x70, 0xce, 0xf1, 0x79, 0x5f, 0xba, 0x64, 0xd5, 0x81, 0xcf, 0x64, 0xba, 0xd0, 0xc8, 0x94, 0xb0, 0x1a, 0x06, 0x8f, 0xb9, 0xed, 0xf8, 0x53, 0x21, 0xdc, 0xd9, 0xbb,
+            // expire block height 
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
             // heartbeat 
             0x01, 0x02, 0x03, 0x04,
-            // node public key 
-            0x03, 0x4e, 0x31, 0x6b, 0xe0, 0x48, 0x70, 0xce, 0xf1, 0x79, 0x5f, 0xba, 0x64, 0xd5, 0x81, 0xcf, 0x64, 0xba, 0xd0, 0xc8, 0x94, 0xb0, 0x1a, 0x06, 0x8f, 0xb9, 0xed, 0xf8, 0x53, 0x21, 0xdc, 0xd9, 0xbb,
         ];
 
         check_codec_and_corruption::<HandshakeAcceptData>(&data, &bytes);
@@ -1819,7 +1960,13 @@ mod test {
             }),
             StacksMessageType::HandshakeAccept(HandshakeAcceptData {
                 heartbeat_interval: 0x01020304,
-                node_public_key: StacksPublicKeyBuffer::from_bytes(&hex_bytes("034e316be04870cef1795fba64d581cf64bad0c894b01a068fb9edf85321dcd9bb").unwrap()).unwrap(),
+                handshake: HandshakeData {
+                    addrbytes: PeerAddress([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]),
+                    port: 12345,
+                    services: 0x0001,
+                    node_public_key: StacksPublicKeyBuffer::from_bytes(&hex_bytes("034e316be04870cef1795fba64d581cf64bad0c894b01a068fb9edf85321dcd9bb").unwrap()).unwrap(),
+                    expire_block_height: 0x0102030405060708
+                }
             }),
             StacksMessageType::HandshakeReject,
             StacksMessageType::GetNeighbors,
@@ -1873,7 +2020,12 @@ mod test {
             StacksMessageType::Nack(NackData {
                 error_code: 0x01020304
             }),
-            StacksMessageType::Ping
+            StacksMessageType::Ping(PingData {
+                nonce: 0x01020304
+            }),
+            StacksMessageType::Pong(PongData {
+                nonce: 0x01020304
+            }),
         ];
 
         let mut maximal_relayers : Vec<RelayData> = vec![];
@@ -1968,5 +2120,21 @@ mod test {
             assert_eq!(StacksMessage::deserialize(&stacks_message_too_many_relayers_bytes, &mut index, stacks_message_too_many_relayers_bytes.len() as u32).unwrap_err(), net_error::DeserializeError);
             assert_eq!(index, 0);
         }
+    }
+
+    #[test]
+    fn codec_sign_and_verify() {
+        let privkey = Secp256k1PrivateKey::new();
+        let pubkey_buf = StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&privkey));
+
+        let mut ping = StacksMessage::new(0x9abcdef0,
+                                          12345,
+                                          &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                          12339,
+                                          &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                          StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
+
+        ping.sign(444, &privkey).unwrap();
+        ping.verify_secp256k1(&pubkey_buf).unwrap();
     }
 } 
