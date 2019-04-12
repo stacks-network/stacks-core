@@ -333,11 +333,14 @@ mod tests {
         let block_125_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000005").unwrap();
         
         let burnchain = Burnchain {
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
             burn_quota: get_burn_quota_config(&"bitcoin".to_string()).unwrap(),
-            consensus_hash_lifetime: 24
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7
         };
         
         let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
@@ -379,7 +382,7 @@ mod tests {
                 BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
             }
             
-            tx.commit();
+            tx.commit().unwrap();
         }
 
         {
