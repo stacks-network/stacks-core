@@ -34,6 +34,7 @@ use burnchains::BurnchainTransaction;
 use burnchains::BurnchainBlock;
 use burnchains::BurnQuotaConfig;
 use burnchains::ConsensusHashLifetime;
+use burnchains::StableConfirmations;
 
 use burnchains::Error as burnchain_error;
 
@@ -56,6 +57,10 @@ use util::db::Error as db_error;
 use util::log;
 use util::hash::to_hex;
 
+use core::PEER_VERSION;
+use core::NETWORK_ID_MAINNET;
+use core::NETWORK_ID_TESTNET;
+
 pub fn get_burn_quota_config(blockchain_name: &String) -> Option<BurnQuotaConfig> {
     match blockchain_name.as_str() {
         "bitcoin" => {
@@ -69,14 +74,13 @@ pub fn get_burn_quota_config(blockchain_name: &String) -> Option<BurnQuotaConfig
     }
 }
 
-
 impl Burnchain {
-
     pub fn new(working_dir: &String, chain_name: &String, network_name: &String) -> Result<Burnchain, burnchain_error> {
-        let (ch_lifetime, burn_quota_info) =
+        let (ch_lifetime, stable_confirmations, burn_quota_info) =
             match chain_name.as_str() {
                 "bitcoin" => {
                     (ConsensusHashLifetime::Bitcoin as u32,
+                     StableConfirmations::Bitcoin as u32,
                      get_burn_quota_config(chain_name).unwrap())
                 }
                 _ => {
@@ -84,12 +88,22 @@ impl Burnchain {
                 }
             };
 
+        let network_id =
+            match network_name.as_str() {
+                "testnet" => NETWORK_ID_TESTNET,
+                "mainnet" => NETWORK_ID_MAINNET,
+                _ => panic!("Unrecognized network name")
+            };
+
         Ok(Burnchain {
+            peer_version: PEER_VERSION,
+            network_id: network_id,
             chain_name: chain_name.clone(),
             network_name: network_name.clone(),
             working_dir: working_dir.clone(),
             burn_quota: burn_quota_info,
-            consensus_hash_lifetime: ch_lifetime
+            consensus_hash_lifetime: ch_lifetime,
+            stable_confirmations: stable_confirmations,
         })
     }
 
@@ -183,7 +197,23 @@ impl Burnchain {
         BurnDB::<A, K>::connect(&db_path, first_block_height, &first_block_header_hash, readwrite)
             .map_err(burnchain_error::DBError)
     }
-    
+
+    /// Open the burn database.  It must already exist.
+    pub fn open_db<A, K>(&self, readwrite: bool) -> Result<BurnDB<A, K>, burnchain_error>
+    where
+        A: Address,
+        K: PublicKey
+    {
+        let db_path = self.get_db_path();
+        let db_pathbuf = PathBuf::from(db_path.clone());
+        if !db_pathbuf.exists() {
+            return Err(burnchain_error::DBError(db_error::NoDBError));
+        }
+
+        BurnDB::<A, K>::open(&db_path, readwrite)
+            .map_err(burnchain_error::DBError)
+    }
+
     /// Try to parse a burnchain transaction into a Blockstack operation
     fn classify_transaction<A, K>(block_height: u64, block_hash: &BurnchainHeaderHash, burn_tx: &BurnchainTransaction<A, K>) -> Option<BlockstackOperationType<A, K>>
     where
@@ -783,11 +813,14 @@ mod tests {
         let first_block_height = 120;
         
         let burnchain = Burnchain {
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
             burn_quota: get_burn_quota_config(&"bitcoin".to_string()).unwrap(),
-            consensus_hash_lifetime: 24
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7
         };
         
         let block_121_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000012").unwrap();
@@ -1305,6 +1338,8 @@ mod tests {
         let first_block_height = 120;
         
         let burnchain = Burnchain {
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
@@ -1313,7 +1348,8 @@ mod tests {
                 dec_num: 4,
                 dec_den: 5
             },
-            consensus_hash_lifetime: 24
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7
         };
 
         let mut leader_private_keys = vec![];
