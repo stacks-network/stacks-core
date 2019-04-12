@@ -18,10 +18,13 @@
 */
 
 pub mod asn;
+pub mod chat;
 pub mod codec;
 pub mod connection;
 pub mod db;
+pub mod neighbors;
 pub mod p2p;
+pub mod poll;
 
 use std::fmt;
 use std::error;
@@ -100,8 +103,26 @@ pub enum Error {
     InvalidMessage,
     /// Invalid network handle
     InvalidHandle,
+    /// Invalid handshake 
+    InvalidHandshake,
     /// No such neighbor 
-    NoSuchNeighbor
+    NoSuchNeighbor,
+    /// Failed to bind
+    BindError,
+    /// Failed to poll 
+    PollError,
+    /// Failed to accept 
+    AcceptError,
+    /// Failed to register socket with poller 
+    RegisterError,
+    /// Failed to query socket metadata 
+    SocketError,
+    /// server is not bound to a socket
+    NotConnected,
+    /// Remote peer is not connected 
+    PeerNotConnected,
+    /// Too many peers
+    TooManyPeers
 }
 
 impl fmt::Display for Error {
@@ -129,7 +150,16 @@ impl fmt::Display for Error {
             Error::RecvError(ref s) => fmt::Display::fmt(s, f),
             Error::InvalidMessage => f.write_str(error::Error::description(self)),
             Error::InvalidHandle => f.write_str(error::Error::description(self)),
+            Error::InvalidHandshake => f.write_str(error::Error::description(self)),
             Error::NoSuchNeighbor => f.write_str(error::Error::description(self)),
+            Error::BindError => f.write_str(error::Error::description(self)),
+            Error::PollError => f.write_str(error::Error::description(self)),
+            Error::AcceptError => f.write_str(error::Error::description(self)),
+            Error::RegisterError => f.write_str(error::Error::description(self)),
+            Error::SocketError => f.write_str(error::Error::description(self)),
+            Error::NotConnected => f.write_str(error::Error::description(self)),
+            Error::PeerNotConnected => f.write_str(error::Error::description(self)),
+            Error::TooManyPeers => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -159,7 +189,16 @@ impl error::Error for Error {
             Error::RecvError(ref _s) => None,
             Error::InvalidMessage => None,
             Error::InvalidHandle => None,
+            Error::InvalidHandshake => None,
             Error::NoSuchNeighbor => None,
+            Error::BindError => None,
+            Error::PollError => None,
+            Error::AcceptError => None,
+            Error::RegisterError => None,
+            Error::SocketError => None,
+            Error::NotConnected => None,
+            Error::PeerNotConnected => None,
+            Error::TooManyPeers => None,
         }
     }
 
@@ -188,7 +227,16 @@ impl error::Error for Error {
             Error::RecvError(ref s) => s.as_str(),
             Error::InvalidMessage => "invalid message (malformed or bad signature)",
             Error::InvalidHandle => "invalid network handle",
-            Error::NoSuchNeighbor => "no such neighbor"
+            Error::InvalidHandshake => "invalid handshake from remote peer",
+            Error::NoSuchNeighbor => "no such neighbor",
+            Error::BindError => "Failed to bind to the given address",
+            Error::PollError => "Failed to poll",
+            Error::AcceptError => "Failed to accept connection",
+            Error::RegisterError => "Failed to register socket with poller",
+            Error::SocketError => "Socket error",
+            Error::NotConnected => "Not connected to peer network",
+            Error::PeerNotConnected => "Remote peer is not connected to us",
+            Error::TooManyPeers => "Too many peer connections open"
         }
     }
 }
@@ -281,6 +329,32 @@ impl PeerAddress {
             SocketAddr::new(IpAddr::V6(Ipv6Addr::new(addr_words[0], addr_words[1], addr_words[2], addr_words[3], addr_words[4], addr_words[5], addr_words[6], addr_words[7])), port)
         }
     }
+
+    /// Convert from socket address 
+    pub fn from_socketaddr(addr: &SocketAddr) -> PeerAddress {
+        match addr.ip() {
+            IpAddr::V4(ref addr) => {
+                let octets = addr.octets();
+                PeerAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, octets[0], octets[1], octets[2], octets[3]])
+            },
+            IpAddr::V6(ref addr) => {
+                let words = addr.segments();
+                PeerAddress([(words[0] >> 8) as u8, (words[0] & 0xff) as u8,
+                             (words[1] >> 8) as u8, (words[1] & 0xff) as u8,
+                             (words[2] >> 8) as u8, (words[2] & 0xff) as u8,
+                             (words[3] >> 8) as u8, (words[3] & 0xff) as u8,
+                             (words[4] >> 8) as u8, (words[4] & 0xff) as u8,
+                             (words[5] >> 8) as u8, (words[5] & 0xff) as u8,
+                             (words[6] >> 8) as u8, (words[6] & 0xff) as u8,
+                             (words[7] >> 8) as u8, (words[7] & 0xff) as u8])
+            }
+        }
+    }
+
+    /// Convert from ipv4 octets
+    pub fn from_ipv4(o1: u8, o2: u8, o3: u8, o4: u8) -> PeerAddress {
+        PeerAddress([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, o1, o2, o3, o4])
+    }
 }
 
 /// A container for public keys (compressed secp256k1 public keys)
@@ -365,7 +439,7 @@ pub struct MicroblocksData {
 }
 
 /// A descriptor of a peer
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NeighborAddress {
     pub addrbytes: PeerAddress,
     pub port: u16,
@@ -398,15 +472,33 @@ pub struct HandshakeData {
     pub expire_block_height: u64,               // burn block height after which this node's key will be revoked
 }
 
+#[repr(C)]
+pub enum ServiceFlags {
+    RELAY = 0x01,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct HandshakeAcceptData {
+    pub handshake: HandshakeData,       // this peer's handshake information
     pub heartbeat_interval: u32,        // hint as to how long this peer will remember you
-    pub node_public_key: StacksPublicKeyBuffer
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NackData {
     pub error_code: u32,
+}
+pub mod NackErrorCodes {
+    pub const HandshakeRequired : u32 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PingData {
+    pub nonce: u32
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PongData {
+    pub nonce: u32
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -435,7 +527,8 @@ pub enum StacksMessageType {
     Microblocks(MicroblocksData),
     Transaction(StacksTransaction),
     Nack(NackData),
-    Ping,
+    Ping(PingData),
+    Pong(PongData)
 }
 
 // I would do this as an enum, but there's no easy way to match on an enum's numeric representation
@@ -454,6 +547,7 @@ pub mod StacksMessageID {
     pub const Transaction : u8 = 11;
     pub const Nack : u8 = 12;
     pub const Ping : u8 = 13;
+    pub const Pong : u8 = 14;
     pub const Reserved : u8 = 255;
 }
 
@@ -483,6 +577,9 @@ pub const MICROBLOCKS_INV_DATA_MAX_HASHES : u32 = 4096;
 
 // maximum value of a blocks's inv data bitlen 
 pub const BLOCKS_INV_DATA_MAX_BITLEN : u32 = 4096;
+
+// heartbeat threshold -- start trying to ping a node at this many seconds before expiration
+pub const HEARTBEAT_PING_THRESHOLD : u64 = 600;
 
 macro_rules! impl_byte_array_message_codec {
     ($thing:ident, $len:expr) => {
@@ -520,7 +617,7 @@ impl_byte_array_message_codec!(MessageSignature, 80);
 impl_byte_array_message_codec!(PeerAddress, 16);
 impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
 
-/// "stable" portions of a neighbor struct
+/// neighbor identifier 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NeighborKey {
     pub peer_version: u32,
@@ -539,8 +636,8 @@ pub struct Neighbor {
     pub expire_block: u64,
     pub last_contact_time: u64,
     
-    whitelisted: i64,       // whitelist deadline (negative == "forever")
-    blacklisted: i64,       // blacklist deadline (negative == "forever")
+    pub whitelisted: i64,       // whitelist deadline (negative == "forever")
+    pub blacklisted: i64,       // blacklist deadline (negative == "forever")
 
     pub asn: u32,               // AS number
     pub org: u32,               // organization identifier
@@ -548,4 +645,6 @@ pub struct Neighbor {
     pub in_degree: u32,         // number of peers who list this peer as a neighbor
     pub out_degree: u32,        // number of neighbors this peer has
 }
+
+pub const NUM_NEIGHBORS : usize = 32;
 
