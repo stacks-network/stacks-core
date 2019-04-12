@@ -39,14 +39,18 @@ use util::macros::is_big_endian;
 use rand::RngCore;
 use rand::Rng;
 use rand::thread_rng;
+use rand::seq::SliceRandom;
 
 use net::asn::ASEntry4;
 use net::PeerAddress;
 use net::Neighbor;
 use net::NeighborKey;
+use net::ServiceFlags;
 
 use burnchains::PublicKey;
 use burnchains::PrivateKey;
+
+use core::NETWORK_P2P_PORT;
 
 pub const PEERDB_VERSION : &'static str = "21.0.0.0";
 
@@ -76,27 +80,40 @@ impl FromRow<PeerAddress> for PeerAddress {
 #[derive(Debug, PartialEq, Clone)]
 pub struct LocalPeer {
     nonce: [u8; 32],
-    private_key: Secp256k1PrivateKey
+    pub private_key: Secp256k1PrivateKey,
+    pub private_key_expire: u64,
+
+    pub addrbytes: PeerAddress,
+    pub port: u16,
+    pub services: u16
 }
 
 impl LocalPeer {
-    pub fn new() -> LocalPeer {
+    pub fn new(key_expire: u64) -> LocalPeer {
         let mut rng = thread_rng();
         let my_private_key = Secp256k1PrivateKey::new();
         let mut my_nonce = [0u8; 32];
 
         rng.fill_bytes(&mut my_nonce);
 
+        let addr = PeerAddress::from_ipv4(127, 0, 0, 1);
+        let port = NETWORK_P2P_PORT;
+        let services = ServiceFlags::RELAY;
+
         LocalPeer {
             nonce: my_nonce,
-            private_key: my_private_key
+            private_key: my_private_key,
+            private_key_expire: key_expire,
+            addrbytes: addr,
+            port: port,
+            services: services as u16
         }
     }
 }
 
 impl RowOrder for LocalPeer {
     fn row_order() -> Vec<&'static str> {
-        vec!["nonce", "private_key"]
+        vec!["nonce", "private_key", "private_key_expire", "addrbytes", "port", "services"]
     }
 }
 
@@ -104,6 +121,10 @@ impl FromRow<LocalPeer> for LocalPeer {
     fn from_row<'a>(row: &'a Row, index: usize) -> Result<LocalPeer, db_error> {
         let nonce_hex : String = row.get(index);
         let privkey = Secp256k1PrivateKey::from_row(row, index + 1)?;
+        let privkey_expire_i64 : i64 = row.get(index + 2);
+        let addrbytes : PeerAddress = PeerAddress::from_row(row, index + 3)?;
+        let port : u16 = row.get(index + 4);
+        let services : u16 = row.get(index + 5);
 
         let nonce_bytes = hex_bytes(&nonce_hex)
             .map_err(|_e| {
@@ -119,9 +140,17 @@ impl FromRow<LocalPeer> for LocalPeer {
         let mut nonce_buf = [0u8; 32];
         nonce_buf.copy_from_slice(&nonce_bytes[0..32]);
 
+        if privkey_expire_i64 < 0 {
+            return Err(db_error::ParseError);
+        }
+
         Ok(LocalPeer {
             private_key: privkey,
-            nonce: nonce_buf
+            nonce: nonce_buf,
+            private_key_expire: privkey_expire_i64 as u64,
+            addrbytes: addrbytes,
+            port: port,
+            services: services
         })
     }
 }
@@ -195,12 +224,20 @@ impl FromRow<Neighbor> for Neighbor {
             org: org,
             whitelisted: whitelisted,
             blacklisted: blacklisted,
-            in_degree: 0,
-            out_degree: 0
+            in_degree: 1,
+            out_degree: 1
         })
     }
 }
 
+// In what is likely an abuse of Sqlite, the peer database is structured such that the `frontier`
+// table stores peers keyed by a deterministically-chosen random "slot," instead of their IP/port.
+// (i.e. the slot is determined by a cryptographic the hash of the IP/port).  The reason for this
+// is to facilitate randomized peer eviction when the frontier table gets too big -- if a peer's
+// possible slots are taken, then the _existing_ peer is pinged to see if it is still online.  If
+// it is still online, the new peer will _not_ be inserted.  If it is offline, then it will be.
+// This is done to ensure that the frontier represents live, long-lived peers to the greatest
+// extent possible.
 const PEERDB_SETUP : &'static [&'static str]= &[
     r#"
     CREATE TABLE frontier(
@@ -237,7 +274,11 @@ const PEERDB_SETUP : &'static [&'static str]= &[
     r#"
     CREATE TABLE local_peer(
         nonce TEXT NOT NULL,
-        private_key TEXT NOT NULL
+        private_key TEXT NOT NULL,
+        private_key_expire INTEGER NOT NULL,
+        addrbytes TEXT NOT NULL,
+        port INTEGER NOT NULL,
+        services INTEGER NOT NULL
     );"#
 ];
 
@@ -247,8 +288,8 @@ pub struct PeerDB {
 }
 
 impl PeerDB {
-    fn instantiate(&mut self, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> Result<(), db_error> {
-        let localpeer = LocalPeer::new();
+    fn instantiate(&mut self, key_expires: u64, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> Result<(), db_error> {
+        let localpeer = LocalPeer::new(key_expires);
 
         let mut tx = self.tx_begin()?;
 
@@ -260,7 +301,9 @@ impl PeerDB {
         tx.execute("INSERT INTO db_version (version) VALUES (?1)", &[&PEERDB_VERSION])
             .map_err(db_error::SqliteError)?;
 
-        tx.execute("INSERT INTO local_peer (nonce, private_key) VALUES (?1,?2)", &[&to_hex(&localpeer.nonce.to_vec()) as &ToSql, &to_hex(&localpeer.private_key.to_bytes()) as &ToSql])
+        tx.execute("INSERT INTO local_peer (nonce, private_key, private_key_expire, addrbytes, port, services) VALUES (?1,?2,?3,?4,?5,?6)", 
+                   &[&to_hex(&localpeer.nonce.to_vec()) as &ToSql, &to_hex(&localpeer.private_key.to_bytes()) as &ToSql, &(key_expires as i64) as &ToSql,
+                     &to_hex(&localpeer.addrbytes.as_bytes().to_vec()), &localpeer.port as &ToSql, &(localpeer.services as u16) as &ToSql])
             .map_err(db_error::SqliteError)?;
 
         for neighbor in initial_neighbors {
@@ -283,7 +326,7 @@ impl PeerDB {
 
     /// Open the burn database at the given path.  Open read-only or read/write.
     /// If opened for read/write and it doesn't exist, instantiate it.
-    pub fn connect(path: &String, readwrite: bool, asn4_path: &Option<String>, initial_neighbors: &Option<Vec<Neighbor>>) -> Result<PeerDB, db_error> {
+    pub fn connect(path: &String, readwrite: bool, key_expires: u64, asn4_path: &Option<String>, initial_neighbors: Option<&Vec<Neighbor>>) -> Result<PeerDB, db_error> {
         let mut create_flag = false;
         let open_flags =
             if fs::metadata(path).is_err() {
@@ -327,10 +370,10 @@ impl PeerDB {
             // instantiate!
             match initial_neighbors {
                 Some(ref neighbors) => {
-                    db.instantiate(&asn4_recs, neighbors)?;
+                    db.instantiate(key_expires, &asn4_recs, neighbors)?;
                 },
                 None => {
-                    db.instantiate(&asn4_recs, &vec![])?;
+                    db.instantiate(key_expires, &asn4_recs, &vec![])?;
                 }
             }
         }
@@ -339,7 +382,7 @@ impl PeerDB {
 
     /// Open a burn database in memory (used for testing)
     #[allow(dead_code)]
-    pub fn connect_memory(asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> Result<PeerDB, db_error> {
+    pub fn connect_memory(key_expires: u64, asn4_entries: &Vec<ASEntry4>, initial_neighbors: &Vec<Neighbor>) -> Result<PeerDB, db_error> {
         let conn = Connection::open_in_memory()
             .map_err(|e| db_error::SqliteError(e))?;
 
@@ -348,7 +391,7 @@ impl PeerDB {
             readwrite: true,
         };
 
-        db.instantiate(asn4_entries, initial_neighbors)?;
+        db.instantiate(key_expires, asn4_entries, initial_neighbors)?;
         Ok(db)
     }
 
@@ -411,10 +454,39 @@ impl PeerDB {
         }
     }
 
+    /// Set the local IP address and port 
+    pub fn set_local_ipaddr<'a>(tx: &mut Transaction<'a>, addrbytes: &PeerAddress, port: u16) -> Result<(), db_error> {
+        tx.execute("UPDATE local_peer SET addrbytes = ?1, port = ?2", &[&to_hex(&addrbytes.as_bytes().to_vec()), &port as &ToSql])
+            .map_err(db_error::SqliteError)?;
+
+        Ok(())
+    }
+
+    /// Set local service availability 
+    pub fn set_local_services<'a>(tx: &mut Transaction<'a>, services: u16) -> Result<(), db_error> {
+        tx.execute("UPDATE local_peer SET services = ?1", &[&services as &ToSql])
+            .map_err(db_error::SqliteError)?;
+
+        Ok(())
+    }
+
+    /// Set local private key and expiry 
+    pub fn set_local_private_key<'a>(tx: &mut Transaction<'a>, privkey: &Secp256k1PrivateKey, expire_block: u64) -> Result<(), db_error> {
+        if expire_block > ((1 as u64) << 63) - 1 {
+            return Err(db_error::Overflow);
+        }
+
+        tx.execute("UPDATE local_peer SET private_key = ?1, private_key_expire = ?2",
+                   &[&to_hex(&privkey.to_bytes()), &(expire_block as i64) as &ToSql])
+            .map_err(db_error::SqliteError)?;
+
+        Ok(())
+    }
+
     /// Calculate the "slots" in the peer database where this peer can be inserted.
     /// Slots are distributed uniformly at random between 0 and 2**24.
     /// NUM_SLOTS will be returned.
-    pub fn peer_slots(conn: &DBConn, peer_addr: &PeerAddress, peer_port: u16) -> Result<Vec<u32>, db_error> {
+    pub fn peer_slots(conn: &DBConn, network_id: u32, peer_addr: &PeerAddress, peer_port: u16) -> Result<Vec<u32>, db_error> {
         let local_peer = PeerDB::get_local_peer(conn)?;
         let mut ret = vec![];
         for i in 0..NUM_SLOTS {
@@ -430,6 +502,11 @@ impl PeerDB {
 
             bytes.push((peer_port & 0xff) as u8);
             bytes.push((peer_port >> 8) as u8);
+
+            bytes.push(((network_id & 0xff000000) >> 24) as u8);
+            bytes.push(((network_id & 0x00ff0000) >> 16) as u8);
+            bytes.push(((network_id & 0x0000ff00) >>  8) as u8);
+            bytes.push(((network_id & 0x000000ff)      ) as u8);
 
             let h = Sha256Sum::from_data(&bytes[..]);
             let slot : u32 =
@@ -461,7 +538,7 @@ impl PeerDB {
     }
 
     /// Get a peer record at a particular slot
-    fn get_peer_at(conn: &DBConn, network_id: u32, slot: u32) -> Result<Option<Neighbor>, db_error> {
+    pub fn get_peer_at(conn: &DBConn, network_id: u32, slot: u32) -> Result<Option<Neighbor>, db_error> {
         let row_order = Neighbor::row_order().join(",");
         let qry = format!("SELECT {} FROM frontier WHERE network_id = ?1 AND slot = ?2", row_order);
         let args = [&network_id as &ToSql, &slot as &ToSql];
@@ -499,7 +576,8 @@ impl PeerDB {
     /// Remove a peer from the peer database 
     pub fn drop_peer<'a>(tx: &mut Transaction<'a>, network_id: u32, peer_addr: &PeerAddress, peer_port: u16) -> Result<(), db_error> {
         tx.execute("DELETE FROM frontier WHERE network_id = ?1 AND addrbytes = ?2 AND port = ?3",
-                   &[&network_id as &ToSql, &peer_addr.to_hex() as &ToSql, &peer_port as &ToSql]);
+                   &[&network_id as &ToSql, &peer_addr.to_hex() as &ToSql, &peer_port as &ToSql])
+            .map_err(db_error::SqliteError)?;
 
         Ok(())
     }
@@ -528,18 +606,40 @@ impl PeerDB {
         Ok(())
     }
 
+    /// Update an existing peer's entries.  Does nothing if the peer is not present.
+    pub fn update_peer<'a>(tx: &mut Transaction<'a>, neighbor: &Neighbor) -> Result<(), db_error> {
+        if neighbor.last_contact_time > ((1 as u64) << 63) - 1 {
+            return Err(db_error::Overflow);
+        }
+
+        if neighbor.expire_block > ((1 as u64) << 63) - 1 {
+            return Err(db_error::Overflow);
+        }
+
+        tx.execute("UPDATE frontier SET peer_version = ?1, public_key = ?2, expire_block_height = ?3, last_contact_time = ?4, asn = ?5, org = ?6, whitelisted = ?7, blacklisted = ?8 \
+                    WHERE network_id = ?9 AND addrbytes = ?10 AND port = ?11",
+                   &[&neighbor.addr.peer_version as &ToSql, &to_hex(&neighbor.public_key.to_bytes()), &(neighbor.expire_block as i64) as &ToSql, &(neighbor.last_contact_time as i64) as &ToSql,
+                     &neighbor.asn, &neighbor.org, &neighbor.whitelisted, &neighbor.blacklisted,
+                   &neighbor.addr.network_id as &ToSql, &to_hex(&neighbor.addr.addrbytes.as_bytes().to_vec()) as &ToSql, &neighbor.addr.port])
+            .map_err(db_error::SqliteError)?;
+
+        Ok(())
+    }
+
     /// Try to insert a peer at one of its slots.
-    /// Does not insert the peer if it is already present.
-    /// If at least one slot was empty, then insert the peer and return true
-    /// If all slots are occupied, return false
+    /// Does not insert the peer if it is already present, but will instead try to update it with
+    /// this peer's information.
+    /// If at least one slot was empty, or if the peer is already present and can be updated, then insert/update the peer and return true.
+    /// If all slots are occupied, return false.
     pub fn try_insert_peer<'a>(tx: &mut Transaction<'a>, neighbor: &Neighbor) -> Result<bool, db_error> {
         let present = PeerDB::get_peer(tx, neighbor.addr.network_id, &neighbor.addr.addrbytes, neighbor.addr.port)?;
         if present.is_some() {
             // already here 
+            PeerDB::update_peer(tx, neighbor)?;
             return Ok(false);
         }
 
-        let slots = PeerDB::peer_slots(tx, &neighbor.addr.addrbytes, neighbor.addr.port)?;
+        let slots = PeerDB::peer_slots(tx, neighbor.addr.network_id, &neighbor.addr.addrbytes, neighbor.addr.port)?;
         for slot in &slots {
             let peer_opt = PeerDB::get_peer_at(tx, neighbor.addr.network_id, *slot)?;
             if peer_opt.is_none() {
@@ -553,11 +653,8 @@ impl PeerDB {
         return Ok(false);
     }
 
-    /// Get an randomized initial set of peers.
-    /// -- always include all whitelisted neighbors
-    /// -- never include blacklisted neighbors
-    /// -- for neighbors that are neither whitelisted nor blacklisted, sample them randomly as long as they're fresh.
-    pub fn get_initial_neighbors(conn: &DBConn, network_id: u32, count: u32, block_height: u64) -> Result<Vec<Neighbor>, db_error> {
+    /// Get random neighbors, optionally always including whitelisted neighbors
+    pub fn get_random_neighbors(conn: &DBConn, network_id: u32, count: u32, block_height: u64, always_include_whitelisted: bool) -> Result<Vec<Neighbor>, db_error> {
         if block_height > ((1 as u64) << 63) - 1 {
             return Err(db_error::Overflow);
         }
@@ -570,20 +667,23 @@ impl PeerDB {
             return Err(db_error::Overflow);
         }
 
-        // always include whitelisted neighbors, freshness be damned
         let neighbor_row_order = Neighbor::row_order().join(",");
-        let whitelist_qry = format!("SELECT {} FROM frontier WHERE network_id = ?1 AND blacklisted < ?2 AND (whitelisted < 0 OR ?3 < whitelisted)", neighbor_row_order);
-        let whitelist_args = [&network_id as &ToSql, &(now_secs as i64) as &ToSql, &(now_secs as i64) as &ToSql];
-        let mut whitelist_rows = PeerDB::query_rows::<Neighbor, _>(conn, &whitelist_qry.to_string(), &whitelist_args)?;
 
-        if whitelist_rows.len() >= (count as usize) {
-            // return a random subset 
-            let whitelist_slice = whitelist_rows.as_mut_slice();
-            thread_rng().shuffle(whitelist_slice);
-            return Ok(whitelist_slice[0..(count as usize)].to_vec());
+        if always_include_whitelisted {
+            // always include whitelisted neighbors, freshness be damned
+            let whitelist_qry = format!("SELECT {} FROM frontier WHERE network_id = ?1 AND blacklisted < ?2 AND (whitelisted < 0 OR ?3 < whitelisted)", neighbor_row_order);
+            let whitelist_args = [&network_id as &ToSql, &(now_secs as i64) as &ToSql, &(now_secs as i64) as &ToSql];
+            let mut whitelist_rows = PeerDB::query_rows::<Neighbor, _>(conn, &whitelist_qry.to_string(), &whitelist_args)?;
+
+            if whitelist_rows.len() >= (count as usize) {
+                // return a random subset 
+                let whitelist_slice = whitelist_rows.as_mut_slice();
+                whitelist_slice.shuffle(&mut thread_rng());
+                return Ok(whitelist_slice[0..(count as usize)].to_vec());
+            }
+
+            ret.append(&mut whitelist_rows);
         }
-
-        ret.append(&mut whitelist_rows);
 
         // fill in with non-whitelisted, randomly-chosen, fresh peers 
         let random_peers_qry = format!("SELECT {} FROM frontier WHERE network_id = ?1 AND last_contact_time > 0 AND ?2 < expire_block_height AND blacklisted < ?3 AND \
@@ -595,6 +695,20 @@ impl PeerDB {
         Ok(ret)
     }
 
+    /// Get an randomized initial set of peers.
+    /// -- always include all whitelisted neighbors
+    /// -- never include blacklisted neighbors
+    /// -- for neighbors that are neither whitelisted nor blacklisted, sample them randomly as long as they're fresh.
+    pub fn get_initial_neighbors(conn: &DBConn, network_id: u32, count: u32, block_height: u64) -> Result<Vec<Neighbor>, db_error> {
+        PeerDB::get_random_neighbors(conn, network_id, count, block_height, true)
+    }
+
+    /// Get a randomized set of peers for walking the peer graph.
+    /// -- selects peers at random even if not whitelisted 
+    pub fn get_random_walk_neighbors(conn: &DBConn, network_id: u32, count: u32, block_height: u64) -> Result<Vec<Neighbor>, db_error> {
+        PeerDB::get_random_neighbors(conn, network_id, count, block_height, false)
+    }
+    
     /// Add an IPv4 <--> ASN mapping 
     /// Used during db instantiation
     fn asn4_insert<'a>(tx: &mut Transaction<'a>, asn4: &ASEntry4) -> Result<(), db_error> {
@@ -605,7 +719,7 @@ impl PeerDB {
         Ok(())
     }
 
-    /// Classify an IPv4 address to it AS number.
+    /// Classify an IPv4 address to its AS number.
     /// This method doesn't have to be particularly efficient since it's off the critical path.
     pub fn asn4_lookup(conn: &DBConn, addrbits: &PeerAddress) -> Result<Option<u32>, db_error> {
         // must be an IPv4 address 
@@ -624,6 +738,17 @@ impl PeerDB {
             _ => Ok(Some(rows[0].asn))
         }
     }
+
+    /// Classify an IP address to its AS number
+    pub fn asn_lookup(conn: &DBConn, addrbits: &PeerAddress) -> Result<Option<u32>, db_error> {
+        if addrbits.is_ipv4() {
+            PeerDB::asn4_lookup(conn, addrbits)
+        }
+        else {
+            // TODO
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -638,7 +763,7 @@ mod test {
         let neighbor = Neighbor {
             addr: NeighborKey {
                 peer_version: 0x12345678,
-                network_id: 0x9abcdef01,
+                network_id: 0x9abcdef0,
                 addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
                 port: 12345,
             },
@@ -649,13 +774,13 @@ mod test {
             blacklisted: -1,
             asn: 34567,
             org: 45678,
-            in_degree: 0,
-            out_degree: 0
+            in_degree: 1,
+            out_degree: 1
         };
         
-        let mut db = PeerDB::connect_memory(&vec![], &vec![]).unwrap();
+        let mut db = PeerDB::connect_memory(12345, &vec![], &vec![]).unwrap();
         
-        let neighbor_before_opt = PeerDB::get_peer(db.conn(), 0x9abcdef01, &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]), 12345).unwrap();
+        let neighbor_before_opt = PeerDB::get_peer(db.conn(), 0x9abcdef0, &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]), 12345).unwrap();
         assert_eq!(neighbor_before_opt, None);
 
         {
@@ -664,16 +789,16 @@ mod test {
             tx.commit().unwrap();
         }
 
-        let neighbor_opt = PeerDB::get_peer(db.conn(), 0x9abcdef01, &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]), 12345).unwrap();
+        let neighbor_opt = PeerDB::get_peer(db.conn(), 0x9abcdef0, &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]), 12345).unwrap();
         assert_eq!(neighbor_opt, Some(neighbor.clone()));
 
-        let neighbor_at_opt = PeerDB::get_peer_at(db.conn(), 0x9abcdef01, 0).unwrap();
+        let neighbor_at_opt = PeerDB::get_peer_at(db.conn(), 0x9abcdef0, 0).unwrap();
         assert_eq!(neighbor_at_opt, Some(neighbor.clone()));
 
-        let neighbor_not_at_opt = PeerDB::get_peer_at(db.conn(), 0x9abcdef01, 1).unwrap();
+        let neighbor_not_at_opt = PeerDB::get_peer_at(db.conn(), 0x9abcdef0, 1).unwrap();
         assert_eq!(neighbor_not_at_opt, None);
         
-        let neighbor_not_at_opt_network = PeerDB::get_peer_at(db.conn(), 0x9abcdef02, 0).unwrap();
+        let neighbor_not_at_opt_network = PeerDB::get_peer_at(db.conn(), 0x9abcdef1, 0).unwrap();
         assert_eq!(neighbor_not_at_opt_network, None);
 
         {
@@ -688,7 +813,7 @@ mod test {
         let neighbor = Neighbor {
             addr: NeighborKey {
                 peer_version: 0x12345678,
-                network_id: 0x9abcdef01,
+                network_id: 0x9abcdef0,
                 addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
                 port: 12345,
             },
@@ -699,11 +824,11 @@ mod test {
             blacklisted: -1,
             asn: 34567,
             org: 45678,
-            in_degree: 0,
-            out_degree: 0
+            in_degree: 1,
+            out_degree: 1
         };
 
-        let mut db = PeerDB::connect_memory(&vec![], &vec![]).unwrap();
+        let mut db = PeerDB::connect_memory(12345, &vec![], &vec![]).unwrap();
         
         {
             let mut tx = db.tx_begin().unwrap();
@@ -713,7 +838,7 @@ mod test {
             assert_eq!(res, true);
         }
         
-        let neighbor_opt = PeerDB::get_peer(db.conn(), 0x9abcdef01, &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]), 12345).unwrap();
+        let neighbor_opt = PeerDB::get_peer(db.conn(), 0x9abcdef0, &PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]), 12345).unwrap();
         assert_eq!(neighbor_opt, Some(neighbor.clone()));
 
         {
@@ -733,19 +858,19 @@ mod test {
             initial_neighbors.push(Neighbor {
                 addr: NeighborKey {
                     peer_version: 0x12345678,
-                    network_id: 0x9abcdef01,
+                    network_id: 0x9abcdef0,
                     addrbytes: PeerAddress([i as u8; 16]),
                     port: i,
                 },
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
-                last_contact_time: (1552509642 + i) as u64,
+                last_contact_time: (1552509642 + (i as u64)) as u64,
                 whitelisted: (now_secs + 600) as i64,
                 blacklisted: -1,
                 asn: (34567 + i) as u32,
                 org: (45678 + i) as u32,
-                in_degree: 0,
-                out_degree: 0
+                in_degree: 1,
+                out_degree: 1
             });
         }
 
@@ -753,19 +878,19 @@ mod test {
             initial_neighbors.push(Neighbor {
                 addr: NeighborKey {
                     peer_version: 0x12345678,
-                    network_id: 0x9abcdef01,
+                    network_id: 0x9abcdef0,
                     addrbytes: PeerAddress([i as u8; 16]),
                     port: i,
                 },
                 public_key: Secp256k1PublicKey::from_private(&Secp256k1PrivateKey::new()),
                 expire_block: (i + 23456) as u64,
-                last_contact_time: (1552509642 + i) as u64,
+                last_contact_time: (1552509642 + (i as u64)) as u64,
                 whitelisted: 0,
                 blacklisted: -1,
                 asn: (34567 + i) as u32,
                 org: (45678 + i) as u32,
-                in_degree: 0,
-                out_degree: 0
+                in_degree: 1,
+                out_degree: 1
             });
         }
 
@@ -785,18 +910,18 @@ mod test {
             return true;
         }
         
-        let db = PeerDB::connect_memory(&vec![], &initial_neighbors).unwrap();
+        let db = PeerDB::connect_memory(12345, &vec![], &initial_neighbors).unwrap();
 
-        let n5 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef01, 5, 23455).unwrap();
+        let n5 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 5, 23455).unwrap();
         assert!(are_present(&n5, &initial_neighbors));
 
-        let n10 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef01, 10, 23455).unwrap();
+        let n10 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 10, 23455).unwrap();
         assert!(are_present(&n10, &initial_neighbors));
 
-        let n20 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef01, 20, 23455).unwrap();
+        let n20 = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 20, 23455).unwrap();
         assert!(are_present(&initial_neighbors, &n20));
 
-        let n15_fresh = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef01, 15, 23456 + 14).unwrap();
+        let n15_fresh = PeerDB::get_initial_neighbors(db.conn(), 0x9abcdef0, 15, 23456 + 14).unwrap();
         assert!(are_present(&n15_fresh[10..15].to_vec(), &initial_neighbors[10..20].to_vec()));
         for n in &n15_fresh[10..15] {
             assert!(n.expire_block > 23456 + 14);
@@ -833,7 +958,7 @@ mod test {
             },
         ];
 
-        let db = PeerDB::connect_memory(&asn4_table, &vec![]).unwrap();
+        let db = PeerDB::connect_memory(12345, &asn4_table, &vec![]).unwrap();
     
         let asn1_addr = PeerAddress([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,0x01,0x02,0x02,0x04]);
         let asn2_addr = PeerAddress([0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xff,0xff,0x01,0x02,0x03,0x10]);
