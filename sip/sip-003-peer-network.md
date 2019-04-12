@@ -415,13 +415,13 @@ Structure:
 
 ```
 pub struct HandshakeAcceptData {
+    /// The remote peer's handshake data
+    pub handshake: HandshakeData,
+
     /// Maximum number of seconds the recipient peer expects this peer
     /// to wait between sending messages before the recipient will declare
     /// this peer as dead.
     pub heartbeat_interval: u32,
-
-    /// The recipient peer's public key.
-    pub node_public_key: Secp256k1PublicKey,
 }
 ```
 
