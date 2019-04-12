@@ -17,6 +17,14 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#![allow(unused_imports)]
+#![allow(unused_assignments)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(non_upper_case_globals)]
+
 extern crate rand;
 extern crate ini;
 extern crate secp256k1;
