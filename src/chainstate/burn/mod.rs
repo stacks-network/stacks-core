@@ -322,7 +322,7 @@ mod tests {
                 BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
             }
             
-            tx.commit();
+            tx.commit().unwrap();
         }
         
         let prev_chs_0 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 0, 0).unwrap();
