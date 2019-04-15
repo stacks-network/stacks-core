@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{AtomTypeIdentifier, TypeSignature, Value, TupleTypeSignature, parse_name_type_pairs};
-use vm::errors::{ErrType as InterpError};
+use vm::representations::{SymbolicExpression};
+use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature};
 
-use super::{TypeResult, TypeMap, TypingContext, 
+use super::{TypeResult, TypingContext, 
             CheckError, CheckResult, CheckErrors, no_type};
 
 use super::TypeChecker;
@@ -12,7 +9,7 @@ use super::TypeChecker;
 
 impl <'a> TypeChecker <'a> {
     pub fn type_check_define_map(&mut self, map_expression: &[SymbolicExpression],
-                                 context: &TypingContext) -> CheckResult<(String, (TypeSignature, TypeSignature))> {
+                                 _context: &TypingContext) -> CheckResult<(String, (TypeSignature, TypeSignature))> {
         if map_expression.len() != 4 {
             return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, map_expression.len() - 2)))
         }

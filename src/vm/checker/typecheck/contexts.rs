@@ -1,8 +1,6 @@
 use std::collections::{HashMap, BTreeMap};
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{AtomTypeIdentifier, TypeSignature, Value, TupleTypeSignature, parse_name_type_pairs};
-use vm::errors::{ErrType as InterpError};
+use vm::representations::{SymbolicExpression};
+use vm::types::{TypeSignature};
 
 use vm::contexts::MAX_CONTEXT_DEPTH;
 

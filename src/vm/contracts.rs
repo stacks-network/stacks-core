@@ -1,15 +1,17 @@
-use vm::{Value, apply, eval_all, eval};
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::{Value, apply, eval_all};
+use vm::representations::{SymbolicExpression};
 use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
 use vm::callables::CallableType;
-use vm::contexts::{Environment, LocalContext, ContractContext, GlobalContext, CallStack};
+use vm::contexts::{Environment, LocalContext, ContractContext, GlobalContext};
 use vm::parser;
 
 #[derive(Serialize, Deserialize)]
 pub struct Contract {
-    contract_context: ContractContext,
+    pub contract_context: ContractContext,
 }
 
+// AARON: this is an increasingly useless wrapper around a ContractContext struct.
+//          will probably be removed soon.
 impl Contract {
     pub fn initialize <'b> (name: &str, contract: &str, global_context: &mut GlobalContext<'b>) -> Result<Contract> {
         let parsed: Vec<_> = parser::parse(contract)?;
@@ -24,45 +26,21 @@ impl Contract {
         Ok(Contract { contract_context: contract_context })
     }
 
-    pub fn eval<'b> (&mut self, program: &str, global_context: &mut GlobalContext<'b>) -> Result<Value> {
-        let parsed = parser::parse(program)?;
-        if parsed.len() < 1 {
-            return Err(Error::new(ErrType::ParseError("Expected a program of atleast length 1".to_string())))
-        }
-        let mut call_stack = CallStack::new();
-        let mut env = Environment::new(global_context, &self.contract_context, &mut call_stack);
-        let local_context = LocalContext::new();
-        eval(&parsed[0], &mut env, &local_context)
-    }
-
-    pub fn execute_transaction<'b> (&mut self, sender: &Value, tx_name: &str,
-                               args: &[SymbolicExpression], global_context: &mut GlobalContext<'b>) -> Result<Value> {
+    pub fn execute_transaction<'b> (&self, tx_name: &str, args: &[SymbolicExpression], env: &mut Environment) -> Result<Value> {
         let func = self.contract_context.lookup_function(tx_name)
             .ok_or_else(|| { Error::new(ErrType::UndefinedFunction(tx_name.to_string())) })?;
         if !func.is_public() {
             return Err(Error::new(ErrType::NonPublicFunction(tx_name.to_string())));
         }
-
-        if let Value::Principal(_, _) = sender {
-            let mut call_stack = CallStack::new();
-            let mut env = Environment::new(global_context, &self.contract_context, &mut call_stack);
-
-            for arg in args {
-                match arg.expr {
-                    SymbolicExpressionType::AtomValue(ref _v) => {},
-                    _ => return Err(Error::new(ErrType::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
-                                                                    tx_name))))
-                }
-            }
-
-            let mut local_context = LocalContext::new();
-
-            env.sender = Some(sender.clone());
-
-            apply(&CallableType::UserFunction(func), args, &mut env, &local_context)
-        } else {
-            Err(Error::new(ErrType::BadSender(sender.clone())))
+        for arg in args {
+            arg.match_atom_value()
+                .ok_or_else(|| Error::new(ErrType::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
+                                                                            tx_name))))?;
         }
+
+        let local_context = LocalContext::new();
+        apply(&CallableType::UserFunction(func), args, env, &local_context)
+        
     }
 
     pub fn deserialize(json: &str) -> Result<Contract> {

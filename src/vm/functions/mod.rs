@@ -9,7 +9,7 @@ use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::Value;
 use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
-use vm::representations::SymbolicExpressionType::{List, Atom, AtomValue};
+use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 
 

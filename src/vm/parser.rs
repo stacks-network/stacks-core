@@ -237,12 +237,9 @@ pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>> {
 
 
 mod test {
+    use vm::{SymbolicExpression, Value, parser};
     #[test]
     fn test_parse_let_expression() {
-        use vm::representations::SymbolicExpression;
-        use vm::errors::Error;
-        use vm::types::Value;
-        use vm::parser;
 
         let input = "z (let ((x 1) (y 2))
                       (+ x ;; \"comments section?\"
@@ -285,10 +282,7 @@ mod test {
 
     #[test]
     fn test_parse_failures() {
-        use vm::representations::SymbolicExpression;
         use vm::errors::ErrType;
-        use vm::types::Value;
-        use vm::parser;
 
         let too_much_closure = "(let ((x 1) (y 2))))";
         let not_enough_closure = "(let ((x 1) (y 2))";

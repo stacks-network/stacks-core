@@ -2,6 +2,7 @@ use vm::{eval, execute};
 use vm::database::ContractDatabaseConnection;
 use vm::errors::{ErrType};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
+use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
 use vm::types::{TypeSignature, AtomTypeIdentifier};
 use vm::parser::parse;
@@ -25,15 +26,10 @@ fn test_simple_let() {
 
     if let Ok(parsed_program) = parse(&program) {
         let context = LocalContext::new();
-        let contract_context = ContractContext::new("transient".to_string());
-
         let mut conn = ContractDatabaseConnection::memory().unwrap();
-        let mut global_context = GlobalContext::begin_from(&mut conn);
-        let mut call_stack = CallStack::new();
+        let mut env = OwnedEnvironment::new(&mut conn);
 
-        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack);
-
-        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env, &context));        
+        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env.get_exec_environment(None), &context));        
     } else {
         assert!(false, "Failed to parse program.");
     }
@@ -107,7 +103,7 @@ fn test_simple_if_functions() {
         contract_context.functions.insert("without_else".to_string(), user_function2);
 
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack);
+        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None);
 
         if let Ok(tests) = evals {
             assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));

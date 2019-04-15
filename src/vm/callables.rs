@@ -66,12 +66,12 @@ impl Function {
 }
 
 impl DefinedFunction {
-    pub fn new_public(mut arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
+    pub fn new_public(arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
                       name: &str, context_name: &str) -> DefinedFunction {
         DefinedFunction::Public(Function::new(arguments, body, name, context_name))
     }
 
-    pub fn new_private(mut arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
+    pub fn new_private(arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
                        name: &str, context_name: &str) -> DefinedFunction {
         DefinedFunction::Private(Function::new(arguments, body, name, context_name))
     }

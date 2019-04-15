@@ -173,7 +173,7 @@ fn lists_system_2() {
                     (get-list 1))
         (insert-entry! lists (tuple (name 1)) (tuple (contentious (list 1 2 6))))";
 
-    let expected_type_error = match execute(test) {
+    match execute(test) {
         Err(Error{
             err_type: ErrType::TypeError(_,_),
             stack_trace: _ }) => true,
@@ -191,14 +191,10 @@ fn lists_system() {
                                 (tuple (contents content))))
          (define (get-list (name int))
             (get contents (fetch-entry lists (tuple (name name)))))
-         (print 10)
          (print (add-list 0 (list 1 2 3 4 5)))
-         (print 20)
          (print (add-list 1 (list 1 2 3)))
-         (print 30)
          (list      (get-list 0)
                     (get-list 1))
-         (print 40)
         ";
 
     let mut test_list_too_big = test1.to_string();
@@ -230,7 +226,7 @@ fn lists_system() {
         Value::list_from(vec![list1, list2])
     };
     
-//    assert_eq!(expected(), execute(test1));
+    assert_eq!(expected(), execute(test1));
 
     for test in [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2,
                  test_bad_tuple_3, test_bad_tuple_4].iter() {

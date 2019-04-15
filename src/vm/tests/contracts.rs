@@ -1,10 +1,9 @@
 use vm::execute;
 use vm::errors::{Error, ErrType};
 use vm::types::{Value};
-use vm::contexts::{GlobalContext};
+use vm::contexts::{OwnedEnvironment};
 use vm::database::{ContractDatabaseConnection};
 use vm::representations::SymbolicExpression;
-use vm::contracts::Contract;
 
 fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
     vec.drain(..).map(|value| SymbolicExpression::atom_value(value)).collect()
@@ -44,33 +43,37 @@ fn test_simple_token_system() {
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
 
     let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut global_context = GlobalContext::begin_from(&mut conn);
+    let mut owned_env = OwnedEnvironment::new(&mut conn);
 
-    global_context.initialize_contract("tokens", tokens_contract).unwrap();
+    let mut env = owned_env.get_exec_environment(None);
 
+    env.initialize_contract("tokens", tokens_contract).unwrap();
+
+    env.sender = Some(p2.clone());
     assert_eq!(
-        global_context.execute_contract("tokens", &p2, "token-transfer",
-                                        &symbols_from_values(vec![p1.clone(), Value::Int(110)])).unwrap(),
+        env.execute_contract("tokens", "token-transfer",
+                             &symbols_from_values(vec![p1.clone(), Value::Int(110)])).unwrap(),
         Value::Bool(false));
+    env.sender = Some(p1.clone());
     assert_eq!(
-        global_context.execute_contract("tokens", &p1, "token-transfer",
-                                        &symbols_from_values(vec![p2.clone(), Value::Int(9000)])).unwrap(),
+        env.execute_contract("tokens", "token-transfer",
+                             &symbols_from_values(vec![p2.clone(), Value::Int(9000)])).unwrap(),
         Value::Bool(true));
     assert_eq!(
-        global_context.execute_contract("tokens", &p1, "token-transfer",
-                                        &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap(),
+        env.execute_contract("tokens", "token-transfer",
+                             &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap(),
         Value::Bool(false));
     assert_eq!( // send to self!
-        global_context.execute_contract("tokens", &p1, "token-transfer",
-                                        &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap(),
+        env.execute_contract("tokens", "token-transfer",
+                             &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap(),
         Value::Bool(true));
     assert_eq!(
-        global_context.read_only_eval("tokens",
-                                      "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+        env.eval_read_only("tokens",
+                           "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
         Value::Int(1000));
     assert_eq!(
-        global_context.read_only_eval("tokens",
-                                      "(get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
+        env.eval_read_only("tokens",
+                           "(get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
         Value::Int(9100));
 }
 
@@ -161,54 +164,63 @@ fn test_simple_naming_system() {
     let name_hash_cheap_0 = execute("(hash160 100001)").unwrap();
 
     let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut global_context = GlobalContext::begin_from(&mut conn);
+    let mut owned_env = OwnedEnvironment::new(&mut conn);
 
-    global_context.initialize_contract("tokens", tokens_contract).unwrap();
-    global_context.initialize_contract("names", names_contract).unwrap();
+    let mut env = owned_env.get_exec_environment(None);
+
+    env.initialize_contract("tokens", tokens_contract).unwrap();
+    env.initialize_contract("names", names_contract).unwrap();
+
+    env.sender = Some(p2.clone());
 
     assert_eq!(
-        global_context.execute_contract("names", &p2, "preorder",
-                                        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
+        env.execute_contract("names", "preorder",
+                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
         Value::Bool(false));
+
+    env.sender = Some(p1.clone());
     assert_eq!(
-        global_context.execute_contract("names", &p1, "preorder",
-                                        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
+        env.execute_contract("names", "preorder",
+                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
         Value::Bool(true));
     assert_eq!(
-        global_context.execute_contract("names", &p1, "preorder",
-                                        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
+        env.execute_contract("names", "preorder",
+                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
         Value::Bool(false));
 
     // shouldn't be able to register a name you didn't preorder!
+    env.sender = Some(p2.clone());
     assert_eq!(
-        global_context.execute_contract("names", &p2, "register",
-                                        &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(),
+        env.execute_contract("names", "register",
+                             &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(),
         Value::Bool(false));
     // should work!
+    env.sender = Some(p1.clone());
     assert_eq!(
-        global_context.execute_contract("names", &p1, "register",
-                                        &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(),
+        env.execute_contract("names", "register",
+                             &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(),
         Value::Bool(true));
 
 
     // try to underpay!
+    env.sender = Some(p2.clone());
     assert_eq!(
-        global_context.execute_contract("names", &p2, "preorder",
-                                        &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap(),
+        env.execute_contract("names", "preorder",
+                             &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap(),
         Value::Bool(true));
     assert_eq!(
-        global_context.execute_contract("names", &p2, "register",
-                                        &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap(),
+        env.execute_contract("names", "register",
+                             &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap(),
         Value::Bool(false));
 
     // register a cheap name!
     assert_eq!(
-        global_context.execute_contract("names", &p2, "preorder",
-                                        &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::Int(100)])).unwrap(),
+        env.execute_contract("names", "preorder",
+                             &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::Int(100)])).unwrap(),
         Value::Bool(true));
     assert_eq!(
-        global_context.execute_contract("names", &p2, "register",
-                                        &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap(),
+        env.execute_contract("names", "register",
+                             &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap(),
         Value::Bool(true));
 }
 
@@ -242,13 +254,15 @@ fn test_simple_contract_call() {
         ";
 
     let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut global_context = GlobalContext::begin_from(&mut conn);
+    let mut owned_env = OwnedEnvironment::new(&mut conn);
 
-    global_context.initialize_contract("factorial-contract", contract_1).unwrap();
-    global_context.initialize_contract("proxy-compute", contract_2).unwrap();
+    let mut env = owned_env.get_exec_environment(None);
+
+    env.initialize_contract("factorial-contract", contract_1).unwrap();
+    env.initialize_contract("proxy-compute", contract_2).unwrap();
 
     let args = symbols_from_values(vec![]);
-    let sender = Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]);
+    env.sender = Some(Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]));
 
     let expected = [Value::Int(5),
                     Value::Int(20),
@@ -257,10 +271,10 @@ fn test_simple_contract_call() {
                     Value::Int(120),
                     Value::Int(120)];
     for expected_result in &expected {
-        global_context.execute_contract("proxy-compute", &sender, "proxy-compute", &args).unwrap();
+        env.execute_contract("proxy-compute", "proxy-compute", &args).unwrap();
         assert_eq!(
-            global_context.read_only_eval("factorial-contract",
-                                          "(get current (fetch-entry factorials (tuple (id 8008))))").unwrap(),
+            env.eval_read_only("factorial-contract",
+                               "(get current (fetch-entry factorials (tuple (id 8008))))").unwrap(),
             *expected_result);
     }
 }
@@ -299,50 +313,51 @@ fn test_aborts() {
 ";
 
     let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut global_context = GlobalContext::begin_from(&mut conn);
+    let mut owned_env = OwnedEnvironment::new(&mut conn);
 
-    global_context.initialize_contract("contract-1", contract_1).unwrap();
-    global_context.initialize_contract("contract-2", contract_2).unwrap();
+    let mut env = owned_env.get_exec_environment(None);
 
-    let args = symbols_from_values(vec![]);
-    let sender = Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]);
+    env.initialize_contract("contract-1", contract_1).unwrap();
+    env.initialize_contract("contract-2", contract_2).unwrap();
+
+    env.sender = Some(Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]));
 
 
     assert_eq!(
-        global_context.execute_contract("contract-1", &sender, "modify-data",
-                                        &symbols_from_values(vec![Value::Int(10), Value::Int(10)])).unwrap(),
+        env.execute_contract("contract-1", "modify-data",
+                             &symbols_from_values(vec![Value::Int(10), Value::Int(10)])).unwrap(),
         Value::Bool(true));
 
     assert_eq!(
-        global_context.execute_contract("contract-1", &sender, "modify-data",
-                                        &symbols_from_values(vec![Value::Int(20), Value::Int(10)])).unwrap(),
+        env.execute_contract("contract-1", "modify-data",
+                             &symbols_from_values(vec![Value::Int(20), Value::Int(10)])).unwrap(),
         Value::Bool(false));
-
+    
     assert_eq!(
-        global_context.read_only_eval("contract-1", "(get-data 20)").unwrap(),
+        env.eval_read_only("contract-1", "(get-data 20)").unwrap(),
         Value::Void);
 
     assert_eq!(
-        global_context.read_only_eval("contract-1", "(get-data 10)").unwrap(),
+        env.eval_read_only("contract-1", "(get-data 10)").unwrap(),
         Value::Int(10));
 
     assert_eq!(
-        global_context.execute_contract("contract-2", &sender, "fail-in-other",
-                                        &symbols_from_values(vec![])).unwrap(),
+        env.execute_contract("contract-2", "fail-in-other",
+                             &symbols_from_values(vec![])).unwrap(),
         Value::Bool(true));
 
     assert_eq!(
-        global_context.execute_contract("contract-2", &sender, "fail-in-self",
-                                        &symbols_from_values(vec![])).unwrap(),
+        env.execute_contract("contract-2", "fail-in-self",
+                             &symbols_from_values(vec![])).unwrap(),
         Value::Bool(false));
 
     assert_eq!(
-        global_context.read_only_eval("contract-1", "(get-data 105)").unwrap(),
+        env.eval_read_only("contract-1", "(get-data 105)").unwrap(),
         Value::Void);
 
 
     assert_eq!(
-        global_context.read_only_eval("contract-1", "(get-data 100)").unwrap(),
+        env.eval_read_only("contract-1", "(get-data 100)").unwrap(),
         Value::Void);
 
     
@@ -374,9 +389,11 @@ fn test_factorial_contract() {
 
 
     let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut global_context = GlobalContext::begin_from(&mut conn);
+    let mut owned_env = OwnedEnvironment::new(&mut conn);
 
-    let mut contract = Contract::initialize("factorial", contract_defn, &mut global_context).unwrap();
+    let mut env = owned_env.get_exec_environment(None);
+
+    env.initialize_contract("factorial", contract_defn).unwrap();
 
     let tx_name = "compute";
     let arguments_to_test = [symbols_from_values(vec![Value::Int(1337)]),  
@@ -406,23 +423,20 @@ fn test_factorial_contract() {
         Value::Int(120),
     ];
         
-    let sender = Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]);
+    env.sender = Some(Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]));
 
     for (arguments, expectation) in arguments_to_test.iter().zip(expected.iter()) {
-        contract.execute_transaction(
-            &sender,
-            &tx_name,
-            arguments,
-            &mut global_context).unwrap();
-        assert_eq!(Ok(expectation.clone()),
-                   contract.eval(&format!("(get current (fetch-entry factorials (tuple (id {}))))", arguments[0]),
-                                 &mut global_context))
+        env.execute_contract("factorial", &tx_name, arguments).unwrap();
+
+        assert_eq!(*expectation,
+                   env.eval_read_only("factorial",
+                                      &format!("(get current (fetch-entry factorials (tuple (id {}))))", arguments[0]))
+                   .unwrap());
     }
 
-    let err_result = contract.execute_transaction(&sender, &"init-factorial",
-                                                  &symbols_from_values(vec![Value::Int(9000),
-                                                                            Value::Int(15)]),
-                                                  &mut global_context);
+    let err_result = env.execute_contract("factorial", "init-factorial",
+                                          &symbols_from_values(vec![Value::Int(9000),
+                                                                    Value::Int(15)]));
     match err_result {
         Err(Error{
             err_type: ErrType::NonPublicFunction(_),
@@ -433,22 +447,8 @@ fn test_factorial_contract() {
         }
     }
 
-    let err_result = contract.execute_transaction(&Value::Void, &"compute",
-                                                  &symbols_from_values(vec![Value::Int(1337)]),
-                                                  &mut global_context);
-    match err_result {
-        Err(Error{
-            err_type: ErrType::BadSender(_),
-            stack_trace: _ }) => {},
-        _ => {
-            println!("{:?}", err_result);
-            assert!(false, "Attempt to call with bad sender should fail!")
-        }
-    }
-
-    let err_result = contract.execute_transaction(&sender, &"compute",
-                                                  &symbols_from_values(vec![Value::Void]),
-                                                  &mut global_context);
+    let err_result = env.execute_contract("factorial", "compute",
+                                          &symbols_from_values(vec![Value::Void]));
     match err_result {
         Err(Error{
             err_type: ErrType::TypeError(_, _),

@@ -1,4 +1,4 @@
-use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
+use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row};
 use rusqlite::types::ToSql;
 
 

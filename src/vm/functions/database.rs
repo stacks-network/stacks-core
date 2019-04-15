@@ -27,13 +27,14 @@ pub fn special_contract_call(args: &[SymbolicExpression],
     let mut rest_args = rest_args?;
     let rest_args: Vec<_> = rest_args.drain(..).map(|x| { SymbolicExpression::atom_value(x) }).collect();
 
-    let sender = env.sender.as_ref()
-        .ok_or(Error::new(ErrType::InvalidArguments(
+    if env.sender.is_none() {
+        return Err(Error::new(ErrType::InvalidArguments(
             "No sender in current context. Did you attempt to (contract-call ...) from a non-contract aware environment?"
-                .to_string())))?;
+                .to_string())));
+    }
 
-    env.global_context.execute_contract(
-        contract_name, sender, function_name, &rest_args)
+    env.execute_contract(
+        contract_name, function_name, &rest_args)
         .map_err(|mut x| {
             if x.has_stack_trace() {
                 x.extend_with(env.call_stack.make_stack_trace())

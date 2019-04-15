@@ -173,7 +173,7 @@ impl <'a> TypeChecker <'a> {
         Ok(result)
     }
 
-    fn type_check_function_type(&mut self, func_name: &str, func_type: &FunctionType,
+    fn type_check_function_type(&mut self, _func_name: &str, func_type: &FunctionType,
                                 args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
         let typed_args = self.type_check_all(args, context)?;
         func_type.check_args(&typed_args)?;

@@ -1,6 +1,6 @@
 use vm::parser::parse;
 use vm::checker::errors::CheckErrors;
-use vm::checker::{AnalysisDatabase,identity_pass};
+use vm::checker::{AnalysisDatabase};
 
 #[test]
 fn test_names_tokens_contracts() {

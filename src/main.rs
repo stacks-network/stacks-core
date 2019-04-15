@@ -99,174 +99,176 @@ fn main() {
         return
     }
 
-    match argv[1].as_ref() {
-        "init_db" => {
-            if argv.len() < 3 {
-                eprintln!("Usage: {} init_db [vm-state.sqlite.db]", argv[0]);
-                process::exit(1);
-            }
-            match vm::database::ContractDatabaseConnection::initialize(&argv[2]) {
-                Ok(_) => println!("Database created."),
-                Err(error) => eprintln!("Initialization error: \n {}", error)
-            }
-            return
-        },
-        "check" => {
-            use vm::checker::{type_check, AnalysisDatabase};
-            use vm::parser::parse;
+    {
+        // VM CLI invocations.
 
-            if argv.len() < 3 {
-                eprintln!("Usage: {} check [program-file.scm] (analysis_db.sqlite)", argv[0]);
-                process::exit(1);
-            }
+        use vm::contexts::OwnedEnvironment;
+        use vm::database::{ContractDatabaseConnection};
+        use vm::{SymbolicExpression, SymbolicExpressionType};
+        use vm::types::Value;
 
-            let content: String = fs::read_to_string(&argv[2])
-                .expect(&format!("Error reading file: {}", argv[2]));
-
-            let mut db = {
-                if argv.len() >= 4 {
-                    AnalysisDatabase::open(&argv[3])
-                } else {
-                    AnalysisDatabase::memory()
-                }
-            };
-
-            let mut ast = parse(&content).expect("Failed to parse program.");
-
-            type_check(&"transient", &mut ast, &mut db).expect("Type check error.");
-
-            return
-        },
-        "eval" => {
-            use vm::contexts::GlobalContext;
-            use vm::{SymbolicExpression, SymbolicExpressionType};
-            use vm::types::Value;
-            use vm::database::{ContractDatabaseConnection};
-
-            if argv.len() < 4 {
-                eprintln!("Usage: {} eval [vm-state.sqlite.db] [contract-name] [program.scm]", argv[0]);
-                process::exit(1);
-            }
-            let vm_filename = &argv[2];
-
-            let mut db = match ContractDatabaseConnection::open(vm_filename) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n {}", error);
+        match argv[1].as_ref() {
+            "init_db" => {
+                if argv.len() < 3 {
+                    eprintln!("Usage: {} init_db [vm-state.sqlite.db]", argv[0]);
                     process::exit(1);
                 }
-            };
-            let content: String = fs::read_to_string(&argv[3])
-                .expect(&format!("Error reading file: {}", argv[3]));
+                match ContractDatabaseConnection::initialize(&argv[2]) {
+                    Ok(_) => println!("Database created."),
+                    Err(error) => eprintln!("Initialization error: \n {}", error)
+                }
+                return
+            },
+            "check" => {
+                use vm::checker::{type_check, AnalysisDatabase};
+                use vm::parser::parse;
 
-            let mut global_context = GlobalContext::begin_from(&mut db);
-            let contract_name = &argv[2];
-
-            let result = global_context.read_only_eval(contract_name, &content);
-
-            match result {
-                Ok(x) => {
-                    global_context.commit();
-                    println!("Program executed successfully! Output: \n {}", x);
-                },
-                Err(error) => println!("Transaction execution error: \n {}", error)
-            }
-            return
-        }
-        "init_contract" => {
-            use vm::contexts::GlobalContext;
-            use vm::database::{ContractDatabaseConnection};
-
-            if argv.len() < 5 {
-                eprintln!("Usage: {} init_contract [vm-state.sqlite.db] [contract-name] [program-file.scm]", argv[0]);
-                process::exit(1);
-            }
-            let vm_filename = &argv[2];
-
-            let mut db = match ContractDatabaseConnection::open(vm_filename) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n {}", error);
+                if argv.len() < 3 {
+                    eprintln!("Usage: {} check [program-file.scm] (analysis_db.sqlite)", argv[0]);
                     process::exit(1);
                 }
-            };
 
-            let mut global_context = GlobalContext::begin_from(&mut db);
-            let contract_name = &argv[3];
-            let contract_content: String = fs::read_to_string(&argv[4])
-                .expect(&format!("Error reading file: {}", argv[4]));
-
-            let result = global_context.initialize_contract(&contract_name, &contract_content);
-            match result {
-                Ok(_) => {
-                    global_context.commit();
-                    println!("Contract initialized!");
-                },
-                Err(error) => println!("Contract initialization error: \n {}", error)
-            }
-            return
-        },
-        "exec_tx" => {
-            use vm::contexts::GlobalContext;
-            use vm::{SymbolicExpression, SymbolicExpressionType};
-            use vm::types::Value;
-            use vm::database::{ContractDatabaseConnection};
-
-            if argv.len() < 5 {
-                eprintln!("Usage: {} exec_tx [vm-state.sqlite.db] [contract-name] [transaction-name] [sender-address] [args...]", argv[0]);
-                process::exit(1);
-            }
-            let vm_filename = &argv[2];
-
-            let mut db = match ContractDatabaseConnection::open(vm_filename) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n {}", error);
-                    process::exit(1);
-                }
-            };
-
-            let mut global_context = GlobalContext::begin_from(&mut db);
-            let contract_name = &argv[3];
-            let tx_name = &argv[4];
-
-            let mut sender = vm::parser::parse(&format!("'{}", argv[5]))
-                .expect(&format!("Error parsing sender {}", argv[5]));
-            let sender = {
-                if let Some(SymbolicExpression{ expr: SymbolicExpressionType::AtomValue(Value::Principal(version, principal)),
-                                                id: _ }) = sender.pop() {
-                    Value::Principal(version, principal)
-                } else {
-                    eprintln!("Unexpected result parsing sender: {}", argv[5]);
-                    process::exit(1);
-                }
-            };
-            let arguments: Vec<_> = argv[6..]
-                .iter()
-                .map(|argument| {
-                    let mut argument_parsed = vm::parser::parse(argument)
-                        .expect(&format!("Error parsing argument \"{}\"", argument));
-                    if let Some(SymbolicExpression{ expr: SymbolicExpressionType::AtomValue(x),
-                                                    id: _ }) = argument_parsed.pop() {
-                        SymbolicExpression::atom_value(x.clone())
+                let content: String = fs::read_to_string(&argv[2])
+                    .expect(&format!("Error reading file: {}", argv[2]));
+                
+                let mut db = {
+                    if argv.len() >= 4 {
+                        AnalysisDatabase::open(&argv[3])
                     } else {
-                        eprintln!("Unexpected result parsing argument: {}", argument);
+                        AnalysisDatabase::memory()
+                    }
+                };
+
+                let mut ast = parse(&content).expect("Failed to parse program.");
+
+                type_check(&"transient", &mut ast, &mut db).expect("Type check error.");
+
+                return
+            },
+            "eval" => {
+                if argv.len() < 4 {
+                    eprintln!("Usage: {} eval [vm-state.sqlite.db] [contract-name] [program.scm]", argv[0]);
+                    process::exit(1);
+                }
+                let vm_filename = &argv[2];
+
+                let mut db = match ContractDatabaseConnection::open(vm_filename) {
+                    Ok(db) => db,
+                    Err(error) => {
+                        eprintln!("Could not open vm-state: \n {}", error);
                         process::exit(1);
                     }
-                })
-                .collect();
+                };
+                let content: String = fs::read_to_string(&argv[3])
+                    .expect(&format!("Error reading file: {}", argv[3]));
+                
+                let mut vm_env = OwnedEnvironment::new(&mut db);
+                let contract_name = &argv[2];
+                
+                let result = vm_env.get_exec_environment(None)
+                    .eval_read_only(contract_name, &content);
 
-            let result = global_context.execute_contract(&contract_name, &sender, &tx_name, &arguments);
-            match result {
-                Ok(x) => {
-                    global_context.commit();
-                    println!("Transaction executed successfully! Output: {}", x);
-                },
-                Err(error) => println!("Transaction execution error: \n {}", error)
+                match result {
+                    Ok(x) => {
+                        println!("Program executed successfully! Output: \n {}", x);
+                    },
+                    Err(error) => println!("Transaction execution error: \n {}", error)
+                }
+                return
             }
-            return
-        },
-        _ => {}
+            "init_contract" => {
+                if argv.len() < 5 {
+                    eprintln!("Usage: {} init_contract [vm-state.sqlite.db] [contract-name] [program-file.scm]", argv[0]);
+                    process::exit(1);
+                }
+                let vm_filename = &argv[2];
+                
+                let mut db = match ContractDatabaseConnection::open(vm_filename) {
+                    Ok(db) => db,
+                    Err(error) => {
+                        eprintln!("Could not open vm-state: \n {}", error);
+                        process::exit(1);
+                    }
+                };
+
+                let mut vm_env = OwnedEnvironment::new(&mut db);
+                let contract_name = &argv[3];
+                let contract_content: String = fs::read_to_string(&argv[4])
+                    .expect(&format!("Error reading file: {}", argv[4]));
+
+                let result = {
+                    let mut env = vm_env.get_exec_environment(None);
+                    env.initialize_contract(&contract_name, &contract_content)
+                };
+                match result {
+                    Ok(_x) => {
+                        vm_env.commit();
+                        println!("Contract initialized!");
+                    },
+                    Err(error) => println!("Contract initialization error: \n {}", error)
+                }
+                return
+            },
+            "exec_tx" => {
+                if argv.len() < 5 {
+                    eprintln!("Usage: {} exec_tx [vm-state.sqlite.db] [contract-name] [transaction-name] [sender-address] [args...]", argv[0]);
+                    process::exit(1);
+                }
+                let vm_filename = &argv[2];
+
+                let mut db = match ContractDatabaseConnection::open(vm_filename) {
+                    Ok(db) => db,
+                    Err(error) => {
+                        eprintln!("Could not open vm-state: \n {}", error);
+                        process::exit(1);
+                    }
+                };
+
+                let mut vm_env = OwnedEnvironment::new(&mut db);
+                let contract_name = &argv[3];
+                let tx_name = &argv[4];
+                
+                let mut sender = vm::parser::parse(&format!("'{}", argv[5]))
+                    .expect(&format!("Error parsing sender {}", argv[5]));
+                let sender = {
+                    if let Some(SymbolicExpression{ expr: SymbolicExpressionType::AtomValue(Value::Principal(version, principal)),
+                                                    id: _ }) = sender.pop() {
+                        Value::Principal(version, principal)
+                    } else {
+                        eprintln!("Unexpected result parsing sender: {}", argv[5]);
+                        process::exit(1);
+                    }
+                };
+                let arguments: Vec<_> = argv[6..]
+                    .iter()
+                    .map(|argument| {
+                        let mut argument_parsed = vm::parser::parse(argument)
+                            .expect(&format!("Error parsing argument \"{}\"", argument));
+                        if let Some(SymbolicExpression{ expr: SymbolicExpressionType::AtomValue(x),
+                                                        id: _ }) = argument_parsed.pop() {
+                            SymbolicExpression::atom_value(x.clone())
+                        } else {
+                            eprintln!("Unexpected result parsing argument: {}", argument);
+                            process::exit(1);
+                        }
+                    })
+                    .collect();
+
+                let result = {
+                    let mut env = vm_env.get_exec_environment(Some(sender));
+                    env.execute_contract(&contract_name, &tx_name, &arguments)
+                };
+                match result {
+                    Ok(x) => {
+                        vm_env.commit();
+                        println!("Transaction executed successfully! Output: {}", x);
+                    },
+                    Err(error) => println!("Transaction execution error: \n {}", error)
+                }
+                return
+            },
+            _ => {}
+        }
     }
 
     if argv.len() < 4 {
