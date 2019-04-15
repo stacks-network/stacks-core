@@ -1,4 +1,5 @@
 use vm::parser::parse;
+use vm::checker::errors::CheckErrors;
 use vm::checker::{AnalysisDatabase,identity_pass};
 
 #[test]
@@ -184,5 +185,55 @@ fn test_names_tokens_contracts_2() {
         println!("{}", e);
     } else {
         panic!();
+    }
+}
+
+#[test]
+fn test_bad_map_usage() {
+    use vm::checker::type_check;
+    let bad_fetch = 
+        "(define-map tokens ((account principal)) ((balance int)))
+         (define (get-balance (account int))
+            (let ((balance
+                  (get balance (fetch-entry tokens (tuple (account account))))))
+              (if (eq? balance 'null) 0 balance)))";
+    let bad_delete = 
+        "(define-map tokens ((account principal)) ((balance int)))
+         (define (del-balance (account principal))
+            (delete-entry! tokens (tuple (balance account))))";
+    let bad_set_1 = 
+        "(define-map tokens ((account principal)) ((balance int)))
+         (define (set-balance (account principal))
+            (set-entry! tokens (tuple (account account)) (tuple (balance \"foo\"))))";
+    let bad_set_2 = 
+        "(define-map tokens ((account principal)) ((balance int)))
+         (define (set-balance (account principal))
+            (set-entry! tokens (tuple (account \"abc\")) (tuple (balance 0))))";
+    let bad_insert_1 = 
+        "(define-map tokens ((account principal)) ((balance int)))
+         (define (set-balance (account principal))
+            (insert-entry! tokens (tuple (account account)) (tuple (balance \"foo\"))))";
+    let bad_insert_2 = 
+        "(define-map tokens ((account principal)) ((balance int)))
+         (define (set-balance (account principal))
+            (insert-entry! tokens (tuple (account \"abc\")) (tuple (balance 0))))";
+
+    let tests = [bad_fetch,
+                 bad_delete,
+                 bad_set_1,
+                 bad_set_2,
+                 bad_insert_1,
+                 bad_insert_2];
+
+    let mut db = AnalysisDatabase::memory();
+
+    for contract in tests.iter() {
+        let mut contract = parse(contract).unwrap();
+        let result = type_check(&"transient", &mut contract, &mut db);
+        let err = result.expect_err("Expected a type error");
+        assert!(match &err.err {
+            &CheckErrors::TypeError(_,_) => true,
+            _ => false
+        });
     }
 }
