@@ -13,6 +13,43 @@ use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 
 
+pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
+    match name {
+        "+" => Some(CallableType::NativeFunction("native_add", &arithmetic::native_add)),
+        "-" => Some(CallableType::NativeFunction("native_sub", &arithmetic::native_sub)),
+        "*" => Some(CallableType::NativeFunction("native_mul", &arithmetic::native_mul)),
+        "/" => Some(CallableType::NativeFunction("native_div", &arithmetic::native_div)),
+        ">=" => Some(CallableType::NativeFunction("native_geq", &arithmetic::native_geq)),
+        "<=" => Some(CallableType::NativeFunction("native_leq", &arithmetic::native_leq)),
+        "<" => Some(CallableType::NativeFunction("native_le", &arithmetic::native_le)),
+        ">" => Some(CallableType::NativeFunction("native_ge", &arithmetic::native_ge)),
+        "mod" => Some(CallableType::NativeFunction("native_mod", &arithmetic::native_mod)),
+        "pow" => Some(CallableType::NativeFunction("native_pow", &arithmetic::native_pow)),
+        "xor" => Some(CallableType::NativeFunction("native_xor", &arithmetic::native_xor)),
+        "and" => Some(CallableType::SpecialFunction("native_and", &boolean::special_and)),
+        "or" => Some(CallableType::SpecialFunction("native_or", &boolean::special_or)),
+        "not" => Some(CallableType::NativeFunction("native_not", &boolean::native_not)),
+        "eq?" => Some(CallableType::NativeFunction("native_eq", &native_eq)),
+        "if" => Some(CallableType::SpecialFunction("native_if", &special_if)),
+        "let" => Some(CallableType::SpecialFunction("native_let", &special_let)),
+        "map" => Some(CallableType::SpecialFunction("native_map", &lists::list_map)),
+        "fold" => Some(CallableType::SpecialFunction("native_fold", &lists::list_fold)),
+        "list" => Some(CallableType::NativeFunction("native_cons", &lists::list_cons)),
+        "fetch-entry" => Some(CallableType::SpecialFunction("native_fetch-entry", &database::special_fetch_entry)),
+        "fetch-contract-entry" => Some(CallableType::SpecialFunction("native_fetch-contract-entry", &database::special_fetch_contract_entry)),
+        "set-entry!" => Some(CallableType::SpecialFunction("native_set-entry", &database::special_set_entry)),
+        "insert-entry!" => Some(CallableType::SpecialFunction("native_insert-entry", &database::special_insert_entry)),
+        "delete-entry!" => Some(CallableType::SpecialFunction("native_delete-entry", &database::special_delete_entry)),
+        "tuple" => Some(CallableType::SpecialFunction("native_tuple", &tuples::tuple_cons)),
+        "get" => Some(CallableType::SpecialFunction("native_get-tuple", &tuples::tuple_get)),
+        "begin" => Some(CallableType::NativeFunction("native_begin", &native_begin)),
+        "hash160" => Some(CallableType::NativeFunction("native_hash160", &native_hash160)),
+        "print" => Some(CallableType::NativeFunction("native_print", &native_print)),
+        "contract-call!" => Some(CallableType::SpecialFunction("native_contract-call", &database::special_contract_call)),
+        _ => None
+    }
+}
+
 fn native_eq(args: &[Value]) -> Result<Value> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
@@ -130,41 +167,5 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
         eval(&args[1], env, &inner_context)
     } else {
         Err(Error::new(ErrType::InvalidArguments("Passed non-list as second argument to let expression.".to_string())))
-    }
-}
-
-pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
-    match name {
-        "+" => Some(CallableType::NativeFunction("native_add", &arithmetic::native_add)),
-        "-" => Some(CallableType::NativeFunction("native_sub", &arithmetic::native_sub)),
-        "*" => Some(CallableType::NativeFunction("native_mul", &arithmetic::native_mul)),
-        "/" => Some(CallableType::NativeFunction("native_div", &arithmetic::native_div)),
-        ">=" => Some(CallableType::NativeFunction("native_geq", &arithmetic::native_geq)),
-        "<=" => Some(CallableType::NativeFunction("native_leq", &arithmetic::native_leq)),
-        "<" => Some(CallableType::NativeFunction("native_le", &arithmetic::native_le)),
-        ">" => Some(CallableType::NativeFunction("native_ge", &arithmetic::native_ge)),
-        "mod" => Some(CallableType::NativeFunction("native_mod", &arithmetic::native_mod)),
-        "pow" => Some(CallableType::NativeFunction("native_pow", &arithmetic::native_pow)),
-        "xor" => Some(CallableType::NativeFunction("native_xor", &arithmetic::native_xor)),
-        "and" => Some(CallableType::SpecialFunction("native_and", &boolean::special_and)),
-        "or" => Some(CallableType::SpecialFunction("native_or", &boolean::special_or)),
-        "not" => Some(CallableType::NativeFunction("native_not", &boolean::native_not)),
-        "eq?" => Some(CallableType::NativeFunction("native_eq", &native_eq)),
-        "if" => Some(CallableType::SpecialFunction("native_if", &special_if)),
-        "let" => Some(CallableType::SpecialFunction("native_let", &special_let)),
-        "map" => Some(CallableType::SpecialFunction("native_map", &lists::list_map)),
-        "fold" => Some(CallableType::SpecialFunction("native_fold", &lists::list_fold)),
-        "list" => Some(CallableType::NativeFunction("native_cons", &lists::list_cons)),
-        "fetch-entry" => Some(CallableType::SpecialFunction("native_fetch-entry", &database::special_fetch_entry)),
-        "set-entry!" => Some(CallableType::SpecialFunction("native_set-entry", &database::special_set_entry)),
-        "insert-entry!" => Some(CallableType::SpecialFunction("native_insert-entry", &database::special_insert_entry)),
-        "delete-entry!" => Some(CallableType::SpecialFunction("native_delete-entry", &database::special_delete_entry)),
-        "tuple" => Some(CallableType::SpecialFunction("native_tuple", &tuples::tuple_cons)),
-        "get" => Some(CallableType::SpecialFunction("native_get-tuple", &tuples::tuple_get)),
-        "begin" => Some(CallableType::NativeFunction("native_begin", &native_begin)),
-        "hash160" => Some(CallableType::NativeFunction("native_hash160", &native_hash160)),
-        "print" => Some(CallableType::NativeFunction("native_print", &native_print)),
-        "contract-call!" => Some(CallableType::SpecialFunction("native_contract-call", &database::special_contract_call)),
-        _ => None
     }
 }

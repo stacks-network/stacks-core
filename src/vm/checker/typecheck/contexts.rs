@@ -16,7 +16,8 @@ pub struct TypeMap {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractAnalysis {
-    public_function_types: BTreeMap<String, FunctionType>
+    public_function_types: BTreeMap<String, FunctionType>,
+    map_types: BTreeMap<String, (TypeSignature, TypeSignature)>
 }
 
 pub struct TypingContext <'a> {
@@ -36,7 +37,8 @@ pub struct ContractContext {
 impl ContractAnalysis {
     pub fn new() -> ContractAnalysis {
         ContractAnalysis {
-            public_function_types: BTreeMap::new()
+            public_function_types: BTreeMap::new(),
+            map_types: BTreeMap::new()
         }
     }
 
@@ -50,12 +52,21 @@ impl ContractAnalysis {
             .expect(SERIALIZE_FAIL_MESSAGE)
     }
 
+    pub fn add_map_type(&mut self, name: &str, key_type: &TypeSignature, map_type: &TypeSignature) {
+        self.map_types.insert(name.to_string(), (key_type.clone(),
+                                                 map_type.clone()));
+    }
+
     pub fn add_public_function(&mut self, name: &str, function_type: &FunctionType) {
         self.public_function_types.insert(name.to_string(), function_type.clone());
     }
 
     pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {
         self.public_function_types.get(name)
+    }
+
+    pub fn get_map_type(&self, name: &str) -> Option<&(TypeSignature, TypeSignature)> {
+        self.map_types.get(name)
     }
 }
 

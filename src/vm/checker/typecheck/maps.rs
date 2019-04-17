@@ -60,6 +60,31 @@ impl <'a> TypeChecker <'a> {
         }
     }
 
+    pub fn check_special_fetch_contract_entry(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+        if args.len() < 3 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
+        }
+
+        let contract_name = args[0].match_atom()
+            .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
+
+        let map_name = args[1].match_atom()
+            .ok_or(CheckError::new(CheckErrors::BadMapName))?;
+        
+        self.type_map.set_type(&args[0], no_type())?;
+        self.type_map.set_type(&args[1], no_type())?;
+
+        let key_type = self.type_check(&args[2], context)?;
+
+        let (expected_key_type, value_type) = self.db.get_map_type(contract_name, map_name)?;
+
+        if !expected_key_type.admits_type(&key_type) {
+            return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
+        } else {
+            return Ok(value_type)
+        }
+    }
+
     pub fn check_special_delete_entry(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
         if args.len() < 2 {
             return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
@@ -132,4 +157,3 @@ impl <'a> TypeChecker <'a> {
         }
     }
 }
-

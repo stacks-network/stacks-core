@@ -625,8 +625,13 @@ pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &An
     }
 
     let mut contract_analysis = ContractAnalysis::new();
+
     for (name, function_type) in type_checker.contract_context.public_function_types.iter() {
         contract_analysis.add_public_function(name, function_type);
+    }
+
+    for (name, (key_type, map_type)) in type_checker.contract_context.map_types.iter() {
+        contract_analysis.add_map_type(name, key_type, map_type);
     }
 
     Ok(contract_analysis)

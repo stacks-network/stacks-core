@@ -10,7 +10,6 @@ use vm::{parser, eval};
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
-
 // TODO:
 //    hide the environment's instance variables.
 //     we don't want many of these changing after instantiation.
@@ -140,9 +139,6 @@ impl <'a, 'b> Environment <'a, 'b> {
         let mut nested_context = GlobalContext::begin_from(&mut self.global_context.database);
 
         let result = {
-            // this is kind of weird. we jump through a lot of hoops here to satisfy the borrow checker.
-            //     this could probably be dramatically simplified by moving the "global context" _out_ of the env
-            //     struct, which would be a pretty big refactor, but should probably be done.
             let mut nested_env = Environment::new(&mut nested_context, self.contract_context, self.call_stack, self.sender.clone());
 
             function.apply(args, &mut nested_env)

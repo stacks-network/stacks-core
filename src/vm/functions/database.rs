@@ -1,5 +1,5 @@
 use vm::types::{Value};
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::representations::{SymbolicExpression};
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::{eval, LocalContext, Environment};
 
@@ -11,15 +11,11 @@ pub fn special_contract_call(args: &[SymbolicExpression],
             "(contract-call ...) requires at least 2 arguments: the contract name and the public function name".to_string())))
     }
 
-    let contract_name = match &args[0].expr {
-        SymbolicExpressionType::Atom(value) => Ok(value),
-        _ => Err(Error::new(ErrType::InvalidArguments("First argument to (contract-call ...) must be contract name".to_string())))
-    }?;
+    let contract_name = args[0].match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments("First argument to (contract-call ...) must be contract name".to_string())))?;
 
-    let function_name = match &args[1].expr {
-        SymbolicExpressionType::Atom(value) => Ok(value),
-        _ => Err(Error::new(ErrType::InvalidArguments("Second argument to (contract-call ...) must be function name".to_string())))
-    }?;
+    let function_name = args[1].match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments("Second argument to (contract-call ...) must be function name".to_string())))?;
 
     let rest_args = &args[2..];
 
@@ -52,14 +48,33 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
         return Err(Error::new(ErrType::InvalidArguments("(fetch-entry ...) requires exactly 2 arguments".to_string())))
     }
 
+    let map_name = args[0].match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))?;
+
     let key = eval(&args[1], env, context)?;
 
-    let map_name = match &args[0].expr {
-        SymbolicExpressionType::Atom(value) => Ok(value),
-        _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
-    }?;
+    env.global_context.database.fetch_entry(&env.contract_context.name, map_name, &key)
+}
 
-    env.global_context.database.fetch_entry(&env.contract_context.name, &map_name, &key)
+
+pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
+                           env: &mut Environment,
+                           context: &LocalContext) -> Result<Value> {
+    // arg0 -> contract name
+    // arg1 -> map name
+    // arg2 -> key
+    if args.len() != 3 {
+        return Err(Error::new(ErrType::InvalidArguments("(fetch-contract-entry ...) requires exactly 3 arguments".to_string())))
+    }
+
+    let contract_name = args[0].match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments("First argument in fetch-contract-entry must be contract name".to_string())))?;
+    let map_name = args[1].match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments("Second argument in fetch-contract-entry must be the map name".to_string())))?;
+
+    let key = eval(&args[2], env, context)?;
+
+    env.global_context.database.fetch_entry(contract_name, map_name, &key)
 }
 
 pub fn special_set_entry(args: &[SymbolicExpression],
@@ -74,13 +89,11 @@ pub fn special_set_entry(args: &[SymbolicExpression],
 
     let key = eval(&args[1], env, context)?;
     let value = eval(&args[2], env, context)?;
+ 
+    let map_name = args[0].match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))?;
 
-    let map_name = match &args[0].expr {
-        SymbolicExpressionType::Atom(value) => Ok(value),
-        _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
-    }?;
-
-    env.global_context.database.set_entry(&env.contract_context.name, &map_name, key, value)
+    env.global_context.database.set_entry(&env.contract_context.name, map_name, key, value)
 }
 
 pub fn special_insert_entry(args: &[SymbolicExpression],
@@ -96,12 +109,10 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
     let key = eval(&args[1], env, context)?;
     let value = eval(&args[2], env, context)?;
 
-    let map_name = match &args[0].expr {
-        SymbolicExpressionType::Atom(value) => Ok(value),
-        _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
-    }?;
+    let map_name = args[0].match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))?;
 
-    env.global_context.database.insert_entry(&env.contract_context.name, &map_name, key, value)
+    env.global_context.database.insert_entry(&env.contract_context.name, map_name, key, value)
 }
 
 pub fn special_delete_entry(args: &[SymbolicExpression],
@@ -115,10 +126,8 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
 
     let key = eval(&args[1], env, context)?;
 
-    let map_name = match &args[0].expr {
-        SymbolicExpressionType::Atom(value) => Ok(value),
-        _ => Err(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))
-    }?;
+    let map_name = args[0].match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))?;
 
-    env.global_context.database.delete_entry(&env.contract_context.name, &map_name, &key)
+    env.global_context.database.delete_entry(&env.contract_context.name, map_name, &key)
 }

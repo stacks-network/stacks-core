@@ -2,6 +2,7 @@ use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row};
 use rusqlite::types::ToSql;
 
 
+use vm::types::TypeSignature;
 use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 use vm::checker::typecheck::{ContractAnalysis, FunctionType};
 
@@ -90,6 +91,14 @@ impl AnalysisDatabase {
                 .ok_or(CheckError::new(CheckErrors::NoSuchPublicFunction(contract_name.to_string(),
                                                                          function_name.to_string())))?
                 .clone())
+    }
+
+    pub fn get_map_type(&self, contract_name: &str, map_name: &str) -> CheckResult<(TypeSignature, TypeSignature)> {
+        let contract = self.load_contract(contract_name)
+            .ok_or(CheckError::new(CheckErrors::NoSuchContract(contract_name.to_string())))?;
+        let map_type = contract.get_map_type(map_name)
+            .ok_or(CheckError::new(CheckErrors::NoSuchMap(map_name.to_string())))?;
+        Ok(map_type.clone())
     }
 
     pub fn insert_contract(&mut self, contract_name: &str, contract: &ContractAnalysis) -> CheckResult<()> {
