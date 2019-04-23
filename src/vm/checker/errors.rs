@@ -58,6 +58,8 @@ pub enum CheckErrors {
     TooManyExpressions,
     IllegalOrUnknownFunctionApplication(String),
     UnknownFunction(String),
+
+    NotImplemented,
 }
 
 #[derive(Debug, PartialEq)]

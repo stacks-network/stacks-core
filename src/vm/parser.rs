@@ -236,6 +236,7 @@ pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>> {
 }
 
 
+#[cfg(test)]
 mod test {
     use vm::{SymbolicExpression, Value, parser};
     #[test]
