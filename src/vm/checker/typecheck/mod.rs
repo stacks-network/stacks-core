@@ -1,6 +1,6 @@
 mod contexts;
 //mod maps;
-mod natives;
+pub mod natives;
 
 use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
@@ -10,7 +10,7 @@ use vm::functions::NativeFunctions;
 use super::AnalysisDatabase;
 use self::contexts::{TypeMap, TypingContext, ContractContext};
 
-use self::natives::TypedNativeFunction;
+pub use self::natives::{TypedNativeFunction, SimpleNativeFunction};
 
 pub use self::contexts::ContractAnalysis;
 pub use super::errors::{CheckResult, CheckError, CheckErrors};
@@ -231,7 +231,7 @@ impl <'a> TypeChecker <'a> {
 
     // Aaron: note, using lazy statics here would speed things up a bit and reduce clone()s
     fn try_native_function_check(&mut self, function: &str, args: &[SymbolicExpression], context: &TypingContext) -> Option<TypeResult> {
-        if let Some(native_function) = NativeFunctions::lookup_by_name(function) {
+        if let Some(ref native_function) = NativeFunctions::lookup_by_name(function) {
             let typed_function = TypedNativeFunction::type_native_function(native_function);
             Some(typed_function.type_check_appliction(self, args, context))
         } else {

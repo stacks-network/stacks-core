@@ -99,6 +99,11 @@ fn main() {
         return
     }
 
+    if argv[1] == "docgen" {
+        println!("{}", vm::docs::make_json_api_reference());
+        return
+    }
+
     {
         // VM CLI invocations.
 

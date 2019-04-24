@@ -154,6 +154,42 @@ impl Value {
 
 }
 
+impl fmt::Display for AtomTypeIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::AtomTypeIdentifier::*;
+        match self {
+            AnyType => write!(f, "AnyType"),
+            NoType => write!(f, "NoType"),
+            VoidType => write!(f, "void"),
+            IntType => write!(f, "int"),
+            BoolType => write!(f, "bool"),
+            PrincipalType => write!(f, "principal"),
+            BufferType(len) => write!(f, "(buff {})", len),
+            TupleType(TupleTypeSignature{ type_map }) => {
+                write!(f, "(tuple (")?;
+                for (key_name, value_type) in type_map.iter() {
+                    write!(f, "({} {})", key_name, value_type)?;
+                }
+                write!(f, "))")
+            }
+        }
+    }
+}
+
+impl fmt::Display for TypeSignature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {        
+        if let Some(ref list_type_data) = self.list_dimensions {
+            write!(f, "(list {}", list_type_data.max_len)?;
+            if list_type_data.dimension > 1 {
+                write!(f, "{}", list_type_data.dimension)?;
+            }
+            write!(f, "{})", self.atomic_type)
+        } else {
+            write!(f, "{}", self.atomic_type)
+        }
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

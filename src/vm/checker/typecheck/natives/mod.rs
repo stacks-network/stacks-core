@@ -13,7 +13,7 @@ pub enum TypedNativeFunction {
 }
 
 pub struct SpecialNativeFunction(&'static Fn(&mut TypeChecker, &[SymbolicExpression], &TypingContext) -> TypeResult);
-pub struct SimpleNativeFunction(FunctionType);
+pub struct SimpleNativeFunction(pub FunctionType);
 
 fn arithmetic_type(variadic: bool) -> FunctionType {
     if variadic {
@@ -121,7 +121,7 @@ fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpressio
 }
 
 fn get_simple_native_or_user_define(function_name: &str, checker: &TypeChecker) -> CheckResult<FunctionType> {
-    if let Some(native_function) = NativeFunctions::lookup_by_name(function_name) {
+    if let Some(ref native_function) = NativeFunctions::lookup_by_name(function_name) {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) = TypedNativeFunction::type_native_function(native_function) {
             Ok(function_type)
         } else {
@@ -269,7 +269,7 @@ impl TypedNativeFunction {
         }
     }
 
-    pub fn type_native_function(function: NativeFunctions) -> TypedNativeFunction {
+    pub fn type_native_function(function: &NativeFunctions) -> TypedNativeFunction {
         use self::TypedNativeFunction::{Special, Simple};
         use vm::functions::NativeFunctions::*;
         match function {
@@ -291,21 +291,21 @@ impl TypedNativeFunction {
             Equals =>
                 Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::AnyType ),
                                                                    TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
-            NativeFunctions::If => Special(SpecialNativeFunction(&check_special_if)),
-            NativeFunctions::Let => Special(SpecialNativeFunction(&check_special_let)),
-            NativeFunctions::Map => Special(SpecialNativeFunction(&check_special_map)),
-            NativeFunctions::Fold => Special(SpecialNativeFunction(&check_special_fold)),
-            NativeFunctions::ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
-            NativeFunctions::FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
-            NativeFunctions::FetchContractEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_contract_entry)),
-            NativeFunctions::SetEntry => Special(SpecialNativeFunction(&maps::check_special_set_entry)),
-            NativeFunctions::InsertEntry => Special(SpecialNativeFunction(&maps::check_special_insert_entry)),
-            NativeFunctions::DeleteEntry => Special(SpecialNativeFunction(&maps::check_special_delete_entry)),
-            NativeFunctions::TupleCons => Special(SpecialNativeFunction(&check_special_tuple_cons)),
-            NativeFunctions::TupleGet => Special(SpecialNativeFunction(&check_special_get)),
-            NativeFunctions::Begin => Special(SpecialNativeFunction(&check_special_begin)),
-            NativeFunctions::Print => Special(SpecialNativeFunction(&check_special_print)),
-            NativeFunctions::ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
+            If => Special(SpecialNativeFunction(&check_special_if)),
+            Let => Special(SpecialNativeFunction(&check_special_let)),
+            Map => Special(SpecialNativeFunction(&check_special_map)),
+            Fold => Special(SpecialNativeFunction(&check_special_fold)),
+            ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),
+            FetchEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_entry)),
+            FetchContractEntry => Special(SpecialNativeFunction(&maps::check_special_fetch_contract_entry)),
+            SetEntry => Special(SpecialNativeFunction(&maps::check_special_set_entry)),
+            InsertEntry => Special(SpecialNativeFunction(&maps::check_special_insert_entry)),
+            DeleteEntry => Special(SpecialNativeFunction(&maps::check_special_delete_entry)),
+            TupleCons => Special(SpecialNativeFunction(&check_special_tuple_cons)),
+            TupleGet => Special(SpecialNativeFunction(&check_special_get)),
+            Begin => Special(SpecialNativeFunction(&check_special_begin)),
+            Print => Special(SpecialNativeFunction(&check_special_print)),
+            ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
         }
     }
 }

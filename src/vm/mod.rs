@@ -14,6 +14,7 @@ mod functions;
 mod variables;
 mod callables;
 
+pub mod docs;
 pub mod checker;
 
 #[cfg(test)]

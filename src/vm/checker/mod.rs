@@ -1,4 +1,4 @@
-mod typecheck;
+pub mod typecheck;
 mod errors;
 mod identity_pass;
 mod check_db;
