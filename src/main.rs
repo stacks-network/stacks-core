@@ -266,12 +266,15 @@ where command is one of:
                 let contract_name = &argv[4];
                 let tx_name = &argv[5];
                 
-                let mut sender = vm::parser::parse(&format!("'{}", argv[6]))
-                    .expect(&format!("Error parsing sender {}", argv[6]));
+                let sender_in = &argv[6];
+
+                let mut sender = vm::parser::parse(&format!("'{}", sender_in))
+                    .expect(&format!("Error parsing sender {}", sender_in))
+                    .pop()
+                    .expect(&format!("Failed to read a sender from {}", sender_in));
                 let sender = {
-                    if let Some(SymbolicExpression{ expr: SymbolicExpressionType::AtomValue(Value::Principal(version, principal)),
-                                                    id: _ }) = sender.pop() {
-                        Value::Principal(version, principal)
+                    if let Some(Value::Principal(principal_data)) = sender.match_atom_value() {
+                        Value::Principal(principal_data.clone())
                     } else {
                         eprintln!("Unexpected result parsing sender: {}", argv[5]);
                         process::exit(1);

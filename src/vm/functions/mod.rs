@@ -6,7 +6,7 @@ mod database;
 mod tuples;
 
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
-use vm::types::Value;
+use vm::types::{Value, PrincipalData};
 use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpressionType::{List, Atom};
@@ -43,7 +43,8 @@ pub enum NativeFunctions {
     Begin,
     Hash160,
     Print,
-    ContractCall
+    ContractCall,
+    AsContract
 }
 
 impl NativeFunctions {
@@ -81,6 +82,7 @@ impl NativeFunctions {
             "hash160" => Some(Hash160),
             "print" => Some(Print),
             "contract-call!" => Some(ContractCall),
+            "as-contract" => Some(AsContract),
             _ => None
         }
     }
@@ -121,6 +123,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Hash160 => CallableType::NativeFunction("native_hash160", &native_hash160),
             Print => CallableType::NativeFunction("native_print", &native_print),
             ContractCall => CallableType::SpecialFunction("native_contract-call", &database::special_contract_call),
+            AsContract => CallableType::SpecialFunction("native_as-contract", &special_as_contract),
         };
         Some(callable)
     } else {
@@ -246,4 +249,20 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     } else {
         Err(Error::new(ErrType::InvalidArguments("Passed non-list as second argument to let expression.".to_string())))
     }
+}
+
+fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    use vm::is_reserved;
+
+    // (as-contract (..))
+    // arg0 => body
+    if args.len() != 1 {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to as-contract (expects 1)".to_string())))
+    }
+
+    // nest an environment.
+    let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(env.contract_context.name.clone()));
+    let mut nested_env = env.nest_with_sender(contract_principal);
+
+    eval(&args[0], &mut nested_env, context)
 }

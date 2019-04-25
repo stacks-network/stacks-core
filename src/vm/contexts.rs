@@ -86,7 +86,7 @@ impl <'a, 'b> Environment <'a, 'b> {
                sender: Option<Value>) -> Environment<'a,'b> {
         if let Some(ref sender) = sender {
             match sender {
-                Value::Principal(_, _) => {},
+                Value::Principal(_) => {},
                 _ => {
                     panic!("Tried to construct environment with bad sender {}", sender);
                 }
@@ -98,6 +98,13 @@ impl <'a, 'b> Environment <'a, 'b> {
             call_stack: call_stack,
             sender: sender
         }
+    }
+
+    pub fn nest_with_sender <'c> (&'c mut self, sender: Value) -> Environment<'c, 'b> {
+        Environment::new(self.global_context,
+                         self.contract_context,
+                         self.call_stack,
+                         Some(sender))
     }
 
     pub fn eval_read_only(&mut self, contract_name: &str, program: &str) -> Result<Value> {

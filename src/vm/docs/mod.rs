@@ -212,6 +212,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Hash160 => panic!("NotImplemeneted"),
         Print => panic!("NotImplemeneted"),
         ContractCall => panic!("NotImplemeneted"),
+        AsContract => panic!("NotImplemeneted"),
     }
 }
 

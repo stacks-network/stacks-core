@@ -54,6 +54,14 @@ fn check_special_print(checker: &mut TypeChecker, args: &[SymbolicExpression], c
     checker.type_check(&args[0], context)
 }
 
+fn check_special_as_contract(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() != 1 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
+    }
+    
+    checker.type_check(&args[0], context)
+}
+
 fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 1 {
         return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
@@ -305,6 +313,7 @@ impl TypedNativeFunction {
             TupleGet => Special(SpecialNativeFunction(&check_special_get)),
             Begin => Special(SpecialNativeFunction(&check_special_begin)),
             Print => Special(SpecialNativeFunction(&check_special_print)),
+            AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
             ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
         }
     }

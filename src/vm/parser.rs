@@ -3,7 +3,7 @@ use regex::{Regex, Captures};
 use address::c32::c32_address_decode;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
-use vm::types::Value;
+use vm::types::{Value, PrincipalData};
 
 #[derive(Debug)]
 pub enum LexItem {
@@ -143,7 +143,8 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                         } else {
                             let mut fixed_data = [0; 20];
                             fixed_data.copy_from_slice(&data[..20]);
-                            Ok(LexItem::LiteralValue(Value::Principal(version, fixed_data)))
+                            Ok(LexItem::LiteralValue(Value::Principal(
+                                PrincipalData::StandardPrincipal(version, fixed_data))))
                         }
                     },
                     TokenType::HexStringLiteral => {

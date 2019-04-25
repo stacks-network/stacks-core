@@ -58,13 +58,19 @@ pub struct ListData {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub enum PrincipalData {
+    StandardPrincipal(u8, [u8; 20]),  // a standard principal is a version byte + hash160 (20 bytes)
+    ContractPrincipal(String)
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Value {
     Void,
     Int(i128),
     Bool(bool),
     Buffer(BuffData),
     List(ListData),
-    Principal(u8, [u8; 20]), // a principal is a version byte + hash160 (20 bytes)
+    Principal(PrincipalData),
     Tuple(TupleData)
 }
 
@@ -145,7 +151,7 @@ impl Value {
             Value::Void => AtomTypeIdentifier::VoidType.size(),
             Value::Int(_i) => AtomTypeIdentifier::IntType.size(),
             Value::Bool(_i) => AtomTypeIdentifier::BoolType.size(),
-            Value::Principal(_,_) => AtomTypeIdentifier::PrincipalType.size(),
+            Value::Principal(_) => AtomTypeIdentifier::PrincipalType.size(),
             Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
             Value::Tuple(ref tuple_data) => tuple_data.size(),
             Value::List(ref list_data) => list_data.type_signature.size()
@@ -198,12 +204,8 @@ impl fmt::Display for Value {
             Value::Bool(boolean) => write!(f, "{}", boolean),
             Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes.data)),
             Value::Tuple(data) => write!(f, "{}", data),
-            Value::Principal(version, vec_bytes) => {
-                let c32_str = match c32::c32_address(*version, &vec_bytes[..]) {
-                    Ok(val) => val,
-                    Err(_) => "INVALID_C32_ADDR".to_string()
-                };
-                write!(f, "{}", c32_str)
+            Value::Principal(principal_data) => {
+                write!(f, "'{}", principal_data)
             },
             Value::List(list_data) => {
                 write!(f, "( ")?;
@@ -211,6 +213,23 @@ impl fmt::Display for Value {
                     write!(f, "{} ", v)?;
                 }
                 write!(f, ")")
+            }
+        }
+    }
+}
+
+impl fmt::Display for PrincipalData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PrincipalData::StandardPrincipal(version, vec_bytes) => {
+                let c32_str = match c32::c32_address(*version, &vec_bytes[..]) {
+                    Ok(val) => val,
+                    Err(_) => "INVALID_C32_ADDR".to_string()
+                };
+                write!(f, "'{}", c32_str)                
+            },
+            PrincipalData::ContractPrincipal(contract_name) => {
+                write!(f, "'C{}", contract_name)
             }
         }
     }
@@ -522,7 +541,7 @@ impl TypeSignature {
         } else {
             let atom = match x {
                 Value::Void => AtomTypeIdentifier::VoidType,
-                Value::Principal(_,_) => AtomTypeIdentifier::PrincipalType,
+                Value::Principal(_) => AtomTypeIdentifier::PrincipalType,
                 Value::Int(_v) => AtomTypeIdentifier::IntType,
                 Value::Bool(_v) => AtomTypeIdentifier::BoolType,
                 Value::Buffer(buff_data) => AtomTypeIdentifier::BufferType(buff_data.data.len() as u32),
