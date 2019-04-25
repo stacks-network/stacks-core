@@ -132,11 +132,11 @@ fn test_define() {
     ];
 
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        type_check(&"transient", &mut good_test, &mut AnalysisDatabase::memory()).unwrap();
+        type_check(&"transient", &mut good_test, &mut AnalysisDatabase::memory(), false).unwrap();
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        assert!(type_check(&"transient", &mut bad_test, &mut AnalysisDatabase::memory()).is_err());
+        assert!(type_check(&"transient", &mut bad_test, &mut AnalysisDatabase::memory(), false).is_err());
     }
 }
 
@@ -165,7 +165,7 @@ fn test_factorial() {
                 'null)";
 
     let mut contract = parse(contract).unwrap();
-    type_check(&"transient", &mut contract, &mut AnalysisDatabase::memory()).unwrap();
+    type_check(&"transient", &mut contract, &mut AnalysisDatabase::memory(), false).unwrap();
 }
 
 #[test]
@@ -191,5 +191,5 @@ fn test_tuple_map() {
         ";
 
     let mut t = parse(t).unwrap();
-    type_check(&"transient", &mut t, &mut AnalysisDatabase::memory()).unwrap();
+    type_check(&"transient", &mut t, &mut AnalysisDatabase::memory(), false).unwrap();
 }

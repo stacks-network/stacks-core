@@ -86,8 +86,8 @@ fn test_names_tokens_contracts() {
     let mut names_contract = parse(names_contract).unwrap();
     let mut db = AnalysisDatabase::memory();
 
-    type_check(&"tokens", &mut tokens_contract, &mut db).unwrap();
-    type_check(&"names", &mut names_contract, &mut db).unwrap();
+    type_check(&"tokens", &mut tokens_contract, &mut db, true).unwrap();
+    type_check(&"names", &mut names_contract, &mut db, true).unwrap();
 }
 
 #[test]
@@ -174,13 +174,13 @@ fn test_names_tokens_contracts_2() {
     let mut names_contract = parse(names_contract).unwrap();
     let mut db = AnalysisDatabase::memory();
 
-    let result = type_check(&"tokens", &mut tokens_contract, &mut db);
+    let result = type_check(&"tokens", &mut tokens_contract, &mut db, true);
     if let Err(ref e) = result { 
         println!("{}", e);
     }
     result.unwrap();
 
-    let result = type_check(&"names", &mut names_contract, &mut db);
+    let result = type_check(&"names", &mut names_contract, &mut db, true);
     if let Err(ref e) = result { 
         println!("{}", e);
     } else {
@@ -229,7 +229,7 @@ fn test_bad_map_usage() {
 
     for contract in tests.iter() {
         let mut contract = parse(contract).unwrap();
-        let result = type_check(&"transient", &mut contract, &mut db);
+        let result = type_check(&"transient", &mut contract, &mut db, false);
         let err = result.expect_err("Expected a type error");
         assert!(match &err.err {
             &CheckErrors::TypeError(_,_) => true,

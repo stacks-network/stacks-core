@@ -19,7 +19,8 @@ enum TokenType {
     LParens, RParens, Whitespace,
     StringLiteral, HexStringLiteral,
     IntLiteral, QuoteLiteral,
-    Variable, PrincipalLiteral
+    Variable, PrincipalLiteral,
+    ContractPrincipalLiteral
 }
 
 struct LexMatcher {
@@ -61,6 +62,7 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("(?P<value>[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false|null)", TokenType::QuoteLiteral),
+        LexMatcher::new("'CT(?P<value>[[:alpha:]]{5,40})", TokenType::ContractPrincipalLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
     ];
@@ -133,6 +135,11 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                             Err(_e) => Err(Error::new(ErrType::ParseError(format!("Failed to parse int literal '{}'", str_value))))
                         }?;
                         Ok(LexItem::LiteralValue(value))
+                    },
+                    TokenType::ContractPrincipalLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        Ok(LexItem::LiteralValue(Value::Principal(
+                            PrincipalData::ContractPrincipal(str_value))))
                     },
                     TokenType::PrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;

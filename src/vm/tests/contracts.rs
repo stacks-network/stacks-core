@@ -1,6 +1,6 @@
 use vm::execute;
 use vm::errors::{Error, ErrType};
-use vm::types::{Value};
+use vm::types::{Value, PrincipalData};
 use vm::contexts::{OwnedEnvironment};
 use vm::database::{ContractDatabaseConnection};
 use vm::representations::SymbolicExpression;
@@ -33,9 +33,13 @@ fn test_simple_token_system() {
                  (begin
                    (set-entry! tokens (tuple (account tx-sender))
                                       (tuple (balance (- balance amount))))
-                   (token-credit! to amount)))))                     
+                   (token-credit! to amount)))))
+         (define-public (faucet)
+           (let ((original-sender tx-sender))
+             (as-contract (token-transfer original-sender 1))))                     
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 100)
+                (token-credit! 'CTtokens 3)
                 'null)";
 
 
@@ -75,6 +79,23 @@ fn test_simple_token_system() {
         env.eval_read_only("tokens",
                            "(get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
         Value::Int(9100));
+    assert_eq!(
+        env.execute_contract("tokens", "faucet", &vec![]).unwrap(),
+        Value::Bool(true));
+    assert_eq!(
+        env.execute_contract("tokens", "faucet", &vec![]).unwrap(),
+        Value::Bool(true));
+    assert_eq!(
+        env.execute_contract("tokens", "faucet", &vec![]).unwrap(),
+        Value::Bool(true));
+    assert_eq!(
+        env.execute_contract("tokens", "faucet", &vec![]).unwrap(),
+        Value::Bool(false));
+    assert_eq!(
+        env.eval_read_only("tokens",
+                           "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+        Value::Int(1003));
+
 }
 
 #[test]
@@ -262,7 +283,8 @@ fn test_simple_contract_call() {
     env.initialize_contract("proxy-compute", contract_2).unwrap();
 
     let args = symbols_from_values(vec![]);
-    env.sender = Some(Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]));
+    env.sender = Some(Value::Principal(PrincipalData::StandardPrincipal
+                                       (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])));
 
     let expected = [Value::Int(5),
                     Value::Int(20),
@@ -320,8 +342,8 @@ fn test_aborts() {
     env.initialize_contract("contract-1", contract_1).unwrap();
     env.initialize_contract("contract-2", contract_2).unwrap();
 
-    env.sender = Some(Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]));
-
+    env.sender = Some(Value::Principal(PrincipalData::StandardPrincipal
+                                       (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])));
 
     assert_eq!(
         env.execute_contract("contract-1", "modify-data",
@@ -423,7 +445,8 @@ fn test_factorial_contract() {
         Value::Int(120),
     ];
         
-    env.sender = Some(Value::Principal(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]));
+    env.sender = Some(Value::Principal(PrincipalData::StandardPrincipal
+                                       (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])));
 
     for (arguments, expectation) in arguments_to_test.iter().zip(expected.iter()) {
         env.execute_contract("factorial", &tx_name, arguments).unwrap();
