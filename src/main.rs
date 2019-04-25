@@ -159,8 +159,12 @@ where command is one of:
                     }
                 };
 
-                let mut ast = parse(&content).expect("Failed to parse program.");
-                type_check(&"transient", &mut ast, &mut db, false).expect("Type check error.");
+                let mut ast = parse(&content).expect("Failed to parse program");
+                type_check(&"transient", &mut ast, &mut db, false)
+                    .unwrap_or_else(|e| {
+                        eprintln!("Type check error.\n{}", e);
+                        process::exit(1);
+                    });
 
                 return
             },
@@ -213,7 +217,12 @@ where command is one of:
 
                 let mut db = AnalysisDatabase::open(vm_filename);
                 let mut ast = parse(&contract_content).expect("Failed to parse program.");
-                type_check(contract_name, &mut ast, &mut db, true).expect("Type check error.");
+
+                type_check(contract_name, &mut ast, &mut db, true)
+                    .unwrap_or_else(|e| {
+                        eprintln!("Type check error.\n{}", e);
+                        process::exit(1);
+                    });
 
                 let mut db = match ContractDatabaseConnection::open(vm_filename) {
                     Ok(db) => db,

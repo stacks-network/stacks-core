@@ -19,8 +19,8 @@ impl AnalysisDatabase {
         //    more to come!
         contract_db.execute("CREATE TABLE IF NOT EXISTS type_analysis_table
                       (contract_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
-                       contract_name TEXT,
-                       analysis TEXT)",
+                       contract_name TEXT NOT NULL UNIQUE,
+                       analysis TEXT NOT NULL)",
                             NO_PARAMS);
 
         contract_db.check_schema();
