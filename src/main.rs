@@ -94,7 +94,9 @@ fn main() {
             .expect(&format!("Error reading file: {}", argv[2]));
         match vm::execute(&program) {
             Ok(result) => println!("{}", result),
-            Err(error) => println!("Program Execution Error: \n {}", error)
+            Err(error) => { 
+                panic!("Program Execution Error: \n {}", error);
+            }
         }
         return
     }
@@ -104,58 +106,70 @@ fn main() {
         return
     }
 
-    {
-        // VM CLI invocations.
+    if argv[1] == "local" {
+        // "local" VM CLI invocations.
+        if argv.len() < 3 {
+            eprintln!("Usage: {} local [command]
+where command is one of:
 
+  initialize         to initialize a local VM state database.
+  check              to typecheck a potential contract definition.
+  launch             to launch a initialize a new contract in the local state database.
+  eval               to evaluate (in read-only mode) a program in a given contract context.
+  execute            to execute a public function of a defined contract.
+
+", argv[0]);
+            process::exit(1);
+        }
+
+        use vm::parser::parse;
         use vm::contexts::OwnedEnvironment;
         use vm::database::{ContractDatabaseConnection};
         use vm::{SymbolicExpression, SymbolicExpressionType};
+        use vm::checker::{type_check, AnalysisDatabase};
         use vm::types::Value;
 
-        match argv[1].as_ref() {
-            "init_db" => {
-                if argv.len() < 3 {
-                    eprintln!("Usage: {} init_db [vm-state.sqlite.db]", argv[0]);
+        match argv[2].as_ref() {
+            "initialize" => {
+                if argv.len() < 4 {
+                    eprintln!("Usage: {} local initialize [vm-state.db]", argv[0]);
                     process::exit(1);
                 }
-                match ContractDatabaseConnection::initialize(&argv[2]) {
+                AnalysisDatabase::initialize(&argv[3]);
+                match ContractDatabaseConnection::initialize(&argv[3]) {
                     Ok(_) => println!("Database created."),
                     Err(error) => eprintln!("Initialization error: \n {}", error)
                 }
                 return
             },
             "check" => {
-                use vm::checker::{type_check, AnalysisDatabase};
-                use vm::parser::parse;
-
-                if argv.len() < 3 {
-                    eprintln!("Usage: {} check [program-file.scm] (analysis_db.sqlite)", argv[0]);
+                if argv.len() < 4 {
+                    eprintln!("Usage: {} local check [program-file.scm] (vm-state.db)", argv[0]);
                     process::exit(1);
                 }
 
-                let content: String = fs::read_to_string(&argv[2])
-                    .expect(&format!("Error reading file: {}", argv[2]));
+                let content: String = fs::read_to_string(&argv[3])
+                    .expect(&format!("Error reading file: {}", argv[3]));
                 
                 let mut db = {
-                    if argv.len() >= 4 {
-                        AnalysisDatabase::open(&argv[3])
+                    if argv.len() >= 5 {
+                        AnalysisDatabase::open(&argv[4])
                     } else {
                         AnalysisDatabase::memory()
                     }
                 };
 
                 let mut ast = parse(&content).expect("Failed to parse program.");
-
-                type_check(&"transient", &mut ast, &mut db).expect("Type check error.");
+                type_check(&"transient", &mut ast, &mut db, false).expect("Type check error.");
 
                 return
             },
             "eval" => {
-                if argv.len() < 4 {
-                    eprintln!("Usage: {} eval [vm-state.sqlite.db] [contract-name] [program.scm]", argv[0]);
+                if argv.len() < 6 {
+                    eprintln!("Usage: {} local eval [context-contract-name] [program.scm] [vm-state.db]", argv[0]);
                     process::exit(1);
                 }
-                let vm_filename = &argv[2];
+                let vm_filename = &argv[5];
 
                 let mut db = match ContractDatabaseConnection::open(vm_filename) {
                     Ok(db) => db,
@@ -164,11 +178,11 @@ fn main() {
                         process::exit(1);
                     }
                 };
-                let content: String = fs::read_to_string(&argv[3])
-                    .expect(&format!("Error reading file: {}", argv[3]));
+                let content: String = fs::read_to_string(&argv[4])
+                    .expect(&format!("Error reading file: {}", argv[4]));
                 
                 let mut vm_env = OwnedEnvironment::new(&mut db);
-                let contract_name = &argv[2];
+                let contract_name = &argv[3];
                 
                 let result = vm_env.get_exec_environment(None)
                     .eval_read_only(contract_name, &content);
@@ -177,17 +191,30 @@ fn main() {
                     Ok(x) => {
                         println!("Program executed successfully! Output: \n {}", x);
                     },
-                    Err(error) => println!("Transaction execution error: \n {}", error)
+                    Err(error) => println!("Program execution error: \n {}", error)
                 }
                 return
             }
-            "init_contract" => {
-                if argv.len() < 5 {
-                    eprintln!("Usage: {} init_contract [vm-state.sqlite.db] [contract-name] [program-file.scm]", argv[0]);
+            "launch" => {
+                if argv.len() < 6 {
+                    eprintln!("Usage: {} local launch [contract-name] [contract-definition.scm] [vm-state.db]", argv[0]);
                     process::exit(1);
                 }
-                let vm_filename = &argv[2];
-                
+                let vm_filename = &argv[5];
+
+                let contract_name = &argv[3];
+                let contract_content: String = fs::read_to_string(&argv[4])
+                    .expect(&format!("Error reading file: {}", argv[4]));
+
+                // typecheck and insert into typecheck tables
+                // Aaron todo: AnalysisDatabase and ContractDatabase should share a db connection...
+                //     that way, we can do the initialization _and_ the type check insert in a single
+                //     transaction that commits together.
+
+                let mut db = AnalysisDatabase::open(vm_filename);
+                let mut ast = parse(&contract_content).expect("Failed to parse program.");
+                type_check(contract_name, &mut ast, &mut db, true).expect("Type check error.");
+
                 let mut db = match ContractDatabaseConnection::open(vm_filename) {
                     Ok(db) => db,
                     Err(error) => {
@@ -197,9 +224,6 @@ fn main() {
                 };
 
                 let mut vm_env = OwnedEnvironment::new(&mut db);
-                let contract_name = &argv[3];
-                let contract_content: String = fs::read_to_string(&argv[4])
-                    .expect(&format!("Error reading file: {}", argv[4]));
 
                 let result = {
                     let mut env = vm_env.get_exec_environment(None);
@@ -214,12 +238,12 @@ fn main() {
                 }
                 return
             },
-            "exec_tx" => {
-                if argv.len() < 5 {
-                    eprintln!("Usage: {} exec_tx [vm-state.sqlite.db] [contract-name] [transaction-name] [sender-address] [args...]", argv[0]);
+            "execute" => {
+                if argv.len() < 7 {
+                    eprintln!("Usage: {} local execute [vm-state.db] [contract-name] [public-function-name] [sender-address] [args...]", argv[0]);
                     process::exit(1);
                 }
-                let vm_filename = &argv[2];
+                let vm_filename = &argv[3];
 
                 let mut db = match ContractDatabaseConnection::open(vm_filename) {
                     Ok(db) => db,
@@ -230,11 +254,11 @@ fn main() {
                 };
 
                 let mut vm_env = OwnedEnvironment::new(&mut db);
-                let contract_name = &argv[3];
-                let tx_name = &argv[4];
+                let contract_name = &argv[4];
+                let tx_name = &argv[5];
                 
-                let mut sender = vm::parser::parse(&format!("'{}", argv[5]))
-                    .expect(&format!("Error parsing sender {}", argv[5]));
+                let mut sender = vm::parser::parse(&format!("'{}", argv[6]))
+                    .expect(&format!("Error parsing sender {}", argv[6]));
                 let sender = {
                     if let Some(SymbolicExpression{ expr: SymbolicExpressionType::AtomValue(Value::Principal(version, principal)),
                                                     id: _ }) = sender.pop() {
@@ -244,7 +268,7 @@ fn main() {
                         process::exit(1);
                     }
                 };
-                let arguments: Vec<_> = argv[6..]
+                let arguments: Vec<_> = argv[7..]
                     .iter()
                     .map(|argument| {
                         let mut argument_parsed = vm::parser::parse(argument)
