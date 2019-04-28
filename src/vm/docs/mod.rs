@@ -17,6 +17,14 @@ struct SimpleFunctionAPI {
     example: &'static str,
 }
 
+struct SpecialAPI {
+    output_type: &'static str,
+    input_type: &'static str,
+    signature: &'static str,
+    description: &'static str,
+    example: &'static str,
+}
+
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(+ i1 i2...)",
     description: "Adds a variable number of integer inputs and returns the result. In the event of an _overflow_, throws a runtime error.",
@@ -148,7 +156,7 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions) -
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) = TypedNativeFunction::type_native_function(&function) {
             let input_type = match function_type {
                 FunctionType::Variadic(ref in_type, _) => {
-                    format!("{} ...", in_type)
+                    format!("{}, ...", in_type)
                 },
                 FunctionType::Fixed(ref in_types, _) => {
                     let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x)).collect();
@@ -178,6 +186,196 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions) -
     }
 }
 
+const IF_API: SpecialAPI = SpecialAPI {
+    input_type: "bool, A, A",
+    output_type: "A",
+    signature: "(if bool1 expr1 expr2)",
+    description: "The `if` function admits a boolean argument and two expressions 
+which must return the same type. In the case that the boolean input is `true`, the
+`if` function evaluates and returns `expr1`. If the boolean input is `false`, the
+`if` function evaluates and returns `expr2`.",
+    example: "(if true 1 2) => 1
+(if (> 1 2) 1 2) => 2"
+};
+
+const LET_API: SpecialAPI = SpecialAPI {
+    input_type: "((name2 AnyType) (name2 AnyType) ...), A",
+    output_type: "A",
+    signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body)",
+    description: "The `let` function accepts a list of `variable name` and `expression` pairs,
+evaluating each expression and _binding_ it to the corresponding variable name. The _context_
+created by this set of bindings is used for evaluating and return the value of `expr-body`.",
+    example: "(let ((a 2) (b (+ 5 6 7))) (+ a b)) => 20"
+};
+
+const MAP_API: SpecialAPI = SpecialAPI {
+    input_type: "Function(A) -> B, (list A)",
+    output_type: "(list B)",
+    signature: "(map func list)",
+    description: "The `map` function applies the input function `func` to each element of the
+input list, and outputs a list containing the _outputs_ from those function applications.",
+    example: "(map not (list true false true false)) -> false true false true"
+};
+
+const FOLD_API: SpecialAPI = SpecialAPI {
+    input_type: "Function(A, B) -> B, (list A)",
+    output_type: "B",
+    signature: "(fold func list initial-value)",
+    description: "The `fold` function applies the input function `func` to each element of the
+input list _and_ the output of the previous application of the `fold` function. When invoked on
+the first list element, it uses the `initial-value` as the second input. `fold` returns the last
+value return by the successive applications.",
+    example: "(fold * (list 2 2 2) 1) => 8
+(fold * (list 2 2 2) 0) => 0"
+};
+
+const LIST_API: SpecialAPI = SpecialAPI {
+    input_type: "A, ...",
+    output_type: "(list A)",
+    signature: "(list expr1 expr2 expr3 ...)",
+    description: "The `list` function constructs a list composed of the inputted values. Each
+supplied value must be of the same type.",
+    example: "(list (+ 1 2) 4 5) => [3 4 5]",
+};
+
+const BEGIN_API: SpecialAPI = SpecialAPI {
+    input_type: "AnyType, ... A",
+    output_type: "A",
+    signature: "(begin expr1 expr2 expr3 ... expr-last)",
+    description: "The `begin` function evaluates each of its input expressions, returning the
+return value of the last such expression.",
+    example: "(begin (+ 1 2) 4 5) => 5",
+};
+
+const PRINT_API: SpecialAPI = SpecialAPI {
+    input_type: "A",
+    output_type: "A",
+    signature: "(print expr)",
+    description: "The `print` function evaluates and returns its input expression. On blockstack-core
+nodes configured for development (as opposed to production mining nodes), this function will also
+cause blockstack-core to print the resulting value to STDOUT.",
+    example: "(print (+ 1 2 3)) => 6",
+};
+
+const FETCH_API: SpecialAPI = SpecialAPI {
+    input_type: "MapName, Tuple",
+    output_type: "Tuple|Void",
+    signature: "(fetch-entry map-name key-tuple)",
+    description: "The `fetch-entry` function looks up and returns an entry from a contract's data map.
+The value is looked up using `key-tuple`. If there is no value associated with that key in the data
+map, the function returns Void.",
+    example: "(fetch-entry names-map (tuple (name \"blockstack\"))) => (tuple (id 1337))",
+};
+
+const SET_API: SpecialAPI = SpecialAPI {
+    input_type: "MapName, TupleA, TupleB",
+    output_type: "Void",
+    signature: "(set-entry! map-name key-tuple value-tuple)",
+    description: "The `set-entry!` function sets the value associated with the input key to the 
+inputted value. This function performs a _blind_ update; whether or not a value is already associated
+with the key, the function overwrites that existing association.",
+    example: "(set-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) => Void",
+};
+
+const INSERT_API: SpecialAPI = SpecialAPI {
+    input_type: "MapName, TupleA, TupleB",
+    output_type: "bool",
+    signature: "(insert-entry! map-name key-tuple value-tuple)",
+    description: "The `insert-entry!` function sets the value associated with the input key to the 
+inputted value if and only if there is not already a value associated with the key in the map.
+In the event that an insert occurred, the function returns `true`. If a value already existed for
+this key in the data map, the function returns `false`.",
+    example: "(insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) => true
+(insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) => false
+",
+};
+
+const DELETE_API: SpecialAPI = SpecialAPI {
+    input_type: "MapName, Tuple",
+    output_type: "bool",
+    signature: "(delete-entry! map-name key-tuple)",
+    description: "The `delete-entry!` function removes the value associated with the input key for
+the given map. In the event that an item existed, and was removed, the function returns `true`.
+If a value did not exist for this key in the data map, the function returns `false`.",
+    example: "(delete-entry! names-map (tuple (name \"blockstack\"))) => true
+(delete-entry! names-map (tuple (name \"blockstack\"))) => false
+",
+};
+
+const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
+    input_type: "ContractName, MapName, Tuple",
+    output_type: "Tuple|Void",
+    signature: "(fetch-contract-entry contract-name map-name key-tuple)",
+    description: "The `fetch-contract-entry` function looks up and returns an entry from a
+contract other than the current contract's data map. The value is looked up using `key-tuple`.
+If there is no value associated with that key in the data map, the function returns Void.",
+    example: "(fetch-contract-entry names-contract names-map (tuple (name \"blockstack\"))) => (tuple (id 1337))",
+};
+
+const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
+    input_type: "(list (KeyName AnyType))",
+    output_type: "Tuple",
+    signature: "(tuple ((key0 expr0) (key1 expr1) ...))",
+    description: "The `tuple` function constructs a typed tuple from the supplied key and expression pairs.
+Typed tuples can be used as inputs to the `get` function, which selects specific values from a given tuple.
+Key names may not appear multiple times in the same tuple definition. Supplied expressions are evaluated and
+associated with the expressions' paired key name.",
+    example: "(tuple (name \"blockstack\") (id 1337))"
+};
+
+const TUPLE_GET_API: SpecialAPI = SpecialAPI {
+    input_type: "KeyName, Tuple|Void",
+    output_type: "AnyType",
+    signature: "(get key-name tuple)",
+    description: "The `get` function fetches the value associated with a given key from the supplied typed tuple.
+If a Void value is supplied as the inputted tuple, `get` returns Void.",
+    example: "(get id (tuple (name \"blockstack\") (id 1337))) => 1337
+(get id 'null) => 'null
+"
+};
+
+const HASH_160_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|int",
+    output_type: "(buff 160)",
+    signature: "(hash160 value)",
+    description: "The `hash160` function computes RIPEMD160(SHA256(x)) of the inputted value.
+If an integer (128 bit) is supplied the hash is computed over the little endian representation of the
+integer.",
+    example: "(hash160 0) => 0xe4352f72356db555721651aa612e00379167b30f"
+};
+
+const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
+    input_type: "ContractName, PublicFunctionName, Arg0, ...",
+    output_type: "BoolType",
+    signature: "(contract-call! contract-name function-name arg0 arg1 ...)",
+    description: "The `contract-call!` function executes the given public function of the given contract.
+This function _may not_ be used to call a public function defined in the current contract. If the public
+function returns _false_, any database changes resulting from calling `contract-call!` are aborted.
+If the function returns _true_, database changes have occurred.",
+    example: "(contract-call! tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) => 'true"
+};
+
+const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
+    input_type: "A",
+    output_type: "A",
+    signature: "(as-contract expr)",
+    description: "The `as-contract` function switches the current context's `tx-sender` value to the _contract's_ 
+principal, and executes `expr` with that context. It returns the resulting value of `expr`.",
+    example: "(as-contract (print tx-sender)) => 'CTcontract.name"
+};
+
+
+fn make_for_special(api: &SpecialAPI) -> FunctionAPI {
+    FunctionAPI {
+        input_type: api.input_type.to_string(),
+        output_type: api.output_type.to_string(),
+        signature: api.signature.to_string(),
+        description: api.description.to_string(),
+        example: api.example.to_string()
+    }
+}
+
+
 fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use vm::functions::NativeFunctions::*;
     match function {
@@ -196,23 +394,23 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Or => make_for_simple_native(&OR_API, &Or),
         Not => make_for_simple_native(&NOT_API, &Not),
         Equals => make_for_simple_native(&EQUALS_API, &Equals),
-        If => panic!("NotImplemeneted"),
-        Let => panic!("NotImplemeneted"),
-        Map => panic!("NotImplemeneted"),
-        Fold => panic!("NotImplemeneted"),
-        ListCons => panic!("NotImplemeneted"),
-        FetchEntry => panic!("NotImplemeneted"),
-        FetchContractEntry => panic!("NotImplemeneted"),
-        SetEntry => panic!("NotImplemeneted"),
-        InsertEntry => panic!("NotImplemeneted"),
-        DeleteEntry => panic!("NotImplemeneted"),
-        TupleCons => panic!("NotImplemeneted"),
-        TupleGet => panic!("NotImplemeneted"),
-        Begin => panic!("NotImplemeneted"),
-        Hash160 => panic!("NotImplemeneted"),
-        Print => panic!("NotImplemeneted"),
-        ContractCall => panic!("NotImplemeneted"),
-        AsContract => panic!("NotImplemeneted"),
+        If => make_for_special(&IF_API),
+        Let => make_for_special(&LET_API),
+        Map => make_for_special(&MAP_API),
+        Fold => make_for_special(&FOLD_API),
+        ListCons => make_for_special(&LIST_API),
+        FetchEntry => make_for_special(&FETCH_API),
+        FetchContractEntry => make_for_special(&FETCH_CONTRACT_API),
+        SetEntry => make_for_special(&SET_API),
+        InsertEntry => make_for_special(&INSERT_API),
+        DeleteEntry => make_for_special(&DELETE_API),
+        TupleCons => make_for_special(&TUPLE_CONS_API),
+        TupleGet => make_for_special(&TUPLE_GET_API),
+        Begin => make_for_special(&BEGIN_API),
+        Hash160 => make_for_special(&HASH_160_API),
+        Print => make_for_special(&PRINT_API),
+        ContractCall => make_for_special(&CONTRACT_CALL_API),
+        AsContract => make_for_special(&AS_CONTRACT_API)
     }
 }
 

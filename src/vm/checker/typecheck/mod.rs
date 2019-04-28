@@ -36,6 +36,11 @@ Is illegally typed in our language.
 */
 
 
+// Aaron: TODO:
+//   we need to treat VOID types differently than we currently are.
+//   it should only be admissable for Void slots,
+//      _and_ tuple slots. 
+
 pub type TypeResult = CheckResult<TypeSignature>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FunctionType {
