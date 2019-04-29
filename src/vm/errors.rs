@@ -96,18 +96,6 @@ impl Error {
         Error { err_type: err_type,
                 stack_trace: None }
     }
-
-
-    pub fn has_stack_trace(&self) -> bool {
-        false
-    }
-
-    pub fn extend_with(&mut self, mut extension: StackTrace) {
-        if let Some(ref mut stack_trace) = self.stack_trace {
-            extension.extend(stack_trace.drain(..));
-        }
-        self.stack_trace = Some(extension)
-    }
 }
 
 #[cfg(test)]

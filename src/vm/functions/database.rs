@@ -31,12 +31,6 @@ pub fn special_contract_call(args: &[SymbolicExpression],
 
     env.execute_contract(
         contract_name, function_name, &rest_args)
-        .map_err(|mut x| {
-            if x.has_stack_trace() {
-                x.extend_with(env.call_stack.make_stack_trace())
-            }
-            x
-        })
 }
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],
