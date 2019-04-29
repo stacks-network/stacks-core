@@ -307,7 +307,13 @@ impl CallStack {
         }
     }
 
+    #[cfg(feature = "developer-mode")]
     pub fn make_stack_trace(&self) -> StackTrace {
         self.stack.clone()
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn make_stack_trace(&self) -> StackTrace {
+        Vec::new()
     }
 }

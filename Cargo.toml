@@ -9,6 +9,10 @@ description = "Reference implementation of Blockstack Core"
 keywords = [ "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
 
+[features]
+developer-mode = []
+default = ["developer-mode"]
+
 [dependencies]
 bitcoin = "0.14.2"
 jsonrpc = "0.10.2"
