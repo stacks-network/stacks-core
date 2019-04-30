@@ -817,7 +817,7 @@ cryptocurrency (not necessarily Bitcoin).
 
 The `amount` given will be in the smallest possible units of the currency.  For
 `BTC`, the `amount` will be in satoshis.  For `STACKS`, the `amount` will be in
-micro-Stacks (1/10,000th of a Stack).
+micro-Stacks (1/1,000,000th of a Stack).
 
 + Public Endpoint
 + Parameters
