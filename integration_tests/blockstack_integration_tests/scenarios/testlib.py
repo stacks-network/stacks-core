@@ -899,8 +899,9 @@ def blockstack_send_tokens(recipient_address, token_type, token_amount, privkey,
         return res
 
     stacks_recipient_address = res['testnet']['STACKS']
+    payment_key = get_default_payment_wallet().privkey
 
-    txid = nodejs_cli('send_tokens', stacks_recipient_address, token_type, token_amount, serialize_privkey_info(privkey), safety_checks=safety_checks, tx_only=tx_only, consensus_hash=consensus_hash, expect_fail=expect_fail)
+    txid = nodejs_cli('send_tokens', stacks_recipient_address, token_type, token_amount, serialize_privkey_info(privkey), payment_key, safety_checks=safety_checks, tx_only=tx_only, consensus_hash=consensus_hash, expect_fail=expect_fail)
     if 'error' in txid:
         return txid
 
@@ -1444,7 +1445,6 @@ def blockstack_gaia_listfiles(privkey, gaia_hub):
     """
     assert has_nodejs_cli()
     res = nodejs_cli('gaia_listfiles', gaia_hub, privkey, full_output=True)
-
     # listfiles output is a newline-separated list of names, plus the number of files at the end 
     filenames = filter(lambda s: len(s) > 0, res.split('\n'))
     return filenames[:-1]
