@@ -122,6 +122,8 @@ where command is one of:
             process::exit(1);
         }
 
+        use std::io;
+        use std::io::Read;
         use vm::parser::parse;
         use vm::contexts::OwnedEnvironment;
         use vm::database::{ContractDatabaseConnection};
@@ -169,11 +171,18 @@ where command is one of:
                 return
             },
             "eval" => {
-                if argv.len() < 6 {
-                    eprintln!("Usage: {} local eval [context-contract-name] [program.scm] [vm-state.db]", argv[0]);
+                if argv.len() < 5 {
+                    eprintln!("Usage: {} local eval [context-contract-name] (program.scm) [vm-state.db]", argv[0]);
                     process::exit(1);
                 }
-                let vm_filename = &argv[5];
+
+                let vm_filename = {
+                    if argv.len() == 5 {
+                        &argv[4]
+                    } else {
+                        &argv[5]
+                    }
+                };
 
                 let mut db = match ContractDatabaseConnection::open(vm_filename) {
                     Ok(db) => db,
@@ -182,9 +191,19 @@ where command is one of:
                         process::exit(1);
                     }
                 };
-                let content: String = fs::read_to_string(&argv[4])
-                    .expect(&format!("Error reading file: {}", argv[4]));
-                
+
+                let content: String = {
+                    if argv.len() == 5 {
+                        let mut buffer = String::new();
+                        io::stdin().read_to_string(&mut buffer)
+                            .expect("Error reading from stdin.");
+                        buffer
+                    } else {
+                        fs::read_to_string(&argv[4])
+                            .expect(&format!("Error reading file: {}", argv[4]))
+                    }
+                };
+
                 let mut vm_env = OwnedEnvironment::new(&mut db);
                 let contract_name = &argv[3];
                 
@@ -301,10 +320,18 @@ where command is one of:
                 };
                 match result {
                     Ok(x) => {
-                        vm_env.commit();
-                        println!("Transaction executed successfully! Output: {}", x);
+                        if let Value::Bool(x) = x {
+                            vm_env.commit();
+                            if x {
+                                println!("Transaction executed and committed.");
+                            } else {
+                                println!("Aborted: Transaction returned false.");
+                            }
+                        } else {
+                            panic!(format!("Expected a bool result from transaction. Found: {}", x));
+                        }
                     },
-                    Err(error) => println!("Transaction execution error: \n {}", error)
+                    Err(error) => println!("Transaction execution error: \n {}", error),
                 }
                 return
             },
