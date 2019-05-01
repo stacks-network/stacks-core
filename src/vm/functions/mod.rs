@@ -171,7 +171,9 @@ fn native_print(args: &[Value]) -> Result<Value> {
     if !(args.len() == 1) {
         return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to print (expects 1)".to_string())))
     }
-    eprintln!("{:?}", args[0]);
+    if cfg!(feature = "developer-mode") {
+        eprintln!("{:?}", args[0]);
+    }
     Ok(args[0].clone())
 }
 

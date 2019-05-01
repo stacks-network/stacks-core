@@ -418,10 +418,9 @@ pub fn make_json_api_reference() -> String {
     use vm::functions::NativeFunctions::*;
     let natives = [ Add, Subtract, Multiply, Divide, CmpGeq, CmpLeq, CmpLess, CmpGreater, Modulo, Power,
                     BitwiseXOR, And, Or, Not, Equals ];
-    let json_references: Vec<String> = natives.iter()
+    let json_references: Vec<_> = natives.iter()
         .map(|x| make_api_reference(x))
-        .map(|x| serde_json::to_string(&x)
-             .expect("Failed to serialize documentation"))
         .collect();
-    format!("[{}]", json_references.join(",\n"))
+    format!("{}", serde_json::to_string(&json_references)
+            .expect("Failed to serialize documentation"))
 }

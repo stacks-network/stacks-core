@@ -204,9 +204,7 @@ impl fmt::Display for Value {
             Value::Bool(boolean) => write!(f, "{}", boolean),
             Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes.data)),
             Value::Tuple(data) => write!(f, "{}", data),
-            Value::Principal(principal_data) => {
-                write!(f, "'{}", principal_data)
-            },
+            Value::Principal(principal_data) => write!(f, "{}", principal_data),
             Value::List(list_data) => {
                 write!(f, "( ")?;
                 for v in list_data.data.iter() {
@@ -417,13 +415,13 @@ impl TupleData {
 impl fmt::Display for TupleData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut first = true;
-        write!(f, "(")?;
+        write!(f, "(tuple ")?;
         for (name, value) in self.data_map.iter() {
             if !first {
-                write!(f, ", ")?;
+                write!(f, " ")?;
             }
             first = false;
-            write!(f, "{}: {}", name, value)?;
+            write!(f, "({} {})", name, value)?;
         }
         write!(f, ")")
     }
