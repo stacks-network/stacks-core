@@ -295,7 +295,7 @@ impl StacksMessageCodec for u64 {
 
 impl StacksPublicKeyBuffer {
     pub fn from_public_key(pubkey: &Secp256k1PublicKey) -> StacksPublicKeyBuffer {
-        let pubkey_bytes_vec = pubkey.to_bytes();
+        let pubkey_bytes_vec = pubkey.to_bytes_compressed();
         let mut pubkey_bytes = [0u8; 33];
         pubkey_bytes.copy_from_slice(&pubkey_bytes_vec[..]);
         StacksPublicKeyBuffer(pubkey_bytes)
@@ -335,9 +335,9 @@ where
 
 impl Preamble {
     /// Make an empty preamble with the given version and fork-set identifier, and payload length.
-    pub fn new(network_id: u32, block_height: u64, consensus_hash: &ConsensusHash, stable_block_height: u64, stable_consensus_hash: &ConsensusHash, payload_len: u32) -> Preamble {
+    pub fn new(peer_version: u32, network_id: u32, block_height: u64, consensus_hash: &ConsensusHash, stable_block_height: u64, stable_consensus_hash: &ConsensusHash, payload_len: u32) -> Preamble {
         Preamble {
-            peer_version: PEER_VERSION as u32,
+            peer_version: peer_version,
             network_id: network_id,
             seq: 0,
             burn_block_height: block_height,
@@ -635,7 +635,7 @@ impl NeighborAddress {
         NeighborAddress {
             addrbytes: n.addr.addrbytes.clone(),
             port: n.addr.port,
-            public_key_hash: Hash160::from_data(&n.public_key.to_bytes()[..])
+            public_key_hash: Hash160::from_data(&n.public_key.to_bytes_compressed()[..])
         }
     }
 }
@@ -933,6 +933,27 @@ pub fn message_type_to_id(msg: &StacksMessageType) -> u8 {
     }
 }
 
+/// Match up a message type to its string representation 
+pub fn message_type_to_str(msg: &StacksMessageType) -> &str {
+    match msg {
+        StacksMessageType::Handshake(ref _m) => "Handshake",
+        StacksMessageType::HandshakeAccept(ref _m) => "HandshakeAccept",
+        StacksMessageType::HandshakeReject => "HandshakeReject",
+        StacksMessageType::GetNeighbors => "GetNeighbors",
+        StacksMessageType::Neighbors(ref _m) => "Neighbors",
+        StacksMessageType::GetBlocksInv(ref _m) => "GetBlocksInv",
+        StacksMessageType::BlocksInv(ref _m) => "BlocksInv",
+        StacksMessageType::GetBlocks(ref _m) => "GetBlocks",
+        StacksMessageType::Blocks(ref _m) => "Blocks",
+        StacksMessageType::GetMicroblocks(ref _m) => "GetMicroblocks",
+        StacksMessageType::Microblocks(ref _m) => "Microblocks",
+        StacksMessageType::Transaction(ref _m) => "Transaction",
+        StacksMessageType::Nack(ref _m) => "Nack",
+        StacksMessageType::Ping(ref _m) => "Ping",
+        StacksMessageType::Pong(ref _m) => "Pong"
+    }
+}
+
 impl StacksMessageCodec for StacksMessage {
     fn serialize(&self) -> Vec<u8> {
         let message_id : u8 = message_type_to_id(&self.payload);
@@ -958,8 +979,8 @@ impl StacksMessageCodec for StacksMessage {
 
 impl StacksMessage {
     /// Create an unsigned Stacks message
-    pub fn new(network_id: u32, block_height: u64, consensus_hash: &ConsensusHash, stable_block_height: u64, stable_consensus_hash: &ConsensusHash, message: StacksMessageType) -> StacksMessage {
-        let preamble = Preamble::new(network_id, block_height, consensus_hash, stable_block_height, stable_consensus_hash, 0);
+    pub fn new(peer_version: u32, network_id: u32, block_height: u64, consensus_hash: &ConsensusHash, stable_block_height: u64, stable_consensus_hash: &ConsensusHash, message: StacksMessageType) -> StacksMessage {
+        let preamble = Preamble::new(peer_version, network_id, block_height, consensus_hash, stable_block_height, stable_consensus_hash, 0);
         StacksMessage {
             preamble: preamble, 
             relayers: vec![],
@@ -968,8 +989,18 @@ impl StacksMessage {
     }
 
     /// Create an unsigned Stacks message
-    pub fn from_chain_view(network_id: u32, chain_view: &BurnchainView, message: StacksMessageType) -> StacksMessage {
-        StacksMessage::new(network_id, chain_view.burn_block_height, &chain_view.burn_consensus_hash, chain_view.burn_stable_block_height, &chain_view.burn_stable_consensus_hash, message)
+    pub fn from_chain_view(peer_version: u32, network_id: u32, chain_view: &BurnchainView, message: StacksMessageType) -> StacksMessage {
+        StacksMessage::new(peer_version, network_id, chain_view.burn_block_height, &chain_view.burn_consensus_hash, chain_view.burn_stable_block_height, &chain_view.burn_stable_consensus_hash, message)
+    }
+
+    /// represent as neighbor key 
+    pub fn to_neighbor_key(&self, addrbytes: &PeerAddress, port: u16) -> NeighborKey {
+        NeighborKey {
+            peer_version: self.preamble.peer_version,
+            network_id: self.preamble.network_id,
+            addrbytes: addrbytes.clone(),
+            port: port
+        }
     }
 
     /// Sign the stacks message 
@@ -2127,7 +2158,7 @@ mod test {
         let privkey = Secp256k1PrivateKey::new();
         let pubkey_buf = StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&privkey));
 
-        let mut ping = StacksMessage::new(0x9abcdef0,
+        let mut ping = StacksMessage::new(PEER_VERSION, 0x9abcdef0,
                                           12345,
                                           &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
                                           12339,
@@ -2136,5 +2167,18 @@ mod test {
 
         ping.sign(444, &privkey).unwrap();
         ping.verify_secp256k1(&pubkey_buf).unwrap();
+    }
+
+    #[test]
+    fn codec_stacks_public_key_roundtrip() {
+        for i in 0..100 {
+            let privkey = Secp256k1PrivateKey::new();
+            let pubkey = Secp256k1PublicKey::from_private(&privkey);
+
+            let pubkey_buf = StacksPublicKeyBuffer::from_public_key(&pubkey);
+            let pubkey_2 = pubkey_buf.to_public_key().unwrap();
+
+            assert_eq!(pubkey, pubkey_2);
+        }
     }
 } 
