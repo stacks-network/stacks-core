@@ -61,6 +61,10 @@ use core::PEER_VERSION;
 use core::NETWORK_ID_MAINNET;
 use core::NETWORK_ID_TESTNET;
 
+use burnchains::bitcoin::indexer::FIRST_BLOCK_MAINNET as BITCOIN_FIRST_BLOCK_MAINNET;
+use burnchains::bitcoin::indexer::FIRST_BLOCK_TESTNET as BITCOIN_FIRST_BLOCK_TESTNET;
+use burnchains::bitcoin::indexer::FIRST_BLOCK_REGTEST as BITCOIN_FIRST_BLOCK_REGTEST;
+
 pub fn get_burn_quota_config(blockchain_name: &String) -> Option<BurnQuotaConfig> {
     match blockchain_name.as_str() {
         "bitcoin" => {
@@ -70,6 +74,24 @@ pub fn get_burn_quota_config(blockchain_name: &String) -> Option<BurnQuotaConfig
                 dec_den: 5,     // multiply by 4/5 if we don't meet quota 
             })
         },
+        _ => None
+    }
+}
+
+pub fn get_first_block_height(chain_name: &String, network_name: &String) -> Option<u64> {
+    match (chain_name.as_str(), network_name.as_str()) {
+        ("bitcoin", "mainnet") => Some(BITCOIN_FIRST_BLOCK_MAINNET),
+        ("bitcoin", "testnet") => Some(BITCOIN_FIRST_BLOCK_TESTNET),
+        ("bitcoin", "regtest") => Some(BITCOIN_FIRST_BLOCK_REGTEST),          // TODO
+        _ => None
+    }
+}
+
+pub fn get_first_block_hash(chain_name: &String, network_name: &String) -> Option<BurnchainHeaderHash> {
+    match (chain_name.as_str(), network_name.as_str()) {
+        ("bitcoin", "mainnet") => Some(BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()),      // TODO
+        ("bitcoin", "testnet") => Some(BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()),      // TODO
+        ("bitcoin", "regtest") => Some(BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()),      // TODO
         _ => None
     }
 }
@@ -95,6 +117,18 @@ impl Burnchain {
                 _ => panic!("Unrecognized network name")
             };
 
+        let first_block_height = 
+            match get_first_block_height(chain_name, network_name) {
+                Some(h) => h,
+                None => panic!("Unrecognized chain and network name")
+            };
+
+        let first_block_hash = 
+            match get_first_block_hash(chain_name, network_name) {
+                Some(h) => h,
+                None => panic!("Unrecognized chain and network name")
+            };
+
         Ok(Burnchain {
             peer_version: PEER_VERSION,
             network_id: network_id,
@@ -104,7 +138,17 @@ impl Burnchain {
             burn_quota: burn_quota_info,
             consensus_hash_lifetime: ch_lifetime,
             stable_confirmations: stable_confirmations,
+            first_block_height: first_block_height,
+            first_block_hash: first_block_hash
         })
+    }
+
+    #[cfg(test)]
+    pub fn default_unittest(first_block_height: u64, first_block_hash: &BurnchainHeaderHash) -> Burnchain {
+        let mut ret = Burnchain::new(&"/unit-tests".to_string(), &"bitcoin".to_string(), &"mainnet".to_string()).unwrap();
+        ret.first_block_height = first_block_height;
+        ret.first_block_hash = first_block_hash.clone();
+        ret
     }
 
     pub fn get_chainstate_path(working_dir: &String, chain_name: &String, network_name: &String) -> String {
@@ -820,7 +864,9 @@ mod tests {
             working_dir: "/nope".to_string(),
             burn_quota: get_burn_quota_config(&"bitcoin".to_string()).unwrap(),
             consensus_hash_lifetime: 24,
-            stable_confirmations: 7
+            stable_confirmations: 7,
+            first_block_height: first_block_height,
+            first_block_hash: first_burn_hash.clone()
         };
         
         let block_121_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000012").unwrap();
@@ -1349,7 +1395,9 @@ mod tests {
                 dec_den: 5
             },
             consensus_hash_lifetime: 24,
-            stable_confirmations: 7
+            stable_confirmations: 7,
+            first_block_height: first_block_height,
+            first_block_hash: first_burn_hash.clone()
         };
 
         let mut leader_private_keys = vec![];
