@@ -181,6 +181,11 @@ impl <'a> GlobalContext <'a> {
         }
     }
 
+    pub fn get_block_height(&self) -> i128 {
+        self.database.get_simmed_block_height()
+            .expect("Failed to obtain the current block height.")
+    }
+
     pub fn begin_from(database: &'a mut ContractDatabaseTransacter) -> GlobalContext<'a> {
         let db = database.begin_save_point();
         GlobalContext::new(db)
