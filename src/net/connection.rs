@@ -51,6 +51,7 @@ use chainstate::burn::ConsensusHash;
 use util::log;
 use util::secp256k1::Secp256k1PublicKey;
 use util::get_epoch_time_secs;
+use util::sleep_ms;
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
@@ -163,7 +164,16 @@ pub struct ConnectionOptions {
     pub outbox_maxlen: usize,
     pub timeout: u64,
     pub heartbeat: u32,
-    pub private_key_lifetime: u64
+    pub private_key_lifetime: u64,
+    pub num_neighbors: u64,
+    pub num_clients: u64,
+    pub soft_num_neighbors: u64,
+    pub soft_num_clients: u64,
+    pub max_neighbors_per_host: u64,
+    pub max_clients_per_host: u64,
+    pub soft_max_neighbors_per_host: u64,
+    pub soft_max_neighbors_per_org: u64,
+    pub soft_max_clients_per_host: u64
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -176,6 +186,15 @@ impl std::default::Default for ConnectionOptions {
             timeout: 30,
             heartbeat: 2592000,
             private_key_lifetime: 4302,
+            num_neighbors: 32,              // how many outbound connections we can have, full-stop
+            num_clients: 256,               // how many inbound connections we can have, full-stop
+            soft_num_neighbors: 20,         // how many outbound connections we can have, before we start pruning them
+            soft_num_clients: 128,          // how many inbound connections we can have, before we start pruning them
+            max_neighbors_per_host: 10,     // how many outbound connections we can have per IP address, full-stop
+            max_clients_per_host: 10,       // how many inbound connections we can have per IP address, full-stop
+            soft_max_neighbors_per_host: 10,     // how many outbound connections we can have per IP address, before we start pruning them
+            soft_max_neighbors_per_org: 10,      // how many outbound connections we can have per AS-owning organization, before we start pruning them
+            soft_max_clients_per_host: 10,       // how many inbound connections we can have per IP address, before we start pruning them
         }
     }
 }
@@ -214,8 +233,8 @@ impl ConnectionInbox {
 
             let data_left = buf.len() - data_to_read;
 
-            test_debug!("preamble_buf.len() = {}, buf.len() = {}", self.preamble_buf.len(), buf.len());
-            test_debug!("Consume {} bytes for preamble, leaving {} bytes for payload", data_to_read, data_left);
+            // test_debug!("preamble_buf.len() = {}, buf.len() = {}", self.preamble_buf.len(), buf.len());
+            // test_debug!("Consume {} bytes for preamble, leaving {} bytes for payload", data_to_read, data_left);
 
             self.preamble_buf.extend_from_slice(&buf[0..data_to_read]);
 
@@ -230,7 +249,7 @@ impl ConnectionInbox {
                         self.preamble = Some(preamble);
                         self.preamble_buf.clear();
 
-                        test_debug!("Consumed {} bytes for preamble", index);
+                        // test_debug!("Consumed {} bytes for preamble", index);
                     },
                     Err(_) => {
                         // invalid message
@@ -243,7 +262,7 @@ impl ConnectionInbox {
         }
         else {
             // nothing to do -- already have a preamble
-            test_debug!("Already have preamble; leaving {} bytes for payload", buf.len());
+            // test_debug!("Already have preamble; leaving {} bytes for payload", buf.len());
             return Ok(0);
         }
     }
@@ -266,7 +285,7 @@ impl ConnectionInbox {
 
                 let data_left = buf.len() - data_to_read;
 
-                test_debug!("Consume {} bytes for payload, leaving {} bytes for next message", data_to_read, data_left);
+                // test_debug!("Consume {} bytes for payload, leaving {} bytes for next message", data_to_read, data_left);
 
                 self.payload_data.extend_from_slice(&buf[0..data_to_read]);
 
@@ -286,10 +305,10 @@ impl ConnectionInbox {
                     match message_res {
                         Ok(message) => {
                             // got a message!
+                            test_debug!("Consumed {} bytes to form a '{}' message (seq {})", index, message_type_to_str(&message.payload).to_owned(), message.preamble.seq);
+
                             self.inbox.push_back(message);
                             got_message = true;
-
-                            test_debug!("Consumed {} bytes to form message", index);
                         },
                         Err(e) => {
                             // invalid message 
@@ -302,7 +321,7 @@ impl ConnectionInbox {
             },
             None => {
                 // nothing to do -- no preamble 
-                test_debug!("Leaving {} bytes for next preamble", buf.len());
+                // test_debug!("Leaving {} bytes for next preamble", buf.len());
             }
         }
 
@@ -360,12 +379,17 @@ impl ConnectionInbox {
             let num_read_res = fd.read(&mut buf);
             let num_read =
                 match num_read_res {
+                    Ok(0) => {
+                        // remote fd is closed
+                        Err(net_error::RecvError(format!("Remote endpoint is closed")))
+                    },
                     Ok(count) => Ok(count),
                     Err(e) => {
                         if e.kind() == IoErrorKind::WouldBlock {
                             Ok(0)
                         }
                         else {
+                            debug!("Failed to read from fd: {:?}", &e);
                             Err(net_error::RecvError(format!("Failed to read")))
                         }
                     }
@@ -410,8 +434,11 @@ impl ConnectionOutbox {
     /// queue up a message to be sent 
     fn queue_message(&mut self, m: StacksMessage, r: Option<ReceiverNotify>) -> Result<(), net_error> {
         if self.outbox.len() > self.outbox_maxlen {
+            test_debug!("Outbox is full! has {} items", self.outbox.len());
             return Err(net_error::OutboxOverflow);
         }
+
+        test_debug!("Push to outbox: {}", message_type_to_str(&m.payload).to_owned());
         self.outbox.push_back(InflightMessage {
             message: m,
             notify: r
@@ -423,11 +450,13 @@ impl ConnectionOutbox {
     /// Importantly, this can be used without a socket (for testing purposes).
     /// Getting back net_error::SendError indicates that the fd is bad and should be closed
     fn send_bytes<W: Write>(&mut self, fd: &mut W) -> Result<usize, net_error> {
-        test_debug!("send bytes!");
         if self.outbox.len() == 0 {
             // nothing to do 
+            // test_debug!("send bytes, but outbox is empty!");
             return Ok(0);
         }
+        
+        // test_debug!("send bytes!");
         let mut blocked = false;
         let mut num_sent = 0;
         while !blocked {
@@ -435,17 +464,22 @@ impl ConnectionOutbox {
             if self.socket_out_buf.len() == 0 {
                 if self.outbox.len() == 0 {
                     // outbox empty, and all pending data sent.  we're done!
+                    // test_debug!("outbox is now empty!");
                     break;
                 }
 
-                // fill in the next message 
-                let mut serialized_message = self.outbox.get(0).unwrap().message.serialize();
+                // fill in the next message
+                let message = &self.outbox.get(0).unwrap().message;
+                let mut serialized_message = message.serialize();
                 self.socket_out_buf.append(&mut serialized_message);
                 self.socket_out_ptr = 0;
-                test_debug!("Queue next message: socket_buf_ptr = {}, socket_out_buf.len() = {}", self.socket_out_ptr, self.socket_out_buf.len());
+                test_debug!("Queue next message ({} seq {}): socket_buf_ptr = {}, socket_out_buf.len() = {}", 
+                            message_type_to_str(&message.payload).to_owned(), message.preamble.seq, self.socket_out_ptr, self.socket_out_buf.len());
             }
 
             // send as many bytes as we can
+            // test_debug!("Write up to {} bytes", self.socket_out_buf.len() - (self.socket_out_ptr as usize));
+
             let num_written_res = fd.write(&self.socket_out_buf[(self.socket_out_ptr as usize)..]);
             let num_written =
                 match num_written_res {
@@ -455,12 +489,13 @@ impl ConnectionOutbox {
                             Ok(0)
                         }
                         else {
+                            debug!("Failed to write to fd: {:?}", &e);
                             Err(net_error::SendError(format!("Failed to send {} bytes", (self.socket_out_buf.len() as u32) - self.socket_out_ptr)))
                         }
                     }
                 }?;
 
-            test_debug!("Write bytes: socket_buf_ptr = {}, socket_out_buf.len() = {}, num_written = {}", self.socket_out_ptr, self.socket_out_buf.len(), num_written);
+            // test_debug!("Write bytes: socket_buf_ptr = {}, socket_out_buf.len() = {}, num_written = {}", self.socket_out_ptr, self.socket_out_buf.len(), num_written);
 
             if num_written == 0 {
                 blocked = true;
@@ -473,7 +508,7 @@ impl ConnectionOutbox {
                 let mut inflight_message = self.outbox.pop_front();
                 let receiver_notify_opt = inflight_message.take();
                 
-                test_debug!("Notify blocked threads: socket_buf_ptr = {}, socket_out_buf.len() = {}", self.socket_out_ptr, self.socket_out_buf.len());
+                // test_debug!("Notify blocked threads: socket_buf_ptr = {}, socket_out_buf.len() = {}", self.socket_out_ptr, self.socket_out_buf.len());
                 
                 match receiver_notify_opt {
                     None => {},
@@ -491,6 +526,11 @@ impl ConnectionOutbox {
             num_sent += num_written;
         }
         Ok(num_sent)
+    }
+    
+    /// How many queued messsages do we have?
+    pub fn num_messages(&self) -> usize {
+        self.outbox.len()
     }
 }
 
@@ -531,7 +571,7 @@ impl Connection {
     }
 
     /// Send any messages we got to waiting receivers.
-    /// Called by the p2p main loop to dispatch replies.
+    /// Used mainly for testing.
     /// Return the list of unsolicited messages (such as blocks and transactions).
     pub fn drain_inbox(&mut self) -> Vec<StacksMessage> {
         let inflight_index = 0;
@@ -559,27 +599,35 @@ impl Connection {
 
     /// Clear out timed-out requests.
     /// Called from the p2p main loop.
-    pub fn drain_timeouts(&mut self) -> () {
+    /// Returns number of messages drained.
+    pub fn drain_timeouts(&mut self) -> usize {
         let now = get_epoch_time_secs();
         let mut to_remove = vec![];
         for i in 0..self.outbox.inflight.len() {
             match self.outbox.inflight.get_mut(i) {
                 None => {
+                    to_remove.push(i);
                     continue;
                 }
                 Some(inflight) => {
                     if inflight.ttl < now {
                         // expired
+                        test_debug!("Request timed out: seq={} ttl={} now={}", inflight.expected_seq, inflight.ttl, now); 
                         to_remove.push(i);
                     }
                 }
             }
         }
 
+        let res = to_remove.len();
+
+        to_remove.reverse();
         for i in to_remove {
             // destroy the channel, causing anyone waiting for a reply to get an error.
             self.outbox.inflight.remove(i);
         }
+
+        res
     } 
 
     /// Send a signed message and expect a reply.
@@ -612,6 +660,11 @@ impl Connection {
     pub fn inbox_len(&self) -> usize {
         self.inbox.num_messages()
     }
+    
+    /// how many outbox messages pending?
+    pub fn outbox_len(&self) -> usize {
+        self.outbox.num_messages()
+    }
 
     /// get the next inbox message 
     pub fn next_inbox_message(&mut self) -> Option<StacksMessage> {
@@ -642,7 +695,10 @@ mod test {
     use super::*;
     use net::*;
     use util::secp256k1::*;
+    use util::*;
     use std::io;
+
+    use net::test::NetCursor;
 
     #[test]
     fn connection_relay_send() {
@@ -671,7 +727,7 @@ mod test {
         let mut conn = Connection::new(&conn_opts, None);
 
         // send
-        let mut ping = StacksMessage::new(0x9abcdef0,
+        let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                           12345,
                                           &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
                                           12339,
@@ -697,7 +753,7 @@ mod test {
         let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1 + 4) as usize;
         let mut ping_vec = vec![0; ping_size];
 
-        let mut write_buf = io::Cursor::new(ping_vec.as_mut_slice());
+        let mut write_buf = NetCursor::new(ping_vec.as_mut_slice());
 
         // send one ping 
         conn.send_data(&mut write_buf).unwrap();
@@ -718,7 +774,7 @@ mod test {
 
         // relay 1.5 pings
         let mut ping_buf_15 = vec![0; ping_size + (ping_size/2)];
-        let mut write_buf_15 = io::Cursor::new(ping_buf_15.as_mut_slice());
+        let mut write_buf_15 = NetCursor::new(ping_buf_15.as_mut_slice());
         conn.send_data(&mut write_buf_15).unwrap();
 
         // 3 messages still queued (the one partially-sent)
@@ -739,7 +795,7 @@ mod test {
         let mut ping_buf_05 = vec![0; 2*ping_size - (ping_size + ping_size/2)];
 
         // flush the remaining half-ping 
-        let mut write_buf_05 = io::Cursor::new(ping_buf_05.as_mut_slice());
+        let mut write_buf_05 = NetCursor::new(ping_buf_05.as_mut_slice());
         conn.send_data(&mut write_buf_05).unwrap();
 
         // 2 messages still queued 
@@ -790,7 +846,7 @@ mod test {
         // send
         let mut ping_vec = vec![];
         for i in 0..5 {
-            let mut ping = StacksMessage::new(0x9abcdef0,
+            let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                               12345 + i,
                                               &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
                                               12339 + i,
@@ -808,13 +864,13 @@ mod test {
         let mut ping_buf = vec![0u8; 5*ping_size];
 
         {
-            let mut ping_fd = io::Cursor::new(ping_buf.as_mut_slice());
+            let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
             let num_sent = conn.send_data(&mut ping_fd).unwrap();
             assert_eq!(num_sent, ping_size * 5);
         }
         
         {
-            let mut ping_fd = io::Cursor::new(ping_buf.as_mut_slice());
+            let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
             let num_read = conn.recv_data(&mut ping_fd).unwrap();
             assert_eq!(num_read, 5*ping_size);
         }
@@ -857,12 +913,12 @@ mod test {
         let mut ping_vec = vec![];
         let mut handle_vec = vec![];
         for i in 0..5 {
-            let mut ping = StacksMessage::new(0x9abcdef0,
+            let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                               12345 + i,
                                               &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
                                               12339 + i,
                                               &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
-                                              StacksMessageType::Ping(PingData { nonce: 0x01020304 }));
+                                              StacksMessageType::Ping(PingData { nonce: (0x01020304 + i) as u32 }));
 
             ping.sign(i as u32, &privkey).unwrap();
             
@@ -876,13 +932,13 @@ mod test {
         let mut ping_buf = vec![0u8; 5*ping_size];
 
         {
-            let mut ping_fd = io::Cursor::new(ping_buf.as_mut_slice());
+            let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
             let num_sent = conn.send_data(&mut ping_fd).unwrap();
             assert_eq!(num_sent, ping_size * 5);
         }
         
         {
-            let mut ping_fd = io::Cursor::new(ping_buf.as_mut_slice());
+            let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
             let num_read = conn.recv_data(&mut ping_fd).unwrap();
             assert_eq!(num_read, 5*ping_size);
         }
@@ -899,5 +955,89 @@ mod test {
         }
 
         assert_eq!(recved, ping_vec);
+    }
+
+    #[test]
+    fn connection_send_recv_timeout() {
+        let privkey = Secp256k1PrivateKey::new();
+        let pubkey = Secp256k1PublicKey::from_private(&privkey);
+
+        let neighbor = Neighbor {
+            addr: NeighborKey {
+                peer_version: 0x12345678,
+                network_id: 0x9abcdef0,
+                addrbytes: PeerAddress([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]),
+                port: 12345,
+            },
+            public_key: pubkey.clone(),
+            expire_block: 23456,
+            last_contact_time: 1552509642,
+            whitelisted: -1,
+            blacklisted: -1,
+            asn: 34567,
+            org: 45678,
+            in_degree: 0,
+            out_degree: 0
+        };
+
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.inbox_maxlen = 5;
+        conn_opts.outbox_maxlen = 5;
+        
+        let mut conn = Connection::new(&conn_opts, Some(neighbor.public_key));
+
+        // send
+        let mut ping_vec = vec![];
+        let mut handle_vec = vec![];
+        for i in 0..5 {
+            let mut ping = StacksMessage::new(0x12345678, 0x9abcdef0,
+                                              12345 + i,
+                                              &ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+                                              12339 + i,
+                                              &ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+                                              StacksMessageType::Ping(PingData { nonce: (0x01020304 + i) as u32 }));
+
+            ping.sign(i as u32, &privkey).unwrap();
+            
+            let handle = conn.send_signed_message(ping.clone(), get_epoch_time_secs() + 1).unwrap();
+            handle_vec.push(handle);
+            ping_vec.push(ping);
+        }
+        
+        // buffer to send/receive everything
+        let ping_size = (PREAMBLE_ENCODED_SIZE + 4 + 1 + 4) as usize;
+        let mut ping_buf = vec![0u8; 5*ping_size];
+
+        {
+            let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
+            let num_sent = conn.send_data(&mut ping_fd).unwrap();
+            assert_eq!(num_sent, ping_size * 5);
+        }
+
+        // wait 3 seconds 
+        test_debug!("Wait 3 seconds for Pings to time out");
+        sleep_ms(3000);
+        conn.drain_timeouts();
+
+        // all messages timed out
+        assert_eq!(conn.outbox.inflight.len(), 0);
+        
+        {
+            let mut ping_fd = NetCursor::new(ping_buf.as_mut_slice());
+            let num_read = conn.recv_data(&mut ping_fd).unwrap();
+
+            // data can still be received, but it won't be relayed.
+            assert_eq!(num_read, ping_size * 5);
+        }
+
+        // messages not relayed, so they'll show up as queued in the inbox instead
+        let msgs = conn.drain_inbox();
+        assert_eq!(msgs, ping_vec);
+
+        // all handles should be closed with the ConnectionBroken error
+        for h in handle_vec {
+            let res = h.recv(0);
+            assert_eq!(res, Err(net_error::ConnectionBroken));
+        }
     }
 }
