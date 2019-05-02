@@ -30,6 +30,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::io::Read;
 use std::io::Write;
+use std::io::Error as io_error;
+use std::io::ErrorKind;
 
 use util::log;
 
@@ -38,6 +40,8 @@ use mio::net as mio_net;
 use mio::Ready;
 use mio::Token;
 use mio::PollOpt;
+
+use std::net::Shutdown;
 
 pub const NUM_NEIGHBORS : u32 = 32;
 
@@ -58,6 +62,7 @@ impl NetworkPollState {
 }
 
 pub struct NetworkState {
+    addr: SocketAddr,
     poll: mio::Poll,
     server: mio_net::TcpListener,
     events: mio::Events,
@@ -87,6 +92,7 @@ impl NetworkState {
             })?;
 
         Ok(NetworkState {
+            addr: addr.clone(),
             poll: poll,
             server: server,
             events: events,
@@ -116,13 +122,25 @@ impl NetworkState {
             .map_err(|e| {
                 error!("Failed to deregister socket: {:?}", &e);
                 net_error::RegisterError
-            })
+            })?;
+
+        sock.shutdown(Shutdown::Both)
+            .map_err(|_e| net_error::SocketError)?;
+
+        test_debug!("Socket deregisterd: {:?}", sock);
+        Ok(())
     }
 
     /// Connect to a remote peer, but don't register it with the poll handle.
     pub fn connect(&mut self, addr: &SocketAddr) -> Result<mio_net::TcpStream, net_error> {
-        mio_net::TcpStream::connect(addr)
-            .map_err(|e| net_error::ConnectionError)
+        let stream = mio_net::TcpStream::connect(addr)
+            .map_err(|e| {
+                test_debug!("failed to connect to {:?}: {:?}", addr, &e);
+                net_error::ConnectionError
+            })?;
+
+        test_debug!("New socket connected to {:?}: {:?}", addr, &stream);
+        Ok(stream)
     }
 
     /// Poll socket states
@@ -134,17 +152,29 @@ impl NetworkState {
             })?;
        
         let mut poll_state = NetworkPollState::new();
-        for event in self.events.iter() {
+        for event in &self.events {
             match event.token() {
                 SERVER => {
-                    // new inbound connection 
-                    let (client_sock, client_addr) = match self.server.accept() {
-                        Ok((client_sock, client_addr)) => (client_sock, client_addr),
-                        Err(e) => return Err(net_error::AcceptError)
-                    };
+                    // new inbound connection(s)
+                    loop {
+                        let (client_sock, client_addr) = match self.server.accept() {
+                            Ok((client_sock, client_addr)) => (client_sock, client_addr),
+                            Err(e) => {
+                                match e.kind() {
+                                    ErrorKind::WouldBlock => {
+                                        break;
+                                    },
+                                    _ => {
+                                        return Err(net_error::AcceptError);
+                                    }
+                                }
+                            }
+                        };
 
-                    self.count += 1;
-                    poll_state.new.insert(self.count, client_sock);
+                        test_debug!("New socket accepted from {:?} (event {}): {:?}", &client_addr, self.count, &client_sock);
+                        poll_state.new.insert(self.count, client_sock);
+                        self.count += 1;
+                    }
                 },
                 mio::Token(event_id) => {
                     // I/O available 
