@@ -1,0 +1,49 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'blockstack-core'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=blockstack-core",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "blockstack-core",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": ["rust"]
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'blockstack-core'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=blockstack-core",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "blockstack-core",
+                    "kind": "bin"
+                }
+            },
+            "args": [
+                "--nocapture"
+            ],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": ["rust"]
+        }
+    ]
+}

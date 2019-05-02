@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "rust-lang.rust",
+        "vadimcn.vscode-lldb",
+        "serayuzgur.crates",
+        "editorconfig.editorconfig",
+    ]
+}
