@@ -26,6 +26,8 @@ pub mod secp256k1;
 pub mod uint;
 pub mod vrf;
 
+use std::time;
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::fmt;
 use std::error;
@@ -35,6 +37,11 @@ pub fn get_epoch_time_secs() -> u64 {
     let since_the_epoch = start.duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
     return since_the_epoch.as_secs();
+}
+
+pub fn sleep_ms(millis: u64) -> () {
+    let t = time::Duration::from_millis(millis);
+    thread::sleep(t);
 }
 
 /// Hex deserialization error
