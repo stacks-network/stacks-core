@@ -117,25 +117,17 @@ pub struct TransactionSmartContract {
     pub code_body: Vec<u8>
 }
 
-/// A transaction that invokes a smart contract
-#[derive(Debug, Clone, PartialEq)]
-pub struct TransactionSmartContractCall {
-    pub code_body: Vec<u8>
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionPayload {
     Payment(TransactionPayment),
     SmartContract(TransactionSmartContract),
-    SmartContractCall(TransactionSmartContractCall)
 }
 
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransactionPayloadID {
-    Payment = 1,
-    SmartContract = 2,
-    SmartContractCall = 3
+    Payment = 0,
+    SmartContract = 1,
 }
 
 #[derive(Debug, Clone, PartialEq)]

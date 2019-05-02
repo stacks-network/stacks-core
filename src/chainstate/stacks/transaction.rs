@@ -30,7 +30,6 @@ use chainstate::stacks::TransactionPayloadID;
 use chainstate::stacks::TransactionPayload;
 use chainstate::stacks::TransactionPayment;
 use chainstate::stacks::TransactionSmartContract;
-use chainstate::stacks::TransactionSmartContractCall;
 use chainstate::stacks::StacksTransaction;
 
 use util::hash::DoubleSha256;
@@ -69,21 +68,6 @@ impl StacksMessageCodec for TransactionSmartContract {
     }
 }
 
-impl StacksMessageCodec for TransactionSmartContractCall {
-    fn serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
-        write_next(&mut res, &self.code_body);
-        res
-    }
-
-    fn deserialize(buf: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<TransactionSmartContractCall, net_error> {
-        let code_body : Vec<u8> = read_next(buf, index, max_size)?;
-        Ok(TransactionSmartContractCall {
-            code_body
-        })
-    }
-}
-
 impl StacksMessageCodec for StacksTransaction {
     fn serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
@@ -100,7 +84,6 @@ impl StacksMessageCodec for StacksTransaction {
             match self.payload {
                 TransactionPayload::Payment(ref _t) => TransactionPayloadID::Payment as u8,
                 TransactionPayload::SmartContract(ref _t) => TransactionPayloadID::SmartContract as u8,
-                TransactionPayload::SmartContractCall(ref _t) => TransactionPayloadID::SmartContractCall as u8,
             };
         
         write_next(&mut ret, &transaction_type_id);
@@ -108,7 +91,6 @@ impl StacksMessageCodec for StacksTransaction {
         match self.payload {
             TransactionPayload::Payment(ref t) => write_next(&mut ret, t),
             TransactionPayload::SmartContract(ref t) => write_next(&mut ret, t),
-            TransactionPayload::SmartContractCall(ref t) => write_next(&mut ret, t)
         };
         ret
     }
@@ -143,10 +125,6 @@ impl StacksMessageCodec for StacksTransaction {
             else if transaction_type_id == (TransactionPayloadID::SmartContract as u8) {
                 let payload_data = TransactionSmartContract::deserialize(buf, index, max_size)?;
                 TransactionPayload::SmartContract(payload_data)
-            }
-            else if transaction_type_id == (TransactionPayloadID::SmartContractCall as u8) {
-                let payload_data = TransactionSmartContractCall::deserialize(buf, index, max_size)?;
-                TransactionPayload::SmartContractCall(payload_data)
             }
             else {
                 return Err(net_error::DeserializeError);
