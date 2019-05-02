@@ -7,7 +7,6 @@ WORKDIR /src/
 RUN USER=root cargo new --bin blockstack-core
 WORKDIR /src/blockstack-core
 
-COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
 
 RUN cargo build --release
