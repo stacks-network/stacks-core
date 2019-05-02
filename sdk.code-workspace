@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": ".",
+			"name": "rust"
+		},
+		{
+			"path": "./smart-contract-sdk",
+			"name": "smart-contract-sdk"
+		}
+	],
+	"settings": {
+
+	}
+}

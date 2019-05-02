@@ -499,7 +499,7 @@ mod tests {
             let secret_key: ed25519_PrivateKey = ed25519_PrivateKey::generate(&mut csprng);
             let public_key = ed25519_PublicKey::from(&secret_key);
 
-            let mut msg = [0u8, 1024];
+            let mut msg = [0u8; 1024];
             csprng.fill_bytes(&mut msg);
 
             let proof = ECVRF_prove(&secret_key, &msg.to_vec());
