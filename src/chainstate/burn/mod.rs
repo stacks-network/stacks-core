@@ -177,6 +177,10 @@ impl OpsHash {
 }
 
 impl ConsensusHash {
+    pub fn empty() -> ConsensusHash {
+        ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap()
+    }
+
     /// Instantiate a consensus hash from this block's operations, the total burn so far
     /// for the resulting consensus hash, and the geometric series of previous consensus
     /// hashes.  Note that prev_consensus_hashes should be in order from most-recent to

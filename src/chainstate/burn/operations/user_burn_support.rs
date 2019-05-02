@@ -342,7 +342,9 @@ mod tests {
             working_dir: "/nope".to_string(),
             burn_quota: get_burn_quota_config(&"bitcoin".to_string()).unwrap(),
             consensus_hash_lifetime: 24,
-            stable_confirmations: 7
+            stable_confirmations: 7,
+            first_block_height: first_block_height,
+            first_block_hash: first_burn_hash.clone()
         };
         
         let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
