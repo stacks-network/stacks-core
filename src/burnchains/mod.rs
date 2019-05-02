@@ -144,7 +144,9 @@ pub struct Burnchain {
     pub working_dir: String,
     pub burn_quota : BurnQuotaConfig,
     pub consensus_hash_lifetime: u32,
-    pub stable_confirmations: u32
+    pub stable_confirmations: u32,
+    pub first_block_height: u64,
+    pub first_block_hash: BurnchainHeaderHash
 }
 
 /// Structure for encoding our view of the network 
