@@ -26,7 +26,7 @@ use std::fs;
 use std::convert::From;
 use std::marker::PhantomData;
 
-use util::db::{FromRow, RowOrder};
+use util::db::{FromRow, RowOrder, query_rows, query_count};
 use util::db::Error as db_error;
 
 use chainstate::ChainstateDB;
@@ -818,87 +818,14 @@ where
         Ok(())
     }
 
-    /// boilerplate code for querying rows 
-    fn query_rows<T, P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<Vec<T>, db_error>
-    where
-        P: IntoIterator,
-        P::Item: ToSql,
-        T: FromRow<T>
-    {
-        let mut stmt = conn.prepare(sql_query)
-            .map_err(|e| db_error::SqliteError(e))?;
-
-        let mut rows = stmt.query(sql_args)
-            .map_err(|e| db_error::SqliteError(e))?;
-
-        // gather 
-        let mut row_data = vec![];
-        while let Some(row_res) = rows.next() {
-            match row_res {
-                Ok(row) => {
-                    let next_row = T::from_row(&row, 0)?;
-                    row_data.push(next_row);
-                },
-                Err(e) => {
-                    return Err(db_error::SqliteError(e));
-                }
-            };
-        }
-
-        Ok(row_data)
-    }
-
-    /// boilerplate code for querying a count of something
-    fn query_count<P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<i64, db_error>
-    where
-        P: IntoIterator,
-        P::Item: ToSql
-    {
-        let mut stmt = conn.prepare(sql_query)
-            .map_err(|e| db_error::SqliteError(e))?;
-
-        stmt.query_row(sql_args,
-            |row| {
-                let res : i64 = row.get(0);
-                res
-            })
-            .map_err(|e| db_error::SqliteError(e))
-    }
-    
     /// Get the first snapshot 
     pub fn get_first_block_snapshot(conn: &Connection) -> Result<BlockSnapshot, db_error> {
-        let row_order = BlockSnapshot::row_order().join(",");
-        let qry = format!("SELECT {} FROM snapshots WHERE canonical = 1 ORDER BY block_height LIMIT 1", row_order);
-        let rows = BurnDB::<A, K>::query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), NO_PARAMS)?;
-
-        match rows.len() {
-            1 => Ok(rows[0].clone()),
-            _ => {
-                // should never happen 
-                panic!("FATAL: multiple canonical first-block snapshots")
-            }
-        }
+        get_first_block_snapshot(conn)
     }
 
     /// Get a canonical snapshot row 
     pub fn get_block_snapshot(conn: &Connection, block_height: u64) -> Result<Option<BlockSnapshot>, db_error> {
-        if block_height > ((1 as u64) << 63) - 1 {
-            return Err(db_error::TypeError);
-        }
-
-        let row_order = BlockSnapshot::row_order().join(",");
-        let qry = format!("SELECT {} FROM snapshots WHERE canonical = 1 AND block_height = ?1", row_order);
-        let args = [&(block_height as i64) as &ToSql];
-        let rows = BurnDB::<A, K>::query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
-
-        match rows.len() {
-            0 => Ok(None),
-            1 => Ok(Some(rows[0].clone())),
-            _ => {
-                // should never happen 
-                panic!("FATAL: multiple canonical block snapshots for {}", block_height);
-            }
-        }
+        get_block_snapshot(conn, block_height)
     }
 
     /// Get all leader keys registered in a block on the canonical history.
@@ -916,7 +843,7 @@ where
         let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND leader_keys.block_height = ?1 ORDER BY leader_keys.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
-        BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)
+        query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
 
     /// Get a leader key at a specific location in the burn chain's canonical history.
@@ -935,7 +862,7 @@ where
         let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND leader_keys.block_height = ?1 AND leader_keys.vtxindex = ?2", row_order);
         let args = [&(block_height as i64) as &ToSql, &vtxindex as &ToSql];
-        let rows = BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)?;
+        let rows = query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
             0 => Ok(None),
@@ -960,7 +887,7 @@ where
         let qry = format!("SELECT {} FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND leader_keys.public_key = ?1", row_order);
         let args = [&ECVRF_public_key_to_hex(VRF_key)];
-        let rows = BurnDB::<A, K>::query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)?;
+        let rows = query_rows::<LeaderKeyRegisterOp<A, K>, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
             0 => Ok(None),
@@ -989,7 +916,7 @@ where
                           WHERE history.canonical = 1 AND block_commits.block_height = ?1 ORDER BY block_commits.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
 
-        BurnDB::<A, K>::query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)
+        query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
 
     /// Get a block commit at a specific location in the burn chain's canonical history.
@@ -1008,7 +935,7 @@ where
         let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND block_commits.block_height = ?1 AND block_commits.vtxindex = ?2", row_order);
         let args = [&(block_height as i64) as &ToSql, &vtxindex as &ToSql];
-        let rows = BurnDB::<A, K>::query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)?;
+        let rows = query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
             0 => Ok(None),
@@ -1032,7 +959,7 @@ where
         let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
                           WHERE history.canonical = 1 AND block_commits.txid = ?1 AND block_commits.burn_header_hash = ?2", row_order);
         let args = [&txid.to_hex(), &burn_header_hash.to_hex()];
-        let rows = BurnDB::<A, K>::query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)?;
+        let rows = query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
             0 => Ok(None),
@@ -1061,7 +988,7 @@ where
                           WHERE history.canonical = 1 AND user_burn_support.block_height = ?1 ORDER BY user_burn_support.vtxindex ASC", row_order);
         let args = [&(block_height as i64) as &ToSql];
 
-        BurnDB::<A, K>::query_rows::<UserBurnSupportOp<A, K>, _>(conn, &qry.to_string(), &args)
+        query_rows::<UserBurnSupportOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
 
     /// Find out whether or not a particular VRF key was used before in the canonical burnchain history
@@ -1070,7 +997,7 @@ where
         let qry = "SELECT COUNT(leader_keys.public_key) FROM leader_keys JOIN history ON leader_keys.txid = history.txid AND leader_keys.burn_header_hash = history.burn_header_hash \
                    WHERE history.canonical = 1 AND leader_keys.public_key = ?1";
         let args = [&ECVRF_public_key_to_hex(&key)];
-        let count = BurnDB::<A, K>::query_count(conn, &qry.to_string(), &args)?;
+        let count = query_count(conn, &qry.to_string(), &args)?;
         Ok(count != 0)
     }
 
@@ -1087,7 +1014,7 @@ where
 
         let qry = "SELECT COUNT(consensus_hash) FROM snapshots WHERE canonical = 1 AND consensus_hash = ?1 AND block_height >= ?2 AND block_height <= ?3";
         let args = [&consensus_hash.to_hex(), &((current_block_height as u32) - consensus_hash_lifetime) as &ToSql, &(current_block_height as u32) as &ToSql];
-        let count = BurnDB::<A, K>::query_count(conn, &qry.to_string(), &args)?;
+        let count = query_count(conn, &qry.to_string(), &args)?;
         Ok(count != 0)
     }
 
@@ -1104,7 +1031,7 @@ where
         let qry = "SELECT COUNT(*) FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
                    WHERE history.canonical = 1 AND block_commits.block_height - block_commits.key_block_backptr = ?1 AND block_commits.key_vtxindex = ?2".to_string();
         let args = [&(leader_key.block_number as i64) as &ToSql, &leader_key.vtxindex as &ToSql];
-        let count = BurnDB::<A, K>::query_count(conn, &qry.to_string(), &args)?;
+        let count = query_count(conn, &qry.to_string(), &args)?;
         Ok(count >= 1)
     }
 
@@ -1119,7 +1046,7 @@ where
         let qry = format!("SELECT {} FROM snapshots WHERE snapshots.canonical = 1 AND snapshots.sortition = 1 AND snapshots.block_height < ?1 ORDER BY snapshots.block_height DESC LIMIT 1", row_order);
         let args = [&(block_height as i64) as &ToSql];
 
-        let rows = BurnDB::<A, K>::query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
+        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
             1 => Ok(rows[0].clone()),
@@ -1143,7 +1070,7 @@ where
         let qry = "SELECT txid FROM history WHERE canonical = 1 AND block_height = ?1 AND burn_header_hash = ?2 ORDER BY vtxindex ASC".to_string();
         let args = [&(block_height as i64) as &ToSql, &block_hash.to_hex()];
 
-        BurnDB::<A, K>::query_rows::<Txid, _>(conn, &qry.to_string(), &args)
+        query_rows::<Txid, _>(conn, &qry.to_string(), &args)
     }
 
     /// Get the sequence of winning block commits over a range (i.e. block commits that won
@@ -1168,7 +1095,7 @@ where
                            ORDER BY block_commits.block_height ASC, block_commits.vtxindex ASC", row_order);
         let args = [&(block_height_start as i64) as &ToSql, &(block_height_end as i64) as &ToSql];
 
-        BurnDB::<A, K>::query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)
+        query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)
     }
 }
 
@@ -1222,9 +1149,71 @@ pub fn get_consensus_at(conn: &Connection, block_height: u64) -> Result<Option<C
         .map_err(|e| db_error::SqliteError(e))
 }
 
+
+/// Generic get_block_snapshot
+pub fn get_block_snapshot(conn: &Connection, block_height: u64) -> Result<Option<BlockSnapshot>, db_error> {
+    if block_height > ((1 as u64) << 63) - 1 {
+        return Err(db_error::TypeError);
+    }
+
+    let row_order = BlockSnapshot::row_order().join(",");
+    let qry = format!("SELECT {} FROM snapshots WHERE canonical = 1 AND block_height = ?1", row_order);
+    let args = [&(block_height as i64) as &ToSql];
+    let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
+
+    match rows.len() {
+        0 => Ok(None),
+        1 => Ok(Some(rows[0].clone())),
+        _ => {
+            // should never happen 
+            panic!("FATAL: multiple canonical block snapshots for {}", block_height);
+        }
+    }
+}
+
+pub fn get_first_block_snapshot(conn: &Connection) -> Result<BlockSnapshot, db_error> {
+    let row_order = BlockSnapshot::row_order().join(",");
+    let qry = format!("SELECT {} FROM snapshots WHERE canonical = 1 ORDER BY block_height LIMIT 1", row_order);
+    let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), NO_PARAMS)?;
+
+    match rows.len() {
+        1 => Ok(rows[0].clone()),
+        _ => {
+            // should never happen 
+            panic!("FATAL: multiple canonical first-block snapshots")
+        }
+    }
+}
+
+/// Get a consensus hash at a particular block height, or if that block height is too far in the
+/// past or too far in the future, return a default value.
+pub fn get_consensus_or(conn: &Connection, block_height: u64, default_consensus_hash: &ConsensusHash) -> Result<Option<ConsensusHash>, db_error> {
+    if block_height > ((1 as u64) << 63) - 1 {
+        return Err(db_error::TypeError);
+    }
+
+    let height = get_block_height(conn)?;
+    if height < block_height {
+        // too far in the future
+        return Ok(Some(default_consensus_hash.clone()));
+    }
+
+    let first_snapshot = get_first_block_snapshot(conn)?;
+    if block_height < first_snapshot.block_height {
+        // too far in the past 
+        return Ok(Some(default_consensus_hash.clone()));
+    }
+
+    get_consensus_at(conn, block_height)
+}
+
 /// Get a burn blockchain snapshot, given a burnchain configuration struct 
 pub fn get_burnchain_view(conn: &Connection, burnchain: &Burnchain) -> Result<BurnchainView, db_error> {
     let height = get_block_height(conn)?;
+    if height < burnchain.first_block_height {
+        panic!("Invalid block height from DB: {}: expected at least {}", height, burnchain.first_block_height);
+    }
+
     let qry = "SELECT block_height,consensus_hash FROM snapshots WHERE canonical = 1 AND (block_height = ?1 OR block_height = ?2) ORDER BY block_height DESC";
     let args = [&(height as i64) as &ToSql, &((height - (burnchain.stable_confirmations as u64)) as i64) as &ToSql];
 
@@ -1250,13 +1239,37 @@ pub fn get_burnchain_view(conn: &Connection, burnchain: &Burnchain) -> Result<Bu
         };
     }
 
-    assert!(row_data.len() == 2);
-    Ok(BurnchainView {
-        burn_block_height: row_data[0].0,
-        burn_consensus_hash: row_data[0].1,
-        burn_stable_block_height: row_data[1].0,
-        burn_stable_consensus_hash: row_data[1].1
-    })
+    match row_data.len() {
+        0 => {
+            // before the first block 
+            panic!("get_burnchain_view() query returned 0 rows");
+        }
+        1 => {
+            // at the very beginning of this chain -- empty consensus hashes prior
+            if height >= burnchain.first_block_height + (burnchain.stable_confirmations as u64) {
+                // shouldn't have happened 
+                panic!("Invalid snapshot rows from DB: expected only 1 since {} >= {} + {}", height, burnchain.first_block_height, burnchain.stable_confirmations);
+            }
+
+            Ok(BurnchainView {
+                burn_block_height: row_data[0].0,
+                burn_consensus_hash: row_data[0].1,
+                burn_stable_block_height: height - (burnchain.stable_confirmations as u64),
+                burn_stable_consensus_hash: ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
+            })
+        },
+        2 => {
+            Ok(BurnchainView {
+                burn_block_height: row_data[0].0,
+                burn_consensus_hash: row_data[0].1,
+                burn_stable_block_height: row_data[1].0,
+                burn_stable_consensus_hash: row_data[1].1
+            })
+        },
+        _ => {
+            panic!("unreachable");
+        }
+    }
 }
 
 #[cfg(test)]
