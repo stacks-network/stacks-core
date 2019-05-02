@@ -55,46 +55,118 @@ use burnchains::BurnchainView;
 use std::net::SocketAddr;
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 
 use std::io::Read;
 use std::io::Write;
 
 use util::log;
 use util::get_epoch_time_secs;
+use util::hash::to_hex;
 
 use mio::net as mio_net;
 
 use rusqlite::Transaction;
 
+// did we or did we not successfully send a message?
+#[derive(Debug, Clone)]
+pub struct NeighborHealthPoint {
+    pub success: bool,
+    pub time: u64
+}
+
+impl Default for NeighborHealthPoint {
+    fn default() -> NeighborHealthPoint {
+        NeighborHealthPoint {
+            success: false,
+            time: 0
+        }
+    }
+}
+
+pub const NUM_HEALTH_POINTS : usize = 32;
+pub const HEALTH_POINT_LIFETIME : u64 = 12 * 3600;  // 12 hours
+    
 #[derive(Debug, Clone)]
 pub struct NeighborStats {
+    pub outbound: bool,
     pub first_contact_time: u64,
     pub last_contact_time: u64,
     pub last_send_time: u64,
     pub last_recv_time: u64,
+    pub last_handshake_time: u64,
     pub bytes_tx: u64,
     pub bytes_rx: u64,
+    pub msgs_tx: u64,
+    pub msgs_rx: u64,
+    pub msgs_err: u64,
+    pub healthpoints: VecDeque<NeighborHealthPoint>,
+    pub peer_resets: u64,
+    pub last_reset_time: u64,
+    pub msg_rx_counts: HashMap<u8, u64>,
 }
 
 impl NeighborStats {
-    pub fn new() -> NeighborStats {
+    pub fn new(outbound: bool) -> NeighborStats {
         NeighborStats {
+            outbound: outbound,
             first_contact_time: 0,
             last_contact_time: 0,
             last_send_time: 0,
             last_recv_time: 0,
+            last_handshake_time: 0,
             bytes_tx: 0,
-            bytes_rx: 0
+            bytes_rx: 0,
+            msgs_tx: 0,
+            msgs_rx: 0,
+            msgs_err: 0,
+            healthpoints: VecDeque::new(),
+            peer_resets: 0,
+            last_reset_time: 0,
+            msg_rx_counts: HashMap::new()
         }
+    }
+    
+    pub fn add_healthpoint(&mut self, success: bool) -> () {
+        let hp = NeighborHealthPoint {
+            success: success,
+            time: get_epoch_time_secs()
+        };
+        self.healthpoints.push_back(hp);
+        while self.healthpoints.len() > NUM_HEALTH_POINTS {
+            self.healthpoints.pop_front();
+        }
+    }
+
+    /// Get a peer's perceived health -- the last $NUM_HEALTH_POINTS successful messages divided by
+    /// the total.
+    pub fn get_health_score(&self) -> f64 {
+        // if we don't have enough data, assume 50%
+        if self.healthpoints.len() < NUM_HEALTH_POINTS {
+            return 0.5;
+        }
+        
+        let mut successful = 0;
+        let mut total = 0;
+        let now = get_epoch_time_secs();
+        for hp in self.healthpoints.iter() {
+            // penalize stale data points -- only look at recent data
+            if hp.success && now < hp.time + HEALTH_POINT_LIFETIME {
+                successful += 1;
+            }
+            total += 1;
+        }
+        (successful as f64) / (total as f64)
     }
 }
 
 pub struct Conversation {
     pub connection: Connection,
+    pub conn_id: usize,
 
     pub burnchain: Burnchain,                   // copy of our burnchain config
-    pub seq: u32,                               // our sequence number
-    pub heartbeat: u32,                         // how often do we expect heartbeats?
+    pub seq: u32,                               // our sequence number when talknig to this peer
+    pub heartbeat: u32,                         // how often do we send heartbeats?
 
     pub peer_network_id: u32,
     pub peer_version: u32,
@@ -105,6 +177,18 @@ pub struct Conversation {
     pub peer_expire_block_height: u64,          // when does the peer's key expire?
 
     pub stats: NeighborStats
+}
+
+impl fmt::Display for Conversation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "convo:id={},peer={:?}", self.conn_id, &self.to_neighbor_key())
+    }
+}
+
+impl fmt::Debug for Conversation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "convo:id={},peer={:?}", self.conn_id, &self.to_neighbor_key())
+    }
 }
 
 impl NeighborKey {
@@ -143,8 +227,11 @@ impl Neighbor {
         self.public_key = pubk;
         self.expire_block = handshake_data.expire_block_height;
         self.last_contact_time = get_epoch_time_secs();
-        self.asn = asn;
-        self.org = 0;       // TODO
+
+        if asn != 0 {
+            self.asn = asn;
+            self.org = asn;       // TODO; AS number is a place-holder for an organization ID (an organization can own multiple ASs)
+        }
 
         Ok(())
     }
@@ -168,18 +255,27 @@ impl Neighbor {
             }
         };
 
+        #[cfg(test)]
+        {
+            // setting BLOCKSTACK_NEIGHBOR_TEST_${PORTNUMBER} will let us select an organization
+            // for this peer
+            use std::env;
+            match env::var(format!("BLOCKSTACK_NEIGHBOR_TEST_{}", addr.port).to_string()) {
+                Ok(asn_str) => {
+                    neighbor.asn = asn_str.parse().unwrap();
+                    neighbor.org = neighbor.asn;
+                    test_debug!("Override {:?} to ASN/org {}", &neighbor.addr, neighbor.asn);
+                },
+                Err(_) => {}
+            };
+        }
+
         neighbor.handshake_update(conn, &handshake_data)?;
         Ok(neighbor)
     }
 
     pub fn from_conversation(conn: &DBConn, convo: &Conversation) -> Result<Option<Neighbor>, net_error> {
-        let addr = NeighborKey {
-            peer_version: convo.peer_version,
-            network_id: convo.peer_network_id,
-            addrbytes: convo.peer_addrbytes,
-            port: convo.peer_port
-        };
-
+        let addr = convo.to_neighbor_key();
         let peer_opt = PeerDB::get_peer(conn, addr.network_id, &addr.addrbytes, addr.port)
             .map_err(|_e| net_error::DBError)?;
 
@@ -193,7 +289,11 @@ impl Neighbor {
                         .map_err(|_e| net_error::DBError)?;
 
                     match asn_opt {
-                        Some(a) => peer.asn = a,
+                        Some(a) => {
+                            if a != 0 {
+                                peer.asn = a;
+                            }
+                        },
                         None => {}
                     };
                 }
@@ -205,9 +305,10 @@ impl Neighbor {
 
 impl Conversation {
     /// Create an unconnected conversation
-    pub fn new(burnchain: &Burnchain, peer_addr: &SocketAddr, conn_opts: &ConnectionOptions) -> Conversation {
+    pub fn new(burnchain: &Burnchain, peer_addr: &SocketAddr, conn_opts: &ConnectionOptions, outbound: bool, conn_id: usize) -> Conversation {
         Conversation {
             connection: Connection::new(conn_opts, None),
+            conn_id: conn_id,
             seq: 0,
             heartbeat: conn_opts.heartbeat,
             burnchain: burnchain.clone(),
@@ -220,13 +321,49 @@ impl Conversation {
             peer_services: 0,
             peer_expire_block_height: 0,
 
-            stats: NeighborStats::new()
+            stats: NeighborStats::new(outbound)
         }
     }
 
+    /// Create a conversation from an existing conversation whose underlying network connection had to be
+    /// reset.
+    pub fn from_peer_reset(convo: &Conversation, conn_opts: &ConnectionOptions) -> Conversation {
+        let stats = convo.stats.clone();
+        Conversation {
+            connection: Connection::new(conn_opts, None),
+            conn_id: convo.conn_id,
+            seq: 0,
+            heartbeat: conn_opts.heartbeat,
+            burnchain: convo.burnchain.clone(),
+
+            peer_network_id: convo.peer_network_id,
+            peer_version: convo.peer_version,
+            peer_addrbytes: convo.peer_addrbytes.clone(),
+            peer_port: convo.peer_port,
+            peer_heartbeat: convo.peer_heartbeat,
+            peer_services: convo.peer_services,
+            peer_expire_block_height: convo.peer_expire_block_height,
+            
+            stats: NeighborStats {
+                peer_resets: convo.stats.peer_resets + 1,
+                last_reset_time: get_epoch_time_secs(),
+                ..stats
+            }
+        }
+    }
+
+    pub fn to_neighbor_key(&self) -> NeighborKey {
+        NeighborKey {
+            peer_version: self.peer_version,
+            network_id: self.peer_network_id,
+            addrbytes: self.peer_addrbytes.clone(),
+            port: self.peer_port
+        }
+    }
+    
     fn check_consensus_hash(block_height: u64, their_consensus_hash: &ConsensusHash, burndb_conn: &DBConn) -> Result<bool, net_error> {
         // only proceed if our latest consensus hash matches 
-        let our_consensus_hash_opt = burndb::get_consensus_at(burndb_conn, block_height)
+        let our_consensus_hash_opt = burndb::get_consensus_or(burndb_conn, block_height, &ConsensusHash::empty())
             .map_err(|e| {
                 error!("Failed to read burnchain DB consensus hash at {}: {:?}", block_height, e);
                 net_error::DBError
@@ -258,12 +395,12 @@ impl Conversation {
     pub fn is_preamble_valid(&self, msg: &StacksMessage, burndb_conn: &DBConn) -> Result<bool, net_error> {
         if msg.preamble.network_id != self.burnchain.network_id {
             // not on our network -- potentially blacklist this peer
-            test_debug!("wrong network ID: {} != {}", msg.preamble.network_id, self.burnchain.network_id);
+            test_debug!("wrong network ID: {:x} != {:x}", msg.preamble.network_id, self.burnchain.network_id);
             return Err(net_error::InvalidMessage);
         }
         if (msg.preamble.peer_version & 0xff000000) != (self.burnchain.peer_version & 0xff000000) {
             // major version mismatch -- potentially blacklist this peer
-            test_debug!("wrong peer version: {} != {}", msg.preamble.peer_version, self.burnchain.peer_version);
+            test_debug!("wrong peer version: {:x} != {:x}", msg.preamble.peer_version, self.burnchain.peer_version);
             return Err(net_error::InvalidMessage);
         }
         if msg.preamble.burn_stable_block_height + (self.burnchain.stable_confirmations as u64) != msg.preamble.burn_block_height {
@@ -316,14 +453,14 @@ impl Conversation {
 
     /// Generate a signed message for this conversation 
     pub fn sign_message(&mut self, chain_view: &BurnchainView, private_key: &Secp256k1PrivateKey, payload: StacksMessageType) -> Result<StacksMessage, net_error> {
-        let mut msg = StacksMessage::from_chain_view(self.burnchain.network_id, chain_view, payload);
+        let mut msg = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, payload);
         msg.sign(self.next_seq(), private_key)?;
         Ok(msg)
     }
     
     /// Generate a signed reply for this conversation 
     pub fn sign_reply(&mut self, chain_view: &BurnchainView, private_key: &Secp256k1PrivateKey, payload: StacksMessageType, seq: u32) -> Result<StacksMessage, net_error> {
-        let mut msg = StacksMessage::from_chain_view(self.burnchain.network_id, chain_view, payload);
+        let mut msg = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, payload);
         msg.sign(seq, private_key)?;
         Ok(msg)
     }
@@ -331,14 +468,14 @@ impl Conversation {
     /// Queue up this message to this peer, and update our stats.
     pub fn relay_signed_message(&mut self, msg: StacksMessage) -> Result<(), net_error> {
         self.connection.relay_signed_message(msg)?;
-        self.stats.last_send_time = get_epoch_time_secs();
+        self.stats.msgs_tx += 1;
         Ok(())
     }
     
     /// Queue up this message to this peer, and update our stats.  Expect a reply.
     pub fn send_signed_message(&mut self, msg: StacksMessage, ttl: u64) -> Result<NetworkReplyHandle, net_error> {
         let rh = self.connection.send_signed_message(msg, ttl)?;
-        self.stats.last_send_time = get_epoch_time_secs();
+        self.stats.msgs_tx += 1;
         Ok(rh)
     }
 
@@ -350,28 +487,37 @@ impl Conversation {
             _ => panic!("Message is not a ping")
         };
         let pong_data = PongData::from_ping(&ping_data);
-        Ok(Some(StacksMessage::from_chain_view(self.burnchain.network_id, chain_view, StacksMessageType::Pong(pong_data))))
+        Ok(Some(StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, StacksMessageType::Pong(pong_data))))
     }
 
     /// Validate a handshake request.
     /// Return Err(...) if the handshake request was invalid.
-    pub fn validate_handshake(&mut self, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<(), net_error> {
+    pub fn validate_handshake(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<(), net_error> {
         let handshake_data = match message.payload {
             StacksMessageType::Handshake(ref mut data) => data.clone(),
             _ => panic!("Message is not a handshake")
         };
 
-        // if we don't yet have a public key for this node, verify the message.
-        // if it's improperly signed, it's a protocol-level error and the peer should be rejected.
         match self.connection.get_public_key() {
             None => {
+                // if we don't yet have a public key for this node, verify the message.
+                // if it's improperly signed, it's a protocol-level error and the peer should be rejected.
                 message.verify_secp256k1(&handshake_data.node_public_key)
                     .map_err(|_e| {
-                        test_debug!("{:?}:{:?}: invalid handshake: not signed with given public key", &self.peer_addrbytes, self.peer_port);
+                        test_debug!("{:?}: invalid handshake: not signed with given public key", &self);
                         net_error::InvalidMessage
                     })?;
             },
-            Some(_) => {}       // already verified in Connection object
+            Some(_) => {
+                // for outbound connections, the self-reported address must match socket address if we already have a public key.
+                // (not the case for inbound connections, since the peer socket address we see may
+                // not be the same as the address the remote peer thinks it has).
+                if self.stats.outbound && (self.peer_addrbytes != handshake_data.addrbytes || self.peer_port != handshake_data.port) {
+                    // wrong peer address
+                    test_debug!("{:?}: invalid handshake -- wrong addr/port ({:?}:{:?})", &self, &handshake_data.addrbytes, handshake_data.port);
+                    return Err(net_error::InvalidHandshake);
+                }
+            }
         };
 
         let their_public_key_res = handshake_data.node_public_key.to_public_key();
@@ -379,21 +525,21 @@ impl Conversation {
             Ok(pubk) => pubk,
             Err(_e) => {
                 // bad public key
-                test_debug!("{:?}:{:?}: invalid handshake -- invalid public key", &self.peer_addrbytes, self.peer_port);
+                test_debug!("{:?}: invalid handshake -- invalid public key", &self);
                 return Err(net_error::InvalidMessage);
             }
         };
 
-        // self-reported address must match socket address
-        if self.peer_addrbytes != handshake_data.addrbytes || self.peer_port != handshake_data.port {
-            // wrong peer address
-            test_debug!("{:?}:{:?}: invalid handshake -- wrong addr/port ({:?}:{:?})", &self.peer_addrbytes, self.peer_port, &handshake_data.addrbytes, handshake_data.port);
-            return Err(net_error::InvalidHandshake);
-        }
 
         if handshake_data.expire_block_height <= chain_view.burn_block_height {
             // already stale
-            test_debug!("{:?}:{:?}: invalid handshake -- stale public key (expired at {})", &self.peer_addrbytes, self.peer_port, handshake_data.expire_block_height);
+            test_debug!("{:?}: invalid handshake -- stale public key (expired at {})", &self, handshake_data.expire_block_height);
+            return Err(net_error::InvalidHandshake);
+        }
+
+        // the handshake cannot come from us 
+        if handshake_data.node_public_key == StacksPublicKeyBuffer::from_public_key(&Secp256k1PublicKey::from_private(&local_peer.private_key)) {
+            test_debug!("{:?}: invalid handshake -- got a handshake from myself", &self);
             return Err(net_error::InvalidHandshake);
         }
 
@@ -420,11 +566,12 @@ impl Conversation {
     /// Called from the p2p network thread.
     /// Panics if this message is not a handshake (caller should check)
     pub fn handle_handshake(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, message: &mut StacksMessage) -> Result<Option<StacksMessage>, net_error> {
-        let res = self.validate_handshake(chain_view, message);
+        let res = self.validate_handshake(local_peer, chain_view, message);
         match res {
             Ok(_) => {},
             Err(net_error::InvalidHandshake) => {
-                let reject = StacksMessage::from_chain_view(self.burnchain.network_id, chain_view, StacksMessageType::HandshakeReject);
+                let reject = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, StacksMessageType::HandshakeReject);
+                debug!("{:?}: invalid handshake", &self);
                 return Ok(Some(reject));
             },
             Err(e) => {
@@ -439,10 +586,11 @@ impl Conversation {
        
         self.update_from_handshake_data(&message.preamble, &handshake_data)?;
         
-        debug!("Handshake from {:?}:{:?} public key {:?} expires at {:?}", &self.peer_addrbytes, self.peer_port, &handshake_data.node_public_key.to_hex(), handshake_data.expire_block_height);
+        test_debug!("Handshake from {:?} public key {:?} expires at {:?}", &self,
+                    &to_hex(&handshake_data.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_data.expire_block_height);
 
         let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat);
-        let accept = StacksMessage::from_chain_view(self.burnchain.network_id, chain_view, StacksMessageType::HandshakeAccept(accept_data));
+        let accept = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, chain_view, StacksMessageType::HandshakeAccept(accept_data));
         Ok(Some(accept))
     }
 
@@ -451,19 +599,37 @@ impl Conversation {
     pub fn handle_handshake_accept(&mut self, preamble: &Preamble, handshake_accept: &HandshakeAcceptData) -> Result<Option<StacksMessage>, net_error> {
         self.update_from_handshake_data(preamble, &handshake_accept.handshake)?;
         self.peer_heartbeat = handshake_accept.heartbeat_interval;
+        self.stats.last_handshake_time = get_epoch_time_secs();
 
-        debug!("HandshakeAccept from {:?}:{:?}: set public key to {:?} expiring at {:?} heartbeat {}s", &self.peer_addrbytes, self.peer_port, &handshake_accept.handshake.node_public_key.to_hex(), handshake_accept.handshake.expire_block_height, self.peer_heartbeat);
+        test_debug!("HandshakeAccept from {:?}: set public key to {:?} expiring at {:?} heartbeat {}s", &self,
+                    &to_hex(&handshake_accept.handshake.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_accept.handshake.expire_block_height, self.peer_heartbeat);
         Ok(None)
     }
 
     /// Load data into our connection 
     pub fn recv<R: Read>(&mut self, r: &mut R) -> Result<usize, net_error> {
-        self.connection.recv_data(r)
+        let res = self.connection.recv_data(r);
+        match res {
+            Ok(num_recved) => {
+                self.stats.last_recv_time = get_epoch_time_secs();
+                self.stats.bytes_rx += num_recved as u64;
+            },
+            Err(_) => {}
+        };
+        res
     }
 
     /// Write data out of our conversation 
     pub fn send<W: Write>(&mut self, w: &mut W) -> Result<usize, net_error> {
-        self.connection.send_data(w)
+        let res = self.connection.send_data(w);
+        match res {
+            Ok(num_sent) => {
+                self.stats.last_send_time = get_epoch_time_secs();
+                self.stats.bytes_tx += num_sent as u64;
+            },
+            Err(_) => {}
+        };
+        res
     }
 
     /// Carry on a conversation with the remote peer.
@@ -476,7 +642,7 @@ impl Conversation {
     /// cease talking to this peer.
     pub fn chat(&mut self, local_peer: &LocalPeer, burndb_conn: &DBConn, burnchain_view: &BurnchainView) -> Result<Vec<StacksMessage>, net_error> {
         let num_inbound = self.connection.inbox_len();
-        test_debug!("{:?}:{:?}: {} messages pending", &self.peer_addrbytes, self.peer_port, num_inbound);
+        test_debug!("{:?}: {} messages pending", &self, num_inbound);
 
         let mut unsolicited = vec![];
         for i in 0..num_inbound {
@@ -491,54 +657,63 @@ impl Conversation {
             match self.is_preamble_valid(&msg, burndb_conn) {
                 Ok(res) => {
                     if !res {
-                        info!("{:?}:{:?}: Received message with stale preamble; ignoring", &self.peer_addrbytes, self.peer_port);
+                        info!("{:?}: Received message with stale preamble; ignoring", &self);
+                        self.stats.msgs_err += 1;
+                        self.stats.add_healthpoint(false);
                         continue;
                     }
                 },
                 Err(e) => {
                     match e {
                         net_error::InvalidMessage => {
-                            // blacklist this peer and cease communicating with it.
-                            info!("{:?}:{:?}: Received invalid preamble; dropping connection", &self.peer_addrbytes, self.peer_port);
+                            // Disconnect from this peer.  If it thinks nothing's wrong, it'll
+                            // reconnect on its own.
+                            // However, only count this message as error.  Drop all other queued
+                            // messages.
+                            info!("{:?}: Received invalid preamble; dropping connection", &self);
+                            self.stats.msgs_err += 1;
+                            self.stats.add_healthpoint(false);
                             return Err(e);
                         },
                         _ => {
                             // skip this message 
-                            info!("{:?}:{:?}: Failed to process message: {:?}", &self.peer_addrbytes, self.peer_port, &e);
+                            info!("{:?}: Failed to process message: {:?}", &self, &e);
+                            self.stats.msgs_err += 1;
+                            self.stats.add_healthpoint(false);
                             continue;
                         }
                     }
                 }
             };
-
+            
             let reply_opt_res = 
                 if self.connection.has_public_key() {
                     // already have public key; match payload
                     match msg.payload {
                         StacksMessageType::Handshake(_) => {
-                            test_debug!("{:?}:{:?}: Got Handshake", &self.peer_addrbytes, self.peer_port);
+                            test_debug!("{:?}: Got Handshake", &self);
                             self.handle_handshake(local_peer, burnchain_view, &mut msg)
                         },
                         StacksMessageType::HandshakeAccept(ref data) => {
-                            test_debug!("{:?}:{:?}: Got HandshakeAccept", &self.peer_addrbytes, self.peer_port);
+                            test_debug!("{:?}: Got HandshakeAccept", &self);
                             self.handle_handshake_accept(&msg.preamble, data)
                         },
                         StacksMessageType::Ping(_) => {
-                            test_debug!("{:?}:{:?}: Got Ping", &self.peer_addrbytes, self.peer_port);
+                            test_debug!("{:?}: Got Ping", &self);
 
                             // consume here if unsolicited
                             consume_unsolicited = true;
                             self.handle_ping(burnchain_view, &mut msg)
                         },
                         StacksMessageType::Pong(_) => {
-                            test_debug!("{:?}:{:?}: Got Pong", &self.peer_addrbytes, self.peer_port);
+                            test_debug!("{:?}: Got Pong", &self);
 
                             // consume here if unsolicited
                             consume_unsolicited = true;
                             Ok(None)
                         },
                         _ => {
-                            test_debug!("{:?}:{:?}: Got a message (type {})", &self.peer_addrbytes, self.peer_port, message_type_to_id(&msg.payload));
+                            test_debug!("{:?}: Got a message (type {})", &self, message_type_to_str(&msg.payload));
                             Ok(None)       // nothing to reply to at this time
                         }
                     }
@@ -550,29 +725,29 @@ impl Conversation {
                     // Anything else will be nack'ed -- the peer will first need to handshake.
                     match msg.payload {
                         StacksMessageType::Handshake(_) => {
-                            test_debug!("{:?}:{:?}: Got unauthenticated Handshake", &self.peer_addrbytes, self.peer_port);
+                            test_debug!("{:?}: Got unauthenticated Handshake", &self);
                             self.handle_handshake(local_peer, burnchain_view, &mut msg)
                         },
                         StacksMessageType::HandshakeAccept(ref data) => {
-                            test_debug!("{:?}:{:?}: Got unauthenticated HandshakeAccept", &self.peer_addrbytes, self.peer_port);
+                            test_debug!("{:?}: Got unauthenticated HandshakeAccept", &self);
                             self.handle_handshake_accept(&msg.preamble, data)
                         },
                         StacksMessageType::HandshakeReject => {
-                            test_debug!("{:?}:{:?}: Got unauthenticated HandshakeReject", &self.peer_addrbytes, self.peer_port);
+                            test_debug!("{:?}: Got unauthenticated HandshakeReject", &self);
 
                             // don't NACK this back just because we were rejected
                             Ok(None)
                         },
                         StacksMessageType::Nack(ref data) => {
-                            test_debug!("{:?}:{:?}: Got unauthenticated Nack", &self.peer_addrbytes, self.peer_port);
+                            test_debug!("{:?}: Got unauthenticated Nack", &self);
                             
                             // don't NACK back
                             Ok(None)
                         }
                         _ => {
-                            test_debug!("{:?}:{:?}: Got unauthenticated message (type {})", &self.peer_addrbytes, self.peer_port, message_type_to_id(&msg.payload));
+                            test_debug!("{:?}: Got unauthenticated message (type {})", &self, message_type_to_str(&msg.payload));
                             let nack_payload = StacksMessageType::Nack(NackData::new(NackErrorCodes::HandshakeRequired));
-                            let nack = StacksMessage::from_chain_view(self.burnchain.network_id, burnchain_view, nack_payload);
+                            let nack = StacksMessage::from_chain_view(self.burnchain.peer_version, self.burnchain.network_id, burnchain_view, nack_payload);
 
                             // unauthenticated, so don't forward 
                             consume_unsolicited = true;
@@ -587,33 +762,43 @@ impl Conversation {
                 None => {},
                 Some(mut reply) => {
                     // send back this message to the remote peer
-                    test_debug!("{:?}:{:?}: Send automatic reply type {}", &self.peer_addrbytes, self.peer_port, message_type_to_id(&reply.payload));
+                    test_debug!("{:?}: Send automatic reply type {}", &self, message_type_to_str(&reply.payload));
                     reply.sign(msg.preamble.seq, &local_peer.private_key)?;
                     self.relay_signed_message(reply)?;
                 }
             }
 
+            // successfully got a message -- update stats
             if self.stats.first_contact_time == 0 {
                 self.stats.first_contact_time = now;
             }
 
+            let msg_id = message_type_to_id(&msg.payload);
+            let count = match self.stats.msg_rx_counts.get(&msg_id) {
+                None => 1,
+                Some(c) => c + 1
+            };
+            self.stats.msg_rx_counts.insert(msg_id, count);
+
+            self.stats.msgs_rx += 1;
             self.stats.last_recv_time = now;
             self.stats.last_contact_time = get_epoch_time_secs();
+            self.stats.add_healthpoint(true);
             
-            let msgtype = message_type_to_id(&msg.payload);
+            let msgtype = message_type_to_str(&msg.payload).to_owned();
 
             // Is there someone else waiting for this message?  If so, pass it along.
             let fulfill_opt = self.connection.fulfill_request(msg);
             match fulfill_opt {
                 None => {
-                    test_debug!("{:?}:{:?}: Fulfilled pending message request (type {})", &self.peer_addrbytes, self.peer_port, msgtype);
+                    test_debug!("{:?}: Fulfilled pending message request (type {})", &self, msgtype);
                 },
                 Some(m) => {
                     if consume_unsolicited {
-                        test_debug!("{:?}:{:?}: Consuming unsolicited message (type {})", &self.peer_addrbytes, self.peer_port, msgtype);
+                        test_debug!("{:?}: Consuming unsolicited message (type {})", &self, msgtype);
                     }
                     else {
-                        test_debug!("{:?}:{:?}: Forwarding along unsolicited message (type {})", &self.peer_addrbytes, self.peer_port, msgtype);
+                        test_debug!("{:?}: Forwarding along unsolicited message (type {})", &self, msgtype);
                         unsolicited.push(m);
                     }
                 }
@@ -621,6 +806,14 @@ impl Conversation {
         }
 
         Ok(unsolicited)
+    }
+
+    /// Remove all timed-out messages, and ding the remote peer as unhealthy
+    pub fn clear_timeouts(&mut self) -> () {
+       let num_drained = self.connection.drain_timeouts();
+       for i in 0..num_drained {
+           self.stats.add_healthpoint(false);
+       }
     }
 }
 
@@ -647,21 +840,22 @@ mod test {
     use std::io::prelude::*;
     use std::io::Read;
     use std::io::Write;
-    use std::io::Cursor;
+
+    use net::test::*;
 
     use core::PEER_VERSION;
 
     fn convo_send(convo: &mut Conversation) -> Vec<u8> {
         let mut out_buf = vec![];
         {
-            let mut out_fd = Cursor::new(&mut out_buf);
+            let mut out_fd = NetCursor::new(&mut out_buf);
             convo.send(&mut out_fd).unwrap();
         }
         out_buf
     }
 
     fn convo_recv(convo: &mut Conversation, mut in_buf: Vec<u8>) -> () {
-        let mut in_fd = Cursor::new(&mut in_buf);
+        let mut in_fd = NetCursor::new(&mut in_buf);
         convo.recv(&mut in_fd).unwrap();
     }
 
@@ -719,6 +913,8 @@ mod test {
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
         
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        
         let burnchain = Burnchain {
             peer_version: PEER_VERSION,
             network_id: 0x9abcdef0,
@@ -731,7 +927,9 @@ mod test {
                 dec_den: 5
             },
             consensus_hash_lifetime: 24,
-            stable_confirmations: 7
+            stable_confirmations: 7,
+            first_block_height: 12300,
+            first_block_hash: first_burn_hash.clone(),
         };
 
         let chain_view = BurnchainView {
@@ -740,11 +938,9 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
         };
-        
-        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(12351, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
         
         let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -755,8 +951,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts);
+        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
        
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -821,6 +1017,8 @@ mod test {
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
         
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
         let burnchain = Burnchain {
             peer_version: PEER_VERSION,
             network_id: 0x9abcdef0,
@@ -833,7 +1031,9 @@ mod test {
                 dec_den: 5
             },
             consensus_hash_lifetime: 24,
-            stable_confirmations: 7
+            stable_confirmations: 7,
+            first_block_height: 12300,
+            first_block_hash: first_burn_hash.clone(),
         };
 
         let chain_view = BurnchainView {
@@ -843,10 +1043,8 @@ mod test {
             burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
         };
         
-        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-
-        let mut peerdb_1 = PeerDB::connect_memory(12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(12351, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
         
         let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -857,8 +1055,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts);
+        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
        
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -895,7 +1093,7 @@ mod test {
             }
         };
 
-        // received a valid HandshakeAccept from peer 2 
+        // received a valid HandshakeReject from peer 2 
         match reply_1.payload {
             StacksMessageType::HandshakeReject => {},
             _ => {
@@ -909,10 +1107,12 @@ mod test {
     }
 
     #[test]
-    fn convo_handshake_abort() {
+    fn convo_handshake_badsignature() {
         let conn_opts = ConnectionOptions::default();
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+        
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         
         let burnchain = Burnchain {
             peer_version: PEER_VERSION,
@@ -926,7 +1126,9 @@ mod test {
                 dec_den: 5
             },
             consensus_hash_lifetime: 24,
-            stable_confirmations: 7
+            stable_confirmations: 7,
+            first_block_height: 12300,
+            first_block_hash: first_burn_hash.clone(),
         };
 
         let chain_view = BurnchainView {
@@ -938,8 +1140,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(12351, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
         
         let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -950,8 +1152,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts);
+        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
        
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -989,12 +1191,14 @@ mod test {
         assert!(convo_1.connection.get_public_key().is_none());
         assert!(convo_2.connection.get_public_key().is_none());
     }
-
+    
     #[test]
-    fn convo_ping() {
+    fn convo_handshake_self() {
         let conn_opts = ConnectionOptions::default();
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+        
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         
         let burnchain = Burnchain {
             peer_version: PEER_VERSION,
@@ -1008,7 +1212,9 @@ mod test {
                 dec_den: 5
             },
             consensus_hash_lifetime: 24,
-            stable_confirmations: 7
+            stable_confirmations: 7,
+            first_block_height: 12300,
+            first_block_hash: first_burn_hash.clone(),
         };
 
         let chain_view = BurnchainView {
@@ -1020,8 +1226,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
         
         let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1032,8 +1238,103 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts);
+        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
+       
+        // no peer public keys known yet
+        assert!(convo_1.connection.get_public_key().is_none());
+        assert!(convo_2.connection.get_public_key().is_none());
+       
+        // convo_1 sends a handshake to itself (not allowed)
+        let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_2);
+        let handshake_1 = convo_1.sign_message(&chain_view, &local_peer_2.private_key, StacksMessageType::Handshake(handshake_data_1.clone())).unwrap();
+        let rh_1 = convo_1.send_signed_message(handshake_1, 1000000).unwrap();
+
+        // convo_2 receives it and processes it, and give back a handshake reject
+        convo_recv(&mut convo_2, convo_send(&mut convo_1));
+        let unhandled_2 = convo_2.chat(&local_peer_2, burndb_2.conn(), &chain_view).unwrap();
+
+        // convo_1 gets a handshake reject and consumes it
+        convo_recv(&mut convo_1, convo_send(&mut convo_2));
+        let unhandled_1 = convo_1.chat(&local_peer_1, burndb_1.conn(), &chain_view).unwrap();
+
+        // get back handshake reject
+        let reply_1 = rh_1.recv(0).unwrap();
+
+        assert_eq!(unhandled_1.len(), 0);
+        assert_eq!(unhandled_2.len(), 1);
+
+        // convo 2 returns the handshake from convo 1
+        match unhandled_2[0].payload {
+            StacksMessageType::Handshake(ref data) => {
+                assert_eq!(handshake_data_1, *data);
+            },
+            _ => {
+                assert!(false);
+            }
+        };
+
+        // received a valid HandshakeReject from peer 2 
+        match reply_1.payload {
+            StacksMessageType::HandshakeReject => {},
+            _ => {
+                assert!(false);
+            }
+        };
+
+        // neither peer updated their info on one another 
+        assert!(convo_1.connection.get_public_key().is_none());
+        assert!(convo_2.connection.get_public_key().is_none());
+    }
+
+    #[test]
+    fn convo_ping() {
+        let conn_opts = ConnectionOptions::default();
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+        
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let burnchain = Burnchain {
+            peer_version: PEER_VERSION,
+            network_id: 0x9abcdef0,
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            burn_quota: BurnQuotaConfig {
+                inc: 21000,
+                dec_num: 4,
+                dec_den: 5
+            },
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            first_block_height: 12300,
+            first_block_hash: first_burn_hash.clone(),
+        };
+
+        let chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
+            burn_stable_block_height: 12341,
+            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
+        };
+        
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
+        
+        let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+
+        db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
+        db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
+
+        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+        let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
+
+        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
 
         // convo_1 sends a handshake to convo_2
         let handshake_data_1 = HandshakeData::from_local_peer(&local_peer_1);
@@ -1086,6 +1387,8 @@ mod test {
         let conn_opts = ConnectionOptions::default();
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+       
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         
         let burnchain = Burnchain {
             peer_version: PEER_VERSION,
@@ -1099,7 +1402,9 @@ mod test {
                 dec_den: 5
             },
             consensus_hash_lifetime: 24,
-            stable_confirmations: 7
+            stable_confirmations: 7,
+            first_block_height: 12300,
+            first_block_hash: first_burn_hash.clone(),
         };
 
         let chain_view = BurnchainView {
@@ -1111,8 +1416,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         
         let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1123,8 +1428,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts);
+        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
 
         for i in 0..5 {
             // do handshake/ping over and over, with different keys.
@@ -1220,6 +1525,8 @@ mod test {
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
         
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
         let burnchain = Burnchain {
             peer_version: PEER_VERSION,
             network_id: 0x9abcdef0,
@@ -1232,7 +1539,9 @@ mod test {
                 dec_den: 5
             },
             consensus_hash_lifetime: 24,
-            stable_confirmations: 7
+            stable_confirmations: 7,
+            first_block_height: 12300,
+            first_block_hash: first_burn_hash.clone(),
         };
 
         let chain_view = BurnchainView {
@@ -1244,8 +1553,8 @@ mod test {
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(12350, &vec![], &vec![]).unwrap();
-        let mut peerdb_2 = PeerDB::connect_memory(12351, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
         
         let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1256,8 +1565,8 @@ mod test {
         let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
         let local_peer_2 = PeerDB::get_local_peer(&peerdb_2.conn()).unwrap();
 
-        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts);
-        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts);
+        let mut convo_1 = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
+        let mut convo_2 = Conversation::new(&burnchain, &socketaddr_1, &conn_opts, true, 0);
        
         // no peer public keys known yet
         assert!(convo_1.connection.get_public_key().is_none());
@@ -1307,6 +1616,8 @@ mod test {
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let socketaddr_2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
         
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
         let burnchain = Burnchain {
             peer_version: PEER_VERSION,
             network_id: 0x9abcdef0,
@@ -1319,7 +1630,9 @@ mod test {
                 dec_den: 5
             },
             consensus_hash_lifetime: 24,
-            stable_confirmations: 7
+            stable_confirmations: 7,
+            first_block_height: 12300,
+            first_block_hash: first_burn_hash.clone(),
         };
 
         let chain_view = BurnchainView {
@@ -1328,10 +1641,8 @@ mod test {
             burn_stable_block_height: 12341,
             burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
         };
-        
-        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let mut peerdb_1 = PeerDB::connect_memory(12350, &vec![], &vec![]).unwrap();
+        let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
@@ -1340,7 +1651,7 @@ mod test {
         
         // network ID check
         {
-            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts);
+            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
 
             let ping_data = PingData::new();
             convo_bad.burnchain.network_id += 1;
@@ -1352,7 +1663,7 @@ mod test {
 
         // stable block height check
         {
-            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts);
+            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
 
             let ping_data = PingData::new();
             
@@ -1366,7 +1677,7 @@ mod test {
 
         // node is too far ahead of us
         {
-            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts);
+            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
 
             let ping_data = PingData::new();
             
@@ -1386,7 +1697,7 @@ mod test {
 
         // unstable consensus hash mismatch
         {
-            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts);
+            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
 
             let ping_data = PingData::new();
             
@@ -1401,7 +1712,7 @@ mod test {
 
         // stable consensus hash mismatch 
         {
-            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts);
+            let mut convo_bad = Conversation::new(&burnchain, &socketaddr_2, &conn_opts, true, 0);
 
             let ping_data = PingData::new();
             
