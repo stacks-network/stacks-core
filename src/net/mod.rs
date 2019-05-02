@@ -25,8 +25,11 @@ pub mod db;
 pub mod neighbors;
 pub mod p2p;
 pub mod poll;
+pub mod prune;
 
 use std::fmt;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::error;
 use std::io;
 use std::net::SocketAddr;
@@ -52,6 +55,9 @@ use util::hash::DOUBLE_SHA256_ENCODED_SIZE;
 use util::hash::HASH160_ENCODED_SIZE;
 
 use util::db::Error as db_error;
+use util::db::DBConn;
+
+use util::log;
 
 use util::secp256k1::Secp256k1PublicKey;
 
@@ -122,7 +128,9 @@ pub enum Error {
     /// Remote peer is not connected 
     PeerNotConnected,
     /// Too many peers
-    TooManyPeers
+    TooManyPeers,
+    /// Peer already connected 
+    AlreadyConnected
 }
 
 impl fmt::Display for Error {
@@ -160,6 +168,7 @@ impl fmt::Display for Error {
             Error::NotConnected => f.write_str(error::Error::description(self)),
             Error::PeerNotConnected => f.write_str(error::Error::description(self)),
             Error::TooManyPeers => f.write_str(error::Error::description(self)),
+            Error::AlreadyConnected => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -199,6 +208,7 @@ impl error::Error for Error {
             Error::NotConnected => None,
             Error::PeerNotConnected => None,
             Error::TooManyPeers => None,
+            Error::AlreadyConnected => None,
         }
     }
 
@@ -236,7 +246,8 @@ impl error::Error for Error {
             Error::SocketError => "Socket error",
             Error::NotConnected => "Not connected to peer network",
             Error::PeerNotConnected => "Remote peer is not connected to us",
-            Error::TooManyPeers => "Too many peer connections open"
+            Error::TooManyPeers => "Too many peer connections open",
+            Error::AlreadyConnected => "Peer already connected"
         }
     }
 }
@@ -439,12 +450,25 @@ pub struct MicroblocksData {
 }
 
 /// A descriptor of a peer
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct NeighborAddress {
     pub addrbytes: PeerAddress,
     pub port: u16,
     pub public_key_hash: Hash160        // used as a hint; useful for when a node trusts another node to be honest about this
 }
+
+impl fmt::Display for NeighborAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}://{:?}:{}", &self.public_key_hash, &self.addrbytes, self.port)
+    }
+}
+
+impl fmt::Debug for NeighborAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}://{:?}:{}", &self.public_key_hash, &self.addrbytes, self.port)
+    }
+}
+
 pub const NEIGHBOR_ADDRESS_ENCODED_SIZE : u32 =
     PEER_ADDRESS_ENCODED_SIZE +
     2 +
@@ -618,12 +642,44 @@ impl_byte_array_message_codec!(PeerAddress, 16);
 impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
 
 /// neighbor identifier 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Eq)]
 pub struct NeighborKey {
     pub peer_version: u32,
     pub network_id: u32,
     pub addrbytes: PeerAddress,
     pub port: u16,
+}
+
+impl Hash for NeighborKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // ignores peer version and network ID -- we don't accept or deal with messages that have
+        // incompatible versions or network IDs in the first place
+        self.addrbytes.hash(state);
+        self.port.hash(state);
+    }
+}
+
+impl PartialEq for NeighborKey {
+    fn eq(&self, other: &NeighborKey) -> bool {
+        // peer version doesn't count 
+        self.network_id == other.network_id && self.addrbytes == other.addrbytes && self.port == other.port
+    }
+}
+
+impl fmt::Display for NeighborKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let peer_version_str = if self.peer_version > 0 { format!("{:08x}", self.peer_version).to_string() } else { "UNKNOWN".to_string() };
+        let network_id_str = if self.network_id > 0 { format!("{:08x}", self.network_id).to_string() } else { "UNKNOWN".to_string() };
+        write!(f, "{}+{}://{:?}:{}", peer_version_str, network_id_str, &self.addrbytes, self.port)
+    }
+}
+
+impl fmt::Debug for NeighborKey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let peer_version_str = if self.peer_version > 0 { format!("{:08x}", self.peer_version).to_string() } else { "UNKNOWN".to_string() };
+        let network_id_str = if self.network_id > 0 { format!("{:08x}", self.network_id).to_string() } else { "UNKNOWN".to_string() };
+        write!(f, "{}+{}://{:?}:{}", peer_version_str, network_id_str, &self.addrbytes, self.port)
+    }
 }
 
 /// Entry in the neighbor set
@@ -648,3 +704,292 @@ pub struct Neighbor {
 
 pub const NUM_NEIGHBORS : usize = 32;
 
+#[cfg(test)]
+mod test {
+    use super::*;
+    use net::asn::*;
+    use net::chat::*;
+    use net::connection::*;
+    use net::codec::*;
+    use net::db::*;
+    use net::neighbors::*;
+    use net::p2p::*;
+    use net::poll::*;
+    use net::Error as net_error;
+
+    use chainstate::burn::*;
+    use chainstate::burn::db::burndb;
+    use chainstate::burn::db::burndb::*;
+    use chainstate::*;
+
+    use burnchains::*;
+    use burnchains::burnchain::*;
+
+    use burnchains::bitcoin::*;
+    use burnchains::bitcoin::address::*;
+    use burnchains::bitcoin::keys::*;
+    
+    use util::secp256k1::*;
+    use util::hash::*;
+
+    use std::net::*;
+    use std::io;
+    use std::io::Read;
+    use std::io::Write;
+    use std::io::ErrorKind;
+    use std::io::Cursor;
+    use std::ops::Deref;
+    use std::ops::DerefMut;
+    use std::collections::HashMap;
+
+    pub struct NetCursor<T> {
+        c: Cursor<T>,
+    }
+
+    impl<T> NetCursor<T> {
+        pub fn new(inner: T) -> NetCursor<T> {
+            NetCursor {
+                c: Cursor::new(inner)
+            }
+        }
+    }
+
+    impl<T> Deref for NetCursor<T> {
+        type Target = Cursor<T>;
+        fn deref(&self) -> &Cursor<T> {
+            &self.c
+        }
+    }
+    
+    impl<T> DerefMut for NetCursor<T> {
+        fn deref_mut(&mut self) -> &mut Cursor<T> {
+            &mut self.c
+        }
+    }
+
+    impl<T> Read for NetCursor<T>
+    where
+        T: AsRef<[u8]>
+    {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let sz = self.c.read(buf)?;
+            if sz == 0 {
+                // when reading from a non-blocking socket, a return value of 0 indicates the
+                // remote end was closed.  For this reason, when we're out of bytes to read on our
+                // inner cursor, we need to re-interpret this as EWOULDBLOCK.
+                return Err(io::Error::from(ErrorKind::WouldBlock));
+            }
+            else {
+                return Ok(sz);
+            }
+        }
+    }
+
+    impl Write for NetCursor<&mut [u8]> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.c.write(buf)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.c.flush()
+        }
+    }
+    
+    impl Write for NetCursor<&mut Vec<u8>> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.c.write(buf)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.c.flush()
+        }
+    }
+    
+    impl Write for NetCursor<Vec<u8>> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.c.write(buf)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.c.flush()
+        }
+    }
+
+    // common test code for this module
+    #[derive(Debug, Clone)]
+    pub struct TestPeerConfig {
+        pub current_block: u64,
+        pub private_key: Secp256k1PrivateKey,
+        pub private_key_expire: u64,
+        pub initial_neighbors: Vec<Neighbor>,
+        pub asn4_entries: Vec<ASEntry4>,
+        pub burnchain: Burnchain,
+        pub connection_opts: ConnectionOptions,
+        pub server_port: u16,
+        pub asn: u32,
+        pub org: u32,
+        pub whitelisted: i64,
+        pub blacklisted: i64
+    }
+
+    impl TestPeerConfig {
+        pub fn default() -> TestPeerConfig {
+            let conn_opts = ConnectionOptions::default();
+            let start_block = 10000;
+            TestPeerConfig {
+                current_block: start_block + 1,
+                private_key: Secp256k1PrivateKey::new(),
+                private_key_expire: start_block + conn_opts.private_key_lifetime,
+                initial_neighbors: vec![],
+                asn4_entries: vec![],
+                burnchain: Burnchain::default_unittest(start_block, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()),
+                connection_opts: conn_opts,
+                server_port: 32000,
+                asn: 0,
+                org: 0,
+                whitelisted: 0,
+                blacklisted: 0
+            }
+        }
+
+        pub fn from_port(p: u16) -> TestPeerConfig {
+            TestPeerConfig {
+                server_port: p,
+                ..TestPeerConfig::default()
+            }
+        }
+
+        pub fn add_neighbor(&mut self, n: &Neighbor) -> () {
+            self.initial_neighbors.push(n.clone());
+        }
+
+        pub fn to_neighbor(&self) -> Neighbor {
+            Neighbor {
+                addr: NeighborKey {
+                    peer_version: self.burnchain.peer_version,
+                    network_id: self.burnchain.network_id,
+                    addrbytes: PeerAddress([0,0,0,0,0,0,0,0,0,0,0xff,0xff,127,0,0,1]),
+                    port: self.server_port
+                },
+                public_key: Secp256k1PublicKey::from_private(&self.private_key),
+                expire_block: self.private_key_expire,
+
+                // not known yet
+                last_contact_time: 0,
+                whitelisted: self.whitelisted,
+                blacklisted: self.blacklisted,
+                asn: self.asn,
+                org: self.org,
+                in_degree: 0,
+                out_degree: 0
+            }
+        }
+    }
+
+    pub struct TestPeer {
+        pub config: TestPeerConfig,
+        pub network: PeerNetwork,
+        pub burndb: Option<BurnDB<BitcoinAddress, BitcoinPublicKey>>
+    }
+
+    pub fn u64_to_bytes(i: u64) -> [u8; 8] {
+        [
+            (i & 0xff00000000000000) as u8,
+            (i & 0x00ff000000000000) as u8,
+            (i & 0x0000ff0000000000) as u8,
+            (i & 0x000000ff00000000) as u8,
+            (i & 0x00000000ff000000) as u8,
+            (i & 0x0000000000ff0000) as u8,
+            (i & 0x000000000000ff00) as u8,
+            (i & 0x00000000000000ff) as u8
+        ]
+    }
+
+    impl TestPeer {
+        pub fn new(config: &TestPeerConfig) -> TestPeer {
+            let mut peerdb = PeerDB::connect_memory(config.burnchain.network_id, config.private_key_expire, &config.asn4_entries, &config.initial_neighbors).unwrap();
+            let mut burndb = BurnDB::<BitcoinAddress, BitcoinPublicKey>::connect_memory(config.burnchain.first_block_height, &config.burnchain.first_block_hash).unwrap();
+
+            for i in config.burnchain.first_block_height+1..config.current_block {
+                let i_bytes = u64_to_bytes(i);
+                let i_prev_bytes = u64_to_bytes(i-1);
+                let i_bytes_rev = u64_to_bytes(i.to_be());
+                
+                let burn_header_hash = BurnchainHeaderHash::from_bytes(&DoubleSha256::from_data(&i_bytes)[0..32]).unwrap();
+                let parent_burn_header_hash =
+                    if i == config.burnchain.first_block_height {
+                        config.burnchain.first_block_hash.clone()
+                    }
+                    else {
+                        BurnchainHeaderHash::from_bytes(&DoubleSha256::from_data(&i_prev_bytes)[0..32]).unwrap()
+                    };
+
+                {
+                    let mut tx = burndb.tx_begin().unwrap();
+                    let snapshot = BlockSnapshot::make_snapshot::<BitcoinAddress, BitcoinPublicKey>(&mut tx, &config.burnchain, config.burnchain.first_block_height, i, &burn_header_hash, &parent_burn_header_hash, &vec![]).unwrap();
+                    BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot).unwrap();
+                    tx.commit().unwrap();
+                }
+            }
+
+            let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), config.server_port);
+
+            {
+                let mut tx = peerdb.tx_begin().unwrap();
+                PeerDB::set_local_ipaddr(&mut tx, &PeerAddress::from_socketaddr(&local_addr), config.server_port).unwrap();
+                PeerDB::set_local_services(&mut tx, ServiceFlags::RELAY as u16).unwrap();
+                PeerDB::set_local_private_key(&mut tx, &config.private_key, config.private_key_expire).unwrap();
+                
+                tx.commit().unwrap();
+            }
+            
+            let mut peer_network = PeerNetwork::new(peerdb, &config.burnchain, &config.connection_opts);
+
+            peer_network.bind(&local_addr).unwrap();
+            
+            TestPeer {
+                config: (*config).clone(),
+                network: peer_network,
+                burndb: Some(burndb)
+            }
+        }
+
+        pub fn connect_initial(&mut self) -> Result<(), net_error> {
+            let local_peer = PeerDB::get_local_peer(self.network.peerdb.conn()).unwrap();
+            let chain_view = match self.burndb {
+                Some(ref burndb) => burndb::get_burnchain_view(burndb.conn(), &self.config.burnchain).unwrap(),
+                None => panic!("Misconfigured peer: no burndb")
+            };
+
+            for n in self.config.initial_neighbors.iter() {
+                self.network.connect_peer(&local_peer, &chain_view, &n.addr)
+                    .and_then(|e| Ok(()))?;
+            }
+            Ok(())
+        }
+
+        pub fn step(&mut self) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+            let burndb = self.burndb.take().unwrap();
+            let ret = self.network.run(burndb.conn(), 1);
+            self.burndb = Some(burndb);
+            ret
+        }
+
+        pub fn to_neighbor(&self) -> Neighbor {
+            self.config.to_neighbor()
+        }
+
+        pub fn get_public_key(&self) -> Secp256k1PublicKey {
+            Secp256k1PublicKey::from_private(&self.config.private_key)
+        }
+
+        pub fn get_peerdb_conn(&self) -> &DBConn {
+            self.network.peerdb.conn()
+        }
+
+        pub fn dump_frontier(&self) -> () {
+            let conn = self.network.peerdb.conn();
+            let peers = PeerDB::get_all_peers(conn).unwrap();
+            test_debug!("--- BEGIN ALL PEERS ({}) ---", peers.len());
+            test_debug!("{:#?}", &peers);
+            test_debug!("--- END ALL PEERS ({}) -----", peers.len());
+        }
+    }
+}
