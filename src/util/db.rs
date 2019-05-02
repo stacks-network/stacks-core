@@ -23,6 +23,7 @@ use std::error;
 use rusqlite::Error as sqlite_error;
 use rusqlite::Connection;
 use rusqlite::Row;
+use rusqlite::types::ToSql;
 
 use serde_json::Error as serde_error;
 
@@ -118,4 +119,51 @@ macro_rules! impl_byte_array_from_row {
             }
         }
     }
+}
+
+/// boilerplate code for querying rows 
+pub fn query_rows<T, P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<Vec<T>, Error>
+where
+    P: IntoIterator,
+    P::Item: ToSql,
+    T: FromRow<T>
+{
+    let mut stmt = conn.prepare(sql_query)
+        .map_err(|e| Error::SqliteError(e))?;
+
+    let mut rows = stmt.query(sql_args)
+        .map_err(|e| Error::SqliteError(e))?;
+
+    // gather 
+    let mut row_data = vec![];
+    while let Some(row_res) = rows.next() {
+        match row_res {
+            Ok(row) => {
+                let next_row = T::from_row(&row, 0)?;
+                row_data.push(next_row);
+            },
+            Err(e) => {
+                return Err(Error::SqliteError(e));
+            }
+        };
+    }
+
+    Ok(row_data)
+}
+
+/// Boilerplate for querying a count (the first item of the query must be a COUNT(...))
+pub fn query_count<P>(conn: &Connection, sql_query: &String, sql_args: P) -> Result<i64, Error>
+where
+    P: IntoIterator,
+    P::Item: ToSql
+{
+    let mut stmt = conn.prepare(sql_query)
+        .map_err(|e| Error::SqliteError(e))?;
+
+    stmt.query_row(sql_args,
+        |row| {
+            let res : i64 = row.get(0);
+            res
+        })
+        .map_err(|e| Error::SqliteError(e))
 }
