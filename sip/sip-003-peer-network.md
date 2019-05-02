@@ -45,7 +45,7 @@ efficiency is acceptable if it makes encoding and decoding simpler.
 * **Unstructured reachability**.  The peer network's routing algorithm
   prioritizes building a _random_ peer graph such that there are many
 _distinct_ paths between any two peers.  A random (unstructured) graph is
-preferred to a structured graph in order to maximize the number of neighbor peers that
+preferred to a structured graph (like a DHT) in order to maximize the number of neighbor peers that
 a given peer will consider in its frontier.  When choosing neighbors, a peer
 will prefer to maximize the number of _distinct_ autonomous systems represented
 in its frontier in order to help keep as many networks on the Internet connected
@@ -715,8 +715,8 @@ Connecting to a peer is done in a single round as follows:
 2.  The receiver replies with a `HandshakeAccept` with its public key and
     services.
 
-On success, both sender and receiver add each other to their frontier neighbor
-sets.
+On success, the sender adds the receiver to its frontier set.  The receiver may
+do so as well, but this is not required.
 
 If the receiver is unable to process the `Handshake`, the receiver should
 reply with a `HandshakeReject` and temporarily blacklist the sender for a time.
@@ -727,23 +727,13 @@ request cannot be processed for a _recoverable_ reason, then the receiver should
 reply with a `Nack` with the appropriate error code to tell the sender to try
 again.
 
-A sender should only attempt to `Handshake` with a receiver if it believes that
-the receiver has either not seen the sender peer before, or if its knowledge of
-teh sender's public key is expired.  This is important since it stops a network
-attacker from flooding a peer's neighbor table with invalid entries.  If the
-receiver receives an "early" `Handshake` from a sender -- i.e. the receiver's
-knowledge of the sender is still fresh, the receiver should reply with a `Nack`
-to indicate so.
-
 When executing a handshake, a peer should _not_ include any other peers in the
-`relayers` vector except for itself.  A receiver should `Nack` a `Handshake`
-with a `relayers` vector with more than one entry.
+`relayers` vector except for itself.  The `relayers` field will be ignored.
 
 ### Checking a Peer's Liveness
 
 A sender peer can check that a peer is still alive by sending it a `Ping`
-message.  The receiver should reply with a `Pong` message, and include the same
-data it would have included in a `HandshakeAccept` response.  Both the sender
+message.  The receiver should reply with a `Pong` message.  Both the sender
 and receiver peers would update their metrics for measuring each other's
 resposniveness, but they do _not_ alter any information about each other's
 public keys and expirations.
@@ -757,10 +747,17 @@ Peers exchange knowledge about their neighbors as follows:
 2. The receiver chooses up to 128 neighbors it knows about and replies to the
    sender with them as a `Neighbors` message.  It provides the hashes of their session public keys (if
 known) as a hint to the sender, which the sender may use to further
-authenticate future neighbors (but this is optional).
+authenticate future neighbors.
+3. The sender sends `Handshake` messages to a subset of the replied neighbors,
+   prioritizing neighbors that are not known to the sender or have not been
+recently contacted.
+4. The various neighbors contacted reply either `HandshakeAccept`,
+   `HandshakeReject`, or `Nack` messages.  The sender updates its frontier with
+knowledge gained from the `HandshakeAccept` messages.
 
 On success, the sender peer adds zero or more of the replied peer addresses to
-its frontier set.  The receiver does nothing.
+its frontier set.  The receiver and its contacted neighbors do nothing but
+update their metrics for the sender.
 
 If the sender receives an invalid `Neighbors` reply with more than 128
 addresses, the sender should blacklist the receiver.
@@ -931,12 +928,11 @@ peer.
 To choose their neighbors in the peer graph, peers maintain two views of the network:
 
 * The **frontier** -- the set of peers that have either sent a message to this
-  peer or have responded to a request in the past _L_ days (where _L_ is the
-amount of time for which a peer may remain in the frontier set before being
-considered for eviction).  The size of the frontier is significantly larger than
+  peer or have responded to a request at some point in the past.
+The size of the frontier is significantly larger than
 K.  Peer records in the frontier set may expire and may be stale, but are only
 evicted when the space is needed.  The **fresh frontier set** is the subset of
-the frontier set whose information is assumed to be valid at the time of query.
+the frontier set that have been successfully contacted in the past _L_ seconds.
 
 * The **neighbor set** -- the set of K peers that the peer will announce as its
   neighbors when asked.  The neighbor set is a randomized subset of the frontier.
@@ -957,27 +953,21 @@ links too heavily.
 
 **Discovering Other Peers**
 
-To construct a K-regular random graph topology, peers execute a Metropolis-Hastings
+To construct a K-regular random graph topology, peers execute a modified Metropolis-Hastings
 random graph walk with delayed acceptance (MHRWDA) [1] to decide which peers belong to
 their neighbor set and to grow their frontiers.
 
 A peer keeps track of which peers are neighbors of which other peers, and in
-doing so, is able to calculate the in-degree and out-degree of each peer in
-the neighbor set.  This is used to help calculate the probability of walking
-from one peer to another.  A peer measures the in-degree of a remote peer
-simply by counting up the number of distinct neighbors it has.  It measures
-the out-degree of a remote peer by counting up how many other peers have
-included it in their K-neighbor sets recently.  A peer is walked to with
-probability that is around `out-degree / in-degree` (but see [1] for details --
-the exact probability formula is omitted for brevity).
+doing so, is able to calculate the degree of each peer as the number of that
+peer's neighbors that report the peer in question as a neighbor.  Given a currently-visited
+peer _P_, a neighboring peer _N_ is walked to with probability proportional to
+the ratio of their degrees.  The exact formula is adapted from Algorithm 2 in
+[1].
 
-A peer keeps its neighbor set limited to K neighbors by evicting the
-least-recently-visited node while walking through the neighbors' neighbors.  It
-does not forget the evicted neighbor; it merely stops reporting it as a neighbor
-when responding to a `GetNeighbors` query.
-
-A peer keeps its neighbor set fresh by periodically re-handshaking with its K
-neighbors.  It will measure the health of each neighbor by measuring how often
+Once established, a peer tries to keep its neighbor set stable as long as the
+neighbors are live.  It does so by periodically pinging and re-handshaking with
+its K neighbors in order to establish a minimum time between contacts.
+As it communicates with neighbors, it will measure the health of each neighbor by measuring how often
 it responds to a query.  A peer will probabilistically evict a peer from its
 neighbor set if its response rate drops too low, where the probability of
 eviction is proportional both to the peer's perceived uptime and to the peer's
@@ -990,45 +980,28 @@ of backup peers to contact in case a significant portion of their neighbors goes
 offline, and (2) to make inferences about the global connectivity of the peer
 graph.  A peer can't crawl each and every other peer in the
 frontier set (this would be too expensive), but a peer can infer over time which
-nodes and edges are likely to be online.  The set of peers thought to be online
-is called the _fresh frontier set_.
+nodes and edges are likely to be online by examining its fresh frontier set.
 
-The fresh frontier set is used to estimate the connectivity of the
-peer network in terms of the _autonomous systems_ that host them.  All that a
-peer needs to know about remote peers in the fresh frontier set is that they are
-likely to be online; it does _not_ need to know their current public keys and
-block inventories.  That said, a peer remembers the following information for
-peers in its frontier:
-
-* the time it was inserted into the frontier (`T-insert`)
-* the time it was last successfully contacted (`T-contact`)
-* the number of times it has been successfully contacted in the last 10 days (`C-success`)
-* the number of times it has failed to respond in the last 10 days (`C-failure`)
-
-A peer is considered to be in the fresh frontier set if the following are true:
-
-* `T-contact` is less than 10 days ago.
-* `C-success / (C-success + C-failure) >= 0.5`: the peer replied at least 50% of the time in the last 10 days if this peer contacted it.
-
-The frontier set grows whenever new neighbors are discovered.  A neighbor
+The frontier set grows whenever new neighbors are discovered, but it is not
+infinitely large.  Frontier nodes are stored in a bound-sized hash table on disk.  A neighbor
 inserted deterministically into the frontier set by hashing its address with a
-peer-specific secret and the values `0` through `8` in order to identify eight
+peer-specific secret and the values `0` through `7` in order to identify eight
 slots into which its address can be inserted.  If any of the resulting slots are
 empty, the peer is added to the frontier.
 
-The frontier set is large, but not infinite.  As more peers are discovered, it
-becomes possible that a newly-discovered peer cannot be inserted
+As more peers are discovered, it becomes possible that a newly-discovered peer cannot be inserted
 determinstically.  This will become more likely than not to happen once the
 frontier set has `8 * sqrt(F)` slots full, where `F` is the maximum size of
 the frontier.  In such cases, a random existing peer in one of the slots is
 chosen for possible eviction, but only if it is offline.  The peer will attempt
-to ping or (if its data is expired) handshake with the existing peer
-before evicting it, and if it responds, the
-new node is discarded and no eviction takes place.
+to handshake with the existing peer before evicting it, and if it responds with
+a `HandshakeAccept`, the new node is discarded and no eviction takes place.
 
 Insertion and deletion are deterministic (and in deletion's case, predicated on
-a failure to ping) in order to prevent a malicious remote peer from filling up
-the frontier set with junk.  The ping-then-evict test is in place also to
+a failure to ping) in order to prevent malicious remote peers from filling up
+the frontier set with junk without first acquiring the requisite IP addresses
+and learning the victim's peer-specific secret nonce.
+The handshake-then-evict test is in place also to
 prevent peers with a longer uptime from being easily replaced by short-lived peers.
 
 **Mapping the Peer Network**
@@ -1104,19 +1077,20 @@ connectivity to different _autonomous systems_
 (ASs) when considering adding it to the neighbor set.
 
 * Relaying in rarest-AS-first order:  the relay algorithm will probabilistically
-  rank its neighbors in order by how rare their AS is the fresh frontier set.
+  rank its neighbors in order by how rare their AS is in the fresh frontier set.
 
-When calculating the probability that a peer will be visited, the graph walk
-algorithm calculates an additional measure of the peer's degree in the peer graph:
-the in-degree and out-degree of the ASs represented by its neighbors.  The graph walk
-algorithm will visit a new node with probability proportional to
-`(out-degree / in-degree) * (out-AS-degree / in-AS-degree)`.  In doing so,
-responsive peers that have high out-degrees relative to in-degrees will be prioritized for
-inclusion in the neighbor set.
+When building up its K neighbors, a peer has the opportunity to select neighbors
+based on how popular their ASs are.  To do this, the peer crawl N > K neighbors, and then
+randomly disconnect from N - K of them.  The probability that a peer will
+be removed is proportional to (1) how popular its AS
+is in the N neighbors, and (2) how unhealthy it is out of the neighbors in the
+same AS.  The peer will first select an AS to prune, and then select a neighbor
+within that AS.  This helps ensure that a relayed messasge is likely to be
+forwarded to many different ASs quickly.
 
 To forward messages to as many different ASs as possible, the peer will
 probabilistically prioritize neighbors to receive a forwarded message based on how _rare_
-their AS is in the frontier set.  This forwarding heuristic is
+their AS is in the fresh frontier set.  This forwarding heuristic is
 meant to ensure that a message quickly reaches many different networks in the
 Internet.
 
