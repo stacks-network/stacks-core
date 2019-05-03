@@ -94,8 +94,11 @@ impl FunctionType {
 }
 
 fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
+    // AARON: todo: make this switch control similar to the enum
+    //    forcing system we used for native functions.
     match variable_name {
         "tx-sender" => Some(TypeSignature::new_atom( AtomTypeIdentifier::PrincipalType )),
+        "block-height" => Some(TypeSignature::new_atom( AtomTypeIdentifier::IntType )),
         _ => None
     }
 }
