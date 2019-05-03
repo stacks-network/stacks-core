@@ -1,4 +1,4 @@
-use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row};
+use rusqlite::{Connection, Savepoint, OptionalExtension, NO_PARAMS, Row};
 use rusqlite::types::ToSql;
 
 
@@ -8,32 +8,37 @@ use vm::checker::typecheck::{ContractAnalysis, FunctionType};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in contract analysis.";
 
-pub struct AnalysisDatabase {
+pub struct AnalysisDatabase <'a> {
+    savepoint: Savepoint<'a>
+}
+
+pub struct AnalysisDatabaseConnection {
     conn: Connection
 }
 
-impl AnalysisDatabase {
-    pub fn initialize(filename: &str) -> AnalysisDatabase {
-        let mut contract_db = AnalysisDatabase::inner_open(filename);
+impl AnalysisDatabaseConnection {
+    pub fn initialize(filename: &str) -> AnalysisDatabaseConnection {
+        let mut contract_db = AnalysisDatabaseConnection::inner_open(filename);
         // this is the _laziest_ of structures at the moment.
         //    more to come!
-        contract_db.execute("CREATE TABLE IF NOT EXISTS type_analysis_table
+        contract_db.conn.execute("CREATE TABLE IF NOT EXISTS type_analysis_table
                       (contract_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
                        contract_name TEXT NOT NULL UNIQUE,
                        analysis TEXT NOT NULL)",
-                            NO_PARAMS);
-
+                            NO_PARAMS)
+            .expect(SQL_FAIL_MESSAGE);
+        
         contract_db.check_schema();
 
         contract_db
     }
 
-    pub fn memory() -> AnalysisDatabase {
-        AnalysisDatabase::initialize(":memory:")
+    pub fn memory() -> AnalysisDatabaseConnection {
+        AnalysisDatabaseConnection::initialize(":memory:")
     }
 
-    pub fn open(filename: &str) -> AnalysisDatabase {
-        let contract_db = AnalysisDatabase::inner_open(filename);
+    pub fn open(filename: &str) -> AnalysisDatabaseConnection {
+        let contract_db = AnalysisDatabaseConnection::inner_open(filename);
 
         contract_db.check_schema();
         contract_db
@@ -46,19 +51,42 @@ impl AnalysisDatabase {
             .expect("Bad schema in analysis db initialization.");
     }
 
-    pub fn inner_open(filename: &str) -> AnalysisDatabase {
+    pub fn inner_open(filename: &str) -> AnalysisDatabaseConnection {
         let conn = Connection::open(filename)
             .expect("Failure to open analysis db.");
-        AnalysisDatabase {
+        AnalysisDatabaseConnection {
             conn: conn
         }
+    }
+
+    pub fn begin_save_point(&mut self) -> AnalysisDatabase<'_> {
+        AnalysisDatabase::from_savepoint(self.conn.savepoint()
+                                         .expect(SQL_FAIL_MESSAGE))
+    }
+}
+
+impl <'a> AnalysisDatabase <'a> {
+
+    pub fn from_savepoint(sp: Savepoint<'a>) -> AnalysisDatabase<'a> {
+        AnalysisDatabase {
+            savepoint: sp }
+    }
+
+    pub fn roll_back(&mut self) {
+        self.savepoint.rollback()
+            .expect(SQL_FAIL_MESSAGE);
+    }
+
+    pub fn commit(self) {
+        self.savepoint.commit()
+            .expect(SQL_FAIL_MESSAGE);
     }
 
     pub fn execute<P>(&mut self, sql: &str, params: P) -> usize
     where
         P: IntoIterator,
         P::Item: ToSql {
-        self.conn.execute(sql, params)
+        self.savepoint.execute(sql, params)
             .expect(SQL_FAIL_MESSAGE)
     }
 
@@ -67,7 +95,7 @@ impl AnalysisDatabase {
         P: IntoIterator,
         P::Item: ToSql,
         F: FnOnce(&Row) -> T {
-        self.conn.query_row(sql, params, f)
+        self.savepoint.query_row(sql, params, f)
             .optional()
             .expect(SQL_FAIL_MESSAGE)
     }

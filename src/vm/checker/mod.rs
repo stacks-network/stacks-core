@@ -6,7 +6,7 @@ mod check_db;
 use vm::representations::{SymbolicExpression};
 
 pub use self::errors::{CheckResult, CheckError, CheckErrors};
-pub use self::check_db::{AnalysisDatabase};
+pub use self::check_db::{AnalysisDatabase, AnalysisDatabaseConnection};
 
 pub fn type_check(contract_name: &str, contract: &mut [SymbolicExpression],
                   analysis_db: &mut AnalysisDatabase, insert_contract: bool) -> CheckResult<()> {

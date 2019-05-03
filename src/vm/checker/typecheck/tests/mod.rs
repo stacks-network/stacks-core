@@ -1,12 +1,13 @@
 use vm::parser::parse;
 use vm::representations::SymbolicExpression;
 use vm::checker::typecheck::{TypeResult, TypeChecker, TypingContext};
-use vm::checker::{AnalysisDatabase,identity_pass};
+use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection, identity_pass};
 
 mod contracts;
 
 fn type_check(exp: &SymbolicExpression) -> TypeResult {
-    let analysis_db = AnalysisDatabase::memory();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
     let mut type_checker = TypeChecker::new(&analysis_db);
     let contract_context = TypingContext::new();
     type_checker.type_check(exp, &contract_context)
@@ -131,12 +132,18 @@ fn test_define() {
                      (* (foo 1 2) (bar 3 3))",
     ];
 
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        type_check(&"transient", &mut good_test, &mut AnalysisDatabase::memory(), false).unwrap();
+        type_check(&"transient", &mut good_test, &mut analysis_db, false).unwrap();
     }
+
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        assert!(type_check(&"transient", &mut bad_test, &mut AnalysisDatabase::memory(), false).is_err());
+        assert!(type_check(&"transient", &mut bad_test, &mut analysis_db, false).is_err());
     }
 }
 
@@ -165,7 +172,10 @@ fn test_factorial() {
                 'null)";
 
     let mut contract = parse(contract).unwrap();
-    type_check(&"transient", &mut contract, &mut AnalysisDatabase::memory(), false).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    type_check(&"transient", &mut contract, &mut analysis_db, false).unwrap();
 }
 
 #[test]
@@ -191,5 +201,8 @@ fn test_tuple_map() {
         ";
 
     let mut t = parse(t).unwrap();
-    type_check(&"transient", &mut t, &mut AnalysisDatabase::memory(), false).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    type_check(&"transient", &mut t, &mut analysis_db, false).unwrap();
 }

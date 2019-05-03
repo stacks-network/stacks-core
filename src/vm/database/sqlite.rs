@@ -104,6 +104,11 @@ impl ContractDatabaseConnection {
         self.conn.execute(sql, params)
             .expect(SQL_FAIL_MESSAGE)
     }
+
+    pub fn begin_save_point_raw(&mut self) -> Savepoint<'_> {
+        self.conn.savepoint()
+            .expect(SQL_FAIL_MESSAGE)
+    }
 }
 
 impl ContractDatabaseTransacter for ContractDatabaseConnection {
@@ -119,7 +124,6 @@ impl <'a> ContractDatabase <'a> {
         ContractDatabase {
             savepoint: sp }
     }
-
 
     pub fn execute<P>(&mut self, sql: &str, params: P) -> usize
     where

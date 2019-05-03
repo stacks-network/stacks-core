@@ -1,6 +1,6 @@
 use vm::parser::parse;
 use vm::checker::errors::CheckErrors;
-use vm::checker::{AnalysisDatabase};
+use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection};
 
 #[test]
 fn test_names_tokens_contracts() {
@@ -84,7 +84,8 @@ fn test_names_tokens_contracts() {
 
     let mut tokens_contract = parse(tokens_contract).unwrap();
     let mut names_contract = parse(names_contract).unwrap();
-    let mut db = AnalysisDatabase::memory();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
 
     type_check(&"tokens", &mut tokens_contract, &mut db, true).unwrap();
     type_check(&"names", &mut names_contract, &mut db, true).unwrap();
@@ -172,7 +173,8 @@ fn test_names_tokens_contracts_2() {
 
     let mut tokens_contract = parse(tokens_contract).unwrap();
     let mut names_contract = parse(names_contract).unwrap();
-    let mut db = AnalysisDatabase::memory();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
 
     let result = type_check(&"tokens", &mut tokens_contract, &mut db, true);
     if let Err(ref e) = result { 
@@ -225,7 +227,8 @@ fn test_bad_map_usage() {
                  bad_insert_1,
                  bad_insert_2];
 
-    let mut db = AnalysisDatabase::memory();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
 
     for contract in tests.iter() {
         let mut contract = parse(contract).unwrap();

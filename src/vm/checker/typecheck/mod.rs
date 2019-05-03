@@ -49,10 +49,10 @@ pub enum FunctionType {
     Fixed(Vec<TypeSignature>, TypeSignature)
 }
 
-pub struct TypeChecker <'a> {
+pub struct TypeChecker <'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
-    db: &'a AnalysisDatabase
+    db: &'a AnalysisDatabase<'b>
 }
 
 impl FunctionType {
@@ -121,8 +121,8 @@ fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> Chec
     }
 }
 
-impl <'a> TypeChecker <'a> {
-    pub fn new(db: &'a AnalysisDatabase) -> TypeChecker {
+impl <'a, 'b> TypeChecker <'a, 'b> {
+    pub fn new(db: &'a AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
         TypeChecker {
             db: db,
             contract_context: ContractContext::new(),
@@ -146,8 +146,8 @@ impl <'a> TypeChecker <'a> {
         Ok(func_type.return_type().clone())
     }
 
-    fn type_check_list_pairs<'b> (&mut self, bindings: &[SymbolicExpression],
-                                  context: &'b TypingContext) -> CheckResult<TypingContext<'b>> {
+    fn type_check_list_pairs<'c> (&mut self, bindings: &[SymbolicExpression],
+                                  context: &'c TypingContext) -> CheckResult<TypingContext<'c>> {
         let mut out_context = context.extend()?;
         for binding in bindings.iter() {
             let binding_exps = binding.match_list()
