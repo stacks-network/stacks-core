@@ -178,8 +178,8 @@ fn native_print(args: &[Value]) -> Result<Value> {
 }
 
 fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    if !(args.len() == 2 || args.len() == 3) {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to if (expect 2 or 3)".to_string())))
+    if args.len() != 3 {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to if (expects 3)".to_string())))
     }
     // handle the conditional clause.
     let conditional = eval(&args[0], env, context)?;
@@ -188,11 +188,7 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
             if result {
                 eval(&args[1], env, context)
             } else {
-                if args.len() == 3 {
-                    eval(&args[2], env, context)
-                } else {
-                    Ok(Value::Void)
-                }
+                eval(&args[2], env, context)
             }
         },
         _ => Err(Error::new(ErrType::TypeError("BoolType".to_string(), conditional)))
