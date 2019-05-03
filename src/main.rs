@@ -113,6 +113,7 @@ fn main() {
 where command is one of:
 
   initialize         to initialize a local VM state database.
+  set_block_height   to set the simulated block height
   check              to typecheck a potential contract definition.
   launch             to launch a initialize a new contract in the local state database.
   eval               to evaluate (in read-only mode) a program in a given contract context.
@@ -126,7 +127,7 @@ where command is one of:
         use std::io::Read;
         use vm::parser::parse;
         use vm::contexts::OwnedEnvironment;
-        use vm::database::{ContractDatabaseConnection};
+        use vm::database::{ContractDatabaseConnection, ContractDatabaseTransacter};
         use vm::{SymbolicExpression, SymbolicExpressionType};
         use vm::checker::{type_check, AnalysisDatabase};
         use vm::types::Value;
@@ -144,6 +145,29 @@ where command is one of:
                 }
                 return
             },
+            "set_block_height" => {
+                if argv.len() < 5 {
+                    eprintln!("Usage: {} local set_block_height [block height integer] [vm-state.db]", argv[0]);
+                    process::exit(1);
+                }
+
+                let blockheight: i128 = argv[3].parse().expect("Failed to parse block height");
+
+                let mut db = match ContractDatabaseConnection::open(&argv[4]) {
+                    Ok(db) => db,
+                    Err(error) => {
+                        eprintln!("Could not open vm-state: \n {}", error);
+                        process::exit(1);
+                    }
+                };
+
+                let mut sp = db.begin_save_point();
+                sp.set_simmed_block_height(blockheight);
+                sp.commit();
+                println!("Simulated block height updated!");
+
+                return
+            }
             "check" => {
                 if argv.len() < 4 {
                     eprintln!("Usage: {} local check [program-file.scm] (vm-state.db)", argv[0]);

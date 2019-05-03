@@ -83,7 +83,7 @@ fn test_simple_if_functions() {
          (with_else 3)");
 
     let function_bodies = parse(&"(if (eq? 5 x) 1 0)
-                                  (if (eq? 5 x) 1)");
+                                  (if (eq? 5 x) 1 3)");
 
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
@@ -107,7 +107,7 @@ fn test_simple_if_functions() {
 
         if let Ok(tests) = evals {
             assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));
-            assert_eq!(Ok(Value::Void), eval(&tests[1], &mut env, &context));
+            assert_eq!(Ok(Value::Int(3)), eval(&tests[1], &mut env, &context));
             assert_eq!(Ok(Value::Int(0)), eval(&tests[2], &mut env, &context));
         } else {
             assert!(false, "Failed to parse function bodies.");

@@ -37,9 +37,13 @@ fn test_simple_token_system() {
          (define-public (faucet)
            (let ((original-sender tx-sender))
              (as-contract (token-transfer original-sender 1))))                     
+         (define-public (mint-after (block-to-release int))
+           (if (>= block-height block-to-release)
+               (faucet)
+               'false))
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 100)
-                (token-credit! 'CTtokens 3)
+                (token-credit! 'CTtokens 4)
                 'null)";
 
 
@@ -89,12 +93,23 @@ fn test_simple_token_system() {
         env.execute_contract("tokens", "faucet", &vec![]).unwrap(),
         Value::Bool(true));
     assert_eq!(
+        env.eval_read_only("tokens",
+                           "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+        Value::Int(1003));
+    assert_eq!(
+        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(5)])).unwrap(),
+        Value::Bool(false));
+    env.global_context.database.set_simmed_block_height(10);
+    assert_eq!(
+        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(5)])).unwrap(),
+        Value::Bool(true));
+    assert_eq!(
         env.execute_contract("tokens", "faucet", &vec![]).unwrap(),
         Value::Bool(false));
     assert_eq!(
         env.eval_read_only("tokens",
                            "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
-        Value::Int(1003));
+        Value::Int(1004));
 
 }
 

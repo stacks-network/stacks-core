@@ -48,6 +48,14 @@ impl ContractDatabaseConnection {
                        contract_data TEXT)",
                             NO_PARAMS);
 
+        contract_db.execute("CREATE TABLE IF NOT EXISTS simmed_block_table
+                      (simmed_block_height BLOB)",
+                            NO_PARAMS);
+
+        let default_height: i128 = 0;
+        contract_db.execute("INSERT INTO simmed_block_table (simmed_block_height) VALUES (?)",
+                            &[default_height]);
+
         contract_db.check_schema()?;
 
         Ok(contract_db)
@@ -73,6 +81,9 @@ impl ContractDatabaseConnection {
                                             |row| row.get(0))
             .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
         let _: String = self.conn.query_row(sql, &["data_table"],
+                                            |row| row.get(0))
+            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+        let _: String = self.conn.query_row(sql, &["simmed_block_table"],
                                             |row| row.get(0))
             .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
         Ok(())
@@ -285,6 +296,23 @@ impl <'a> ContractDatabase <'a> {
                          &[contract_name, &contract.serialize()?]);
             Ok(())
         }
+    }
+
+    pub fn get_simmed_block_height(&self) -> Result<i128> {
+        let block_height: (i128) =
+            self.query_row(
+                "SELECT simmed_block_height FROM simmed_block_table LIMIT 1",
+                NO_PARAMS,
+                |row| row.get(0))
+            .expect("Failed to fetch simulated block height");
+
+        Ok(block_height)
+    }
+
+    pub fn set_simmed_block_height(&mut self, block_height: i128) {
+        self.execute(
+            "UPDATE simmed_block_table SET simmed_block_height = ?",
+            &[block_height]);
     }
 
     pub fn roll_back(&mut self) {
