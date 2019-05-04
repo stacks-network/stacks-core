@@ -17,6 +17,7 @@
   "author": "",
   "license": "GPL-3.0",
   "dependencies": {
+    "big-integer": "^1.6.43",
     "fs-extra": "^7.0.1"
   },
   "devDependencies": {

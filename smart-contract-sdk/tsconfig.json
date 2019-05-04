@@ -3,7 +3,7 @@
       "moduleResolution": "node",
       "target": "es2018",
       "module": "commonjs",
-      "lib": ["es2018"],
+      "lib": ["es2018", "esnext.bigint"],
       "noImplicitAny": true,
       "noImplicitThis": true,
       "noImplicitReturns": true,

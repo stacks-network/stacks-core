@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { executeCommand } from './processUtil';
+import './globalUtil';
 
 export class LocalExecutionError extends Error {
   readonly code: number;
@@ -64,6 +65,7 @@ export interface LocalNodeExecutor {
     ...args: string[]
   ): Promise<void>;
   eval(contractName: string, evalStatement: string): Promise<string>;
+  setBlockHeight(height: BigInt): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -294,7 +296,7 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     const successPrefix = result.stdout.match(
       /(Program executed successfully! Output: (\r\n|\r|\n))/
     );
-    if (successPrefix.length < 1) {
+    if (!successPrefix || successPrefix.length < 1) {
       throw new LocalExecutionError(
         `Eval expression on contract failed with bad output: ${result.stdout}`,
         result.exitCode,
@@ -315,6 +317,31 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     }
     outputResult = outputResult.substr(1);
     return outputResult;
+  }
+
+  async setBlockHeight(height: BigInt): Promise<void> {
+    const result = await this.cargoRunLocal([
+      'set_block_height',
+      height.toString(),
+      this.dbFilePath
+    ]);
+
+    if (result.exitCode !== 0) {
+      throw new LocalExecutionError(
+        `Set block height failed with bad exit code: ${result.exitCode}`,
+        result.exitCode,
+        result.stdout,
+        result.stderr
+      );
+    }
+    if (result.stdout !== 'Simulated block height updated!') {
+      throw new LocalExecutionError(
+        `Set block height failed with bad output: ${result.stdout}`,
+        result.exitCode,
+        result.stdout,
+        result.stderr
+      );
+    }
   }
 
   async close(): Promise<void> {
