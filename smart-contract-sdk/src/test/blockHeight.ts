@@ -48,11 +48,15 @@ describe('block height testing', () => {
       '(get-height-info 123)'
     );
     assert.equal(deployHeight, '117');
+    const heightAtDeployment = await blockHeightTestContract.eval(
+      'height-at-deployment'
+    );
+    assert.equal(heightAtDeployment, '117');
   });
 
   it('increment block height', async () => {
     const currentHeightOutput = await blockHeightTestContract.eval(
-      'get-current-block-height'
+      '(get-current-block-height)'
     );
     assert.equal(currentHeightOutput, '117');
     const newHeight = BigInt(currentHeightOutput) + BigInt(100);
@@ -60,9 +64,9 @@ describe('block height testing', () => {
     const getHeightCheck = await localNode.getBlockHeight();
     assert.equal(getHeightCheck, BigInt('217'));
     const newHeightOutput = await blockHeightTestContract.eval(
-      'get-current-block-height'
+      '(get-current-block-height)'
     );
-    // assert.equal(newHeightOutput, '217');
+    assert.equal(newHeightOutput, '217');
   });
 
   after(async () => {

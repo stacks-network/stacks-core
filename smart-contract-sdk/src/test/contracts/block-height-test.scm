@@ -6,8 +6,10 @@
             (fetch-entry height-info (tuple (key key))))))
         (if (eq? height 'null) 0 height)))
 
-(define get-current-block-height
-    block-height)
+(define (get-current-block-height)
+  (begin block-height))
+
+(define height-at-deployment block-height)
 
 (begin
     (set-entry! height-info 
