@@ -127,9 +127,9 @@ where command is one of:
         use std::io::Read;
         use vm::parser::parse;
         use vm::contexts::OwnedEnvironment;
-        use vm::database::{ContractDatabaseConnection, ContractDatabaseTransacter};
+        use vm::database::{ContractDatabase, ContractDatabaseConnection, ContractDatabaseTransacter};
         use vm::{SymbolicExpression, SymbolicExpressionType};
-        use vm::checker::{type_check, AnalysisDatabase};
+        use vm::checker::{type_check, AnalysisDatabase, AnalysisDatabaseConnection};
         use vm::types::Value;
 
         match argv[2].as_ref() {
@@ -138,7 +138,7 @@ where command is one of:
                     eprintln!("Usage: {} local initialize [vm-state.db]", argv[0]);
                     process::exit(1);
                 }
-                AnalysisDatabase::initialize(&argv[3]);
+                AnalysisDatabaseConnection::initialize(&argv[3]);
                 match ContractDatabaseConnection::initialize(&argv[3]) {
                     Ok(_) => println!("Database created."),
                     Err(error) => eprintln!("Initialization error: \n {}", error)
@@ -177,14 +177,15 @@ where command is one of:
                 let content: String = fs::read_to_string(&argv[3])
                     .expect(&format!("Error reading file: {}", argv[3]));
                 
-                let mut db = {
+                let mut db_conn = {
                     if argv.len() >= 5 {
-                        AnalysisDatabase::open(&argv[4])
+                        AnalysisDatabaseConnection::open(&argv[4])
                     } else {
-                        AnalysisDatabase::memory()
+                        AnalysisDatabaseConnection::memory()
                     }
                 };
 
+                let mut db = db_conn.begin_save_point();
                 let mut ast = parse(&content).expect("Failed to parse program");
                 type_check(&"transient", &mut ast, &mut db, false)
                     .unwrap_or_else(|e| {
@@ -254,20 +255,13 @@ where command is one of:
                     .expect(&format!("Error reading file: {}", argv[4]));
 
                 // typecheck and insert into typecheck tables
-                // Aaron todo: AnalysisDatabase and ContractDatabase should share a db connection...
-                //     that way, we can do the initialization _and_ the type check insert in a single
-                //     transaction that commits together.
+                // Aaron todo: AnalysisDatabase and ContractDatabase now use savepoints
+                //     on the same connection, so they can abort together, _however_,
+                //     this results in some pretty weird function interfaces. I'll need
+                //     to think about whether or not there's a more ergonomic way to do this.
 
-                let mut db = AnalysisDatabase::open(vm_filename);
-                let mut ast = parse(&contract_content).expect("Failed to parse program.");
 
-                type_check(contract_name, &mut ast, &mut db, true)
-                    .unwrap_or_else(|e| {
-                        eprintln!("Type check error.\n{}", e);
-                        process::exit(1);
-                    });
-
-                let mut db = match ContractDatabaseConnection::open(vm_filename) {
+                let mut db_conn = match ContractDatabaseConnection::open(vm_filename) {
                     Ok(db) => db,
                     Err(error) => {
                         eprintln!("Could not open vm-state: \n {}", error);
@@ -275,15 +269,39 @@ where command is one of:
                     }
                 };
 
-                let mut vm_env = OwnedEnvironment::new(&mut db);
+                let mut outer_sp = db_conn.begin_save_point_raw();
+
+                { 
+                    let mut analysis_db = AnalysisDatabase::from_savepoint(
+                        outer_sp.savepoint().expect("Failed to initialize savepoint for analysis"));
+                    let mut ast = parse(&contract_content).expect("Failed to parse program.");
+
+                    type_check(contract_name, &mut ast, &mut analysis_db, true)
+                        .unwrap_or_else(|e| {
+                            eprintln!("Type check error.\n{}", e);
+                            process::exit(1);
+                        });
+
+                    analysis_db.commit()
+                }
+                    
+                let mut db = ContractDatabase::from_savepoint(outer_sp);
 
                 let result = {
-                    let mut env = vm_env.get_exec_environment(None);
-                    env.initialize_contract(&contract_name, &contract_content)
+                    let mut vm_env = OwnedEnvironment::new(&mut db);
+                    let result = {
+                        let mut env = vm_env.get_exec_environment(None);                        
+                        env.initialize_contract(&contract_name, &contract_content)
+                    };
+                    if result.is_ok() {
+                        vm_env.commit();
+                    }
+                    result
                 };
+
                 match result {
                     Ok(_x) => {
-                        vm_env.commit();
+                        db.commit();
                         println!("Contract initialized!");
                     },
                     Err(error) => println!("Contract initialization error: \n {}", error)
