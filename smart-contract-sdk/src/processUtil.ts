@@ -1,5 +1,5 @@
 import { promisify } from 'util';
-import { Readable, pipeline, PassThrough } from 'stream';
+import { Readable, pipeline } from 'stream';
 import { SpawnOptions, spawn } from 'child_process';
 import { readStream } from './streamUtil';
 
@@ -52,8 +52,8 @@ export async function executeCommand(
   });
 
   const exitCode = await new Promise<number>(resolve => {
-    proc.once('close', (signal: number) => {
-      resolve(signal);
+    proc.once('close', (code: number) => {
+      resolve(code);
     });
   });
 
