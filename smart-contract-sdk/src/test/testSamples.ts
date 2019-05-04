@@ -3,7 +3,7 @@ import { assert } from 'chai';
 import {
   LocalExecutionError,
   CargoLocalNodeExecutor,
-  DeployedContract,
+  LaunchedContract,
   LocalNodeExecutor
 } from '../localNodeExec';
 
@@ -11,8 +11,8 @@ describe('sample contracts', () => {
   let contractsDir: string;
   let localNode: LocalNodeExecutor;
 
-  let tokensContract: DeployedContract;
-  let namesContract: DeployedContract;
+  let tokensContract: LaunchedContract;
+  let namesContract: LaunchedContract;
 
   const DEMO_ADDRESS = 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR';
 
@@ -39,9 +39,9 @@ describe('sample contracts', () => {
     }
   });
 
-  it('deploy tokens contract', async () => {
+  it('launch tokens contract', async () => {
     const tokensContractFile = path.join(contractsDir, 'tokens.scm');
-    tokensContract = await localNode.deployContract(
+    tokensContract = await localNode.launchContract(
       'tokens',
       tokensContractFile
     );
@@ -52,9 +52,9 @@ describe('sample contracts', () => {
     await localNode.checkContract(namesContractFile);
   });
 
-  it('deploy names contract', async () => {
+  it('launch names contract', async () => {
     const namesContractFile = path.join(contractsDir, 'names.scm');
-    namesContract = await localNode.deployContract('names', namesContractFile);
+    namesContract = await localNode.launchContract('names', namesContractFile);
   });
 
   it('execute token mint', async () => {

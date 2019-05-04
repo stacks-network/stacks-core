@@ -3,15 +3,15 @@ import { assert } from 'chai';
 import {
   LocalExecutionError,
   CargoLocalNodeExecutor,
-  DeployedContract,
+  LaunchedContract,
   LocalNodeExecutor
 } from '../localNodeExec';
 
-describe('block height testing', () => {
+describe.only('block height testing', () => {
   let contractsDir: string;
   let localNode: LocalNodeExecutor;
 
-  let blockHeightTestContract: DeployedContract;
+  let blockHeightTestContract: LaunchedContract;
 
   const DEMO_ADDRESS = 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR';
 
@@ -32,12 +32,12 @@ describe('block height testing', () => {
     await localNode.checkContract(blockHeightTestsContractFile);
   });
 
-  it('deploy block height contract', async () => {
+  it('launch block height contract', async () => {
     const blockHeightTestsContractFile = path.join(
       contractsDir,
       'block-height-test.scm'
     );
-    blockHeightTestContract = await localNode.deployContract(
+    blockHeightTestContract = await localNode.launchContract(
       'block-height-tests',
       blockHeightTestsContractFile
     );

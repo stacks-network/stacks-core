@@ -24,7 +24,7 @@ export class LocalExecutionError extends Error {
   }
 }
 
-export class DeployedContract {
+export class LaunchedContract {
   readonly localNodeExecutor: LocalNodeExecutor;
   public readonly contractName: string;
 
@@ -54,10 +54,10 @@ export class DeployedContract {
 export interface LocalNodeExecutor {
   initialize(): Promise<void>;
   checkContract(contractFilePath: string): Promise<void>;
-  deployContract(
+  launchContract(
     contractName: string,
     contractFilePath: string
-  ): Promise<DeployedContract>;
+  ): Promise<LaunchedContract>;
   execute(
     contractName: string,
     functionName: string,
@@ -210,10 +210,10 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     }
   }
 
-  async deployContract(
+  async launchContract(
     contractName: string,
     contractFilePath: string
-  ): Promise<DeployedContract> {
+  ): Promise<LaunchedContract> {
     const result = await this.cargoRunLocal([
       'launch',
       contractName,
@@ -236,7 +236,7 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
         result.stderr
       );
     }
-    return new DeployedContract(this, contractName);
+    return new LaunchedContract(this, contractName);
   }
 
   async execute(
