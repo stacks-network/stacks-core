@@ -6,33 +6,26 @@ import { assert } from 'chai';
 import {
   LocalExecutionError,
   CargoLocalNodeExecutor,
-  DeployedContract
+  DeployedContract,
+  LocalNodeExecutor
 } from '../localNodeExec';
 
-describe('main', () => {
+describe('sample contracts', () => {
   let tempDataDir: string;
   let dbFilePath: string;
   let contractsDir: string;
-  let localNode: CargoLocalNodeExecutor;
+  let localNode: LocalNodeExecutor;
 
   let tokensContract: DeployedContract;
   let namesContract: DeployedContract;
 
   const DEMO_ADDRESS = 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR';
 
-  before(() => {
+  before(async () => {
     tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'blockstack-local-'));
     dbFilePath = path.join(tempDataDir, 'db');
     contractsDir = path.join(__dirname, 'contracts');
-    localNode = new CargoLocalNodeExecutor(dbFilePath);
-  });
-
-  it('cargo build', async () => {
-    await localNode.cargoBuild();
-  });
-
-  it('init db', async () => {
-    await localNode.initialize();
+    localNode = await CargoLocalNodeExecutor.create(dbFilePath);
   });
 
   it('check names contract fails', async () => {

@@ -73,6 +73,21 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     return dir;
   }
 
+  /**
+   * Instantiates a new executor,
+   * ensures cargo is setup and working with `cargoBuild`,
+   * and calls `initialize`.
+   */
+  static async create(
+    dbFilePath: string,
+    coreSrcDir = CargoLocalNodeExecutor.getCoreSrcDir()
+  ): Promise<CargoLocalNodeExecutor> {
+    const executor = new CargoLocalNodeExecutor(dbFilePath, coreSrcDir);
+    await executor.cargoBuild();
+    await executor.initialize();
+    return executor;
+  }
+
   constructor(
     dbFilePath: string,
     coreSrcDir = CargoLocalNodeExecutor.getCoreSrcDir()
