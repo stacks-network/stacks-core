@@ -25,7 +25,12 @@ export interface LocalNodeExecutor {
   initialize(): Promise<void>;
   checkContract(contractFilePath: string): Promise<void>;
   deployContract(contractName: string, contractFilePath: string): Promise<void>;
-  executeStatement(contractName: string, ...statement: string[]): Promise<void>;
+  executeStatement(
+    contractName: string,
+    functionName: string,
+    senderAddress: string,
+    ...args: string[]
+  ): Promise<void>;
   evalStatement(contractName: string, evalStatement: string): Promise<string>;
 }
 
@@ -162,13 +167,17 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
 
   async executeStatement(
     contractName: string,
-    ...statement: string[]
+    functionName: string,
+    senderAddress: string,
+    ...args: string[]
   ): Promise<void> {
     const result = await this.cargoRunLocal([
       'execute',
       this.dbFilePath,
       contractName,
-      ...statement
+      functionName,
+      senderAddress,
+      ...args
     ]);
     if (result.exitCode !== 0) {
       throw new LocalExecutionError(
