@@ -29,9 +29,10 @@
         "ts-node/register/transpile-only",
         "--colors",
         "--recursive",
+        "--timeout=0",
         "${workspaceFolder}/src/test/**/*.ts"
       ],
-      "internalConsoleOptions": "openOnSessionStart"
+      "console": "integratedTerminal"
     }
   ]
 }
