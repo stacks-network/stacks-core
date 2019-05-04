@@ -113,7 +113,8 @@ fn main() {
 where command is one of:
 
   initialize         to initialize a local VM state database.
-  set_block_height   to set the simulated block height
+  set_block_height   to set the simulated block height.
+  get_block_height   to print the simulated block height.
   check              to typecheck a potential contract definition.
   launch             to launch a initialize a new contract in the local state database.
   eval               to evaluate (in read-only mode) a program in a given contract context.
@@ -166,6 +167,30 @@ where command is one of:
                 sp.commit();
                 println!("Simulated block height updated!");
 
+                return
+            }
+            "get_block_height" => {
+                if argv.len() < 4 {
+                    eprintln!("Usage: {} local get_block_height [vm-state.db]", argv[0]);
+                    process::exit(1);
+                }
+
+                let mut db = match ContractDatabaseConnection::open(&argv[3]) {
+                    Ok(db) => db,
+                    Err(error) => {
+                        eprintln!("Could not open vm-state: \n{}", error);
+                        process::exit(1);
+                    }
+                };
+
+                let mut sp = db.begin_save_point();
+                let mut blockheight = sp.get_simmed_block_height();
+                match blockheight {
+                    Ok(x) => {
+                        println!("Simulated block height: \n{}", x);
+                    },
+                    Err(error) => println!("Program execution error: \n{}", error)
+                }
                 return
             }
             "check" => {
