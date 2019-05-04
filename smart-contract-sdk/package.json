@@ -4,7 +4,7 @@
   "description": "",
   "main": "lib/index.js",
   "scripts": {
-    "compile": "tsc",
+    "compile": "tsc -p tsconfig.dist.json",
     "test": "nyc mocha --require ts-node/register/transpile-only --require source-map-support/register --recursive ./src/test/**/*.ts",
     "codecovUpload": "codecov",
     "lint": "eslint --ext .ts ./src",

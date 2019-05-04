@@ -21,17 +21,47 @@ export class LocalExecutionError extends Error {
   }
 }
 
+export class DeployedContract {
+  readonly localNodeExecutor: LocalNodeExecutor;
+  public readonly contractName: string;
+
+  constructor(localNodeExecutor: LocalNodeExecutor, contractName: string) {
+    this.localNodeExecutor = localNodeExecutor;
+    this.contractName = contractName;
+  }
+
+  execute(
+    functionName: string,
+    senderAddress: string,
+    ...args: string[]
+  ): Promise<void> {
+    return this.localNodeExecutor.execute(
+      this.contractName,
+      functionName,
+      senderAddress,
+      ...args
+    );
+  }
+
+  eval(evalStatement: string): Promise<string> {
+    return this.localNodeExecutor.eval(this.contractName, evalStatement);
+  }
+}
+
 export interface LocalNodeExecutor {
   initialize(): Promise<void>;
   checkContract(contractFilePath: string): Promise<void>;
-  deployContract(contractName: string, contractFilePath: string): Promise<void>;
-  executeStatement(
+  deployContract(
+    contractName: string,
+    contractFilePath: string
+  ): Promise<DeployedContract>;
+  execute(
     contractName: string,
     functionName: string,
     senderAddress: string,
     ...args: string[]
   ): Promise<void>;
-  evalStatement(contractName: string, evalStatement: string): Promise<string>;
+  eval(contractName: string, evalStatement: string): Promise<string>;
 }
 
 export class CargoLocalNodeExecutor implements LocalNodeExecutor {
@@ -88,12 +118,12 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
       stdin: opts && opts.stdin
     });
 
-    // Normalize first EOL, and trim last EOL.
+    // Normalize first EOL, and trim the trailing EOL.
     result.stdout = result.stdout
       .replace(/\r\n|\r|\n/, '\n')
       .replace(/\r\n|\r|\n$/, '');
 
-    // Normalize all stderr EOLs, trim last EOL.
+    // Normalize all stderr EOLs, trim the trailing EOL.
     result.stderr = result.stderr
       .replace(/\r\n|\r|\n/g, '\n')
       .replace(/\r\n|\r|\n$/, '');
@@ -140,7 +170,7 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
   async deployContract(
     contractName: string,
     contractFilePath: string
-  ): Promise<void> {
+  ): Promise<DeployedContract> {
     const result = await this.cargoRunLocal([
       'launch',
       contractName,
@@ -163,9 +193,10 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
         result.stderr
       );
     }
+    return new DeployedContract(this, contractName);
   }
 
-  async executeStatement(
+  async execute(
     contractName: string,
     functionName: string,
     senderAddress: string,
@@ -201,10 +232,7 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     }
   }
 
-  async evalStatement(
-    contractName: string,
-    evalStatement: string
-  ): Promise<string> {
+  async eval(contractName: string, evalStatement: string): Promise<string> {
     const result = await this.cargoRunLocal(
       ['eval', contractName, this.dbFilePath],
       {
@@ -235,7 +263,7 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     }
     // Get the output string with the prefix message and last EOL trimmed.
     let outputResult = result.stdout.substr(successPrefix[0].length);
-    outputResult = outputResult.replace(/\r\n|\r|\n$/, '');
+    // TODO: Fix this in rust src unless its intended
     if (outputResult[0] !== ' ') {
       throw new LocalExecutionError(
         `Eval expression on contract failed with unexpected output: ${outputResult}`,
@@ -244,7 +272,7 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
         result.stderr
       );
     }
-    outputResult = outputResult.substring(1);
+    outputResult = outputResult.substr(1);
     return outputResult;
   }
 }

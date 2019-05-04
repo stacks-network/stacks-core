@@ -1,0 +1,6 @@
+{
+  "prettier.eslintIntegration": true,
+  "[typescript]": {
+    "editor.formatOnSave": true
+  }
+}

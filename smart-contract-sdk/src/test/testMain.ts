@@ -3,13 +3,20 @@ import os from 'os';
 import fs from 'fs';
 import fsExtra from 'fs-extra';
 import { assert } from 'chai';
-import { LocalExecutionError, CargoLocalNodeExecutor } from '../localNodeExec';
+import {
+  LocalExecutionError,
+  CargoLocalNodeExecutor,
+  DeployedContract
+} from '../localNodeExec';
 
 describe('main', () => {
   let tempDataDir: string;
   let dbFilePath: string;
   let contractsDir: string;
   let localNode: CargoLocalNodeExecutor;
+
+  let tokensContract: DeployedContract;
+  let namesContract: DeployedContract;
 
   const DEMO_ADDRESS = 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR';
 
@@ -48,7 +55,10 @@ describe('main', () => {
 
   it('deploy tokens contract', async () => {
     const tokensContractFile = path.join(contractsDir, 'tokens.scm');
-    await localNode.deployContract('tokens', tokensContractFile);
+    tokensContract = await localNode.deployContract(
+      'tokens',
+      tokensContractFile
+    );
   });
 
   it('check names contract succeeds', async () => {
@@ -58,48 +68,36 @@ describe('main', () => {
 
   it('deploy names contract', async () => {
     const namesContractFile = path.join(contractsDir, 'names.scm');
-    await localNode.deployContract('names', namesContractFile);
+    namesContract = await localNode.deployContract('names', namesContractFile);
   });
 
   it('execute token mint', async () => {
-    await localNode.executeStatement('tokens', 'mint!', DEMO_ADDRESS, '100000');
+    await tokensContract.execute('mint!', DEMO_ADDRESS, '100000');
   });
 
   it('get token balance', async () => {
-    const tokenBalance = await localNode.evalStatement(
-      'tokens',
+    const tokenBalance = await tokensContract.eval(
       `(get-balance '${DEMO_ADDRESS})`
     );
     assert.equal(tokenBalance, '110000');
   });
 
   it('preorder name', async () => {
-    const nameHash = await localNode.evalStatement(
-      'names',
-      '(hash160 (xor 10 8888))'
-    );
+    const nameHash = await namesContract.eval('(hash160 (xor 10 8888))');
     assert.equal(nameHash, '0xb572fb1ce2e9665f1efd0994fe077b50c3a48fde');
 
-    await localNode.executeStatement(
-      'names',
-      'preorder',
-      DEMO_ADDRESS,
-      nameHash,
-      '1000'
-    );
+    await namesContract.execute('preorder', DEMO_ADDRESS, nameHash, '1000');
   });
 
   it('balance reduced after name preorder', async () => {
-    const balanceResult = await localNode.evalStatement(
-      'tokens',
+    const balanceResult = await tokensContract.eval(
       `(get-balance '${DEMO_ADDRESS})`
     );
     assert.equal(balanceResult, '109000');
   });
 
   it('register name', async () => {
-    await localNode.executeStatement(
-      'names',
+    await namesContract.execute(
       'register',
       DEMO_ADDRESS,
       `'${DEMO_ADDRESS}`,
@@ -109,8 +107,7 @@ describe('main', () => {
   });
 
   it('get owner address for name', async () => {
-    const nameOwner = await localNode.evalStatement(
-      'names',
+    const nameOwner = await namesContract.eval(
       '(get owner (fetch-entry name-map (tuple (name 10))))'
     );
     assert.equal(nameOwner, "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
