@@ -4,8 +4,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "type": "cargo",
-            "subcommand": "build",
+            "label": "cargo: build",
+            "type":"shell",
+            "command": "cargo build",
             "problemMatcher": [
                 "$rustc"
             ],
@@ -13,6 +14,14 @@
                 "kind": "build",
                 "isDefault": true
             }
+        },
+        {
+            "label": "cargo: rebuild",
+            "type": "shell",
+            "command": "cargo clean && cargo build",
+            "problemMatcher": [
+                "$rustc"
+            ]
         }
     ]
 }
