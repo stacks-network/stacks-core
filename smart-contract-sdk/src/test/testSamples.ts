@@ -23,20 +23,13 @@ describe('sample contracts', () => {
 
   it('check names contract fails', async () => {
     const namesContractFile = path.join(contractsDir, 'names.scm');
-    try {
-      await localNode.checkContract(namesContractFile);
-      throw new Error('should have failed check');
-    } catch (error) {
-      if (error instanceof LocalExecutionError) {
-        assert.equal(error.code, 1);
-        assert.equal(
-          error.errorOutput,
-          'Type check error.\nNoSuchContract("tokens")\nNear:\n( contract-call! tokens token-transfer burn-address name-price )'
-        );
-      } else {
-        throw error;
-      }
-    }
+    const checkResult = await localNode.checkContract(namesContractFile);
+    assert.isFalse(checkResult.isValid, checkResult.message);
+    assert.equal(checkResult.code, 1);
+    assert.equal(
+      checkResult.message,
+      'Type check error.\nNoSuchContract("tokens")\nNear:\n( contract-call! tokens token-transfer burn-address name-price )'
+    );
   });
 
   it('launch tokens contract', async () => {
@@ -49,7 +42,8 @@ describe('sample contracts', () => {
 
   it('check names contract succeeds', async () => {
     const namesContractFile = path.join(contractsDir, 'names.scm');
-    await localNode.checkContract(namesContractFile);
+    const checkResult = await localNode.checkContract(namesContractFile);
+    assert.isTrue(checkResult.isValid, checkResult.message);
   });
 
   it('launch names contract', async () => {

@@ -51,9 +51,15 @@ export class LaunchedContract {
   }
 }
 
+export interface CheckContractResult {
+  isValid: boolean;
+  message: string;
+  code: number;
+}
+
 export interface LocalNodeExecutor {
   initialize(): Promise<void>;
-  checkContract(contractFilePath: string): Promise<void>;
+  checkContract(contractFilePath: string): Promise<CheckContractResult>;
   launchContract(
     contractName: string,
     contractFilePath: string
@@ -197,21 +203,24 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     }
   }
 
-  async checkContract(contractFilePath: string): Promise<void> {
+  async checkContract(contractFilePath: string): Promise<CheckContractResult> {
     const result = await this.cargoRunLocal([
       'check',
       contractFilePath,
       this.dbFilePath
     ]);
     if (result.exitCode !== 0) {
-      throw new LocalExecutionError(
-        `Check contract failed with bad exit code ${result.exitCode}: ${
-          result.stderr
-        }`,
-        result.exitCode,
-        result.stdout,
-        result.stderr
-      );
+      return {
+        isValid: false,
+        message: result.stderr,
+        code: result.exitCode
+      };
+    } else {
+      return {
+        isValid: true,
+        message: result.stdout,
+        code: result.exitCode
+      };
     }
   }
 

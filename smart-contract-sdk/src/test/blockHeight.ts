@@ -29,7 +29,10 @@ describe('block height testing', () => {
       contractsDir,
       'block-height-test.scm'
     );
-    await localNode.checkContract(blockHeightTestsContractFile);
+    const checkResult = await localNode.checkContract(
+      blockHeightTestsContractFile
+    );
+    assert.isTrue(checkResult.isValid, checkResult.message);
   });
 
   it('launch block height contract', async () => {
