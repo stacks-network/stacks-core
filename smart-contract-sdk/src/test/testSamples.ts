@@ -1,7 +1,4 @@
 import path from 'path';
-import os from 'os';
-import fs from 'fs';
-import fsExtra from 'fs-extra';
 import { assert } from 'chai';
 import {
   LocalExecutionError,
@@ -11,8 +8,6 @@ import {
 } from '../localNodeExec';
 
 describe('sample contracts', () => {
-  let tempDataDir: string;
-  let dbFilePath: string;
   let contractsDir: string;
   let localNode: LocalNodeExecutor;
 
@@ -22,10 +17,8 @@ describe('sample contracts', () => {
   const DEMO_ADDRESS = 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR';
 
   before(async () => {
-    tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'blockstack-local-'));
-    dbFilePath = path.join(tempDataDir, 'db');
     contractsDir = path.join(__dirname, 'contracts');
-    localNode = await CargoLocalNodeExecutor.create(dbFilePath);
+    localNode = await CargoLocalNodeExecutor.createEphemeral();
   });
 
   it('check names contract fails', async () => {
@@ -106,8 +99,8 @@ describe('sample contracts', () => {
     assert.equal(nameOwner, "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
   });
 
-  after(() => {
-    // Cleanup temp data dir.
-    fsExtra.removeSync(tempDataDir);
+  after(async () => {
+    // Cleanup node.
+    await localNode.close();
   });
 });

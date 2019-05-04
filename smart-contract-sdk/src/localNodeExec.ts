@@ -1,4 +1,6 @@
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { executeCommand } from './processUtil';
 
 export class LocalExecutionError extends Error {
@@ -62,11 +64,21 @@ export interface LocalNodeExecutor {
     ...args: string[]
   ): Promise<void>;
   eval(contractName: string, evalStatement: string): Promise<string>;
+  close(): Promise<void>;
+}
+
+export function getTempDbPath() {
+  const uniqueID = `${(Date.now() / 1000) | 0}-${Math.random()
+    .toString(36)
+    .substr(2, 6)}`;
+  const dbFile = `blockstack-local-${uniqueID}`;
+  return path.join(os.tmpdir(), dbFile);
 }
 
 export class CargoLocalNodeExecutor implements LocalNodeExecutor {
-  readonly dbFilePath: string;
+  public readonly dbFilePath: string;
   readonly coreSrcDir: string;
+  private closeActions: (() => Promise<any>)[] = [];
 
   static getCoreSrcDir() {
     const dir = path.resolve(__dirname, '../../');
@@ -74,18 +86,32 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
   }
 
   /**
-   * Instantiates a new executor,
-   * ensures cargo is setup and working with `cargoBuild`,
-   * and calls `initialize`.
+   * Instantiates a new executor.
+   * Before returning, ensures cargo is setup and working with `cargoBuild`,
+   * and node is ready with `initialize`.
    */
   static async create(
     dbFilePath: string,
-    coreSrcDir = CargoLocalNodeExecutor.getCoreSrcDir()
+    coreSrcDir?: string
   ): Promise<CargoLocalNodeExecutor> {
     const executor = new CargoLocalNodeExecutor(dbFilePath, coreSrcDir);
     await executor.cargoBuild();
     await executor.initialize();
     return executor;
+  }
+
+  /**
+   * Instantiates a new executor pointed at a new temporary database file.
+   * The temp file is deleted when `close` is invoked.
+   * Before returning, ensures cargo is setup and working with `cargoBuild`,
+   * and node is ready with `initialize`.
+   */
+  static async createEphemeral(
+    coreSrcDir?: string
+  ): Promise<CargoLocalNodeExecutor> {
+    const instance = await this.create(getTempDbPath(), coreSrcDir);
+    instance.closeActions.push(() => fs.promises.unlink(instance.dbFilePath));
+    return instance;
   }
 
   constructor(
@@ -289,5 +315,11 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     }
     outputResult = outputResult.substr(1);
     return outputResult;
+  }
+
+  async close(): Promise<void> {
+    for (const closeAction of this.closeActions) {
+      await closeAction();
+    }
   }
 }
