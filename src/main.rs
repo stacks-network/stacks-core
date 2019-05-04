@@ -95,7 +95,7 @@ fn main() {
         match vm::execute(&program) {
             Ok(result) => println!("{}", result),
             Err(error) => { 
-                panic!("Program Execution Error: \n {}", error);
+                panic!("Program Execution Error: \n{}", error);
             }
         }
         return
@@ -141,7 +141,7 @@ where command is one of:
                 AnalysisDatabaseConnection::initialize(&argv[3]);
                 match ContractDatabaseConnection::initialize(&argv[3]) {
                     Ok(_) => println!("Database created."),
-                    Err(error) => eprintln!("Initialization error: \n {}", error)
+                    Err(error) => eprintln!("Initialization error: \n{}", error)
                 }
                 return
             },
@@ -156,7 +156,7 @@ where command is one of:
                 let mut db = match ContractDatabaseConnection::open(&argv[4]) {
                     Ok(db) => db,
                     Err(error) => {
-                        eprintln!("Could not open vm-state: \n {}", error);
+                        eprintln!("Could not open vm-state: \n{}", error);
                         process::exit(1);
                     }
                 };
@@ -212,7 +212,7 @@ where command is one of:
                 let mut db = match ContractDatabaseConnection::open(vm_filename) {
                     Ok(db) => db,
                     Err(error) => {
-                        eprintln!("Could not open vm-state: \n {}", error);
+                        eprintln!("Could not open vm-state: \n{}", error);
                         process::exit(1);
                     }
                 };
@@ -237,9 +237,9 @@ where command is one of:
 
                 match result {
                     Ok(x) => {
-                        println!("Program executed successfully! Output: \n {}", x);
+                        println!("Program executed successfully! Output: \n{}", x);
                     },
-                    Err(error) => println!("Program execution error: \n {}", error)
+                    Err(error) => println!("Program execution error: \n{}", error)
                 }
                 return
             }
@@ -264,7 +264,7 @@ where command is one of:
                 let mut db_conn = match ContractDatabaseConnection::open(vm_filename) {
                     Ok(db) => db,
                     Err(error) => {
-                        eprintln!("Could not open vm-state: \n {}", error);
+                        eprintln!("Could not open vm-state: \n{}", error);
                         process::exit(1);
                     }
                 };
@@ -304,7 +304,7 @@ where command is one of:
                         db.commit();
                         println!("Contract initialized!");
                     },
-                    Err(error) => println!("Contract initialization error: \n {}", error)
+                    Err(error) => println!("Contract initialization error: \n{}", error)
                 }
                 return
             },
@@ -318,7 +318,7 @@ where command is one of:
                 let mut db = match ContractDatabaseConnection::open(vm_filename) {
                     Ok(db) => db,
                     Err(error) => {
-                        eprintln!("Could not open vm-state: \n {}", error);
+                        eprintln!("Could not open vm-state: \n{}", error);
                         process::exit(1);
                     }
                 };
@@ -373,7 +373,7 @@ where command is one of:
                             panic!(format!("Expected a bool result from transaction. Found: {}", x));
                         }
                     },
-                    Err(error) => println!("Transaction execution error: \n {}", error),
+                    Err(error) => println!("Transaction execution error: \n{}", error),
                 }
                 return
             },
