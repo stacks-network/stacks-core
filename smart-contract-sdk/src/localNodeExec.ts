@@ -66,6 +66,7 @@ export interface LocalNodeExecutor {
   ): Promise<void>;
   eval(contractName: string, evalStatement: string): Promise<string>;
   setBlockHeight(height: BigInt): Promise<void>;
+  getBlockHeight(): Promise<BigInt>;
   close(): Promise<void>;
 }
 
@@ -73,7 +74,7 @@ export function getTempDbPath() {
   const uniqueID = `${(Date.now() / 1000) | 0}-${Math.random()
     .toString(36)
     .substr(2, 6)}`;
-  const dbFile = `blockstack-local-${uniqueID}`;
+  const dbFile = `blockstack-local-${uniqueID}.db`;
   return path.join(os.tmpdir(), dbFile);
 }
 
@@ -178,7 +179,9 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     const result = await this.cargoRunLocal(['initialize', this.dbFilePath]);
     if (result.exitCode !== 0) {
       throw new LocalExecutionError(
-        `Initialize failed with bad exit code: ${result.exitCode}`,
+        `Initialize failed with bad exit code ${result.exitCode}: ${
+          result.stderr
+        }`,
         result.exitCode,
         result.stdout,
         result.stderr
@@ -202,7 +205,9 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     ]);
     if (result.exitCode !== 0) {
       throw new LocalExecutionError(
-        `Check contract failed with bad exit code: ${result.exitCode}`,
+        `Check contract failed with bad exit code ${result.exitCode}: ${
+          result.stderr
+        }`,
         result.exitCode,
         result.stdout,
         result.stderr
@@ -222,7 +227,9 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     ]);
     if (result.exitCode !== 0) {
       throw new LocalExecutionError(
-        `Launch contract failed with bad exit code: ${result.exitCode}`,
+        `Launch contract failed with bad exit code ${result.exitCode}: ${
+          result.stderr
+        }`,
         result.exitCode,
         result.stdout,
         result.stderr
@@ -255,9 +262,9 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     ]);
     if (result.exitCode !== 0) {
       throw new LocalExecutionError(
-        `Execute expression on contract failed with bad exit code: ${
+        `Execute expression on contract failed with bad exit code ${
           result.exitCode
-        }`,
+        }: ${result.stderr}`,
         result.exitCode,
         result.stdout,
         result.stderr
@@ -284,9 +291,9 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     );
     if (result.exitCode !== 0) {
       throw new LocalExecutionError(
-        `Eval expression on contract failed with bad exit code: ${
+        `Eval expression on contract failed with bad exit code ${
           result.exitCode
-        }`,
+        }: ${result.stderr}`,
         result.exitCode,
         result.stdout,
         result.stderr
@@ -305,17 +312,7 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
       );
     }
     // Get the output string with the prefix message and last EOL trimmed.
-    let outputResult = result.stdout.substr(successPrefix[0].length);
-    // TODO: Fix this in rust src unless its intended
-    if (outputResult[0] !== ' ') {
-      throw new LocalExecutionError(
-        `Eval expression on contract failed with unexpected output: ${outputResult}`,
-        result.exitCode,
-        result.stdout,
-        result.stderr
-      );
-    }
-    outputResult = outputResult.substr(1);
+    const outputResult = result.stdout.substr(successPrefix[0].length);
     return outputResult;
   }
 
@@ -328,7 +325,9 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
 
     if (result.exitCode !== 0) {
       throw new LocalExecutionError(
-        `Set block height failed with bad exit code: ${result.exitCode}`,
+        `Set block height failed with bad exit code ${result.exitCode}: ${
+          result.stderr
+        }`,
         result.exitCode,
         result.stdout,
         result.stderr
@@ -342,6 +341,40 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
         result.stderr
       );
     }
+  }
+
+  async getBlockHeight(): Promise<BigInt> {
+    const result = await this.cargoRunLocal([
+      'get_block_height',
+      this.dbFilePath
+    ]);
+
+    if (result.exitCode !== 0) {
+      throw new LocalExecutionError(
+        `Get block height failed with bad exit code ${result.exitCode}: ${
+          result.stderr
+        }`,
+        result.exitCode,
+        result.stdout,
+        result.stderr
+      );
+    }
+    // Check and trim success prefix line.
+    const successPrefix = result.stdout.match(
+      /(Simulated block height: (\r\n|\r|\n))/
+    );
+    if (!successPrefix || successPrefix.length < 1) {
+      throw new LocalExecutionError(
+        `Get block height failed with bad output: ${result.stdout}`,
+        result.exitCode,
+        result.stdout,
+        result.stderr
+      );
+    }
+    // Get the output string with the prefix message and last EOL trimmed.
+    const outputResult = result.stdout.substr(successPrefix[0].length);
+    const heightInt = BigInt(outputResult);
+    return heightInt;
   }
 
   async close(): Promise<void> {
