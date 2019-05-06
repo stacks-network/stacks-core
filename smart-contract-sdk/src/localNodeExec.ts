@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import { executeCommand } from './processUtil';
 import './globalUtil';
+import { ContractTypes } from './ContractTypes';
 
 export class LocalExecutionError extends Error {
   readonly code: number;
@@ -55,6 +56,7 @@ export interface CheckContractResult {
   isValid: boolean;
   message: string;
   code: number;
+  contractTypes?: ContractTypes;
 }
 
 export interface LocalNodeExecutor {
@@ -207,7 +209,8 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
     const result = await this.cargoRunLocal([
       'check',
       contractFilePath,
-      this.dbFilePath
+      this.dbFilePath,
+      '--output_analysis'
     ]);
     if (result.exitCode !== 0) {
       return {
@@ -216,10 +219,12 @@ export class CargoLocalNodeExecutor implements LocalNodeExecutor {
         code: result.exitCode
       };
     } else {
+      const contractTypes = JSON.parse(result.stdout) as ContractTypes;
       return {
         isValid: true,
         message: result.stdout,
-        code: result.exitCode
+        code: result.exitCode,
+        contractTypes: contractTypes
       };
     }
   }
