@@ -1,4 +1,4 @@
-mod contexts;
+pub mod contexts;
 //mod maps;
 pub mod natives;
 
@@ -396,8 +396,16 @@ pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &An
         contract_analysis.add_public_function(name, function_type);
     }
 
+    for (name, function_type) in type_checker.contract_context.function_types.iter() {
+        contract_analysis.add_private_function(name, function_type);
+    }
+
     for (name, (key_type, map_type)) in type_checker.contract_context.map_types.iter() {
         contract_analysis.add_map_type(name, key_type, map_type);
+    }
+
+    for (name, variable_type) in type_checker.contract_context.variable_types.iter() {
+        contract_analysis.add_variable_type(name, variable_type);
     }
 
     Ok(contract_analysis)

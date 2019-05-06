@@ -212,12 +212,18 @@ where command is one of:
 
                 let mut db = db_conn.begin_save_point();
                 let mut ast = parse(&content).expect("Failed to parse program");
-                type_check(&"transient", &mut ast, &mut db, false)
-                    .unwrap_or_else(|e| {
-                        eprintln!("Type check error.\n{}", e);
-                        process::exit(1);
-                    });
+                let mut contract_analysis = type_check(&"transient", &mut ast, &mut db, false).unwrap_or_else(|e| {
+                    eprintln!("Type check error.\n{}", e);
+                    process::exit(1);
+                });
 
+                match argv.last() {
+                    Some(s) if s == "--output_analysis" => {
+                        println!("{}", contract_analysis.serialize());
+                    },
+                    _ => {}
+                }
+                
                 return
             },
             "eval" => {
