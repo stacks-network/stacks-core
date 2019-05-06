@@ -68,6 +68,3 @@ Cargo.lock
 **/*.rs.bk
 
 node_modules
-smart-contract-sdk/.nyc_output
-smart-contract-sdk/coverage
-smart-contract-sdk/lib
