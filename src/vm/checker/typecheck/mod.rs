@@ -122,12 +122,42 @@ fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> Chec
 }
 
 impl <'a, 'b> TypeChecker <'a, 'b> {
-    pub fn new(db: &'a AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
+    fn new(db: &'a AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
         TypeChecker {
             db: db,
             contract_context: ContractContext::new(),
             type_map: TypeMap::new()
         }
+    }
+
+    pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<ContractAnalysis> {
+        let mut type_checker = TypeChecker::new(analysis_db);
+        let mut local_context = TypingContext::new();
+
+        for exp in contract {
+            if type_checker.try_type_check_define(exp, &mut local_context)?
+                .is_none() {
+                    // was _not_ a define statement, so handle like a normal statement.
+                    type_checker.type_check(exp, &local_context)?;
+                }
+        }
+
+
+        Ok(type_checker.contract_context.to_contract_analysis())
+    }
+
+
+    // Type checks an expression, recursively type checking its subexpressions
+    pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
+        let mut result = self.inner_type_check(expr, context);
+
+        if let Err(ref mut error) = result {
+            if !error.has_expression() {
+                error.set_expression(expr);
+            }
+        }
+
+        result
     }
 
     fn type_check_all(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> CheckResult<Vec<TypeSignature>> {
@@ -212,7 +242,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok((function_name.to_string(), FunctionType::Fixed(arg_types, return_type)))
     }
 
-    pub fn type_check_define_map(&mut self, map_expression: &[SymbolicExpression],
+    fn type_check_define_map(&mut self, map_expression: &[SymbolicExpression],
                                  _context: &TypingContext) -> CheckResult<(String, (TypeSignature, TypeSignature))> {
         if map_expression.len() != 4 {
             return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, map_expression.len() - 2)))
@@ -270,18 +300,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 
-    pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
-        let mut result = self.inner_type_check(expr, context);
-
-        if let Err(ref mut error) = result {
-            if !error.has_expression() {
-                error.set_expression(expr);
-            }
-        }
-
-        result
-    }
-
     fn lookup_variable(&self, name: &str, context: &TypingContext) -> TypeResult {
         if let Some(type_result) = type_reserved_variable(name) {
             Ok(type_result)
@@ -322,7 +340,9 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok((var_name, var_type))
     }
 
-    pub fn try_type_check_define(&mut self, expr: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
+
+    // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
+    fn try_type_check_define(&mut self, expr: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
         if let Some(ref expression) = expr.match_list() {
             if let Some((function_name, function_args)) = expression.split_first() {
                 if let Some(function_name) = function_name.match_atom() {
@@ -375,20 +395,4 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Ok(None) // not a define.
         }
     }
-}
-
-pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<ContractAnalysis> {
-    let mut type_checker = TypeChecker::new(analysis_db);
-    let mut local_context = TypingContext::new();
-
-    for exp in contract {
-        if type_checker.try_type_check_define(exp, &mut local_context)?
-            .is_none() {
-                // was _not_ a define statement, so handle like a normal statement.
-                type_checker.type_check(exp, &local_context)?;
-            }
-    }
-
-
-    Ok(type_checker.contract_context.to_contract_analysis())
 }

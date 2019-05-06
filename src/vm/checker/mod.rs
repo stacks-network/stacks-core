@@ -11,7 +11,7 @@ pub use self::check_db::{AnalysisDatabase, AnalysisDatabaseConnection};
 pub fn type_check(contract_name: &str, contract: &mut [SymbolicExpression],
                   analysis_db: &mut AnalysisDatabase, insert_contract: bool) -> CheckResult<()> {
     identity_pass::identity_pass(contract)?;
-    let contract_analysis = typecheck::type_check_contract(contract, analysis_db)?;
+    let contract_analysis = typecheck::TypeChecker::type_check_contract(contract, analysis_db)?;
     if insert_contract {
         analysis_db.insert_contract(contract_name, &contract_analysis)?;
     }
