@@ -5,12 +5,131 @@ mod boolean;
 mod database;
 mod tuples;
 
-use vm::errors::{Error, InterpreterResult as Result};
-use vm::types::Value;
+use vm::errors::{Error, ErrType, InterpreterResult as Result};
+use vm::types::{Value, PrincipalData};
 use vm::callables::CallableType;
 use vm::representations::SymbolicExpression;
+use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 
+pub enum NativeFunctions {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    CmpGeq,
+    CmpLeq,
+    CmpLess,
+    CmpGreater,
+    Modulo,
+    Power,
+    BitwiseXOR,
+    And,
+    Or,
+    Not,
+    Equals,
+    If,
+    Let,
+    Map,
+    Fold,
+    ListCons,
+    FetchEntry,
+    FetchContractEntry,
+    SetEntry,
+    InsertEntry,
+    DeleteEntry,
+    TupleCons,
+    TupleGet,
+    Begin,
+    Hash160,
+    Print,
+    ContractCall,
+    AsContract
+}
+
+impl NativeFunctions {
+    pub fn lookup_by_name(name: &str) -> Option<NativeFunctions> {
+        use vm::functions::NativeFunctions::*;
+        match name {
+            "+" => Some(Add),
+            "-" => Some(Subtract),
+            "*" => Some(Multiply),
+            "/" => Some(Divide),
+            ">=" => Some(CmpGeq),
+            "<=" => Some(CmpLeq),
+            "<" => Some(CmpLess),
+            ">" => Some(CmpGreater),
+            "mod" => Some(Modulo),
+            "pow" => Some(Power),
+            "xor" => Some(BitwiseXOR),
+            "and" => Some(And),
+            "or" => Some(Or),
+            "not" => Some(Not),
+            "eq?" => Some(Equals),
+            "if" => Some(If),
+            "let" => Some(Let),
+            "map" => Some(Map),
+            "fold" => Some(Fold),
+            "list" => Some(ListCons),
+            "fetch-entry" => Some(FetchEntry),
+            "fetch-contract-entry" => Some(FetchContractEntry),
+            "set-entry!" => Some(SetEntry),
+            "insert-entry!" => Some(InsertEntry),
+            "delete-entry!" => Some(DeleteEntry),
+            "tuple" => Some(TupleCons),
+            "get" => Some(TupleGet),
+            "begin" => Some(Begin),
+            "hash160" => Some(Hash160),
+            "print" => Some(Print),
+            "contract-call!" => Some(ContractCall),
+            "as-contract" => Some(AsContract),
+            _ => None
+        }
+    }
+}
+
+pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
+    use vm::functions::NativeFunctions::*;
+    if let Some(native_function) = NativeFunctions::lookup_by_name(name) {
+        let callable = match native_function {
+            Add => CallableType::NativeFunction("native_add", &arithmetic::native_add),
+            Subtract => CallableType::NativeFunction("native_sub", &arithmetic::native_sub),
+            Multiply => CallableType::NativeFunction("native_mul", &arithmetic::native_mul),
+            Divide => CallableType::NativeFunction("native_div", &arithmetic::native_div),
+            CmpGeq => CallableType::NativeFunction("native_geq", &arithmetic::native_geq),
+            CmpLeq => CallableType::NativeFunction("native_leq", &arithmetic::native_leq),
+            CmpLess => CallableType::NativeFunction("native_le", &arithmetic::native_le),
+            CmpGreater => CallableType::NativeFunction("native_ge", &arithmetic::native_ge),
+            Modulo => CallableType::NativeFunction("native_mod", &arithmetic::native_mod),
+            Power => CallableType::NativeFunction("native_pow", &arithmetic::native_pow),
+            BitwiseXOR => CallableType::NativeFunction("native_xor", &arithmetic::native_xor),
+            And => CallableType::SpecialFunction("native_and", &boolean::special_and),
+            Or => CallableType::SpecialFunction("native_or", &boolean::special_or),
+            Not => CallableType::NativeFunction("native_not", &boolean::native_not),
+            Equals => CallableType::NativeFunction("native_eq", &native_eq),
+            If => CallableType::SpecialFunction("native_if", &special_if),
+            Let => CallableType::SpecialFunction("native_let", &special_let),
+            Map => CallableType::SpecialFunction("native_map", &lists::list_map),
+            Fold => CallableType::SpecialFunction("native_fold", &lists::list_fold),
+            ListCons => CallableType::NativeFunction("native_cons", &lists::list_cons),
+            FetchEntry => CallableType::SpecialFunction("native_fetch-entry", &database::special_fetch_entry),
+            FetchContractEntry => CallableType::SpecialFunction("native_fetch-contract-entry", &database::special_fetch_contract_entry),
+            SetEntry => CallableType::SpecialFunction("native_set-entry", &database::special_set_entry),
+            InsertEntry => CallableType::SpecialFunction("native_insert-entry", &database::special_insert_entry),
+            DeleteEntry => CallableType::SpecialFunction("native_delete-entry", &database::special_delete_entry),
+            TupleCons => CallableType::SpecialFunction("native_tuple", &tuples::tuple_cons),
+            TupleGet => CallableType::SpecialFunction("native_get-tuple", &tuples::tuple_get),
+            Begin => CallableType::NativeFunction("native_begin", &native_begin),
+            Hash160 => CallableType::NativeFunction("native_hash160", &native_hash160),
+            Print => CallableType::NativeFunction("native_print", &native_print),
+            ContractCall => CallableType::SpecialFunction("native_contract-call", &database::special_contract_call),
+            AsContract => CallableType::SpecialFunction("native_as-contract", &special_as_contract),
+        };
+        Some(callable)
+    } else {
+        None
+    }
+}
 
 fn native_eq(args: &[Value]) -> Result<Value> {
     // TODO: this currently uses the derived equality checks of Value,
@@ -25,6 +144,22 @@ fn native_eq(args: &[Value]) -> Result<Value> {
     }
 }
 
+fn native_hash160(args: &[Value]) -> Result<Value> {
+    use util::hash::Hash160;
+
+    if !(args.len() == 1) {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to hash160 (expects 1)".to_string())))
+    }
+    let input = &args[0];
+    let bytes = match input {
+        Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
+        Value::Buffer(value) => Ok(value.data.clone()),
+        _ => Err(Error::new(ErrType::NotImplemented))
+    }?;
+    let hash160 = Hash160::from_data(&bytes);
+    Value::buff_from(hash160.as_bytes().to_vec())
+}
+
 fn native_begin(args: &[Value]) -> Result<Value> {
     match args.last() {
         Some(v) => Ok(v.clone()),
@@ -32,9 +167,19 @@ fn native_begin(args: &[Value]) -> Result<Value> {
     }
 }
 
+fn native_print(args: &[Value]) -> Result<Value> {
+    if !(args.len() == 1) {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to print (expects 1)".to_string())))
+    }
+    if cfg!(feature = "developer-mode") {
+        eprintln!("{:?}", args[0]);
+    }
+    Ok(args[0].clone())
+}
+
 fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    if !(args.len() == 2 || args.len() == 3) {
-        return Err(Error::InvalidArguments("Wrong number of arguments to if (expect 2 or 3)".to_string()))
+    if args.len() != 3 {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to if (expects 3)".to_string())))
     }
     // handle the conditional clause.
     let conditional = eval(&args[0], env, context)?;
@@ -43,15 +188,33 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
             if result {
                 eval(&args[1], env, context)
             } else {
-                if args.len() == 3 {
-                    eval(&args[2], env, context)
-                } else {
-                    Ok(Value::Void)
-                }
+                eval(&args[2], env, context)
             }
         },
-        _ => Err(Error::TypeError("BoolType".to_string(), conditional))
+        _ => Err(Error::new(ErrType::TypeError("BoolType".to_string(), conditional)))
     }
+}
+
+fn parse_eval_bindings(bindings: &[SymbolicExpression],
+                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(String, Value)>> {
+    let mut result = Vec::new();
+    for binding in bindings.iter() {
+        if let List(ref binding_exps) = binding.expr {
+            if binding_exps.len() != 2 {
+                return Err(Error::new(ErrType::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string())))
+            }
+            if let Atom(ref var_name) = binding_exps[0].expr {
+                let value = eval(&binding_exps[1], env, context)?;
+                result.push((var_name.clone(), value));
+            } else {
+                return Err(Error::new(ErrType::InvalidArguments("Passed bad variable name as a binding. Bindings should be of the form (name value).".to_string())))
+            }
+        } else {
+            return Err(Error::new(ErrType::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string())))
+        }
+    }
+
+    Ok(result)
 }
 
 fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
@@ -61,69 +224,43 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     // arg0 => binding list
     // arg1 => body
     if args.len() != 2 {
-        return Err(Error::InvalidArguments("Wrong number of arguments to let (expect 2)".to_string()))
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to let (expect 2)".to_string())))
     }
     // create a new context.
     let mut inner_context = context.extend()?;
 
-    if let SymbolicExpression::List(ref bindings) = args[0] {
-        for binding in bindings.iter() {
-            if let SymbolicExpression::List(ref binding_exps) = *binding {
-                if binding_exps.len() != 2 {
-                    return Err(Error::Generic("Passed non 2-length list as binding in let expression".to_string()))
-                } else {
-                    if let SymbolicExpression::Atom(ref var_name) = binding_exps[0] {
-                        if is_reserved(var_name) {
-                            return Err(Error::ReservedName(var_name.to_string()))
-                        }
-                        let value = eval(&binding_exps[1], env, context)?;
-                        match inner_context.variables.insert((*var_name).clone(), value) {
-                            Some(_val) => return Err(Error::VariableDefinedMultipleTimes(var_name.to_string())),
-                            _ => continue
-                        }
-                    } else {
-                        return Err(Error::InvalidArguments("Passed non-atomic variable name to let expression binding".to_string()))
-                    }
-                }
-            } else {
-                return Err(Error::InvalidArguments("Passed non-list as binding in let expression.".to_string()))
+    if let List(ref bindings) = args[0].expr {
+        // parse and eval the bindings.
+        let mut binding_results = parse_eval_bindings(bindings, env, context)?;
+        for (binding_name, binding_value) in binding_results.drain(..) {
+            if is_reserved(&binding_name) {
+                return Err(Error::new(ErrType::ReservedName(binding_name)))
             }
+            if inner_context.variables.contains_key(&binding_name) {
+                return Err(Error::new(ErrType::VariableDefinedMultipleTimes(binding_name)))
+            }
+            inner_context.variables.insert(binding_name, binding_value);
         }
+
         // evaluate the let-body
         eval(&args[1], env, &inner_context)
     } else {
-        Err(Error::InvalidArguments("Passed non-list as second argument to let expression.".to_string()))
+        Err(Error::new(ErrType::InvalidArguments("Passed non-list as second argument to let expression.".to_string())))
     }
 }
 
-pub fn lookup_reserved_functions<'a> (name: &str) -> Option<CallableType<'a>> {
-    match name {
-        "+" => Some(CallableType::NativeFunction(&arithmetic::native_add)),
-        "-" => Some(CallableType::NativeFunction(&arithmetic::native_sub)),
-        "*" => Some(CallableType::NativeFunction(&arithmetic::native_mul)),
-        "/" => Some(CallableType::NativeFunction(&arithmetic::native_div)),
-        ">=" => Some(CallableType::NativeFunction(&arithmetic::native_geq)),
-        "<=" => Some(CallableType::NativeFunction(&arithmetic::native_leq)),
-        "<" => Some(CallableType::NativeFunction(&arithmetic::native_le)),
-        ">" => Some(CallableType::NativeFunction(&arithmetic::native_ge)),
-        "mod" => Some(CallableType::NativeFunction(&arithmetic::native_mod)),
-        "pow" => Some(CallableType::NativeFunction(&arithmetic::native_pow)),
-        "and" => Some(CallableType::SpecialFunction(&boolean::special_and)),
-        "or" => Some(CallableType::SpecialFunction(&boolean::special_or)),
-        "not" => Some(CallableType::NativeFunction(&boolean::native_not)),
-        "eq?" => Some(CallableType::NativeFunction(&native_eq)),
-        "if" => Some(CallableType::SpecialFunction(&special_if)),
-        "let" => Some(CallableType::SpecialFunction(&special_let)),
-        "map" => Some(CallableType::SpecialFunction(&lists::list_map)),
-        "fold" => Some(CallableType::SpecialFunction(&lists::list_fold)),
-        "list" => Some(CallableType::NativeFunction(&lists::list_cons)),
-        "fetch-entry" => Some(CallableType::SpecialFunction(&database::special_fetch_entry)),
-        "set-entry!" => Some(CallableType::SpecialFunction(&database::special_set_entry)),
-        "insert-entry!" => Some(CallableType::SpecialFunction(&database::special_insert_entry)),
-        "delete-entry!" => Some(CallableType::SpecialFunction(&database::special_delete_entry)),
-        "tuple" => Some(CallableType::SpecialFunction(&tuples::tuple_cons)),
-        "get" => Some(CallableType::SpecialFunction(&tuples::tuple_get)),
-        "begin" => Some(CallableType::NativeFunction(&native_begin)),
-        _ => None
+fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
+    use vm::is_reserved;
+
+    // (as-contract (..))
+    // arg0 => body
+    if args.len() != 1 {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to as-contract (expects 1)".to_string())))
     }
+
+    // nest an environment.
+    let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(env.contract_context.name.clone()));
+    let mut nested_env = env.nest_with_sender(contract_principal);
+
+    eval(&args[0], &mut nested_env, context)
 }

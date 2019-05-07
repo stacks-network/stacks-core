@@ -1,29 +1,24 @@
-use vm::errors::{Error, InterpreterResult as Result};
+use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::{Value};
-use vm::representations::SymbolicExpression;
-use vm::representations::SymbolicExpression::{NamedParameter};
+use vm::representations::{SymbolicExpression,SymbolicExpressionType};
 use vm::{LocalContext, Environment, eval};
 
 pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     // (tuple #arg-name value
     //        #arg-name value ...)
-    if args.len() % 2 != 0 {
-        return Err(Error::InvalidArguments(format!("Tuples must be constructed with named-arguments and corresponding values")))
+
+    // or actually:
+    //    (tuple (arg-name value)
+    //           (arg-name value))
+    use super::parse_eval_bindings;
+
+    if args.len() < 1 {
+        return Err(Error::new(ErrType::InvalidArguments(format!("Tuples must be constructed with named-arguments and corresponding values"))))
     }
-    let num_pairs = args.len() / 2;
-    // turn list into pairs.
-    let eval_result: Result<Vec<_>> = (0..num_pairs).map(|i| {
-        let arg_name = match args[i * 2] {
-            NamedParameter(ref name) => Ok(name.clone()),
-            _ => Err(Error::InvalidArguments("Named arguments must be supplied as #name-arg".to_string()))
-        }?;
-        let value = eval(&args[i * 2 + 1], env, context)?;
-        Ok((arg_name, value))
-    }).collect();
 
-    let evaled_pairs = eval_result?;
+    let bindings = parse_eval_bindings(args, env, context)?;
 
-    Value::tuple_from_data(evaled_pairs)
+    Value::tuple_from_data(bindings)
 }
 
 pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
@@ -32,11 +27,11 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
     //  NOTE:  a tuple field value itself may _never_ be 'null
 
     if args.len() != 2 {
-        return Err(Error::InvalidArguments(format!("(get ..) requires exactly 2 arguments")))
+        return Err(Error::new(ErrType::InvalidArguments(format!("(get ..) requires exactly 2 arguments"))))
     }
-    let arg_name = match args[0] {
-        SymbolicExpression::Atom(ref name) => Ok(name),
-        _ => Err(Error::InvalidArguments(format!("Second argument to (get ..) must be a name, found: {:?}", args[0])))
+    let arg_name = match args[0].expr {
+        SymbolicExpressionType::Atom(ref name) => Ok(name),
+        _ => Err(Error::new(ErrType::InvalidArguments(format!("Second argument to (get ..) must be a name, found: {:?}", args[0]))))
     }?;
 
     let value = eval(&args[1], env, context)?;
@@ -44,6 +39,6 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
     match value {
         Value::Void => Ok(Value::Void),
         Value::Tuple(tuple_data) => tuple_data.get(arg_name),
-        _ => Err(Error::TypeError("TupleType".to_string(), value.clone()))
+        _ => Err(Error::new(ErrType::TypeError("TupleType".to_string(), value.clone())))
     }
 }
