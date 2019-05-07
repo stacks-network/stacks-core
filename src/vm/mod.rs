@@ -171,7 +171,7 @@ fn eval_all (expressions: &[SymbolicExpression],
                 contract_context.functions.insert(name, value);
             },
             DefineResult::Map(name, key_type, value_type) => {
-                global_context.database.create_map(&contract_context.name, &name, key_type, value_type)?;
+                global_context.database.create_map(&contract_context.name, &name, key_type, value_type);
             },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.

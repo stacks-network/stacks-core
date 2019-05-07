@@ -31,25 +31,25 @@ impl ContractDatabaseConnection {
         let mut contract_db = ContractDatabaseConnection::inner_open(filename)?;
         contract_db.execute("CREATE TABLE IF NOT EXISTS maps_table
                       (map_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
-                       contract_name TEXT,
-                       map_name TEXT,
-                       key_type TEXT,
-                       value_type TEXT)",
+                       contract_name TEXT NOT NULL,
+                       map_name TEXT UNIQUE NOT NULL,
+                       key_type TEXT NOT NULL,
+                       value_type TEXT NOT NULL)",
                             NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS data_table
                       (data_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
-                       map_identifier INTEGER,
-                       key TEXT,
+                       map_identifier INTEGER NOT NULL,
+                       key TEXT NOT NULL,
                        value TEXT)",
                             NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS contracts
                       (contract_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
-                       contract_name TEXT,
-                       contract_data TEXT)",
+                       contract_name TEXT UNIQUE NOT NULL,
+                       contract_data TEXT NOT NULL)",
                             NO_PARAMS);
 
         contract_db.execute("CREATE TABLE IF NOT EXISTS simmed_block_table
-                      (simmed_block_height BLOB)",
+                      (simmed_block_height BLOB NOT NULL)",
                             NO_PARAMS);
 
         let default_height: i128 = 0;
@@ -176,13 +176,12 @@ impl <'a> ContractDatabase <'a> {
         }
     }
 
-    pub fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) -> Result<()> {
+    pub fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {
         let key_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(key_type));
         let value_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type));
 
         self.execute("INSERT INTO maps_table (contract_name, map_name, key_type, value_type) VALUES (?, ?, ?, ?)",
                      &[contract_name, map_name, &key_type.serialize(), &value_type.serialize()]);
-        Ok(())
     }
 
     pub fn fetch_entry(&self, contract_name: &str, map_name: &str, key: &Value) -> Result<Value> {
