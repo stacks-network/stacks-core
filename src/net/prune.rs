@@ -184,7 +184,7 @@ impl PeerNetwork {
     /// Returns the list of neighbor keys to remove.
     fn prune_frontier_outbound_orgs(&mut self, local_peer: &LocalPeer, preserve: &HashSet<usize>) -> Result<Vec<NeighborKey>, net_error> {
         let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
-        if num_outbound <= self.soft_num_neighbors {
+        if num_outbound <= self.connection_opts.soft_num_neighbors {
             return Ok(vec![]);
         }
 
@@ -213,8 +213,8 @@ impl PeerNetwork {
             match org_neighbors.get_mut(&org) {
                 None => {},
                 Some(ref mut neighbor_infos) => {
-                    if neighbor_infos.len() as u64 > self.soft_max_neighbors_per_org {
-                        for i in 0..((neighbor_infos.len() as u64) - self.soft_max_neighbors_per_org) {
+                    if neighbor_infos.len() as u64 > self.connection_opts.soft_max_neighbors_per_org {
+                        for i in 0..((neighbor_infos.len() as u64) - self.connection_opts.soft_max_neighbors_per_org) {
                             let (neighbor_key, _) = neighbor_infos[i as usize].clone();
 
                             test_debug!("{:?}: Prune {:?} because its org ({}) dominates our peer table", &local_peer, &neighbor_key, org);
@@ -222,7 +222,7 @@ impl PeerNetwork {
                             ret.push(neighbor_key);
                             
                             // don't prune too many
-                            if num_outbound - (ret.len() as u64) <= self.soft_num_neighbors {
+                            if num_outbound - (ret.len() as u64) <= self.connection_opts.soft_num_neighbors {
                                 break;
                             }
                         }
@@ -234,7 +234,7 @@ impl PeerNetwork {
             }
         }
 
-        if num_outbound - (ret.len() as u64) <= self.soft_num_neighbors {
+        if num_outbound - (ret.len() as u64) <= self.connection_opts.soft_num_neighbors {
             // pruned enough 
             debug!("{:?}: removed {} outbound peers out of {}", &local_peer, ret.len(), num_outbound);
             return Ok(ret);
@@ -242,7 +242,7 @@ impl PeerNetwork {
 
         // select an org at random proportional to its popularity, and remove a neighbor 
         // at random proportional to how unhealthy and short-lived it is.
-        while num_outbound - (ret.len() as u64) > self.soft_num_neighbors {
+        while num_outbound - (ret.len() as u64) > self.connection_opts.soft_num_neighbors {
             let mut weighted_sample : HashMap<u32, usize> = HashMap::new();
             for (org, neighbor_info) in org_neighbors.iter() {
                 if neighbor_info.len() > 0 {
@@ -280,7 +280,7 @@ impl PeerNetwork {
     /// Removes them in reverse order they are added
     fn prune_frontier_inbound_ip(&mut self, local_peer: &LocalPeer, preserve: &HashSet<usize>) -> Vec<NeighborKey> {
         let num_inbound = (self.num_peers() as u64) - PeerNetwork::count_outbound_conversations(&self.peers);
-        if num_inbound <= self.soft_num_clients {
+        if num_inbound <= self.connection_opts.soft_num_clients {
             return vec![];
         }
 
@@ -322,9 +322,9 @@ impl PeerNetwork {
 
         let mut to_remove = vec![];
         for (mut addrbytes, mut neighbor_info) in ip_neighbor.iter_mut() {
-            if (neighbor_info.len() as u64) > self.soft_max_clients_per_host {
-                debug!("{:?}: Starting to have too many inbound connections from {:?}; will close the last {:?}", &local_peer, &addrbytes, (neighbor_info.len() as u64) - self.soft_max_clients_per_host);
-                for i in (self.soft_max_clients_per_host as usize)..neighbor_info.len() {
+            if (neighbor_info.len() as u64) > self.connection_opts.soft_max_clients_per_host {
+                debug!("{:?}: Starting to have too many inbound connections from {:?}; will close the last {:?}", &local_peer, &addrbytes, (neighbor_info.len() as u64) - self.connection_opts.soft_max_clients_per_host);
+                for i in (self.connection_opts.soft_max_clients_per_host as usize)..neighbor_info.len() {
                     to_remove.push(neighbor_info[i].1.clone());
                 }
             }
