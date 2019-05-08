@@ -564,7 +564,7 @@ impl Burnchain {
     /// * do a cryptographic sortition to select the next Stacks block
     /// * commit all valid transactions
     /// * commit the results of the sortition 
-    fn append_block<A, K>(db: &mut BurnDB<A, K>, burnchain: &Burnchain, block: &BurnchainBlock<A, K>) -> Result<(), burnchain_error>
+    pub fn append_block<A, K>(db: &mut BurnDB<A, K>, burnchain: &Burnchain, block: &BurnchainBlock<A, K>) -> Result<(), burnchain_error>
     where
         A: Address,
         K: PublicKey
