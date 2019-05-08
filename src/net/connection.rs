@@ -52,6 +52,7 @@ use util::log;
 use util::secp256k1::Secp256k1PublicKey;
 use util::get_epoch_time_secs;
 use util::sleep_ms;
+use util::hash::to_hex;
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
@@ -173,7 +174,8 @@ pub struct ConnectionOptions {
     pub max_clients_per_host: u64,
     pub soft_max_neighbors_per_host: u64,
     pub soft_max_neighbors_per_org: u64,
-    pub soft_max_clients_per_host: u64
+    pub soft_max_clients_per_host: u64,
+    pub walk_interval: u64,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -194,7 +196,8 @@ impl std::default::Default for ConnectionOptions {
             max_clients_per_host: 10,       // how many inbound connections we can have per IP address, full-stop
             soft_max_neighbors_per_host: 10,     // how many outbound connections we can have per IP address, before we start pruning them
             soft_max_neighbors_per_org: 10,      // how many outbound connections we can have per AS-owning organization, before we start pruning them
-            soft_max_clients_per_host: 10,       // how many inbound connections we can have per IP address, before we start pruning them
+            soft_max_clients_per_host: 10,       // how many inbound connections we can have per IP address, before we start pruning them,
+            walk_interval: 300,             // how often to do a neighbor walk
         }
     }
 }
@@ -294,8 +297,8 @@ impl ConnectionInbox {
                     let max_len = preamble.payload_len;
                     let message_res = 
                         match self.public_key {
-                            Some(pubk) => {
-                                StacksMessage::payload_deserialize(&pubk, preamble, &self.payload_data, &mut index, max_len)
+                            Some(ref pubk) => {
+                                StacksMessage::payload_deserialize(pubk, preamble, &self.payload_data, &mut index, max_len)
                             }
                             None => {
                                 StacksMessage::payload_parse(preamble, &self.payload_data, &mut index, max_len)
@@ -312,8 +315,28 @@ impl ConnectionInbox {
                         },
                         Err(e) => {
                             // invalid message 
-                            test_debug!("Failed to deserialize: {:?}", e);
-                            debug!("Invalid message payload");
+                            match self.public_key {
+                                None => {
+                                    test_debug!("Failed to parse: {:?}", e);
+                                    debug!("Invalid message payload: failed to parse");
+                                },
+                                Some(ref pubk) => {
+                                    test_debug!("Failed to deserialize: {:?}", e);
+                                    debug!("Invalid message payload: failed to deserialize (key was {:?})", &to_hex(&pubk.to_bytes_compressed()));
+
+                                    #[cfg(test)]
+                                    {
+                                        let mut i2 = index;
+                                        let mr = StacksMessage::payload_parse(preamble, &self.payload_data, &mut i2, max_len);
+                                        match mr {
+                                            Ok(m) => {
+                                                test_debug!("Parsed message: {:?}", &m);
+                                            },
+                                            Err(_) => {}
+                                        }
+                                    }
+                                }
+                            };
                             return Err(net_error::InvalidMessage);
                         }
                     }
@@ -542,6 +565,21 @@ impl Connection {
             inbox: ConnectionInbox::new(options.inbox_maxlen, public_key_opt),
             outbox: ConnectionOutbox::new(options.outbox_maxlen)
         }
+    }
+
+    /// Determine if a (possibly unauthenticated) message was solicited 
+    pub fn is_solicited(&self, msg: &StacksMessage) -> bool {
+        let mut solicited = false;
+        for i in 0..self.outbox.inflight.len() {
+            let inflight = self.outbox.inflight.get(i).unwrap();
+            if inflight.expected_seq == msg.preamble.seq {
+                // this message is in reply to this inflight message
+                solicited = true;
+                break;
+            }
+        }
+
+        solicited
     }
 
     /// Fulfill an outstanding request with a message.
