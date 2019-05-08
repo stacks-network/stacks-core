@@ -28,6 +28,7 @@ pub enum NativeFunctions {
     Or,
     Not,
     Equals,
+    IsNull,
     If,
     Let,
     Map,
@@ -66,6 +67,7 @@ impl NativeFunctions {
             "or" => Some(Or),
             "not" => Some(Not),
             "eq?" => Some(Equals),
+            "isnull?" => Some(IsNull),
             "if" => Some(If),
             "let" => Some(Let),
             "map" => Some(Map),
@@ -107,6 +109,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Or => CallableType::SpecialFunction("native_or", &boolean::special_or),
             Not => CallableType::NativeFunction("native_not", &boolean::native_not),
             Equals => CallableType::NativeFunction("native_eq", &native_eq),
+            IsNull => CallableType::NativeFunction("native_isnull", &native_isnull),
             If => CallableType::SpecialFunction("native_if", &special_if),
             Let => CallableType::SpecialFunction("native_let", &special_let),
             Map => CallableType::SpecialFunction("native_map", &lists::list_map),
@@ -139,7 +142,23 @@ fn native_eq(args: &[Value]) -> Result<Value> {
         Ok(Value::Bool(true))
     } else {
         let first = &args[0];
+        // Using `fold` rather than `all` to prevent short-circuiting. 
         let result = args.iter().fold(true, |acc, x| acc && (*x == *first));
+        Ok(Value::Bool(result))
+    }
+}
+
+fn native_isnull(args: &[Value]) -> Result<Value> {
+    // TODO: see note in `native_eq` above ListTypes equality...
+    if args.len() == 0 {
+        // TODO: Should no input args be allowed, if so should it return true or false?
+        Ok(Value::Bool(true))
+    } else {
+        // Using `fold` rather than `all` to prevent short-circuiting. 
+        let result = args.iter().fold(true, |acc, x| acc && match *x {
+            Value::Void => true,
+            _ => false
+        });
         Ok(Value::Bool(result))
     }
 }

@@ -43,7 +43,8 @@
                 "--nocapture"
             ],
             "cwd": "${workspaceFolder}",
-            "sourceLanguages": ["rust"]
+            "sourceLanguages": ["rust"],
+            "terminal": "integrated"
         }
     ]
 }
