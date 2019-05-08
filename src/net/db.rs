@@ -485,6 +485,24 @@ impl PeerDB {
         Ok(())
     }
 
+    /// Re-key and return the new local peer 
+    pub fn rekey(&mut self, new_expire_block: u64) -> Result<LocalPeer, db_error> {
+        if new_expire_block > ((1 as u64) << 63) - 1 {
+            return Err(db_error::Overflow);
+        }
+
+        let new_key = Secp256k1PrivateKey::new();
+        {
+            let mut tx = self.tx_begin()?;
+
+            PeerDB::set_local_private_key(&mut tx, &new_key, new_expire_block)?;
+            tx.commit()
+                .map_err(db_error::SqliteError)?;
+        }
+
+        PeerDB::get_local_peer(self.conn())
+    }
+
     /// Calculate the "slots" in the peer database where this peer can be inserted.
     /// Slots are distributed uniformly at random between 0 and 2**24.
     /// NUM_SLOTS will be returned.
