@@ -226,6 +226,46 @@ where command is one of:
                 
                 return
             },
+            "eval_raw" => {
+                if argv.len() < 2 {
+                    eprintln!("Usage: {} local eval_raw", argv[0]);
+                    process::exit(1);
+                }
+
+                let content: String = {
+                    let mut buffer = String::new();
+                    io::stdin().read_to_string(&mut buffer)
+                        .expect("Error reading from stdin.");
+                    buffer
+                };
+
+                let mut db_conn = match ContractDatabaseConnection::memory() {
+                    Ok(db) => db,
+                    Err(error) => {
+                        eprintln!("Could not open vm-state: \n{}", error);
+                        process::exit(1);
+                    }
+                };
+
+                let mut outer_sp = db_conn.begin_save_point_raw();                    
+                let mut db = ContractDatabase::from_savepoint(outer_sp);
+
+                let mut vm_env = OwnedEnvironment::new(&mut db);
+                let result = vm_env.get_exec_environment(None)
+                    .eval_raw(&content);
+
+                match result {
+                    Ok(x) => {
+                        println!("Program executed successfully! Output: \n{}", x);
+                    },
+                    Err(error) => {
+                        println!("Program execution error: \n{}", error);
+                        process::exit(1);
+                    }
+                }
+
+                return
+            }
             "eval" => {
                 if argv.len() < 5 {
                     eprintln!("Usage: {} local eval [context-contract-name] (program.scm) [vm-state.db]", argv[0]);

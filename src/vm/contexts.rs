@@ -125,6 +125,18 @@ impl <'a, 'b> Environment <'a, 'b> {
         result
     }
 
+    pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
+        let parsed = parser::parse(program)?;
+        if parsed.len() < 1 {
+            return Err(Error::new(ErrType::ParseError("Expected a program of atleast length 1".to_string())))
+        }
+        let localContext = LocalContext::new();
+        let result = {
+            eval(&parsed[0], self, &localContext)
+        };
+        result
+    }
+
     pub fn execute_contract(&mut self, contract_name: &str, 
                             tx_name: &str, args: &[SymbolicExpression]) -> Result<Value> {
         let contract = self.global_context.database.get_contract(contract_name)?;
