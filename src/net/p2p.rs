@@ -45,7 +45,10 @@ use net::prune::*;
 use util::db::Error as db_error;
 use util::db::DBConn;
 
+use rusqlite::Transaction;
+
 use util::secp256k1::Secp256k1PublicKey;
+use util::hash::to_hex;
 
 use std::sync::mpsc::SyncSender;
 use std::sync::mpsc::Receiver;
@@ -227,16 +230,6 @@ pub struct PeerNetwork {
     pub sockets: HashMap<usize, mio_net::TcpStream>,
     pub events: HashMap<NeighborKey, usize>,
 
-    pub num_neighbors: u64,
-    pub num_clients: u64,
-    pub soft_num_neighbors: u64,
-    pub soft_num_clients: u64,
-    pub max_neighbors_per_host: u64,
-    pub max_clients_per_host: u64,
-    pub soft_max_neighbors_per_org: u64,
-    pub soft_max_neighbors_per_host: u64,
-    pub soft_max_clients_per_host: u64,
-
     // handles for other threads to send/receive data to peers
     handles: VecDeque<NetworkHandleServer>,
 
@@ -251,6 +244,11 @@ pub struct PeerNetwork {
 
     // neighbor walk state 
     pub walk: Option<NeighborWalk>,
+    pub walk_deadline: u64,
+    pub walk_count: u64,
+
+    // re-key state 
+    pub rekey_handles: Option<HashMap<usize, NetworkReplyHandle>>,
 
     // how often we pruned a given inbound/outbound peer
     pub prune_outbound_counts: HashMap<NeighborKey, u64>,
@@ -264,22 +262,18 @@ impl PeerNetwork {
             peers: HashMap::new(),
             sockets: HashMap::new(),
             events: HashMap::new(),
-            num_neighbors: connection_opts.num_neighbors,
-            num_clients: connection_opts.num_clients,
-            soft_num_neighbors: connection_opts.soft_num_neighbors,
-            soft_num_clients: connection_opts.soft_num_clients,
-            max_neighbors_per_host: connection_opts.max_neighbors_per_host,
-            max_clients_per_host: connection_opts.max_clients_per_host,
-            soft_max_neighbors_per_org: connection_opts.soft_max_neighbors_per_org,
-            soft_max_neighbors_per_host: connection_opts.soft_max_neighbors_per_host,
-            soft_max_clients_per_host: connection_opts.soft_max_clients_per_host,
 
             handles: VecDeque::new(),
             network: None,
 
             burnchain: burnchain.clone(),
             connection_opts: connection_opts.clone(),
+
             walk: None,
+            walk_deadline: 0,
+            walk_count: 0,
+
+            rekey_handles: None,
 
             prune_outbound_counts : HashMap::new(),
             prune_inbound_counts : HashMap::new(),
@@ -592,7 +586,6 @@ impl PeerNetwork {
     /// Check to see if we can register the given socket
     /// * we can't have registered this neighbor already
     /// * if this is inbound, we can't add more than self.num_clients
-    /// * we don't want any more than self.max_clients_per_host connections
     fn can_register(&mut self, local_peer: &LocalPeer, neighbor_key: &NeighborKey, socket: &mio_net::TcpStream, outbound: bool) -> Result<(), net_error> {
         if self.is_registered(&neighbor_key) {
             test_debug!("{:?}: already connected to {:?}", &local_peer, &neighbor_key);
@@ -601,7 +594,7 @@ impl PeerNetwork {
 
         // consider rate-limits on in-bound peers
         let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
-        if !outbound && (self.peers.len() as u64) - num_outbound >= self.num_clients {
+        if !outbound && (self.peers.len() as u64) - num_outbound >= self.connection_opts.num_clients {
             // too many inbounds 
             info!("{:?}: Too many inbound connections", &local_peer);
             return Err(net_error::TooManyPeers);
@@ -645,7 +638,7 @@ impl PeerNetwork {
             }
         };
         
-        info!("{:?}: Registered {} as event {} (outbound={})", &local_peer, &client_addr, event_id, outbound);
+        test_debug!("{:?}: Registered {} as event {} (outbound={})", &local_peer, &client_addr, event_id, outbound);
 
         self.sockets.insert(event_id, socket);
         self.peers.insert(event_id, convo);
@@ -784,13 +777,14 @@ impl PeerNetwork {
         registered
     }
 
-    /// Process sockets that are ready.
-    /// Advance the state of all conversations ongoing with remote peers.
+    /// Process sockets that are ready, but specifically inbound or outbound only.
+    /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations, as well as the set of
     /// unsolicited messages grouped by event_id.
     fn process_ready_sockets(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, burndb_conn: &DBConn, poll_state: &mut NetworkPollState) -> (Vec<usize>, HashMap<usize, Vec<StacksMessage>>) {
         let mut to_remove = vec![];
         let mut unsolicited = HashMap::new();
+
         for event_id in &poll_state.ready {
             if !self.sockets.contains_key(&event_id) {
                 test_debug!("Rogue socket event {}", event_id);
@@ -814,22 +808,24 @@ impl PeerNetwork {
             }
             let mut convo = self.peers.get_mut(&event_id).unwrap();
 
+            test_debug!("{:?}: process data from {:?}", local_peer, convo);
+
             // get incoming bytes and update the state of this conversation.
             let recv_res = convo.recv(client_sock);
             match recv_res {
                 Err(e) => {
-                    info!("{:?}: Failed to receive data on event {} (socket {:?}): {:?}", &local_peer, event_id, &client_sock, &e);
+                    debug!("{:?}: Failed to receive data on event {} (socket {:?}): {:?}", &local_peer, event_id, &client_sock, &e);
                     to_remove.push(*event_id);
                     continue;
                 },
                 Ok(_) => {}
             }
-
+        
             // react to inbound messages -- do we need to send something out?
             let mut chat_res = convo.chat(local_peer, burndb_conn, chain_view);
             match chat_res {
                 Err(e) => {
-                    info!("Failed to converse on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
+                    debug!("Failed to converse on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
                     to_remove.push(*event_id);
                     continue;
                 },
@@ -846,7 +842,7 @@ impl PeerNetwork {
             let send_res = convo.send(client_sock);
             match send_res {
                 Err(e) => {
-                    info!("Failed to send data to event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
+                    debug!("Failed to send data to event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
                     to_remove.push(*event_id);
                     continue;
                 },
@@ -878,7 +874,7 @@ impl PeerNetwork {
             let send_res = convo.send(client_sock);
             match send_res {
                 Err(e) => {
-                    info!("Failed to send data to event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
+                    debug!("Failed to send data to event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
                     to_remove.push(*event_id);
                     continue;
                 },
@@ -905,9 +901,30 @@ impl PeerNetwork {
         let reply = convo.sign_reply(chain_view, &local_peer.private_key, payload, getneighbors_msg.preamble.seq)?;
         convo.relay_signed_message(reply)
             .map_err(|e| {
-                info!("Outbox to {:?} is full; cannot reply to GetNeighbors", &convo);
+                debug!("Outbox to {:?} is full; cannot reply to GetNeighbors", &convo);
                 e
             })
+    }
+
+    /// Handle an unsolicited handshake 
+    fn handle_handshake<'a>(tx: &mut Transaction<'a>, local_peer: &LocalPeer, preamble: &Preamble, data: &HandshakeData) -> Option<NeighborKey> {
+        match Neighbor::from_handshake(tx, preamble.peer_version, preamble.network_id, data) {
+            Ok(neighbor) => {
+                let res = neighbor.save_update(tx)
+                    .map_err(|e| {
+                        debug!("Failed to update neighbor: {:?}", &e);
+                    });
+                
+                if res.is_ok() {
+                    test_debug!("{:?}: Re-key {:?} to {:?} expires {}", local_peer, &neighbor.addr, &to_hex(&neighbor.public_key.to_bytes_compressed()), neighbor.expire_block);
+                    Some(neighbor.addr.clone())
+                }
+                else {
+                    None
+                }
+            },
+            Err(_) => None
+        }
     }
 
     /// Reply to requests for information
@@ -928,13 +945,27 @@ impl PeerNetwork {
                                 match res {
                                     Ok(()) => {},
                                     Err(e) => {
-                                        info!("Failed to handle GetNeighbors from {:?}: {:?}", &convo, &e);
+                                        debug!("Failed to handle GetNeighbors from {:?}: {:?}", &convo, &e);
                                         if !unhandled_messages.contains_key(&convo_nk) {
                                             unhandled_messages.insert(convo_nk.clone(), vec![]);
                                         }
                                         unhandled_messages.get_mut(&convo_nk).unwrap().push(msg);
                                     }
                                 };
+                            },
+                            StacksMessageType::Handshake(ref data) => {
+                                // unsolicited handshake whose signature is valid, which means the remote peer is re-keying.
+                                // however, only store the new key if outbound -- we don't trust inbounds to tell us persistent state.
+                                if convo.stats.outbound {
+                                    let new_nk_opt = match self.peerdb.tx_begin() {
+                                        Ok(mut tx) => {
+                                            let res = PeerNetwork::handle_handshake(&mut tx, local_peer, &msg.preamble, data);
+                                            let _ = tx.commit();
+                                            res
+                                        }
+                                        Err(_) => None
+                                    };
+                                }
                             },
                             /* TODO: handle blocks and transactions */
                             _ => {
@@ -948,7 +979,6 @@ impl PeerNetwork {
                 }
             }
         }
-
         unhandled_messages
     }
 
@@ -1022,12 +1052,12 @@ impl PeerNetwork {
                         match convo.relay_signed_message(ping) {
                             Ok(_) => {},
                             Err(_e) => {
-                                info!("Outbox to {:?} is full; cannot ping", &convo);
+                                debug!("Outbox to {:?} is full; cannot ping", &convo);
                             }
                         };
                     },
                     Err(e) => {
-                        info!("Unable to create ping message for {:?}: {:?}", &convo, &e);
+                        debug!("Unable to create ping message for {:?}: {:?}", &convo, &e);
                     }
                 };
             }
@@ -1041,7 +1071,7 @@ impl PeerNetwork {
         for (event_id, convo) in self.peers.iter() {
             if convo.stats.last_handshake_time > 0 && convo.stats.last_recv_time + (convo.heartbeat as u64) + NEIGHBOR_REQUEST_TIMEOUT < now {
                 // we haven't heard from this peer in too long a time 
-                info!("{:?}: Disconnect unresponsive peer {:?}", &local_peer, &convo);
+                debug!("{:?}: Disconnect unresponsive peer {:?}", &local_peer, &convo);
                 to_remove.push(*event_id);
             }
         }
@@ -1068,7 +1098,7 @@ impl PeerNetwork {
                     }
                 },
                 Err(e) => {
-                    info!("Failed to query {:?}: {:?}", &nk, &e);
+                    debug!("Failed to query {:?}: {:?}", &nk, &e);
                     return;
                 }
             };
@@ -1090,6 +1120,73 @@ impl PeerNetwork {
         };
 
         self.prune_frontier(local_peer, &safe);
+    }
+
+    /// Regenerate our session private key and re-handshake with everyone.
+    fn rekey(&mut self, old_local_peer_opt: Option<&LocalPeer>, new_local_peer: &LocalPeer, chain_view: &BurnchainView) -> () {
+        let handles = self.rekey_handles.take();
+        let new_handles = match handles {
+            None => {
+                assert!(old_local_peer_opt.is_some());
+                let old_local_peer = old_local_peer_opt.unwrap();
+
+                // begin re-key 
+                let mut inflight_handshakes = HashMap::new();
+                for (event_id, mut convo) in self.peers.iter_mut() {
+                    let nk = convo.to_neighbor_key();
+                    let handshake_data = HandshakeData::from_local_peer(new_local_peer);
+                    let handshake = StacksMessageType::Handshake(handshake_data);
+        
+                    test_debug!("{:?}: send re-key Handshake ({:?} --> {:?}) to {:?}", &new_local_peer, 
+                           &to_hex(&Secp256k1PublicKey::from_private(&old_local_peer.private_key).to_bytes_compressed()),
+                           &to_hex(&Secp256k1PublicKey::from_private(&new_local_peer.private_key).to_bytes_compressed()), &nk);
+                    
+                    let msg_res = convo.sign_message(chain_view, &old_local_peer.private_key, handshake);
+                    if let Ok(msg) = msg_res {
+                        let req_res = convo.send_signed_message(msg, get_epoch_time_secs() + NEIGHBOR_REQUEST_TIMEOUT);
+                        match req_res {
+                            Ok(handle) => {
+                                inflight_handshakes.insert(*event_id, handle);
+                            },
+                            Err(e) => {
+                                debug!("Not connected: {:?} ({:?})", nk, &e);
+                            }
+                        };
+                    }
+                }
+
+                Some(inflight_handshakes)
+            },
+            Some(mut inflight_handles) => {
+                let mut new_inflight_handles = HashMap::new();
+
+                // consume in-flight replies 
+                // (have to consume them since we want our neighbor stats to be updated)
+                for (event_id, rh) in inflight_handles.drain() {
+                    match rh.try_recv() {
+                        Ok(_) => {},
+                        Err(res) => {
+                            match res {
+                                Ok(new_rh) => {
+                                    new_inflight_handles.insert(event_id, new_rh);
+                                }
+                                Err(e) => {
+                                    debug!("{:?}: remote peer Failed re-key handshake: {:?}", new_local_peer, &e);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if new_inflight_handles.len() > 0 {
+                    Some(new_inflight_handles)
+                }
+                else {
+                    None
+                }
+            }
+        };
+        self.rekey_handles = new_handles;
     }
 
     /// Update networking state.
@@ -1115,17 +1212,17 @@ impl PeerNetwork {
         // set up new inbound conversations
         self.process_new_sockets(&local_peer, &chain_view, &mut poll_state);
 
-        // run existing conversations, clear out broken ones, and get back messages forwarded to us
+        // run existing _inbound_ conversations, clear out broken ones, and get back messages forwarded to us
         let (error_events, unsolicited_messages) = self.process_ready_sockets(&local_peer, &chain_view, burndb_conn, &mut poll_state);
         for error_event in error_events {
-            self.reregister_if_outbound(&local_peer, &chain_view, error_event)
+            let _ = self.reregister_if_outbound(&local_peer, &chain_view, error_event)
                 .map_err(|e| {
-                    info!("{:?}: Failed to repair connection to event {}", &local_peer, error_event);
+                    debug!("{:?}: Failed to repair connection to event {}", &local_peer, error_event);
                     self.deregister(error_event);
                 }); 
         }
 
-        // reply to any data requests
+        // reply to any data requests from inbound
         let unhandled_messages = self.handle_data_requests(&local_peer, &chain_view, unsolicited_messages);
 
         // remove timed-out requests from other threads 
@@ -1152,9 +1249,9 @@ impl PeerNetwork {
         // this has the intentional side-effect of activating some sockets as writeable.
         let error_outbound_events = self.send_outbound_messages(&local_peer, &chain_view, burndb_conn);
         for error_event in error_outbound_events {
-            self.reregister_if_outbound(&local_peer, &chain_view, error_event)
+            let _ = self.reregister_if_outbound(&local_peer, &chain_view, error_event)
                 .map_err(|e| {
-                    info!("{:?}: Failed to repair connection to event {}", &local_peer, error_event);
+                    debug!("{:?}: Failed to repair connection to event {}", &local_peer, error_event);
                     self.deregister(error_event);
                 }); 
         }
@@ -1162,7 +1259,19 @@ impl PeerNetwork {
         // queue up pings to neighbors we haven't spoken to in a while
         self.queue_ping_heartbeats(&local_peer, &chain_view);
 
-        // TODO: re-handshake with neighors if our key is about to expire 
+        // is our key about to expire?  do we need to re-key?
+        // NOTE: must come last since it invalidates local_peer
+        if local_peer.private_key_expire < chain_view.burn_block_height + 1 {
+            let new_local_peer = self.peerdb.rekey(local_peer.private_key_expire + self.connection_opts.private_key_lifetime)
+                .map_err(|e| net_error::DBError)?;
+
+            self.rekey(Some(&local_peer), &new_local_peer, &chain_view);
+        }
+        else if self.rekey_handles.is_some() {
+            // finish re-keying
+            self.rekey(None, &local_peer, &chain_view);
+        }
+      
         Ok(unhandled_messages)
     }
 
