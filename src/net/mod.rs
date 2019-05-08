@@ -812,7 +812,7 @@ mod test {
         }
     }
 
-    // common test code for this module
+    // describes a peer's initial configuration
     #[derive(Debug, Clone)]
     pub struct TestPeerConfig {
         pub current_block: u64,
@@ -972,12 +972,52 @@ mod test {
             ret
         }
 
+        pub fn empty_burnchain_block(&self, block_height: u64) -> BurnchainBlock<BitcoinAddress, BitcoinPublicKey> {
+            assert!(block_height + 1 >= self.config.burnchain.first_block_height);
+            let prev_block_height = block_height - 1;
+            BurnchainBlock {
+                block_height: block_height,
+                block_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                                            ((block_height >> 56) & 0xff) as u8,
+                                                            ((block_height >> 48) & 0xff) as u8,
+                                                            ((block_height >> 40) & 0xff) as u8,
+                                                            ((block_height >> 32) & 0xff) as u8,
+                                                            ((block_height >> 24) & 0xff) as u8,
+                                                            ((block_height >> 16) & 0xff) as u8,
+                                                            ((block_height >> 8) & 0xff) as u8,
+                                                            ((block_height) & 0xff) as u8]).unwrap(),
+                parent_block_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                                            ((prev_block_height >> 56) & 0xff) as u8,
+                                                            ((prev_block_height >> 48) & 0xff) as u8,
+                                                            ((prev_block_height >> 40) & 0xff) as u8,
+                                                            ((prev_block_height >> 32) & 0xff) as u8,
+                                                            ((prev_block_height >> 24) & 0xff) as u8,
+                                                            ((prev_block_height >> 16) & 0xff) as u8,
+                                                            ((prev_block_height >> 8) & 0xff) as u8,
+                                                            ((prev_block_height) & 0xff) as u8]).unwrap(),
+                txs: vec![]
+            }
+        }
+
+        pub fn make_burnchain_block(&self, block_height: u64, transactions: &Vec<BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>>) -> BurnchainBlock<BitcoinAddress, BitcoinPublicKey> {
+            let mut block = self.empty_burnchain_block(block_height);
+            block.txs = transactions.clone();
+            block
+        }
+
+        pub fn next_burnchain_block(&mut self, block: &BurnchainBlock<BitcoinAddress, BitcoinPublicKey>) -> () {
+            let mut burndb = self.burndb.take().unwrap();
+            Burnchain::append_block(&mut burndb, &self.config.burnchain, block).unwrap();
+            self.burndb = Some(burndb);
+        }
+
         pub fn to_neighbor(&self) -> Neighbor {
             self.config.to_neighbor()
         }
 
         pub fn get_public_key(&self) -> Secp256k1PublicKey {
-            Secp256k1PublicKey::from_private(&self.config.private_key)
+            let local_peer = PeerDB::get_local_peer(&self.network.peerdb.conn()).unwrap();
+            Secp256k1PublicKey::from_private(&local_peer.private_key)
         }
 
         pub fn get_peerdb_conn(&self) -> &DBConn {
