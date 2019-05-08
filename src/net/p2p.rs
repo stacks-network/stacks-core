@@ -1212,7 +1212,7 @@ impl PeerNetwork {
         // set up new inbound conversations
         self.process_new_sockets(&local_peer, &chain_view, &mut poll_state);
 
-        // run existing _inbound_ conversations, clear out broken ones, and get back messages forwarded to us
+        // run existing conversations, clear out broken ones, and get back messages forwarded to us
         let (error_events, unsolicited_messages) = self.process_ready_sockets(&local_peer, &chain_view, burndb_conn, &mut poll_state);
         for error_event in error_events {
             let _ = self.reregister_if_outbound(&local_peer, &chain_view, error_event)
