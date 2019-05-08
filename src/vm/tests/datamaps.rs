@@ -1,5 +1,5 @@
-use vm::errors::Error;
-use vm::types::{Value, TypeSignature, AtomTypeIdentifier};
+use vm::errors::{Error, ErrType};
+use vm::types::{Value};
 
 use vm::execute;
 
@@ -7,15 +7,15 @@ use vm::execute;
 fn test_simple_tea_shop() {
     let test1 =
         "(define-map proper-tea ((tea-type int)) ((amount int)))
-         (define (stock tea amount)
-           (set-entry! proper-tea (tuple #tea-type tea) (tuple #amount amount)))
-         (define (consume tea)
-           (let ((current (get amount (fetch-entry proper-tea (tuple #tea-type tea)))))
+         (define (stock (tea int) (amount int))
+           (set-entry! proper-tea (tuple (tea-type tea)) (tuple (amount amount))))
+         (define (consume (tea int))
+           (let ((current (get amount (fetch-entry proper-tea (tuple (tea-type tea))))))
               (if (and (not (eq? current 'null)) 
                        (>= current 1))
                   (begin
-                    (set-entry! proper-tea (tuple #tea-type tea) 
-                                                  (tuple #amount (- current 1)))
+                    (set-entry! proper-tea (tuple (tea-type tea))
+                                           (tuple (amount (- current 1))))
                     'true)
                   'false)))
         (stock 1 3)
@@ -56,10 +56,10 @@ fn test_simple_tea_shop() {
 fn test_factorial_contract() {
     let test1 =
         "(define-map factorials ((id int)) ((current int) (index int)))
-         (define (init-factorial id factorial)
-           (insert-entry! factorials (tuple #id id) (tuple #current 1 #index factorial)))
-         (define (compute id)
-           (let ((entry (fetch-entry factorials (tuple #id id))))
+         (define (init-factorial (id int) (factorial int))
+           (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
+         (define (compute (id int))
+           (let ((entry (fetch-entry factorials (tuple (id id)))))
                 (if (eq? entry 'null)
                     0
                     (let ((current (get current entry))
@@ -67,9 +67,9 @@ fn test_factorial_contract() {
                          (if (<= index 1)
                              current
                              (begin
-                               (set-entry! factorials (tuple #id id)
-                                                      (tuple #current (* current index)
-                                                             #index (- index 1)))
+                               (set-entry! factorials (tuple (id id))
+                                                      (tuple (current (* current index))
+                                                             (index (- index 1))))
                                0))))))
         (init-factorial 1337 3)
         (init-factorial 8008 5)
@@ -107,16 +107,16 @@ fn test_factorial_contract() {
 fn silly_naming_system() {
     let test1 =
         "(define-map silly-names ((name int)) ((owner int)))
-         (define (register name owner)
-           (if (insert-entry! silly-names (tuple #name name) (tuple #owner owner))
+         (define (register (name int) (owner int))
+           (if (insert-entry! silly-names (tuple (name name)) (tuple (owner owner)))
                1 0))
-         (define (who-owns? name)
-           (let ((owner (get owner (fetch-entry silly-names (tuple #name name)))))
+         (define (who-owns? (name int))
+           (let ((owner (get owner (fetch-entry silly-names (tuple (name name))))))
                 (if (eq? 'null owner) (- 1) owner)))
-         (define (invalidate! name owner)
-           (let ((current-owner (get owner (fetch-entry silly-names (tuple #name name)))))
+         (define (invalidate! (name int) (owner int))
+           (let ((current-owner (get owner (fetch-entry silly-names (tuple (name name))))))
                 (if (eq? current-owner owner)
-                    (if (delete-entry! silly-names (tuple #name name)) 1 0)
+                    (if (delete-entry! silly-names (tuple (name name))) 1 0)
                     0)))
         (list (register 0 0)
               (register 0 1)
@@ -148,31 +148,51 @@ fn silly_naming_system() {
 #[test]
 fn datamap_errors() {
     let tests = [
-        "(fetch-entry non-existent (tuple #name 1))",
-        "(delete-entry! non-existent (tuple #name 1))",
+        "(fetch-entry non-existent (tuple (name 1)))",
+        "(delete-entry! non-existent (tuple (name 1)))",
     ];
 
-    let expected = [
-        Err(Error::Undefined("No such map named: non-existent".to_string())),
-        Err(Error::Undefined("No such map named: non-existent".to_string())),
-    ];
-
-    for (program, expectation) in tests.iter().zip(expected.iter()) {
-        assert_eq!(*expectation, execute(program));
+    for program in tests.iter() {
+        assert_eq!( ErrType::UndefinedMap("non-existent".to_string()),
+                    execute(program).unwrap_err().err_type );
     }
 }
 
 #[test]
+fn lists_system_2() {
+    let test = 
+        "(define-map lists ((name int)) ((contents (list 5 1 int))))
+         (define (add-list (name int) (content (list 5 1 int)))
+           (insert-entry! lists (tuple (name name))
+                                (tuple (contents content))))
+         (define (get-list (name int))
+            (get contents (fetch-entry lists (tuple (name name)))))
+         (add-list 0 (list 1 2 3 4 5))
+         (add-list 1 (list 1 2 3))
+         (list      (get-list 0)
+                    (get-list 1))
+        (insert-entry! lists (tuple (name 1)) (tuple (contentious (list 1 2 6))))";
+
+    match execute(test) {
+        Err(Error{
+            err_type: ErrType::TypeError(_,_),
+            stack_trace: _ }) => true,
+        _ => {
+            false
+        }
+    };    
+}
+#[test]
 fn lists_system() {
     let test1 =
         "(define-map lists ((name int)) ((contents (list 5 1 int))))
-         (define (add-list name content)
-           (insert-entry! lists (tuple #name name)
-                                (tuple #contents content)))
-         (define (get-list name)
-            (get contents (fetch-entry lists (tuple #name name))))
-         (add-list 0 (list 1 2 3 4 5))
-         (add-list 1 (list 1 2 3))
+         (define (add-list (name int) (content (list 5 1 int)))
+           (insert-entry! lists (tuple (name name))
+                                (tuple (contents content))))
+         (define (get-list (name int))
+            (get contents (fetch-entry lists (tuple (name name)))))
+         (print (add-list 0 (list 1 2 3 4 5)))
+         (print (add-list 1 (list 1 2 3)))
          (list      (get-list 0)
                     (get-list 1))
         ";
@@ -181,16 +201,16 @@ fn lists_system() {
     test_list_too_big.push_str("(add-list 2 (list 1 2 3 4 5 6))");
 
     let mut test_bad_tuple_1 = test1.to_string();
-    test_bad_tuple_1.push_str("(insert-entry! lists (tuple #name 1) (tuple #contentious (list 1 2 6)))");
+    test_bad_tuple_1.push_str("(print (insert-entry! lists (tuple (name 1)) (print (tuple (contentious (list 1 2 6))))))");
 
     let mut test_bad_tuple_2 = test1.to_string();
-    test_bad_tuple_2.push_str("(insert-entry! lists (tuple #name 1) (tuple #contents (list 1 2 6) #discontents 1))");
+    test_bad_tuple_2.push_str("(insert-entry! lists (tuple (name 1)) (tuple (contents (list 1 2 6)) (discontents 1)))");
 
     let mut test_bad_tuple_3 = test1.to_string();
-    test_bad_tuple_3.push_str("(insert-entry! lists (tuple #name 1) (tuple #contents (list 'false 'true 'false)))");
+    test_bad_tuple_3.push_str("(insert-entry! lists (tuple (name 1)) (tuple (contents (list 'false 'true 'false))))");
 
     let mut test_bad_tuple_4 = test1.to_string();
-    test_bad_tuple_4.push_str("(insert-entry! lists (tuple #name (list 1)) (tuple #contents (list 1 2 3)))");
+    test_bad_tuple_4.push_str("(insert-entry! lists (tuple (name (list 1))) (tuple (contents (list 1 2 3))))");
 
     let expected = || {
         let list1 = Value::list_from(vec![
@@ -211,9 +231,11 @@ fn lists_system() {
     for test in [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2,
                  test_bad_tuple_3, test_bad_tuple_4].iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::TypeError(_,_)) => true,
+            Err(Error{
+                err_type: ErrType::TypeError(_,_),
+                stack_trace: _ }) => true,
             _ => {
-                println!("{:?}", execute(test));
+                println!("{} -> {:?}", test, execute(test));
                 false
             }
         };
@@ -230,13 +252,13 @@ fn tuples_system() {
                             ((contents (tuple ((name (buff 5))
                                                (owner (buff 5)))))))
 
-         (define (add-tuple name content)
-           (insert-entry! tuples (tuple #name name)
-                                 (tuple #contents
-                                   (tuple #name content
-                                          #owner content))))
-         (define (get-tuple name)
-            (get name (get contents (fetch-entry tuples (tuple #name name)))))
+         (define (add-tuple (name int) (content (buff 5)))
+           (insert-entry! tuples (tuple (name name))
+                                 (tuple (contents
+                                   (tuple (name content)
+                                          (owner content))))))
+         (define (get-tuple (name int))
+            (get name (get contents (fetch-entry tuples (tuple (name name))))))
 
 
          (add-tuple 0 \"abcde\")
@@ -249,7 +271,7 @@ fn tuples_system() {
     test_list_too_big.push_str("(add-tuple 2 \"abcdef\")");
 
     let mut test_bad_tuple_1 = test1.to_string();
-    test_bad_tuple_1.push_str("(insert-entry! tuples (tuple #name 1) (tuple #contents (tuple #name \"abcde\" #owner \"abcdef\")))");
+    test_bad_tuple_1.push_str("(insert-entry! tuples (tuple (name 1)) (tuple (contents (tuple (name \"abcde\") (owner \"abcdef\")))))");
 
     let expected = || {
         let buff1 = Value::buff_from("abcde".to_string().into_bytes())?;
@@ -261,7 +283,9 @@ fn tuples_system() {
 
     for test in [test_list_too_big, test_bad_tuple_1].iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::TypeError(_,_)) => true,
+            Err(Error{
+                err_type: ErrType::TypeError(_,_),
+                stack_trace: _ }) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -278,47 +302,50 @@ fn bad_define_maps() {
     let test_list_pairs = [
         "(define-map lists ((name int)) ((contents int bool)))",
         "(define-map lists ((name int)) (contents bool))",
-        "(define-map lists ((#name int)) (contents bool))",
+        "(define-map lists ((name int)) (contents bool))",
         "(define-map lists ((name int)) contents)"];
     let test_define_args = [
-        "(define-map (lists) ((name #int)) contents)",
-        "(define-map lists ((name #int)) contents 5)"];
+        "(define-map (lists) ((name int)) contents)",
+        "(define-map lists ((name int)) contents 5)"];
 
     let test_bad_type = [
-        "(define-map lists ((name int)) ((contents (list 5 0 int))))",
-        "(define-map lists ((name #int)) (contents bool))"];
+        "(define-map lists ((name int)) ((contents (list 5 0 int))))"];
     
     for test in test_list_pairs.iter() {
         println!("Test: {:?}", test);
-        assert_eq!(Err(Error::ExpectedListPairs), execute(test));
+        assert_eq!(ErrType::ExpectedListPairs, execute(test).unwrap_err().err_type);
     }
 
     for test in test_define_args.iter() {
         assert!(match execute(test) {
-            Err(Error::InvalidArguments(_)) => true,
+            Err(Error{
+                err_type: ErrType::InvalidArguments(_),
+                stack_trace: _ }) => true,
             _ => false
         })
     }
 
     for test in test_bad_type.iter() {
-        assert_eq!(Err(Error::InvalidTypeDescription), execute(test));
+        assert_eq!(ErrType::InvalidTypeDescription, execute(test).unwrap_err().err_type);
     }
 }
 
 #[test]
 fn bad_tuples() {
-    let tests = ["(tuple #name 1 #name 3)",
-                 "(tuple #name 'null)",
+    let tests = ["(tuple (name 1) (name 3))",
+                 "(tuple (name 'null))",
                  "(tuple name 1)",
-                 "(tuple #name 1 #blame)",
-                 "(get value (tuple #name 1))",
-                 "(get name five (tuple #name 1))",
-                 "(get 1234 (tuple #name 1))"];
+                 "(tuple (name 1) (blame))",
+                 "(get value (tuple (name 1)))",
+                 "(get name five (tuple (name 1)))",
+                 "(get 1234 (tuple (name 1)))"];
 
     for test in tests.iter() {
         let outcome = execute(test);
         match outcome {
-            Err(Error::InvalidArguments(_)) => continue,
+            Err(Error{
+                err_type: ErrType::InvalidArguments(_),
+                stack_trace: _ }) => continue,
             _ => {
                 println!("Expected InvalidArguments Error, but found {:?}", outcome);
                 assert!(false)

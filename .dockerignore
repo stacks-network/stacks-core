@@ -1,3 +1,5 @@
+Dockerfile
+target
 integration_tests/blockstack-consensus-data/
 integration_tests/test-out/
 api/data
@@ -7,3 +9,4 @@ api/data
 testnet/index.html
 testnet.log
 testnet-logs*
+legacy

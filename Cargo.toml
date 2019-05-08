@@ -9,6 +9,10 @@ description = "Reference implementation of Blockstack Core"
 keywords = [ "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
 
+[features]
+developer-mode = []
+default = ["developer-mode"]
+
 [dependencies]
 byteorder = "1.1"
 rust-ini = "0.13"
@@ -28,6 +32,7 @@ features = ["serde"]
 
 [dependencies.rusqlite]
 version = "=0.16.0"
+features = ["i128_blob"]
 
 [dependencies.ed25519-dalek]
 version = "=1.0.0-pre.1"

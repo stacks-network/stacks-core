@@ -1,10 +1,10 @@
 use vm::types::Value;
-use vm::errors::{Error, InterpreterResult as Result};
+use vm::errors::{Error, ErrType, InterpreterResult as Result};
 
 fn type_force_integer(value: &Value) -> Result<i128> {
     match *value {
         Value::Int(int) => Ok(int),
-        _ => Err(Error::TypeError("IntType".to_string(), value.clone()))
+        _ => Err(Error::new(ErrType::TypeError("IntType".to_string(), value.clone())))
     }
 }
 
@@ -15,8 +15,18 @@ where F: Fn(i128, i128) -> bool {
         let arg2 = type_force_integer(&args[1])?;
         Ok(Value::Bool((*function)(arg1, arg2)))
     } else {
-        Err(Error::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()))
+        Err(Error::new(ErrType::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string())))
     }
+}
+
+pub fn native_xor(args: &[Value]) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(Error::new(ErrType::InvalidArguments("(xor ...) must be called with exactly 2 arguments".to_string())))
+    }
+    let x = type_force_integer(&args[0])?;
+    let y = type_force_integer(&args[1])?;
+
+    Ok(Value::Int(x ^ y))
 }
 
 pub fn native_geq(args: &[Value]) -> Result<Value> {
@@ -43,7 +53,7 @@ pub fn native_add(args: &[Value]) -> Result<Value> {
     if let Some(result) = checked_result{
         Ok(Value::Int(result))
     } else {
-        Err(Error::Arithmetic("Overflowed in addition".to_string()))
+        Err(Error::new(ErrType::Arithmetic("Overflowed in addition".to_string())))
     }
 }
 
@@ -63,10 +73,10 @@ pub fn native_sub(args: &[Value]) -> Result<Value> {
         if let Some(result) = checked_result{
             Ok(Value::Int(result))
         } else {
-            Err(Error::Arithmetic("Underflowed in subtraction".to_string()))
+            Err(Error::new(ErrType::Arithmetic("Underflowed in subtraction".to_string())))
         }
     } else {
-        Err(Error::InvalidArguments("(- ...) must be called with at least 1 argument".to_string()))
+        Err(Error::new(ErrType::InvalidArguments("(- ...) must be called with at least 1 argument".to_string())))
     }
 }
 
@@ -81,7 +91,7 @@ pub fn native_mul(args: &[Value]) -> Result<Value> {
     if let Some(result) = checked_result{
         Ok(Value::Int(result))
     } else {
-        Err(Error::Arithmetic("Overflowed in multiplication".to_string()))
+        Err(Error::new(ErrType::Arithmetic("Overflowed in multiplication".to_string())))
     }
 }
 
@@ -97,10 +107,10 @@ pub fn native_div(args: &[Value]) -> Result<Value> {
         if let Some(result) = checked_result{
             Ok(Value::Int(result))
         } else {
-            Err(Error::Arithmetic("Divide by 0".to_string()))
+            Err(Error::new(ErrType::Arithmetic("Divide by 0".to_string())))
         }
     } else {
-        Err(Error::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string()))
+        Err(Error::new(ErrType::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string())))
     }
 }
 
@@ -132,7 +142,7 @@ pub fn native_pow(args: &[Value]) -> Result<Value> {
         let base = type_force_integer(&args[0])?;
         let power_i128 = type_force_integer(&args[1])?;
         if power_i128 < 0 || power_i128 > (u32::max_value() as i128) {
-            return Err(Error::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()))
+            return Err(Error::new(ErrType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())))
         }
 
         let power = power_i128 as u32;
@@ -141,10 +151,10 @@ pub fn native_pow(args: &[Value]) -> Result<Value> {
         if let Some(result) = checked_result{
             Ok(Value::Int(result))
         } else {
-            Err(Error::Arithmetic("Overflowed in power".to_string()))
+            Err(Error::new(ErrType::Arithmetic("Overflowed in power".to_string())))
         }
     } else {
-        Err(Error::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()))
+        Err(Error::new(ErrType::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string())))
     }
 }
 
@@ -157,9 +167,9 @@ pub fn native_mod(args: &[Value]) -> Result<Value> {
         if let Some(result) = checked_result{
             Ok(Value::Int(result))
         } else {
-            Err(Error::Arithmetic("Modulus by 0".to_string()))
+            Err(Error::new(ErrType::Arithmetic("Modulus by 0".to_string())))
         }
     } else {
-        Err(Error::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string()))
+        Err(Error::new(ErrType::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string())))
     }
 }

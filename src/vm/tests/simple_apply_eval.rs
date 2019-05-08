@@ -1,8 +1,10 @@
 use vm::{eval, execute};
-use vm::database::MemoryContractDatabase;
-use vm::errors::Error;
-use vm::{Value, LocalContext, GlobalContext, Environment};
-use vm::callables::PrivateFunction;
+use vm::database::ContractDatabaseConnection;
+use vm::errors::{ErrType};
+use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
+use vm::contexts::{OwnedEnvironment};
+use vm::callables::DefinedFunction;
+use vm::types::{TypeSignature, AtomTypeIdentifier};
 use vm::parser::parse;
 
 #[test]
@@ -24,11 +26,10 @@ fn test_simple_let() {
 
     if let Ok(parsed_program) = parse(&program) {
         let context = LocalContext::new();
-        let global_context = GlobalContext::new();
-        let mut db = MemoryContractDatabase::new();
-        let mut env = Environment::new(&global_context, &mut db);
+        let mut conn = ContractDatabaseConnection::memory().unwrap();
+        let mut env = OwnedEnvironment::new(&mut conn);
 
-        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env, &context));        
+        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env.get_exec_environment(None), &context));        
     } else {
         assert!(false, "Failed to parse program.");
     }
@@ -82,26 +83,31 @@ fn test_simple_if_functions() {
          (with_else 3)");
 
     let function_bodies = parse(&"(if (eq? 5 x) 1 0)
-                                  (if (eq? 5 x) 1)");
+                                  (if (eq? 5 x) 1 3)");
 
     if let Ok(parsed_bodies) = function_bodies {
-        let func_args1 = vec!["x".to_string()];
-        let func_args2 = vec!["x".to_string()];
-        let user_function1 = PrivateFunction::new(func_args1, parsed_bodies[0].clone());
-        let user_function2 = PrivateFunction::new(func_args2, parsed_bodies[1].clone());
+        let func_args1 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let func_args2 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let user_function1 = DefinedFunction::new_private(
+            func_args1, parsed_bodies[0].clone(), &"with_else", &"");
+
+        let user_function2 = DefinedFunction::new_private(
+            func_args2, parsed_bodies[1].clone(), &"without_else", &"");
 
         let context = LocalContext::new();
-        let mut global_context = GlobalContext::new();
-        let mut db = MemoryContractDatabase::new();
+        let mut contract_context = ContractContext::new("transient".to_string());
+        let mut conn = ContractDatabaseConnection::memory().unwrap();
+        let mut global_context = GlobalContext::begin_from(&mut conn);
 
-        global_context.functions.insert("with_else".to_string(), user_function1);
-        global_context.functions.insert("without_else".to_string(), user_function2);
+        contract_context.functions.insert("with_else".to_string(), user_function1);
+        contract_context.functions.insert("without_else".to_string(), user_function2);
 
-        let mut env = Environment::new(&global_context, &mut db);
+        let mut call_stack = CallStack::new();
+        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None);
 
         if let Ok(tests) = evals {
             assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));
-            assert_eq!(Ok(Value::Void), eval(&tests[1], &mut env, &context));
+            assert_eq!(Ok(Value::Int(3)), eval(&tests[1], &mut env, &context));
             assert_eq!(Ok(Value::Int(0)), eval(&tests[2], &mut env, &context));
         } else {
             assert!(false, "Failed to parse function bodies.");
@@ -174,24 +180,24 @@ fn test_arithmetic_errors() {
          "(pow 2 (- 1))"];
 
     let expectations = [
-        Err(Error::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string())),
-        Err(Error::TypeError("IntType".to_string(), Value::Bool(true))),
-        Err(Error::Arithmetic("Divide by 0".to_string())),
-        Err(Error::Arithmetic("Modulus by 0".to_string())),
-        Err(Error::Arithmetic("Overflowed in power".to_string())),
-        Err(Error::Arithmetic("Overflowed in multiplication".to_string())),
-        Err(Error::Arithmetic("Overflowed in addition".to_string())),
-        Err(Error::Arithmetic("Underflowed in subtraction".to_string())),
-        Err(Error::InvalidArguments("(- ...) must be called with at least 1 argument".to_string())),
-        Err(Error::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string())),
-        Err(Error::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string())),
-        Err(Error::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string())),
-        Err(Error::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())),
-        Err(Error::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()))
+        ErrType::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()),
+        ErrType::TypeError("IntType".to_string(), Value::Bool(true)),
+        ErrType::Arithmetic("Divide by 0".to_string()),
+        ErrType::Arithmetic("Modulus by 0".to_string()),
+        ErrType::Arithmetic("Overflowed in power".to_string()),
+        ErrType::Arithmetic("Overflowed in multiplication".to_string()),
+        ErrType::Arithmetic("Overflowed in addition".to_string()),
+        ErrType::Arithmetic("Underflowed in subtraction".to_string()),
+        ErrType::InvalidArguments("(- ...) must be called with at least 1 argument".to_string()),
+        ErrType::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string()),
+        ErrType::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string()),
+        ErrType::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()),
+        ErrType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()),
+        ErrType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, execute(program));
+        assert_eq!(*expectation, execute(program).unwrap_err().err_type);
     }
 }
 
@@ -226,11 +232,11 @@ fn test_bad_lets() {
         "(let ((* 1)) (+ * *))",
         "(let ((a 1) (a 2)) (+ a a))"];
 
-    let expectations: &[Result<Value, Error>] = &[
-        Err(Error::ReservedName("tx-sender".to_string())),
-        Err(Error::ReservedName("*".to_string())),
-        Err(Error::VariableDefinedMultipleTimes("a".to_string()))];
+    let expectations = [
+        ErrType::ReservedName("tx-sender".to_string()),
+        ErrType::ReservedName("*".to_string()),
+        ErrType::VariableDefinedMultipleTimes("a".to_string())];
 
     tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(*expectation, execute(program)));
+        .for_each(|(program, expectation)| assert_eq!(*expectation, execute(program).unwrap_err().err_type));
 }
