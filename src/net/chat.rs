@@ -99,6 +99,7 @@ pub struct NeighborStats {
     pub bytes_rx: u64,
     pub msgs_tx: u64,
     pub msgs_rx: u64,
+    pub msgs_rx_unsolicited: u64,
     pub msgs_err: u64,
     pub healthpoints: VecDeque<NeighborHealthPoint>,
     pub peer_resets: u64,
@@ -119,6 +120,7 @@ impl NeighborStats {
             bytes_rx: 0,
             msgs_tx: 0,
             msgs_rx: 0,
+            msgs_rx_unsolicited: 0,
             msgs_err: 0,
             healthpoints: VecDeque::new(),
             peer_resets: 0,
@@ -181,13 +183,13 @@ pub struct Conversation {
 
 impl fmt::Display for Conversation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "convo:id={},peer={:?}", self.conn_id, &self.to_neighbor_key())
+        write!(f, "convo:id={},outbound={},peer={:?}", self.conn_id, self.stats.outbound, &self.to_neighbor_key())
     }
 }
 
 impl fmt::Debug for Conversation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "convo:id={},peer={:?}", self.conn_id, &self.to_neighbor_key())
+        write!(f, "convo:id={},outbound={},peer={:?}", self.conn_id, self.stats.outbound, &self.to_neighbor_key())
     }
 }
 
@@ -501,7 +503,7 @@ impl Conversation {
         match self.connection.get_public_key() {
             None => {
                 // if we don't yet have a public key for this node, verify the message.
-                // if it's improperly signed, it's a protocol-level error and the peer should be rejected.
+                // if it's improperly signed, it's probably a poorly-timed re-key request (but either way the message should be rejected)
                 message.verify_secp256k1(&handshake_data.node_public_key)
                     .map_err(|_e| {
                         test_debug!("{:?}: invalid handshake: not signed with given public key", &self);
@@ -530,7 +532,6 @@ impl Conversation {
             }
         };
 
-
         if handshake_data.expire_block_height <= chain_view.burn_block_height {
             // already stale
             test_debug!("{:?}: invalid handshake -- stale public key (expired at {})", &self, handshake_data.expire_block_height);
@@ -547,13 +548,21 @@ impl Conversation {
     }
 
     /// Update connection state from handshake data
-    fn update_from_handshake_data(&mut self, preamble: &Preamble, handshake_data: &HandshakeData) -> Result<(), net_error> {
+    pub fn update_from_handshake_data(&mut self, preamble: &Preamble, handshake_data: &HandshakeData) -> Result<(), net_error> {
         let pubk = handshake_data.node_public_key.to_public_key()?;
 
         self.peer_version = preamble.peer_version;
         self.peer_network_id = preamble.network_id;
         self.peer_services = handshake_data.services;
         self.peer_expire_block_height = handshake_data.expire_block_height;
+
+        let cur_pubk_opt = self.connection.get_public_key();
+        if let Some(cur_pubk) = cur_pubk_opt {
+            if pubk != cur_pubk {
+                test_debug!("{:?}: Upgrade key {:?} to {:?} expires {:?}", &self, &to_hex(&cur_pubk.to_bytes_compressed()), &to_hex(&pubk.to_bytes_compressed()), self.peer_expire_block_height);
+            }
+        }
+        
         self.connection.set_public_key(Some(pubk.clone()));
 
         Ok(())
@@ -583,10 +592,15 @@ impl Conversation {
             StacksMessageType::Handshake(ref mut data) => data.clone(),
             _ => panic!("Message is not a handshake")
         };
-       
+
+        let old_pubkey_opt = self.connection.get_public_key();
         self.update_from_handshake_data(&message.preamble, &handshake_data)?;
-        
-        test_debug!("Handshake from {:?} public key {:?} expires at {:?}", &self,
+       
+        let new_pubkey_opt = self.connection.get_public_key();
+
+        let authentic_msg = if old_pubkey_opt == new_pubkey_opt { "same" } else if old_pubkey_opt.is_none() { "new" } else { "upgraded" };
+
+        test_debug!("Handshake from {:?} {} public key {:?} expires at {:?}", &self, authentic_msg,
                     &to_hex(&handshake_data.node_public_key.to_public_key().unwrap().to_bytes_compressed()), handshake_data.expire_block_height);
 
         let accept_data = HandshakeAcceptData::new(local_peer, self.heartbeat);
@@ -651,6 +665,7 @@ impl Conversation {
                 continue;
             }
             let mut msg = msg_opt.unwrap();
+            let mut solicited = true;
             let mut consume_unsolicited = false;
 
             // validate message preamble
@@ -692,7 +707,33 @@ impl Conversation {
                     match msg.payload {
                         StacksMessageType::Handshake(_) => {
                             test_debug!("{:?}: Got Handshake", &self);
-                            self.handle_handshake(local_peer, burnchain_view, &mut msg)
+
+                            let cur_public_key_opt = self.connection.get_public_key();
+                            let handshake_res = self.handle_handshake(local_peer, burnchain_view, &mut msg);
+                            if handshake_res.is_ok() {
+                                // did we re-key?
+                                consume_unsolicited = match (cur_public_key_opt, self.connection.get_public_key()) {
+                                    (Some(old_public_key), Some(new_public_key)) => {
+                                        if old_public_key.to_bytes_compressed() != new_public_key.to_bytes_compressed() {
+                                            // remote peer re-keyed. 
+                                            // pass along this message to the peer network, even if unsolicited, so we can
+                                            // store the new key data.
+                                            false       // do not consume
+                                        }
+                                        else {
+                                            // no need to forward along if not solicited, since we
+                                            // learned nothing new.
+                                            true        // consume if unsolicited
+                                        }
+                                    },
+                                    (None, Some(new_public_key)) => {
+                                        // learned the initial key, so forward back if not solicited 
+                                        false
+                                    },
+                                    (_, _) => false     // not a re-key -- do not consume if not solicited
+                                }
+                            }
+                            handshake_res
                         },
                         StacksMessageType::HandshakeAccept(ref data) => {
                             test_debug!("{:?}: Got HandshakeAccept", &self);
@@ -719,6 +760,9 @@ impl Conversation {
                     }
                 }
                 else {
+                    // don't count unauthenticated messages we didn't ask for
+                    solicited = self.connection.is_solicited(&msg);
+
                     // only thing we'll take right now is a handshake, as well as handshake
                     // accept/rejects and nacks.
                     //
@@ -729,8 +773,17 @@ impl Conversation {
                             self.handle_handshake(local_peer, burnchain_view, &mut msg)
                         },
                         StacksMessageType::HandshakeAccept(ref data) => {
-                            test_debug!("{:?}: Got unauthenticated HandshakeAccept", &self);
-                            self.handle_handshake_accept(&msg.preamble, data)
+                            if solicited {
+                                test_debug!("{:?}: Got unauthenticated HandshakeAccept", &self);
+                                self.handle_handshake_accept(&msg.preamble, data)
+                            }
+                            else {
+                                test_debug!("{:?}: Unsolicited unauthenticated HandshakeAccept", &self);
+
+                                // don't update state and don't pass back 
+                                consume_unsolicited = true;
+                                Ok(None)
+                            }
                         },
                         StacksMessageType::HandshakeReject => {
                             test_debug!("{:?}: Got unauthenticated HandshakeReject", &self);
@@ -768,23 +821,29 @@ impl Conversation {
                 }
             }
 
-            // successfully got a message -- update stats
-            if self.stats.first_contact_time == 0 {
-                self.stats.first_contact_time = now;
+            if solicited {
+                // successfully got a message -- update stats
+                if self.stats.first_contact_time == 0 {
+                    self.stats.first_contact_time = now;
+                }
+
+                let msg_id = message_type_to_id(&msg.payload);
+                let count = match self.stats.msg_rx_counts.get(&msg_id) {
+                    None => 1,
+                    Some(c) => c + 1
+                };
+                self.stats.msg_rx_counts.insert(msg_id, count);
+
+                self.stats.msgs_rx += 1;
+                self.stats.last_recv_time = now;
+                self.stats.last_contact_time = get_epoch_time_secs();
+                self.stats.add_healthpoint(true);
+            }
+            else {
+                // got an unauthenticated message we didn't ask for
+                self.stats.msgs_rx_unsolicited += 1;
             }
 
-            let msg_id = message_type_to_id(&msg.payload);
-            let count = match self.stats.msg_rx_counts.get(&msg_id) {
-                None => 1,
-                Some(c) => c + 1
-            };
-            self.stats.msg_rx_counts.insert(msg_id, count);
-
-            self.stats.msgs_rx += 1;
-            self.stats.last_recv_time = now;
-            self.stats.last_contact_time = get_epoch_time_secs();
-            self.stats.add_healthpoint(true);
-            
             let msgtype = message_type_to_str(&msg.payload).to_owned();
 
             // Is there someone else waiting for this message?  If so, pass it along.
@@ -1458,17 +1517,25 @@ mod test {
             let reply_ping_1 = rh_ping_1.recv(0).unwrap();
 
             assert_eq!(unhandled_1.len(), 0);
-            assert_eq!(unhandled_2.len(), 1);   // only the handshake is given back.  the ping is consumed
 
-            // convo 2 returns the handshake from convo 1
-            match unhandled_2[0].payload {
-                StacksMessageType::Handshake(ref data) => {
-                    assert_eq!(handshake_data_1, *data);
-                },
-                _ => {
-                    assert!(false);
-                }
-            };
+            if i == 0 {
+                // initial key -- will get back the handshake
+                assert_eq!(unhandled_2.len(), 1);   // only the handshake is given back.  the ping is consumed
+
+                // convo 2 returns the handshake from convo 1
+                match unhandled_2[0].payload {
+                    StacksMessageType::Handshake(ref data) => {
+                        assert_eq!(handshake_data_1, *data);
+                    },
+                    _ => {
+                        assert!(false);
+                    }
+                };
+            }
+            else {
+                // same key -- will NOT get back the handshake
+                assert_eq!(unhandled_2.len(), 0);
+            }
 
             // convo 2 replied to convo 1 with a matching pong
             match reply_ping_1.payload {
