@@ -31,6 +31,7 @@ extern crate ed25519_dalek;
 extern crate sha2;
 extern crate dirs;
 extern crate regex;
+extern crate linefeed;
 
 #[macro_use] extern crate serde_derive;
 
@@ -226,6 +227,58 @@ where command is one of:
                 
                 return
             },
+            "repl" => {
+                let mut db_conn = match ContractDatabaseConnection::memory() {
+                    Ok(db) => db,
+                    Err(error) => {
+                        eprintln!("Could not open vm-state: \n{}", error);
+                        process::exit(1);
+                    }
+                };
+
+                let mut outer_sp = db_conn.begin_save_point_raw();                    
+                let mut db = ContractDatabase::from_savepoint(outer_sp);
+
+                let mut vm_env = OwnedEnvironment::new(&mut db);
+                let mut exec_env = vm_env.get_exec_environment(None);
+
+                let mut reader = match linefeed::Interface::new("local-repl") {
+                    Ok(r) => r,
+                    Err(error) => panic!("Could not create linefeed: \n{}", error)
+                };
+
+                reader.set_report_signal(linefeed::Signal::Break, true);
+                reader.set_report_signal(linefeed::Signal::Continue, true);
+                reader.set_report_signal(linefeed::Signal::Interrupt, true);
+                reader.set_report_signal(linefeed::Signal::Suspend, true);
+                reader.set_report_signal(linefeed::Signal::Quit, true);
+                
+                match reader.set_prompt("> ") {
+                    Ok(r) => r,
+                    Err(error) => panic!("Could not create linefeed: \n{}", error)
+                };
+
+                loop {
+                    let content = match reader.read_line() {
+                        Ok(result) => match result {
+                            linefeed::ReadResult::Input(input) => input,
+                            linefeed::ReadResult::Signal(_) => process::exit(0),
+                            linefeed::ReadResult::Eof => process::exit(0),
+                        },
+                        Err(error) => panic!("Could not read line: \n{}", error)
+                    };
+                    
+                    if !content.trim().is_empty() {
+                        reader.add_history_unique(content.clone());
+                    }
+
+                    let result = exec_env.eval_raw(&content);
+                    match result {
+                        Ok(x) => println!("{}", x),
+                        Err(error) => println!("Program execution error: \n{}", error)
+                    }
+                }
+            },
             "eval_raw" => {
                 if argv.len() < 2 {
                     eprintln!("Usage: {} local eval_raw", argv[0]);
@@ -310,7 +363,10 @@ where command is one of:
                     Ok(x) => {
                         println!("Program executed successfully! Output: \n{}", x);
                     },
-                    Err(error) => println!("Program execution error: \n{}", error)
+                    Err(error) => { 
+                        eprintln!("Program execution error: \n{}", error);
+                        process::exit(1);
+                    }
                 }
                 return
             }

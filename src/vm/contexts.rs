@@ -130,9 +130,9 @@ impl <'a, 'b> Environment <'a, 'b> {
         if parsed.len() < 1 {
             return Err(Error::new(ErrType::ParseError("Expected a program of atleast length 1".to_string())))
         }
-        let localContext = LocalContext::new();
+        let local_context = LocalContext::new();
         let result = {
-            eval(&parsed[0], self, &localContext)
+            eval(&parsed[0], self, &local_context)
         };
         result
     }
