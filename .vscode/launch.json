@@ -21,7 +21,8 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}",
-            "sourceLanguages": ["rust"]
+            "sourceLanguages": ["rust"],
+            "terminal": "integrated"
         },
         {
             "type": "lldb",

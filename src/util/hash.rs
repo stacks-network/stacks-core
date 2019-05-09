@@ -21,7 +21,38 @@ use util::pair::*;
 
 use crypto::ripemd160::Ripemd160;
 use crypto::sha2::Sha256;
+use crypto::sha3::Sha3;
 use crypto::digest::Digest;
+
+#[derive(Serialize, Deserialize)]
+pub struct Keccak256Hash(pub [u8; 32]);
+impl Keccak256Hash {
+    pub fn from_data(data: &[u8]) -> Keccak256Hash {
+        let mut ret = [0u8; 32];
+        let mut sha3 = Sha3::keccak256();
+        sha3.input(data);
+        sha3.result(&mut ret);
+        Keccak256Hash(ret)
+    }
+}
+impl_array_newtype!(Keccak256Hash, u8, 32);
+impl_array_hexstring_fmt!(Keccak256Hash);
+impl_byte_array_newtype!(Keccak256Hash, u8, 32);
+
+#[derive(Serialize, Deserialize)]
+pub struct Sha256Hash(pub [u8; 32]);
+impl Sha256Hash {
+    pub fn from_data(data: &[u8]) -> Sha256Hash {
+        let mut ret = [0u8; 32];
+        let mut sha2 = Sha256::new();
+        sha2.input(data);
+        sha2.result(&mut ret);
+        Sha256Hash(ret)
+    }
+}
+impl_array_newtype!(Sha256Hash, u8, 32);
+impl_array_hexstring_fmt!(Sha256Hash);
+impl_byte_array_newtype!(Sha256Hash, u8, 32);
 
 #[derive(Serialize, Deserialize)]
 pub struct Hash160(pub [u8; 20]);

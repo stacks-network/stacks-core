@@ -343,14 +343,34 @@ If a Void value is supplied as the inputted tuple, `get` returns Void.",
 "
 };
 
-const HASH_160_API: SpecialAPI = SpecialAPI {
+const HASH160_API: SpecialAPI = SpecialAPI {
     input_type: "buff|int",
-    output_type: "(buff 160)",
+    output_type: "(buff 20)",
     signature: "(hash160 value)",
     description: "The `hash160` function computes RIPEMD160(SHA256(x)) of the inputted value.
 If an integer (128 bit) is supplied the hash is computed over the little endian representation of the
 integer.",
     example: "(hash160 0) => 0xe4352f72356db555721651aa612e00379167b30f"
+};
+
+const SHA256_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|int",
+    output_type: "(buff 32)",
+    signature: "(sha256 value)",
+    description: "The `sha256` function computes SHA256(x) of the inputted value.
+If an integer (128 bit) is supplied the hash is computer over the little endian representation of the
+integer.",
+    example: "(sha256 0) => 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb"
+};
+
+const KECCAK256_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|int",
+    output_type: "(buff 32)",
+    signature: "(keccak256 value)",
+    description: "The `keccak256` function computes KECCAK256(value) of the inputted value.
+Note that this differs from the NIST SHA-3 (i.e. FIPS 202) standard. If an integer (128 bit) 
+is supplied the hash is computer over the little endian representation of the integer.",
+    example: "(keccak256 0) => 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4"
 };
 
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
@@ -417,7 +437,9 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         TupleCons => make_for_special(&TUPLE_CONS_API),
         TupleGet => make_for_special(&TUPLE_GET_API),
         Begin => make_for_special(&BEGIN_API),
-        Hash160 => make_for_special(&HASH_160_API),
+        Hash160 => make_for_special(&HASH160_API),
+        Sha256 => make_for_special(&SHA256_API),
+        Keccak256 => make_for_special(&KECCAK256_API),
         Print => make_for_special(&PRINT_API),
         ContractCall => make_for_special(&CONTRACT_CALL_API),
         AsContract => make_for_special(&AS_CONTRACT_API)
