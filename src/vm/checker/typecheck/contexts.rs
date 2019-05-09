@@ -31,10 +31,10 @@ pub struct TypingContext <'a> {
 }
 
 pub struct ContractContext {
-    pub map_types: HashMap<String, (TypeSignature, TypeSignature)>,
-    pub variable_types: HashMap<String, TypeSignature>,
-    pub function_types: HashMap<String, FunctionType>,
-    pub public_function_types: HashMap<String, FunctionType>,
+    map_types: HashMap<String, (TypeSignature, TypeSignature)>,
+    variable_types: HashMap<String, TypeSignature>,
+    private_function_types: HashMap<String, FunctionType>,
+    public_function_types: HashMap<String, FunctionType>,
 }
 
 
@@ -115,11 +115,53 @@ impl ContractContext {
     pub fn new() -> ContractContext {
         ContractContext {
             variable_types: HashMap::new(),
-            function_types: HashMap::new(),
+            private_function_types: HashMap::new(),
             public_function_types: HashMap::new(),
             map_types: HashMap::new(),
         }
     }
+
+    fn check_name_used(&self, name: &str) -> CheckResult<()> {
+        if self.variable_types.contains_key(name) ||
+            self.private_function_types.contains_key(name) ||
+            self.public_function_types.contains_key(name) ||
+            self.map_types.contains_key(name) {
+                Err(CheckError::new(CheckErrors::NameAlreadyUsed(name.to_string())))
+            } else {
+                Ok(())
+            }
+    }
+
+    fn add_function_type(&mut self, f_name: String, f_type: FunctionType, public: bool) -> CheckResult<()> {
+        self.check_name_used(&f_name)?;
+        if public {
+            self.public_function_types.insert(f_name, f_type);
+        } else {
+            self.private_function_types.insert(f_name, f_type);
+        }
+        Ok(())
+    }
+
+    pub fn add_public_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
+        self.add_function_type(name, func_type, true)
+    }
+
+    pub fn add_private_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
+        self.add_function_type(name, func_type, false)
+    }
+
+    pub fn add_map_type(&mut self, map_name: String, map_type: (TypeSignature, TypeSignature)) -> CheckResult<()> {
+        self.check_name_used(&map_name)?;
+        self.map_types.insert(map_name, map_type);
+        Ok(())
+    }
+
+    pub fn add_variable_type(&mut self, var_name: String, var_type: TypeSignature) -> CheckResult<()> {
+        self.check_name_used(&var_name)?;
+        self.variable_types.insert(var_name, var_type);
+        Ok(())
+    }
+
     pub fn get_map_type(&self, map_name: &str) -> Option<&(TypeSignature, TypeSignature)> {
         self.map_types.get(map_name)
     }
@@ -131,8 +173,30 @@ impl ContractContext {
     pub fn get_function_type(&self, name: &str) -> Option<&FunctionType> {
         match self.public_function_types.get(name) {
             Some(f_type) => Some(f_type),
-            None => self.function_types.get(name)
+            None => self.private_function_types.get(name)
         }
+    }
+
+    pub fn to_contract_analysis(&self) -> ContractAnalysis {
+        let mut contract_analysis = ContractAnalysis::new();
+
+        for (name, function_type) in self.public_function_types.iter() {
+            contract_analysis.add_public_function(name, function_type);
+        }
+
+        for (name, (key_type, map_type)) in self.map_types.iter() {
+            contract_analysis.add_map_type(name, key_type, map_type);
+        }
+
+        for (name, function_type) in self.private_function_types.iter() {
+            contract_analysis.add_private_function(name, function_type);
+        }
+
+        for (name, variable_type) in self.variable_types.iter() {
+            contract_analysis.add_variable_type(name, variable_type);
+        }
+
+        contract_analysis
     }
 }
 

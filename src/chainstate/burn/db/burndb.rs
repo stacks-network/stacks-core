@@ -32,14 +32,13 @@ use chainstate::burn::db::ChainstateDB;
 use chainstate::burn::db::Error as db_error;
 
 use chainstate::burn::CHAINSTATE_VERSION;
-use chainstate::burn::CONSENSUS_HASH_LIFETIME;
-use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, BlockSnapshot};
+use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, BlockSnapshot, SortitionHash};
 
 use chainstate::burn::operations::leader_block_commit::LeaderBlockCommitOp;
-use chainstate::burn::operations::leader_block_commit::OPCODE as LeaderBlockCommitOpcode;
 use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
-use chainstate::burn::operations::leader_key_register::OPCODE as LeaderKeyRegisterOpcode;
 use chainstate::burn::operations::user_burn_support::UserBurnSupportOp;
+use chainstate::burn::operations::leader_block_commit::OPCODE as LeaderBlockCommitOpcode;
+use chainstate::burn::operations::leader_key_register::OPCODE as LeaderKeyRegisterOpcode;
 use chainstate::burn::operations::user_burn_support::OPCODE as UserBurnSupportOpcode;
 
 use burnchains::BurnchainTxInput;
@@ -145,7 +144,7 @@ where
 
 impl RowOrder for BlockSnapshot {
     fn row_order() -> Vec<&'static str> {
-        vec!["block_height","burn_header_hash","consensus_hash","ops_hash","total_burn","canonical"]
+        vec!["block_height","burn_header_hash","consensus_hash","ops_hash","total_burn","burn_quota","sortition","sortition_hash","winning_block_txid","winning_block_burn_hash","canonical"]
     }
 }
 
@@ -156,7 +155,12 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let consensus_hash = ConsensusHash::from_row(row, 2 + index)?;
         let ops_hash = OpsHash::from_row(row, 3 + index)?;
         let total_burn_str : String = row.get(4 + index);
-        let canonical : bool = row.get(5 + index);
+        let burn_quota_str : String = row.get(5 + index);
+        let sortition : bool = row.get(6 + index);
+        let sortition_hash = SortitionHash::from_row(row, 7 + index)?;
+        let winning_block_txid = Txid::from_row(row, 8 + index)?;
+        let winning_block_burn_hash = BurnchainHeaderHash::from_row(row, 9 + index)?;
+        let canonical : bool = row.get(10 + index);
 
         if block_height_i64 < 0 {
             return Err(db_error::ParseError);
@@ -165,12 +169,20 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let total_burn = total_burn_str.parse::<u64>()
             .map_err(|_e| db_error::ParseError)?;
 
+        let burn_quota = burn_quota_str.parse::<u64>()
+            .map_err(|_e| db_error::ParseError)?;
+
         let snapshot = BlockSnapshot {
             block_height: block_height_i64 as u64,
             burn_header_hash: burn_header_hash,
             consensus_hash: consensus_hash,
             ops_hash: ops_hash,
             total_burn: total_burn,
+            burn_quota: burn_quota,
+            sortition: sortition,
+            sortition_hash: sortition_hash,
+            winning_block_txid: winning_block_txid,
+            winning_block_burn_hash: winning_block_burn_hash,
             canonical: canonical
         };
         Ok(snapshot)
@@ -385,6 +397,11 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         consensus_hash TEXT NOT NULL,
         ops_hash TEXT NOT NULL,
         total_burn TEXT NOT NULL,
+        burn_quota TEXT NOT NULL,
+        sortition INTEGER NOT NULL,
+        sortition_hash TEXT NOT NULL,
+        winning_block_txid TEXT NOT NULL,
+        winning_block_burn_hash TEXT NOT NULL,
         canonical INTEGER NOT NULL,     -- whether or not this history item is on the canonical burn chain history
         PRIMARY KEY(burn_header_hash)
     );"#,
@@ -485,6 +502,11 @@ where
             consensus_hash: ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
             ops_hash: OpsHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             total_burn: 0,
+            burn_quota: 0,
+            sortition: true,
+            sortition_hash: SortitionHash::initial(),
+            winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             canonical: true
         };
 
@@ -596,7 +618,7 @@ where
         &self.conn
     }
 
-    /// Find out how any burn tokens were destroyed in a given (canonical) block
+    /// Find out how any burn tokens were destroyed in a given (canonical) block.
     pub fn get_block_burn_amount<'a>(tx: &mut Transaction<'a>, block_height: u64) -> Result<u64, db_error>
     {
         let user_burns = BurnDB::<A, K>::get_user_burns_by_block(tx, block_height)?;
@@ -703,8 +725,14 @@ where
         }
 
         let total_burn_str = format!("{}", snapshot.total_burn);
-        tx.execute("INSERT OR REPLACE INTO snapshots (block_height, burn_header_hash, consensus_hash, ops_hash, total_burn, canonical) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                   &[&(snapshot.block_height as i64) as &ToSql, &snapshot.burn_header_hash.to_hex(), &snapshot.consensus_hash.to_hex(), &snapshot.ops_hash.to_hex(), &total_burn_str, &snapshot.canonical as &ToSql])
+        let burn_quota_str = format!("{}", snapshot.burn_quota);
+
+        tx.execute("INSERT OR REPLACE INTO snapshots \
+                   (block_height, burn_header_hash, consensus_hash, ops_hash, total_burn, burn_quota, sortition, sortition_hash, winning_block_txid, winning_block_burn_hash, canonical) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                   &[&(snapshot.block_height as i64) as &ToSql, &snapshot.burn_header_hash.to_hex(), &snapshot.consensus_hash.to_hex(), &snapshot.ops_hash.to_hex(), &total_burn_str,
+                     &burn_quota_str, &snapshot.sortition as &ToSql, &snapshot.sortition_hash.to_hex(), &snapshot.winning_block_txid.to_hex(), &snapshot.winning_block_burn_hash.to_hex(),
+                     &snapshot.canonical as &ToSql])
             .map_err(|e| db_error::SqliteError(e))?;
 
         Ok(())
@@ -872,7 +900,7 @@ where
 
     /// Get a leader key at a specific location in the burn chain's canonical history.
     /// Returns None if there is no leader key at this location.
-    pub fn get_leader_key(conn: &Connection, block_height: u64, vtxindex: u32) -> Result<Option<LeaderKeyRegisterOp<A, K>>, db_error>
+    pub fn get_leader_key_at(conn: &Connection, block_height: u64, vtxindex: u32) -> Result<Option<LeaderKeyRegisterOp<A, K>>, db_error>
     where
         LeaderKeyRegisterOp<A, K>: FromRow<LeaderKeyRegisterOp<A, K>> + RowOrder
     {
@@ -924,6 +952,7 @@ where
     }
 
     /// Get all block commitments registered in a block on the burn chain's canonical history.
+    /// Returns the list of block commits in order by vtxindex.
     pub fn get_block_commits_by_block(conn: &Connection, block_height: u64) -> Result<Vec<LeaderBlockCommitOp<A, K>>, db_error>
     where
         LeaderBlockCommitOp<A, K>: FromRow<LeaderBlockCommitOp<A, K>> + RowOrder
@@ -944,7 +973,7 @@ where
 
     /// Get a block commit at a specific location in the burn chain's canonical history.
     /// Returns None if there is no block commit at this location.
-    pub fn get_block_commit(conn: &Connection, block_height: u64, vtxindex: u32) -> Result<Option<LeaderBlockCommitOp<A, K>>, db_error>
+    pub fn get_block_commit_at(conn: &Connection, block_height: u64, vtxindex: u32) -> Result<Option<LeaderBlockCommitOp<A, K>>, db_error>
     where
         LeaderBlockCommitOp<A, K>: FromRow<LeaderBlockCommitOp<A, K>> + RowOrder
     {
@@ -970,7 +999,32 @@ where
         }
     }
 
-    /// Get all user burns registered in a block on the burn chain's canonical history
+    /// Get a block commit by its primary key (txid, burn header hash).
+    /// Returns None if there is no block commit with this key that is canonical 
+    pub fn get_block_commit(conn: &Connection, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp<A, K>>, db_error>
+    where
+        LeaderBlockCommitOp<A, K>: FromRow<LeaderBlockCommitOp<A, K>> + RowOrder
+    {
+        let row_order_list : Vec<String> = LeaderBlockCommitOp::row_order().iter().map(|r| format!("block_commits.{}", r)).collect();
+        let row_order = row_order_list.join(",");
+
+        let qry = format!("SELECT {} FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
+                          WHERE history.canonical = 1 AND block_commits.txid = ?1 AND block_commits.burn_header_hash = ?2", row_order);
+        let args = [&txid.to_hex(), &burn_header_hash.to_hex()];
+        let rows = BurnDB::<A, K>::query_rows::<LeaderBlockCommitOp<A, K>, _>(conn, &qry.to_string(), &args)?;
+
+        match rows.len() {
+            0 => Ok(None),
+            1 => Ok(Some(rows[0].clone())),
+            _ => {
+                // should never happen 
+                panic!("FATAL: multiple block commits for {},{}", &txid.to_hex(), &burn_header_hash.to_hex());
+            }
+        }
+    }
+
+    /// Get all user burns registered in a block on the burn chain's canonical history.
+    /// Returns list of user burns in order by vtxindex.
     pub fn get_user_burns_by_block(conn: &Connection, block_height: u64) -> Result<Vec<UserBurnSupportOp<A, K>>, db_error>
     where
         UserBurnSupportOp<A, K>: FromRow<UserBurnSupportOp<A, K>> + RowOrder
@@ -1001,24 +1055,24 @@ where
 
     /// Find out whether or not a given consensus hash is "recent" enough to be used in the
     /// canonical burnchain history
-    pub fn is_fresh_consensus_hash(conn: &Connection, current_block_height: u64, consensus_hash: &ConsensusHash) -> Result<bool, db_error> {
+    pub fn is_fresh_consensus_hash(conn: &Connection, current_block_height: u64, consensus_hash_lifetime: u32, consensus_hash: &ConsensusHash) -> Result<bool, db_error> {
         if current_block_height > ((1 as u64) << 63) - 1 {
             return Err(db_error::TypeError);
         }
 
-        if current_block_height < (CONSENSUS_HASH_LIFETIME as u64) {
+        if current_block_height < (consensus_hash_lifetime as u64) {
             return Err(db_error::TypeError);
         }
 
         let qry = "SELECT COUNT(consensus_hash) FROM snapshots WHERE canonical = 1 AND consensus_hash = ?1 AND block_height >= ?2 AND block_height <= ?3";
-        let args = [&consensus_hash.to_hex(), &((current_block_height as u32) - CONSENSUS_HASH_LIFETIME) as &ToSql, &(current_block_height as u32) as &ToSql];
+        let args = [&consensus_hash.to_hex(), &((current_block_height as u32) - consensus_hash_lifetime) as &ToSql, &(current_block_height as u32) as &ToSql];
         let count = BurnDB::<A, K>::query_count(conn, &qry.to_string(), &args)?;
         Ok(count != 0)
     }
 
-    /// Determine whether or not a leader key is available to be consumed by a block commitment at the given block height.
-    /// That is, there must _not_ be a block commit paired with this leader key already.
-    pub fn is_leader_key_available(conn: &Connection, leader_key: &LeaderKeyRegisterOp<A, K>) -> Result<bool, db_error> 
+    /// Determine whether or not a leader key has been consumed by a subsequent block commitment.
+    /// Will return false if the leader key does not exist.
+    pub fn is_leader_key_consumed(conn: &Connection, leader_key: &LeaderKeyRegisterOp<A, K>) -> Result<bool, db_error> 
     where
         LeaderBlockCommitOp<A, K>: FromRow<LeaderBlockCommitOp<A, K>> + RowOrder
     {
@@ -1026,36 +1080,45 @@ where
             return Err(db_error::TypeError);
         }
 
-        let row_order = "block_commits.txid,block_commits.burn_header_hash";
-        let qry = format!("SELECT COUNT({}) FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
-                          WHERE history.canonical = 1 AND block_commits.block_height - block_commits.key_block_backptr = ?1 AND block_commits.key_vtxindex = ?2", row_order);
+        let qry = "SELECT COUNT(*) FROM block_commits JOIN history ON block_commits.txid = history.txid AND block_commits.burn_header_hash = history.burn_header_hash \
+                   WHERE history.canonical = 1 AND block_commits.block_height - block_commits.key_block_backptr = ?1 AND block_commits.key_vtxindex = ?2".to_string();
         let args = [&(leader_key.block_number as i64) as &ToSql, &leader_key.vtxindex as &ToSql];
         let count = BurnDB::<A, K>::query_count(conn, &qry.to_string(), &args)?;
-        Ok(count == 0)
+        Ok(count >= 1)
     }
 
-    /// Determine which user support burn ops successfully committed to the given block.
-    /// This is all user burns *in the same block* that also burned for *this block and key*.
-    /// Note that it is possible for a user burn to be accepted even if it does not support a valid leader
-    /// or block.  This method does *not* include such burns.
-    pub fn get_user_commit_burns(conn: &Connection, leader_key: &LeaderKeyRegisterOp<A, K>, block_commit: &LeaderBlockCommitOp<A, K>) -> Result<Vec<UserBurnSupportOp<A, K>>, db_error>
-    where
-        LeaderKeyRegisterOp<A, K>: FromRow<LeaderKeyRegisterOp<A, K>> + RowOrder,
-        LeaderBlockCommitOp<A, K>: FromRow<LeaderBlockCommitOp<A, K>> + RowOrder,
-        UserBurnSupportOp<A, K>: FromRow<UserBurnSupportOp<A, K>> + RowOrder
-    {
-        if block_commit.block_number > ((1 as u64) << 63) - 1 {
+    /// Get the latest canonical block snapshot where a sortition occured.
+    /// Search snapshots up to (but excluding) the given block height.
+    pub fn get_last_snapshot_with_sortition(conn: &Connection, block_height: u64) -> Result<BlockSnapshot, db_error> {
+        if block_height > ((1 as u64) << 63) - 1 {
             return Err(db_error::TypeError);
         }
 
-        let block_hash160 = block_commit.block_header_hash.to_hash160();
+        let row_order = BlockSnapshot::row_order().join(",");
+        let qry = format!("SELECT {} FROM snapshots WHERE snapshots.canonical = 1 AND snapshots.sortition = 1 AND snapshots.block_height < ?1 ORDER BY snapshots.block_height DESC LIMIT 1", row_order);
+        let args = [&(block_height as i64) as &ToSql];
 
-        let row_order = "user_burn_support.burn_fee";
-        let qry = format!("SELECT SUM({}) FROM user_burn_support JOIN history ON user_burn_support.txid = history.txid AND user_burn_support.burn_header_hash = history.burn_header_hash \
-                          WHERE history.canonical = 1 AND user_burn_support.block_height = ?1 AND user_burn_support.public_key = ?2 AND user_burn_support.block_header_hash_160 = ?3", row_order);
-        let args = [&(block_commit.block_number as i64) as &ToSql, &ECVRF_public_key_to_hex(&leader_key.public_key), &block_hash160.to_hex()];
+        let rows = BurnDB::<A, K>::query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
 
-        BurnDB::<A, K>::query_rows::<UserBurnSupportOp<A, K>, _>(conn, &qry.to_string(), &args)
+        match rows.len() {
+            1 => Ok(rows[0].clone()),
+            _ => {
+                // should never happen -- there is always a last-block-with-sortition.  Even the sentinel initial snapshot has a sortition.
+                panic!("Found more than one last canonical block snapshot with sortition");
+            }
+        }
+    }
+
+    /// Get all txids stored in a block 
+    pub fn get_block_txids(conn: &Connection, block_height: u64, block_hash: &BurnchainHeaderHash) -> Result<Vec<Txid>, db_error> {
+        if block_height > ((1 as u64) << 63) - 1 {
+            return Err(db_error::TypeError);
+        }
+
+        let qry = "SELECT txid FROM history WHERE canonical = 1 AND block_height = ?1 AND burn_header_hash = ?2 ORDER BY vtxindex ASC".to_string();
+        let args = [&(block_height as i64) as &ToSql, &block_hash.to_hex()];
+
+        BurnDB::<A, K>::query_rows::<Txid, _>(conn, &qry.to_string(), &args)
     }
 }
 
@@ -1075,8 +1138,6 @@ mod tests {
 
     use chainstate::burn::db::Error as db_error;
 
-    use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash};
-
     use chainstate::burn::operations::leader_block_commit::LeaderBlockCommitOp;
     use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
     use chainstate::burn::operations::leader_key_register::OPCODE as LeaderKeyRegisterOpcode;
@@ -1090,9 +1151,8 @@ mod tests {
     use burnchains::bitcoin::BitcoinNetworkType;
 
     use burnchains::{Txid, BurnchainHeaderHash};
-
+    use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash};
     use util::hash::{hex_bytes, Hash160};
-
     use ed25519_dalek::PublicKey as VRFPublicKey;
 
     #[test]
@@ -1145,11 +1205,11 @@ mod tests {
         let no_leader_keys = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_leader_keys_by_block(db.conn(), block_height+1).unwrap();
         assert_eq!(no_leader_keys.len(), 0);
 
-        let leader_key_opt = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_leader_key(db.conn(), block_height, vtxindex).unwrap();
+        let leader_key_opt = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_leader_key_at(db.conn(), block_height, vtxindex).unwrap();
         assert!(leader_key_opt.is_some());
         assert_eq!(leader_key_opt.unwrap(), leader_key);
 
-        let leader_key_none = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_leader_key(db.conn(), block_height, vtxindex+1).unwrap();
+        let leader_key_none = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_leader_key_at(db.conn(), block_height, vtxindex+1).unwrap();
         assert!(leader_key_none.is_none());
 
         // should fail -- block height too big 
@@ -1158,7 +1218,7 @@ mod tests {
             _ => assert!(false)
         };
 
-        match BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_leader_key(db.conn(), (1 as u64) << 63, vtxindex) {
+        match BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_leader_key_at(db.conn(), (1 as u64) << 63, vtxindex) {
             Err(db_error::TypeError) => {},
             _ => assert!(false)
         };
@@ -1299,6 +1359,7 @@ mod tests {
 
     #[test]
     fn is_fresh_consensus_hash() {
+        let consensus_hash_lifetime = 24;
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
         let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
         {
@@ -1310,6 +1371,11 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
+                    burn_quota: 0,
+                    sortition: true,
+                    sortition_hash: SortitionHash::initial(),
+                    winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                    winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     canonical: true
                 };
                 BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
@@ -1319,20 +1385,20 @@ mod tests {
         }
 
         let ch_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255]).unwrap();
-        let ch_oldest_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(255 - CONSENSUS_HASH_LIFETIME) as u8]).unwrap();
-        let ch_newest_stale = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(255 - CONSENSUS_HASH_LIFETIME - 1) as u8]).unwrap();
+        let ch_oldest_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(255 - consensus_hash_lifetime) as u8]).unwrap();
+        let ch_newest_stale = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(255 - consensus_hash_lifetime - 1) as u8]).unwrap();
         let ch_missing = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,255]).unwrap();
 
-        let fresh_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, &ch_fresh).unwrap();
+        let fresh_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, consensus_hash_lifetime, &ch_fresh).unwrap();
         assert!(fresh_check);
 
-        let oldest_fresh_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, &ch_oldest_fresh).unwrap();
+        let oldest_fresh_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, consensus_hash_lifetime, &ch_oldest_fresh).unwrap();
         assert!(oldest_fresh_check);
 
-        let newest_stale_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, &ch_newest_stale).unwrap();
+        let newest_stale_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, consensus_hash_lifetime, &ch_newest_stale).unwrap();
         assert!(!newest_stale_check);
 
-        let missing_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, &ch_missing).unwrap();
+        let missing_check = BurnDB::<BitcoinAddress, BitcoinPublicKey>::is_fresh_consensus_hash(db.conn(), 255, consensus_hash_lifetime, &ch_missing).unwrap();
         assert!(!missing_check);
     }
 
@@ -1349,6 +1415,11 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
+                    burn_quota: 0,
+                    sortition: true,
+                    sortition_hash: SortitionHash::initial(),
+                    winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                    winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     canonical: true
                 };
                 BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
@@ -1499,5 +1570,446 @@ mod tests {
 
             tx.commit();
         }
+    }
+
+    #[test]
+    fn get_leader_key_by_VRF_key() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let public_key = VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap();
+        let block_height = 123;
+        let vtxindex = 456;
+
+        let leader_key : LeaderKeyRegisterOp<BitcoinAddress, BitcoinPublicKey> = LeaderKeyRegisterOp { 
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+            public_key: public_key,
+            memo: vec![01, 02, 03, 04, 05],
+            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+
+            op: LeaderKeyRegisterOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+            vtxindex: vtxindex,
+            block_number: block_height,
+            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            
+            _phantom: PhantomData
+        };
+
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
+        let key_before = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_leader_key_by_VRF_key(db.conn(), &public_key).unwrap();
+        assert!(key_before.is_none());
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::insert_leader_key(&mut tx, &leader_key).unwrap();
+            tx.commit();
+        }
+
+        let key_after = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_leader_key_by_VRF_key(db.conn(), &public_key).unwrap();
+        assert!(key_after.unwrap() == leader_key);
+    }
+
+    #[test]
+    fn get_block_commit_at() {
+        let block_height = 123;
+        let vtxindex = 456;
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let block_commit : LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey> = LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
+            new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
+            parent_block_backptr: 0x4140,
+            parent_vtxindex: 0x4342,
+            key_block_backptr: 0x5150,
+            key_vtxindex: 0x6160,
+            epoch_num: 0x71706362,
+            memo: vec![0x80],
+
+            burn_fee: 12345,
+            input: BurnchainTxInput {
+                keys: vec![
+                    BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                ],
+                num_required: 1, 
+                in_type: BurnchainInputType::BitcoinInput,
+            },
+
+            op: 91,     // '[' in ascii
+            txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
+            vtxindex: vtxindex,
+            block_number: block_height,
+            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+
+            _phantom: PhantomData
+        };
+
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
+        let block_commit_before = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_commit_at(db.conn(), block_height, vtxindex).unwrap();
+        assert!(block_commit_before.is_none());
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::insert_block_commit(&mut tx, &block_commit).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let block_commit_after = BurnDB::get_block_commit_at(db.conn(), block_height, vtxindex).unwrap();
+        assert!(block_commit_after.unwrap() == block_commit);
+    }
+
+    #[test]
+    fn get_block_commit() {
+        let block_height = 123;
+        let vtxindex = 456;
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let txid = Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap();
+        let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let block_commit : LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey> = LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
+            new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
+            parent_block_backptr: 0x4140,
+            parent_vtxindex: 0x4342,
+            key_block_backptr: 0x5150,
+            key_vtxindex: 0x6160,
+            epoch_num: 0x71706362,
+            memo: vec![0x80],
+
+            burn_fee: 12345,
+            input: BurnchainTxInput {
+                keys: vec![
+                    BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                ],
+                num_required: 1, 
+                in_type: BurnchainInputType::BitcoinInput,
+            },
+
+            op: 91,     // '[' in ascii
+            txid: txid.clone(),
+            vtxindex: vtxindex,
+            block_number: block_height,
+            burn_header_hash: burn_header_hash.clone(),
+
+            _phantom: PhantomData
+        };
+
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
+        let block_commit_before = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_commit(db.conn(), &txid, &burn_header_hash).unwrap();
+        assert!(block_commit_before.is_none());
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::insert_block_commit(&mut tx, &block_commit).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let block_commit_after = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_commit(db.conn(), &txid, &burn_header_hash).unwrap();
+        assert!(block_commit_after.unwrap() == block_commit);
+    }
+
+    #[test]
+    fn is_leader_key_consumed() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let public_key = VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap();
+
+        let leader_block_height = 100;
+        let leader_vtxindex = 200;
+        let leader_txid = Txid::from_bytes_be(&hex_bytes("5fb4ba1a651bae8057ec6b5cdafc93fa7e0b7d944d6f02a4b751de4e15464def").unwrap()).unwrap();
+        let leader_burn_header_hash = Txid::from_bytes_be(&hex_bytes("9469d78e2a826a45f7adfae5437382fe7fd739d1b65faa8152eb7d4f0efc4d37").unwrap()).unwrap();
+
+        let commit_block_height = 123;
+        let commit_vtxindex = 456;
+        let commit_txid = Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap();
+        let commit_burn_header_hash = BurnchainHeaderHash::from_hex("6bd41cec6aa0973a6b586934d870b1e9340918bf05d8fefcba337c8fecb3fdeb").unwrap();
+
+        let leader_key : LeaderKeyRegisterOp<BitcoinAddress, BitcoinPublicKey> = LeaderKeyRegisterOp { 
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+            public_key: public_key,
+            memo: vec![01, 02, 03, 04, 05],
+            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+
+            op: LeaderKeyRegisterOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+            vtxindex: leader_vtxindex,
+            block_number: leader_block_height,
+            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            
+            _phantom: PhantomData
+        };
+
+        let nonmatching_block_commit : LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey> = LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
+            new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
+            parent_block_backptr: 1,
+            parent_vtxindex: 1,
+            key_block_backptr: (commit_block_height - leader_block_height) as u16,
+            key_vtxindex: (leader_vtxindex + 1) as u16,
+            epoch_num: 50,
+            memo: vec![0x80],
+
+            burn_fee: 12345,
+            input: BurnchainTxInput {
+                keys: vec![
+                    BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                ],
+                num_required: 1, 
+                in_type: BurnchainInputType::BitcoinInput,
+            },
+
+            op: 91,     // '[' in ascii
+            txid: commit_txid.clone(),
+            vtxindex: commit_vtxindex,
+            block_number: commit_block_height,
+            burn_header_hash: commit_burn_header_hash.clone(),
+
+            _phantom: PhantomData
+        };
+
+        let matching_block_commit : LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey> = LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
+            new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
+            parent_block_backptr: 1,
+            parent_vtxindex: 1,
+            key_block_backptr: (commit_block_height - leader_block_height) as u16,
+            key_vtxindex: leader_vtxindex as u16,
+            epoch_num: 50,
+            memo: vec![0x80],
+
+            burn_fee: 12345,
+            input: BurnchainTxInput {
+                keys: vec![
+                    BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                ],
+                num_required: 1, 
+                in_type: BurnchainInputType::BitcoinInput,
+            },
+
+            op: 91,     // '[' in ascii
+            txid: commit_txid.clone(),
+            vtxindex: commit_vtxindex,
+            block_number: commit_block_height,
+            burn_header_hash: commit_burn_header_hash.clone(),
+
+            _phantom: PhantomData
+        };
+
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(50, &first_burn_hash).unwrap();
+        let is_consumed_before = BurnDB::is_leader_key_consumed(db.conn(), &leader_key).unwrap();
+        assert!(!is_consumed_before);      // doesn't exist in the DB yet, so not consumed
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::insert_leader_key(&mut tx, &leader_key).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let is_consumed_after_insert = BurnDB::is_leader_key_consumed(db.conn(), &leader_key).unwrap();
+        assert!(!is_consumed_after_insert);     // exists, but not consumed yet 
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::insert_block_commit(&mut tx, &nonmatching_block_commit).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let is_consumed_after_nonmatching = BurnDB::is_leader_key_consumed(db.conn(), &leader_key).unwrap();
+        assert!(!is_consumed_after_nonmatching);       // not consumed -- existing block commit doesn't match this leader key
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::insert_block_commit(&mut tx, &matching_block_commit).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let is_consumed = BurnDB::is_leader_key_consumed(db.conn(), &leader_key).unwrap();
+        assert!(is_consumed);       // consumed now that a matching block commit has been added 
+
+        // if the chain reorgs at the commit block height (or lower), a consumed key becomes unconsumed 
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::burnchain_history_reorg(&mut tx, commit_block_height).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let is_consumed_after_reorg = BurnDB::is_leader_key_consumed(db.conn(), &leader_key).unwrap();
+        assert!(!is_consumed_after_reorg);
+    }
+
+    #[test]
+    fn get_last_snapshot_with_sortition() {
+        let block_height = 123;
+        let total_burn_sortition = 100;
+        let total_burn_no_sortition = 200;
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let first_snapshot = BlockSnapshot {
+            block_height: block_height - 2,
+            burn_header_hash: first_burn_hash.clone(),
+            consensus_hash: ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
+            ops_hash: OpsHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            total_burn: 0,
+            burn_quota: 0,
+            sortition: true,
+            sortition_hash: SortitionHash::initial(),
+            winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            canonical: true
+        };
+
+        let snapshot_with_sortition = BlockSnapshot {
+            block_height: block_height,
+            burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
+            consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
+            ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
+            total_burn: total_burn_sortition,
+            burn_quota: 0,
+            sortition: true,
+            sortition_hash: SortitionHash::initial(),
+            winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
+            winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
+            canonical: true
+        };
+
+        let snapshot_without_sortition = BlockSnapshot {
+            block_height: block_height - 1,
+            burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
+            consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
+            ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
+            total_burn: total_burn_no_sortition,
+            burn_quota: 0,
+            sortition: false,
+            sortition_hash: SortitionHash::initial(),
+            winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap(),
+            winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap(),
+            canonical: true
+        };
+
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(block_height - 2, &first_burn_hash).unwrap();
+
+        let initial_snapshot = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_last_snapshot_with_sortition(db.conn(), block_height).unwrap();
+        assert_eq!(initial_snapshot, first_snapshot);
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_without_sortition).unwrap();
+            tx.commit();
+        }
+
+        let next_snapshot = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_last_snapshot_with_sortition(db.conn(), block_height).unwrap();
+        assert_eq!(initial_snapshot, next_snapshot);
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_with_sortition).unwrap();
+            tx.commit();
+        }
+
+        let next_snapshot_2 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_last_snapshot_with_sortition(db.conn(), block_height).unwrap();
+        assert_eq!(initial_snapshot, next_snapshot_2);
+
+        // test inequality
+        let next_snapshot_3 = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_last_snapshot_with_sortition(db.conn(), block_height + 1).unwrap();
+        assert_eq!(snapshot_with_sortition, next_snapshot_3);
+    }
+
+    #[test]
+    fn get_block_txids() {
+        let block_height = 123;
+        let vtxindex = 456;
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let leader_key : LeaderKeyRegisterOp<BitcoinAddress, BitcoinPublicKey> = LeaderKeyRegisterOp { 
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+
+            op: LeaderKeyRegisterOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+            vtxindex: vtxindex,
+            block_number: block_height,
+            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
+            
+            _phantom: PhantomData
+        };
+
+        let block_commit : LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey> = LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
+            new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
+            parent_block_backptr: 0x4140,
+            parent_vtxindex: 0x4342,
+            key_block_backptr: 0x5150,
+            key_vtxindex: 0x6160,
+            epoch_num: 0x71706362,
+            memo: vec![0x80],
+
+            burn_fee: 12345,
+            input: BurnchainTxInput {
+                keys: vec![
+                    BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                ],
+                num_required: 1, 
+                in_type: BurnchainInputType::BitcoinInput,
+            },
+
+            op: 91,     // '[' in ascii
+            txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
+            vtxindex: vtxindex + 1,
+            block_number: block_height,
+            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
+
+            _phantom: PhantomData
+        };
+
+        let user_burn : UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey> = UserBurnSupportOp {
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
+            memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+            burn_fee: 12345,
+
+            op: UserBurnSupportOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
+            vtxindex: vtxindex + 2,
+            block_number: block_height,
+            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
+            
+            _phantom_a: PhantomData,
+            _phantom_k: PhantomData
+        };
+
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::insert_user_burn(&mut tx, &user_burn).unwrap();
+            BurnDB::insert_block_commit(&mut tx, &block_commit).unwrap();
+            BurnDB::insert_leader_key(&mut tx, &leader_key).unwrap();
+            tx.commit().unwrap();
+        }
+
+        // should be empty
+        let no_txids = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_txids(db.conn(), block_height - 1, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()).unwrap();
+        assert!(no_txids.len() == 0);
+
+        // should have txids in vtxindex order
+        let txids = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_txids(db.conn(), block_height, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap();
+        assert_eq!(txids, vec![
+                   Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+                   Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
+                   Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap()
+        ]);
+
+        // block hash must agree
+        let empty_txids = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_txids(db.conn(), block_height, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()).unwrap();
+        assert!(empty_txids.len() == 0);
+
+        // should only select canonical txids
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::burnchain_history_reorg(&mut tx, block_height).unwrap();
+            tx.commit().unwrap();
+        }
+        
+        let canonical_txids = BurnDB::<BitcoinAddress, BitcoinPublicKey>::get_block_txids(db.conn(), block_height, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap();
+        assert!(canonical_txids.len() == 0);
     }
 }

@@ -99,16 +99,14 @@ impl Hash for TupleData {
 }
 
 impl Value {
-    pub fn deserialize(json: &str) -> Result<Value> {
+    pub fn deserialize(json: &str) -> Value {
         serde_json::from_str(json)
-            .map_err(|x| Error::new(ErrType::DeserializationFailure(
-                IncomparableError { err: x } )))
+            .expect("Failed to deserialize vm.Value")
     }
 
-    pub fn serialize(&self) -> Result<String> {
+    pub fn serialize(&self) -> String {
         serde_json::to_string(self)
-            .map_err(|x| Error::new(ErrType::SerializationFailure(
-                IncomparableError { err: x } )))
+            .expect("Failed to serialize vm.Value")
     }
 
     pub fn new_list(list_data: &[Value]) -> Result<Value> {
@@ -481,16 +479,14 @@ impl TypeSignature {
                            list_dimensions: Some(next_dimensions) })
     }
 
-    pub fn deserialize(json: &str) -> Result<TypeSignature> {
+    pub fn deserialize(json: &str) -> TypeSignature {
         serde_json::from_str(json)
-            .map_err(|x| Error::new(ErrType::DeserializationFailure(
-                IncomparableError { err: x } )))
+            .expect("Failed to deserialize vm.TypeSignature")
     }
 
-    pub fn serialize(&self) -> Result<String> {
+    pub fn serialize(&self) -> String {
         serde_json::to_string(self)
-            .map_err(|x| Error::new(ErrType::SerializationFailure(
-                IncomparableError { err: x } )))
+            .expect("Failed to serialize vm.TypeSignature")
     }
 
     fn new_atom_checked(atom_type: AtomTypeIdentifier) -> Result<TypeSignature> {

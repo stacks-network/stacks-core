@@ -61,20 +61,17 @@ where
 {
     /// Internally, the Stacks blockchain encodes address the same as Bitcoin
     /// single-sig address (p2pkh)
-    fn to_address_bits_singlesig(pubk: &K) -> Vec<u8> {
+    /// Get back the hash of the address
+    fn to_address_bits_bitcoin_singlesig(pubk: &K) -> Vec<u8> {
         let key_hash = Hash160::from_data(&pubk.to_bytes());
-
-        let mut res : Vec<u8> = Vec::with_capacity(3 + 20 + 2);
-        res.extend_from_slice(&[0x76, 0xa9, 0x14]);
+        let mut res : Vec<u8> = Vec::with_capacity(20);
         res.extend_from_slice(key_hash.as_bytes());
-        res.extend_from_slice(&[0x88, 0xac]);
-
         res
     }
 
     /// Internally, the Stacks blockchain encodes address the same as Bitcoin
     /// multi-sig address (p2sh)
-    fn to_address_bits_multisig(num_sigs: usize, pubkeys: &Vec<K>) -> Vec<u8> {
+    fn to_address_bits_bitcoin_multisig(num_sigs: usize, pubkeys: &Vec<K>) -> Vec<u8> {
         let mut bldr = Builder::new();
         bldr = bldr.push_int(num_sigs as i64);
         for pubk in pubkeys {
@@ -86,17 +83,14 @@ where
         let script = bldr.into_script();
         let script_hash = Hash160::from_data(&script.as_bytes());
 
-        let mut res: Vec<u8> = Vec::with_capacity(2 + 20 + 1);
-        res.extend_from_slice(&[0xa9, 0x14]);
+        let mut res: Vec<u8> = Vec::with_capacity(20);
         res.extend_from_slice(script_hash.as_bytes());
-        res.extend_from_slice(&[0x87]);
-
         res
     }
 
     /// Internally, the Stacks blockchain encodes address the same as Bitcoin
     /// single-sig address over p2sh (p2h-p2wpkh)
-    fn to_address_bits_singlesig_p2sh(pubk: &K) -> Vec<u8> {
+    fn to_address_bits_bitcoin_singlesig_p2sh(pubk: &K) -> Vec<u8> {
         let key_hash = Hash160::from_data(&pubk.to_bytes());
 
         let bldr = Builder::new()
@@ -106,17 +100,14 @@ where
         let script = bldr.into_script();
         let script_hash = Hash160::from_data(&script.as_bytes());
 
-        let mut res: Vec<u8> = Vec::with_capacity(2 + 20 + 1);
-        res.extend_from_slice(&[0xa9, 0x14]);
+        let mut res: Vec<u8> = Vec::with_capacity(20);
         res.extend_from_slice(script_hash.as_bytes());
-        res.extend_from_slice(&[0x87]);
-
         res
     }
 
     /// Internally, the Stacks blockchain encodes address the same as Bitcoin
     /// multisig address over p2sh (p2sh-p2wsh)
-    fn to_address_bits_multisig_p2sh(num_sigs: usize, pubkeys: &Vec<K>) -> Vec<u8> {
+    fn to_address_bits_bitcoin_multisig_p2sh(num_sigs: usize, pubkeys: &Vec<K>) -> Vec<u8> {
         let mut bldr = Builder::new();
         bldr = bldr.push_int(num_sigs as i64);
         for pubk in pubkeys {
@@ -134,11 +125,8 @@ where
         let ws = Builder::new().push_int(0).push_slice(&d).into_script();
         let ws_hash = Hash160::from_data(&ws.as_bytes());
 
-        let mut res: Vec<u8> = Vec::with_capacity(2 + 20 + 1);
-        res.extend_from_slice(&[0xa9, 0x14]);
+        let mut res: Vec<u8> = Vec::with_capacity(20);
         res.extend_from_slice(ws_hash.as_bytes());
-        res.extend_from_slice(&[0x87]);
-
         res
     }
 
@@ -146,18 +134,18 @@ where
         match input.in_type {
             BurnchainInputType::BitcoinInput => {
                 if input.keys.len() == 1 {
-                    BurnchainTxInput::to_address_bits_singlesig(&input.keys[0])
+                    BurnchainTxInput::to_address_bits_bitcoin_singlesig(&input.keys[0])
                 }
                 else {
-                    BurnchainTxInput::to_address_bits_multisig(input.num_required, &input.keys)
+                    BurnchainTxInput::to_address_bits_bitcoin_multisig(input.num_required, &input.keys)
                 }
             },
             BurnchainInputType::BitcoinSegwitP2SHInput => {
                 if input.keys.len() == 1 {
-                    BurnchainTxInput::to_address_bits_singlesig_p2sh(&input.keys[0])
+                    BurnchainTxInput::to_address_bits_bitcoin_singlesig_p2sh(&input.keys[0])
                 }
                 else {
-                    BurnchainTxInput::to_address_bits_multisig_p2sh(input.num_required, &input.keys)
+                    BurnchainTxInput::to_address_bits_bitcoin_multisig_p2sh(input.num_required, &input.keys)
                 }
             }
         }
@@ -1035,7 +1023,7 @@ mod tests {
                 ],
                 num_required: 1,
                 segwit: false,
-                result: hex_bytes("76a914395f3643cea07ec4eec73b4d9a973dcce56b9bf188ac").unwrap().to_vec()
+                result: hex_bytes("395f3643cea07ec4eec73b4d9a973dcce56b9bf1").unwrap().to_vec()
             },
             ScriptPubkeyFixture {
                 // script pubkey for multisig p2sh
@@ -1045,7 +1033,7 @@ mod tests {
                 ],
                 num_required: 2,
                 segwit: false,
-                result: hex_bytes("a914fd3a5e9f5ba311ce6122765f0af8da7488e25d3a87").unwrap().to_vec(),
+                result: hex_bytes("fd3a5e9f5ba311ce6122765f0af8da7488e25d3a").unwrap().to_vec(),
             },
             ScriptPubkeyFixture {
                 // script pubkey for p2sh-p2wpkh
@@ -1054,7 +1042,7 @@ mod tests {
                 ],
                 num_required: 1,
                 segwit: true,
-                result: hex_bytes("a9140ac7ad046fe22c794dd923b3be14b2e668e50c4287").unwrap().to_vec(),
+                result: hex_bytes("0ac7ad046fe22c794dd923b3be14b2e668e50c42").unwrap().to_vec(),
             },
             ScriptPubkeyFixture {
                 // script pubkey for multisig p2sh-p2wsh
@@ -1064,7 +1052,7 @@ mod tests {
                 ],
                 num_required: 2,
                 segwit: true,
-                result: hex_bytes("a9143e02fa83ac2fae11fd6703b91e7c94ad393052e287").unwrap().to_vec(),
+                result: hex_bytes("3e02fa83ac2fae11fd6703b91e7c94ad393052e2").unwrap().to_vec(),
             },
         ];
 
@@ -1072,18 +1060,18 @@ mod tests {
             let result =
                 if !scriptpubkey_fixture.segwit {
                     if scriptpubkey_fixture.num_required == 1 {
-                        BurnchainTxInput::to_address_bits_singlesig(&scriptpubkey_fixture.keys[0])
+                        BurnchainTxInput::to_address_bits_bitcoin_singlesig(&scriptpubkey_fixture.keys[0])
                     }
                     else {
-                        BurnchainTxInput::to_address_bits_multisig(scriptpubkey_fixture.num_required, &scriptpubkey_fixture.keys)
+                        BurnchainTxInput::to_address_bits_bitcoin_multisig(scriptpubkey_fixture.num_required, &scriptpubkey_fixture.keys)
                     }
                 }
                 else {
                     if scriptpubkey_fixture.num_required == 1 {
-                        BurnchainTxInput::to_address_bits_singlesig_p2sh(&scriptpubkey_fixture.keys[0])
+                        BurnchainTxInput::to_address_bits_bitcoin_singlesig_p2sh(&scriptpubkey_fixture.keys[0])
                     }
                     else {
-                        BurnchainTxInput::to_address_bits_multisig_p2sh(scriptpubkey_fixture.num_required, &scriptpubkey_fixture.keys)
+                        BurnchainTxInput::to_address_bits_bitcoin_multisig_p2sh(scriptpubkey_fixture.num_required, &scriptpubkey_fixture.keys)
                     }
                 };
 

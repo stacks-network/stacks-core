@@ -39,15 +39,13 @@ impl Contract {
         
     }
 
-    pub fn deserialize(json: &str) -> Result<Contract> {
+    pub fn deserialize(json: &str) -> Contract {
         serde_json::from_str(json)
-            .map_err(|x| Error::new(ErrType::DeserializationFailure(
-                IncomparableError { err: x } )))
+            .expect("Failed to deserialize contract")
     }
 
-    pub fn serialize(&self) -> Result<String> {
+    pub fn serialize(&self) -> String {
         serde_json::to_string(self)
-            .map_err(|x| Error::new(ErrType::SerializationFailure(
-                IncomparableError { err: x } )))
+            .expect("Failed to serialize contract")
     }
 }

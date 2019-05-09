@@ -21,6 +21,7 @@ use std::marker::PhantomData;
 
 use chainstate::burn::operations::BlockstackOperation;
 use chainstate::burn::operations::Error as op_error;
+use chainstate::burn::operations::CheckResult;
 use chainstate::burn::ConsensusHash;
 
 use chainstate::burn::db::burndb::BurnDB;
@@ -31,6 +32,7 @@ use burnchains::Txid;
 use burnchains::Address;
 use burnchains::PublicKey;
 use burnchains::BurnchainHeaderHash;
+use burnchains::Burnchain;
 
 use util::vrf::{ECVRF_check_public_key, ECVRF_public_key_to_hex};
 
@@ -161,7 +163,7 @@ where
         LeaderKeyRegisterOp::<A, K>::parse_from_tx(block_height, block_hash, tx)
     }
 
-    fn check(&self, conn: &DBConn) -> Result<bool, op_error> {
+    fn check(&self, burnchain: &Burnchain, conn: &DBConn) -> Result<CheckResult, op_error> {
         /////////////////////////////////////////////////////////////////
         // Keys must be unique -- no one can register the same key twice
         /////////////////////////////////////////////////////////////////
@@ -172,22 +174,22 @@ where
 
         if has_key_already {
             warn!("Invalid leader key registration: public key {} previously used", ECVRF_public_key_to_hex(&self.public_key));
-            return Ok(false);
+            return Ok(CheckResult::LeaderKeyAlreadyRegistered);
         }
 
         /////////////////////////////////////////////////////////////////
         // Consensus hash must be recent and valid
         /////////////////////////////////////////////////////////////////
 
-        let consensus_hash_recent = BurnDB::<A, K>::is_fresh_consensus_hash(conn, self.block_number, &self.consensus_hash)
+        let consensus_hash_recent = BurnDB::<A, K>::is_fresh_consensus_hash(conn, self.block_number, burnchain.consensus_hash_lifetime, &self.consensus_hash)
             .map_err(op_error::DBError)?;
 
         if !consensus_hash_recent {
-            warn!("Invalid consensus hash {}", &self.consensus_hash.to_hex());
-            return Ok(false);
+            warn!("Invalid leader key registration: invalid consensus hash {}", &self.consensus_hash.to_hex());
+            return Ok(CheckResult::LeaderKeyBadConsensusHash);
         }
 
-        return Ok(true);
+        return Ok(CheckResult::LeaderKeyOk);
     }
 }
 
@@ -200,18 +202,27 @@ mod tests {
     use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::Txid;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
+    use burnchains::burnchain::get_burn_quota_config;
 
     use bitcoin::network::serialize::deserialize;
     use bitcoin::blockdata::transaction::Transaction;
 
-    use chainstate::burn::ConsensusHash;
+    use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash, BlockSnapshot};
+    use chainstate::burn::operations::CheckResult;
     
     use util::hash::hex_bytes;
     use util::log;
 
+    use super::OPCODE as LeaderKeyRegisterOpcode;
+
     struct OpFixture {
         txstr: String,
         result: Option<LeaderKeyRegisterOp<BitcoinAddress, BitcoinPublicKey>>
+    }
+
+    struct CheckFixture {
+        op: LeaderKeyRegisterOp<BitcoinAddress, BitcoinPublicKey>,
+        res: CheckResult
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
@@ -305,6 +316,133 @@ mod tests {
                     assert!(false);
                 }
             };
+        }
+    }
+
+    #[test]
+    fn test_check() {
+        
+        let first_block_height = 120;
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();
+        
+        let block_122_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap();
+        let block_123_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000003").unwrap();
+        let block_124_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap();
+        let block_125_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000005").unwrap();
+        
+        let burnchain = Burnchain {
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            burn_quota: get_burn_quota_config(&"bitcoin".to_string()).unwrap(),
+            consensus_hash_lifetime: 24
+        };
+        
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+
+        let leader_key_1 : LeaderKeyRegisterOp<BitcoinAddress, BitcoinPublicKey> = LeaderKeyRegisterOp { 
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+
+            op: LeaderKeyRegisterOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+            vtxindex: 456,
+            block_number: 123,
+            burn_header_hash: block_123_hash.clone(),
+            
+            _phantom: PhantomData
+        };
+        
+        // populate consensus hashes
+        {
+            let mut tx = db.tx_begin().unwrap();
+            for i in 0..10 {
+                let snapshot_row = BlockSnapshot {
+                    block_height: i + first_block_height,
+                    burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    total_burn: i,
+                    burn_quota: 0,
+                    sortition: true,
+                    sortition_hash: SortitionHash::initial(),
+                    winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                    winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                    canonical: true
+                };
+                BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
+            }
+            
+            tx.commit();
+        }
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_leader_key(&mut tx, &leader_key_1).unwrap();
+            tx.commit().unwrap();
+        }
+
+        let check_fixtures = vec![
+            CheckFixture {
+                // reject -- key already registered 
+                op: LeaderKeyRegisterOp {
+                    consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
+                    public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+                    memo: vec![01, 02, 03, 04, 05],
+                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+
+                    op: LeaderKeyRegisterOpcode,
+                    txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+                    vtxindex: 455,
+                    block_number: 122,
+                    burn_header_hash: block_123_hash.clone(),
+                    
+                    _phantom: PhantomData
+                },
+                res: CheckResult::LeaderKeyAlreadyRegistered
+            },
+            CheckFixture {
+                // reject -- invalid consensus hash
+                op: LeaderKeyRegisterOp {
+                    consensus_hash: ConsensusHash::from_bytes(&hex_bytes("1000000000000000000000000000000000000000").unwrap()).unwrap(),
+                    public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
+                    memo: vec![01, 02, 03, 04, 05],
+                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+
+                    op: LeaderKeyRegisterOpcode,
+                    txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+                    vtxindex: 456,
+                    block_number: 123,
+                    burn_header_hash: block_123_hash.clone(),
+                    
+                    _phantom: PhantomData
+                },
+                res: CheckResult::LeaderKeyBadConsensusHash,
+            },
+            CheckFixture {
+                // accept 
+                op: LeaderKeyRegisterOp {
+                    consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
+                    public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
+                    memo: vec![01, 02, 03, 04, 05],
+                    address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+
+                    op: LeaderKeyRegisterOpcode,
+                    txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+                    vtxindex: 456,
+                    block_number: 123,
+                    burn_header_hash: block_123_hash.clone(),
+                    
+                    _phantom: PhantomData
+                },
+                res: CheckResult::LeaderKeyOk
+            }
+        ];
+
+        for fixture in check_fixtures {
+            assert_eq!(fixture.res, fixture.op.check(&burnchain, db.conn()).unwrap());
         }
     }
 }

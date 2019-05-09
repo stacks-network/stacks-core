@@ -32,6 +32,8 @@ use burnchains::BurnchainHeaderHash;
 use burnchains::Burnchain;
 use burnchains::BurnchainTransaction;
 use burnchains::BurnchainBlock;
+use burnchains::BurnQuotaConfig;
+use burnchains::ConsensusHashLifetime;
 
 use burnchains::Error as burnchain_error;
 
@@ -44,22 +46,51 @@ use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
 use chainstate::burn::operations::leader_key_register::OPCODE as LEADER_KEY_REGISTER_OPCODE;
 use chainstate::burn::operations::user_burn_support::UserBurnSupportOp;
 use chainstate::burn::operations::user_burn_support::OPCODE as USER_BURN_SUPPORT_OPCODE;
+use chainstate::burn::operations::CheckResult;
 use chainstate::burn::BlockSnapshot;
 
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::db::Error as db_error;
+use chainstate::burn::distribution::BurnSamplePoint;
 
 use util::log;
 use util::hash::to_hex;
 
+pub fn get_burn_quota_config(blockchain_name: &String) -> Option<BurnQuotaConfig> {
+    match blockchain_name.as_str() {
+        "bitcoin" => {
+            Some(BurnQuotaConfig {
+                inc: 21000,     // increment by 21,000 satoshis each time we meet quota 
+                dec_num: 4,
+                dec_den: 5,     // multiply by 4/5 if we don't meet quota 
+            })
+        },
+        _ => None
+    }
+}
+
+
 impl Burnchain {
 
-    pub fn new(working_dir: &String, chain_name: &String, network_name: &String) -> Burnchain {
-        Burnchain {
+    pub fn new(working_dir: &String, chain_name: &String, network_name: &String) -> Result<Burnchain, burnchain_error> {
+        let (ch_lifetime, burn_quota_info) =
+            match network_name.as_str() {
+                "bitcoin" => {
+                    (ConsensusHashLifetime::Bitcoin as u32,
+                     get_burn_quota_config(network_name).unwrap())
+                }
+                _ => {
+                    return Err(burnchain_error::UnsupportedBurnchain)
+                }
+            };
+
+        Ok(Burnchain {
             chain_name: chain_name.clone(),
             network_name: network_name.clone(),
-            working_dir: working_dir.clone()
-        }
+            working_dir: working_dir.clone(),
+            burn_quota: burn_quota_info,
+            consensus_hash_lifetime: ch_lifetime
+        })
     }
 
     pub fn get_chainstate_path(working_dir: &String, chain_name: &String, network_name: &String) -> String {
@@ -154,6 +185,7 @@ impl Burnchain {
             .map_err(burnchain_error::DBError)
     }
     
+    /// Try to parse a burnchain transaction into a Blockstack operation
     fn classify_transaction<A, K>(block_height: u64, block_hash: &BurnchainHeaderHash, burn_tx: &BurnchainTransaction<A, K>) -> Option<BlockstackOperationType<A, K>>
     where
         A: Address,
@@ -199,7 +231,8 @@ impl Burnchain {
         }
     }
    
-    fn check_transaction<A, K>(conn: &Connection, blockstack_op: &BlockstackOperationType<A, K>) -> Result<bool, burnchain_error>
+    /// Run a blockstack operation's "check()" method and return the result.
+    fn check_transaction<A, K>(conn: &Connection, burnchain: &Burnchain, blockstack_op: &BlockstackOperationType<A, K>) -> Result<bool, burnchain_error>
     where
         A: Address,
         K: PublicKey
@@ -207,39 +240,39 @@ impl Burnchain {
         let check_res = 
             match blockstack_op {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                    LeaderKeyRegisterOp::check(op, conn)
-                      .and_then(|res| {
-                          if res {
-                              info!("ACCEPT leader key register {}", &op.txid.to_hex());
+                    op.check(burnchain, conn)
+                      .and_then(|check| {
+                          if check != CheckResult::LeaderKeyOk {
+                              warn!("REJECT leader key register {}: {:?}", &op.txid.to_hex(), &check);
+                              Ok(false)
                           }
                           else {
-                              warn!("REJECT leader key register {}", &op.txid.to_hex());
+                              Ok(true)
                           }
-                          Ok(res)
                       })
                 },
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                    LeaderBlockCommitOp::check(op, conn)
-                      .and_then(|res| {
-                          if res {
-                              info!("ACCEPT leader block commit {}", &op.txid.to_hex());
+                    op.check(burnchain, conn)
+                      .and_then(|check| {
+                          if check != CheckResult::BlockCommitOk {
+                              warn!("REJECT leader block commit {}: {:?}", &op.txid.to_hex(), &check);
+                              Ok(false)
                           }
                           else {
-                              warn!("REJECT leader block commit {}", &op.txid.to_hex());
+                              Ok(true)
                           }
-                          Ok(res)
                       })
                 },
                 BlockstackOperationType::UserBurnSupport(ref op) => {
-                    UserBurnSupportOp::check(op, conn)
-                      .and_then(|res| {
-                          if res {
-                              info!("ACCEPT user burn support {}", &op.txid.to_hex());
+                    op.check(burnchain, conn)
+                      .and_then(|check| {
+                          if check != CheckResult::UserBurnSupportOk {
+                              warn!("REJECT user burn support {}: {}", &op.txid.to_hex(), &check);
+                              Ok(false)
                           }
                           else {
-                              warn!("REJECT user burn support {}", &op.txid.to_hex());
+                              Ok(true)
                           }
-                          Ok(res)
                       })
                 }
             };
@@ -256,15 +289,15 @@ impl Burnchain {
         let match_res = 
             match blockstack_op {
                 BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                    info!("COMMIT leader key register {}", &op.txid.to_hex());
+                    info!("ACCEPT leader key register {}", &op.txid.to_hex());
                     BurnDB::insert_leader_key(tx, op)
                 },
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                    info!("COMMIT leader block commit {}", &op.txid.to_hex());
+                    info!("ACCEPT leader block commit {}", &op.txid.to_hex());
                     BurnDB::insert_block_commit(tx, op)
                 },
                 BlockstackOperationType::UserBurnSupport(ref op) => {
-                    info!("COMMIT user burn support {}", &op.txid.to_hex());
+                    info!("ACCEPT user burn support {}", &op.txid.to_hex());
                     BurnDB::insert_user_burn(tx, op)
                 }
             };
@@ -273,67 +306,215 @@ impl Burnchain {
             .map_err(burnchain_error::DBError)
     }
 
-    fn append_block<A, K>(db: &mut BurnDB<A, K>, block: &BurnchainBlock<A, K>) -> Result<(), burnchain_error>
+    /// Generate the list of blockstack operations that will be snapshotted.
+    /// Return the list of parsed blockstack operations whose check() method has returned true.
+    fn check_block<'a, A, K>(tx: &mut Transaction<'a>, burnchain: &Burnchain, block: &BurnchainBlock<A, K>) -> Result<Vec<BlockstackOperationType<A, K>>, burnchain_error>
     where
         A: Address,
         K: PublicKey
     {
-        let first_block_height = db.first_block_height;
-        debug!("Process block {} {}", block.block_height, &block.block_hash.to_hex());
-        
-        let mut tx = db.tx_begin()
-            .map_err(burnchain_error::DBError)?;
 
-        // commit each transaction
+        debug!("Check block {} {}", block.block_height, &block.block_hash.to_hex());
+        let mut ret : Vec<BlockstackOperationType<A, K>> = vec![];
+
+        // classify and check each transaction
         for i in 0..block.txs.len() {
             match Burnchain::classify_transaction(block.block_height, &block.block_hash, &block.txs[i]) {
                 None => {
                     continue;
                 },
                 Some(ref blockstack_op) => {
-                    match Burnchain::check_transaction(&tx, blockstack_op) {
+                    match Burnchain::check_transaction(&tx, burnchain, blockstack_op) {
                         Err(err) => {
                             error!("TRANSACTION ABORTED when processing burnchain transaction {}: {:?}", &block.txs[i].txid.to_hex(), &err);
                             return Err(err);
                         },
                         Ok(res) => {
                             if res {
-                                // accepted, so commit 
-                                match Burnchain::store_transaction(&mut tx, blockstack_op) {
-                                    Err(err) => {
-                                        error!("TRANSACTION ABORTED when inserting burnchain transaction {}: {:?}", &block.txs[i].txid.to_hex(), &err);
-                                        return Err(err);
-                                    }
-                                    Ok(_) => {}
-                                };
-                            }
-                            else {
-                                // rejected
-                                continue;
+                                ret.push((*blockstack_op).clone());
                             }
                         }
-                    };
+                    }
                 }
             };
         }
 
-        // snapshot
-        let snapshot_res = BlockSnapshot::next_snapshot::<A, K>(&mut tx, first_block_height, &block);
+        Ok(ret)
+    }
+
+    /// Find the VRF public keys consumed by each block candidate in the given list.
+    /// The burn DB should have a key for each candidate; otherwise the candidate would not have
+    /// been accepted.
+    fn get_consumed_leader_keys<A, K>(tx: &mut Transaction, block_candidates: &Vec<LeaderBlockCommitOp<A, K>>) -> Result<Vec<LeaderKeyRegisterOp<A, K>>, db_error> 
+    where
+        A: Address,
+        K: PublicKey
+    {
+        // get the set of VRF keys consumed by these commits 
+        let mut leader_keys = vec![];
+        for i in 0..block_candidates.len() {
+            let leader_key_block_height = block_candidates[i].block_number - (block_candidates[i].key_block_backptr as u64);
+            let leader_key_vtxindex = block_candidates[i].key_vtxindex as u32;
+            let leader_key_opt = BurnDB::<A, K>::get_leader_key_at(tx, leader_key_block_height, leader_key_vtxindex)?;
+
+            match leader_key_opt {
+                None => {
+                    // should never happen; otherwise the commit would never have been accepted 
+                    panic!("No leader key for block commit {} (at {},{})", &block_candidates[i].txid.to_hex(), block_candidates[i].block_number, block_candidates[i].vtxindex);
+                },
+                Some(leader_key) => {
+                    leader_keys.push(leader_key)
+                }
+            };
+        }
+
+        Ok(leader_keys)
+    }
+
+    /// Append a block's checked transactions to the ledger and return the burn distribution
+    /// * insert all checked operations
+    /// * calculate a burn distribution
+    /// * return the burn distribution
+    fn append_blockstack_ops<'a, A, K>(tx: &mut Transaction<'a>, block_ops: &Vec<BlockstackOperationType<A, K>>) -> Result<Vec<BurnSamplePoint<A, K>>, burnchain_error>
+    where 
+        A: Address,
+        K: PublicKey
+    {
+        // block commits and support burns discovered in this block.
+        let mut block_commits: Vec<LeaderBlockCommitOp<A, K>> = vec![];
+        let mut user_burns: Vec<UserBurnSupportOp<A, K>> = vec![];
+
+        // store all leader VRF keys and block commits we found.
+        // don't store user burns until we know if they match a block commit.
+        for i in 0..block_ops.len() {
+            match block_ops[i] {
+                BlockstackOperationType::LeaderKeyRegister(ref op) => {
+                    Burnchain::store_transaction(tx, &block_ops[i])?;
+                },
+                BlockstackOperationType::LeaderBlockCommit(ref op) => {
+                    Burnchain::store_transaction(tx, &block_ops[i])?;
+                    block_commits.push(op.clone());
+                },
+                BlockstackOperationType::UserBurnSupport(ref op) => {
+                    user_burns.push(op.clone());
+                }
+            };
+        }
+
+        // find all VRF leader keys that were consumed by the leader block commits of this block 
+        let consumed_leader_keys_res = Burnchain::get_consumed_leader_keys(tx, &block_commits);
+        let consumed_leader_keys = consumed_leader_keys_res
+            .map_err(burnchain_error::DBError)?;
+
+        // calculate the burn distribution from these operations.
+        // The resulting distribution will contain the user burns that match block commits.
+        let burn_dist = BurnSamplePoint::make_distribution(block_commits, consumed_leader_keys, user_burns);
+        
+        // store user burns in the burn distribution -- these are the subset of user burns
+        // that matched a (previous) leader key and a (current) block commit.
+        for i in 0..burn_dist.len() {
+            let burn_point = &burn_dist[i];
+            for j in 0..burn_point.user_burns.len() {
+                Burnchain::store_transaction(tx, &BlockstackOperationType::UserBurnSupport(burn_point.user_burns[j].clone()))?;
+            }
+        }
+
+        Ok(burn_dist)
+    }
+
+    /// Take a burn distribution, snapshot the block, and run the sortition algorithm.
+    /// * process the new consensus hash and ops hash
+    /// * process the next BlockSnapshot
+    /// * insert the snapshot
+    /// * return the snapshot 
+    fn append_snapshot<'a, A, K>(tx: &mut Transaction<'a>, burnchain: &Burnchain, first_block_height: u64, this_block_height: u64, this_block_hash: &BurnchainHeaderHash, burn_dist: &Vec<BurnSamplePoint<A, K>>) -> Result<BlockSnapshot, burnchain_error>
+    where
+        A: Address,
+        K: PublicKey
+    {
+        // do the cryptographic sortition and pick the next winning block.
+        let snapshot_res = BlockSnapshot::make_snapshot::<A, K>(tx, burnchain, first_block_height, this_block_height, &this_block_hash, &burn_dist);
         let snapshot = snapshot_res
             .map_err(|e| {
-                error!("TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}", block.block_height, &block.block_hash.to_hex(), e);
+                error!("TRANSACTION ABORTED when taking snapshot at block {} ({}): {:?}", this_block_height, &this_block_hash.to_hex(), e);
                 burnchain_error::DBError(e)
             })?;
 
-        let insert_res = BurnDB::<A, K>::insert_block_snapshot(&mut tx, &snapshot);
+        // store the snapshot
+        let insert_res = BurnDB::<A, K>::insert_block_snapshot(tx, &snapshot);
         insert_res
             .map_err(|e| {
-                error!("TRANSACTION ABORTED when inserting snapshot for block {} ({}): {:?}", block.block_height, &block.block_hash.to_hex(), e);
+                error!("TRANSACTION ABORTED when inserting snapshot for block {} ({}): {:?}", this_block_height, &this_block_hash.to_hex(), e);
                 burnchain_error::DBError(e)
             })?;
+
+        Ok(snapshot)
+    }
+
+    /// Process all block's checked transactions 
+    /// * make the burn distribution
+    /// * insert the ones that went into the burn distribution
+    /// * snapshot the block and run the sortition
+    /// * return the snapshot (and sortition results)
+    fn append_block_ops<'a, A, K>(tx: &mut Transaction<'a>, burnchain: &Burnchain, first_block_height: u64, this_block_height: u64, this_block_hash: &BurnchainHeaderHash, this_block_ops: &Vec<BlockstackOperationType<A, K>>) -> Result<BlockSnapshot, burnchain_error> 
+    where
+        A: Address,
+        K: PublicKey
+    {
+        // append the checked operations and get back the burn distribution
+        let burn_dist_res = Burnchain::append_blockstack_ops(tx, this_block_ops);
+        let burn_dist = burn_dist_res
+            .map_err(|e| {
+                error!("TRANSACTION ABORTED when appending {} blockstack operations in block {} ({}): {:?}", this_block_ops.len(), this_block_height, &this_block_hash.to_hex(), e);
+                e
+            })?;
+
+        // append the snapshot and sortition result 
+        let snapshot_res = Burnchain::append_snapshot(tx, burnchain, first_block_height, this_block_height, &this_block_hash, &burn_dist);
+        let snapshot = snapshot_res
+            .map_err(|e| {
+                error!("TRANSACTION ABORTED when snapshotting block {} ({}): {:?}", this_block_height, &this_block_hash.to_hex(), e);
+                e
+            })?;
+
+        info!("OPS-HASH({}): {}", this_block_height, &snapshot.ops_hash.to_hex());
+        info!("CONSENSUS({}): {}", this_block_height, &snapshot.consensus_hash.to_hex());
+        info!("Burn quota for {} is {}", this_block_height + 1, &snapshot.burn_quota);
+        Ok(snapshot)
+    }
+
+    /// Append a block to our chain state.
+    /// * pull out all the transactions that are blockstack ops
+    /// * select the ones that are _valid_ 
+    /// * do a cryptographic sortition to select the next Stacks block
+    /// * commit all valid transactions
+    /// * commit the results of the sortition 
+    fn append_block<A, K>(db: &mut BurnDB<A, K>, burnchain: &Burnchain, block: &BurnchainBlock<A, K>) -> Result<(), burnchain_error>
+    where
+        A: Address,
+        K: PublicKey
+    {
+        debug!("Process block {} {}", block.block_height, &block.block_hash.to_hex());
         
-        info!("OPSHASH({}): {}", block.block_height, &snapshot.ops_hash.to_hex());
-        info!("CONSENSUS({}): {}", block.block_height, &snapshot.consensus_hash.to_hex());
+        let first_block_height = db.first_block_height;
+        let mut tx = db.tx_begin()
+            .map_err(burnchain_error::DBError)?;
+
+        // check each transaction 
+        let block_ops_res = Burnchain::check_block(&mut tx, burnchain, block);
+        let block_ops = block_ops_res
+            .map_err(|e| {
+                error!("TRANSACTION ABORTED when checking block {} ({}): {:?}", block.block_height, &block.block_hash.to_hex(), e);
+                e
+            })?;
+
+        // process them 
+        let snapshot_res = Burnchain::append_block_ops(&mut tx, burnchain, first_block_height, block.block_height, &block.block_hash, &block_ops);
+        let snapshot = snapshot_res
+            .map_err(|e| {
+                error!("TRANSACTION ABORTED when snapshotting block {} ({}): {:?}", block.block_height, &block.block_hash.to_hex(), e);
+                e
+            })?;
 
         // commit everything!
         tx.commit()
@@ -471,6 +652,8 @@ impl Burnchain {
         let mut downloader = indexer.downloader();
         let mut parser = indexer.parser();
 
+        let burnchain_config = self.clone();
+
         let download_thread : thread::JoinHandle<Result<(), burnchain_error>> = thread::spawn(move || {
             loop {
                 debug!("Try recv next header");
@@ -518,7 +701,7 @@ impl Burnchain {
                     .map_err(|_e| burnchain_error::ThreadChannelError)?;
 
                 let insert_start = Instant::now();
-                let append_res = Burnchain::append_block(&mut burndb, &burnchain_block);
+                let append_res = Burnchain::append_block(&mut burndb, &burnchain_config, &burnchain_block);
                 append_res?;
 
                 let (insert_end_s, insert_end_ms) = (insert_start.elapsed().as_secs(), insert_start.elapsed().subsec_millis());
@@ -541,3 +724,515 @@ impl Burnchain {
     }
 }
 
+#[cfg(test)]
+mod tests {
+
+    use std::marker::PhantomData;
+
+    use burnchains::{Txid, BurnchainHeaderHash};
+    use chainstate::burn::{ConsensusHash, OpsHash, BlockSnapshot, SortitionHash, VRFSeed, BlockHeaderHash};
+
+    use chainstate::burn::db::Error as db_error;
+    use chainstate::burn::db::burndb::BurnDB;
+
+    use burnchains::Address;
+    use burnchains::PublicKey;
+    use burnchains::Burnchain;
+    use burnchains::BurnchainTxInput;
+    use burnchains::BurnchainInputType;
+    use burnchains::bitcoin::keys::BitcoinPublicKey;
+    use burnchains::bitcoin::address::BitcoinAddress;
+    use burnchains::bitcoin::BitcoinNetworkType;
+
+    use util::hash::hex_bytes;
+    use util::log;
+
+    use rusqlite::Connection;
+
+    use chainstate::burn::operations::leader_block_commit::LeaderBlockCommitOp;
+    use chainstate::burn::operations::leader_block_commit::OPCODE as LeaderBlockCommitOpcode;
+    use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
+    use chainstate::burn::operations::leader_key_register::OPCODE as LeaderKeyRegisterOpcode;
+    use chainstate::burn::operations::user_burn_support::UserBurnSupportOp;
+    use chainstate::burn::operations::user_burn_support::OPCODE as UserBurnSupportOpcode;
+    use chainstate::burn::operations::BlockstackOperationType;
+    use chainstate::burn::distribution::BurnSamplePoint;
+
+    use ed25519_dalek::PublicKey as VRFPublicKey;
+
+    use util::hash::Hash160;
+    use util::uint::Uint256;
+    use util::uint::Uint512;
+    use util::uint::BitArray;
+    use util::vrf::ECVRF_public_key_to_hex;
+
+    use super::get_burn_quota_config;
+
+    #[test]
+    fn append_block() {
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();
+        let first_block_height = 120;
+        
+        let burnchain = Burnchain {
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            burn_quota: get_burn_quota_config(&"bitcoin".to_string()).unwrap(),
+            consensus_hash_lifetime: 24
+        };
+        
+        let block_121_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000012").unwrap();
+        let block_122_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap();
+        let block_123_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap();
+        let block_124_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap();
+        
+        let leader_key_1 : LeaderKeyRegisterOp<BitcoinAddress, BitcoinPublicKey> = LeaderKeyRegisterOp { 
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+
+            op: LeaderKeyRegisterOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+            vtxindex: 456,
+            block_number: 123,
+            burn_header_hash: block_123_hash.clone(),
+            
+            _phantom: PhantomData
+        };
+        
+        let leader_key_2 : LeaderKeyRegisterOp<BitcoinAddress, BitcoinPublicKey> = LeaderKeyRegisterOp { 
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a91432b6c66189da32bd0a9f00ee4927f569957d71aa88ac").unwrap()).unwrap(),
+
+            op: LeaderKeyRegisterOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7").unwrap()).unwrap(),
+            vtxindex: 457,
+            block_number: 122,
+            burn_header_hash: block_122_hash.clone(),
+            
+            _phantom: PhantomData
+        };
+
+        let leader_key_3 : LeaderKeyRegisterOp<BitcoinAddress, BitcoinPublicKey> = LeaderKeyRegisterOp { 
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("de8af7037e522e65d2fe2d63fb1b764bfea829df78b84444338379df13144a02").unwrap()).unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a91432b6c66189da32bd0a9f00ee4927f569957d71aa88ac").unwrap()).unwrap(),
+
+            op: LeaderKeyRegisterOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("eb54704f71d4a2d1128d60ffccced547054b52250ada6f3e7356165714f44d4c").unwrap()).unwrap(),
+            vtxindex: 10,
+            block_number: 121,
+            burn_header_hash: block_121_hash.clone(),
+            
+            _phantom: PhantomData
+        };
+        
+        let user_burn_1 : UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey> = UserBurnSupportOp {
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
+            memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+            burn_fee: 10000,
+
+            op: UserBurnSupportOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716b").unwrap()).unwrap(),
+            vtxindex: 13,
+            block_number: 124,
+            burn_header_hash: block_124_hash.clone(),
+            
+            _phantom_a: PhantomData,
+            _phantom_k: PhantomData
+        };
+
+        let user_burn_1_2 : UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey> = UserBurnSupportOp {
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
+            memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+            burn_fee: 30000,
+
+            op: UserBurnSupportOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
+            vtxindex: 14,
+            block_number: 124,
+            burn_header_hash: block_124_hash.clone(),
+            
+            _phantom_a: PhantomData,
+            _phantom_k: PhantomData
+        };
+
+        let user_burn_2 : UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey> = UserBurnSupportOp {
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
+            block_header_hash_160: Hash160::from_bytes(&hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap()).unwrap(),       // 22222....2223
+            memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+            burn_fee: 20000,
+
+            op: UserBurnSupportOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716d").unwrap()).unwrap(),
+            vtxindex: 15,
+            block_number: 124,
+            burn_header_hash: block_124_hash.clone(),
+            
+            _phantom_a: PhantomData,
+            _phantom_k: PhantomData
+        };
+        
+        let user_burn_2_2 : UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey> = UserBurnSupportOp {
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
+            block_header_hash_160: Hash160::from_bytes(&hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap()).unwrap(),       // 22222....2223
+            memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+            burn_fee: 40000,
+
+            op: UserBurnSupportOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716e").unwrap()).unwrap(),
+            vtxindex: 16,
+            block_number: 124,
+            burn_header_hash: block_124_hash.clone(),
+            
+            _phantom_a: PhantomData,
+            _phantom_k: PhantomData
+        };
+        
+        let user_burn_noblock : UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey> = UserBurnSupportOp {
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
+            memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+            burn_fee: 12345,
+
+            op: UserBurnSupportOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716f").unwrap()).unwrap(),
+            vtxindex: 12,
+            block_number: 123,
+            burn_header_hash: block_123_hash.clone(),
+            
+            _phantom_a: PhantomData,
+            _phantom_k: PhantomData
+        };
+        
+        let user_burn_nokey : UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey> = UserBurnSupportOp {
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("4444444444444444444444444444444444444444").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("3f3338db51f2b1f6ac0cf6177179a24ee130c04ef2f9849a64a216969ab60e70").unwrap()).unwrap(),
+            block_header_hash_160: Hash160::from_bytes(&hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap()).unwrap(),
+            memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+            burn_fee: 12345,
+
+            op: UserBurnSupportOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c7170").unwrap()).unwrap(),
+            vtxindex: 15,
+            block_number: 123,
+            burn_header_hash: block_123_hash.clone(),
+            
+            _phantom_a: PhantomData,
+            _phantom_k: PhantomData
+        };
+
+        let block_commit_1 : LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey> = LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
+            new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
+            parent_block_backptr: 123,
+            parent_vtxindex: 456,
+            key_block_backptr: 1,
+            key_vtxindex: 456,
+            epoch_num: 50,
+            memo: vec![0x80],
+
+            burn_fee: 12345,
+            input: BurnchainTxInput {
+                keys: vec![
+                    BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                ],
+                num_required: 1, 
+                in_type: BurnchainInputType::BitcoinInput,
+            },
+
+            op: LeaderBlockCommitOpcode,
+            txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
+            vtxindex: 444,
+            block_number: 124,
+            burn_header_hash: block_124_hash.clone(),
+
+            _phantom: PhantomData
+        };
+
+        let block_commit_2 : LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey> = LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222223").unwrap()).unwrap(),
+            new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333334").unwrap()).unwrap(),
+            parent_block_backptr: 123,
+            parent_vtxindex: 111,
+            key_block_backptr: 2,
+            key_vtxindex: 457,
+            epoch_num: 50,
+            memo: vec![0x80],
+
+            burn_fee: 12345,
+            input: BurnchainTxInput {
+                keys: vec![
+                    BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                ],
+                num_required: 1, 
+                in_type: BurnchainInputType::BitcoinInput,
+            },
+
+            op: 91,     // '[' in ascii
+            txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27d0").unwrap()).unwrap(),
+            vtxindex: 445,
+            block_number: 124,
+            burn_header_hash: block_124_hash.clone(),
+
+            _phantom: PhantomData
+        };        
+        
+        let block_commit_3 : LeaderBlockCommitOp<BitcoinAddress, BitcoinPublicKey> = LeaderBlockCommitOp {
+            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222224").unwrap()).unwrap(),
+            new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333335").unwrap()).unwrap(),
+            parent_block_backptr: 123,
+            parent_vtxindex: 111,
+            key_block_backptr: 3,
+            key_vtxindex: 10,
+            epoch_num: 50,
+            memo: vec![0x80],
+
+            burn_fee: 23456,
+            input: BurnchainTxInput {
+                keys: vec![
+                    BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
+                ],
+                num_required: 1, 
+                in_type: BurnchainInputType::BitcoinInput,
+            },
+
+            op: 91,     // '[' in ascii
+            txid: Txid::from_bytes_be(&hex_bytes("301dc687a9f06a1ae87a013f27133e9cec0843c2983567be73e185827c7c13de").unwrap()).unwrap(),
+            vtxindex: 445,
+            block_number: 124,
+            burn_header_hash: block_124_hash.clone(),
+
+            _phantom: PhantomData
+        };
+
+        let block_ops_121 : Vec<BlockstackOperationType<BitcoinAddress, BitcoinPublicKey>> = vec![
+            BlockstackOperationType::LeaderKeyRegister(leader_key_3.clone())
+        ];
+        let block_opshash_121 = OpsHash::from_txids(&vec![leader_key_3.txid.clone()]);
+        let block_prev_chs_121 = vec![
+            ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
+        ];
+        let block_121_snapshot = BlockSnapshot {
+            block_height: 121,
+            burn_header_hash: block_121_hash.clone(),
+            ops_hash: block_opshash_121.clone(),
+            consensus_hash: ConsensusHash::from_ops(&block_opshash_121, 0, &block_prev_chs_121),
+            total_burn: 0,
+            burn_quota: burnchain.burn_quota.inc,       // a sortition won't happen, but the burn quota will have been incremented
+            sortition: false,
+            sortition_hash: SortitionHash::initial()
+                .mix_burn_header(&block_121_hash),
+            winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            canonical: true
+        };
+
+        let block_ops_122 : Vec<BlockstackOperationType<BitcoinAddress, BitcoinPublicKey>> = vec![
+            BlockstackOperationType::LeaderKeyRegister(leader_key_2.clone())
+        ];
+        let block_opshash_122 = OpsHash::from_txids(&vec![leader_key_2.txid.clone()]);
+        let block_prev_chs_122 = vec![
+            block_121_snapshot.consensus_hash.clone(),
+            ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
+        ];
+        let block_122_snapshot = BlockSnapshot {
+            block_height: 122,
+            burn_header_hash: block_122_hash.clone(),
+            ops_hash: block_opshash_122.clone(),
+            consensus_hash: ConsensusHash::from_ops(&block_opshash_122, 0, &block_prev_chs_122),
+            total_burn: 0,
+            burn_quota: block_121_snapshot.burn_quota * burnchain.burn_quota.dec_num / burnchain.burn_quota.dec_den,       // burn quota decrease since no burns
+            sortition: false,
+            sortition_hash: SortitionHash::initial()
+                .mix_burn_header(&block_121_hash)
+                .mix_burn_header(&block_122_hash),
+            winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            canonical: true
+        };
+
+        let block_ops_123 : Vec<BlockstackOperationType<BitcoinAddress, BitcoinPublicKey>> = vec![
+            BlockstackOperationType::UserBurnSupport(user_burn_noblock.clone()),
+            BlockstackOperationType::UserBurnSupport(user_burn_nokey.clone()),
+            BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
+        ];
+        let block_opshash_123 = OpsHash::from_txids(&vec![
+            // notably, the user burns here _wont_ be included in the consensus hash
+            leader_key_1.txid.clone(),
+        ]);
+        let block_prev_chs_123 = vec![
+            block_122_snapshot.consensus_hash.clone(),
+            block_121_snapshot.consensus_hash.clone(),
+        ];
+        let block_123_snapshot = BlockSnapshot {
+            block_height: 123,
+            burn_header_hash: block_123_hash.clone(),
+            ops_hash: block_opshash_123.clone(),
+            consensus_hash: ConsensusHash::from_ops(&block_opshash_123, 0, &block_prev_chs_123),        // user burns not included, so zero burns this block
+            total_burn: 0,
+            burn_quota: block_122_snapshot.burn_quota * burnchain.burn_quota.dec_num / burnchain.burn_quota.dec_den,       // burn quota decrease since no burns
+            sortition: false,
+            sortition_hash: SortitionHash::initial()
+                .mix_burn_header(&block_121_hash)
+                .mix_burn_header(&block_122_hash)
+                .mix_burn_header(&block_123_hash),
+            winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            canonical: true
+        };
+
+        // multiple possibilities for block 124 -- we'll reorg the chain each time back to 123 and
+        // re-try block 124 to test them all.
+        let block_ops_124_possibilities = vec![
+            vec![
+                BlockstackOperationType::LeaderBlockCommit(block_commit_1.clone()),
+            ],
+            vec![
+                BlockstackOperationType::LeaderBlockCommit(block_commit_1.clone()),
+                BlockstackOperationType::LeaderBlockCommit(block_commit_2.clone()),
+                BlockstackOperationType::LeaderBlockCommit(block_commit_3.clone()),
+            ],
+            vec![
+                BlockstackOperationType::UserBurnSupport(user_burn_1.clone()),
+                BlockstackOperationType::UserBurnSupport(user_burn_1_2.clone()),
+                BlockstackOperationType::UserBurnSupport(user_burn_2.clone()),
+                BlockstackOperationType::UserBurnSupport(user_burn_2_2.clone()),
+                BlockstackOperationType::LeaderBlockCommit(block_commit_1.clone()),
+                BlockstackOperationType::LeaderBlockCommit(block_commit_2.clone()),
+                BlockstackOperationType::LeaderBlockCommit(block_commit_3.clone())
+            ],
+        ];
+ 
+        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+
+        // process up to 124 
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let sn121 = Burnchain::append_block_ops(&mut tx, &burnchain, first_block_height, 121, &block_121_hash, &block_ops_121).unwrap();
+            tx.commit().unwrap();
+            
+            assert_eq!(sn121, block_121_snapshot);
+        }
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let sn122 = Burnchain::append_block_ops(&mut tx, &burnchain, first_block_height, 122, &block_122_hash, &block_ops_122).unwrap();
+            tx.commit().unwrap();
+            
+            assert_eq!(sn122, block_122_snapshot);
+        }
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let sn123 = Burnchain::append_block_ops(&mut tx, &burnchain, first_block_height, 123, &block_123_hash, &block_ops_123).unwrap();
+            tx.commit().unwrap();
+            
+            assert_eq!(sn123, block_123_snapshot);
+        }
+
+        for block_ops_124 in block_ops_124_possibilities {
+            // everything will be included
+            let block_opshash_124 = OpsHash::from_txids(
+                &block_ops_124
+                .clone()
+                .into_iter()
+                .map(|bo| {
+                    match bo {
+                        BlockstackOperationType::LeaderBlockCommit(ref op) => op.txid.clone(),
+                        BlockstackOperationType::LeaderKeyRegister(ref op) => op.txid.clone(),
+                        BlockstackOperationType::UserBurnSupport(ref op) => op.txid.clone()
+                    }
+                })
+                .collect()
+            );
+            let block_prev_chs_124 = vec![
+                block_123_snapshot.consensus_hash.clone(),
+                block_122_snapshot.consensus_hash.clone(),
+                ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
+            ];
+            let burn_total = block_ops_124
+                .iter()
+                .fold(0u64, |mut acc, op| {
+                    let bf = match op {
+                        BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
+                        BlockstackOperationType::UserBurnSupport(ref op) => op.burn_fee,
+                        _ => 0
+                    };
+                    acc += bf;
+                    acc
+                });
+
+            let (next_sortition, next_burn_quota) = 
+                if burn_total < block_123_snapshot.burn_quota {
+                    (false, block_123_snapshot.burn_quota * burnchain.burn_quota.dec_num / burnchain.burn_quota.dec_den)
+                }
+                else {
+                    (true, block_123_snapshot.burn_quota + burnchain.burn_quota.inc)
+                };
+
+            let next_winning_burn_block_hash = 
+                if next_sortition {
+                    block_124_hash.clone()
+                }
+                else {
+                    BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()
+                };
+
+            let mut block_124_snapshot = BlockSnapshot {
+                block_height: 124,
+                burn_header_hash: block_124_hash.clone(),
+                ops_hash: block_opshash_124.clone(),
+                consensus_hash: ConsensusHash::from_ops(&block_opshash_124, burn_total, &block_prev_chs_124),
+                total_burn: burn_total,
+                burn_quota: next_burn_quota,
+                sortition: next_sortition,
+                sortition_hash: SortitionHash::initial()
+                    .mix_burn_header(&block_121_hash)
+                    .mix_burn_header(&block_122_hash)
+                    .mix_burn_header(&block_123_hash)
+                    .mix_burn_header(&block_124_hash),
+                winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                winning_block_burn_hash: next_winning_burn_block_hash,
+                canonical: true
+            };
+
+            // process this scenario
+            let sn124 = {
+                let mut tx = db.tx_begin().unwrap();
+                let sn124 = Burnchain::append_block_ops(&mut tx, &burnchain, first_block_height, 124, &block_124_hash, &block_ops_124).unwrap();
+                tx.commit().unwrap();
+                sn124
+            };
+           
+            // if sortition happened, winner is 222....222 (vrf seed is 000...0000, and sortition
+            // hash is 39e895...8a869)
+            block_124_snapshot.winning_block_txid = 
+                if next_sortition {
+                    block_commit_1.txid.clone()
+                }
+                else {
+                    Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()
+                };
+            
+            assert_eq!(sn124, block_124_snapshot);
+
+            // reorg the chain so we can try another scenario for block 124 
+            {
+                test_debug!("TEST: Chain reorg on 124");
+                let mut tx = db.tx_begin().unwrap();
+                BurnDB::<BitcoinAddress, BitcoinPublicKey>::burnchain_history_reorg(&mut tx, 124).unwrap();
+                tx.commit().unwrap();
+            }
+        }
+    }
+}

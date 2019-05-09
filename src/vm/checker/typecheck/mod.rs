@@ -122,12 +122,42 @@ fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> Chec
 }
 
 impl <'a, 'b> TypeChecker <'a, 'b> {
-    pub fn new(db: &'a AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
+    fn new(db: &'a AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
         TypeChecker {
             db: db,
             contract_context: ContractContext::new(),
             type_map: TypeMap::new()
         }
+    }
+
+    pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<ContractAnalysis> {
+        let mut type_checker = TypeChecker::new(analysis_db);
+        let mut local_context = TypingContext::new();
+
+        for exp in contract {
+            if type_checker.try_type_check_define(exp, &mut local_context)?
+                .is_none() {
+                    // was _not_ a define statement, so handle like a normal statement.
+                    type_checker.type_check(exp, &local_context)?;
+                }
+        }
+
+
+        Ok(type_checker.contract_context.to_contract_analysis())
+    }
+
+
+    // Type checks an expression, recursively type checking its subexpressions
+    pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
+        let mut result = self.inner_type_check(expr, context);
+
+        if let Err(ref mut error) = result {
+            if !error.has_expression() {
+                error.set_expression(expr);
+            }
+        }
+
+        result
     }
 
     fn type_check_all(&mut self, args: &[SymbolicExpression], context: &TypingContext) -> CheckResult<Vec<TypeSignature>> {
@@ -212,7 +242,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok((function_name.to_string(), FunctionType::Fixed(arg_types, return_type)))
     }
 
-    pub fn type_check_define_map(&mut self, map_expression: &[SymbolicExpression],
+    fn type_check_define_map(&mut self, map_expression: &[SymbolicExpression],
                                  _context: &TypingContext) -> CheckResult<(String, (TypeSignature, TypeSignature))> {
         if map_expression.len() != 4 {
             return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, map_expression.len() - 2)))
@@ -270,18 +300,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 
-    pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
-        let mut result = self.inner_type_check(expr, context);
-
-        if let Err(ref mut error) = result {
-            if !error.has_expression() {
-                error.set_expression(expr);
-            }
-        }
-
-        result
-    }
-
     fn lookup_variable(&self, name: &str, context: &TypingContext) -> TypeResult {
         if let Some(type_result) = type_reserved_variable(name) {
             Ok(type_result)
@@ -322,11 +340,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok((var_name, var_type))
     }
 
-    pub fn try_type_check_define(&mut self, expr: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
+
+    // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
+    fn try_type_check_define(&mut self, expr: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
         if let Some(ref expression) = expr.match_list() {
             if let Some((function_name, function_args)) = expression.split_first() {
                 if let Some(function_name) = function_name.match_atom() {
-                    // TODO: these inserts need to check if the name already exists!
                     match function_name.as_str() {
                         "define" => {
                             if function_args.len() < 1 {
@@ -335,12 +354,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                                 if function_args[0].match_list().is_some() {
                                     let (f_name, f_type) = self.type_check_define_function(expression,
                                                                                            context)?;
-                                    self.contract_context.function_types.insert(f_name, f_type);
+                                    self.contract_context.add_private_function_type(f_name, f_type)?;
                                     Ok(Some(()))
                                 } else {
                                     let (v_name, v_type) = self.type_check_define_variable(function_args,
                                                                                            context)?;
-                                    self.contract_context.variable_types.insert(v_name, v_type);
+                                    self.contract_context.add_variable_type(v_name, v_type)?;
                                     Ok(Some(()))
                                 }
                             }
@@ -352,14 +371,14 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                                 &f_type.return_type()) {
                                 Err(CheckError::new(CheckErrors::PublicFunctionMustReturnBool))
                             } else {
-                                self.contract_context.public_function_types.insert(f_name, f_type);
+                                self.contract_context.add_public_function_type(f_name, f_type)?;
                                 Ok(Some(()))
                             }
                         },
                         "define-map" => {
                             let (f_name, f_type) = self.type_check_define_map(expression,
                                                                               context)?;
-                            self.contract_context.map_types.insert(f_name, f_type);
+                            self.contract_context.add_map_type(f_name, f_type)?;
                             Ok(Some(()))
                         },
                         _ => {
@@ -378,35 +397,3 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 }
 
-pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<ContractAnalysis> {
-    let mut type_checker = TypeChecker::new(analysis_db);
-    let mut contract_context = TypingContext::new();
-
-    for exp in contract {
-        if type_checker.try_type_check_define(exp, &mut contract_context)?
-            .is_none() {
-                // was _not_ a define statement, so handle like a normal statement.
-                type_checker.type_check(exp, &contract_context)?;
-            }
-    }
-
-    let mut contract_analysis = ContractAnalysis::new();
-
-    for (name, function_type) in type_checker.contract_context.public_function_types.iter() {
-        contract_analysis.add_public_function(name, function_type);
-    }
-
-    for (name, function_type) in type_checker.contract_context.function_types.iter() {
-        contract_analysis.add_private_function(name, function_type);
-    }
-
-    for (name, (key_type, map_type)) in type_checker.contract_context.map_types.iter() {
-        contract_analysis.add_map_type(name, key_type, map_type);
-    }
-
-    for (name, variable_type) in type_checker.contract_context.variable_types.iter() {
-        contract_analysis.add_variable_type(name, variable_type);
-    }
-
-    Ok(contract_analysis)
-}

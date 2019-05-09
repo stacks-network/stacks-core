@@ -44,6 +44,8 @@ pub enum CheckErrors {
     ContractAlreadyExists(String),
     ContractCallExpectName,
 
+
+    NameAlreadyUsed(String),
     // expect a function, or applying a function to a list
     NonFunctionApplication,
     ExpectedListApplication,

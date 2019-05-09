@@ -31,25 +31,25 @@ impl ContractDatabaseConnection {
         let mut contract_db = ContractDatabaseConnection::inner_open(filename)?;
         contract_db.execute("CREATE TABLE IF NOT EXISTS maps_table
                       (map_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
-                       contract_name TEXT,
-                       map_name TEXT,
-                       key_type TEXT,
-                       value_type TEXT)",
+                       contract_name TEXT NOT NULL,
+                       map_name TEXT UNIQUE NOT NULL,
+                       key_type TEXT NOT NULL,
+                       value_type TEXT NOT NULL)",
                             NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS data_table
                       (data_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
-                       map_identifier INTEGER,
-                       key TEXT,
+                       map_identifier INTEGER NOT NULL,
+                       key TEXT NOT NULL,
                        value TEXT)",
                             NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS contracts
                       (contract_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
-                       contract_name TEXT,
-                       contract_data TEXT)",
+                       contract_name TEXT UNIQUE NOT NULL,
+                       contract_data TEXT NOT NULL)",
                             NO_PARAMS);
 
         contract_db.execute("CREATE TABLE IF NOT EXISTS simmed_block_table
-                      (simmed_block_height BLOB)",
+                      (simmed_block_height BLOB NOT NULL)",
                             NO_PARAMS);
 
         let default_height: i128 = 0;
@@ -156,14 +156,12 @@ impl <'a> ContractDatabase <'a> {
 
         Ok(SqliteDataMap {
             map_identifier: map_identifier,
-            key_type: TypeSignature::deserialize(&key_type)
-                .expect(DESERIALIZE_FAIL_MESSAGE),
+            key_type: TypeSignature::deserialize(&key_type),
             value_type: TypeSignature::deserialize(&value_type)
-                .expect(DESERIALIZE_FAIL_MESSAGE)
         })
     }
 
-    fn load_contract(&self, contract_name: &str) -> Result<Option<Contract>> {
+    fn load_contract(&self, contract_name: &str) -> Option<Contract> {
         let contract: Option<String> =
             self.query_row(
                 "SELECT contract_data FROM contracts WHERE contract_name = ?",
@@ -172,20 +170,18 @@ impl <'a> ContractDatabase <'a> {
                     row.get(0)
                 });
         match contract {
-            None => Ok(None),
-            Some(ref contract) => Ok(Some(
-                Contract::deserialize(contract)
-                    .expect(DESERIALIZE_FAIL_MESSAGE)))
+            None => None,
+            Some(ref contract) => Some(
+                Contract::deserialize(contract))
         }
     }
 
-    pub fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) -> Result<()> {
+    pub fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {
         let key_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(key_type));
         let value_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type));
 
         self.execute("INSERT INTO maps_table (contract_name, map_name, key_type, value_type) VALUES (?, ?, ?, ?)",
-                     &[contract_name, map_name, &key_type.serialize()?, &value_type.serialize()?]);
-        Ok(())
+                     &[contract_name, map_name, &key_type.serialize(), &value_type.serialize()]);
     }
 
     pub fn fetch_entry(&self, contract_name: &str, map_name: &str, key: &Value) -> Result<Value> {
@@ -195,7 +191,7 @@ impl <'a> ContractDatabase <'a> {
         }
 
         let params: [&ToSql; 2] = [&map_descriptor.map_identifier,
-                                   &key.serialize()?];
+                                   &key.serialize()];
 
         let sql_result: Option<Option<String>> = 
             self.query_row(
@@ -211,8 +207,7 @@ impl <'a> ContractDatabase <'a> {
             Some(sql_result) => {
                 match sql_result {
                     None => Ok(Value::Void),
-                    Some(value_data) => Ok(Value::deserialize(&value_data)
-                                           .expect(DESERIALIZE_FAIL_MESSAGE))
+                    Some(value_data) => Ok(Value::deserialize(&value_data))
                 }
             }
         }
@@ -228,8 +223,8 @@ impl <'a> ContractDatabase <'a> {
         }
 
         let params: [&ToSql; 3] = [&map_descriptor.map_identifier,
-                                   &key.serialize()?,
-                                   &Some(value.serialize()?)];
+                                   &key.serialize(),
+                                   &Some(value.serialize())];
 
         self.execute(
             "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
@@ -253,8 +248,8 @@ impl <'a> ContractDatabase <'a> {
         }
 
         let params: [&ToSql; 3] = [&map_descriptor.map_identifier,
-                                   &key.serialize()?,
-                                   &Some(value.serialize()?)];
+                                   &key.serialize(),
+                                   &Some(value.serialize())];
 
         self.execute(
             "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
@@ -276,7 +271,7 @@ impl <'a> ContractDatabase <'a> {
 
         let none: Option<String> = None;
         let params: [&ToSql; 3] = [&map_descriptor.map_identifier,
-                                   &key.serialize()?,
+                                   &key.serialize(),
                                    &none];
 
         self.execute(
@@ -288,17 +283,16 @@ impl <'a> ContractDatabase <'a> {
 
 
     pub fn get_contract(&mut self, contract_name: &str) -> Result<Contract> {
-        self.load_contract(contract_name)?
+        self.load_contract(contract_name)
             .ok_or_else(|| { Error::new(ErrType::UndefinedContract(contract_name.to_string())) })
     }
 
-    pub fn insert_contract(&mut self, contract_name: &str, contract: Contract) -> Result<()> {
-        if self.load_contract(contract_name)?.is_some() {
-            Err(Error::new(ErrType::ContractAlreadyExists(contract_name.to_string())))
+    pub fn insert_contract(&mut self, contract_name: &str, contract: Contract) {
+        if self.load_contract(contract_name).is_some() {
+            panic!("Contract already exists {}", contract_name);
         } else {
             self.execute("INSERT INTO contracts (contract_name, contract_data) VALUES (?, ?)",
-                         &[contract_name, &contract.serialize()?]);
-            Ok(())
+                         &[contract_name, &contract.serialize()]);
         }
     }
 

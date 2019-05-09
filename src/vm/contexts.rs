@@ -172,13 +172,11 @@ impl <'a, 'b> Environment <'a, 'b> {
                                           &mut nested_context);
         match result {
             Ok(contract) => {
-                nested_context.database.insert_contract(contract_name, contract)?;
+                nested_context.database.insert_contract(contract_name, contract);
                 nested_context.commit();
                 Ok(())
             },
             Err(e) => {
-                // not strictly necessary, since the database will roll back when it's reference
-                // is destroyed.
                 nested_context.database.roll_back();
                 Err(e)
             }
