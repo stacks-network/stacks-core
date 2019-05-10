@@ -242,6 +242,8 @@ where command is one of:
                 let mut vm_env = OwnedEnvironment::new(&mut db);
                 let mut exec_env = vm_env.get_exec_environment(None);
 
+                let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
+
                 let mut reader = match linefeed::Interface::new("local-repl") {
                     Ok(r) => r,
                     Err(error) => panic!("Could not create linefeed: \n{}", error)
@@ -272,10 +274,17 @@ where command is one of:
                         reader.add_history_unique(content.clone());
                     }
 
-                    let result = exec_env.eval_raw(&content);
-                    match result {
-                        Ok(x) => println!("{}", x),
-                        Err(error) => println!("Program execution error: \n{}", error)
+                    let mut ast = parse(&content).expect("Failed to parse program.");
+                    let mut analysis_db = analysis_db_conn.begin_save_point();
+                    match type_check("transient", &mut ast, &mut analysis_db, true) {
+                        Ok(_) => {
+                            let result = exec_env.eval_raw(&content);
+                            match result {
+                                Ok(x) => println!("{}", x),
+                                Err(error) => println!("Program execution error: \n{}", error)
+                            }
+                        },
+                        Err(error) => println!("Type check error.\n{}", error)
                     }
                 }
             },
@@ -302,21 +311,30 @@ where command is one of:
 
                 let mut outer_sp = db_conn.begin_save_point_raw();                    
                 let mut db = ContractDatabase::from_savepoint(outer_sp);
+                let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
 
                 let mut vm_env = OwnedEnvironment::new(&mut db);
-                let result = vm_env.get_exec_environment(None)
-                    .eval_raw(&content);
 
-                match result {
-                    Ok(x) => {
-                        println!("Program executed successfully! Output: \n{}", x);
+                let mut ast = parse(&content).expect("Failed to parse program.");
+                let mut analysis_db = analysis_db_conn.begin_save_point();
+                match type_check("transient", &mut ast, &mut analysis_db, true) {
+                    Ok(_) => {
+                        let result = vm_env.get_exec_environment(None).eval_raw(&content);
+                        match result {
+                            Ok(x) => {
+                                println!("Program executed successfully! Output: \n{}", x);
+                            },
+                            Err(error) => {
+                                eprintln!("Program execution error: \n{}", error);
+                                process::exit(1);
+                            }
+                        }
                     },
                     Err(error) => {
-                        println!("Program execution error: \n{}", error);
+                        eprintln!("Type check error.\n{}", error);
                         process::exit(1);
                     }
                 }
-
                 return
             }
             "eval" => {
