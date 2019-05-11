@@ -8,7 +8,7 @@ mod tuples;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::{Value, PrincipalData};
 use vm::callables::CallableType;
-use vm::representations::SymbolicExpression;
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 
@@ -47,7 +47,8 @@ pub enum NativeFunctions {
     Keccak256,
     Print,
     ContractCall,
-    AsContract
+    AsContract,
+    GetBlockInfo
 }
 
 impl NativeFunctions {
@@ -89,6 +90,7 @@ impl NativeFunctions {
             "print" => Some(Print),
             "contract-call!" => Some(ContractCall),
             "as-contract" => Some(AsContract),
+            "get-block-info" => Some(GetBlockInfo),
             _ => None
         }
     }
@@ -133,6 +135,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Print => CallableType::NativeFunction("native_print", &native_print),
             ContractCall => CallableType::SpecialFunction("native_contract-call", &database::special_contract_call),
             AsContract => CallableType::SpecialFunction("native_as-contract", &special_as_contract),
+            GetBlockInfo => CallableType::SpecialFunction("native_get_block_info", &special_get_block_info),
         };
         Some(callable)
     } else {

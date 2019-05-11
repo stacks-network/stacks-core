@@ -137,7 +137,7 @@ const EQUALS_API: SimpleFunctionAPI = SimpleFunctionAPI {
 
 const ISNULL_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(isnull? v1 v2...)",
-    description: "Compares the intputted values, returns true if they are all null. Note that _unlike_ the `(and ...)` function, `(isnull? ...)` will _not_ short-circuit.",
+    description: "Compares the inputted values, returns true if they are all null. Note that _unlike_ the `(and ...)` function, `(isnull? ...)` will _not_ short-circuit.",
     example: "(isnull? 'null) => true
 (isnull? 1) => false
 (isnull? 1 'null) => false
@@ -393,6 +393,14 @@ principal, and executes `expr` with that context. It returns the resulting value
     example: "(as-contract (print tx-sender)) => 'CTcontract.name"
 };
 
+const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
+    input_type: "TODO",
+    output_type: "TODO",
+    signature: "TODO",
+    description: "TODO",
+    example: "TODO"
+};
+
 
 fn make_for_special(api: &SpecialAPI) -> FunctionAPI {
     FunctionAPI {
@@ -442,7 +450,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Keccak256 => make_for_special(&KECCAK256_API),
         Print => make_for_special(&PRINT_API),
         ContractCall => make_for_special(&CONTRACT_CALL_API),
-        AsContract => make_for_special(&AS_CONTRACT_API)
+        AsContract => make_for_special(&AS_CONTRACT_API),
+        GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API),
     }
 }
 
