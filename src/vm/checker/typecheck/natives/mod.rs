@@ -1,7 +1,7 @@
 use vm::errors::{ErrType as InterpError};
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature};
+use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty};
 use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
 use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 
@@ -266,32 +266,6 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
     contract_call_function_type.check_args(&contract_call_args)?;
     
     Ok(contract_call_function_type.return_type())
-}
-
-#[derive(Debug)]
-pub enum BlockInfoProperty {
-    Time,
-    VrfSeed,
-    HeaderHash
-}
-
-impl BlockInfoProperty {
-    pub fn from_str(s: &str) -> Option<BlockInfoProperty> {
-        match s {
-            "time" => Some(BlockInfoProperty::Time),
-            "vrf-seed" => Some(BlockInfoProperty::VrfSeed),
-            "header-hash" => Some(BlockInfoProperty::HeaderHash),
-            _ => None
-        }
-    }
-
-    pub fn type_result(&self) -> TypeSignature {
-        match *self {
-            BlockInfoProperty::Time => TypeSignature::new_atom(AtomTypeIdentifier::IntType),
-            BlockInfoProperty::VrfSeed => TypeSignature::new_atom(AtomTypeIdentifier::BufferType(32)),
-            BlockInfoProperty::HeaderHash => TypeSignature::new_atom(AtomTypeIdentifier::BufferType(32)),
-        }
-    }
 }
 
 fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {

@@ -135,7 +135,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Print => CallableType::NativeFunction("native_print", &native_print),
             ContractCall => CallableType::SpecialFunction("native_contract-call", &database::special_contract_call),
             AsContract => CallableType::SpecialFunction("native_as-contract", &special_as_contract),
-            GetBlockInfo => CallableType::SpecialFunction("native_get_block_info", &special_get_block_info),
+            GetBlockInfo => CallableType::SpecialFunction("native_get_block_info", &database::special_get_block_info),
         };
         Some(callable)
     } else {

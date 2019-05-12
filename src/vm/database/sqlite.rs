@@ -49,12 +49,35 @@ impl ContractDatabaseConnection {
                             NO_PARAMS);
 
         contract_db.execute("CREATE TABLE IF NOT EXISTS simmed_block_table
-                      (simmed_block_height BLOB NOT NULL)",
+                      (block_height INTEGER PRIMARY KEY,
+                       block_time INTEGER NOT NULL,
+                       block_vrf_seed BLOB NOT NULL,
+                       block_header_hash BLOB NOT NULL)",
                             NO_PARAMS);
+        
+        // TODO: Only perform this when in a local dev environment.
+        let simmed_default_height: i64 = 0;
+        let simmed_block_count: i64 = 20;
+        let simmed_block_time = 10 * 60; // 10 min
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let time_now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs() as i64;
 
-        let default_height: i128 = 0;
-        contract_db.execute("INSERT INTO simmed_block_table (simmed_block_height) VALUES (?)",
-                            &[default_height]);
+        for i in simmed_default_height..simmed_block_count {
+            let simmed_block_time = time_now - ((simmed_block_count - i) * simmed_block_time);
+            let mut simmed_block_vrf = vec![0u8; 32];
+            simmed_block_vrf[0] = 1;
+            simmed_block_vrf[31] = i as u8;
+            let mut simmed_block_header_hash = vec![0u8; 32];
+            simmed_block_header_hash[0] = 2;
+            simmed_block_header_hash[31] = i as u8;
+            contract_db.execute("INSERT INTO simmed_block_table 
+                            (block_height, block_time, block_vrf_seed, block_header_hash) 
+                            VALUES (?1, ?2, ?3, ?4)",
+                            &[&i as &ToSql, &simmed_block_time, &simmed_block_vrf, &simmed_block_header_hash]);
+        }
 
         contract_db.check_schema()?;
 
@@ -297,14 +320,47 @@ impl <'a> ContractDatabase <'a> {
     }
 
     pub fn get_simmed_block_height(&self) -> Result<i128> {
-        let block_height: (i128) =
+        let block_height: (i64) =
             self.query_row(
-                "SELECT simmed_block_height FROM simmed_block_table LIMIT 1",
+                "SELECT block_height FROM simmed_block_table ORDER BY block_height DESC LIMIT 1",
                 NO_PARAMS,
                 |row| row.get(0))
             .expect("Failed to fetch simulated block height");
 
-        Ok(block_height)
+        Ok(block_height as i128)
+    }
+
+    pub fn get_simmed_block_time(&self, block_height: &i128) -> Result<i128> {
+        let block_time: (i64) = 
+            self.query_row(
+                "SELECT block_time FROM simmed_block_table WHERE block_height = ? LIMIT 1",
+                &[*block_height as i64],
+                |row| row.get(0))
+            .expect("Failed to fetch simulated block time");
+        
+        Ok(block_time as i128)
+    }
+
+    pub fn get_simmed_block_header_hash(&self, block_height: &i128) -> Result<Vec<u8>> {
+        let block_header_hash: (Vec<u8>) =
+            self.query_row(
+                "SELECT block_header_hash from simmed_block_table WHERE block_height = ? LIMIT 1",
+                &[*block_height as i64],
+                |row| row.get(0))
+            .expect("Failed to fetch simulated block header hash");
+        
+        Ok(block_header_hash)
+    }
+
+    pub fn get_simmed_block_vrf_seed(&self, block_height: &i128) -> Result<Vec<u8>> {
+        let block_vrf_seed: (Vec<u8>) =
+            self.query_row(
+                "SELECT block_vrf_seed from simmed_block_table WHERE block_height = ? LIMIT 1",
+                &[*block_height as i64],
+                |row| row.get(0))
+            .expect("Failed to fetch simulated block vrf seed");
+
+        Ok(block_vrf_seed)
     }
 
     pub fn set_simmed_block_height(&mut self, block_height: i128) {

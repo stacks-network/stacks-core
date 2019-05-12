@@ -74,6 +74,51 @@ pub enum Value {
     Tuple(TupleData)
 }
 
+#[derive(Debug)]
+pub enum BlockInfoProperty {
+    Time,
+    VrfSeed,
+    HeaderHash
+}
+
+impl BlockInfoProperty {
+    pub fn from_str(s: &str) -> Option<BlockInfoProperty> {
+        use self::BlockInfoProperty::*;
+        match s {
+            "time" => Some(Time),
+            "vrf-seed" => Some(VrfSeed),
+            "header-hash" => Some(HeaderHash),
+            _ => None
+        }
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        use self::BlockInfoProperty::*;
+        match self {
+            Time => "time",
+            VrfSeed => "vrf-seed",
+            HeaderHash => "header-hash",
+        }
+    }
+
+    pub fn type_result(&self) -> TypeSignature {
+        use self::AtomTypeIdentifier::*;
+        use self::BlockInfoProperty::*;
+        match self {
+            Time => TypeSignature::new_atom(IntType),
+            VrfSeed => TypeSignature::new_atom(BufferType(32)),
+            HeaderHash => TypeSignature::new_atom(BufferType(32)),
+        }
+    }
+}
+
+
+impl fmt::Display for BlockInfoProperty {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", &self.to_str())
+    }
+}
+
 impl PartialEq for ListData {
     fn eq(&self, other: &ListData) -> bool {
         self.data == other.data

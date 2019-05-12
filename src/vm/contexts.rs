@@ -196,6 +196,21 @@ impl <'a> GlobalContext <'a> {
             .expect("Failed to obtain the current block height.")
     }
 
+    pub fn get_block_time(&self, block_height: &i128) -> i128 {
+        self.database.get_simmed_block_time(block_height)
+            .expect("Failed to obtain the block time for the given block height.")
+    }
+
+    pub fn get_block_header_hash(&self, block_height: &i128) -> Vec<u8> {
+        self.database.get_simmed_block_header_hash(block_height)
+            .expect("Failed to obtain the block header hash for the given block height.")
+    }
+
+    pub fn get_block_vrf_seed(&self, block_height: &i128) -> Vec<u8> {
+        self.database.get_simmed_block_vrf_seed(block_height)
+            .expect("Failed to obtain the block vrf seed for the given block height.")
+    }
+
     pub fn begin_from(database: &'a mut ContractDatabaseTransacter) -> GlobalContext<'a> {
         let db = database.begin_save_point();
         GlobalContext::new(db)
