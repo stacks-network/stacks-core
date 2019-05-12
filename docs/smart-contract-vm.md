@@ -11,13 +11,13 @@ You have two options for setting up a local development environment:
 Fetch the docker image
 
 ```bash
-$ docker pull blockstack/blockstack-core:alpha.contracts.0
+$ docker pull blockstack/blockstack-core:alpha.contracts.1
 ```
 
 You can "enter" a docker environment using the following command:
 
 ```bash
-$ docker run -it -v $HOME/blockstack-dev-data:/data/ blockstack/blockstack-core:alpha.contracts.0 bash
+$ docker run -it -v $HOME/blockstack-dev-data:/data/ blockstack/blockstack-core:alpha.contracts.1 bash
 ```
 
 This also _mounts_ the folder `$HOME/blockstack-dev-data` so that you
@@ -198,7 +198,7 @@ defined in the smart contract VM.
 You can obtain them from the docker container with:
 
 ```
-$ docker run -it -v $HOME/blockstack-dev-data:/data/ blockstack/blockstack-core:alpha.contracts.0 blockstack-core docgen
+$ docker run -it -v $HOME/blockstack-dev-data:/data/ blockstack/blockstack-core:alpha.contracts.1 blockstack-core docgen
 ```
 
 This outputs a JSON encoding of the API specifications for the native functions.
