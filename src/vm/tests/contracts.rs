@@ -97,11 +97,11 @@ fn test_simple_token_system() {
                            "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
         Value::Int(1003));
     assert_eq!(
-        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(5)])).unwrap(),
+        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap(),
         Value::Bool(false));
-    env.global_context.database.set_simmed_block_height(10);
+    env.global_context.database.sim_mine_blocks(10);
     assert_eq!(
-        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(5)])).unwrap(),
+        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap(),
         Value::Bool(true));
     assert_eq!(
         env.execute_contract("tokens", "faucet", &vec![]).unwrap(),

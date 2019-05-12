@@ -7,6 +7,7 @@ use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in Smart Contract VM.";
+const SIMMED_BLOCK_TIME: i64 = 10 * 60; // 10 min
 
 pub struct ContractDatabaseConnection {
     conn: Connection
@@ -55,10 +56,10 @@ impl ContractDatabaseConnection {
                        block_header_hash BLOB NOT NULL)",
                             NO_PARAMS);
         
+        // Insert 20 simulated blocks
         // TODO: Only perform this when in a local dev environment.
         let simmed_default_height: i64 = 0;
         let simmed_block_count: i64 = 20;
-        let simmed_block_time = 10 * 60; // 10 min
         use std::time::{SystemTime, UNIX_EPOCH};
         let time_now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -66,17 +67,20 @@ impl ContractDatabaseConnection {
             .as_secs() as i64;
 
         for i in simmed_default_height..simmed_block_count {
-            let simmed_block_time = time_now - ((simmed_block_count - i) * simmed_block_time);
-            let mut simmed_block_vrf = vec![0u8; 32];
-            simmed_block_vrf[0] = 1;
-            simmed_block_vrf[31] = i as u8;
-            let mut simmed_block_header_hash = vec![0u8; 32];
-            simmed_block_header_hash[0] = 2;
-            simmed_block_header_hash[31] = i as u8;
+            let block_time = time_now - ((simmed_block_count - i) * SIMMED_BLOCK_TIME);
+
+            let mut block_vrf = vec![0u8; 32];
+            block_vrf[0] = 1;
+            block_vrf[31] = i as u8;
+
+            let mut header_hash = vec![0u8; 32];
+            header_hash[0] = 2;
+            header_hash[31] = i as u8;
+
             contract_db.execute("INSERT INTO simmed_block_table 
                             (block_height, block_time, block_vrf_seed, block_header_hash) 
                             VALUES (?1, ?2, ?3, ?4)",
-                            &[&i as &ToSql, &simmed_block_time, &simmed_block_vrf, &simmed_block_header_hash]);
+                            &[&i as &ToSql, &block_time, &block_vrf, &header_hash]);
         }
 
         contract_db.check_schema()?;
@@ -363,12 +367,45 @@ impl <'a> ContractDatabase <'a> {
         Ok(block_vrf_seed)
     }
 
-    pub fn set_simmed_block_height(&mut self, block_height: i128) {
-        self.execute(
-            "UPDATE simmed_block_table SET simmed_block_height = ?",
-            &[block_height]);
+    pub fn sim_mine_block_with_time(&mut self, block_time: i128) {
+        let current_height = self.get_simmed_block_height()
+            .expect("Failed to get simulated block height");
+
+        let block_time = block_time as i64;
+        let block_height = current_height as i64 + 1;
+
+        let mut block_vrf = vec![0u8; 32];
+        block_vrf[0] = 1;
+        block_vrf[31] = block_height as u8;
+
+        let mut header_hash = vec![0u8; 32];
+        header_hash[0] = 2;
+        header_hash[31] = block_height as u8;
+
+        self.execute("INSERT INTO simmed_block_table 
+                        (block_height, block_time, block_vrf_seed, block_header_hash) 
+                        VALUES (?1, ?2, ?3, ?4)",
+                        &[&block_height as &ToSql, &block_time, &block_vrf, &header_hash]);
     }
 
+    pub fn sim_mine_block(&mut self) {
+        let current_height = self.get_simmed_block_height()
+            .expect("Failed to get simulated block height");
+        let current_time = self.get_simmed_block_time(&current_height)
+            .expect("Failed to get simulated block time");
+
+        let block_time = current_time + SIMMED_BLOCK_TIME as i128;
+        self.sim_mine_block_with_time(block_time);
+    }
+
+    pub fn sim_mine_blocks(&mut self, count: u32) {
+        let mut i = 0u32;
+        while i < count {
+            self.sim_mine_block();
+            i = i + 1;
+        }
+    }
+    
     pub fn roll_back(&mut self) {
         self.savepoint.rollback()
             .expect(SQL_FAIL_MESSAGE);
