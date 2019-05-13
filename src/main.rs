@@ -273,18 +273,22 @@ where command is one of:
                     if !content.trim().is_empty() {
                         reader.add_history_unique(content.clone());
                     }
-
-                    let mut ast = parse(&content).expect("Failed to parse program.");
-                    let mut analysis_db = analysis_db_conn.begin_save_point();
-                    match type_check("transient", &mut ast, &mut analysis_db, true) {
-                        Ok(_) => {
-                            let result = exec_env.eval_raw(&content);
-                            match result {
-                                Ok(x) => println!("{}", x),
-                                Err(error) => println!("Program execution error: \n{}", error)
+                    
+                    match parse(&content) {
+                        Err(error) => println!("Parse error:\n{}", error),
+                        Ok(ref mut ast) => {
+                            let mut analysis_db = analysis_db_conn.begin_save_point();
+                            match type_check("transient", ast, &mut analysis_db, true) {
+                                Err(error) => println!("Type check error:\n{}", error),
+                                Ok(_) => {
+                                    let result = exec_env.eval_raw(&content);
+                                    match result {
+                                        Err(error) => println!("Execution error:\n{}", error),
+                                        Ok(x) => println!("{}", x)
+                                    }
+                                }
                             }
-                        },
-                        Err(error) => println!("Type check error.\n{}", error)
+                        }
                     }
                 }
             },
