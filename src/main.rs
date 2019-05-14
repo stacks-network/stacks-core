@@ -143,7 +143,10 @@ where command is one of:
                 AnalysisDatabaseConnection::initialize(&argv[3]);
                 match ContractDatabaseConnection::initialize(&argv[3]) {
                     Ok(_) => println!("Database created."),
-                    Err(error) => eprintln!("Initialization error: \n{}", error)
+                    Err(error) => {
+                        eprintln!("Initialization error: \n{}", error);
+                        process::exit(1);
+                    }
                 }
                 return
             },
@@ -190,7 +193,10 @@ where command is one of:
                     Ok(x) => {
                         println!("Simulated block height: \n{}", x);
                     },
-                    Err(error) => println!("Program execution error: \n{}", error)
+                    Err(error) => {
+                        eprintln!("Program execution error: \n{}", error);
+                        process::exit(1);
+                    }
                 }
                 return
             }
