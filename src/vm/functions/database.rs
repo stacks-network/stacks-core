@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use vm::types::{Value, BuffData, BlockInfoProperty};
 use vm::representations::{SymbolicExpression};
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
@@ -152,9 +154,10 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
         _ => Err(Error::new(ErrType::TypeError("IntType".to_string(), height_eval)))
     }?;
 
-    if height_value < 0 {
-        return Ok(Value::Void);
-    }
+    let height_value = match u64::try_from(height_value) {
+        Ok(result) => result,
+        _ => return Ok(Value::Void)
+    };
 
     let current_block_height = env.global_context.get_block_height();
     if height_value > current_block_height {
@@ -164,15 +167,15 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
     use self::BlockInfoProperty::*;
     match block_info_prop {
         Time => {
-            let block_time = env.global_context.get_block_time(&height_value);
-            Ok(Value::Int(block_time))
+            let block_time = env.global_context.get_block_time(height_value);
+            Ok(Value::Int(i128::try_from(block_time).unwrap()))
         },
         VrfSeed => {
-            let vrf_seed = env.global_context.get_block_vrf_seed(&height_value);
+            let vrf_seed = env.global_context.get_block_vrf_seed(height_value);
             Ok(Value::Buffer(BuffData { data: vrf_seed }))
         },
         HeaderHash => {
-            let header_hash = env.global_context.get_block_header_hash(&height_value);
+            let header_hash = env.global_context.get_block_header_hash(height_value);
             Ok(Value::Buffer(BuffData { data: header_hash }))
         },
     }

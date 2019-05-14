@@ -154,7 +154,7 @@ where command is one of:
                     process::exit(1);
                 }
 
-                let block_time: i128 = argv[3].parse().expect("Failed to parse block time");
+                let block_time: u64 = argv[3].parse().expect("Failed to parse block time");
 
                 let mut db = match ContractDatabaseConnection::open(&argv[4]) {
                     Ok(db) => db,
