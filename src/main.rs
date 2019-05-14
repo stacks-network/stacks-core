@@ -143,7 +143,10 @@ where command is one of:
                 AnalysisDatabaseConnection::initialize(&argv[3]);
                 match ContractDatabaseConnection::initialize(&argv[3]) {
                     Ok(_) => println!("Database created."),
-                    Err(error) => eprintln!("Initialization error: \n{}", error)
+                    Err(error) => {
+                        eprintln!("Initialization error: \n{}", error);
+                        process::exit(1);
+                    }
                 }
                 return
             },
@@ -191,7 +194,10 @@ where command is one of:
                     Ok(x) => {
                         println!("Simulated block height: \n{}", x);
                     },
-                    Err(error) => println!("Program execution error: \n{}", error)
+                    Err(error) => {
+                        eprintln!("Program execution error: \n{}", error);
+                        process::exit(1);
+                    }
                 }
                 return
             }
@@ -274,19 +280,33 @@ where command is one of:
                     if !content.trim().is_empty() {
                         reader.add_history_unique(content.clone());
                     }
+                    
+                    let mut ast = match parse(&content) {
+                        Ok(val) => val,
+                        Err(error) => {
+                            println!("Parse error:\n{}", error);
+                            continue;
+                        }
+                    };
 
-                    let mut ast = parse(&content).expect("Failed to parse program.");
                     let mut analysis_db = analysis_db_conn.begin_save_point();
                     match type_check("transient", &mut ast, &mut analysis_db, true) {
-                        Ok(_) => {
-                            let result = exec_env.eval_raw(&content);
-                            match result {
-                                Ok(x) => println!("{}", x),
-                                Err(error) => println!("Program execution error: \n{}", error)
-                            }
-                        },
-                        Err(error) => println!("Type check error.\n{}", error)
+                        Ok(_) => (),
+                        Err(error) => {
+                            println!("Type check error:\n{}", error);
+                            continue;
+                        } 
                     }
+
+                    let eval_result = match exec_env.eval_raw(&content) {
+                        Ok(val) => val,
+                        Err(error) => {
+                            println!("Execution error:\n{}", error);
+                            continue;
+                        }
+                    };
+                    
+                    println!("{}", eval_result);
                 }
             },
             "eval_raw" => {
