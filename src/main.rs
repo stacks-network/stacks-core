@@ -274,22 +274,32 @@ where command is one of:
                         reader.add_history_unique(content.clone());
                     }
                     
-                    match parse(&content) {
-                        Err(error) => println!("Parse error:\n{}", error),
-                        Ok(ref mut ast) => {
-                            let mut analysis_db = analysis_db_conn.begin_save_point();
-                            match type_check("transient", ast, &mut analysis_db, true) {
-                                Err(error) => println!("Type check error:\n{}", error),
-                                Ok(_) => {
-                                    let result = exec_env.eval_raw(&content);
-                                    match result {
-                                        Err(error) => println!("Execution error:\n{}", error),
-                                        Ok(x) => println!("{}", x)
-                                    }
-                                }
-                            }
+                    let mut ast = match parse(&content) {
+                        Ok(val) => val,
+                        Err(error) => {
+                            println!("Parse error:\n{}", error);
+                            continue;
                         }
+                    };
+
+                    let mut analysis_db = analysis_db_conn.begin_save_point();
+                    match type_check("transient", &mut ast, &mut analysis_db, true) {
+                        Ok(_) => (),
+                        Err(error) => {
+                            println!("Type check error:\n{}", error);
+                            continue;
+                        } 
                     }
+
+                    let eval_result = match exec_env.eval_raw(&content) {
+                        Ok(val) => val,
+                        Err(error) => {
+                            println!("Execution error:\n{}", error);
+                            continue;
+                        }
+                    };
+                    
+                    println!("{}", eval_result);
                 }
             },
             "eval_raw" => {
