@@ -32,6 +32,7 @@ extern crate sha2;
 extern crate dirs;
 extern crate regex;
 extern crate linefeed;
+extern crate getopts;
 
 #[macro_use] extern crate serde_derive;
 
@@ -40,13 +41,78 @@ mod burnchains;
 mod chainstate;
 mod core;
 mod vm;
+use vm::database::{ContractDatabase, ContractDatabaseConnection};
 mod address;
 
 use std::fs;
 use std::env;
 use std::process;
+use std::string::String;
 
 use util::log;
+
+use getopts::Options;
+
+// TODO: Move arg parsing structs and traits into another file.
+struct LocalArgParseResult {
+    pub matches: getopts::Matches,
+}
+
+impl LocalArgParseResult {
+    pub fn get<T>(&self, name: &str) -> Option<T>
+    where T: std::str::FromStr, <T as std::str::FromStr>::Err: std::fmt::Display
+    {
+        match self.matches.opt_get(name) {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("Failed to parse arg '{}'\n{}", name, error);
+                process::exit(1);
+            }
+        }
+    }
+}
+
+struct LocalArgParser {
+    pub opts: Options,
+    usage_brief: String,
+}
+
+impl LocalArgParser {
+    fn new(usage_brief: String) -> LocalArgParser {
+        LocalArgParser {
+            opts: Options::new(),
+            usage_brief: usage_brief
+        }
+    }
+
+    fn add_data_opt(&mut self, required: bool) {
+        if required {
+            self.opts.reqopt("d", "data", "database file path", "DATA_FILE");
+        } else {
+            self.opts.optopt("d", "data", "database file path", "DATA_FILE");
+        }
+    }
+
+    fn parse(&mut self, args: &[String]) -> (LocalArgParseResult, ContractDatabaseConnection) {
+        let matches = match self.opts.parse(args) {
+            Ok(val) => val,
+            Err(error) => {
+                eprintln!("{}\n{}", self.opts.usage(&self.usage_brief.to_string()), error);
+                process::exit(1);
+            }
+        };
+        let db = (match matches.opt_str("data") {
+            Some(db_arg) => ContractDatabaseConnection::open(&db_arg),
+            None => ContractDatabaseConnection::memory()
+        }).unwrap_or_else(|error| {
+            eprintln!("Could not open vm-state: \n{}", error);
+            process::exit(1);
+        });
+        return (LocalArgParseResult {
+            matches: matches,
+        }, db);
+    }
+}
 
 fn main() {
 
@@ -108,9 +174,7 @@ fn main() {
     }
 
     if argv[1] == "local" {
-        // "local" VM CLI invocations.
-        if argv.len() < 3 {
-            eprintln!("Usage: {} local [command]
+        let local_usage_brief = "Usage: local [command]
 where command is one of:
 
   initialize         to initialize a local VM state database.
@@ -120,10 +184,7 @@ where command is one of:
   launch             to launch a initialize a new contract in the local state database.
   eval               to evaluate (in read-only mode) a program in a given contract context.
   execute            to execute a public function of a defined contract.
-
-", argv[0]);
-            process::exit(1);
-        }
+";
 
         use std::io;
         use std::io::Read;
@@ -134,7 +195,11 @@ where command is one of:
         use vm::checker::{type_check, AnalysisDatabase, AnalysisDatabaseConnection};
         use vm::types::Value;
 
-        match argv[2].as_ref() {
+        let cmd_arg = &argv[2];
+        let usage_brief = format!("Usage: local {}", cmd_arg);
+        let mut arg_parser = LocalArgParser::new(usage_brief);
+
+        match cmd_arg.as_ref() {
             "initialize" => {
                 if argv.len() < 4 {
                     eprintln!("Usage: {} local initialize [vm-state.db]", argv[0]);
@@ -150,28 +215,34 @@ where command is one of:
                 }
                 return
             },
-            "mine_block" => {
-                // TODO: add optional args for specifying timestamps and number of blocks to mine.
-                if argv.len() < 5 {
-                    eprintln!("Usage: {} local mine_block [block time] [vm-state.db]", argv[0]);
-                    process::exit(1);
-                }
-
-                let block_time: u64 = argv[3].parse().expect("Failed to parse block time");
-
-                let mut db = match ContractDatabaseConnection::open(&argv[4]) {
-                    Ok(db) => db,
-                    Err(error) => {
-                        eprintln!("Could not open vm-state: \n{}", error);
-                        process::exit(1);
-                    }
-                };
-
+            "mine_blocks" => {
+                arg_parser.add_data_opt(true);
+                arg_parser.opts.reqopt("c", "count", "block count", "COUNT");
+                let (parse_result, mut db) = arg_parser.parse(&argv[2..]);
+                let count = parse_result.get::<u32>("count").unwrap();
                 let mut sp = db.begin_save_point();
-                sp.sim_mine_block_with_time(block_time);
+                sp.sim_mine_blocks(count);
                 sp.commit();
                 println!("Simulated block mine!");
+                return
+            },
+            "mine_block" => {
+                arg_parser.add_data_opt(true);
+                arg_parser.opts.optopt("t", "time", "block timestamp", "TIME");
+                let (parse_result, mut db) = arg_parser.parse(&argv[2..]);
+                let time_opt = parse_result.get::<u64>("time");
+                let mut sp = db.begin_save_point();
+                match time_opt {
+                    Some(time) => {
+                        sp.sim_mine_block_with_time(time);
+                    },
+                    None => {
+                        sp.sim_mine_block();
+                    }
+                }
 
+                sp.commit();
+                println!("Simulated block mine!");
                 return
             }
             "get_block_height" => {
@@ -543,7 +614,10 @@ where command is one of:
                 }
                 return
             },
-            _ => {}
+            _ => {
+                eprintln!("{}", local_usage_brief);
+                process::exit(1);
+            },
         }
     }
 
