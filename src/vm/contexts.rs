@@ -164,7 +164,12 @@ impl <'a, 'b> Environment <'a, 'b> {
             function.execute_apply(args, &mut nested_env)
         };
 
-        nested_context.handle_tx_result(result)
+        if make_read_only {
+            nested_context.database.roll_back();
+            result
+        } else {
+            nested_context.handle_tx_result(result)
+        }
     }
 
     pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
@@ -230,23 +235,20 @@ impl <'a> GlobalContext <'a> {
     }
 
     pub fn handle_tx_result(mut self, result: Result<Value>) -> Result<Value> {
-        match result {
-            Ok(x) => {
-                if let Value::Bool(bool_result) = x {
-                    if bool_result {
-                        self.commit();
-                    } else {
-                        self.database.roll_back();
-                    }
-                    Ok(x)
+        if let Ok(result) = result {
+            if let Value::Bool(bool_result) = result {
+                if bool_result {
+                    self.commit();
                 } else {
-                    Err(Error::new(ErrType::ContractMustReturnBoolean))
+                    self.database.roll_back();
                 }
-            },
-            Err(_) => {
-                self.database.roll_back();
-                result
+                Ok(result)
+            } else {
+                Err(Error::new(ErrType::ContractMustReturnBoolean))
             }
+        } else {
+            self.database.roll_back();
+            result
         }
     }
 }
