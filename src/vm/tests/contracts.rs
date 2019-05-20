@@ -13,11 +13,12 @@ fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
 fn test_simple_token_system() {
     let tokens_contract = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define (get-balance (account principal))
+         (define-read-only (get-balance (account principal))
             (let ((balance
                   (get balance (fetch-entry tokens (tuple (account account))))))
               (if (eq? balance 'null) 0 balance)))
-
+         (define-read-only (explode (account principal))
+                  (delete-entry! tokens (tuple (account account))))
          (define (token-credit! (account principal) (tokens int))
             (if (<= tokens 0)
                 'false
@@ -109,6 +110,9 @@ fn test_simple_token_system() {
     assert_eq!(
         env.eval_read_only("tokens",
                            "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+        Value::Int(1004));
+    assert_eq!(
+        env.execute_contract("tokens", "get-balance", &symbols_from_values(vec![p1.clone()])).unwrap(),
         Value::Int(1004));
 
 }

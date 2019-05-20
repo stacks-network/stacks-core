@@ -22,23 +22,6 @@ impl Contract {
         Ok(Contract { contract_context: contract_context })
     }
 
-    pub fn execute_transaction<'b> (&self, tx_name: &str, args: &[SymbolicExpression], env: &mut Environment) -> Result<Value> {
-        let func = self.contract_context.lookup_function(tx_name)
-            .ok_or_else(|| { Error::new(ErrType::UndefinedFunction(tx_name.to_string())) })?;
-        if !func.is_public() {
-            return Err(Error::new(ErrType::NonPublicFunction(tx_name.to_string())));
-        }
-        for arg in args {
-            arg.match_atom_value()
-                .ok_or_else(|| Error::new(ErrType::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
-                                                                            tx_name))))?;
-        }
-
-        let local_context = LocalContext::new();
-        apply(&CallableType::UserFunction(func), args, env, &local_context)
-        
-    }
-
     pub fn deserialize(json: &str) -> Contract {
         serde_json::from_str(json)
             .expect("Failed to deserialize contract")

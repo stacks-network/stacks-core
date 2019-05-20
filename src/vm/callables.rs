@@ -66,21 +66,6 @@ impl DefinedFunction {
         eval(&self.body, env, &context)
     }
 
-    pub fn new_public(arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
-                      name: &str, context_name: &str) -> DefinedFunction {
-        DefinedFunction::new(arguments, body, DefineType::Public, name, context_name)
-    }
-
-    pub fn new_private(arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
-                       name: &str, context_name: &str) -> DefinedFunction {
-        DefinedFunction::new(arguments, body, DefineType::Private, name, context_name)
-    }
-
-    pub fn new_read_only(arguments: Vec<(String, TypeSignature)>, body: SymbolicExpression,
-                         name: &str, context_name: &str) -> DefinedFunction {
-        DefinedFunction::new(arguments, body, DefineType::ReadOnly, name, context_name)
-    }
-
     pub fn is_read_only(&self) -> bool {
         self.define_type == DefineType::ReadOnly
     }
@@ -88,8 +73,8 @@ impl DefinedFunction {
     pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
         match self.define_type {
             DefineType::Private => self.execute_apply(args, env),
-            DefineType::Public => env.execute_function_as_transaction(self, args),
-            DefineType::ReadOnly => env.execute_function_as_transaction(self, args)
+            DefineType::Public => env.execute_function_as_transaction(self, args, None),
+            DefineType::ReadOnly => env.execute_function_as_transaction(self, args, None)
         }
     }
 
