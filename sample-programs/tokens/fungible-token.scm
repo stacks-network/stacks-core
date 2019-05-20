@@ -15,6 +15,8 @@
 ;;  You should have received a copy of the GNU General Public License
 ;;  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 
+;; Fungible Token, modeled after ERC-20
+
 ;; Storage
 (define-map balances 
   ((owner principal)) 

@@ -15,6 +15,8 @@
 ;;  You should have received a copy of the GNU General Public License
 ;;  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 
+;; Non Fungible Token, modeled after ERC-721
+
 ;; Storage
 (define-map tokens-owner
   ((token-id int)) 
