@@ -17,5 +17,15 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use util::db;
+
+use util::db::Error as db_error;
+
+pub trait ChainstateDB {
+    fn backup(backup_path: &String) -> Result<(), db_error>;
+}
+
+// needs to come _after_ the macro def above, since they both use this macro
 pub mod burn;
 pub mod stacks;
+

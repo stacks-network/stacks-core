@@ -29,22 +29,25 @@ use std::io;
 
 use self::bitcoin::Error as btc_error;
 
-use chainstate::burn::db::Error as burndb_error;
 use chainstate::burn::operations::Error as op_error;
+use chainstate::burn::ConsensusHash;
 
 use util::hash::Hash160;
+use util::db::Error as db_error;
 
 #[derive(Serialize, Deserialize)]
 pub struct Txid([u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
 impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
+pub const TXID_ENCODED_SIZE : u32 = 32;
 
 #[derive(Serialize, Deserialize)]
 pub struct BurnchainHeaderHash([u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
 impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
+pub const BURNCHAIN_HEADER_HASH_ENCODED_SIZE : u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 
@@ -70,6 +73,13 @@ pub enum BurnchainInputType {
 }
 
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub enum StableConfirmations {
+    Bitcoin = 7
+
+    // TODO: expand this as more burnchains are supported
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub enum ConsensusHashLifetime {
     Bitcoin = 24
 
@@ -79,6 +89,11 @@ pub enum ConsensusHashLifetime {
 pub trait PublicKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn verify(&self, data_hash: &[u8], sig: &[u8]) -> Result<bool, &'static str>;
+}
+
+pub trait PrivateKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
+    fn to_bytes(&self) -> Vec<u8>;
+    fn sign(&self, data_hash: &[u8]) -> Result<Vec<u8>, &'static str>;
 }
 
 pub trait Address : Clone + fmt::Debug {
@@ -116,16 +131,31 @@ pub struct BurnchainTransaction<A, K> {
 pub struct BurnchainBlock<A, K> {
     pub block_height: u64,
     pub block_hash: BurnchainHeaderHash,
+    pub parent_block_hash: BurnchainHeaderHash,
     pub txs: Vec<BurnchainTransaction<A, K>>
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Burnchain {
+    pub peer_version: u32,
+    pub network_id: u32,
     pub chain_name: String,
     pub network_name: String,
     pub working_dir: String,
     pub burn_quota : BurnQuotaConfig,
-    pub consensus_hash_lifetime: u32
+    pub consensus_hash_lifetime: u32,
+    pub stable_confirmations: u32,
+    pub first_block_height: u64,
+    pub first_block_hash: BurnchainHeaderHash
+}
+
+/// Structure for encoding our view of the network 
+#[derive(Debug, PartialEq, Clone)]
+pub struct BurnchainView {
+    pub burn_block_height: u64,                     // last-seen block height (at chain tip)
+    pub burn_consensus_hash: ConsensusHash,         // consensus hash at block_height
+    pub burn_stable_block_height: u64,              // latest stable block height (e.g. chain tip minus 7)
+    pub burn_stable_consensus_hash: ConsensusHash,  // consensus hash for burn_stable_block_height
 }
 
 #[derive(Debug)]
@@ -135,7 +165,7 @@ pub enum Error {
     /// Bitcoin-related error
     Bitcoin(btc_error),
     /// burn database error 
-    DBError(burndb_error),
+    DBError(db_error),
     /// Download error 
     DownloadError(btc_error),
     /// Parse error 

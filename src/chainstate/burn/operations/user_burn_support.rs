@@ -226,8 +226,8 @@ mod tests {
     use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash, BlockSnapshot};
     use chainstate::burn::operations::CheckResult;
     
-    use bitcoin::network::serialize::deserialize;
-    use bitcoin::blockdata::transaction::Transaction;
+    use deps::bitcoin::network::serialize::deserialize;
+    use deps::bitcoin::blockdata::transaction::Transaction;
 
     use util::hash::{hex_bytes, Hash160};
     use util::log;
@@ -245,7 +245,8 @@ mod tests {
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
-        let tx_bin = hex_bytes(hex_str)?;
+        let tx_bin = hex_bytes(hex_str)
+            .map_err(|_e| "failed to decode hex string")?;
         let tx = deserialize(&tx_bin.to_vec())
             .map_err(|_e| "failed to deserialize")?;
         Ok(tx)
@@ -334,11 +335,16 @@ mod tests {
         let block_125_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000005").unwrap();
         
         let burnchain = Burnchain {
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
             burn_quota: get_burn_quota_config(&"bitcoin".to_string()).unwrap(),
-            consensus_hash_lifetime: 24
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            first_block_height: first_block_height,
+            first_block_hash: first_burn_hash.clone()
         };
         
         let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
@@ -365,9 +371,11 @@ mod tests {
                 let snapshot_row = BlockSnapshot {
                     block_height: i + first_block_height,
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i-1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
+                    sortition_burn: i,
                     burn_quota: 0,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
@@ -378,7 +386,7 @@ mod tests {
                 BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
             }
             
-            tx.commit();
+            tx.commit().unwrap();
         }
 
         {
