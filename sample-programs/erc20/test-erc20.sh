@@ -1,16 +1,11 @@
 ALICE=SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7
 BOB=S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE
 OPERATOR=SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR
-ADMIN=SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G
 
 # Check and initialize contract
 blockstack-core local initialize test-erc20.sqlite3
 blockstack-core local check sample-programs/erc20/erc20.scm test-erc20.sqlite3
 blockstack-core local launch stx-erc20 sample-programs/erc20/erc20.scm test-erc20.sqlite3
-
-# Initialize balances: ALICE = 20, BOB = 10
-blockstack-core local execute test-erc20.sqlite3 stx-erc20 mint! $ADMIN \'$ALICE 20
-blockstack-core local execute test-erc20.sqlite3 stx-erc20 mint! $ADMIN \'$BOB 10
 
 # Assertions
 echo "-> ALICE's balance = 20 STX"

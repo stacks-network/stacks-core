@@ -118,7 +118,7 @@
       (increase-allowance! spender tx-sender amount))))
 
 ;; Mint new tokens.
-(define-public (mint! (account principal) (amount int))
+(define (mint! (account principal) (amount int))
   (if (<= amount 0)
     'false
     (let ((balance (balance-of account)))
@@ -127,3 +127,9 @@
           (tuple (owner account))
           (tuple (balance (+ balance amount))))
         'true))))
+
+;; Initialize the contract
+(begin
+  (mint! 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7 20)
+  (mint! 'S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE 10)
+  'null)
