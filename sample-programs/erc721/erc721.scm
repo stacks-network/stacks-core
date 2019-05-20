@@ -127,5 +127,13 @@
   (transfer-from tx-sender recipient token-id))
 
 ;; Mint new tokens.
-(define-public (mint! (owner principal) (token-id int))
+(define (mint! (owner principal) (token-id int))
   (register-token! owner token-id))
+
+
+;; Initialize the contract
+(begin
+  (mint! 'SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7 10001)
+  (mint! 'S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE 10002)
+  (mint! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10003)
+  'null)

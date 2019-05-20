@@ -3,20 +3,15 @@ BOB=S02J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE
 CHARLIE=SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR
 SPENDER=SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G
 OPERATOR=ST2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQYAC0RQ
-ADMIN=SN2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKP6D2ZK9
 
 echo "-> ALICE address: $ALICE"
 echo "-> BOB address: $BOB"
+echo "-> CHARLIE address: $CHARLIE"
 
 # Check and initialize contract
 blockstack-core local initialize test-erc721.sqlite3
 blockstack-core local check sample-programs/erc721/erc721.scm test-erc721.sqlite3
 blockstack-core local launch stx-erc721 sample-programs/erc721/erc721.scm test-erc721.sqlite3
-
-# Initialize balances: ALICE = 10001, BOB = 10002, CHARLIE = 10003
-blockstack-core local execute test-erc721.sqlite3 stx-erc721 mint! $ADMIN \'$ALICE 10001
-blockstack-core local execute test-erc721.sqlite3 stx-erc721 mint! $ADMIN \'$BOB 10002
-blockstack-core local execute test-erc721.sqlite3 stx-erc721 mint! $ADMIN \'$CHARLIE 10003
 
 # Assertions
 echo "-> ALICE's balance = 1 token"
