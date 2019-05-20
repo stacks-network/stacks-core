@@ -26,8 +26,18 @@ pub struct OwnedEnvironment <'a> {
     call_stack: CallStack
 }
 
+/** GlobalContext represents the outermost context for a transaction's
+      execution. Logically, this context _never_ changes for the execution of
+      transaction. However, due to the use of SavePoints for executing cross-contract
+      calls, the GlobalContext can "nest", such that the inner-most GlobalContext may
+      commit or abort its changes independent of the outer-most GlobalContext. Because
+      of this, it may be easier to think of the GlobalContext as the "Database context".
+      However, the GlobalContext also tracks some other variables which may only be
+      modified during 
+ */
 pub struct GlobalContext <'a> {
-    pub database: ContractDatabase<'a>
+    pub database: ContractDatabase<'a>,
+    read_only: bool
 }
 
 #[derive(Serialize, Deserialize)]
@@ -114,7 +124,7 @@ impl <'a, 'b> Environment <'a, 'b> {
         }
 
         let contract = self.global_context.database.get_contract(contract_name)?;
-        let mut nested_context = GlobalContext::begin_from(&mut self.global_context.database);
+        let mut nested_context = self.global_context.nest();
         let result = {
             let mut nested_env = Environment::new(&mut nested_context, &contract.contract_context, self.call_stack, self.sender.clone());
             let local_context = LocalContext::new();
@@ -128,7 +138,7 @@ impl <'a, 'b> Environment <'a, 'b> {
     pub fn execute_contract(&mut self, contract_name: &str, 
                             tx_name: &str, args: &[SymbolicExpression]) -> Result<Value> {
         let contract = self.global_context.database.get_contract(contract_name)?;
-        let mut nested_context = GlobalContext::begin_from(&mut self.global_context.database);
+        let mut nested_context = self.global_context.nest();
         let result = {
             let mut nested_env = Environment::new(&mut nested_context, &contract.contract_context, self.call_stack, self.sender.clone());
             contract.execute_transaction(tx_name, args, &mut nested_env)
@@ -138,24 +148,27 @@ impl <'a, 'b> Environment <'a, 'b> {
     }
 
     pub fn execute_function_as_transaction(&mut self, function: &DefinedFunction, args: &[Value]) -> Result<Value> {
-        let function = match function {
-            DefinedFunction::Private(_) => Err(Error::new(ErrType::NonPublicFunction(format!("{}", function.get_identifier())))),
-            DefinedFunction::Public(f) => Ok(f)
-        }?;
+        let make_read_only = function.is_read_only();
 
-        let mut nested_context = GlobalContext::begin_from(&mut self.global_context.database);
+        let mut nested_context = {
+            if make_read_only { 
+                self.global_context.nest_read_only()
+            } else {
+                self.global_context.nest()
+            }
+        };
 
         let result = {
             let mut nested_env = Environment::new(&mut nested_context, self.contract_context, self.call_stack, self.sender.clone());
 
-            function.apply(args, &mut nested_env)
+            function.execute_apply(args, &mut nested_env)
         };
 
         nested_context.handle_tx_result(result)
     }
 
     pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
-        let mut nested_context = GlobalContext::begin_from(&mut self.global_context.database);
+        let mut nested_context = self.global_context.nest();
         let result = Contract::initialize(contract_name, contract_content,
                                           &mut nested_context);
         match result {
@@ -175,13 +188,36 @@ impl <'a, 'b> Environment <'a, 'b> {
 impl <'a> GlobalContext <'a> {
     pub fn new(database: ContractDatabase<'a>) -> GlobalContext<'a> {
         GlobalContext {
-            database: database
+            database: database,
+            read_only: false
         }
     }
 
     pub fn get_block_height(&self) -> i128 {
         self.database.get_simmed_block_height()
             .expect("Failed to obtain the current block height.")
+    }
+
+    pub fn nest <'b> (&'b mut self) -> GlobalContext<'b> {
+        let database = self.database.begin_save_point();
+
+        GlobalContext {
+            database: database,
+            read_only: self.read_only
+        }
+    }
+
+    pub fn nest_read_only <'b> (&'b mut self) -> GlobalContext<'b> {
+        let database = self.database.begin_save_point();
+
+        GlobalContext {
+            database: database,
+            read_only: true
+        }
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
     }
 
     pub fn begin_from(database: &'a mut ContractDatabaseTransacter) -> GlobalContext<'a> {
