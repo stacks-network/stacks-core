@@ -82,29 +82,6 @@ fn test_keccak256() {
 }
 
 #[test]
-fn test_simple_is_null() {
-    let null_evals = [
-        "(isnull?)",
-        "(isnull? 'null)",
-        "(isnull? 'null 'null)",
-        "(isnull? (begin 'null))",
-        "(isnull? (let ((thing 'null)) thing))"
-    ];
-    null_evals.iter().for_each(|program| assert_eq!(Ok(Value::Bool(true)), execute(program)));
-}
-
-#[test]
-fn test_simple_is_not_null() {
-    let not_null_evals = [
-        "(isnull? 'true)",
-        "(isnull? 'false)",
-        "(isnull? 1)",
-        "(isnull? 0)"
-    ];
-    not_null_evals.iter().for_each(|program| assert_eq!(Ok(Value::Bool(false)), execute(program)));
-}
-
-#[test]
 fn test_buffer_equality() {
     let tests = [
         "(eq? \"a b c\" \"a b c\")",
