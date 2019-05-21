@@ -122,26 +122,27 @@ impl ContractContext {
             }
     }
 
-    fn add_function_type(&mut self, f_name: String, f_type: FunctionType, public: bool) -> CheckResult<()> {
-        self.check_name_used(&f_name)?;
-        if public {
-            self.public_function_types.insert(f_name, f_type);
-        } else {
-            self.private_function_types.insert(f_name, f_type);
-        }
+    fn check_function_type(&mut self, f_name: &str) -> CheckResult<()> {
+        self.check_name_used(f_name)?;
         Ok(())
     }
 
     pub fn add_public_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
-        self.add_function_type(name, func_type, true)
+        self.check_function_type(&name)?;
+        self.public_function_types.insert(name, func_type);
+        Ok(())
     }
 
     pub fn add_read_only_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
-        self.add_function_type(name, func_type, true)
+        self.check_function_type(&name)?;
+        self.read_only_function_types.insert(name, func_type);
+        Ok(())
     }
 
     pub fn add_private_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
-        self.add_function_type(name, func_type, false)
+        self.check_function_type(&name)?;
+        self.private_function_types.insert(name, func_type);
+        Ok(())
     }
 
     pub fn add_map_type(&mut self, map_name: String, map_type: (TypeSignature, TypeSignature)) -> CheckResult<()> {
@@ -165,9 +166,12 @@ impl ContractContext {
     }
 
     pub fn get_function_type(&self, name: &str) -> Option<&FunctionType> {
-        match self.public_function_types.get(name) {
-            Some(f_type) => Some(f_type),
-            None => self.private_function_types.get(name)
+        if let Some(f_type) = self.public_function_types.get(name) {
+            Some(f_type)
+        } else if let Some(f_type) =  self.private_function_types.get(name){
+            Some(f_type)
+        } else {
+            self.read_only_function_types.get(name)
         }
     }
 
