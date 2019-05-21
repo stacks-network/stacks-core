@@ -334,7 +334,8 @@ impl <'a> ContractDatabase <'a> {
                 |row| row.get(0))
             .expect("Failed to fetch simulated block height");
 
-        Ok(u64::try_from(block_height).unwrap())
+        u64::try_from(block_height)
+            .map_err(|_| Error::new(ErrType::Arithmetic("Overflowed fetching block height".to_string())))
     }
 
     pub fn get_simmed_block_time(&self, block_height: u64) -> Result<u64> {
@@ -345,8 +346,9 @@ impl <'a> ContractDatabase <'a> {
                 &[block_height],
                 |row| row.get(0))
             .expect("Failed to fetch simulated block time");
-        
-        Ok(u64::try_from(block_time).unwrap())
+
+        u64::try_from(block_time)
+            .map_err(|_| Error::new(ErrType::Arithmetic("Overflowed fetching block time".to_string())))
     }
 
     pub fn get_simmed_block_header_hash(&self, block_height: u64) -> Result<Vec<u8>> {
@@ -402,7 +404,8 @@ impl <'a> ContractDatabase <'a> {
         let current_time = self.get_simmed_block_time(current_height)
             .expect("Failed to get simulated block time");
 
-        let block_time = current_time + SIMMED_BLOCK_TIME;
+        let block_time = current_time.checked_add(SIMMED_BLOCK_TIME)
+            .expect("Integer overflow while increasing simulated block time");
         self.sim_mine_block_with_time(block_time);
     }
 

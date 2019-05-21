@@ -35,7 +35,7 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &Envir
             },
             NativeVariables::BlockHeight => {
                 let block_height = env.global_context.get_block_height();
-                Ok(Some(Value::Int(i128::try_from(block_height).unwrap())))
+                Ok(Some(Value::Int(block_height as i128)))
             },
             NativeVariables::BurnBlockHeight => {
                 Err(Error::new(ErrType::NotImplemented))

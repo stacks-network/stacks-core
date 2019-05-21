@@ -29,8 +29,8 @@ fn test_get_block_info_eval(){
 
     let expected = [
         Ok(Value::Int(env.global_context.get_block_time(1) as i128)),
-        Ok(Value::Void),
-        Ok(Value::Void),
+        Err(true),
+        Err(true),
         Err(true),
         Ok(Value::buff_from(hex_bytes("0200000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap()),
         Ok(Value::buff_from(hex_bytes("0100000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap()),

@@ -156,12 +156,12 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
 
     let height_value = match u64::try_from(height_value) {
         Ok(result) => result,
-        _ => return Ok(Value::Void)
+        _ => return Err(Error::new(ErrType::BadBlockHeight(height_value.to_string())))
     };
 
     let current_block_height = env.global_context.get_block_height();
     if height_value > current_block_height {
-        return Ok(Value::Void);
+        return Err(Error::new(ErrType::BadBlockHeight(height_value.to_string())));
     }
 
     use self::BlockInfoProperty::*;

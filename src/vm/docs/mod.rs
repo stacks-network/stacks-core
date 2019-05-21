@@ -390,7 +390,7 @@ const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     signature: "(get-block-info prop-name block-height-expr)",
     description: "The `get-block-info` function fetches data for a block of the given block height. The 
 value and type returned is determined by the specified property name. If the provided block height integer does
-not correspond to an existing block, the function returns Void. The currently available property names 
+not correspond to an existing block, the function is aborted. The currently available property names 
 are `time`, `header-hash`, and `vrf-seed`. 
 
 The `time` property returns an integer value of the block header time field. This is a Unix epoch timestamp in seconds 
@@ -400,7 +400,6 @@ and block times are accurate only to within two hours. See BIP113 for more infor
 The `header-hash` property returns a 32-byte buffer. The `vrf-seed` property returns a 32-byte buffer. 
 ",
     example: "(get-block-info time 10) => 1557860301
-(get-block-info time (- 100)) => Void
 (get-block-info header-hash 2) => 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb
 (get-block-info vrf-seed 6) => 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4
 "
