@@ -17,6 +17,7 @@ pub struct TypeMap {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractAnalysis {
     public_function_types: BTreeMap<String, FunctionType>,
+    read_only_function_types: BTreeMap<String, FunctionType>,
     map_types: BTreeMap<String, (TypeSignature, TypeSignature)>
 }
 
@@ -31,6 +32,7 @@ pub struct ContractContext {
     variable_types: HashMap<String, TypeSignature>,
     private_function_types: HashMap<String, FunctionType>,
     public_function_types: HashMap<String, FunctionType>,
+    read_only_function_types: HashMap<String, FunctionType>
 }
 
 
@@ -38,6 +40,7 @@ impl ContractAnalysis {
     pub fn new() -> ContractAnalysis {
         ContractAnalysis {
             public_function_types: BTreeMap::new(),
+            read_only_function_types: BTreeMap::new(),
             map_types: BTreeMap::new()
         }
     }
@@ -57,12 +60,20 @@ impl ContractAnalysis {
                                                  map_type.clone()));
     }
 
+    pub fn add_read_only_function(&mut self, name: &str, function_type: &FunctionType) {
+        self.read_only_function_types.insert(name.to_string(), function_type.clone());
+    }
+
     pub fn add_public_function(&mut self, name: &str, function_type: &FunctionType) {
         self.public_function_types.insert(name.to_string(), function_type.clone());
     }
 
     pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {
         self.public_function_types.get(name)
+    }
+
+    pub fn get_read_only_function_type(&self, name: &str) -> Option<&FunctionType> {
+        self.read_only_function_types.get(name)
     }
 
     pub fn get_map_type(&self, name: &str) -> Option<&(TypeSignature, TypeSignature)> {
@@ -95,6 +106,7 @@ impl ContractContext {
             variable_types: HashMap::new(),
             private_function_types: HashMap::new(),
             public_function_types: HashMap::new(),
+            read_only_function_types: HashMap::new(),
             map_types: HashMap::new(),
         }
     }
@@ -121,6 +133,10 @@ impl ContractContext {
     }
 
     pub fn add_public_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
+        self.add_function_type(name, func_type, true)
+    }
+
+    pub fn add_read_only_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
         self.add_function_type(name, func_type, true)
     }
 
@@ -160,6 +176,10 @@ impl ContractContext {
 
         for (name, function_type) in self.public_function_types.iter() {
             contract_analysis.add_public_function(name, function_type);
+        }
+
+        for (name, function_type) in self.read_only_function_types.iter() {
+            contract_analysis.add_read_only_function(name, function_type);
         }
 
         for (name, (key_type, map_type)) in self.map_types.iter() {

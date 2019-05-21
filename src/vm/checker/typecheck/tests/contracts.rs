@@ -7,7 +7,7 @@ fn test_names_tokens_contracts() {
     use vm::checker::type_check;
     let tokens_contract = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define (get-balance (account principal))
+         (define-read-only (get-balance (account principal))
             (let ((balance
                   (get balance (fetch-entry tokens (tuple (account account))))))
               (if (eq? balance 'null) 0 balance)))
@@ -42,6 +42,9 @@ fn test_names_tokens_contracts() {
          (define-map preorder-map
            ((name-hash (buff 20)))
            ((buyer principal) (paid int)))
+
+         (define-read-only (get-balance)
+           (contract-call! tokens get-balance tx-sender))
          
          (define-public (preorder 
                         (name-hash (buff 20))
