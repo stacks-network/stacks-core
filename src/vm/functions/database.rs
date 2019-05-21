@@ -168,11 +168,11 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
     match block_info_prop {
         Time => {
             let block_time = env.global_context.get_block_time(height_value);
-            Ok(Value::Int(i128::try_from(block_time).unwrap()))
+            Ok(Value::Int(block_time as i128))
         },
         VrfSeed => {
             let vrf_seed = env.global_context.get_block_vrf_seed(height_value);
-            Ok(Value::Buffer(BuffData { data: vrf_seed }))
+            Ok(Value::Buffer(BuffData { data: vrf_seed.to_bytes().to_vec() }))
         },
         HeaderHash => {
             let header_hash = env.global_context.get_block_header_hash(height_value);

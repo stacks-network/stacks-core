@@ -7,6 +7,8 @@ use vm::contracts::Contract;
 use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
+use chainstate::burn::VRFSeed;
+
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in Smart Contract VM.";
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
@@ -72,9 +74,10 @@ impl ContractDatabaseConnection {
             let block_time = i64::try_from(time_now - ((simmed_block_count - i) * SIMMED_BLOCK_TIME)).unwrap();
             let block_height = i64::try_from(i).unwrap();
 
-            let mut block_vrf = vec![0u8; 32];
+            let mut block_vrf = [0u8; 32];
             block_vrf[0] = 1;
             block_vrf[31] = i as u8;
+            let block_vrf = VRFSeed::from_bytes(&block_vrf).unwrap();
 
             let mut header_hash = vec![0u8; 32];
             header_hash[0] = 2;
@@ -83,7 +86,7 @@ impl ContractDatabaseConnection {
             contract_db.execute("INSERT INTO simmed_block_table 
                             (block_height, block_time, block_vrf_seed, block_header_hash) 
                             VALUES (?1, ?2, ?3, ?4)",
-                            &[&block_height as &ToSql, &block_time, &block_vrf, &header_hash]);
+                            &[&block_height as &ToSql, &block_time, &block_vrf.to_bytes().to_vec(), &header_hash]);
         }
 
         contract_db.check_schema()?;
@@ -363,7 +366,7 @@ impl <'a> ContractDatabase <'a> {
         Ok(block_header_hash)
     }
 
-    pub fn get_simmed_block_vrf_seed(&self, block_height: u64) -> Result<Vec<u8>> {
+    pub fn get_simmed_block_vrf_seed(&self, block_height: u64) -> Result<VRFSeed> {
         let block_height = i64::try_from(block_height).unwrap();
         let block_vrf_seed: (Vec<u8>) =
             self.query_row(
@@ -371,8 +374,8 @@ impl <'a> ContractDatabase <'a> {
                 &[block_height],
                 |row| row.get(0))
             .expect("Failed to fetch simulated block vrf seed");
-
-        Ok(block_vrf_seed)
+        VRFSeed::from_bytes(&block_vrf_seed)
+            .ok_or(Error::new(ErrType::ParseError("Failed to instantiate VRF seed from simmed db data".to_string())))
     }
 
     pub fn sim_mine_block_with_time(&mut self, block_time: u64) {
@@ -384,9 +387,10 @@ impl <'a> ContractDatabase <'a> {
 
         let block_time = i64::try_from(block_time).unwrap();
 
-        let mut block_vrf = vec![0u8; 32];
+        let mut block_vrf = [0u8; 32];
         block_vrf[0] = 1;
         block_vrf[31] = block_height as u8;
+        let block_vrf = VRFSeed::from_bytes(&block_vrf).unwrap();
 
         let mut header_hash = vec![0u8; 32];
         header_hash[0] = 2;
@@ -395,7 +399,7 @@ impl <'a> ContractDatabase <'a> {
         self.execute("INSERT INTO simmed_block_table 
                         (block_height, block_time, block_vrf_seed, block_header_hash) 
                         VALUES (?1, ?2, ?3, ?4)",
-                        &[&block_height as &ToSql, &block_time, &block_vrf, &header_hash]);
+                        &[&block_height as &ToSql, &block_time, &block_vrf.to_bytes().to_vec(), &header_hash]);
     }
 
     pub fn sim_mine_block(&mut self) {
