@@ -26,7 +26,6 @@ ripemd160 = "0.8.0"
 dirs = "1.0.4"
 regex = "1"
 mio = "0.6.16"
-linefeed = "0.6"
 
 [dependencies.secp256k1]
 version = "0.11.5"

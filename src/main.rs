@@ -40,7 +40,6 @@ extern crate dirs;
 extern crate regex;
 extern crate byteorder;
 extern crate mio;
-extern crate linefeed;
 
 #[macro_use] extern crate serde_derive;
 
@@ -142,6 +141,7 @@ where command is one of:
 
         use std::io;
         use std::io::Read;
+        use std::io::Write;
         use vm::parser::parse;
         use vm::contexts::OwnedEnvironment;
         use vm::database::{ContractDatabase, ContractDatabaseConnection, ContractDatabaseTransacter};
@@ -265,36 +265,22 @@ where command is one of:
 
                 let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
 
-                let mut reader = match linefeed::Interface::new("local-repl") {
-                    Ok(r) => r,
-                    Err(error) => panic!("Could not create linefeed: \n{}", error)
-                };
-
-                reader.set_report_signal(linefeed::Signal::Break, true);
-                reader.set_report_signal(linefeed::Signal::Continue, true);
-                reader.set_report_signal(linefeed::Signal::Interrupt, true);
-                reader.set_report_signal(linefeed::Signal::Suspend, true);
-                reader.set_report_signal(linefeed::Signal::Quit, true);
-                
-                match reader.set_prompt("> ") {
-                    Ok(r) => r,
-                    Err(error) => panic!("Could not create linefeed: \n{}", error)
-                };
+                let mut stdout = io::stdout();
 
                 loop {
-                    let content = match reader.read_line() {
-                        Ok(result) => match result {
-                            linefeed::ReadResult::Input(input) => input,
-                            linefeed::ReadResult::Signal(_) => process::exit(0),
-                            linefeed::ReadResult::Eof => process::exit(0),
-                        },
-                        Err(error) => panic!("Could not read line: \n{}", error)
+                    let content: String = {
+                        let mut buffer = String::new();
+                        stdout.write(b"> ");
+                        stdout.flush();
+                        match io::stdin().read_line(&mut buffer) {
+                            Ok(_) => buffer,
+                            Err(error) => {
+                                eprintln!("Error reading from stdin:\n{}", error);
+                                process::exit(1);
+                            }
+                        }
                     };
-                    
-                    if !content.trim().is_empty() {
-                        reader.add_history_unique(content.clone());
-                    }
-                    
+
                     let mut ast = match parse(&content) {
                         Ok(val) => val,
                         Err(error) => {
