@@ -53,13 +53,22 @@ use util::log;
 
 use getopts::Options;
 
-// TODO: Move arg parsing structs and traits into another file.
+// TODO: Move arg parsing structs and impls into another file.
 struct LocalArgParseResult {
     pub matches: getopts::Matches,
 }
 
 impl LocalArgParseResult {
-    pub fn get<T>(&self, name: &str) -> Option<T>
+    pub fn get_required<T>(&self, name: &str) -> T
+    where T: std::str::FromStr, <T as std::str::FromStr>::Err: std::fmt::Display
+    {
+        match self.get_optional(name) {
+            Some(result) => result,
+            None => panic!("Required argument not provided '{}'", name)
+        }
+    }
+
+    pub fn get_optional<T>(&self, name: &str) -> Option<T>
     where T: std::str::FromStr, <T as std::str::FromStr>::Err: std::fmt::Display
     {
         match self.matches.opt_get(name) {
@@ -67,21 +76,27 @@ impl LocalArgParseResult {
             Err(error) => {
                 eprintln!("Failed to parse arg '{}'\n{}", name, error);
                 process::exit(1);
-            }
+            },
         }
+    }
+
+    pub fn flag_exists(&self, name: &str) -> bool {
+        return self.matches.opt_present(name);
     }
 }
 
-struct LocalArgParser {
+struct LocalArgParser<'a> {
     pub opts: Options,
     usage_brief: String,
+    program_args: &'a [String],
 }
 
-impl LocalArgParser {
-    fn new(usage_brief: String) -> LocalArgParser {
+impl<'a> LocalArgParser<'a> {
+    fn new(usage_brief: String, program_args: &[String]) -> LocalArgParser {
         LocalArgParser {
             opts: Options::new(),
-            usage_brief: usage_brief
+            usage_brief: usage_brief,
+            program_args: program_args,
         }
     }
 
@@ -93,24 +108,17 @@ impl LocalArgParser {
         }
     }
 
-    fn parse(&mut self, args: &[String]) -> (LocalArgParseResult, ContractDatabaseConnection) {
-        let matches = match self.opts.parse(args) {
+    fn parse(&mut self) -> LocalArgParseResult {
+        let matches = match self.opts.parse(self.program_args) {
             Ok(val) => val,
             Err(error) => {
                 eprintln!("{}\n{}", self.opts.usage(&self.usage_brief.to_string()), error);
                 process::exit(1);
             }
         };
-        let db = (match matches.opt_str("data") {
-            Some(db_arg) => ContractDatabaseConnection::open(&db_arg),
-            None => ContractDatabaseConnection::memory()
-        }).unwrap_or_else(|error| {
-            eprintln!("Could not open vm-state: \n{}", error);
-            process::exit(1);
-        });
-        return (LocalArgParseResult {
-            matches: matches,
-        }, db);
+        return LocalArgParseResult {
+            matches: matches
+        };
     }
 }
 
@@ -197,30 +205,35 @@ where command is one of:
 
         let cmd_arg = &argv[2];
         let usage_brief = format!("Usage: local {}", cmd_arg);
-        let mut arg_parser = LocalArgParser::new(usage_brief);
+        let mut arg_parser = LocalArgParser::new(usage_brief, &argv[2..]);
 
         match cmd_arg.as_ref() {
             "initialize" => {
-                if argv.len() < 4 {
-                    eprintln!("Usage: {} local initialize [vm-state.db]", argv[0]);
+                arg_parser.add_data_opt(true);
+                let args = arg_parser.parse();
+                let db = args.get_required::<String>("data");
+                ContractDatabaseConnection::initialize(&db).unwrap_or_else(|error| {
+                    eprintln!("Initialization error: \n{}", error);
                     process::exit(1);
-                }
-                AnalysisDatabaseConnection::initialize(&argv[3]);
-                match ContractDatabaseConnection::initialize(&argv[3]) {
-                    Ok(_) => println!("Database created."),
-                    Err(error) => {
-                        eprintln!("Initialization error: \n{}", error);
-                        process::exit(1);
-                    }
-                }
+                });
+                AnalysisDatabaseConnection::initialize(&db);
+                println!("Database created.");
                 return
             },
             "mine_blocks" => {
                 arg_parser.add_data_opt(true);
                 arg_parser.opts.reqopt("c", "count", "block count", "COUNT");
-                let (parse_result, mut db) = arg_parser.parse(&argv[2..]);
-                let count = parse_result.get::<u32>("count").unwrap();
-                let mut sp = db.begin_save_point();
+                let args = arg_parser.parse();
+                let count = args.get_required::<u32>("count");
+                let db_arg = args.get_required::<String>("data");
+                let mut db_conn = match ContractDatabaseConnection::open(&db_arg) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        eprintln!("Could not open vm-state: \n{}", error);
+                        process::exit(1);
+                    }
+                };
+                let mut sp = db_conn.begin_save_point();
                 sp.sim_mine_blocks(count);
                 sp.commit();
                 println!("Simulated block mine!");
@@ -229,9 +242,18 @@ where command is one of:
             "mine_block" => {
                 arg_parser.add_data_opt(true);
                 arg_parser.opts.optopt("t", "time", "block timestamp", "TIME");
-                let (parse_result, mut db) = arg_parser.parse(&argv[2..]);
-                let time_opt = parse_result.get::<u64>("time");
-                let mut sp = db.begin_save_point();
+                let args = arg_parser.parse();
+                let time_opt = args.get_optional::<u64>("time");
+                let db_arg = args.get_required::<String>("data");
+                let mut db_conn = match ContractDatabaseConnection::open(&db_arg) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        eprintln!("Could not open vm-state: \n{}", error);
+                        process::exit(1);
+                    }
+                };
+
+                let mut sp = db_conn.begin_save_point();
                 match time_opt {
                     Some(time) => {
                         sp.sim_mine_block_with_time(time);
@@ -246,22 +268,19 @@ where command is one of:
                 return
             }
             "get_block_height" => {
-                if argv.len() < 4 {
-                    eprintln!("Usage: {} local get_block_height [vm-state.db]", argv[0]);
-                    process::exit(1);
-                }
-
-                let mut db = match ContractDatabaseConnection::open(&argv[3]) {
-                    Ok(db) => db,
+                arg_parser.add_data_opt(true);
+                let args = arg_parser.parse();
+                let db_arg = args.get_required::<String>("data");
+                let mut db_conn = match ContractDatabaseConnection::open(&db_arg) {
+                    Ok(result) => result,
                     Err(error) => {
                         eprintln!("Could not open vm-state: \n{}", error);
                         process::exit(1);
                     }
                 };
-
-                let mut sp = db.begin_save_point();
-                let mut blockheight = sp.get_simmed_block_height();
-                match blockheight {
+                let mut sp = db_conn.begin_save_point();
+                let mut block_height = sp.get_simmed_block_height();
+                match block_height {
                     Ok(x) => {
                         println!("Simulated block height: \n{}", x);
                     },
@@ -273,44 +292,62 @@ where command is one of:
                 return
             }
             "check" => {
-                if argv.len() < 4 {
-                    eprintln!("Usage: {} local check [program-file.scm] (vm-state.db)", argv[0]);
-                    process::exit(1);
-                }
-
-                let content: String = fs::read_to_string(&argv[3])
-                    .expect(&format!("Error reading file: {}", argv[3]));
-                
-                let mut db_conn = {
-                    if argv.len() >= 5 {
-                        AnalysisDatabaseConnection::open(&argv[4])
-                    } else {
-                        AnalysisDatabaseConnection::memory()
+                arg_parser.add_data_opt(false);
+                arg_parser.opts.reqopt("f", "file", "contract definition file", "CONTRACT FILE");
+                arg_parser.opts.optflag("a", "analysis", "output analysis");
+                let args = arg_parser.parse();
+                let (mut db_conn, mut analysis_db_conn) = match args.get_optional::<String>("data") {
+                    Some(db_arg) => {
+                        let db = ContractDatabaseConnection::open(&db_arg).unwrap_or_else(|error| {
+                            eprintln!("Could not open vm-state: \n{}", error);
+                            process::exit(1);
+                        });
+                        // TODO: This creates 2 sqlite connections to the same file.. fix after a AnalysisDatabaseConnection refactor.
+                        let analysis_db = AnalysisDatabaseConnection::open(&db_arg);
+                        (db, analysis_db)
+                    },
+                    None => {
+                        let db = ContractDatabaseConnection::memory().unwrap();
+                        let analysis_db = AnalysisDatabaseConnection::memory();
+                        (db, analysis_db)
                     }
                 };
+                let contract_file = args.get_required::<String>("file");
 
-                let mut db = db_conn.begin_save_point();
+                let content: String = fs::read_to_string(&contract_file)
+                    .expect(&format!("Error reading file: {}", contract_file.to_string()));
+                
+                let mut analysis_db_sp = analysis_db_conn.begin_save_point();
                 let mut ast = parse(&content).expect("Failed to parse program");
-                let mut contract_analysis = type_check(&"transient", &mut ast, &mut db, false).unwrap_or_else(|e| {
+                let mut contract_analysis = type_check(&"transient", &mut ast, &mut analysis_db_sp, false).unwrap_or_else(|e| {
                     eprintln!("Type check error.\n{}", e);
                     process::exit(1);
                 });
 
-                match argv.last() {
-                    Some(s) if s == "--output_analysis" => {
-                        println!("{}", contract_analysis.serialize());
-                    },
-                    _ => {}
+                if args.flag_exists("analysis") {
+                    println!("{}", contract_analysis.serialize());
                 }
                 
                 return
             },
             "repl" => {
-                let mut db_conn = match ContractDatabaseConnection::memory() {
-                    Ok(db) => db,
-                    Err(error) => {
-                        eprintln!("Could not open vm-state: \n{}", error);
-                        process::exit(1);
+                arg_parser.add_data_opt(false);
+                let args = arg_parser.parse();
+
+                let (mut db_conn, mut analysis_db_conn) = match args.get_optional::<String>("data") {
+                    Some(db_arg) => {
+                        let db = ContractDatabaseConnection::open(&db_arg).unwrap_or_else(|error| {
+                            eprintln!("Could not open vm-state: \n{}", error);
+                            process::exit(1);
+                        });
+                        // TODO: This creates 2 sqlite connections to the same file.. fix after a AnalysisDatabaseConnection refactor.
+                        let analysis_db = AnalysisDatabaseConnection::open(&db_arg);
+                        (db, analysis_db)
+                    },
+                    None => {
+                        let db = ContractDatabaseConnection::memory().unwrap();
+                        let analysis_db = AnalysisDatabaseConnection::memory();
+                        (db, analysis_db)
                     }
                 };
 
@@ -319,8 +356,6 @@ where command is one of:
 
                 let mut vm_env = OwnedEnvironment::new(&mut db);
                 let mut exec_env = vm_env.get_exec_environment(None);
-
-                let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
 
                 let mut reader = match linefeed::Interface::new("local-repl") {
                     Ok(r) => r,
@@ -380,94 +415,72 @@ where command is one of:
                     println!("{}", eval_result);
                 }
             },
-            "eval_raw" => {
-                if argv.len() < 2 {
-                    eprintln!("Usage: {} local eval_raw", argv[0]);
-                    process::exit(1);
-                }
-
-                let content: String = {
-                    let mut buffer = String::new();
-                    io::stdin().read_to_string(&mut buffer)
-                        .expect("Error reading from stdin.");
-                    buffer
-                };
-
-                let mut db_conn = match ContractDatabaseConnection::memory() {
-                    Ok(db) => db,
-                    Err(error) => {
-                        eprintln!("Could not open vm-state: \n{}", error);
-                        process::exit(1);
-                    }
-                };
-
-                let mut outer_sp = db_conn.begin_save_point_raw();                    
-                let mut db = ContractDatabase::from_savepoint(outer_sp);
-                let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
-
-                let mut vm_env = OwnedEnvironment::new(&mut db);
-
-                let mut ast = parse(&content).expect("Failed to parse program.");
-                let mut analysis_db = analysis_db_conn.begin_save_point();
-                match type_check("transient", &mut ast, &mut analysis_db, true) {
-                    Ok(_) => {
-                        let result = vm_env.get_exec_environment(None).eval_raw(&content);
-                        match result {
-                            Ok(x) => {
-                                println!("Program executed successfully! Output: \n{}", x);
-                            },
-                            Err(error) => {
-                                eprintln!("Program execution error: \n{}", error);
-                                process::exit(1);
-                            }
-                        }
-                    },
-                    Err(error) => {
-                        eprintln!("Type check error.\n{}", error);
-                        process::exit(1);
-                    }
-                }
-                return
-            }
             "eval" => {
-                if argv.len() < 5 {
-                    eprintln!("Usage: {} local eval [context-contract-name] (program.scm) [vm-state.db]", argv[0]);
-                    process::exit(1);
-                }
-
-                let vm_filename = {
-                    if argv.len() == 5 {
-                        &argv[4]
-                    } else {
-                        &argv[5]
-                    }
-                };
-
-                let mut db = match ContractDatabaseConnection::open(vm_filename) {
-                    Ok(db) => db,
-                    Err(error) => {
-                        eprintln!("Could not open vm-state: \n{}", error);
-                        process::exit(1);
+                arg_parser.add_data_opt(false);
+                arg_parser.opts.optopt("c", "contract", "contract name", "CONTRACT NAME");
+                arg_parser.opts.optopt("f", "file", "program file", "PROGRAM FILE");
+                let args = arg_parser.parse();
+                let (mut db_conn, mut analysis_db_conn) = match args.get_optional::<String>("data") {
+                    Some(db_arg) => {
+                        let db = ContractDatabaseConnection::open(&db_arg).unwrap_or_else(|error| {
+                            eprintln!("Could not open vm-state: \n{}", error);
+                            process::exit(1);
+                        });
+                        // TODO: This creates 2 sqlite connections to the same file.. fix after a AnalysisDatabaseConnection refactor.
+                        let analysis_db = AnalysisDatabaseConnection::open(&db_arg);
+                        (db, analysis_db)
+                    },
+                    None => {
+                        let db = ContractDatabaseConnection::memory().unwrap();
+                        let analysis_db = AnalysisDatabaseConnection::memory();
+                        (db, analysis_db)
                     }
                 };
 
                 let content: String = {
-                    if argv.len() == 5 {
-                        let mut buffer = String::new();
-                        io::stdin().read_to_string(&mut buffer)
-                            .expect("Error reading from stdin.");
-                        buffer
-                    } else {
-                        fs::read_to_string(&argv[4])
-                            .expect(&format!("Error reading file: {}", argv[4]))
+                    match args.get_optional::<String>("file") {
+                        Some(content_arg) => {
+                            fs::read_to_string(&content_arg)
+                                .expect(&format!("Error reading file: {}", content_arg))
+                        },
+                        None => {
+                            let mut buffer = String::new();
+                            io::stdin().read_to_string(&mut buffer)
+                                .expect("Error reading from stdin.");
+                            buffer
+                        }
+                    }
+                };
+                
+                let mut ast = match parse(&content) {
+                    Ok(val) => val,
+                    Err(error) => {
+                        eprintln!("Parse error:\n{}", error);
+                        process::exit(1);
                     }
                 };
 
-                let mut vm_env = OwnedEnvironment::new(&mut db);
-                let contract_name = &argv[3];
-                
-                let result = vm_env.get_exec_environment(None)
-                    .eval_read_only(contract_name, &content);
+                // TODO: perform type checking
+                /*
+                match type_check("transient", &mut ast, &mut analysis_db, false) {
+                    Ok(_) => (),
+                    Err(error) => {
+                        eprintln!("Type check error:\n{}", error);
+                        process::exit(1);
+                    } 
+                };
+                */
+
+                let mut vm_env = OwnedEnvironment::new(&mut db_conn);
+                let contract_opt = args.get_optional::<String>("contract");
+                let result = match contract_opt {
+                    Some(contract_name) => {
+                        vm_env.get_exec_environment(None).eval_read_only(&contract_name, &content)
+                    },
+                    None => {
+                        vm_env.get_exec_environment(None).eval_raw(&content)
+                    }
+                };
 
                 match result {
                     Ok(x) => {
@@ -481,39 +494,45 @@ where command is one of:
                 return
             }
             "launch" => {
-                if argv.len() < 6 {
-                    eprintln!("Usage: {} local launch [contract-name] [contract-definition.scm] [vm-state.db]", argv[0]);
-                    process::exit(1);
-                }
-                let vm_filename = &argv[5];
-
-                let contract_name = &argv[3];
-                let contract_content: String = fs::read_to_string(&argv[4])
-                    .expect(&format!("Error reading file: {}", argv[4]));
-
-                // typecheck and insert into typecheck tables
-                // Aaron todo: AnalysisDatabase and ContractDatabase now use savepoints
-                //     on the same connection, so they can abort together, _however_,
-                //     this results in some pretty weird function interfaces. I'll need
-                //     to think about whether or not there's a more ergonomic way to do this.
-
-
-                let mut db_conn = match ContractDatabaseConnection::open(vm_filename) {
-                    Ok(db) => db,
+                arg_parser.add_data_opt(true);
+                arg_parser.opts.reqopt("c", "contract", "contract name", "CONTRACT NAME");
+                arg_parser.opts.reqopt("f", "file", "contract definition file", "CONTRACT FILE");
+                let args = arg_parser.parse();
+                let db_arg = args.get_required::<String>("data");
+                let mut db_conn = match ContractDatabaseConnection::open(&db_arg) {
+                    Ok(db_conn) => db_conn,
                     Err(error) => {
                         eprintln!("Could not open vm-state: \n{}", error);
                         process::exit(1);
                     }
                 };
 
+                let contract_name = args.get_required::<String>("contract");
+                let file_arg = args.get_required::<String>("file");
+                let contract_content: String = fs::read_to_string(&file_arg)
+                    .expect(&format!("Error reading file: {}", file_arg));
+
+                // Aaron todo: AnalysisDatabase and ContractDatabase now use savepoints
+                //     on the same connection, so they can abort together, _however_,
+                //     this results in some pretty weird function interfaces. I'll need
+                //     to think about whether or not there's a more ergonomic way to do this.
+
+
                 let mut outer_sp = db_conn.begin_save_point_raw();
 
                 { 
                     let mut analysis_db = AnalysisDatabase::from_savepoint(
                         outer_sp.savepoint().expect("Failed to initialize savepoint for analysis"));
-                    let mut ast = parse(&contract_content).expect("Failed to parse program.");
+                    
+                    let mut ast = match parse(&contract_content) {
+                        Ok(val) => val,
+                        Err(error) => {
+                            eprintln!("Parse error:\n{}", error);
+                            process::exit(1);
+                        }
+                    };
 
-                    type_check(contract_name, &mut ast, &mut analysis_db, true)
+                    type_check(&contract_name, &mut ast, &mut analysis_db, true)
                         .unwrap_or_else(|e| {
                             eprintln!("Type check error.\n{}", e);
                             process::exit(1);
@@ -521,7 +540,7 @@ where command is one of:
 
                     analysis_db.commit()
                 }
-                    
+                
                 let mut db = ContractDatabase::from_savepoint(outer_sp);
 
                 let result = {
@@ -546,25 +565,27 @@ where command is one of:
                 return
             },
             "execute" => {
-                if argv.len() < 7 {
-                    eprintln!("Usage: {} local execute [vm-state.db] [contract-name] [public-function-name] [sender-address] [args...]", argv[0]);
-                    process::exit(1);
-                }
-                let vm_filename = &argv[3];
 
-                let mut db = match ContractDatabaseConnection::open(vm_filename) {
-                    Ok(db) => db,
+                arg_parser.add_data_opt(true);
+                arg_parser.opts.reqopt("c", "contract", "contract name", "CONTRACT NAME");
+                arg_parser.opts.reqopt("f", "function", "public function name", "FUNCTION NAME");
+                arg_parser.opts.reqopt("s", "sender", "sender address", "SENDER ADDRESS");
+                arg_parser.opts.optmulti("a", "args", "function args", "FUNCTION ARGS");
+                let args = arg_parser.parse();
+                let db_arg = args.get_required::<String>("data");
+                let mut db_conn = match ContractDatabaseConnection::open(&db_arg) {
+                    Ok(db_conn) => db_conn,
                     Err(error) => {
                         eprintln!("Could not open vm-state: \n{}", error);
                         process::exit(1);
                     }
                 };
 
-                let mut vm_env = OwnedEnvironment::new(&mut db);
-                let contract_name = &argv[4];
-                let tx_name = &argv[5];
+                let mut vm_env = OwnedEnvironment::new(&mut db_conn);
+                let contract_name = args.get_required::<String>("contract");
+                let tx_name = args.get_required::<String>("function");
                 
-                let sender_in = &argv[6];
+                let sender_in = args.get_required::<String>("sender");
 
                 let mut sender = vm::parser::parse(&format!("'{}", sender_in))
                     .expect(&format!("Error parsing sender {}", sender_in))
@@ -578,7 +599,7 @@ where command is one of:
                         process::exit(1);
                     }
                 };
-                let arguments: Vec<_> = argv[7..]
+                let arguments: Vec<_> = args.matches.opt_strs("args")
                     .iter()
                     .map(|argument| {
                         let mut argument_parsed = vm::parser::parse(argument)
@@ -592,6 +613,8 @@ where command is one of:
                         }
                     })
                     .collect();
+
+                // TODO: should this perform type checking?
 
                 let result = {
                     let mut env = vm_env.get_exec_environment(Some(sender));
