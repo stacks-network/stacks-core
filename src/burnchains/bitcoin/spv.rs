@@ -22,13 +22,13 @@ use std::cmp;
 use std::io::{Read, Seek, Write, SeekFrom};
 use std::ops::Deref;
 
-use bitcoin::blockdata::block::{LoneBlockHeader, BlockHeader};
-use bitcoin::network::encodable::VarInt;
-use bitcoin::network::serialize::{serialize, deserialize, BitcoinHash};
-use bitcoin::network::message as btc_message;
+use deps::bitcoin::blockdata::block::{LoneBlockHeader, BlockHeader};
+use deps::bitcoin::network::encodable::VarInt;
+use deps::bitcoin::network::serialize::{serialize, deserialize, BitcoinHash};
+use deps::bitcoin::network::message as btc_message;
+use deps::bitcoin::util::hash::Sha256dHash;
 
-use bitcoin::util::hash::Sha256dHash;
-use bitcoin::util::uint::Uint256;
+use util::uint::Uint256;
 
 use burnchains::bitcoin::BitcoinNetworkType;
 use burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -51,15 +51,15 @@ const BLOCK_DIFFICULTY_INTERVAL: u32 = 14 * 24 * 60 * 60;   // two weeks, in sec
 
 
 pub struct SpvClient {
-    headers_path: String,
-    start_block_height: u64,
-    end_block_height: u64,
-    cur_block_height: u64,
-    network_id: BitcoinNetworkType,
+    pub headers_path: String,
+    pub start_block_height: u64,
+    pub end_block_height: Option<u64>,
+    pub cur_block_height: u64,
+    pub network_id: BitcoinNetworkType,
 }
 
 impl SpvClient {
-    pub fn new(headers_path: &str, start_block: u64, end_block: u64, network_id: BitcoinNetworkType) -> SpvClient {
+    pub fn new(headers_path: &str, start_block: u64, end_block: Option<u64>, network_id: BitcoinNetworkType) -> SpvClient {
         SpvClient {
             headers_path: headers_path.to_owned(),
             start_block_height: start_block,
@@ -391,7 +391,7 @@ impl SpvClient {
         let filtered_timespan = cmp::min(timespan_highpass, target_timespan * 4);
 
         let last_target = last_header.header.target();
-        let new_target = cmp::min(max_target, (last_target.mul_u32(filtered_timespan)) / (Uint256::from_u64(target_timespan as u64).unwrap()));
+        let new_target = cmp::min(max_target, (last_target.mul_u32(filtered_timespan)) / (Uint256::from_u64(target_timespan as u64)));
         let new_bits = BlockHeader::compact_target_from_u256(&new_target);
 
         return Ok(Some((new_bits, new_target)));
@@ -420,23 +420,30 @@ impl BitcoinMessageHandler for SpvClient {
     /// initiate the conversation with the bitcoin peer
     fn begin_session(&mut self, indexer: &mut BitcoinIndexer) -> Result<bool, btc_error> {
         let start_height = self.cur_block_height;
+        self.end_block_height = Some(indexer.runtime.block_height);
+
+        debug!("Get headers {}-{}", self.cur_block_height, self.end_block_height.unwrap());
         self.send_next_getheaders(indexer, start_height).and_then(|_r| Ok(true))
     }
 
     /// Trait message handler
     /// Take headers, validate them, and ask for more
     fn handle_message(&mut self, indexer: &mut BitcoinIndexer, msg: PeerMessage) -> Result<bool, btc_error> {
+        assert!(self.end_block_height.is_some());
+
+        let end_block_height = self.end_block_height.unwrap();
+
         match msg.deref() {
             btc_message::NetworkMessage::Headers(block_headers) => {
-                if self.cur_block_height >= self.end_block_height {
+                if self.cur_block_height >= end_block_height {
                     // done 
                     return Ok(false);
                 }
 
                 // only handle headers we asked for 
                 let header_range = 
-                    if self.end_block_height - self.cur_block_height < block_headers.len() as u64 {
-                        block_headers.len() as u64 - (self.end_block_height - self.cur_block_height)
+                    if end_block_height - self.cur_block_height < block_headers.len() as u64 {
+                        block_headers.len() as u64 - (end_block_height - self.cur_block_height)
                     }
                     else {
                         block_headers.len() as u64
@@ -451,7 +458,7 @@ impl BitcoinMessageHandler for SpvClient {
                 // ask for the next batch
                 let block_height = SpvClient::get_headers_height(&self.headers_path)?;
 
-                debug!("Request headers for blocks {} - {} in range {} - {}", block_height, block_height + 2000, self.start_block_height, self.end_block_height);
+                debug!("Request headers for blocks {} - {} in range {} - {}", block_height, block_height + 2000, self.start_block_height, end_block_height);
                 let res = self.send_next_getheaders(indexer, block_height);
                 match res {
                     Ok(()) => {
@@ -466,5 +473,43 @@ impl BitcoinMessageHandler for SpvClient {
         };
 
         Err(btc_error::UnhandledMessage(msg))
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    use deps::bitcoin::blockdata::block::{LoneBlockHeader, BlockHeader};
+    use deps::bitcoin::network::serialize::{serialize, deserialize, BitcoinHash};
+    use deps::bitcoin::util::hash::Sha256dHash;
+
+    use util::log;
+
+    #[test]
+    fn genesis_header() {
+        let genesis_prev_blockhash = Sha256dHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let genesis_merkle_root = Sha256dHash::from_hex(GENESIS_BLOCK_MERKLE_ROOT_MAINNET).unwrap();
+        let genesis_block_hash = Sha256dHash::from_hex(GENESIS_BLOCK_HASH_MAINNET).unwrap();
+
+        let genesis_header = LoneBlockHeader {
+            header: BlockHeader {
+                version: 1,
+                prev_blockhash: genesis_prev_blockhash,
+                merkle_root: genesis_merkle_root,
+                time: 1231006505,
+                bits: 0x1d00ffff,
+                nonce: 2083236893
+            },
+            tx_count: VarInt(0)
+        };
+
+        test_debug!("\n");
+        test_debug!("genesis prev blockhash = {}", genesis_prev_blockhash);
+        test_debug!("genesis merkle root = {}", genesis_merkle_root);
+        test_debug!("genesis block hash = {}", genesis_block_hash);
+
+        assert_eq!(genesis_header.header.bitcoin_hash(), genesis_block_hash);
     }
 }

@@ -17,30 +17,45 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#![allow(unused_imports)]
+#![allow(unused_assignments)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(non_upper_case_globals)]
+
 extern crate rand;
-extern crate bitcoin;
 extern crate ini;
-extern crate jsonrpc;
 extern crate secp256k1;
 extern crate serde;
 extern crate serde_json;
-extern crate crypto;
 extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
 extern crate sha2;
+extern crate sha3;
+extern crate ripemd160;
 extern crate dirs;
 extern crate regex;
+extern crate byteorder;
+extern crate mio;
 extern crate linefeed;
 
 #[macro_use] extern crate serde_derive;
 
-#[macro_use] mod util;
-mod burnchains;
+#[macro_use]
+mod util;
+
+#[macro_use]
 mod chainstate;
-mod core;
-mod vm;
+
 mod address;
+mod burnchains;
+mod core;
+mod deps;
+mod net;
+mod vm;
 
 use std::fs;
 use std::env;
@@ -67,7 +82,7 @@ fn main() {
         use burnchains::BurnchainHeaderHash;
         use burnchains::bitcoin::spv;
         use util::hash::to_hex;
-        use bitcoin::network::serialize::BitcoinHash;
+        use deps::bitcoin::network::serialize::BitcoinHash;
 
         let height = argv[2].parse::<u64>().unwrap();
         let headers_path = &argv[3];

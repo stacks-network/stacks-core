@@ -17,13 +17,12 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
-use bitcoin::blockdata::opcodes::All as btc_opcodes;
-use bitcoin::blockdata::opcodes::Class;
-use bitcoin::blockdata::script::{Script, Instruction, Builder};
-use bitcoin::blockdata::transaction::TxIn as BtcTxIn;
-use bitcoin::blockdata::transaction::TxOut as BtcTxOut;
-
-use bitcoin::util::hash::Sha256dHash;
+use deps::bitcoin::blockdata::opcodes::All as btc_opcodes;
+use deps::bitcoin::blockdata::opcodes::Class;
+use deps::bitcoin::blockdata::script::{Script, Instruction, Builder};
+use deps::bitcoin::blockdata::transaction::TxIn as BtcTxIn;
+use deps::bitcoin::blockdata::transaction::TxOut as BtcTxOut;
+use deps::bitcoin::util::hash::Sha256dHash;
 
 use burnchains::{
     BurnchainTxInput, 
@@ -38,8 +37,8 @@ use burnchains::bitcoin::keys::BitcoinPublicKey;
 use burnchains::bitcoin::address::{BitcoinAddress, BitcoinAddressType};
 use burnchains::bitcoin::BitcoinNetworkType;
 
-use crypto::sha2::Sha256;
-use crypto::digest::Digest;
+use sha2::Sha256;
+use sha2::Digest;
 
 use util::log;
 use util::hash::Hash160;
@@ -120,7 +119,7 @@ where
         let mut d = [0u8; 32];
 
         digest.input(bldr.into_script().as_bytes());
-        digest.result(&mut d);
+        d.copy_from_slice(digest.result().as_slice());
 
         let ws = Builder::new().push_int(0).push_slice(&d).into_script();
         let ws_hash = Hash160::from_data(&ws.as_bytes());
@@ -130,22 +129,22 @@ where
         res
     }
 
-    pub fn to_address_bits(input: &BurnchainTxInput<K>) -> Vec<u8> {
-        match input.in_type {
+    pub fn to_address_bits(&self) -> Vec<u8> {
+        match self.in_type {
             BurnchainInputType::BitcoinInput => {
-                if input.keys.len() == 1 {
-                    BurnchainTxInput::to_address_bits_bitcoin_singlesig(&input.keys[0])
+                if self.keys.len() == 1 {
+                    BurnchainTxInput::to_address_bits_bitcoin_singlesig(&self.keys[0])
                 }
                 else {
-                    BurnchainTxInput::to_address_bits_bitcoin_multisig(input.num_required, &input.keys)
+                    BurnchainTxInput::to_address_bits_bitcoin_multisig(self.num_required, &self.keys)
                 }
             },
             BurnchainInputType::BitcoinSegwitP2SHInput => {
-                if input.keys.len() == 1 {
-                    BurnchainTxInput::to_address_bits_bitcoin_singlesig_p2sh(&input.keys[0])
+                if self.keys.len() == 1 {
+                    BurnchainTxInput::to_address_bits_bitcoin_singlesig_p2sh(&self.keys[0])
                 }
                 else {
-                    BurnchainTxInput::to_address_bits_bitcoin_multisig_p2sh(input.num_required, &input.keys)
+                    BurnchainTxInput::to_address_bits_bitcoin_multisig_p2sh(self.num_required, &self.keys)
                 }
             }
         }
@@ -555,7 +554,7 @@ mod tests {
     use super::parse_script;
     use util::hash::hex_bytes;
 
-    use bitcoin::blockdata::script::{Script, Builder};
+    use deps::bitcoin::blockdata::script::{Script, Builder};
 
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::{BitcoinAddressType, BitcoinAddress};

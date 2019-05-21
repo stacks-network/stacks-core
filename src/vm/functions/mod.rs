@@ -186,7 +186,7 @@ fn native_hash160(args: &[Value]) -> Result<Value> {
 }
 
 fn native_sha256(args: &[Value]) -> Result<Value> {
-    use util::hash::Sha256Hash;
+    use util::hash::Sha256Sum;
 
     if !(args.len() == 1) {
         return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to sha256 (expects 1)".to_string())))
@@ -197,7 +197,7 @@ fn native_sha256(args: &[Value]) -> Result<Value> {
         Value::Buffer(value) => Ok(value.data.clone()),
         _ => Err(Error::new(ErrType::NotImplemented))
     }?;
-    let sha256 = Sha256Hash::from_data(&bytes);
+    let sha256 = Sha256Sum::from_data(&bytes);
     Value::buff_from(sha256.as_bytes().to_vec())
 }
 

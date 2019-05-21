@@ -35,15 +35,15 @@ use burnchains::BurnchainBlock;
 
 use util::hash::Hash160;
 
-use crypto::ripemd160::Ripemd160;
 use sha2::Sha256;
-use sha2::Digest;
+use ripemd160::Ripemd160;
 
 use rusqlite::Connection;
 use rusqlite::Transaction;
 
-use self::db::burndb::BurnDB;
-use self::db::Error as db_error;
+use chainstate::burn::db::burndb::BurnDB;
+
+use util::db::Error as db_error;
 
 use core::SYSTEM_FORK_SET_VERSION;
 
@@ -54,16 +54,19 @@ pub struct ConsensusHash([u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);
 impl_byte_array_newtype!(ConsensusHash, u8, 20);
+pub const CONSENSUS_HASH_ENCODED_SIZE : u32 = 20;
 
 pub struct BlockHeaderHash([u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
 impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
+pub const BLOCK_HEADER_HASH_ENCODED_SIZE : u32 = 32;
 
 pub struct VRFSeed([u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
 impl_array_hexstring_fmt!(VRFSeed);
 impl_byte_array_newtype!(VRFSeed, u8, 32);
+pub const VRF_SEED_ENCODED_SIZE : u32 = 32;
 
 impl VRFSeed {
     /// First-ever VRF seed from the genesis block.  It's all 0's
@@ -89,9 +92,11 @@ impl_byte_array_newtype!(SortitionHash, u8, 32);
 pub struct BlockSnapshot {
     pub block_height: u64,
     pub burn_header_hash: BurnchainHeaderHash,
+    pub parent_burn_header_hash: BurnchainHeaderHash,
     pub consensus_hash: ConsensusHash,
     pub ops_hash: OpsHash,
     pub total_burn: u64,        // how many burn tokens have been destroyed since genesis
+    pub sortition_burn: u64,    // how many burn tokens have been destroyed since the last sortition
     pub burn_quota: u64,        // how many burn tokens must be destroyed in this block for a sortition to occur
     pub sortition: bool,        // whether or not a sortition happened in this block (will be false if either the burn quota isn't met, or no block commits occured)
     pub sortition_hash: SortitionHash,  // rolling hash of the burn chain's block headers -- this gets mixed with the sortition VRF seed
@@ -115,16 +120,18 @@ impl SortitionHash {
 
     /// Mix in a burn blockchain header to make a new sortition hash
     pub fn mix_burn_header(&self, burn_header_hash: &BurnchainHeaderHash) -> SortitionHash {
+        use sha2::Digest;
         let mut sha2 = Sha256::new();
         sha2.input(self.as_bytes());
         sha2.input(burn_header_hash.as_bytes());
         let mut ret = [0u8; 32];
-        ret.copy_from_slice(&sha2.result()[..]);
+        ret.copy_from_slice(sha2.result().as_slice());
         SortitionHash(ret)
     }
 
     /// Mix in a new VRF seed to make a new sortition hash.
     pub fn mix_VRF_seed(&self, VRF_seed: &VRFSeed) -> SortitionHash {
+        use sha2::Digest;
         let mut sha2 = Sha256::new();
         sha2.input(self.as_bytes());
         sha2.input(VRF_seed.as_bytes());
@@ -163,15 +170,17 @@ impl OpsHash {
         for txid in txids {
             hasher.input(txid.as_bytes());
         }
-        let result = hasher.result();
-
         let mut result_32 = [0u8; 32];
-        result_32.copy_from_slice(&result[0..32]);
+        result_32.copy_from_slice(hasher.result().as_slice());
         OpsHash(result_32)
     }
 }
 
 impl ConsensusHash {
+    pub fn empty() -> ConsensusHash {
+        ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap()
+    }
+
     /// Instantiate a consensus hash from this block's operations, the total burn so far
     /// for the resulting consensus hash, and the geometric series of previous consensus
     /// hashes.  Note that prev_consensus_hashes should be in order from most-recent to
@@ -209,12 +218,12 @@ impl ConsensusHash {
             result = hasher.result();
         }
 
-        use crypto::digest::Digest;
+        use ripemd160::Digest;
         let mut r160 = Ripemd160::new();
         r160.input(&result);
         
         let mut ch_bytes = [0u8; 20];
-        r160.result(&mut ch_bytes);
+        ch_bytes.copy_from_slice(r160.result().as_slice());
         ConsensusHash(ch_bytes)
     }
 
@@ -276,7 +285,6 @@ mod tests {
     use super::SortitionHash;
     use super::Txid;
 
-    use chainstate::burn::db::Error as db_error;
     use chainstate::burn::db::burndb::BurnDB;
 
     use burnchains::BurnchainHeaderHash;
@@ -288,6 +296,7 @@ mod tests {
 
     use util::hash::{hex_bytes, Hash160};
     use util::log;
+    use util::db::Error as db_error;
 
     use rusqlite::Connection;
 
@@ -302,9 +311,11 @@ mod tests {
                 let snapshot_row = BlockSnapshot {
                     block_height: i,
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i-1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
+                    sortition_burn: i,
                     burn_quota: 0,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
@@ -315,7 +326,7 @@ mod tests {
                 BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
             }
             
-            tx.commit();
+            tx.commit().unwrap();
         }
         
         let prev_chs_0 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 0, 0).unwrap();
