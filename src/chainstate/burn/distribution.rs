@@ -1,5 +1,5 @@
 /*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
+ copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
 
  This file is part of Blockstack.
 
@@ -157,7 +157,7 @@ where
                 Some(ref_block_idx) => {
                     // user burn matches a (key, block) pair committed to in this block
                     let idx = *ref_block_idx;
-                    burn_sample[idx].burns += (user_burn.burn_fee as u128);
+                    burn_sample[idx].burns += user_burn.burn_fee as u128;
                     burn_sample[idx].user_burns.push(user_burn);
                 },
                 None => {
@@ -186,13 +186,7 @@ where
 
         // total burns for valid blocks?
         // NOTE: this can't overflow -- there's no way we get that many (u64) burns
-        let total_burns_u128: u128 = burn_sample
-            .iter()
-            .fold(0u128, |mut total_burns, sample| {
-                total_burns = total_burns + (sample.burns as u128);
-                total_burns
-            });
-
+        let total_burns_u128 = BurnSamplePoint::get_total_burns(&burn_sample).unwrap() as u128;
         let total_burns = Uint512::from_u128(total_burns_u128);
 
         // determine range start/end for each sample.

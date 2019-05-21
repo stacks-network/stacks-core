@@ -323,9 +323,6 @@ impl TypedNativeFunction {
             Equals =>
                 Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::AnyType ),
                                                                    TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
-            IsNull => 
-                Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::AnyType ),
-                                                                   TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),
             Map => Special(SpecialNativeFunction(&check_special_map)),

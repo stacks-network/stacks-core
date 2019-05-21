@@ -135,15 +135,6 @@ const EQUALS_API: SimpleFunctionAPI = SimpleFunctionAPI {
 "
 };
 
-const ISNULL_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    signature: "(isnull? v1 v2...)",
-    description: "Compares the inputted values, returns true if they are all null. Note that _unlike_ the `(and ...)` function, `(isnull? ...)` will _not_ short-circuit.",
-    example: "(isnull? 'null) => true
-(isnull? 1) => false
-(isnull? 1 'null) => false
-"
-};
-
 const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(> i1 i2)",
     description: "Compares two integers, returning true if i1 is greater than i2 and false otherwise.",
@@ -445,7 +436,6 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Or => make_for_simple_native(&OR_API, &Or),
         Not => make_for_simple_native(&NOT_API, &Not),
         Equals => make_for_simple_native(&EQUALS_API, &Equals),
-        IsNull => make_for_simple_native(&ISNULL_API, &IsNull),
         If => make_for_special(&IF_API),
         Let => make_for_special(&LET_API),
         Map => make_for_special(&MAP_API),
@@ -472,7 +462,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
 pub fn make_json_api_reference() -> String {
     use vm::functions::NativeFunctions::*;
     let natives = [ Add, Subtract, Multiply, Divide, CmpGeq, CmpLeq, CmpLess, CmpGreater, Modulo, Power,
-                    BitwiseXOR, And, Or, Not, Equals, IsNull ];
+                    BitwiseXOR, And, Or, Not, Equals ];
     let json_references: Vec<_> = natives.iter()
         .map(|x| make_api_reference(x))
         .collect();

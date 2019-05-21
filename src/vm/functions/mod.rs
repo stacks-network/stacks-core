@@ -28,7 +28,6 @@ pub enum NativeFunctions {
     Or,
     Not,
     Equals,
-    IsNull,
     If,
     Let,
     Map,
@@ -70,7 +69,6 @@ impl NativeFunctions {
             "or" => Some(Or),
             "not" => Some(Not),
             "eq?" => Some(Equals),
-            "isnull?" => Some(IsNull),
             "if" => Some(If),
             "let" => Some(Let),
             "map" => Some(Map),
@@ -115,7 +113,6 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Or => CallableType::SpecialFunction("native_or", &boolean::special_or),
             Not => CallableType::NativeFunction("native_not", &boolean::native_not),
             Equals => CallableType::NativeFunction("native_eq", &native_eq),
-            IsNull => CallableType::NativeFunction("native_isnull", &native_isnull),
             If => CallableType::SpecialFunction("native_if", &special_if),
             Let => CallableType::SpecialFunction("native_let", &special_let),
             Map => CallableType::SpecialFunction("native_map", &lists::list_map),
@@ -157,21 +154,6 @@ fn native_eq(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn native_isnull(args: &[Value]) -> Result<Value> {
-    // TODO: see note in `native_eq` above ListTypes equality...
-    if args.len() == 0 {
-        // TODO: Should no input args be allowed, if so should it return true or false?
-        Ok(Value::Bool(true))
-    } else {
-        // Using `fold` rather than `all` to prevent short-circuiting. 
-        let result = args.iter().fold(true, |acc, x| acc && match *x {
-            Value::Void => true,
-            _ => false
-        });
-        Ok(Value::Bool(result))
-    }
-}
-
 fn native_hash160(args: &[Value]) -> Result<Value> {
     use util::hash::Hash160;
 
@@ -189,7 +171,7 @@ fn native_hash160(args: &[Value]) -> Result<Value> {
 }
 
 fn native_sha256(args: &[Value]) -> Result<Value> {
-    use util::hash::Sha256Hash;
+    use util::hash::Sha256Sum;
 
     if !(args.len() == 1) {
         return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to sha256 (expects 1)".to_string())))
@@ -200,7 +182,7 @@ fn native_sha256(args: &[Value]) -> Result<Value> {
         Value::Buffer(value) => Ok(value.data.clone()),
         _ => Err(Error::new(ErrType::NotImplemented))
     }?;
-    let sha256 = Sha256Hash::from_data(&bytes);
+    let sha256 = Sha256Sum::from_data(&bytes);
     Value::buff_from(sha256.as_bytes().to_vec())
 }
 

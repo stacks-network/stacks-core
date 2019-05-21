@@ -17,30 +17,44 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#![allow(unused_imports)]
+#![allow(unused_assignments)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(non_upper_case_globals)]
+
 extern crate rand;
-extern crate bitcoin;
 extern crate ini;
-extern crate jsonrpc;
 extern crate secp256k1;
 extern crate serde;
 extern crate serde_json;
-extern crate crypto;
 extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
 extern crate sha2;
+extern crate sha3;
+extern crate ripemd160;
 extern crate dirs;
 extern crate regex;
-extern crate linefeed;
+extern crate byteorder;
+extern crate mio;
 
 #[macro_use] extern crate serde_derive;
 
-#[macro_use] mod util;
-mod burnchains;
+#[macro_use]
+mod util;
+
+#[macro_use]
 mod chainstate;
-mod core;
-mod vm;
+
 mod address;
+mod burnchains;
+mod core;
+mod deps;
+mod net;
+mod vm;
 
 use std::fs;
 use std::env;
@@ -67,7 +81,7 @@ fn main() {
         use burnchains::BurnchainHeaderHash;
         use burnchains::bitcoin::spv;
         use util::hash::to_hex;
-        use bitcoin::network::serialize::BitcoinHash;
+        use deps::bitcoin::network::serialize::BitcoinHash;
 
         let height = argv[2].parse::<u64>().unwrap();
         let headers_path = &argv[3];
@@ -234,130 +248,6 @@ where command is one of:
                 
                 return
             },
-            "repl" => {
-                let mut db_conn = match ContractDatabaseConnection::memory() {
-                    Ok(db) => db,
-                    Err(error) => {
-                        eprintln!("Could not open vm-state: \n{}", error);
-                        process::exit(1);
-                    }
-                };
-
-                let mut outer_sp = db_conn.begin_save_point_raw();                    
-                let mut db = ContractDatabase::from_savepoint(outer_sp);
-
-                let mut vm_env = OwnedEnvironment::new(&mut db);
-                let mut exec_env = vm_env.get_exec_environment(None);
-
-                let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
-
-                let mut reader = match linefeed::Interface::new("local-repl") {
-                    Ok(r) => r,
-                    Err(error) => panic!("Could not create linefeed: \n{}", error)
-                };
-
-                reader.set_report_signal(linefeed::Signal::Break, true);
-                reader.set_report_signal(linefeed::Signal::Continue, true);
-                reader.set_report_signal(linefeed::Signal::Interrupt, true);
-                reader.set_report_signal(linefeed::Signal::Suspend, true);
-                reader.set_report_signal(linefeed::Signal::Quit, true);
-                
-                match reader.set_prompt("> ") {
-                    Ok(r) => r,
-                    Err(error) => panic!("Could not create linefeed: \n{}", error)
-                };
-
-                loop {
-                    let content = match reader.read_line() {
-                        Ok(result) => match result {
-                            linefeed::ReadResult::Input(input) => input,
-                            linefeed::ReadResult::Signal(_) => process::exit(0),
-                            linefeed::ReadResult::Eof => process::exit(0),
-                        },
-                        Err(error) => panic!("Could not read line: \n{}", error)
-                    };
-                    
-                    if !content.trim().is_empty() {
-                        reader.add_history_unique(content.clone());
-                    }
-                    
-                    let mut ast = match parse(&content) {
-                        Ok(val) => val,
-                        Err(error) => {
-                            println!("Parse error:\n{}", error);
-                            continue;
-                        }
-                    };
-
-                    let mut analysis_db = analysis_db_conn.begin_save_point();
-                    match type_check("transient", &mut ast, &mut analysis_db, true) {
-                        Ok(_) => (),
-                        Err(error) => {
-                            println!("Type check error:\n{}", error);
-                            continue;
-                        } 
-                    }
-
-                    let eval_result = match exec_env.eval_raw(&content) {
-                        Ok(val) => val,
-                        Err(error) => {
-                            println!("Execution error:\n{}", error);
-                            continue;
-                        }
-                    };
-                    
-                    println!("{}", eval_result);
-                }
-            },
-            "eval_raw" => {
-                if argv.len() < 2 {
-                    eprintln!("Usage: {} local eval_raw", argv[0]);
-                    process::exit(1);
-                }
-
-                let content: String = {
-                    let mut buffer = String::new();
-                    io::stdin().read_to_string(&mut buffer)
-                        .expect("Error reading from stdin.");
-                    buffer
-                };
-
-                let mut db_conn = match ContractDatabaseConnection::memory() {
-                    Ok(db) => db,
-                    Err(error) => {
-                        eprintln!("Could not open vm-state: \n{}", error);
-                        process::exit(1);
-                    }
-                };
-
-                let mut outer_sp = db_conn.begin_save_point_raw();                    
-                let mut db = ContractDatabase::from_savepoint(outer_sp);
-                let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
-
-                let mut vm_env = OwnedEnvironment::new(&mut db);
-
-                let mut ast = parse(&content).expect("Failed to parse program.");
-                let mut analysis_db = analysis_db_conn.begin_save_point();
-                match type_check("transient", &mut ast, &mut analysis_db, true) {
-                    Ok(_) => {
-                        let result = vm_env.get_exec_environment(None).eval_raw(&content);
-                        match result {
-                            Ok(x) => {
-                                println!("Program executed successfully! Output: \n{}", x);
-                            },
-                            Err(error) => {
-                                eprintln!("Program execution error: \n{}", error);
-                                process::exit(1);
-                            }
-                        }
-                    },
-                    Err(error) => {
-                        eprintln!("Type check error.\n{}", error);
-                        process::exit(1);
-                    }
-                }
-                return
-            }
             "eval" => {
                 if argv.len() < 5 {
                     eprintln!("Usage: {} local eval [context-contract-name] (program.scm) [vm-state.db]", argv[0]);

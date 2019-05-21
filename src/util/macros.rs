@@ -17,6 +17,11 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+// is this machine big-endian?
+pub fn is_big_endian() -> bool {
+    u32::from_be(0x1Au32) == 0x1Au32
+}
+
 /// Borrowed from Andrew Poelstra's rust-bitcoin
 macro_rules! impl_array_newtype {
     ($thing:ident, $ty:ty, $len:expr) => {
@@ -204,23 +209,25 @@ macro_rules! impl_byte_array_newtype {
         impl $thing {
             /// Instantiates from a hex string 
             #[allow(dead_code)]
-            pub fn from_hex(hex_str: &str) -> Option<$thing> {
-                use util::hash::hex_bytes;
+            pub fn from_hex(hex_str: &str) -> Result<$thing, ::util::HexError> {
+                use ::util::hash::hex_bytes;
                 let _hex_len = $len * 2;
                 match (hex_str.len(), hex_bytes(hex_str)) {
                     (_hex_len, Ok(bytes)) => {
-                        assert!(bytes.len() == $len);
+                        if bytes.len() != $len {
+                            return Err(::util::HexError::BadLength(hex_str.len()));
+                        }
                         let mut ret = [0; $len];
                         ret.copy_from_slice(&bytes);
-                        Some($thing(ret))
+                        Ok($thing(ret))
                     },
-                    (_, _) => {
-                        None
+                    (_, Err(e)) => {
+                        Err(e)
                     }
                 }
             }
-
-            /// Instantiates from a (little-endian) slice of bytes 
+            
+            /// Instantiates from a slice of bytes 
             #[allow(dead_code)]
             pub fn from_bytes(inp: &[u8]) -> Option<$thing> {
                 match inp.len() {
@@ -233,13 +240,13 @@ macro_rules! impl_byte_array_newtype {
                 }
             }
 
-            /// Instantiates from a (big-endian) slice of bytes 
+            /// Instantiates from a slice of bytes, converting to host byte order
             #[allow(dead_code)]
             pub fn from_bytes_be(inp: &[u8]) -> Option<$thing> {
                 $thing::from_vec_be(&inp.to_vec())
             }
 
-            /// Instantiates from a (little-endian) vector of bytes
+            /// Instantiates from a vector of bytes
             #[allow(dead_code)]
             pub fn from_vec(inp: &Vec<u8>) -> Option<$thing> {
                 match inp.len() {
@@ -253,15 +260,15 @@ macro_rules! impl_byte_array_newtype {
                 }
             }
 
-            /// Instantiates from a big-endian vector of bytes
+            /// Instantiates from a big-endian vector of bytes, converting to host byte order
             #[allow(dead_code)]
             pub fn from_vec_be(b: &Vec<u8>) -> Option<$thing> {
                 match b.len() {
                     $len => {
                         let mut ret = [0; $len];
                         let bytes = &b[0..b.len()];
+                        // flip endian to le if we are le
                         for i in 0..$len {
-                            // flip endian to le
                             ret[$len - 1 - i] = bytes[i];
                         }
                         Some($thing(ret))
@@ -283,10 +290,37 @@ macro_rules! impl_byte_array_newtype {
 // print debug statements while testing
 #[allow(unused_macros)]
 macro_rules! test_debug {
-    ($($arg:tt)*) => ({
-        use std::env;
-        if env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
-            debug!($($arg)*);
+    ($($arg:tt)*) => (
+        #[cfg(test)]
+        {
+            use std::env;
+            if env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
+                debug!($($arg)*);
+            }
         }
-    })
+    )
+}
+
+macro_rules! fmin {
+    ($x: expr) => ($x);
+    ($x: expr, $($z: expr),+) => {{
+        let y = fmin!($($z),*);
+        if $x < y {
+            $x
+        } else {
+            y
+        }
+    }}
+}
+
+macro_rules! fmax {
+    ($x: expr) => ($x);
+    ($x: expr, $($z: expr),+) => {{
+        let y = fmax!($($z),*);
+        if $x > y {
+            $x
+        } else {
+            y
+        }
+    }}
 }
