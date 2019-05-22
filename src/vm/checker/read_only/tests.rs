@@ -39,3 +39,36 @@ fn test_simple_read_only_violations() {
         assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly)
     }
 }
+
+#[test]
+fn test_contract_call_read_only_violations() {
+    let contract1 = 
+        "(define-map tokens ((account principal)) ((balance int)))
+         (define-read-only (get-balance)
+            (get balance (fetch-entry tokens (tuple (account tx-sender))) ))
+         (define-public (mint)
+            (begin
+              (set-entry! tokens (tuple (account tx-sender))
+                                              (tuple (balance 10)))
+              'true))";
+    let bad_caller = 
+        "(define-read-only (not-reading-only)
+            (contract-call! contract1 mint))";
+    let ok_caller =
+        "(define-read-only (is-reading-only)
+            (eq? 'null (contract-call! contract1 get-balance)))";
+
+    let mut contract1 = parse(contract1).unwrap();
+    let mut bad_caller = parse(bad_caller).unwrap();
+    let mut ok_caller = parse(ok_caller).unwrap();
+
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
+
+    type_check(&"contract1", &mut contract1, &mut db, true).unwrap();
+    let err = type_check(&"bad_caller", &mut bad_caller, &mut db, true).unwrap_err();
+    assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
+
+    type_check(&"ok_caller", &mut ok_caller, &mut db, true).unwrap()
+
+}
