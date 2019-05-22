@@ -104,9 +104,20 @@ where
 {
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
-         
+            TODO: pick one of these
+
+            Hybrid PoB/PoW Wire format:
+            0      2  3               34               67     68     70    71   72     76    80
+            |------|--|----------------|---------------|------|------|-----|-----|-----|-----|
+             magic  op   block hash       new seed     parent parent key   key   epoch  PoW
+                       (31-byte; lead 0)               delta  txoff  delta txoff num.   nonce
+
+             Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
+
+             The values parent-txoff and key-txoff are in network byte order
+
             Wire format:
-            0      2  3           35               67     69     71    73   75     79    80
+            0      2  3            35               67     69     71    73   75     79    80
             |------|--|-------------|---------------|------|------|-----|-----|-----|-----|
              magic  op   block hash     new seed     parent parent key   key   epoch  memo
                                                      delta  txoff  delta txoff num.
@@ -115,6 +126,7 @@ where
 
              The values parent-delta, parent-txoff, key-delta, and key-txoff are in network byte order
         */
+
         if data.len() < 77 {
             // too short
             warn!("LEADER_BLOCK_COMMIT payload is malformed ({} bytes)", data.len());
@@ -307,7 +319,7 @@ where
         // reveal the keys that hash to the address's hash.
         /////////////////////////////////////////////////////////////////////////////////////
 
-        let input_address_bytes = BurnchainTxInput::to_address_bits(&self.input);
+        let input_address_bytes = self.input.to_address_bits();
         let addr_bytes = register_key.address.to_bytes();
 
         if input_address_bytes != addr_bytes {
@@ -333,8 +345,8 @@ mod tests {
 
     use burnchains::bitcoin::BitcoinNetworkType;
 
-    use bitcoin::network::serialize::deserialize;
-    use bitcoin::blockdata::transaction::Transaction;
+    use deps::bitcoin::network::serialize::deserialize;
+    use deps::bitcoin::blockdata::transaction::Transaction;
     
     use chainstate::burn::{BlockHeaderHash, ConsensusHash, VRFSeed};
     use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
@@ -358,7 +370,8 @@ mod tests {
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
-        let tx_bin = hex_bytes(hex_str)?;
+        let tx_bin = hex_bytes(hex_str)
+            .map_err(|_e| "failed to decode hex string")?;
         let tx = deserialize(&tx_bin.to_vec())
             .map_err(|_e| "failed to deserialize")?;
         Ok(tx)
@@ -454,11 +467,16 @@ mod tests {
         let block_125_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000001250").unwrap();
         
         let burnchain = Burnchain {
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
             burn_quota: get_burn_quota_config(&"bitcoin".to_string()).unwrap(),
-            consensus_hash_lifetime: 24
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            first_block_height: first_block_height,
+            first_block_hash: first_burn_hash.clone()
         };
         
         let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
@@ -523,9 +541,9 @@ mod tests {
 
         {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_leader_key(&mut tx, &leader_key_1);
-            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_leader_key(&mut tx, &leader_key_2);
-            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_commit(&mut tx, &block_commit_1);
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_leader_key(&mut tx, &leader_key_1).unwrap();
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_leader_key(&mut tx, &leader_key_2).unwrap();
+            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_commit(&mut tx, &block_commit_1).unwrap();
             tx.commit().unwrap();
         }
         

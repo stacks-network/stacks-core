@@ -17,8 +17,9 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 use super::Error;
-use crypto::sha2::Sha256;
-use crypto::digest::Digest;
+
+use sha2::Sha256;
+use sha2::Digest;
 
 const C32_CHARACTERS: &str = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -121,12 +122,16 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
 fn double_sha256_checksum(data: &[u8]) -> Vec<u8> {
     let mut sha2 = Sha256::new();
     let mut tmp = [0u8; 32];
+    let mut tmp_2 = [0u8; 32];
+
     sha2.input(data);
-    sha2.result(&mut tmp);
-    let mut sha2 = Sha256::new();
-    sha2.input(&tmp);
-    sha2.result(&mut tmp);
-    tmp[0..4].to_vec()
+    tmp.copy_from_slice(sha2.result().as_slice());
+
+    let mut sha2_2 = Sha256::new();
+    sha2_2.input(&tmp);
+    tmp_2.copy_from_slice(sha2_2.result().as_slice());
+
+    tmp_2[0..4].to_vec()
 }
 
 fn c32_check_encode(version: u8, data: &[u8]) -> Result<String, Error> {
@@ -167,7 +172,19 @@ fn c32_check_decode(check_data: &str) -> Result<(u8, Vec<u8>), Error> {
 
     let computed_sum = double_sha256_checksum(&check_data);
     if computed_sum != expected_sum {
-        return Err(Error::InvalidChecksum(computed_sum, expected_sum.to_vec()))
+        let computed_sum_u32 = 
+            (computed_sum[0] as u32) |
+            ((computed_sum[1] as u32) << 8) |
+            ((computed_sum[2] as u32) << 16) |
+            ((computed_sum[3] as u32) << 24);
+
+        let expected_sum_u32 = 
+            (expected_sum[0] as u32) |
+            ((expected_sum[1] as u32) << 8) |
+            ((expected_sum[2] as u32) << 16) |
+            ((expected_sum[3] as u32) << 24);
+
+        return Err(Error::BadChecksum(computed_sum_u32, expected_sum_u32));
     }
 
     let version = check_data[0];

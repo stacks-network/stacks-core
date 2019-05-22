@@ -19,7 +19,6 @@
 
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
-#![allow(dead_code)]        // TODO: remove once we start using the VRF for things 
 
 /// This codebase is based on routines defined in the IETF draft for verifiable random functions
 /// over elliptic curves (https://tools.ietf.org/id/draft-irtf-cfrg-vrf-02.html).
@@ -83,13 +82,54 @@ impl error::Error for ECVRF_Error {
 
 pub const SUITE : u8 = 0x05;        /* cipher suite (not standardized yet).  This would be ECVRF-ED25519-SHA512-RistrettoElligator -- i.e. using the Ristretto group on ed25519 and its elligator function */
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct ECVRF_Proof {
-    pub Gamma: RistrettoPoint,
-    pub c: ed25519_Scalar,
-    pub s: ed25519_Scalar
+    // force private so we don't accidentally expose
+    // an invalid c point
+    Gamma: RistrettoPoint,
+    c: ed25519_Scalar,
+    s: ed25519_Scalar
 }
 
+pub const ECVRF_PROOF_ENCODED_SIZE : u32 = 80;
+
 impl ECVRF_Proof {
+    pub fn Gamma(&self) -> &RistrettoPoint {
+        &self.Gamma
+    }
+
+    pub fn s(&self) -> &ed25519_Scalar {
+        &self.s
+    }
+
+    pub fn c(&self) -> &ed25519_Scalar {
+        &self.c
+    }
+
+    pub fn check_c(c: &ed25519_Scalar) -> bool {
+        let c_bytes = c.reduce().to_bytes();
+        
+        // upper 16 bytes of c must be 0's
+        for i in 16..32 {
+            if c_bytes[i] != 0 {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    pub fn new(Gamma: RistrettoPoint, c: ed25519_Scalar, s: ed25519_Scalar) -> Result<ECVRF_Proof, ECVRF_Error> {
+        if !ECVRF_Proof::check_c(&c) {
+            return Err(ECVRF_Error::InvalidDataError);
+        }
+
+        Ok(ECVRF_Proof {
+            Gamma,
+            c,
+            s
+        })
+    }
+
     pub fn from_slice(bytes: &[u8]) -> Result<ECVRF_Proof, ECVRF_Error> {
         match bytes.len() {
             80 => {
@@ -129,16 +169,14 @@ impl ECVRF_Proof {
         ECVRF_Proof::from_slice(&bytes[..])
     }
 
-    pub fn to_bytes(&self) -> Result<[u8; 80], ECVRF_Error> {
+    pub fn to_bytes(&self) -> [u8; 80] {
         let mut c_bytes_16 = [0u8; 16];
+        assert!(ECVRF_Proof::check_c(&self.c), "FATAL ERROR: somehow constructed an invalid ECVRF proof");
+
         let c_bytes = self.c.reduce().to_bytes();
         
         // upper 16 bytes of c must be 0's
         for i in 16..32 {
-            if c_bytes[i] != 0 {
-                return Err(ECVRF_Error::InvalidDataError);
-            }
-
             c_bytes_16[i-16] = c_bytes[i-16];
         }
 
@@ -152,7 +190,7 @@ impl ECVRF_Proof {
         
         let mut proof_bytes = [0u8; 80];
         proof_bytes.copy_from_slice(&ret[..]);
-        Ok(proof_bytes)
+        proof_bytes
     }
 }
 
@@ -256,7 +294,8 @@ fn ECVRF_nonce_generation(trunc_hash: &[u8; 32], H_point: &RistrettoPoint) -> ed
     k.reduce()
 }
 
-/// Convert a 16-byte string into a scalar
+/// Convert a 16-byte string into a scalar.
+/// The upper 16 bytes in the resulting scalar MUST BE 0's
 fn ECVRF_ed25519_scalar_from_hash128(hash128: &[u8; 16]) -> ed25519_Scalar {
     let mut scalar_buf = [0u8; 32];
     for i in 0..16 {
@@ -284,11 +323,9 @@ pub fn ECVRF_prove(secret: &ed25519_PrivateKey, alpha: &Vec<u8>) -> ECVRF_Proof 
     let s_full_scalar = &c_scalar * &x_scalar + &k_scalar;
     let s_scalar = s_full_scalar.reduce();
 
-    ECVRF_Proof {
-        Gamma: Gamma_point,
-        c: c_scalar,
-        s: s_scalar
-    }
+    // NOTE: unwrap() won't panic because c_scalar is guaranteed to have 
+    // its upper 16 bytes as 0
+    ECVRF_Proof::new(Gamma_point, c_scalar, s_scalar).unwrap()
 }
 
 /// Auxilliary routine to convert an ed25519 public key point to a Ristretto point.
@@ -323,16 +360,16 @@ fn ECVRF_ed25519_PublicKey_to_RistrettoPoint(public_key: &ed25519_PublicKey) -> 
 pub fn ECVRF_verify(Y_point: &ed25519_PublicKey, proof: &ECVRF_Proof, alpha: &Vec<u8>) -> Result<bool, ECVRF_Error> {
     let H_point = ECVRF_hash_to_curve(Y_point, alpha);
     let Y_ristretto_point = ECVRF_ed25519_PublicKey_to_RistrettoPoint(Y_point)?;
-    let s_reduced = proof.s.reduce();
+    let s_reduced = proof.s().reduce();
 
-    let U_point = &s_reduced * &RISTRETTO_BASEPOINT_POINT - &proof.c * Y_ristretto_point;
-    let V_point = &s_reduced * &H_point - &proof.c * &proof.Gamma;
+    let U_point = &s_reduced * &RISTRETTO_BASEPOINT_POINT - proof.c() * Y_ristretto_point;
+    let V_point = &s_reduced * &H_point - proof.c() * proof.Gamma();
 
-    let c_prime_hashbuf = ECVRF_hash_points(&H_point, &proof.Gamma, &U_point, &V_point);
+    let c_prime_hashbuf = ECVRF_hash_points(&H_point, proof.Gamma(), &U_point, &V_point);
     let c_prime = ECVRF_ed25519_scalar_from_hash128(&c_prime_hashbuf);
 
     // NOTE: this leverages constant-time comparison inherited from the Scalar impl
-    Ok(c_prime == proof.c)
+    Ok(c_prime == *(proof.c()))
 }
 
 /// Verify that a given byte string is a well-formed EdDSA public key (i.e. it's a compressed
@@ -430,7 +467,7 @@ mod tests {
             let expected_proof_bytes = &proof_fixture.proof[..];
 
             let proof = ECVRF_prove(&privk, &alpha.to_vec());
-            let proof_bytes = proof.to_bytes().unwrap();
+            let proof_bytes = proof.to_bytes();
 
             assert_eq!(proof_bytes.to_vec(), expected_proof_bytes.to_vec());
         }
@@ -499,7 +536,7 @@ mod tests {
             let secret_key: ed25519_PrivateKey = ed25519_PrivateKey::generate(&mut csprng);
             let public_key = ed25519_PublicKey::from(&secret_key);
 
-            let mut msg = [0u8, 1024];
+            let mut msg = [0u8; 1024];
             csprng.fill_bytes(&mut msg);
 
             let proof = ECVRF_prove(&secret_key, &msg.to_vec());
@@ -564,23 +601,12 @@ mod tests {
                 assert!(!proof_res.is_err());
                 
                 // should re-encode
-                assert!(proof_res.unwrap().to_bytes().unwrap().to_vec() == proof_fixture.proof.to_vec());
+                assert!(proof_res.unwrap().to_bytes().to_vec() == proof_fixture.proof.to_vec());
             }
             else {
                 assert!(proof_res.is_err());
             }
         }
-
-        // confirm that a proof structure with an invalid c-value does not encode 
-        let valid_proof = ECVRF_Proof::from_bytes(&hex_bytes("024c1484fcb05cecdb4dbfb9bf4e08e7f529aea3b3a2515716ad4e9cf7bace6c91181b6bb7d8201c5a85a11c626d1848aa2ac4d188c7e24a94faa32d1eec48d600fad7c55c7e71adb6a7dd6c73f6fc02").unwrap()).unwrap();
-        let bad_proof = ECVRF_Proof {
-            Gamma: valid_proof.Gamma,
-            c: ed25519_Scalar::from_bits([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]),
-            s: valid_proof.s
-        };
-
-        let bad_proof_bytes_res = bad_proof.to_bytes();
-        assert!(bad_proof_bytes_res.is_err());
     }
 
     #[test]

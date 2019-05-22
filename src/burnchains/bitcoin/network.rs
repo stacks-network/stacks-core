@@ -27,15 +27,16 @@ use std::ops::Deref;
 
 use rand::{Rng, thread_rng};
 
-use bitcoin::network::address as btc_network_address;
-use bitcoin::network::constants as btc_constants;
-use bitcoin::network::encodable::{ConsensusEncodable, ConsensusDecodable};
-use bitcoin::network::message as btc_message;
-use bitcoin::network::message_network as btc_message_network;
-use bitcoin::network::message_blockdata as btc_message_blockdata;
-use bitcoin::network::serialize as btc_serialize;
-use bitcoin::network::serialize::{RawEncoder, RawDecoder};
-use bitcoin::util::hash::Sha256dHash;
+use deps::bitcoin::network::address as btc_network_address;
+use deps::bitcoin::network::constants as btc_constants;
+use deps::bitcoin::network::encodable::{ConsensusEncodable, ConsensusDecodable};
+use deps::bitcoin::network::message as btc_message;
+use deps::bitcoin::network::message_network as btc_message_network;
+use deps::bitcoin::network::message_blockdata as btc_message_blockdata;
+use deps::bitcoin::network::serialize as btc_serialize;
+use deps::bitcoin::network::serialize::{RawEncoder, RawDecoder};
+
+use deps::bitcoin::util::hash::Sha256dHash;
 
 use burnchains::bitcoin::Error as btc_error;
 use burnchains::bitcoin::indexer::{BitcoinIndexer, network_id_to_bytes};
@@ -186,8 +187,9 @@ impl BitcoinIndexer {
         }
     }
 
-    /// Do the initial handshake to the remote peer
-    pub fn peer_handshake(&mut self) -> Result<(), btc_error> {
+    /// Do the initial handshake to the remote peer.
+    /// Returns the remote peer's block height
+    pub fn peer_handshake(&mut self) -> Result<u64, btc_error> {
         debug!("Begin peer handshake to {}:{}", self.config.peer_host, self.config.peer_port);
         self.send_version()?;
         let version_reply = self.recv_message()?;
@@ -196,15 +198,16 @@ impl BitcoinIndexer {
         let verack_reply = self.recv_message()?;
         self.handle_verack(verack_reply)?;
 
-        debug!("Established connection to {}:{}", self.config.peer_host, self.config.peer_port);
-        return Ok(());
+        debug!("Established connection to {}:{}, who has {} blocks", self.config.peer_host, self.config.peer_port, self.runtime.block_height);
+        Ok(self.runtime.block_height)
     }
 
 
     /// Connect to a remote peer, do a handshake with the remote peer, and use exponential backoff until we
     /// succeed in establishing a connection.
     /// This method masks ConnectionBroken errors, but does not mask other network errors.
-    pub fn connect_handshake_backoff(&mut self) -> Result<(), btc_error> {
+    /// Returns the remote peer's block height on success
+    pub fn connect_handshake_backoff(&mut self) -> Result<u64, btc_error> {
         let mut backoff: f64 = 1.0;
         let mut rng = thread_rng();
 
@@ -215,9 +218,9 @@ impl BitcoinIndexer {
                     // connected!  now do the handshake 
                     let handshake_result = self.peer_handshake();
                     match handshake_result {
-                        Ok(()) => {
+                        Ok(block_height) => {
                             // connected!
-                            return handshake_result;
+                            return Ok(block_height);
                         }
                         Err(btc_error::ConnectionBroken) => {
                             // need to try again
@@ -281,8 +284,9 @@ impl BitcoinIndexer {
     /// Receive a Version message and reply with a Verack
     pub fn handle_version(&mut self, version_message: PeerMessage) -> Result<(), btc_error> {
         match version_message.deref() {
-            btc_message::NetworkMessage::Version(_msg_body) => {
-                debug!("Handle version");
+            btc_message::NetworkMessage::Version(msg_body) => {
+                debug!("Handle version -- remote peer blockchain height is {}", msg_body.start_height);
+                self.runtime.block_height = msg_body.start_height as u64;
                 return self.send_verack();
             }
             _ => {
