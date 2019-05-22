@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use super::AnalysisDatabase;
 pub use super::errors::{CheckResult, CheckError, CheckErrors};
 
+#[cfg(test)]
+mod tests;
 
 pub struct ReadOnlyChecker <'a, 'b> {
     db: &'a AnalysisDatabase<'b>,
