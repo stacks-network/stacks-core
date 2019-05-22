@@ -15,5 +15,5 @@ jobs:
             BLOCKSTACK_DEBUG: 1
             RUSTFLAGS: -Clink-dead-code
           command: |
-            cargo test
+            cargo test -- --test-threads 1
 #            cargo kcov && bash <(curl -s https://codecov.io/bash)
