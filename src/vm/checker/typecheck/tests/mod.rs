@@ -7,7 +7,7 @@ mod contracts;
 
 fn type_check(exp: &SymbolicExpression) -> TypeResult {
     let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let analysis_db = analysis_conn.begin_save_point();
     let mut type_checker = TypeChecker::new(&analysis_db);
     let contract_context = TypingContext::new();
     type_checker.type_check(exp, &contract_context)
