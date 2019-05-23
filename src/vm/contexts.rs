@@ -110,7 +110,7 @@ impl <'a, 'b> Environment <'a, 'b> {
     pub fn eval_read_only(&mut self, contract_name: &str, program: &str) -> Result<Value> {
         let parsed = parser::parse(program)?;
         if parsed.len() < 1 {
-            return Err(Error::new(ErrType::ParseError("Expected a program of atleast length 1".to_string())))
+            return Err(Error::new(ErrType::ParseError("Expected a program of at least length 1".to_string())))
         }
 
         let contract = self.global_context.database.get_contract(contract_name)?;

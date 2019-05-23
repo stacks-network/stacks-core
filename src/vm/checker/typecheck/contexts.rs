@@ -16,6 +16,10 @@ pub struct TypeMap {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractAnalysis {
+    // matt: is okay to let these new fields end up in the db?
+    // #[serde(skip)]
+    private_function_types: BTreeMap<String, FunctionType>,
+    variable_types: BTreeMap<String, TypeSignature>,
     public_function_types: BTreeMap<String, FunctionType>,
     map_types: BTreeMap<String, (TypeSignature, TypeSignature)>
 }
@@ -37,7 +41,9 @@ pub struct ContractContext {
 impl ContractAnalysis {
     pub fn new() -> ContractAnalysis {
         ContractAnalysis {
+            private_function_types: BTreeMap::new(),
             public_function_types: BTreeMap::new(),
+            variable_types: BTreeMap::new(),
             map_types: BTreeMap::new()
         }
     }
@@ -57,16 +63,32 @@ impl ContractAnalysis {
                                                  map_type.clone()));
     }
 
+    pub fn add_variable_type(&mut self, name: &str, variable_type: &TypeSignature) {
+        self.variable_types.insert(name.to_string(), variable_type.clone());
+    }
+
     pub fn add_public_function(&mut self, name: &str, function_type: &FunctionType) {
         self.public_function_types.insert(name.to_string(), function_type.clone());
+    }
+
+    pub fn add_private_function(&mut self, name: &str, function_type: &FunctionType) {
+        self.private_function_types.insert(name.to_string(), function_type.clone());
     }
 
     pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {
         self.public_function_types.get(name)
     }
 
+    pub fn get_private_function(&self, name: &str) -> Option<&FunctionType> {
+        self.private_function_types.get(name)
+    }
+
     pub fn get_map_type(&self, name: &str) -> Option<&(TypeSignature, TypeSignature)> {
         self.map_types.get(name)
+    }
+
+    pub fn get_variable_type(&self, name: &str) -> Option<&TypeSignature> {
+        self.variable_types.get(name)
     }
 }
 
@@ -164,6 +186,14 @@ impl ContractContext {
 
         for (name, (key_type, map_type)) in self.map_types.iter() {
             contract_analysis.add_map_type(name, key_type, map_type);
+        }
+
+        for (name, function_type) in self.private_function_types.iter() {
+            contract_analysis.add_private_function(name, function_type);
+        }
+
+        for (name, variable_type) in self.variable_types.iter() {
+            contract_analysis.add_variable_type(name, variable_type);
         }
 
         contract_analysis
