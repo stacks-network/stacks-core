@@ -34,6 +34,7 @@ extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
 extern crate sha2;
+extern crate sha3;
 extern crate ripemd160;
 extern crate dirs;
 extern crate regex;

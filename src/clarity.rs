@@ -12,12 +12,15 @@ use vm::{SymbolicExpression, SymbolicExpressionType};
 use vm::checker::{type_check, AnalysisDatabase, AnalysisDatabaseConnection};
 use vm::types::Value;
 
+use serde::Serialize;
+
 fn print_usage(invoked_by: &str) {
     eprintln!("Usage: {} [command]
 where command is one of:
 
   initialize         to initialize a local VM state database.
   set_block_height   to set the simulated block height
+  get_block_height   to print the simulated block height.
   check              to typecheck a potential contract definition.
   launch             to launch a initialize a new contract in the local state database.
   eval               to evaluate (in read-only mode) a program in a given contract context.
@@ -43,7 +46,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             AnalysisDatabaseConnection::initialize(&args[1]);
             match ContractDatabaseConnection::initialize(&args[1]) {
                 Ok(_) => println!("Database created."),
-                Err(error) => eprintln!("Initialization error: \n {}", error)
+                Err(error) => {
+                    eprintln!("Initialization error: \n{}", error);
+                    process::exit(1);
+                }
             }
         },
         "set_block_height" => {
@@ -57,7 +63,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut db = match ContractDatabaseConnection::open(&args[2]) {
                 Ok(db) => db,
                 Err(error) => {
-                    eprintln!("Could not open vm-state: \n {}", error);
+                    eprintln!("Could not open vm-state: \n{}", error);
                     process::exit(1);
                 }
             };
@@ -66,6 +72,32 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             sp.set_simmed_block_height(blockheight);
             sp.commit();
             println!("Simulated block height updated!");
+        },
+        "get_block_height" => {
+            if args.len() < 2 {
+                eprintln!("Usage: {} {} [vm-state.db]", invoked_by, args[0]);
+                process::exit(1);
+            }
+
+            let mut db = match ContractDatabaseConnection::open(&args[1]) {
+                Ok(db) => db,
+                Err(error) => {
+                    eprintln!("Could not open vm-state: \n{}", error);
+                    process::exit(1);
+                }
+            };
+
+            let mut sp = db.begin_save_point();
+            let mut blockheight = sp.get_simmed_block_height();
+            match blockheight {
+                Ok(x) => {
+                    println!("Simulated block height: \n{}", x);
+                },
+                Err(error) => {
+                    eprintln!("Program execution error: \n{}", error);
+                    process::exit(1);
+                }
+            }
         },
         "check" => {
             if args.len() < 2 {
@@ -86,11 +118,17 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             
             let mut db = db_conn.begin_save_point();
             let mut ast = parse(&content).expect("Failed to parse program");
-            type_check(&":transient:", &mut ast, &mut db, false)
-                .unwrap_or_else(|e| {
-                    eprintln!("Type check error.\n{}", e);
-                    process::exit(1);
-                });
+            let mut contract_analysis = type_check(&":transient:", &mut ast, &mut db, false).unwrap_or_else(|e| {
+                eprintln!("Type check error.\n{}", e);
+                process::exit(1);
+            });
+
+            match args.last() {
+                Some(s) if s == "--output_analysis" => {
+                    println!("{}", contract_analysis.serialize());
+                },
+                _ => {}
+            }
         },
         "repl" => {
             let mut db_conn = match ContractDatabaseConnection::memory() {
@@ -199,7 +237,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     process::exit(1);
                 }
             }
-            return
         },
         "eval" => {
             if args.len() < 3 {
@@ -218,7 +255,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut db = match ContractDatabaseConnection::open(vm_filename) {
                 Ok(db) => db,
                 Err(error) => {
-                    eprintln!("Could not open vm-state: \n {}", error);
+                    eprintln!("Could not open vm-state: \n{}", error);
                     process::exit(1);
                 }
             };
@@ -243,9 +280,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             match result {
                 Ok(x) => {
-                    println!("Program executed successfully! Output: \n {}", x);
+                    println!("Program executed successfully! Output: \n{}", x);
                 },
-                Err(error) => println!("Program execution error: \n {}", error)
+                Err(error) => { 
+                    eprintln!("Program execution error: \n{}", error);
+                    process::exit(1);
+                }
             }
         },
         "launch" => {
@@ -269,7 +309,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut db_conn = match ContractDatabaseConnection::open(vm_filename) {
                 Ok(db) => db,
                 Err(error) => {
-                    eprintln!("Could not open vm-state: \n {}", error);
+                    eprintln!("Could not open vm-state: \n{}", error);
                     process::exit(1);
                 }
             };
@@ -309,7 +349,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     db.commit();
                     println!("Contract initialized!");
                 },
-                Err(error) => println!("Contract initialization error: \n {}", error)
+                Err(error) => {
+                    eprintln!("Contract initialization error: \n{}", error);
+                    process::exit(1);
+                }
             }
         },
         "execute" => {
@@ -322,7 +365,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut db = match ContractDatabaseConnection::open(vm_filename) {
                 Ok(db) => db,
                 Err(error) => {
-                    eprintln!("Could not open vm-state: \n {}", error);
+                    eprintln!("Could not open vm-state: \n{}", error);
                     process::exit(1);
                 }
             };
@@ -377,7 +420,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         panic!(format!("Expected a bool result from transaction. Found: {}", x));
                     }
                 },
-                Err(error) => println!("Transaction execution error: \n {}", error),
+                Err(error) => {
+                    eprintln!("Transaction execution error: \n{}", error);
+                    process::exit(1);
+                }
             }
         },
         _ => {
