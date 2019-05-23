@@ -234,8 +234,12 @@ where command is one of:
                 loop {
                     let content: String = {
                         let mut buffer = String::new();
-                        stdout.write(b"> ");
-                        stdout.flush();
+                        stdout.write(b"> ").unwrap_or_else(|e| {
+                            panic!("Failed to write stdout prompt string:\n{}", e);
+                        });
+                        stdout.flush().unwrap_or_else(|e| {
+                            panic!("Failed to flush stdout prompt string:\n{}", e);
+                        });
                         match io::stdin().read_line(&mut buffer) {
                             Ok(_) => buffer,
                             Err(error) => {
