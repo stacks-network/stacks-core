@@ -40,7 +40,7 @@ features = ["serde"]
 
 [dependencies.rusqlite]
 version = "=0.16.0"
-features = ["i128_blob"]
+features = ["i128_blob", "bundled"]
 
 [dependencies.ed25519-dalek]
 version = "=1.0.0-pre.1"
