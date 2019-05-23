@@ -48,7 +48,15 @@ fn get_value_or_err(input: &str, captures: Captures) -> Result<String> {
     Ok(input[matched.start()..matched.end()].to_string())
 }
 
-pub fn lex(input: &str) -> Result<Vec<LexItem>> {
+fn get_lines_at(input: &str) -> Vec<usize> {
+    let mut out: Vec<_> = input.match_indices("\n")
+        .map(|(ix, _)| ix)
+        .collect();
+    out.reverse();
+    out
+}
+
+pub fn lex(input: &str) -> Result<Vec<(LexItem, usize)>> {
     // Aaron: I'd like these to be static, but that'd require using
     //    lazy_static (or just hand implementing that), and I'm not convinced
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
@@ -69,10 +77,21 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
 
     let mut context = LexContext::ExpectNothing;
 
+    let mut line_indices = get_lines_at(input);
+    let mut next_line_break = line_indices.pop();
+    let mut current_line = 1;
+
     let mut result = Vec::new();
     let mut munch_index = 0;
     let mut did_match = true;
     while did_match && munch_index < input.len() {
+        if let Some(next_line_ix) = next_line_break {
+            if munch_index > next_line_ix {
+                next_line_break = line_indices.pop();
+                current_line += 1;
+            }
+        }
+
         did_match = false;
         let current_slice = &input[munch_index..];
         for matcher in lex_matchers.iter() {
@@ -171,7 +190,7 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
                     }
                 }?;
 
-                result.push(token);
+                result.push((token, current_line));
                 did_match = true;
                 break;
             }
@@ -185,28 +204,29 @@ pub fn lex(input: &str) -> Result<Vec<LexItem>> {
     }
 }
 
-pub fn parse_lexed(mut input: Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
+pub fn parse_lexed(mut input: Vec<(LexItem, usize)>) -> Result<Vec<SymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
 
-    for item in input.drain(..) {
+    for (item, line_number) in input.drain(..) {
         match item {
             LexItem::LeftParen => {
                 // start new list.
                 let new_list = Vec::new();
-                parse_stack.push(new_list);
+                parse_stack.push((new_list, line_number));
             },
             LexItem::RightParen => {
                 // end current list.
-                if let Some(value) = parse_stack.pop() {
-                    let expression = SymbolicExpression::list(value.into_boxed_slice());
+                if let Some((value, starting_line)) = parse_stack.pop() {
+                    let mut expression = SymbolicExpression::list(value.into_boxed_slice());
+                    expression.line_number = starting_line;
                     match parse_stack.last_mut() {
                         None => {
                             // no open lists on stack, add current to result.
                             output_list.push(expression)
                         },
-                        Some(ref mut list) => {
+                        Some((ref mut list, _)) => {
                             list.push(expression);
                         }
                     };
@@ -215,15 +235,21 @@ pub fn parse_lexed(mut input: Vec<LexItem>) -> Result<Vec<SymbolicExpression>> {
                 }
             },
             LexItem::Variable(value) => {
+                let mut expression = SymbolicExpression::atom(value);
+                expression.line_number = line_number;
+
                 match parse_stack.last_mut() {
-                    None => output_list.push(SymbolicExpression::atom(value)),
-                    Some(ref mut list) => list.push(SymbolicExpression::atom(value))
+                    None => output_list.push(expression),
+                    Some((ref mut list, _)) => list.push(expression)
                 };
             },
             LexItem::LiteralValue(value) => {
+                let mut expression = SymbolicExpression::atom_value(value);
+                expression.line_number = line_number;
+
                 match parse_stack.last_mut() {
-                    None => output_list.push(SymbolicExpression::atom_value(value)),
-                    Some(ref mut list) => list.push(SymbolicExpression::atom_value(value))
+                    None => output_list.push(expression),
+                    Some((ref mut list, _)) => list.push(expression)
                 };
             },
             LexItem::Whitespace => ()
@@ -247,6 +273,25 @@ pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>> {
 #[cfg(test)]
 mod test {
     use vm::{SymbolicExpression, Value, parser};
+
+    fn make_atom(x: &str, line: usize) -> SymbolicExpression {
+        let mut e = SymbolicExpression::atom(x.to_string());
+        e.line_number = line;
+        e
+    }
+
+    fn make_atom_value(x: Value, line: usize) -> SymbolicExpression {
+        let mut e = SymbolicExpression::atom_value(x);
+        e.line_number = line;
+        e
+    }
+
+    fn make_list(line: usize, x: Box<[SymbolicExpression]>) -> SymbolicExpression {
+        let mut e = SymbolicExpression::list(x);
+        e.line_number = line;
+        e
+    }
+
     #[test]
     fn test_parse_let_expression() {
 
@@ -257,32 +302,32 @@ mod test {
                          (+ x y))     
                          x)) x y";
         let program = vec![
-            SymbolicExpression::atom("z".to_string()),
-            SymbolicExpression::list(Box::new([
-                SymbolicExpression::atom("let".to_string()),
-                SymbolicExpression::list(Box::new([
-                    SymbolicExpression::list(Box::new([
-                        SymbolicExpression::atom("x".to_string()),
-                        SymbolicExpression::atom_value(Value::Int(1))])),
-                    SymbolicExpression::list(Box::new([
-                        SymbolicExpression::atom("y".to_string()),
-                        SymbolicExpression::atom_value(Value::Int(2))]))])),
-                SymbolicExpression::list(Box::new([
-                    SymbolicExpression::atom("+".to_string()),
-                    SymbolicExpression::atom("x".to_string()),
-                    SymbolicExpression::list(Box::new([
-                        SymbolicExpression::atom("let".to_string()),
-                        SymbolicExpression::list(Box::new([
-                            SymbolicExpression::list(Box::new([
-                                SymbolicExpression::atom("x".to_string()),
-                                SymbolicExpression::atom_value(Value::Int(3))]))])),
-                        SymbolicExpression::list(Box::new([
-                            SymbolicExpression::atom("+".to_string()),
-                            SymbolicExpression::atom("x".to_string()),
-                            SymbolicExpression::atom("y".to_string())]))])),
-                    SymbolicExpression::atom("x".to_string())]))])),
-            SymbolicExpression::atom("x".to_string()),
-            SymbolicExpression::atom("y".to_string()),
+            make_atom("z", 1),
+            make_list(1, Box::new([
+                make_atom("let", 1),
+                make_list(1, Box::new([
+                    make_list(1, Box::new([
+                        make_atom("x", 1),
+                        make_atom_value(Value::Int(1), 1)])),
+                    make_list(1, Box::new([
+                        make_atom("y", 1),
+                        make_atom_value(Value::Int(2), 1)]))])),
+                make_list(2, Box::new([
+                    make_atom("+", 2),
+                    make_atom("x", 2),
+                    make_list(4, Box::new([
+                        make_atom("let", 4),
+                        make_list(4, Box::new([
+                            make_list(4, Box::new([
+                                make_atom("x", 4),
+                                make_atom_value(Value::Int(3), 4)]))])),
+                        make_list(5, Box::new([
+                            make_atom("+", 5),
+                            make_atom("x", 5),
+                            make_atom("y", 5)]))])),
+                    make_atom("x", 6)]))])),
+            make_atom("x", 6),
+            make_atom("y", 6),
         ];
 
         let parsed = parser::parse(&input);

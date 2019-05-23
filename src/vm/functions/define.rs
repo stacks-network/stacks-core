@@ -85,7 +85,11 @@ fn handle_define_map(map_name: &SymbolicExpression,
 
 pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     if let List(ref elements) = expression.expr {
-        if let Some(SymbolicExpression{ expr: Atom(func_name), id: _}) = elements.get(0) {
+        if elements.len() < 1 {
+            return Ok(DefineResult::NoDefine)
+        }
+
+        if let Some(func_name) = elements[0].match_atom() {
             return match func_name.as_str() {
                 "define" => {
                     if elements.len() != 3 {

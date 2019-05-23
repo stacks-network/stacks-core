@@ -26,20 +26,25 @@ pub struct SymbolicExpression {
     // ...typing passes -> store information in hashmap according to id.
     // 
     // this is a fairly standard technique in compiler passes
-    pub id: u64
+    pub id: u64,
+
+    #[cfg(feature = "developer-mode")]
+    pub line_number: usize,
 }
 
 impl SymbolicExpression {
     pub fn atom_value(val: Value) -> SymbolicExpression {
         SymbolicExpression {
             id: 0,
-            expr: SymbolicExpressionType::AtomValue(val)
+            line_number: 0,
+            expr: SymbolicExpressionType::AtomValue(val),
         }
     }
 
     pub fn atom(val: String) -> SymbolicExpression {
         SymbolicExpression {
             id: 0,
+            line_number: 0,
             expr: SymbolicExpressionType::Atom(val)
         }
     }
@@ -47,6 +52,7 @@ impl SymbolicExpression {
     pub fn list(val: Box<[SymbolicExpression]>) -> SymbolicExpression {
         SymbolicExpression {
             id: 0,
+            line_number: 0,
             expr: SymbolicExpressionType::List(val)
         }
     }
