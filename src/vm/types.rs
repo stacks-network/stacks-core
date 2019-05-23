@@ -78,7 +78,8 @@ pub enum Value {
 pub enum BlockInfoProperty {
     Time,
     VrfSeed,
-    HeaderHash
+    HeaderHash,
+    BurnchainHeaderHash,
 }
 
 impl BlockInfoProperty {
@@ -88,6 +89,7 @@ impl BlockInfoProperty {
             "time" => Some(Time),
             "vrf-seed" => Some(VrfSeed),
             "header-hash" => Some(HeaderHash),
+            "burnchain-header-hash" => Some(BurnchainHeaderHash),
             _ => None
         }
     }
@@ -98,6 +100,7 @@ impl BlockInfoProperty {
             Time => "time",
             VrfSeed => "vrf-seed",
             HeaderHash => "header-hash",
+            BurnchainHeaderHash => "burnchain-header-hash",
         }
     }
 
@@ -108,6 +111,7 @@ impl BlockInfoProperty {
             Time => TypeSignature::new_atom(IntType),
             VrfSeed => TypeSignature::new_atom(BufferType(32)),
             HeaderHash => TypeSignature::new_atom(BufferType(32)),
+            BurnchainHeaderHash => TypeSignature::new_atom(BufferType(32)),
         }
     }
 }

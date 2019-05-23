@@ -9,6 +9,7 @@ use vm::contracts::Contract;
 use vm::{parser, eval};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
+use burnchains::BurnchainHeaderHash;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -207,6 +208,11 @@ impl <'a> GlobalContext <'a> {
     pub fn get_block_header_hash(&self, block_height: u64) -> BlockHeaderHash {
         self.database.get_simmed_block_header_hash(block_height)
             .expect("Failed to obtain the block header hash for the given block height.")
+    }
+
+    pub fn get_burnchain_block_header_hash(&self, block_height: u64) -> BurnchainHeaderHash {
+        self.database.get_simmed_burnchain_block_header_hash(block_height)
+            .expect("Failed to obtain the burnchain block header hash for the given block height.")
     }
 
     pub fn get_block_vrf_seed(&self, block_height: u64) -> VRFSeed {

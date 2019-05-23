@@ -178,5 +178,9 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
             let header_hash = env.global_context.get_block_header_hash(height_value);
             Ok(Value::Buffer(BuffData { data: header_hash.to_bytes().to_vec() }))
         },
+        BurnchainHeaderHash => {
+            let burnchain_header_hash = env.global_context.get_burnchain_block_header_hash(height_value);
+            Ok(Value::Buffer(BuffData { data: burnchain_header_hash.to_bytes().to_vec() }))
+        },
     }
 }

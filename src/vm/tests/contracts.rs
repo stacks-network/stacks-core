@@ -24,6 +24,7 @@ fn test_get_block_info_eval(){
         "(define (test-func) (get-block-info time (- 1)))",
         "(define (test-func) (get-block-info time 'true))",
         "(define (test-func) (get-block-info header-hash 1))",
+        "(define (test-func) (get-block-info burnchain-header-hash 1))",
         "(define (test-func) (get-block-info vrf-seed 1))",
     ];
 
@@ -33,6 +34,7 @@ fn test_get_block_info_eval(){
         Err(true),
         Err(true),
         Ok(Value::buff_from(hex_bytes("0200000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap()),
+        Ok(Value::buff_from(hex_bytes("0300000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap()),
         Ok(Value::buff_from(hex_bytes("0100000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap()),
     ];
 

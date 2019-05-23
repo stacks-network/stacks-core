@@ -58,7 +58,8 @@ impl ContractDatabaseConnection {
                       (block_height INTEGER PRIMARY KEY,
                        block_time INTEGER NOT NULL,
                        block_vrf_seed BLOB NOT NULL,
-                       block_header_hash BLOB NOT NULL)",
+                       block_header_hash BLOB NOT NULL,
+                       burnchain_block_header_hash BLOB NOT NULL)",
                             NO_PARAMS);
         
         // Insert 20 simulated blocks
@@ -82,12 +83,21 @@ impl ContractDatabaseConnection {
 
             let mut header_hash = vec![0u8; 32];
             header_hash[0] = 2;
-            header_hash[31] = i as u8;
+            header_hash[31] = block_height as u8;
+            let header_hash = BlockHeaderHash::from_bytes(&header_hash).unwrap();
+
+            let mut burnchain_header_hash = vec![0u8; 32];
+            burnchain_header_hash[0] = 3;
+            burnchain_header_hash[31] = block_height as u8;
+            let burnchain_header_hash = BurnchainHeaderHash::from_bytes(&burnchain_header_hash).unwrap();
 
             contract_db.execute("INSERT INTO simmed_block_table 
-                            (block_height, block_time, block_vrf_seed, block_header_hash) 
-                            VALUES (?1, ?2, ?3, ?4)",
-                            &[&block_height as &ToSql, &block_time, &block_vrf.to_bytes().to_vec(), &header_hash]);
+                            (block_height, block_time, block_vrf_seed, block_header_hash, burnchain_block_header_hash) 
+                            VALUES (?1, ?2, ?3, ?4, ?5)",
+                            &[&block_height as &ToSql, &block_time,
+                            &block_vrf.to_bytes().to_vec(),
+                            &header_hash.to_bytes().to_vec(),
+                            &burnchain_header_hash.to_bytes().to_vec()]);
         }
 
         contract_db.check_schema()?;
@@ -368,6 +378,19 @@ impl <'a> ContractDatabase <'a> {
             .ok_or(Error::new(ErrType::ParseError("Failed to instantiate BlockHeaderHash from simmed db data".to_string())))
     }
 
+    pub fn get_simmed_burnchain_block_header_hash(&self, block_height: u64) -> Result<BurnchainHeaderHash> {
+        let block_height = i64::try_from(block_height).unwrap();
+        let block_header_hash: (Vec<u8>) =
+            self.query_row(
+                "SELECT burnchain_block_header_hash from simmed_block_table WHERE block_height = ? LIMIT 1",
+                &[block_height],
+                |row| row.get(0))
+            .expect("Failed to fetch simulated block header hash");
+        
+        BurnchainHeaderHash::from_bytes(&block_header_hash)
+            .ok_or(Error::new(ErrType::ParseError("Failed to instantiate BurnchainHeaderHash from simmed db data".to_string())))
+    }
+
     pub fn get_simmed_block_vrf_seed(&self, block_height: u64) -> Result<VRFSeed> {
         let block_height = i64::try_from(block_height).unwrap();
         let block_vrf_seed: (Vec<u8>) =
@@ -397,11 +420,20 @@ impl <'a> ContractDatabase <'a> {
         let mut header_hash = vec![0u8; 32];
         header_hash[0] = 2;
         header_hash[31] = block_height as u8;
+        let header_hash = BlockHeaderHash::from_bytes(&header_hash).unwrap();
+
+        let mut burnchain_header_hash = vec![0u8; 32];
+        burnchain_header_hash[0] = 3;
+        burnchain_header_hash[31] = block_height as u8;
+        let burnchain_header_hash = BurnchainHeaderHash::from_bytes(&burnchain_header_hash).unwrap();
 
         self.execute("INSERT INTO simmed_block_table 
-                        (block_height, block_time, block_vrf_seed, block_header_hash) 
-                        VALUES (?1, ?2, ?3, ?4)",
-                        &[&block_height as &ToSql, &block_time, &block_vrf.to_bytes().to_vec(), &header_hash]);
+                        (block_height, block_time, block_vrf_seed, block_header_hash, burnchain_block_header_hash) 
+                        VALUES (?1, ?2, ?3, ?4, ?5)",
+                        &[&block_height as &ToSql, &block_time,
+                        &block_vrf.to_bytes().to_vec(),
+                        &header_hash.to_bytes().to_vec(),
+                        &burnchain_header_hash.to_bytes().to_vec()]);
     }
 
     pub fn sim_mine_block(&mut self) {
