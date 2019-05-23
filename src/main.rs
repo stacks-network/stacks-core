@@ -133,6 +133,8 @@ where command is one of:
   check              to typecheck a potential contract definition.
   launch             to launch a initialize a new contract in the local state database.
   eval               to evaluate (in read-only mode) a program in a given contract context.
+  eval_raw           to typecheck and evaluate an expression without a contract or database context.
+  repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
 
 ", argv[0]);
@@ -141,6 +143,7 @@ where command is one of:
 
         use std::io;
         use std::io::Read;
+        use std::io::Write;
         use vm::parser::parse;
         use vm::contexts::OwnedEnvironment;
         use vm::database::{ContractDatabase, ContractDatabaseConnection, ContractDatabaseTransacter};
@@ -233,7 +236,7 @@ where command is one of:
 
                 let mut db = db_conn.begin_save_point();
                 let mut ast = parse(&content).expect("Failed to parse program");
-                let mut contract_analysis = type_check(&"transient", &mut ast, &mut db, false).unwrap_or_else(|e| {
+                let mut contract_analysis = type_check(&":transient:", &mut ast, &mut db, false).unwrap_or_else(|e| {
                     eprintln!("Type check error.\n{}", e);
                     process::exit(1);
                 });
@@ -245,6 +248,120 @@ where command is one of:
                     _ => {}
                 }
                 
+                return
+            },
+            "repl" => {
+                let mut db_conn = match ContractDatabaseConnection::memory() {
+                    Ok(db) => db,
+                    Err(error) => {
+                        eprintln!("Could not open vm-state: \n{}", error);
+                        process::exit(1);
+                    }
+                };
+
+                let mut outer_sp = db_conn.begin_save_point_raw();                    
+                let mut db = ContractDatabase::from_savepoint(outer_sp);
+
+                let mut vm_env = OwnedEnvironment::new(&mut db);
+                let mut exec_env = vm_env.get_exec_environment(None);
+
+                let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
+
+                let mut stdout = io::stdout();
+
+                loop {
+                    let content: String = {
+                        let mut buffer = String::new();
+                        stdout.write(b"> ").unwrap_or_else(|e| {
+                            panic!("Failed to write stdout prompt string:\n{}", e);
+                        });
+                        stdout.flush().unwrap_or_else(|e| {
+                            panic!("Failed to flush stdout prompt string:\n{}", e);
+                        });
+                        match io::stdin().read_line(&mut buffer) {
+                            Ok(_) => buffer,
+                            Err(error) => {
+                                eprintln!("Error reading from stdin:\n{}", error);
+                                process::exit(1);
+                            }
+                        }
+                    };
+
+                    let mut ast = match parse(&content) {
+                        Ok(val) => val,
+                        Err(error) => {
+                            println!("Parse error:\n{}", error);
+                            continue;
+                        }
+                    };
+
+                    let mut analysis_db = analysis_db_conn.begin_save_point();
+                    match type_check(":transient:", &mut ast, &mut analysis_db, true) {
+                        Ok(_) => (),
+                        Err(error) => {
+                            println!("Type check error:\n{}", error);
+                            continue;
+                        } 
+                    }
+
+                    let eval_result = match exec_env.eval_raw(&content) {
+                        Ok(val) => val,
+                        Err(error) => {
+                            println!("Execution error:\n{}", error);
+                            continue;
+                        }
+                    };
+                    
+                    println!("{}", eval_result);
+                }
+            },
+            "eval_raw" => {
+                if argv.len() < 2 {
+                    eprintln!("Usage: {} local eval_raw", argv[0]);
+                    process::exit(1);
+                }
+
+                let content: String = {
+                    let mut buffer = String::new();
+                    io::stdin().read_to_string(&mut buffer)
+                        .expect("Error reading from stdin.");
+                    buffer
+                };
+
+                let mut db_conn = match ContractDatabaseConnection::memory() {
+                    Ok(db) => db,
+                    Err(error) => {
+                        eprintln!("Could not open vm-state: \n{}", error);
+                        process::exit(1);
+                    }
+                };
+
+                let mut outer_sp = db_conn.begin_save_point_raw();                    
+                let mut db = ContractDatabase::from_savepoint(outer_sp);
+                let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
+
+                let mut vm_env = OwnedEnvironment::new(&mut db);
+
+                let mut ast = parse(&content).expect("Failed to parse program.");
+                let mut analysis_db = analysis_db_conn.begin_save_point();
+                match type_check(":transient:", &mut ast, &mut analysis_db, true) {
+                    Ok(_) => {
+                        let result = vm_env.get_exec_environment(None).eval_raw(&content);
+                        match result {
+                            Ok(x) => {
+                                println!("Program executed successfully! Output: \n{}", x);
+                            },
+                            Err(error) => {
+                                eprintln!("Program execution error: \n{}", error);
+                                process::exit(1);
+                            }
+                        }
+                    },
+                    Err(error) => {
+                        eprintln!("Type check error.\n{}", error);
+                        process::exit(1);
+                    }
+                }
                 return
             },
             "eval" => {
