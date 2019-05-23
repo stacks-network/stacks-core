@@ -1,7 +1,7 @@
 use vm::errors::{ErrType as InterpError};
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature};
+use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty};
 use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
 use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 
@@ -268,6 +268,24 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
     Ok(contract_call_function_type.return_type())
 }
 
+fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() < 2 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+    }
+
+    checker.type_map.set_type(&args[0], no_type())?;
+    let block_info_prop_str = args[0].match_atom()
+        .ok_or(CheckError::new(CheckErrors::GetBlockInfoExpectPropertyName))?;
+
+    let block_info_prop = BlockInfoProperty::from_str(block_info_prop_str)
+        .ok_or(CheckError::new(CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string())))?;
+
+    let block_height_arg = checker.type_check(&args[1], &context)?;
+    check_atomic_type(AtomTypeIdentifier::IntType, &block_height_arg)?;
+    
+    Ok(block_info_prop.type_result())
+}
+
 impl TypedNativeFunction {
     pub fn type_check_appliction(&self, checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
         use self::TypedNativeFunction::{Special, Simple};
@@ -321,6 +339,7 @@ impl TypedNativeFunction {
             Print => Special(SpecialNativeFunction(&check_special_print)),
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
             ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
+            GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
         }
     }
 }

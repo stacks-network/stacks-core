@@ -8,6 +8,9 @@ use vm::{SymbolicExpression};
 use vm::contracts::Contract;
 use vm::{parser, eval};
 
+use chainstate::burn::{VRFSeed, BlockHeaderHash};
+use burnchains::BurnchainHeaderHash;
+
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
 // TODO:
@@ -185,15 +188,36 @@ impl <'a, 'b> Environment <'a, 'b> {
 }
 
 impl <'a> GlobalContext <'a> {
+    
     pub fn new(database: ContractDatabase<'a>) -> GlobalContext<'a> {
         GlobalContext {
             database: database
         }
     }
 
-    pub fn get_block_height(&self) -> i128 {
+    pub fn get_block_height(&self) -> u64 {
         self.database.get_simmed_block_height()
             .expect("Failed to obtain the current block height.")
+    }
+
+    pub fn get_block_time(&self, block_height: u64) -> u64 {
+        self.database.get_simmed_block_time(block_height)
+            .expect("Failed to obtain the block time for the given block height.")
+    }
+
+    pub fn get_block_header_hash(&self, block_height: u64) -> BlockHeaderHash {
+        self.database.get_simmed_block_header_hash(block_height)
+            .expect("Failed to obtain the block header hash for the given block height.")
+    }
+
+    pub fn get_burnchain_block_header_hash(&self, block_height: u64) -> BurnchainHeaderHash {
+        self.database.get_simmed_burnchain_block_header_hash(block_height)
+            .expect("Failed to obtain the burnchain block header hash for the given block height.")
+    }
+
+    pub fn get_block_vrf_seed(&self, block_height: u64) -> VRFSeed {
+        self.database.get_simmed_block_vrf_seed(block_height)
+            .expect("Failed to obtain the block vrf seed for the given block height.")
     }
 
     pub fn begin_from(database: &'a mut ContractDatabaseTransacter) -> GlobalContext<'a> {

@@ -19,7 +19,7 @@ fn print_usage(invoked_by: &str) {
 where command is one of:
 
   initialize         to initialize a local VM state database.
-  set_block_height   to set the simulated block height
+  mine_block         to simulated mining a new block.
   get_block_height   to print the simulated block height.
   check              to typecheck a potential contract definition.
   launch             to launch a initialize a new contract in the local state database.
@@ -52,14 +52,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             }
         },
-        "set_block_height" => {
+        "mine_block" => {
+            // TODO: add optional args for specifying timestamps and number of blocks to mine.
             if args.len() < 3 {
-                eprintln!("Usage: {} {} [block height integer] [vm-state.db]", invoked_by, args[0]);
+                eprintln!("Usage: {} {} [block time] [vm-state.db]", invoked_by, args[0]);
                 process::exit(1);
             }
-            
-            let blockheight: i128 = args[1].parse().expect("Failed to parse block height");
-            
+
+            let block_time: u64 = args[1].parse().expect("Failed to parse block time");
+
             let mut db = match ContractDatabaseConnection::open(&args[2]) {
                 Ok(db) => db,
                 Err(error) => {
@@ -67,11 +68,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     process::exit(1);
                 }
             };
-            
+
             let mut sp = db.begin_save_point();
-            sp.set_simmed_block_height(blockheight);
+            sp.sim_mine_block_with_time(block_time);
             sp.commit();
-            println!("Simulated block height updated!");
+            println!("Simulated block mine!");
         },
         "get_block_height" => {
             if args.len() < 2 {
