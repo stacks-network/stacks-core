@@ -476,7 +476,10 @@ where command is one of:
                         db.commit();
                         println!("Contract initialized!");
                     },
-                    Err(error) => println!("Contract initialization error: \n{}", error)
+                    Err(error) => {
+                        eprintln!("Contract initialization error: \n{}", error);
+                        process::exit(1);
+                    }
                 }
                 return
             },
