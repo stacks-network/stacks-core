@@ -306,6 +306,12 @@ impl TypedNativeFunction {
             Hash160 =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
                                                                 TypeSignature::new_atom( AtomTypeIdentifier::BufferType(20) )))),
+            Sha256 =>
+                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
+                                                                TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
+            Keccak256 =>
+                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
+                                                                TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
             Equals =>
                 Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::AnyType ),
                                                                    TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),

@@ -27,6 +27,7 @@ use util::HexError;
 
 use ripemd160::Ripemd160;
 use sha2::Sha256;
+use sha3::Keccak256;
 
 use util::uint::Uint256;
 
@@ -45,6 +46,12 @@ impl_array_newtype!(Hash160, u8, 20);
 impl_array_hexstring_fmt!(Hash160);
 impl_byte_array_newtype!(Hash160, u8, 20);
 pub const HASH160_ENCODED_SIZE : u32 = 20;
+
+#[derive(Serialize, Deserialize)]
+pub struct Keccak256Hash(pub [u8; 32]);
+impl_array_newtype!(Keccak256Hash, u8, 32);
+impl_array_hexstring_fmt!(Keccak256Hash);
+impl_byte_array_newtype!(Keccak256Hash, u8, 32);
 
 #[derive(Serialize, Deserialize)]
 pub struct Sha256Sum(pub [u8; 32]);
@@ -157,6 +164,17 @@ impl MerkleHashFunc for DoubleSha256 {
 
     fn bits(&self) -> &[u8] {
         &self.0
+    }
+}
+
+impl Keccak256Hash {
+    pub fn from_data(data: &[u8]) -> Keccak256Hash {
+        use sha3::Digest;
+        let mut tmp = [0u8; 32];
+        let mut digest = Keccak256::new();
+        digest.input(data);
+        tmp.copy_from_slice(digest.result().as_slice());
+        Keccak256Hash(tmp)
     }
 }
 

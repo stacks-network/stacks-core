@@ -69,6 +69,6 @@ fn test_contract_call_read_only_violations() {
     let err = type_check(&"bad_caller", &mut bad_caller, &mut db, true).unwrap_err();
     assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
 
-    type_check(&"ok_caller", &mut ok_caller, &mut db, true).unwrap()
+    type_check(&"ok_caller", &mut ok_caller, &mut db, true).unwrap();
 
 }
