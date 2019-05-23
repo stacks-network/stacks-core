@@ -140,7 +140,7 @@ fn test_simple_if_functions() {
             func_args2, parsed_bodies[1].clone(), &"without_else", &"");
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new("transient".to_string());
+        let mut contract_context = ContractContext::new(":transient:".to_string());
         let mut conn = ContractDatabaseConnection::memory().unwrap();
         let mut global_context = GlobalContext::begin_from(&mut conn);
 

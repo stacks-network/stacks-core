@@ -1,6 +1,0 @@
-{
-    "lldb.adapterType": "native",
-    "lldb.launch.sourceLanguages": ["rust"],
-    "rust-client.updateOnStartup": true,
-    "rust.all_features": true
-}
