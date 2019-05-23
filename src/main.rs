@@ -123,9 +123,8 @@ fn main() {
     }
 
     if argv[1] == "local" {
-        if clarity::invoke_command(&format!("{} {}", argv[0], argv[1]), &argv[2..]).is_some() {
-            return
-        }
+        clarity::invoke_command(&format!("{} {}", argv[0], argv[1]), &argv[2..]);
+        return
     }
 
     if argv.len() < 4 {

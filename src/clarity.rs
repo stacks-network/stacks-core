@@ -28,7 +28,7 @@ where command is one of:
     process::exit(1);
 }
 
-pub fn invoke_command(invoked_by: &str, args: &[String]) -> Option<()> {
+pub fn invoke_command(invoked_by: &str, args: &[String]) {
     if args.len() < 1 {
         print_usage(invoked_by)
     }
@@ -44,7 +44,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> Option<()> {
                 Ok(_) => println!("Database created."),
                 Err(error) => eprintln!("Initialization error: \n {}", error)
             }
-            return Some(())
         },
         "set_block_height" => {
             if args.len() < 3 {
@@ -66,8 +65,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> Option<()> {
             sp.set_simmed_block_height(blockheight);
             sp.commit();
             println!("Simulated block height updated!");
-            
-            return Some(())
         },
         "check" => {
             if args.len() < 2 {
@@ -93,8 +90,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> Option<()> {
                     eprintln!("Type check error.\n{}", e);
                     process::exit(1);
                 });
-            
-            return Some(())
         },
         "eval" => {
             if args.len() < 3 {
@@ -142,7 +137,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> Option<()> {
                 },
                 Err(error) => println!("Program execution error: \n {}", error)
             }
-            return Some(())
         },
         "launch" => {
             if args.len() < 4 {
@@ -207,7 +201,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> Option<()> {
                 },
                 Err(error) => println!("Contract initialization error: \n {}", error)
             }
-            return Some(())
         },
         "execute" => {
             if args.len() < 5 {
@@ -276,17 +269,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> Option<()> {
                 },
                 Err(error) => println!("Transaction execution error: \n {}", error),
             }
-            return Some(())
         },
         _ => {
-            return None
+            print_usage(invoked_by)
         }
     }
-}
-
-fn main() {
-    log::set_loglevel(log::LOG_DEBUG).unwrap();
-    let argv : Vec<String> = env::args().collect();
-
-    invoke_command(&argv[0], &argv[1..]);
 }
