@@ -235,7 +235,7 @@ fn test_bad_map_usage() {
 
     for contract in tests.iter() {
         let mut contract = parse(contract).unwrap();
-        let result = type_check(&"transient", &mut contract, &mut db, false);
+        let result = type_check(&":transient:", &mut contract, &mut db, false);
         let err = result.expect_err("Expected a type error");
         assert!(match &err.err {
             &CheckErrors::TypeError(_,_) => true,
