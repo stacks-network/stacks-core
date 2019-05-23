@@ -1,4 +1,4 @@
-mod contexts;
+pub mod contexts;
 //mod maps;
 pub mod natives;
 
@@ -396,3 +396,4 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 }
+
