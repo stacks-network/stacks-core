@@ -18,7 +18,7 @@ pub struct AnalysisDatabaseConnection {
 
 impl AnalysisDatabaseConnection {
     pub fn initialize(filename: &str) -> AnalysisDatabaseConnection {
-        let mut contract_db = AnalysisDatabaseConnection::inner_open(filename);
+        let contract_db = AnalysisDatabaseConnection::inner_open(filename);
         // this is the _laziest_ of structures at the moment.
         //    more to come!
         contract_db.conn.execute("CREATE TABLE IF NOT EXISTS type_analysis_table
