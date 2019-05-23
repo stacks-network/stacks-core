@@ -204,7 +204,7 @@ where command is one of:
 
                 let mut db = db_conn.begin_save_point();
                 let mut ast = parse(&content).expect("Failed to parse program");
-                type_check(&"transient", &mut ast, &mut db, false)
+                type_check(&":transient:", &mut ast, &mut db, false)
                     .unwrap_or_else(|e| {
                         eprintln!("Type check error.\n{}", e);
                         process::exit(1);
@@ -254,7 +254,7 @@ where command is one of:
                     };
 
                     let mut analysis_db = analysis_db_conn.begin_save_point();
-                    match type_check("transient", &mut ast, &mut analysis_db, true) {
+                    match type_check(":transient:", &mut ast, &mut analysis_db, true) {
                         Ok(_) => (),
                         Err(error) => {
                             println!("Type check error:\n{}", error);
@@ -302,7 +302,7 @@ where command is one of:
 
                 let mut ast = parse(&content).expect("Failed to parse program.");
                 let mut analysis_db = analysis_db_conn.begin_save_point();
-                match type_check("transient", &mut ast, &mut analysis_db, true) {
+                match type_check(":transient:", &mut ast, &mut analysis_db, true) {
                     Ok(_) => {
                         let result = vm_env.get_exec_environment(None).eval_raw(&content);
                         match result {
