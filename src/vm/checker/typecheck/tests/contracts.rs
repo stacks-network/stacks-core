@@ -44,7 +44,9 @@ fn test_names_tokens_contracts() {
            ((buyer principal) (paid int)))
 
          (define-read-only (get-balance)
-           (contract-call! tokens get-balance tx-sender))
+           ;; adding zero ensures that contract-call! is correctly
+           ;;   returning an integer type here. 
+           (+ 0 (contract-call! tokens get-balance tx-sender)))
          
          (define-public (preorder 
                         (name-hash (buff 20))
