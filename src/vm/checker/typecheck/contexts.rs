@@ -45,8 +45,8 @@ impl ContractAnalysis {
         ContractAnalysis {
             private_function_types: BTreeMap::new(),
             public_function_types: BTreeMap::new(),
-	    read_only_function_types: BTreeMap::new(),
-	    variable_types: BTreeMap::new(),
+	        read_only_function_types: BTreeMap::new(),
+	        variable_types: BTreeMap::new(),
             map_types: BTreeMap::new()
         }
     }
