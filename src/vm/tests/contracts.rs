@@ -1,12 +1,61 @@
 use vm::execute;
 use vm::errors::{Error, ErrType};
 use vm::types::{Value, PrincipalData};
-use vm::contexts::{OwnedEnvironment};
+use vm::contexts::{OwnedEnvironment,GlobalContext};
 use vm::database::{ContractDatabaseConnection};
 use vm::representations::SymbolicExpression;
+use vm::contracts::Contract;
+use util::hash::hex_bytes;
 
 fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
     vec.drain(..).map(|value| SymbolicExpression::atom_value(value)).collect()
+}
+
+
+#[test]
+fn test_get_block_info_eval(){
+    let mut conn = ContractDatabaseConnection::memory().unwrap();
+    let mut owned_env = OwnedEnvironment::new(&mut conn);
+    let env = owned_env.get_exec_environment(None);
+
+    let contracts = [
+        "(define (test-func) (get-block-info time 1))",
+        "(define (test-func) (get-block-info time 100000))",
+        "(define (test-func) (get-block-info time (- 1)))",
+        "(define (test-func) (get-block-info time 'true))",
+        "(define (test-func) (get-block-info header-hash 1))",
+        "(define (test-func) (get-block-info burnchain-header-hash 1))",
+        "(define (test-func) (get-block-info vrf-seed 1))",
+    ];
+
+    let expected = [
+        Ok(Value::Int(env.global_context.get_block_time(1) as i128)),
+        Err(true),
+        Err(true),
+        Err(true),
+        Ok(Value::buff_from(hex_bytes("0200000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap()),
+        Ok(Value::buff_from(hex_bytes("0300000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap()),
+        Ok(Value::buff_from(hex_bytes("0100000000000000000000000000000000000000000000000000000000000001").unwrap()).unwrap()),
+    ];
+
+    for i in 0..contracts.len() {
+        let mut nested_context = GlobalContext::begin_from(&mut env.global_context.database);
+        let contract = Contract::initialize("test-contract", contracts[i],
+                                            &mut nested_context).unwrap();
+        {
+            nested_context.database.insert_contract("test-contract", contract);
+        }
+        {
+            let mut owned_env = OwnedEnvironment::new(&mut nested_context.database);
+            let mut env = owned_env.get_exec_environment(None);
+            let eval_result = env.eval_read_only("test-contract", "(test-func)");
+            match &expected[i] {
+                Ok(val) => assert_eq!(val, &eval_result.unwrap()),
+                Err(_) => assert!(eval_result.is_err()),
+            }
+        }
+        nested_context.database.roll_back();
+    }
 }
 
 #[test]
@@ -98,11 +147,11 @@ fn test_simple_token_system() {
                            "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
         Value::Int(1003));
     assert_eq!(
-        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(5)])).unwrap(),
+        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap(),
         Value::Bool(false));
-    env.global_context.database.set_simmed_block_height(10);
+    env.global_context.database.sim_mine_blocks(10);
     assert_eq!(
-        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(5)])).unwrap(),
+        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap(),
         Value::Bool(true));
     assert_eq!(
         env.execute_contract("tokens", "faucet", &vec![]).unwrap(),

@@ -40,6 +40,7 @@ pub enum ErrType {
     ValueTooLarge,
     ExpectedListPairs,
     InvalidTypeDescription,
+    BadBlockHeight(String),
     BadSender(Value),
     BadSymbolicRepresentation(String),
     ReservedName(String),

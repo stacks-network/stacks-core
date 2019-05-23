@@ -38,12 +38,15 @@ pub enum CheckErrors {
     PublicFunctionMustReturnBool,
     DefineVariableBadSignature,
 
-    // contract-call erros
+    // contract-call errors
     NoSuchContract(String),
     NoSuchPublicFunction(String, String),
     ContractAlreadyExists(String),
     ContractCallExpectName,
 
+    // get-block-info errors
+    NoSuchBlockInfoProperty(String),
+    GetBlockInfoExpectPropertyName,
 
     NameAlreadyUsed(String),
     // expect a function, or applying a function to a list
