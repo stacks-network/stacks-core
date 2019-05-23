@@ -158,11 +158,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
         },
         "eval_raw" => {
-            if argv.len() < 2 {
-                eprintln!("Usage: {} local eval_raw", argv[0]);
-                process::exit(1);
-            }
-
             let content: String = {
                 let mut buffer = String::new();
                 io::stdin().read_to_string(&mut buffer)
