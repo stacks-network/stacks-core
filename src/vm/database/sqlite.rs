@@ -7,7 +7,8 @@ use vm::contracts::Contract;
 use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
-use chainstate::burn::VRFSeed;
+use chainstate::burn::{VRFSeed, BlockHeaderHash};
+use burnchains::BurnchainHeaderHash;
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in Smart Contract VM.";
@@ -354,7 +355,7 @@ impl <'a> ContractDatabase <'a> {
             .map_err(|_| Error::new(ErrType::Arithmetic("Overflowed fetching block time".to_string())))
     }
 
-    pub fn get_simmed_block_header_hash(&self, block_height: u64) -> Result<Vec<u8>> {
+    pub fn get_simmed_block_header_hash(&self, block_height: u64) -> Result<BlockHeaderHash> {
         let block_height = i64::try_from(block_height).unwrap();
         let block_header_hash: (Vec<u8>) =
             self.query_row(
@@ -363,7 +364,8 @@ impl <'a> ContractDatabase <'a> {
                 |row| row.get(0))
             .expect("Failed to fetch simulated block header hash");
         
-        Ok(block_header_hash)
+        BlockHeaderHash::from_bytes(&block_header_hash)
+            .ok_or(Error::new(ErrType::ParseError("Failed to instantiate BlockHeaderHash from simmed db data".to_string())))
     }
 
     pub fn get_simmed_block_vrf_seed(&self, block_height: u64) -> Result<VRFSeed> {

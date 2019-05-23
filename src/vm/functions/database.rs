@@ -176,7 +176,7 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
         },
         HeaderHash => {
             let header_hash = env.global_context.get_block_header_hash(height_value);
-            Ok(Value::Buffer(BuffData { data: header_hash }))
+            Ok(Value::Buffer(BuffData { data: header_hash.to_bytes().to_vec() }))
         },
     }
 }

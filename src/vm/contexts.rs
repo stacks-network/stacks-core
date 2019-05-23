@@ -8,7 +8,7 @@ use vm::{SymbolicExpression};
 use vm::contracts::Contract;
 use vm::{parser, eval};
 
-use chainstate::burn::VRFSeed;
+use chainstate::burn::{VRFSeed, BlockHeaderHash};
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -204,7 +204,7 @@ impl <'a> GlobalContext <'a> {
             .expect("Failed to obtain the block time for the given block height.")
     }
 
-    pub fn get_block_header_hash(&self, block_height: u64) -> Vec<u8> {
+    pub fn get_block_header_hash(&self, block_height: u64) -> BlockHeaderHash {
         self.database.get_simmed_block_header_hash(block_height)
             .expect("Failed to obtain the block header hash for the given block height.")
     }
