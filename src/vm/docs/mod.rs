@@ -459,10 +459,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
 }
 
 pub fn make_json_api_reference() -> String {
-    use vm::functions::NativeFunctions::*;
-    let natives = [ Add, Subtract, Multiply, Divide, CmpGeq, CmpLeq, CmpLess, CmpGreater, Modulo, Power,
-                    BitwiseXOR, And, Or, Not, Equals ];
-    let json_references: Vec<_> = natives.iter()
+    use vm::functions::NativeFunctions;
+    let json_references: Vec<_> = NativeFunctions::ALL.iter()
         .map(|x| make_api_reference(x))
         .collect();
     format!("{}", serde_json::to_string(&json_references)
