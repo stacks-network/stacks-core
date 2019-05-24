@@ -12,7 +12,21 @@ use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 
-pub enum NativeFunctions {
+
+macro_rules! define_enum {
+    ($Name:ident { $($Variant:ident),* $(,)* }) =>
+    {
+        #[derive(Debug)]
+        pub enum $Name {
+            $($Variant),*,
+        }
+        impl $Name {
+            pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
+        }
+    }
+}
+
+define_enum!(NativeFunctions {
     Add,
     Subtract,
     Multiply,
@@ -48,7 +62,7 @@ pub enum NativeFunctions {
     ContractCall,
     AsContract,
     GetBlockInfo
-}
+});
 
 impl NativeFunctions {
     pub fn lookup_by_name(name: &str) -> Option<NativeFunctions> {
