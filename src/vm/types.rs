@@ -1,5 +1,5 @@
 use std::hash::{Hash, Hasher};
-use std::fmt;
+use std::{fmt, cmp};
 use std::collections::BTreeMap;
 
 use address::c32;
@@ -23,7 +23,9 @@ pub enum AtomTypeIdentifier {
     BoolType,
     BufferType(u32),
     PrincipalType,
-    TupleType(TupleTypeSignature)
+    TupleType(TupleTypeSignature),
+    OptionalType(Box<TypeSignature>),
+    ResponseType(Box<TypeSignature>, Box<TypeSignature>)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +65,19 @@ pub enum PrincipalData {
     ContractPrincipal(String)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OptionalData {
+    pub data: Option<Box<Value>>,
+    type_signature: AtomTypeIdentifier
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResponseData {
+    pub committed: bool,
+    pub data: Box<Value>,
+    type_signature: AtomTypeIdentifier
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Value {
     Void,
@@ -71,7 +86,9 @@ pub enum Value {
     Buffer(BuffData),
     List(ListData),
     Principal(PrincipalData),
-    Tuple(TupleData)
+    Tuple(TupleData),
+    Optional(OptionalData),
+    Response(ResponseData)
 }
 
 #[derive(Debug)]
@@ -130,6 +147,18 @@ impl PartialEq for ListData {
 }
 
 impl Hash for ListData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.data.hash(state);
+    }
+}
+
+impl Hash for OptionalData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.data.hash(state);
+    }
+}
+
+impl Hash for ResponseData {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.data.hash(state);
     }
@@ -201,7 +230,9 @@ impl Value {
             Value::Principal(_) => AtomTypeIdentifier::PrincipalType.size(),
             Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
             Value::Tuple(ref tuple_data) => tuple_data.size(),
-            Value::List(ref list_data) => list_data.type_signature.size()
+            Value::List(ref list_data) => list_data.type_signature.size(),
+            Value::Optional(ref opt_data) => opt_data.type_signature.size(),
+            Value::Response(ref res_data) => res_data.type_signature.size()
         }
     }
 
@@ -218,6 +249,8 @@ impl fmt::Display for AtomTypeIdentifier {
             BoolType => write!(f, "bool"),
             PrincipalType => write!(f, "principal"),
             BufferType(len) => write!(f, "(buff {})", len),
+            OptionalType(t) => write!(f, "(optional {})", t),
+            ResponseType(t, s) => write!(f, "(response {} {})", t, s),
             TupleType(TupleTypeSignature{ type_map }) => {
                 write!(f, "(tuple (")?;
                 for (key_name, value_type) in type_map.iter() {
@@ -243,6 +276,24 @@ impl fmt::Display for TypeSignature {
     }
 }
 
+impl fmt::Display for OptionalData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.data {
+            Some(ref x) => write!(f, "(some {})", x),
+            None => write!(f, "'null")
+        }
+    }
+}
+
+impl fmt::Display for ResponseData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.committed {
+            true => write!(f, "(ok {})", self.data),
+            false => write!(f, "(err {})", self.data)
+        }
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -252,6 +303,8 @@ impl fmt::Display for Value {
             Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes.data)),
             Value::Tuple(data) => write!(f, "{}", data),
             Value::Principal(principal_data) => write!(f, "{}", principal_data),
+            Value::Optional(opt_data) => write!(f, "{}", opt_data),
+            Value::Response(res_data) => write!(f, "{}", res_data),
             Value::List(list_data) => {
                 write!(f, "( ")?;
                 for v in list_data.data.iter() {
@@ -292,7 +345,19 @@ impl AtomTypeIdentifier {
             AtomTypeIdentifier::BoolType => Ok(1),
             AtomTypeIdentifier::PrincipalType => Ok(21),
             AtomTypeIdentifier::BufferType(len) => Ok(*len as i128),
-            AtomTypeIdentifier::TupleType(tuple_sig) => tuple_sig.size()
+            AtomTypeIdentifier::TupleType(tuple_sig) => tuple_sig.size(),
+            AtomTypeIdentifier::OptionalType(t) => {
+                t.size()?
+                    .checked_add(1)
+                    .ok_or(Error::new(ErrType::ValueTooLarge))
+            },
+            AtomTypeIdentifier::ResponseType(s, t) => {
+                let t_size = t.size()?;
+                let s_size = s.size()?;
+                cmp::max(t_size, s_size)
+                    .checked_add(1)
+                    .ok_or(Error::new(ErrType::ValueTooLarge))
+            },
         }
     }
 
@@ -590,7 +655,9 @@ impl TypeSignature {
                 Value::Buffer(buff_data) => AtomTypeIdentifier::BufferType(buff_data.data.len() as u32),
                 Value::Tuple(v) => AtomTypeIdentifier::TupleType(
                     v.type_signature.clone()),
-                Value::List(_) => panic!("Unreachable code")
+                Value::List(_) => panic!("Unreachable code"),
+                Value::Optional(v) => v.type_signature.clone(),
+                Value::Response(v) => v.type_signature.clone()
             };
 
             TypeSignature::new_atom(atom)
