@@ -56,7 +56,7 @@ fn get_lines_at(input: &str) -> Vec<usize> {
     out
 }
 
-pub fn lex(input: &str) -> Result<Vec<(LexItem, usize)>> {
+pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
     // Aaron: I'd like these to be static, but that'd require using
     //    lazy_static (or just hand implementing that), and I'm not convinced
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
@@ -79,7 +79,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, usize)>> {
 
     let mut line_indices = get_lines_at(input);
     let mut next_line_break = line_indices.pop();
-    let mut current_line = 1;
+    let mut current_line: u32 = 1;
 
     let mut result = Vec::new();
     let mut munch_index = 0;
@@ -88,7 +88,8 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, usize)>> {
         if let Some(next_line_ix) = next_line_break {
             if munch_index > next_line_ix {
                 next_line_break = line_indices.pop();
-                current_line += 1;
+                current_line = current_line.checked_add(1)
+                    .ok_or(Error::new(ErrType::ParseError("Program too large to parse.".to_string())))?;
             }
         }
 
@@ -204,7 +205,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, usize)>> {
     }
 }
 
-pub fn parse_lexed(mut input: Vec<(LexItem, usize)>) -> Result<Vec<SymbolicExpression>> {
+pub fn parse_lexed(mut input: Vec<(LexItem, u32)>) -> Result<Vec<SymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
@@ -274,19 +275,19 @@ pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>> {
 mod test {
     use vm::{SymbolicExpression, Value, parser};
 
-    fn make_atom(x: &str, line: usize) -> SymbolicExpression {
+    fn make_atom(x: &str, line: u32) -> SymbolicExpression {
         let mut e = SymbolicExpression::atom(x.to_string());
         e.set_line_number(line);
         e
     }
 
-    fn make_atom_value(x: Value, line: usize) -> SymbolicExpression {
+    fn make_atom_value(x: Value, line: u32) -> SymbolicExpression {
         let mut e = SymbolicExpression::atom_value(x);
         e.set_line_number(line);
         e
     }
 
-    fn make_list(line: usize, x: Box<[SymbolicExpression]>) -> SymbolicExpression {
+    fn make_list(line: u32, x: Box<[SymbolicExpression]>) -> SymbolicExpression {
         let mut e = SymbolicExpression::list(x);
         e.set_line_number(line);
         e

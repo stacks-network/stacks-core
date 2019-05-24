@@ -29,7 +29,7 @@ pub struct SymbolicExpression {
     pub id: u64,
 
     #[cfg(feature = "developer-mode")]
-    pub line_number: usize,
+    pub line_number: u32,
 }
 
 impl SymbolicExpression {
@@ -50,12 +50,12 @@ impl SymbolicExpression {
      }    
 
     #[cfg(feature = "developer-mode")]
-    pub fn set_line_number(&mut self, line_number: usize) {
+    pub fn set_line_number(&mut self, line_number: u32) {
         self.line_number = line_number
     }
 
     #[cfg(not(feature = "developer-mode"))]
-    pub fn set_line_number(&mut self, _line_number: usize) {
+    pub fn set_line_number(&mut self, _line_number: u32) {
     }
 
     pub fn atom_value(val: Value) -> SymbolicExpression {
