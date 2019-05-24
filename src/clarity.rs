@@ -394,13 +394,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 .map(|argument| {
                     let mut argument_parsed = parse(argument)
                         .expect(&format!("Error parsing argument \"{}\"", argument));
-                    if let Some(SymbolicExpression{ expr: SymbolicExpressionType::AtomValue(x),
-                                                    id: _ }) = argument_parsed.pop() {
-                        SymbolicExpression::atom_value(x.clone())
-                    } else {
-                        eprintln!("Unexpected result parsing argument: {}", argument);
-                        process::exit(1);
-                    }
+                    let argument_value = argument_parsed.pop()
+                        .expect(&format!("Failed to parse a value from the argument: {}", argument));
+                    let argument_value = argument_value
+                        .match_atom_value()
+                        .expect(&format!("Expected a literal value from the argument: {}", argument));
+                    SymbolicExpression::atom_value(argument_value.clone())
                 })
                 .collect();
 

@@ -26,28 +26,56 @@ pub struct SymbolicExpression {
     // ...typing passes -> store information in hashmap according to id.
     // 
     // this is a fairly standard technique in compiler passes
-    pub id: u64
+    pub id: u64,
+
+    #[cfg(feature = "developer-mode")]
+    pub line_number: u32,
 }
 
 impl SymbolicExpression {
+    #[cfg(feature = "developer-mode")]
+     fn cons() -> Self {
+         Self {
+             id: 0,
+             line_number: 0,
+             expr: SymbolicExpressionType::AtomValue(Value::Void)
+         }
+     }
+    #[cfg(not(feature = "developer-mode"))]
+     fn cons() -> Self {
+         Self {
+             id: 0,
+             expr: SymbolicExpressionType::AtomValue(Value::Void)
+         }
+     }    
+
+    #[cfg(feature = "developer-mode")]
+    pub fn set_line_number(&mut self, line_number: u32) {
+        self.line_number = line_number
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn set_line_number(&mut self, _line_number: u32) {
+    }
+
     pub fn atom_value(val: Value) -> SymbolicExpression {
         SymbolicExpression {
-            id: 0,
-            expr: SymbolicExpressionType::AtomValue(val)
+            expr: SymbolicExpressionType::AtomValue(val),
+            .. SymbolicExpression::cons()
         }
     }
 
     pub fn atom(val: String) -> SymbolicExpression {
         SymbolicExpression {
-            id: 0,
-            expr: SymbolicExpressionType::Atom(val)
+            expr: SymbolicExpressionType::Atom(val),
+            .. SymbolicExpression::cons()
         }
     }
 
     pub fn list(val: Box<[SymbolicExpression]>) -> SymbolicExpression {
         SymbolicExpression {
-            id: 0,
-            expr: SymbolicExpressionType::List(val)
+            expr: SymbolicExpressionType::List(val),
+            .. SymbolicExpression::cons()
         }
     }
 
