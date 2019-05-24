@@ -1,4 +1,4 @@
-mod contexts;
+pub mod contexts;
 //mod maps;
 pub mod natives;
 
@@ -375,6 +375,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                                 Ok(Some(()))
                             }
                         },
+                        "define-read-only" => {
+                            let (f_name, f_type) = self.type_check_define_function(expression,
+                                                                                   context)?;
+                            self.contract_context.add_read_only_function_type(f_name, f_type)?;
+                            Ok(Some(()))
+                        },
                         "define-map" => {
                             let (f_name, f_type) = self.type_check_define_map(expression,
                                                                               context)?;
@@ -396,3 +402,4 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 }
+

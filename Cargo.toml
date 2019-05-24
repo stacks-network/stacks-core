@@ -9,6 +9,14 @@ description = "Reference implementation of Blockstack Core"
 keywords = [ "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
 
+[[bin]]
+name = "blockstack-core"
+path = "src/main.rs"
+
+[[bin]]
+name = "clarity"
+path = "src/clarity_cli.rs"
+
 [features]
 developer-mode = []
 default = ["developer-mode"]
@@ -21,6 +29,7 @@ serde = "1"
 serde_derive = "1"
 serde_json = "1.0"
 sha2 = "0.8.0"
+sha3 = "0.8.2"
 ripemd160 = "0.8.0"
 dirs = "1.0.4"
 regex = "1"

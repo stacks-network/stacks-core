@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
 use rusqlite::types::ToSql;
 
@@ -5,8 +7,12 @@ use vm::contracts::Contract;
 use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
+use chainstate::burn::{VRFSeed, BlockHeaderHash};
+use burnchains::BurnchainHeaderHash;
+
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in Smart Contract VM.";
+const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
 
 pub struct ContractDatabaseConnection {
     conn: Connection
@@ -49,12 +55,50 @@ impl ContractDatabaseConnection {
                             NO_PARAMS);
 
         contract_db.execute("CREATE TABLE IF NOT EXISTS simmed_block_table
-                      (simmed_block_height BLOB NOT NULL)",
+                      (block_height INTEGER PRIMARY KEY,
+                       block_time INTEGER NOT NULL,
+                       block_vrf_seed BLOB NOT NULL,
+                       block_header_hash BLOB NOT NULL,
+                       burnchain_block_header_hash BLOB NOT NULL)",
                             NO_PARAMS);
+        
+        // Insert 20 simulated blocks
+        // TODO: Only perform this when in a local dev environment.
+        let simmed_default_height: u64 = 0;
+        let simmed_block_count: u64 = 20;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let time_now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
 
-        let default_height: i128 = 0;
-        contract_db.execute("INSERT INTO simmed_block_table (simmed_block_height) VALUES (?)",
-                            &[default_height]);
+        for i in simmed_default_height..simmed_block_count {
+            let block_time = i64::try_from(time_now - ((simmed_block_count - i) * SIMMED_BLOCK_TIME)).unwrap();
+            let block_height = i64::try_from(i).unwrap();
+
+            let mut block_vrf = [0u8; 32];
+            block_vrf[0] = 1;
+            block_vrf[31] = i as u8;
+            let block_vrf = VRFSeed::from_bytes(&block_vrf).unwrap();
+
+            let mut header_hash = vec![0u8; 32];
+            header_hash[0] = 2;
+            header_hash[31] = block_height as u8;
+            let header_hash = BlockHeaderHash::from_bytes(&header_hash).unwrap();
+
+            let mut burnchain_header_hash = vec![0u8; 32];
+            burnchain_header_hash[0] = 3;
+            burnchain_header_hash[31] = block_height as u8;
+            let burnchain_header_hash = BurnchainHeaderHash::from_bytes(&burnchain_header_hash).unwrap();
+
+            contract_db.execute("INSERT INTO simmed_block_table 
+                            (block_height, block_time, block_vrf_seed, block_header_hash, burnchain_block_header_hash) 
+                            VALUES (?1, ?2, ?3, ?4, ?5)",
+                            &[&block_height as &ToSql, &block_time,
+                            &block_vrf.to_bytes().to_vec(),
+                            &header_hash.to_bytes().to_vec(),
+                            &burnchain_header_hash.to_bytes().to_vec()]);
+        }
 
         contract_db.check_schema()?;
 
@@ -296,23 +340,119 @@ impl <'a> ContractDatabase <'a> {
         }
     }
 
-    pub fn get_simmed_block_height(&self) -> Result<i128> {
-        let block_height: (i128) =
+    pub fn get_simmed_block_height(&self) -> Result<u64> {
+        let block_height: (i64) =
             self.query_row(
-                "SELECT simmed_block_height FROM simmed_block_table LIMIT 1",
+                "SELECT block_height FROM simmed_block_table ORDER BY block_height DESC LIMIT 1",
                 NO_PARAMS,
                 |row| row.get(0))
             .expect("Failed to fetch simulated block height");
 
-        Ok(block_height)
+        u64::try_from(block_height)
+            .map_err(|_| Error::new(ErrType::Arithmetic("Overflowed fetching block height".to_string())))
     }
 
-    pub fn set_simmed_block_height(&mut self, block_height: i128) {
-        self.execute(
-            "UPDATE simmed_block_table SET simmed_block_height = ?",
-            &[block_height]);
+    pub fn get_simmed_block_time(&self, block_height: u64) -> Result<u64> {
+        let block_height = i64::try_from(block_height).unwrap();
+        let block_time: (i64) = 
+            self.query_row(
+                "SELECT block_time FROM simmed_block_table WHERE block_height = ? LIMIT 1",
+                &[block_height],
+                |row| row.get(0))
+            .expect("Failed to fetch simulated block time");
+
+        u64::try_from(block_time)
+            .map_err(|_| Error::new(ErrType::Arithmetic("Overflowed fetching block time".to_string())))
     }
 
+    pub fn get_simmed_block_header_hash(&self, block_height: u64) -> Result<BlockHeaderHash> {
+        let block_height = i64::try_from(block_height).unwrap();
+        let block_header_hash: (Vec<u8>) =
+            self.query_row(
+                "SELECT block_header_hash from simmed_block_table WHERE block_height = ? LIMIT 1",
+                &[block_height],
+                |row| row.get(0))
+            .expect("Failed to fetch simulated block header hash");
+        
+        BlockHeaderHash::from_bytes(&block_header_hash)
+            .ok_or(Error::new(ErrType::ParseError("Failed to instantiate BlockHeaderHash from simmed db data".to_string())))
+    }
+
+    pub fn get_simmed_burnchain_block_header_hash(&self, block_height: u64) -> Result<BurnchainHeaderHash> {
+        let block_height = i64::try_from(block_height).unwrap();
+        let block_header_hash: (Vec<u8>) =
+            self.query_row(
+                "SELECT burnchain_block_header_hash from simmed_block_table WHERE block_height = ? LIMIT 1",
+                &[block_height],
+                |row| row.get(0))
+            .expect("Failed to fetch simulated block header hash");
+        
+        BurnchainHeaderHash::from_bytes(&block_header_hash)
+            .ok_or(Error::new(ErrType::ParseError("Failed to instantiate BurnchainHeaderHash from simmed db data".to_string())))
+    }
+
+    pub fn get_simmed_block_vrf_seed(&self, block_height: u64) -> Result<VRFSeed> {
+        let block_height = i64::try_from(block_height).unwrap();
+        let block_vrf_seed: (Vec<u8>) =
+            self.query_row(
+                "SELECT block_vrf_seed from simmed_block_table WHERE block_height = ? LIMIT 1",
+                &[block_height],
+                |row| row.get(0))
+            .expect("Failed to fetch simulated block vrf seed");
+        VRFSeed::from_bytes(&block_vrf_seed)
+            .ok_or(Error::new(ErrType::ParseError("Failed to instantiate VRF seed from simmed db data".to_string())))
+    }
+
+    pub fn sim_mine_block_with_time(&mut self, block_time: u64) {
+        let current_height = self.get_simmed_block_height()
+            .expect("Failed to get simulated block height");
+
+        let block_height = current_height + 1;
+        let block_height = i64::try_from(block_height).unwrap();
+
+        let block_time = i64::try_from(block_time).unwrap();
+
+        let mut block_vrf = [0u8; 32];
+        block_vrf[0] = 1;
+        block_vrf[31] = block_height as u8;
+        let block_vrf = VRFSeed::from_bytes(&block_vrf).unwrap();
+
+        let mut header_hash = vec![0u8; 32];
+        header_hash[0] = 2;
+        header_hash[31] = block_height as u8;
+        let header_hash = BlockHeaderHash::from_bytes(&header_hash).unwrap();
+
+        let mut burnchain_header_hash = vec![0u8; 32];
+        burnchain_header_hash[0] = 3;
+        burnchain_header_hash[31] = block_height as u8;
+        let burnchain_header_hash = BurnchainHeaderHash::from_bytes(&burnchain_header_hash).unwrap();
+
+        self.execute("INSERT INTO simmed_block_table 
+                        (block_height, block_time, block_vrf_seed, block_header_hash, burnchain_block_header_hash) 
+                        VALUES (?1, ?2, ?3, ?4, ?5)",
+                        &[&block_height as &ToSql, &block_time,
+                        &block_vrf.to_bytes().to_vec(),
+                        &header_hash.to_bytes().to_vec(),
+                        &burnchain_header_hash.to_bytes().to_vec()]);
+    }
+
+    pub fn sim_mine_block(&mut self) {
+        let current_height = self.get_simmed_block_height()
+            .expect("Failed to get simulated block height");
+        let current_time = self.get_simmed_block_time(current_height)
+            .expect("Failed to get simulated block time");
+
+        let block_time = current_time.checked_add(SIMMED_BLOCK_TIME)
+            .expect("Integer overflow while increasing simulated block time");
+        self.sim_mine_block_with_time(block_time);
+    }
+
+    pub fn sim_mine_blocks(&mut self, count: u32) {
+        for i in 0..count {
+            self.sim_mine_block();
+        }
+    }
+    
     pub fn roll_back(&mut self) {
         self.savepoint.rollback()
             .expect(SQL_FAIL_MESSAGE);

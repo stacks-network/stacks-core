@@ -8,7 +8,7 @@ mod tuples;
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::{Value, PrincipalData};
 use vm::callables::CallableType;
-use vm::representations::SymbolicExpression;
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 
@@ -42,9 +42,12 @@ pub enum NativeFunctions {
     TupleGet,
     Begin,
     Hash160,
+    Sha256,
+    Keccak256,
     Print,
     ContractCall,
-    AsContract
+    AsContract,
+    GetBlockInfo
 }
 
 impl NativeFunctions {
@@ -80,9 +83,12 @@ impl NativeFunctions {
             "get" => Some(TupleGet),
             "begin" => Some(Begin),
             "hash160" => Some(Hash160),
+            "sha256" => Some(Sha256),
+            "keccak256" => Some(Keccak256),
             "print" => Some(Print),
             "contract-call!" => Some(ContractCall),
             "as-contract" => Some(AsContract),
+            "get-block-info" => Some(GetBlockInfo),
             _ => None
         }
     }
@@ -121,9 +127,12 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             TupleGet => CallableType::SpecialFunction("native_get-tuple", &tuples::tuple_get),
             Begin => CallableType::NativeFunction("native_begin", &native_begin),
             Hash160 => CallableType::NativeFunction("native_hash160", &native_hash160),
+            Sha256 => CallableType::NativeFunction("native_sha256", &native_sha256),
+            Keccak256 => CallableType::NativeFunction("native_keccak256", &native_keccak256),
             Print => CallableType::NativeFunction("native_print", &native_print),
             ContractCall => CallableType::SpecialFunction("native_contract-call", &database::special_contract_call),
             AsContract => CallableType::SpecialFunction("native_as-contract", &special_as_contract),
+            GetBlockInfo => CallableType::SpecialFunction("native_get_block_info", &database::special_get_block_info),
         };
         Some(callable)
     } else {
@@ -139,6 +148,7 @@ fn native_eq(args: &[Value]) -> Result<Value> {
         Ok(Value::Bool(true))
     } else {
         let first = &args[0];
+        // Using `fold` rather than `all` to prevent short-circuiting. 
         let result = args.iter().fold(true, |acc, x| acc && (*x == *first));
         Ok(Value::Bool(result))
     }
@@ -158,6 +168,38 @@ fn native_hash160(args: &[Value]) -> Result<Value> {
     }?;
     let hash160 = Hash160::from_data(&bytes);
     Value::buff_from(hash160.as_bytes().to_vec())
+}
+
+fn native_sha256(args: &[Value]) -> Result<Value> {
+    use util::hash::Sha256Sum;
+
+    if !(args.len() == 1) {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to sha256 (expects 1)".to_string())))
+    }
+    let input = &args[0];
+    let bytes = match input {
+        Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
+        Value::Buffer(value) => Ok(value.data.clone()),
+        _ => Err(Error::new(ErrType::NotImplemented))
+    }?;
+    let sha256 = Sha256Sum::from_data(&bytes);
+    Value::buff_from(sha256.as_bytes().to_vec())
+}
+
+fn native_keccak256(args: &[Value]) -> Result<Value> {
+    use util::hash::Keccak256Hash;
+
+    if !(args.len() == 1) {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to keccak256 (expects 1)".to_string())))
+    }
+    let input = &args[0];
+    let bytes = match input {
+        Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
+        Value::Buffer(value) => Ok(value.data.clone()),
+        _ => Err(Error::new(ErrType::NotImplemented))
+    }?;
+    let keccak256 = Keccak256Hash::from_data(&bytes);
+    Value::buff_from(keccak256.as_bytes().to_vec())
 }
 
 fn native_begin(args: &[Value]) -> Result<Value> {

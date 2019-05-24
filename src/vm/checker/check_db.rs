@@ -111,14 +111,18 @@ impl <'a> AnalysisDatabase <'a> {
         }
     }
 
-    pub fn get_public_function_type(&self, contract_name: &str, function_name: &str) -> CheckResult<FunctionType> {
+    pub fn get_public_function_type(&self, contract_name: &str, function_name: &str) -> CheckResult<Option<FunctionType>> {
         let contract = self.load_contract(contract_name)
             .ok_or(CheckError::new(CheckErrors::NoSuchContract(contract_name.to_string())))?;
-        Ok(
-            contract.get_public_function_type(function_name)
-                .ok_or(CheckError::new(CheckErrors::NoSuchPublicFunction(contract_name.to_string(),
-                                                                         function_name.to_string())))?
-                .clone())
+        Ok(contract.get_public_function_type(function_name)
+           .cloned())
+    }
+
+    pub fn get_read_only_function_type(&self, contract_name: &str, function_name: &str) -> CheckResult<Option<FunctionType>> {
+        let contract = self.load_contract(contract_name)
+            .ok_or(CheckError::new(CheckErrors::NoSuchContract(contract_name.to_string())))?;
+        Ok(contract.get_read_only_function_type(function_name)
+           .cloned())
     }
 
     pub fn get_map_type(&self, contract_name: &str, map_name: &str) -> CheckResult<(TypeSignature, TypeSignature)> {
