@@ -44,6 +44,23 @@ fn test_bad_define_names() {
 }
 
 #[test]
+fn test_define_read_only() {
+    let test0 =
+        "(define-read-only (silly) 1) (silly)";
+    let test1 =
+        "(define-read-only (silly) (delete-entry! map-name (tuple (value 1))))  (silly)";
+    let test2 =
+        "(define-read-only (silly) (insert-entry! map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
+    let test3 =
+        "(define-read-only (silly) (set-entry! map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
+
+    assert_eq!(Ok(Value::Int(1)), execute(&test0));
+    assert_eq!(ErrType::WriteFromReadOnlyContext, execute(&test1).unwrap_err().err_type);
+    assert_eq!(ErrType::WriteFromReadOnlyContext, execute(&test2).unwrap_err().err_type);
+    assert_eq!(ErrType::WriteFromReadOnlyContext, execute(&test3).unwrap_err().err_type);
+}
+
+#[test]
 fn test_stack_depth() {
     let mut function_defines = Vec::new();
     function_defines.push("(define (foo-0 (x int)) (+ 1 x))".to_string());

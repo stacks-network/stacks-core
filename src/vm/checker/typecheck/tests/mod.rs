@@ -7,10 +7,28 @@ mod contracts;
 
 fn type_check(exp: &SymbolicExpression) -> TypeResult {
     let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let analysis_db = analysis_conn.begin_save_point();
     let mut type_checker = TypeChecker::new(&analysis_db);
     let contract_context = TypingContext::new();
     type_checker.type_check(exp, &contract_context)
+}
+
+#[test]
+fn test_get_block_info(){
+    let good = ["(get-block-info time 1)",
+                "(get-block-info time (* 2 3))"];
+    let bad = ["(get-block-info none 1)",
+               "(get-block-info time 'true)",
+               "(get-block-info time)"];
+    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
+        identity_pass::identity_pass(&mut good_test).unwrap();
+        type_check(&good_test[0]).unwrap();
+    }
+    
+    for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
+        identity_pass::identity_pass(&mut bad_test).unwrap();
+        assert!(type_check(&bad_test[0]).is_err())
+    }
 }
 
 #[test]

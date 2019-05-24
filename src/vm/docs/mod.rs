@@ -334,14 +334,34 @@ If a Void value is supplied as the inputted tuple, `get` returns Void.",
 "
 };
 
-const HASH_160_API: SpecialAPI = SpecialAPI {
+const HASH160_API: SpecialAPI = SpecialAPI {
     input_type: "buff|int",
-    output_type: "(buff 160)",
+    output_type: "(buff 20)",
     signature: "(hash160 value)",
     description: "The `hash160` function computes RIPEMD160(SHA256(x)) of the inputted value.
 If an integer (128 bit) is supplied the hash is computed over the little endian representation of the
 integer.",
     example: "(hash160 0) => 0xe4352f72356db555721651aa612e00379167b30f"
+};
+
+const SHA256_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|int",
+    output_type: "(buff 32)",
+    signature: "(sha256 value)",
+    description: "The `sha256` function computes SHA256(x) of the inputted value.
+If an integer (128 bit) is supplied the hash is computer over the little endian representation of the
+integer.",
+    example: "(sha256 0) => 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb"
+};
+
+const KECCAK256_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|int",
+    output_type: "(buff 32)",
+    signature: "(keccak256 value)",
+    description: "The `keccak256` function computes KECCAK256(value) of the inputted value.
+Note that this differs from the NIST SHA-3 (i.e. FIPS 202) standard. If an integer (128 bit) 
+is supplied the hash is computer over the little endian representation of the integer.",
+    example: "(keccak256 0) => 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4"
 };
 
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
@@ -362,6 +382,27 @@ const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
     description: "The `as-contract` function switches the current context's `tx-sender` value to the _contract's_ 
 principal, and executes `expr` with that context. It returns the resulting value of `expr`.",
     example: "(as-contract (print tx-sender)) => 'CTcontract.name"
+};
+
+const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
+    input_type: "BlockInfoPropertyName, BlockHeightInt",
+    output_type: "buff|int",
+    signature: "(get-block-info prop-name block-height-expr)",
+    description: "The `get-block-info` function fetches data for a block of the given block height. The 
+value and type returned is determined by the specified property name. If the provided block height integer does
+not correspond to an existing block, the function is aborted. The currently available property names 
+are `time`, `header-hash`, `burnchain-header-hash`, and `vrf-seed`. 
+
+The `time` property returns an integer value of the block header time field. This is a Unix epoch timestamp in seconds 
+which roughly corresponds to when the block was mined. Warning: this does not increase monotonically with each block
+and block times are accurate only to within two hours. See BIP113 for more information. 
+
+The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 32-byte buffer. 
+",
+    example: "(get-block-info time 10) => 1557860301
+(get-block-info header-hash 2) => 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb
+(get-block-info vrf-seed 6) => 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4
+"
 };
 
 
@@ -407,10 +448,13 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         TupleCons => make_for_special(&TUPLE_CONS_API),
         TupleGet => make_for_special(&TUPLE_GET_API),
         Begin => make_for_special(&BEGIN_API),
-        Hash160 => make_for_special(&HASH_160_API),
+        Hash160 => make_for_special(&HASH160_API),
+        Sha256 => make_for_special(&SHA256_API),
+        Keccak256 => make_for_special(&KECCAK256_API),
         Print => make_for_special(&PRINT_API),
         ContractCall => make_for_special(&CONTRACT_CALL_API),
-        AsContract => make_for_special(&AS_CONTRACT_API)
+        AsContract => make_for_special(&AS_CONTRACT_API),
+        GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API),
     }
 }
 

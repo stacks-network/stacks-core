@@ -8,6 +8,9 @@ use vm::{SymbolicExpression};
 use vm::contracts::Contract;
 use vm::{parser, eval};
 
+use chainstate::burn::{VRFSeed, BlockHeaderHash};
+use burnchains::BurnchainHeaderHash;
+
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
 // TODO:
@@ -26,8 +29,18 @@ pub struct OwnedEnvironment <'a> {
     call_stack: CallStack
 }
 
+/** GlobalContext represents the outermost context for a transaction's
+      execution. Logically, this context _never_ changes for the execution of
+      transaction. However, due to the use of SavePoints for executing cross-contract
+      calls, the GlobalContext can "nest", such that the inner-most GlobalContext may
+      commit or abort its changes independent of the outer-most GlobalContext. Because
+      of this, it may be easier to think of the GlobalContext as the "Database context".
+      However, the GlobalContext also tracks some other variables which may only be
+      modified during 
+ */
 pub struct GlobalContext <'a> {
-    pub database: ContractDatabase<'a>
+    pub database: ContractDatabase<'a>,
+    read_only: bool
 }
 
 #[derive(Serialize, Deserialize)]
@@ -110,11 +123,11 @@ impl <'a, 'b> Environment <'a, 'b> {
     pub fn eval_read_only(&mut self, contract_name: &str, program: &str) -> Result<Value> {
         let parsed = parser::parse(program)?;
         if parsed.len() < 1 {
-            return Err(Error::new(ErrType::ParseError("Expected a program of atleast length 1".to_string())))
+            return Err(Error::new(ErrType::ParseError("Expected a program of at least length 1".to_string())))
         }
 
         let contract = self.global_context.database.get_contract(contract_name)?;
-        let mut nested_context = GlobalContext::begin_from(&mut self.global_context.database);
+        let mut nested_context = self.global_context.nest();
         let result = {
             let mut nested_env = Environment::new(&mut nested_context, &contract.contract_context, self.call_stack, self.sender.clone());
             let local_context = LocalContext::new();
@@ -140,34 +153,57 @@ impl <'a, 'b> Environment <'a, 'b> {
     pub fn execute_contract(&mut self, contract_name: &str, 
                             tx_name: &str, args: &[SymbolicExpression]) -> Result<Value> {
         let contract = self.global_context.database.get_contract(contract_name)?;
-        let mut nested_context = GlobalContext::begin_from(&mut self.global_context.database);
-        let result = {
-            let mut nested_env = Environment::new(&mut nested_context, &contract.contract_context, self.call_stack, self.sender.clone());
-            contract.execute_transaction(tx_name, args, &mut nested_env)
-        };
 
-        nested_context.handle_tx_result(result)
+        let func = contract.contract_context.lookup_function(tx_name)
+            .ok_or_else(|| { Error::new(ErrType::UndefinedFunction(tx_name.to_string())) })?;
+        if !func.is_public() {
+            return Err(Error::new(ErrType::NonPublicFunction(tx_name.to_string())));
+        }
+
+        let args: Result<Vec<Value>> = args.iter()
+            .map(|arg| {
+                let value = arg.match_atom_value()
+                    .ok_or_else(|| Error::new(ErrType::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
+                                                                                tx_name))))?;
+                Ok(value.clone())
+            })
+            .collect();
+
+        let args = args?;
+
+        self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context)) 
     }
 
-    pub fn execute_function_as_transaction(&mut self, function: &DefinedFunction, args: &[Value]) -> Result<Value> {
-        let function = match function {
-            DefinedFunction::Private(_) => Err(Error::new(ErrType::NonPublicFunction(format!("{}", function.get_identifier())))),
-            DefinedFunction::Public(f) => Ok(f)
-        }?;
+    pub fn execute_function_as_transaction(&mut self, function: &DefinedFunction, args: &[Value],
+                                           next_contract_context: Option<&ContractContext>) -> Result<Value> {
+        let make_read_only = function.is_read_only();
 
-        let mut nested_context = GlobalContext::begin_from(&mut self.global_context.database);
-
-        let result = {
-            let mut nested_env = Environment::new(&mut nested_context, self.contract_context, self.call_stack, self.sender.clone());
-
-            function.apply(args, &mut nested_env)
+        let mut nested_context = {
+            if make_read_only { 
+                self.global_context.nest_read_only()
+            } else {
+                self.global_context.nest()
+            }
         };
 
-        nested_context.handle_tx_result(result)
+        let next_contract_context = next_contract_context.unwrap_or(self.contract_context);
+
+        let result = {
+            let mut nested_env = Environment::new(&mut nested_context, next_contract_context, self.call_stack, self.sender.clone());
+
+            function.execute_apply(args, &mut nested_env)
+        };
+
+        if make_read_only {
+            nested_context.database.roll_back();
+            result
+        } else {
+            nested_context.handle_tx_result(result)
+        }
     }
 
     pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
-        let mut nested_context = GlobalContext::begin_from(&mut self.global_context.database);
+        let mut nested_context = self.global_context.nest();
         let result = Contract::initialize(contract_name, contract_content,
                                           &mut nested_context);
         match result {
@@ -185,15 +221,59 @@ impl <'a, 'b> Environment <'a, 'b> {
 }
 
 impl <'a> GlobalContext <'a> {
+    
     pub fn new(database: ContractDatabase<'a>) -> GlobalContext<'a> {
         GlobalContext {
-            database: database
+            database: database,
+            read_only: false
         }
     }
 
-    pub fn get_block_height(&self) -> i128 {
+    pub fn get_block_height(&self) -> u64 {
         self.database.get_simmed_block_height()
             .expect("Failed to obtain the current block height.")
+    }
+
+    pub fn get_block_time(&self, block_height: u64) -> u64 {
+        self.database.get_simmed_block_time(block_height)
+            .expect("Failed to obtain the block time for the given block height.")
+    }
+
+    pub fn get_block_header_hash(&self, block_height: u64) -> BlockHeaderHash {
+        self.database.get_simmed_block_header_hash(block_height)
+            .expect("Failed to obtain the block header hash for the given block height.")
+    }
+
+    pub fn get_burnchain_block_header_hash(&self, block_height: u64) -> BurnchainHeaderHash {
+        self.database.get_simmed_burnchain_block_header_hash(block_height)
+            .expect("Failed to obtain the burnchain block header hash for the given block height.")
+    }
+
+    pub fn get_block_vrf_seed(&self, block_height: u64) -> VRFSeed {
+        self.database.get_simmed_block_vrf_seed(block_height)
+            .expect("Failed to obtain the block vrf seed for the given block height.")
+    }
+
+    pub fn nest <'b> (&'b mut self) -> GlobalContext<'b> {
+        let database = self.database.begin_save_point();
+
+        GlobalContext {
+            database: database,
+            read_only: self.read_only
+        }
+    }
+
+    pub fn nest_read_only <'b> (&'b mut self) -> GlobalContext<'b> {
+        let database = self.database.begin_save_point();
+
+        GlobalContext {
+            database: database,
+            read_only: true
+        }
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
     }
 
     pub fn begin_from(database: &'a mut ContractDatabaseTransacter) -> GlobalContext<'a> {
@@ -206,23 +286,20 @@ impl <'a> GlobalContext <'a> {
     }
 
     pub fn handle_tx_result(mut self, result: Result<Value>) -> Result<Value> {
-        match result {
-            Ok(x) => {
-                if let Value::Bool(bool_result) = x {
-                    if bool_result {
-                        self.commit();
-                    } else {
-                        self.database.roll_back();
-                    }
-                    Ok(x)
+        if let Ok(result) = result {
+            if let Value::Bool(bool_result) = result {
+                if bool_result {
+                    self.commit();
                 } else {
-                    Err(Error::new(ErrType::ContractMustReturnBoolean))
+                    self.database.roll_back();
                 }
-            },
-            Err(_) => {
-                self.database.roll_back();
-                result
+                Ok(result)
+            } else {
+                Err(Error::new(ErrType::ContractMustReturnBoolean))
             }
+        } else {
+            self.database.roll_back();
+            result
         }
     }
 }

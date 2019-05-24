@@ -4,8 +4,9 @@ use vm::errors::{ErrType};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
-use vm::types::{TypeSignature, AtomTypeIdentifier};
+use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData};
 use vm::parser::parse;
+use util::hash::hex_bytes;
 
 #[test]
 fn test_simple_let() {
@@ -34,6 +35,50 @@ fn test_simple_let() {
         assert!(false, "Failed to parse program.");
     }
 
+}
+
+#[test]
+fn test_sha256() {
+    let sha256_evals = [
+        "(sha256 \"\")",
+        "(sha256 0)",
+        "(sha256 \"The quick brown fox jumps over the lazy dog\")",
+    ];
+
+    fn to_buffer(hex: &str) -> Value {
+        return Value::Buffer(BuffData { data: hex_bytes(hex).unwrap() });
+    }
+
+    let expectations = [
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb",
+        "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592"
+    ];
+
+    sha256_evals.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(Ok(to_buffer(expectation)), execute(program)));
+}
+
+#[test]
+fn test_keccak256() {
+    let keccak256_evals = [
+        "(keccak256 \"\")",
+        "(keccak256 0)",
+        "(keccak256 \"The quick brown fox jumps over the lazy dog\")",
+    ];
+
+    fn to_buffer(hex: &str) -> Value {
+        return Value::Buffer(BuffData { data: hex_bytes(hex).unwrap() });
+    }
+
+    let expectations = [
+        "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        "f490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4",
+        "4d741b6f1eb29cb2a9b9911c82f56fa8d73b04959d3d9d222895df6c0b28aa15"
+    ];
+
+    keccak256_evals.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(Ok(to_buffer(expectation)), execute(program)));
 }
 
 #[test]
@@ -77,6 +122,8 @@ fn test_simple_if_functions() {
     //  (with_else 3)
     //  (without_else 3)
 
+    use vm::callables::DefineType::Private;
+
     let evals = parse(&
         "(with_else 5)
          (without_else 3)
@@ -88,11 +135,11 @@ fn test_simple_if_functions() {
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
         let func_args2 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
-        let user_function1 = DefinedFunction::new_private(
-            func_args1, parsed_bodies[0].clone(), &"with_else", &"");
+        let user_function1 = DefinedFunction::new(
+            func_args1, parsed_bodies[0].clone(), Private, &"with_else", &"");
 
-        let user_function2 = DefinedFunction::new_private(
-            func_args2, parsed_bodies[1].clone(), &"without_else", &"");
+        let user_function2 = DefinedFunction::new(
+            func_args2, parsed_bodies[1].clone(), Private, &"without_else", &"");
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(":transient:".to_string());

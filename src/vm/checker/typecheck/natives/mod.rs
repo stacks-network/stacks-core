@@ -1,7 +1,7 @@
 use vm::errors::{ErrType as InterpError};
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature};
+use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty};
 use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
 use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 
@@ -259,13 +259,41 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
         .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
     checker.type_map.set_type(&args[0], no_type())?;
     checker.type_map.set_type(&args[1], no_type())?;
-    
-    let contract_call_function_type = checker.db.get_public_function_type(contract_name, function_name)?;
+
+    let contract_call_function_type = {
+        if let Some(function_type) = checker.db.get_public_function_type(contract_name, function_name)? {
+            Ok(function_type)
+        } else if let Some(function_type) = checker.db.get_read_only_function_type(contract_name, function_name)? {
+            Ok(function_type)
+        } else {
+            Err(CheckError::new(CheckErrors::NoSuchPublicFunction(contract_name.to_string(),
+                                                                  function_name.to_string())))
+        }
+    }?;
+
     let contract_call_args = checker.type_check_all(&args[2..], context)?;
     
     contract_call_function_type.check_args(&contract_call_args)?;
     
     Ok(contract_call_function_type.return_type())
+}
+
+fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() < 2 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+    }
+
+    checker.type_map.set_type(&args[0], no_type())?;
+    let block_info_prop_str = args[0].match_atom()
+        .ok_or(CheckError::new(CheckErrors::GetBlockInfoExpectPropertyName))?;
+
+    let block_info_prop = BlockInfoProperty::from_str(block_info_prop_str)
+        .ok_or(CheckError::new(CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string())))?;
+
+    let block_height_arg = checker.type_check(&args[1], &context)?;
+    check_atomic_type(AtomTypeIdentifier::IntType, &block_height_arg)?;
+    
+    Ok(block_info_prop.type_result())
 }
 
 impl TypedNativeFunction {
@@ -296,6 +324,12 @@ impl TypedNativeFunction {
             Hash160 =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
                                                                 TypeSignature::new_atom( AtomTypeIdentifier::BufferType(20) )))),
+            Sha256 =>
+                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
+                                                                TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
+            Keccak256 =>
+                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
+                                                                TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
             Equals =>
                 Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::AnyType ),
                                                                    TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
@@ -315,6 +349,7 @@ impl TypedNativeFunction {
             Print => Special(SpecialNativeFunction(&check_special_print)),
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
             ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
+            GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
         }
     }
 }
