@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'blockstack-core'",
+            "name": "Debug 'blockstack-core'",
             "cargo": {
                 "args": [
                     "build",
@@ -21,13 +21,36 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}",
-            "sourceLanguages": ["rust"],
+            "sourceLanguages": [
+                "rust"
+            ],
             "terminal": "integrated"
         },
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'blockstack-core'",
+            "name": "Debug 'clarity'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=clarity"
+                ],
+                "filter": {
+                    "name": "clarity",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": [
+                "rust"
+            ],
+            "terminal": "integrated"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in 'blockstack-core'",
             "cargo": {
                 "args": [
                     "test",
@@ -44,7 +67,9 @@
                 "--nocapture"
             ],
             "cwd": "${workspaceFolder}",
-            "sourceLanguages": ["rust"],
+            "sourceLanguages": [
+                "rust"
+            ],
             "terminal": "integrated"
         }
     ]
