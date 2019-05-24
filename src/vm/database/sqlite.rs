@@ -5,7 +5,7 @@ use rusqlite::types::ToSql;
 
 use vm::contracts::Contract;
 use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
-use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
+use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -228,7 +228,7 @@ impl <'a> ContractDatabase <'a> {
                      &[contract_name, map_name, &key_type.serialize(), &value_type.serialize()]);
     }
 
-    pub fn fetch_entry(&self, contract_name: &str, map_name: &str, key: &Value) -> Result<Value> {
+    pub fn fetch_entry(&self, contract_name: &str, map_name: &str, key: &Value) -> Result<Option<Value>> {
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(key) {
             return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.key_type), (*key).clone())))
@@ -245,13 +245,11 @@ impl <'a> ContractDatabase <'a> {
                     row.get(0)
                 });
         match sql_result {
-            None => {
-                Ok(Value::Void)
-            },
+            None => Ok(None),
             Some(sql_result) => {
                 match sql_result {
-                    None => Ok(Value::Void),
-                    Some(value_data) => Ok(Value::deserialize(&value_data))
+                    None => Ok(None),
+                    Some(value_data) => Ok(Some(Value::deserialize(&value_data)))
                 }
             }
         }
@@ -286,7 +284,7 @@ impl <'a> ContractDatabase <'a> {
             return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.value_type), value)))
         }
 
-        let exists = self.fetch_entry(contract_name, map_name, &key)? != Value::Void;
+        let exists = self.fetch_entry(contract_name, map_name, &key)?.is_some();
         if exists {
             return Ok(Value::Bool(false))
         }
@@ -303,7 +301,7 @@ impl <'a> ContractDatabase <'a> {
     }
 
     pub fn delete_entry(&mut self, contract_name: &str, map_name: &str, key: &Value) -> Result<Value> {
-        let exists = self.fetch_entry(contract_name, map_name, &key)? != Value::Void;
+        let exists = self.fetch_entry(contract_name, map_name, &key)?.is_some();
         if !exists {
             return Ok(Value::Bool(false))
         }

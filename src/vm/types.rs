@@ -25,7 +25,7 @@ pub enum AtomTypeIdentifier {
     PrincipalType,
     TupleType(TupleTypeSignature),
     OptionalType(Box<TypeSignature>),
-    ResponseType(Box<TypeSignature>, Box<TypeSignature>)
+    ResponseType(Box<(TypeSignature, TypeSignature)>)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,14 +68,12 @@ pub enum PrincipalData {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OptionalData {
     pub data: Option<Box<Value>>,
-    type_signature: AtomTypeIdentifier
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResponseData {
     pub committed: bool,
     pub data: Box<Value>,
-    type_signature: AtomTypeIdentifier
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -97,6 +95,28 @@ pub enum BlockInfoProperty {
     VrfSeed,
     HeaderHash,
     BurnchainHeaderHash,
+}
+
+impl OptionalData {
+    pub fn type_signature(&self) -> AtomTypeIdentifier {
+        match self.data {
+            Some(ref v) => AtomTypeIdentifier::OptionalType(Box::new(
+                TypeSignature::type_of(&v))),
+            None => AtomTypeIdentifier::OptionalType(Box::new(
+                TypeSignature::new_atom(AtomTypeIdentifier::NoType)))
+        }
+    }
+}
+
+impl ResponseData {
+    pub fn type_signature(&self) -> AtomTypeIdentifier {
+        match self.committed {
+            true => AtomTypeIdentifier::ResponseType(Box::new(
+                (TypeSignature::type_of(&self.data), TypeSignature::new_atom(AtomTypeIdentifier::NoType)))),
+            false => AtomTypeIdentifier::ResponseType(Box::new(
+                (TypeSignature::new_atom(AtomTypeIdentifier::NoType), TypeSignature::type_of(&self.data))))
+        }
+    }
 }
 
 impl BlockInfoProperty {
@@ -176,6 +196,8 @@ impl Hash for TupleData {
     }
 }
 
+const NONE: Value = Value::Optional(OptionalData { data: None });
+
 impl Value {
     pub fn deserialize(json: &str) -> Value {
         serde_json::from_str(json)
@@ -185,6 +207,20 @@ impl Value {
     pub fn serialize(&self) -> String {
         serde_json::to_string(self)
             .expect("Failed to serialize vm.Value")
+    }
+
+    pub fn some(data: Value) -> Value {
+        Value::Optional(OptionalData {
+            data: Some(Box::new(data)) })
+    }
+
+    pub fn none() -> Value {
+        Value::Optional(OptionalData {
+            data: None })
+    }
+
+    pub fn static_none() -> &'static Value {
+        &NONE
     }
 
     pub fn new_list(list_data: &[Value]) -> Result<Value> {
@@ -231,8 +267,8 @@ impl Value {
             Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
             Value::Tuple(ref tuple_data) => tuple_data.size(),
             Value::List(ref list_data) => list_data.type_signature.size(),
-            Value::Optional(ref opt_data) => opt_data.type_signature.size(),
-            Value::Response(ref res_data) => res_data.type_signature.size()
+            Value::Optional(ref opt_data) => opt_data.type_signature().size(),
+            Value::Response(ref res_data) => res_data.type_signature().size()
         }
     }
 
@@ -250,7 +286,7 @@ impl fmt::Display for AtomTypeIdentifier {
             PrincipalType => write!(f, "principal"),
             BufferType(len) => write!(f, "(buff {})", len),
             OptionalType(t) => write!(f, "(optional {})", t),
-            ResponseType(t, s) => write!(f, "(response {} {})", t, s),
+            ResponseType(v) => write!(f, "(response {} {})", v.0, v.1),
             TupleType(TupleTypeSignature{ type_map }) => {
                 write!(f, "(tuple (")?;
                 for (key_name, value_type) in type_map.iter() {
@@ -351,7 +387,8 @@ impl AtomTypeIdentifier {
                     .checked_add(1)
                     .ok_or(Error::new(ErrType::ValueTooLarge))
             },
-            AtomTypeIdentifier::ResponseType(s, t) => {
+            AtomTypeIdentifier::ResponseType(v) => {
+                let (t, s) = (&v.0, &v.1);
                 let t_size = t.size()?;
                 let s_size = s.size()?;
                 cmp::max(t_size, s_size)
@@ -545,6 +582,16 @@ impl TypeSignature {
                         list_dimensions: None }
     }
 
+    pub fn most_admissive(a: TypeSignature, b: TypeSignature) -> Option<TypeSignature> {
+        if a.admits_type(&b) {
+            Some(a)
+        } else if b.admits_type(&a) {
+            Some(b)
+        } else {
+            None
+        }
+    }
+
     pub fn new_list(atomic_type: AtomTypeIdentifier, max_len: i128, dimension: i128) -> Result<TypeSignature> {
         if dimension == 0 {
             Err(Error::new(ErrType::InvalidTypeDescription))
@@ -656,8 +703,8 @@ impl TypeSignature {
                 Value::Tuple(v) => AtomTypeIdentifier::TupleType(
                     v.type_signature.clone()),
                 Value::List(_) => panic!("Unreachable code"),
-                Value::Optional(v) => v.type_signature.clone(),
-                Value::Response(v) => v.type_signature.clone()
+                Value::Optional(v) => v.type_signature(),
+                Value::Response(v) => v.type_signature()
             };
 
             TypeSignature::new_atom(atom)

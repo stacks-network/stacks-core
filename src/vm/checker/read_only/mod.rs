@@ -125,6 +125,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         match function {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater |
             Modulo | Power | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
+            ConsOkay | ConsError | DefaultTo | Expects |
             ListCons | GetBlockInfo | FetchEntry | FetchContractEntry | TupleGet | Print | AsContract | Begin => {
                 self.are_all_read_only(true, args)
             },

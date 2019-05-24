@@ -6,7 +6,7 @@ mod database;
 mod tuples;
 
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
-use vm::types::{Value, PrincipalData};
+use vm::types::{Value, PrincipalData, ResponseData};
 use vm::callables::CallableType;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List, Atom};
@@ -61,7 +61,11 @@ define_enum!(NativeFunctions {
     Print,
     ContractCall,
     AsContract,
-    GetBlockInfo
+    GetBlockInfo,
+    ConsOkay,
+    ConsError,
+    DefaultTo,
+    Expects
 });
 
 impl NativeFunctions {
@@ -103,6 +107,10 @@ impl NativeFunctions {
             "contract-call!" => Some(ContractCall),
             "as-contract" => Some(AsContract),
             "get-block-info" => Some(GetBlockInfo),
+            "err" => Some(ConsError),
+            "ok" => Some(ConsOkay),
+            "default-to" => Some(DefaultTo),
+            "expects" => Some(Expects),
             _ => None
         }
     }
@@ -147,10 +155,70 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ContractCall => CallableType::SpecialFunction("native_contract-call", &database::special_contract_call),
             AsContract => CallableType::SpecialFunction("native_as-contract", &special_as_contract),
             GetBlockInfo => CallableType::SpecialFunction("native_get_block_info", &database::special_get_block_info),
+            ConsOkay => CallableType::NativeFunction("native_okay", &native_okay),
+            ConsError => CallableType::NativeFunction("native_error", &native_error),
+            DefaultTo => CallableType::NativeFunction("default_to", &default_to),
+            Expects => CallableType::NativeFunction("expects", &native_expects),
         };
         Some(callable)
     } else {
         None
+    }
+}
+
+fn native_expects(args: &[Value]) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to expects (expects input-value thrown-value)".to_string())))
+    }
+
+    let input = &args[0];
+    let thrown = &args[1];
+
+    match input {
+        Value::Optional(data) => {
+            match data.data {
+                Some(ref data) => Ok((**data).clone()),
+                None => Err(Error::new(ErrType::ExpectedValue(thrown.clone())))
+            }
+        },
+        _ => Err(Error::new(ErrType::TypeError("OptionalType".to_string(), input.clone())))
+    }
+}
+
+fn native_okay(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to ok (expects 1)".to_string())))
+    }
+
+    let input = &args[0];
+    Ok(Value::Response(ResponseData { committed: true, data: Box::new(input.clone()) }))
+}
+
+fn native_error(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to err (expects 1)".to_string())))
+    }
+
+    let input = &args[0];
+    Ok(Value::Response(ResponseData { committed: false, data: Box::new(input.clone()) }))
+}
+
+fn default_to(args: &[Value]) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to default-to (expects 2)".to_string())))
+    }
+
+    let default = &args[0];
+    let input = &args[1];
+
+    match input {
+        Value::Optional(data) => {
+            match data.data {
+                Some(ref data) => Ok((**data).clone()),
+                None => Ok(default.clone())
+            }
+        },
+        _ => Err(Error::new(ErrType::TypeError("OptionalType".to_string(), input.clone())))
     }
 }
 
@@ -163,7 +231,14 @@ fn native_eq(args: &[Value]) -> Result<Value> {
     } else {
         let first = &args[0];
         // Using `fold` rather than `all` to prevent short-circuiting. 
-        let result = args.iter().fold(true, |acc, x| acc && (*x == *first));
+        let result = args.iter()
+            .map(|x| {
+                match x {
+                    Value::Void => Value::static_none(),
+                    _ => x
+                }
+            })
+            .fold(true, |acc, x| acc && (*x == *first));
         Ok(Value::Bool(result))
     }
 }

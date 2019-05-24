@@ -52,6 +52,7 @@ pub enum FunctionType {
 pub struct TypeChecker <'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
+    function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a AnalysisDatabase<'b>
 }
 
@@ -126,7 +127,30 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         TypeChecker {
             db: db,
             contract_context: ContractContext::new(),
+            function_return_tracker: None,
             type_map: TypeMap::new()
+        }
+    }
+
+    pub fn track_return_type(&mut self, return_type: TypeSignature) -> CheckResult<()> {
+        match self.function_return_tracker {
+            Some(ref mut tracker) => {
+                let new_type = match tracker.take() {
+                    Some(expected_type) => {
+                        TypeSignature::most_admissive(expected_type, return_type)
+                            .ok_or(CheckError::new(CheckErrors::ReturnTypesMustMatch))?
+                    },
+                    None => return_type
+                };
+
+                tracker.replace(new_type);
+                Ok(())
+            },
+            None => {
+                // not in a defining function, so it's okay if aborts, etc., are trying
+                //   to return random things, as it'll just error in any case.
+                Ok(())
+            }
         }
     }
 
@@ -228,18 +252,46 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         let mut args = parse_name_type_pairs(args)
             .map_err(|_| { CheckError::new(CheckErrors::BadSyntaxBinding) })?;
 
+        if self.function_return_tracker.is_some() {
+            panic!("Interpreter error: Previous function define left dirty typecheck state.");
+        }
+
+
         let mut function_context = context.extend()?;
         for (arg_name, arg_type) in args.iter() {
             function_context.variable_types.insert(arg_name.clone(),
                                                    arg_type.clone());
         }
 
+        self.function_return_tracker = Some(None);
 
-        let return_type = self.type_check(body, &function_context)?;
-        let arg_types: Vec<TypeSignature> = args.drain(..)
-            .map(|(_, arg_type)| arg_type).collect();
+        let return_result = self.type_check(body, &function_context);
 
-        Ok((function_name.to_string(), FunctionType::Fixed(arg_types, return_type)))
+        match return_result {
+            Err(e) => {
+                self.function_return_tracker = None;
+                return Err(e)            
+            },
+            Ok(return_type) => {
+                let return_type = {
+                    if let Some(Some(ref expected)) = self.function_return_tracker {
+                        // check if the computed return type matches the return type
+                        //   of any early exits from the call graph (e.g., (expects ...) calls)
+                        TypeSignature::most_admissive(expected.clone(), return_type)
+                            .ok_or(CheckError::new(CheckErrors::ReturnTypesMustMatch))?
+                    } else {
+                        return_type
+                    }
+                };
+
+                self.function_return_tracker = None;
+
+                let arg_types: Vec<TypeSignature> = args.drain(..)
+                    .map(|(_, arg_type)| arg_type).collect();
+
+                Ok((function_name.to_string(), FunctionType::Fixed(arg_types, return_type)))
+            }
+        }
     }
 
     fn type_check_define_map(&mut self, map_expression: &[SymbolicExpression],

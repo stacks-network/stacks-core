@@ -11,6 +11,58 @@ fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
     vec.drain(..).map(|value| SymbolicExpression::atom_value(value)).collect()
 }
 
+const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current int) (index int)))
+         (define (init-factorial (id int) (factorial int))
+           (print (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
+         (define-public (compute (id int))
+           (let ((entry (expects (fetch-entry factorials (tuple (id id)))
+                                 'false)))
+                    (let ((current (get current entry))
+                          (index   (get index entry)))
+                         (if (<= index 1)
+                             'true
+                             (begin
+                               (set-entry! factorials (tuple (id id))
+                                                      (tuple (current (* current index))
+                                                             (index (- index 1))))
+                               'true)))))
+        (begin (init-factorial 1337 3)
+               (init-factorial 8008 5)
+               'null)
+        ";
+
+const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance int)))
+         (define-read-only (get-balance (account principal))
+            (default-to 0 (get balance (fetch-entry tokens (tuple (account account))))))
+         (define-read-only (explode (account principal))
+             (delete-entry! tokens (tuple (account account))))
+         (define (token-credit! (account principal) (tokens int))
+            (if (<= tokens 0)
+                'false
+                (let ((current-amount (get-balance account)))
+                  (begin
+                    (set-entry! tokens (tuple (account account))
+                                       (tuple (balance (+ tokens current-amount))))
+                    'true))))
+         (define-public (token-transfer (to principal) (amount int))
+          (let ((balance (get-balance tx-sender)))
+             (if (or (> amount balance) (<= amount 0))
+                 'false
+                 (begin
+                   (set-entry! tokens (tuple (account tx-sender))
+                                      (tuple (balance (- balance amount))))
+                   (token-credit! to amount)))))
+         (define-public (faucet)
+           (let ((original-sender tx-sender))
+             (as-contract (token-transfer original-sender 1))))                     
+         (define-public (mint-after (block-to-release int))
+           (if (>= block-height block-to-release)
+               (faucet)
+               'false))
+         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
+                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 200)
+                (token-credit! 'CTtokens 4)
+                'null)";
 
 #[test]
 fn test_get_block_info_eval(){
@@ -60,42 +112,7 @@ fn test_get_block_info_eval(){
 
 #[test]
 fn test_simple_token_system() {
-    let tokens_contract = 
-        "(define-map tokens ((account principal)) ((balance int)))
-         (define-read-only (get-balance (account principal))
-            (let ((balance
-                  (get balance (fetch-entry tokens (tuple (account account))))))
-              (if (eq? balance 'null) 0 balance)))
-         (define-read-only (explode (account principal))
-                  (delete-entry! tokens (tuple (account account))))
-         (define (token-credit! (account principal) (tokens int))
-            (if (<= tokens 0)
-                'false
-                (let ((current-amount (get-balance account)))
-                  (begin
-                    (set-entry! tokens (tuple (account account))
-                                       (tuple (balance (+ tokens current-amount))))
-                    'true))))
-         (define-public (token-transfer (to principal) (amount int))
-          (let ((balance (get-balance tx-sender)))
-             (if (or (> amount balance) (<= amount 0))
-                 'false
-                 (begin
-                   (set-entry! tokens (tuple (account tx-sender))
-                                      (tuple (balance (- balance amount))))
-                   (token-credit! to amount)))))
-         (define-public (faucet)
-           (let ((original-sender tx-sender))
-             (as-contract (token-transfer original-sender 1))))                     
-         (define-public (mint-after (block-to-release int))
-           (if (>= block-height block-to-release)
-               (faucet)
-               'false))
-         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
-                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 100)
-                (token-credit! 'CTtokens 4)
-                'null)";
-
+    let tokens_contract = SIMPLE_TOKENS;
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").unwrap();
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
@@ -110,7 +127,7 @@ fn test_simple_token_system() {
     env.sender = Some(p2.clone());
     assert_eq!(
         env.execute_contract("tokens", "token-transfer",
-                             &symbols_from_values(vec![p1.clone(), Value::Int(110)])).unwrap(),
+                             &symbols_from_values(vec![p1.clone(), Value::Int(210)])).unwrap(),
         Value::Bool(false));
     env.sender = Some(p1.clone());
     assert_eq!(
@@ -132,7 +149,7 @@ fn test_simple_token_system() {
     assert_eq!(
         env.eval_read_only("tokens",
                            "(get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
-        Value::Int(9100));
+        Value::Int(9200));
     assert_eq!(
         env.execute_contract("tokens", "faucet", &vec![]).unwrap(),
         Value::Bool(true));
@@ -168,32 +185,7 @@ fn test_simple_token_system() {
 
 #[test]
 fn test_simple_naming_system() {
-    let tokens_contract = 
-        "(define-map tokens ((account principal)) ((balance int)))
-         (define (get-balance (account principal))
-            (let ((balance
-                  (get balance (fetch-entry tokens (tuple (account account))))))
-              (if (eq? balance 'null) 0 balance)))
-
-         (define (token-credit! (account principal) (tokens int))
-            (if (<= tokens 0)
-                'false
-                (let ((current-amount (get-balance account)))
-                  (begin
-                    (set-entry! tokens (tuple (account account))
-                                       (tuple (balance (+ tokens current-amount))))
-                    'true))))
-         (define-public (token-transfer (to principal) (amount int))
-          (let ((balance (get-balance tx-sender)))
-             (if (or (> amount balance) (<= amount 0))
-                 'false
-                 (begin
-                   (set-entry! tokens (tuple (account tx-sender))
-                                      (tuple (balance (- balance amount))))
-                   (token-credit! to amount)))))                     
-         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
-                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 300)
-                'null)";
+    let tokens_contract = SIMPLE_TOKENS;
 
     let names_contract =
         "(define burn-address 'SP000000000000000000002Q6VF78)
@@ -209,8 +201,8 @@ fn test_simple_naming_system() {
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
-           (if (contract-call! tokens token-transfer
-                 burn-address name-price)
+           (if (print (contract-call! tokens token-transfer
+                 burn-address name-price))
                (insert-entry! preorder-map
                  (tuple (name-hash name-hash))
                  (tuple (paid name-price)
@@ -222,13 +214,12 @@ fn test_simple_naming_system() {
                         (name int)
                         (salt int))
            (let ((preorder-entry
-                   (fetch-entry preorder-map
-                                  (tuple (name-hash (hash160 (xor name salt))))))
+                   ;; preorder entry must exist!
+                   (expects (fetch-entry preorder-map
+                                  (tuple (name-hash (hash160 (xor name salt))))) 'false))
                  (name-entry 
                    (fetch-entry name-map (tuple (name name)))))
              (if (and
-                  ;; must be preordered
-                  (not (eq? preorder-entry 'null))
                   ;; name shouldn't *already* exist
                   (eq? name-entry 'null)
                   ;; preorder must have paid enough
@@ -316,27 +307,7 @@ fn test_simple_naming_system() {
 
 #[test]
 fn test_simple_contract_call() {
-    let contract_1 =
-        "(define-map factorials ((id int)) ((current int) (index int)))
-         (define (init-factorial (id int) (factorial int))
-           (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
-         (define-public (compute (id int))
-           (let ((entry (fetch-entry factorials (tuple (id id)))))
-                (if (eq? entry 'null)
-                    'false
-                    (let ((current (get current entry))
-                          (index   (get index entry)))
-                         (if (<= index 1)
-                             'true
-                             (begin
-                               (set-entry! factorials (tuple (id id))
-                                                      (tuple (current (* current index))
-                                                             (index (- index 1))))
-                               'true))))))
-        (begin (init-factorial 1337 3)
-               (init-factorial 8008 5)
-               'null)
-        ";
+    let contract_1 = FACTORIAL_CONTRACT;
     let contract_2 =
         "(define-public (proxy-compute)
             (contract-call! factorial-contract compute 8008))
@@ -364,7 +335,7 @@ fn test_simple_contract_call() {
         env.execute_contract("proxy-compute", "proxy-compute", &args).unwrap();
         assert_eq!(
             env.eval_read_only("factorial-contract",
-                               "(get current (fetch-entry factorials (tuple (id 8008))))").unwrap(),
+                               "(get current (expects (fetch-entry factorials (tuple (id 8008))) 'false))").unwrap(),
             *expected_result);
     }
 }
@@ -387,7 +358,9 @@ fn test_aborts() {
 
 
 (define (get-data (id int))
-  (get value (fetch-entry data (tuple (id id)))))
+  (default-to 0
+    (get value 
+     (fetch-entry data (tuple (id id))))))
 ";
 
     let contract_2 ="
@@ -425,7 +398,7 @@ fn test_aborts() {
     
     assert_eq!(
         env.eval_read_only("contract-1", "(get-data 20)").unwrap(),
-        Value::Void);
+        Value::Int(0));
 
     assert_eq!(
         env.eval_read_only("contract-1", "(get-data 10)").unwrap(),
@@ -443,47 +416,24 @@ fn test_aborts() {
 
     assert_eq!(
         env.eval_read_only("contract-1", "(get-data 105)").unwrap(),
-        Value::Void);
+        Value::Int(0));
 
 
     assert_eq!(
         env.eval_read_only("contract-1", "(get-data 100)").unwrap(),
-        Value::Void);
+        Value::Int(0));
 
     
 }
 
 #[test]
 fn test_factorial_contract() {
-    let contract_defn =
-        "(define-map factorials ((id int)) ((current int) (index int)))
-         (define (init-factorial (id int) (factorial int))
-           (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
-         (define-public (compute (id int))
-           (let ((entry (fetch-entry factorials (tuple (id id)))))
-                (if (eq? entry 'null)
-                    'false
-                    (let ((current (get current entry))
-                          (index   (get index entry)))
-                         (if (<= index 1)
-                             'true
-                             (begin
-                               (set-entry! factorials (tuple (id id))
-                                                      (tuple (current (* current index))
-                                                             (index (- index 1))))
-                               'true))))))
-        (begin (init-factorial 1337 3)
-               (init-factorial 8008 5)
-               'null)
-        ";
-
-
     let mut conn = ContractDatabaseConnection::memory().unwrap();
     let mut owned_env = OwnedEnvironment::new(&mut conn);
 
     let mut env = owned_env.get_exec_environment(None);
 
-    env.initialize_contract("factorial", contract_defn).unwrap();
+    env.initialize_contract("factorial", FACTORIAL_CONTRACT).unwrap();
 
     let tx_name = "compute";
     let arguments_to_test = [symbols_from_values(vec![Value::Int(1337)]),  
@@ -521,7 +471,7 @@ fn test_factorial_contract() {
 
         assert_eq!(*expectation,
                    env.eval_read_only("factorial",
-                                      &format!("(get current (fetch-entry factorials (tuple (id {}))))", arguments[0]))
+                                      &format!("(expects (get current (fetch-entry factorials (tuple (id {})))) 'false)", arguments[0]))
                    .unwrap());
     }
 

@@ -455,6 +455,10 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ContractCall => make_for_special(&CONTRACT_CALL_API),
         AsContract => make_for_special(&AS_CONTRACT_API),
         GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API),
+        ConsOkay => panic!("ConsOkay"),
+        ConsError => panic!("ConsError"),
+        DefaultTo => panic!("DefaultTo"),
+        Expects => panic!("Expects"),
     }
 }
 

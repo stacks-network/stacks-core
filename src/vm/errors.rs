@@ -51,7 +51,8 @@ pub enum ErrType {
     SerializationFailure(IncomparableError<SerdeJSONErr>),
     SqliteError(IncomparableError<SqliteError>),
     ContractMustReturnBoolean,
-    WriteFromReadOnlyContext
+    WriteFromReadOnlyContext,
+    ExpectedValue(Value)
 }
 
 pub type InterpreterResult <R> = Result<R, Error>;
