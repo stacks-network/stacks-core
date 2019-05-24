@@ -76,6 +76,10 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
 pub fn special_set_entry(args: &[SymbolicExpression],
                          env: &mut Environment,
                          context: &LocalContext) -> Result<Value> {
+    if env.global_context.is_read_only() {
+        return Err(Error::new(ErrType::WriteFromReadOnlyContext))
+    }
+
     // arg0 -> map name
     // arg1 -> key
     // arg2 -> value
@@ -95,6 +99,10 @@ pub fn special_set_entry(args: &[SymbolicExpression],
 pub fn special_insert_entry(args: &[SymbolicExpression],
                             env: &mut Environment,
                             context: &LocalContext) -> Result<Value> {
+    if env.global_context.is_read_only() {
+        return Err(Error::new(ErrType::WriteFromReadOnlyContext))
+    }
+
     // arg0 -> map name
     // arg1 -> key
     // arg2 -> value
@@ -114,6 +122,10 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
 pub fn special_delete_entry(args: &[SymbolicExpression],
                             env: &mut Environment,
                             context: &LocalContext) -> Result<Value> {
+    if env.global_context.is_read_only() {
+        return Err(Error::new(ErrType::WriteFromReadOnlyContext))
+    }
+
     // arg0 -> map name
     // arg1 -> key
     if args.len() != 2 {

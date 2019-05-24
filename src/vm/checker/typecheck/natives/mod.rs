@@ -259,8 +259,18 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
         .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
     checker.type_map.set_type(&args[0], no_type())?;
     checker.type_map.set_type(&args[1], no_type())?;
-    
-    let contract_call_function_type = checker.db.get_public_function_type(contract_name, function_name)?;
+
+    let contract_call_function_type = {
+        if let Some(function_type) = checker.db.get_public_function_type(contract_name, function_name)? {
+            Ok(function_type)
+        } else if let Some(function_type) = checker.db.get_read_only_function_type(contract_name, function_name)? {
+            Ok(function_type)
+        } else {
+            Err(CheckError::new(CheckErrors::NoSuchPublicFunction(contract_name.to_string(),
+                                                                  function_name.to_string())))
+        }
+    }?;
+
     let contract_call_args = checker.type_check_all(&args[2..], context)?;
     
     contract_call_function_type.check_args(&contract_call_args)?;

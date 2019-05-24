@@ -122,6 +122,8 @@ fn test_simple_if_functions() {
     //  (with_else 3)
     //  (without_else 3)
 
+    use vm::callables::DefineType::Private;
+
     let evals = parse(&
         "(with_else 5)
          (without_else 3)
@@ -133,11 +135,11 @@ fn test_simple_if_functions() {
     if let Ok(parsed_bodies) = function_bodies {
         let func_args1 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
         let func_args2 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
-        let user_function1 = DefinedFunction::new_private(
-            func_args1, parsed_bodies[0].clone(), &"with_else", &"");
+        let user_function1 = DefinedFunction::new(
+            func_args1, parsed_bodies[0].clone(), Private, &"with_else", &"");
 
-        let user_function2 = DefinedFunction::new_private(
-            func_args2, parsed_bodies[1].clone(), &"without_else", &"");
+        let user_function2 = DefinedFunction::new(
+            func_args2, parsed_bodies[1].clone(), Private, &"without_else", &"");
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(":transient:".to_string());

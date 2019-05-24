@@ -215,7 +215,7 @@ mod test {
     use vm::database::ContractDatabaseConnection;
     use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression, CallStack};
     use vm::types::{TypeSignature, AtomTypeIdentifier};
-    use vm::callables::DefinedFunction;
+    use vm::callables::{DefinedFunction, DefineType};
     use vm::eval;
 
     #[test]
@@ -236,8 +236,8 @@ mod test {
                        SymbolicExpression::atom("x".to_string())]));
 
         let func_args = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
-        let user_function = DefinedFunction::new_private(func_args, func_body,
-                                                         &"do_work", &"");
+        let user_function = DefinedFunction::new(func_args, func_body, DefineType::Private,
+                                                 &"do_work", &"");
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(":transient:".to_string());

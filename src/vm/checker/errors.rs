@@ -65,6 +65,7 @@ pub enum CheckErrors {
     UnknownFunction(String),
 
     NotImplemented,
+    WriteAttemptedInReadOnly,
 }
 
 #[derive(Debug, PartialEq)]

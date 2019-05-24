@@ -64,6 +64,10 @@ following limitations:
    defined in the given smart contract.
 7. Functions specified via `define-public` statements are _public_
    functions. Arguments to these functions must specify their types.
+8. Functions specified via `define-read-only` statements are _public_
+   functions and perform _no_ state mutations. Any attempts to 
+   modify contract state by these functions or functions called by
+   these functions will result in an error.
 
 Public functions return a boolean result. If the function returns
 `true`, then the function call is considered valid, and any changes
@@ -75,6 +79,9 @@ effects from calling `foo.A` materialize--- including effects from
 `bar.B`. If, however, `bar.B` returns false and `foo.A` returns true,
 there may be some database effects which are materialized from
 `foo.A`, but _no_ effects from calling `bar.B` will materialize.
+
+Unlike functions created by `define-public`, which may only return booleans,
+functions created with `define-read-only` may return any type.
 
 ## Inter-Contract Calls
 
