@@ -9,6 +9,14 @@ description = "Reference implementation of Blockstack Core"
 keywords = [ "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
 
+[[bin]]
+name = "blockstack-core"
+path = "src/main.rs"
+
+[[bin]]
+name = "clarity"
+path = "src/clarity_cli.rs"
+
 [features]
 developer-mode = []
 default = ["developer-mode"]
