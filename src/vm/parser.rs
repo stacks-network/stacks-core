@@ -220,7 +220,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, usize)>) -> Result<Vec<SymbolicExpre
                 // end current list.
                 if let Some((value, starting_line)) = parse_stack.pop() {
                     let mut expression = SymbolicExpression::list(value.into_boxed_slice());
-                    expression.line_number = starting_line;
+                    expression.set_line_number(starting_line);
                     match parse_stack.last_mut() {
                         None => {
                             // no open lists on stack, add current to result.
@@ -236,7 +236,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, usize)>) -> Result<Vec<SymbolicExpre
             },
             LexItem::Variable(value) => {
                 let mut expression = SymbolicExpression::atom(value);
-                expression.line_number = line_number;
+                expression.set_line_number(line_number);
 
                 match parse_stack.last_mut() {
                     None => output_list.push(expression),
@@ -245,7 +245,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, usize)>) -> Result<Vec<SymbolicExpre
             },
             LexItem::LiteralValue(value) => {
                 let mut expression = SymbolicExpression::atom_value(value);
-                expression.line_number = line_number;
+                expression.set_line_number(line_number);
 
                 match parse_stack.last_mut() {
                     None => output_list.push(expression),
@@ -276,19 +276,19 @@ mod test {
 
     fn make_atom(x: &str, line: usize) -> SymbolicExpression {
         let mut e = SymbolicExpression::atom(x.to_string());
-        e.line_number = line;
+        e.set_line_number(line);
         e
     }
 
     fn make_atom_value(x: Value, line: usize) -> SymbolicExpression {
         let mut e = SymbolicExpression::atom_value(x);
-        e.line_number = line;
+        e.set_line_number(line);
         e
     }
 
     fn make_list(line: usize, x: Box<[SymbolicExpression]>) -> SymbolicExpression {
         let mut e = SymbolicExpression::list(x);
-        e.line_number = line;
+        e.set_line_number(line);
         e
     }
 
