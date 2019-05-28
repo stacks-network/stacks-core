@@ -77,7 +77,7 @@ fn check_special_error(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 }
 
 fn check_special_default_to(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 1 {
+    if args.len() != 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))        
     }
     
@@ -163,7 +163,9 @@ fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], con
         let atomic_value_type = value_type_sig.match_atomic()
             .ok_or(CheckError::new(CheckErrors::ExpectedTuple((**value_type_sig).clone())))?;
         if let AtomTypeIdentifier::TupleType(tuple_type_sig) = atomic_value_type {
-            inner_handle_tuple_get(tuple_type_sig, field_to_get)
+            let inner_type = inner_handle_tuple_get(tuple_type_sig, field_to_get)?;
+            let option_type = TypeSignature::new_option(inner_type);
+            Ok(option_type)
         } else {
             Err(CheckError::new(CheckErrors::ExpectedTuple((**value_type_sig).clone())))
         }

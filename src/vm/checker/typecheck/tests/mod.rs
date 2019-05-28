@@ -170,12 +170,11 @@ fn test_factorial() {
     use vm::checker::type_check;
     let contract = 
         "(define-map factorials ((id int)) ((current int) (index int)))
-             (define (init-factorial (id int) (factorial int))
-                (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
-             (define-public (compute (id int))
-                (let ((entry (fetch-entry factorials (tuple (id id)))))
-                  (if (eq? entry 'null)
-                    'true
+         (define (init-factorial (id int) (factorial int))
+           (print (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
+         (define-public (compute (id int))
+           (let ((entry (expects (fetch-entry factorials (tuple (id id)))
+                                 'false)))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
@@ -184,10 +183,11 @@ fn test_factorial() {
                                (set-entry! factorials (tuple (id id))
                                                       (tuple (current (* current index))
                                                              (index (- index 1))))
-                               'true))))))
-             (begin (init-factorial 1337 3)
-                (init-factorial 8008 5)
-                'null)";
+                               'true)))))
+        (begin (init-factorial 1337 3)
+               (init-factorial 8008 5)
+               'null)
+        ";
 
     let mut contract = parse(contract).unwrap();
     let mut analysis_conn = AnalysisDatabaseConnection::memory();
