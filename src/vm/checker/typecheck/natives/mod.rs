@@ -135,6 +135,13 @@ fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], c
     Ok(last_return)
 }
 
+fn inner_handle_tuple_get(tuple_type_sig: &TupleTypeSignature, field_to_get: &str) -> TypeResult {
+    let return_type = tuple_type_sig.field_type(field_to_get)
+        .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.to_string())))?
+        .clone();
+    Ok(return_type)
+}
+
 fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
@@ -151,10 +158,15 @@ fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], con
         .ok_or(CheckError::new(CheckErrors::ExpectedTuple(argument_type.clone())))?;
     
     if let AtomTypeIdentifier::TupleType(tuple_type_sig) = atomic_type {
-        let return_type = tuple_type_sig.field_type(field_to_get)
-            .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.clone())))?
-            .clone();
-        Ok(return_type)
+        inner_handle_tuple_get(tuple_type_sig, field_to_get)
+    } else if let AtomTypeIdentifier::OptionalType(value_type_sig) = atomic_type {
+        let atomic_value_type = value_type_sig.match_atomic()
+            .ok_or(CheckError::new(CheckErrors::ExpectedTuple((**value_type_sig).clone())))?;
+        if let AtomTypeIdentifier::TupleType(tuple_type_sig) = atomic_value_type {
+            inner_handle_tuple_get(tuple_type_sig, field_to_get)
+        } else {
+            Err(CheckError::new(CheckErrors::ExpectedTuple((**value_type_sig).clone())))
+        }
     } else {
         Err(CheckError::new(CheckErrors::ExpectedTuple(argument_type.clone())))
     }

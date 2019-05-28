@@ -582,6 +582,12 @@ impl TypeSignature {
                         list_dimensions: None }
     }
 
+    pub fn new_option(inner_type: TypeSignature) -> TypeSignature {
+        TypeSignature::new_atom(
+            AtomTypeIdentifier::OptionalType(
+                Box::new(inner_type)))
+    }
+
     pub fn most_admissive(a: TypeSignature, b: TypeSignature) -> Option<TypeSignature> {
         if a.admits_type(&b) {
             Some(a)

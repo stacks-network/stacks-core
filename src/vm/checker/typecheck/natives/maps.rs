@@ -43,11 +43,13 @@ pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[Sym
     let key_type = checker.type_check(&args[2], context)?;
     
     let (expected_key_type, value_type) = checker.db.get_map_type(contract_name, map_name)?;
+
+    let option_type = TypeSignature::new_option(value_type);
     
     if !expected_key_type.admits_type(&key_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
     } else {
-        return Ok(value_type)
+        return Ok(option_type)
     }
 }
 
