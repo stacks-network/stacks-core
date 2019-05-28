@@ -14,7 +14,7 @@ name = "blockstack-core"
 path = "src/main.rs"
 
 [[bin]]
-name = "clarity"
+name = "clarity-cli"
 path = "src/clarity_cli.rs"
 
 [features]
