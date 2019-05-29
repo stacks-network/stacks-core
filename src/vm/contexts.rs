@@ -287,13 +287,13 @@ impl <'a> GlobalContext <'a> {
 
     pub fn handle_tx_result(mut self, result: Result<Value>) -> Result<Value> {
         if let Ok(result) = result {
-            if let Value::Bool(bool_result) = result {
-                if bool_result {
+            if let Value::Response(data) = result {
+                if data.committed {
                     self.commit();
                 } else {
                     self.database.roll_back();
                 }
-                Ok(result)
+                Ok(Value::Response(data))
             } else {
                 Err(Error::new(ErrType::ContractMustReturnBoolean))
             }

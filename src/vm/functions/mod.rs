@@ -65,7 +65,8 @@ define_enum!(NativeFunctions {
     ConsOkay,
     ConsError,
     DefaultTo,
-    Expects
+    Expects,
+    IsOkay
 });
 
 impl NativeFunctions {
@@ -111,6 +112,7 @@ impl NativeFunctions {
             "ok" => Some(ConsOkay),
             "default-to" => Some(DefaultTo),
             "expects" => Some(Expects),
+            "is-ok?" => Some(IsOkay),
             _ => None
         }
     }
@@ -157,8 +159,9 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             GetBlockInfo => CallableType::SpecialFunction("native_get_block_info", &database::special_get_block_info),
             ConsOkay => CallableType::NativeFunction("native_okay", &native_okay),
             ConsError => CallableType::NativeFunction("native_error", &native_error),
-            DefaultTo => CallableType::NativeFunction("default_to", &default_to),
-            Expects => CallableType::NativeFunction("expects", &native_expects),
+            DefaultTo => CallableType::NativeFunction("native_default_to", &default_to),
+            Expects => CallableType::NativeFunction("native_expects", &native_expects),
+            IsOkay => CallableType::NativeFunction("native_is_okay", &native_is_okay),
         };
         Some(callable)
     } else {
@@ -182,6 +185,19 @@ fn native_expects(args: &[Value]) -> Result<Value> {
             }
         },
         _ => Err(Error::new(ErrType::TypeError("OptionalType".to_string(), input.clone())))
+    }
+}
+
+fn native_is_okay(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to is-ok? (expects 1)".to_string())))
+    }
+
+    let input = &args[0];
+
+    match input {
+        Value::Response(data) => Ok(Value::Bool(data.committed)),
+        _ => Err(Error::new(ErrType::TypeError("ResponseType".to_string(), input.clone())))
     }
 }
 

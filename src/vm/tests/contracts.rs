@@ -1,6 +1,6 @@
 use vm::execute;
 use vm::errors::{Error, ErrType};
-use vm::types::{Value, PrincipalData};
+use vm::types::{Value, PrincipalData, ResponseData};
 use vm::contexts::{OwnedEnvironment,GlobalContext};
 use vm::database::{ContractDatabaseConnection};
 use vm::representations::SymbolicExpression;
@@ -16,16 +16,16 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current in
            (print (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
            (let ((entry (expects (fetch-entry factorials (tuple (id id)))
-                                 'false)))
+                                 (err 'false))))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
-                             'true
+                             (ok 'true)
                              (begin
                                (set-entry! factorials (tuple (id id))
                                                       (tuple (current (* current index))
                                                              (index (- index 1))))
-                               'true)))))
+                               (ok 'false))))))
         (begin (init-factorial 1337 3)
                (init-factorial 8008 5)
                'null)
@@ -38,16 +38,16 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
              (delete-entry! tokens (tuple (account account))))
          (define (token-credit! (account principal) (tokens int))
             (if (<= tokens 0)
-                'false
+                (err \"must be positive\")
                 (let ((current-amount (get-balance account)))
                   (begin
                     (set-entry! tokens (tuple (account account))
                                        (tuple (balance (+ tokens current-amount))))
-                    'true))))
+                    (ok 0)))))
          (define-public (token-transfer (to principal) (amount int))
           (let ((balance (get-balance tx-sender)))
              (if (or (> amount balance) (<= amount 0))
-                 'false
+                 (err \"not enough balance\")
                  (begin
                    (set-entry! tokens (tuple (account tx-sender))
                                       (tuple (balance (- balance amount))))
@@ -58,7 +58,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
          (define-public (mint-after (block-to-release int))
            (if (>= block-height block-to-release)
                (faucet)
-               'false))
+               (err \"must be in the future\")))
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 200)
                 (token-credit! 'CTtokens 4)
@@ -110,6 +110,13 @@ fn test_get_block_info_eval(){
     }
 }
 
+fn is_committed(v: &Value) -> bool {
+    match v {
+        Value::Response(ref data) => data.committed,
+        _ => false
+    }
+}
+
 #[test]
 fn test_simple_token_system() {
     let tokens_contract = SIMPLE_TOKENS;
@@ -125,23 +132,21 @@ fn test_simple_token_system() {
     env.initialize_contract("tokens", tokens_contract).unwrap();
 
     env.sender = Some(p2.clone());
-    assert_eq!(
-        env.execute_contract("tokens", "token-transfer",
-                             &symbols_from_values(vec![p1.clone(), Value::Int(210)])).unwrap(),
-        Value::Bool(false));
+    assert!(!is_committed(&env.execute_contract("tokens", "token-transfer",
+                                               &symbols_from_values(vec![p1.clone(), Value::Int(210)])).unwrap()));
+
     env.sender = Some(p1.clone());
-    assert_eq!(
+    assert!(is_committed(&
         env.execute_contract("tokens", "token-transfer",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(9000)])).unwrap(),
-        Value::Bool(true));
-    assert_eq!(
+                             &symbols_from_values(vec![p2.clone(), Value::Int(9000)])).unwrap()));
+
+    assert!(!is_committed(&
         env.execute_contract("tokens", "token-transfer",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap(),
-        Value::Bool(false));
-    assert_eq!( // send to self!
+                             &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap()));
+    assert!(is_committed(& // send to self!
         env.execute_contract("tokens", "token-transfer",
-                             &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap(),
-        Value::Bool(true));
+                             &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap()));
+
     assert_eq!(
         env.eval_read_only("tokens",
                            "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
@@ -150,29 +155,29 @@ fn test_simple_token_system() {
         env.eval_read_only("tokens",
                            "(get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
         Value::Int(9200));
-    assert_eq!(
-        env.execute_contract("tokens", "faucet", &vec![]).unwrap(),
-        Value::Bool(true));
-    assert_eq!(
-        env.execute_contract("tokens", "faucet", &vec![]).unwrap(),
-        Value::Bool(true));
-    assert_eq!(
-        env.execute_contract("tokens", "faucet", &vec![]).unwrap(),
-        Value::Bool(true));
+    assert!(is_committed(&
+        env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
+
+    assert!(is_committed(&
+        env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
+
+    assert!(is_committed(&
+        env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
+
     assert_eq!(
         env.eval_read_only("tokens",
                            "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
         Value::Int(1003));
-    assert_eq!(
-        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap(),
-        Value::Bool(false));
+    assert!(!is_committed(&
+        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap()));
+
     env.global_context.database.sim_mine_blocks(10);
-    assert_eq!(
-        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap(),
-        Value::Bool(true));
-    assert_eq!(
-        env.execute_contract("tokens", "faucet", &vec![]).unwrap(),
-        Value::Bool(false));
+    assert!(is_committed(&
+        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap()));
+
+    assert!(!is_committed(&
+        env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
+
     assert_eq!(
         env.eval_read_only("tokens",
                            "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
@@ -201,13 +206,15 @@ fn test_simple_naming_system() {
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
-           (if (print (contract-call! tokens token-transfer
-                 burn-address name-price))
-               (insert-entry! preorder-map
-                 (tuple (name-hash name-hash))
-                 (tuple (paid name-price)
-                        (buyer tx-sender)))
-               'false))
+           (if (print (is-ok? (contract-call! tokens token-transfer
+                 burn-address name-price)))
+               (if
+                 (insert-entry! preorder-map
+                   (tuple (name-hash name-hash))
+                   (tuple (paid name-price)
+                          (buyer tx-sender)))
+                 (ok 0) (err 2))
+               (err 1)))
 
          (define-public (register 
                         (recipient-principal principal)
@@ -216,11 +223,13 @@ fn test_simple_naming_system() {
            (let ((preorder-entry
                    ;; preorder entry must exist!
                    (expects (fetch-entry preorder-map
-                                  (tuple (name-hash (hash160 (xor name salt))))) 'false))
+                                  (tuple (name-hash (hash160 (xor name salt))))) (err 2)))
                  (name-entry 
                    (fetch-entry name-map (tuple (name name)))))
              (if (and
                   ;; name shouldn't *already* exist
+                  ;; aaron: this check actually won't even work! but the insert-entry was kicking the failure out
+                  ;;              anyways...
                   (eq? name-entry 'null)
                   ;; preorder must have paid enough
                   (<= (price-function name) 
@@ -228,13 +237,15 @@ fn test_simple_naming_system() {
                   ;; preorder must have been the current principal
                   (eq? tx-sender
                        (get buyer preorder-entry)))
-                  (and
+                  (if (and
                     (insert-entry! name-map
                       (tuple (name name))
                       (tuple (owner recipient-principal)))
                     (delete-entry! preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
-                  'false)))";
+                    (ok 0)
+                    (err 3))
+                  (err 4))))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").unwrap();
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
@@ -253,55 +264,47 @@ fn test_simple_naming_system() {
 
     env.sender = Some(p2.clone());
 
-    assert_eq!(
+    assert!(!is_committed(&
         env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
-        Value::Bool(false));
+                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap()));
 
     env.sender = Some(p1.clone());
-    assert_eq!(
+    assert!(is_committed(&
         env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
-        Value::Bool(true));
-    assert_eq!(
+                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap()));
+    assert!(!is_committed(&
         env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(),
-        Value::Bool(false));
+                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap()));
 
     // shouldn't be able to register a name you didn't preorder!
     env.sender = Some(p2.clone());
-    assert_eq!(
+    assert!(!is_committed(&
         env.execute_contract("names", "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(),
-        Value::Bool(false));
+                             &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap()));
+
     // should work!
     env.sender = Some(p1.clone());
-    assert_eq!(
+    assert!(is_committed(&
         env.execute_contract("names", "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(),
-        Value::Bool(true));
+                             &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap()));
 
 
     // try to underpay!
     env.sender = Some(p2.clone());
-    assert_eq!(
+    assert!(is_committed(&
         env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap(),
-        Value::Bool(true));
-    assert_eq!(
+                             &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap()));
+    assert!(!is_committed(&
         env.execute_contract("names", "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap(),
-        Value::Bool(false));
+                             &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap()));
 
     // register a cheap name!
-    assert_eq!(
+    assert!(is_committed(&
         env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::Int(100)])).unwrap(),
-        Value::Bool(true));
-    assert_eq!(
+                             &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::Int(100)])).unwrap()));
+    assert!(is_committed(&
         env.execute_contract("names", "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap(),
-        Value::Bool(true));
+                             &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap()));
 }
 
 
@@ -354,7 +357,9 @@ fn test_aborts() {
    (begin
      (set-entry! data (tuple (id id))
                       (tuple (value value)))
-     (eq? id value)))
+     (if (eq? id value)
+         (ok 1)
+         (err 1))))
 
 
 (define (get-data (id int))
@@ -367,12 +372,12 @@ fn test_aborts() {
 (define-public (fail-in-other)
   (begin
     (contract-call! contract-1 modify-data 100 101)
-    'true))
+    (ok 1)))
 
 (define-public (fail-in-self)
   (begin
     (contract-call! contract-1 modify-data 105 105)
-    'false))
+    (err 1)))
 ";
 
     let mut conn = ContractDatabaseConnection::memory().unwrap();
@@ -389,12 +394,12 @@ fn test_aborts() {
     assert_eq!(
         env.execute_contract("contract-1", "modify-data",
                              &symbols_from_values(vec![Value::Int(10), Value::Int(10)])).unwrap(),
-        Value::Bool(true));
+        Value::Response(ResponseData{ committed: true, data: Box::new(Value::Int(1)) }));
 
     assert_eq!(
         env.execute_contract("contract-1", "modify-data",
                              &symbols_from_values(vec![Value::Int(20), Value::Int(10)])).unwrap(),
-        Value::Bool(false));
+        Value::Response(ResponseData{ committed: false, data: Box::new(Value::Int(1)) }));
     
     assert_eq!(
         env.eval_read_only("contract-1", "(get-data 20)").unwrap(),
@@ -407,12 +412,12 @@ fn test_aborts() {
     assert_eq!(
         env.execute_contract("contract-2", "fail-in-other",
                              &symbols_from_values(vec![])).unwrap(),
-        Value::Bool(true));
+        Value::Response(ResponseData{ committed: true, data: Box::new(Value::Int(1)) }));
 
     assert_eq!(
         env.execute_contract("contract-2", "fail-in-self",
                              &symbols_from_values(vec![])).unwrap(),
-        Value::Bool(false));
+        Value::Response(ResponseData{ committed: false, data: Box::new(Value::Int(1)) }));
 
     assert_eq!(
         env.eval_read_only("contract-1", "(get-data 105)").unwrap(),

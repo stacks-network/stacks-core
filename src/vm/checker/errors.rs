@@ -15,6 +15,7 @@ pub enum CheckErrors {
     // simple type expectation mismatch
     TypeError(TypeSignature, TypeSignature),
     ExpectedOptionalType,
+    ExpectedResponseType,
 
     // Checker runtime failures
     TypeAlreadyAnnotatedFailure,

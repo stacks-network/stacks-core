@@ -459,6 +459,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ConsError => panic!("ConsError"),
         DefaultTo => panic!("DefaultTo"),
         Expects => panic!("Expects"),
+        IsOkay => panic!("IsOkay"),
     }
 }
 

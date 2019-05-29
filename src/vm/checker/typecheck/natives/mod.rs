@@ -76,6 +76,20 @@ fn check_special_error(checker: &mut TypeChecker, args: &[SymbolicExpression], c
     Ok(resp_type)
 }
 
+fn check_special_is_okay(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() != 1 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))
+    }
+    
+    let input = checker.type_check(&args[0], context)?;
+
+    if let Some(AtomTypeIdentifier::ResponseType(_types)) = input.match_atomic() {
+        return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
+    } else {
+        return Err(CheckError::new(CheckErrors::ExpectedResponseType))
+    }
+}
+
 fn check_special_default_to(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))        
@@ -427,7 +441,8 @@ impl TypedNativeFunction {
             ConsOkay => Special(SpecialNativeFunction(&check_special_okay)),
             ConsError => Special(SpecialNativeFunction(&check_special_error)),
             DefaultTo => Special(SpecialNativeFunction(&check_special_default_to)),
-            Expects => Special(SpecialNativeFunction(&check_special_expects))
+            Expects => Special(SpecialNativeFunction(&check_special_expects)),
+            IsOkay => Special(SpecialNativeFunction(&check_special_is_okay))
         }
     }
 }
