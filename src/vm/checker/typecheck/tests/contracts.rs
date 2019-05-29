@@ -185,3 +185,45 @@ fn test_bad_map_usage() {
         });
     }
 }
+
+
+#[test]
+fn test_expects() {
+    use vm::checker::type_check;
+    let okay = 
+        "(define-map tokens ((id int)) ((balance int)))
+         (define (get-balance)
+            (let ((balance (expects 
+                              (get balance (fetch-entry tokens (tuple (id 0)))) 
+                              0)))
+              (+ 0 balance)))
+         (define (get-balance-2)
+            (let ((balance 
+                    (get balance (expects (fetch-entry tokens (tuple (id 0))) 0)) 
+                              ))
+              (+ 0 balance)))
+          (+ (get-balance) (get-balance-2))";
+
+    let unmatched_return_types = 
+        "(define-map tokens ((id int)) ((balance int)))
+         (define (get-balance)
+            (let ((balance (expects 
+                              (get balance (fetch-entry tokens (tuple (id 0)))) 
+                              'false)))
+              (+ 0 balance)))";
+
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
+
+    let mut okay = parse(okay).unwrap();
+    let result = type_check(&":transient:", &mut okay, &mut db, false).unwrap();
+
+    let mut unmatched_return_types = parse(unmatched_return_types).unwrap();
+    let err = type_check(&":transient:", &mut unmatched_return_types, &mut db, false)
+        .expect_err("Expected a type error.");
+    eprintln!("unmatched_return_types returned check error: {}", err);
+    assert!(match &err.err {
+        &CheckErrors::ReturnTypesMustMatch => true,
+        _ => false
+    })
+}
