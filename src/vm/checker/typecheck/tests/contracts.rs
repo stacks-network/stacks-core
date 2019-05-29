@@ -11,16 +11,16 @@ const SIMPLE_TOKENS: &str =
 
          (define (token-credit! (account principal) (tokens int))
             (if (<= tokens 0)
-                'false
+                (err 1)
                 (let ((current-amount (get-balance account)))
                   (begin
                     (set-entry! tokens (tuple (account account))
                                        (tuple (balance (+ tokens current-amount))))
-                    'true))))
+                    (ok 0)))))
          (define-public (token-transfer (to principal) (amount int))
           (let ((balance (get-balance tx-sender)))
              (if (or (> amount balance) (<= amount 0))
-                 'false
+                 (err 2)
                  (begin
                    (set-entry! tokens (tuple (account tx-sender))
                                       (tuple (balance (- balance amount))))
@@ -44,13 +44,15 @@ const SIMPLE_NAMES: &str =
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
-           (if (print (contract-call! tokens token-transfer
-                 burn-address name-price))
-               (insert-entry! preorder-map
-                 (tuple (name-hash name-hash))
-                 (tuple (paid name-price)
-                        (buyer tx-sender)))
-               'false))
+           (if (print (is-ok? (contract-call! tokens token-transfer
+                 burn-address name-price)))
+               (if
+                 (insert-entry! preorder-map
+                   (tuple (name-hash name-hash))
+                   (tuple (paid name-price)
+                          (buyer tx-sender)))
+                 (ok 0) (err 2))
+               (err 1)))
 
          (define-public (register 
                         (recipient-principal principal)
@@ -59,11 +61,13 @@ const SIMPLE_NAMES: &str =
            (let ((preorder-entry
                    ;; preorder entry must exist!
                    (expects (fetch-entry preorder-map
-                                  (tuple (name-hash (hash160 (xor name salt))))) 'false))
+                                  (tuple (name-hash (hash160 (xor name salt))))) (err 2)))
                  (name-entry 
                    (fetch-entry name-map (tuple (name name)))))
              (if (and
                   ;; name shouldn't *already* exist
+                  ;; aaron: this check actually won't even work! but the insert-entry was kicking the failure out
+                  ;;              anyways...
                   (eq? name-entry 'null)
                   ;; preorder must have paid enough
                   (<= (price-function name) 
@@ -71,13 +75,15 @@ const SIMPLE_NAMES: &str =
                   ;; preorder must have been the current principal
                   (eq? tx-sender
                        (get buyer preorder-entry)))
-                  (and
+                  (if (and
                     (insert-entry! name-map
                       (tuple (name name))
                       (tuple (owner recipient-principal)))
                     (delete-entry! preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
-                  'false)))";
+                    (ok 0)
+                    (err 3))
+                  (err 4))))";
 
 #[test]
 fn test_names_tokens_contracts() {
@@ -97,13 +103,13 @@ fn test_names_tokens_contracts_bad() {
     use vm::checker::type_check;
     let broken_public = "
          (define-public (broken-cross-contract (name-hash (buff 20)) (name-price int))
-           (if (contract-call! tokens token-transfer
-                 burn-address 'true)
-               (insert-entry! preorder-map
+           (if (is-ok? (contract-call! tokens token-transfer
+                 burn-address 'true))
+               (begin (insert-entry! preorder-map
                  (tuple (name-hash name-hash))
                  (tuple (paid name-price)
-                        (buyer tx-sender)))
-               'false))";
+                        (buyer tx-sender))) (ok 1))
+               (err 1)))";
 
     let names_contract =
         format!("{}
@@ -123,6 +129,7 @@ fn test_names_tokens_contracts_bad() {
     let err = type_check(&"names", &mut names_contract, &mut db, true).expect_err("Expected type error.");
     assert!(match &err.err {
             &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
+                eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
                 format!("{} {}", expected_type, actual_type) == "int bool"
             },
             _ => false

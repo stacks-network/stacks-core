@@ -309,32 +309,19 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
 }
 
 fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 2 && args.len() != 3 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+    if args.len() != 3 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
     }
     
-    checker.type_check_all(args, context)?;
+    let arg_types = checker.type_check_all(args, context)?;
 
-    check_atomic_type(AtomTypeIdentifier::BoolType, checker.type_map.get_type(&args[0])?)?;
+    check_atomic_type(AtomTypeIdentifier::BoolType, &arg_types[0])?;
     
-    let return_type = {
-        if args.len() == 2 {
-            checker.type_map.get_type(&args[1])?
-                .clone()
-            } else {
-            let expr1 = checker.type_map.get_type(&args[1])?;
-            let expr2 = checker.type_map.get_type(&args[2])?;
-            if expr1.admits_type(expr2) {
-                expr1.clone()
-            } else if expr2.admits_type(expr1) {
-                expr2.clone()
-            } else {
-                return Err(CheckError::new(CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone())));
-            }
-        }
-    };
-    
-    Ok(return_type)
+    let expr1 = &arg_types[1];
+    let expr2 = &arg_types[2];
+
+    TypeSignature::most_admissive(expr1.clone(), expr2.clone())
+        .ok_or(CheckError::new(CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone())))
 }
 
 fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {

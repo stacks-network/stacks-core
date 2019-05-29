@@ -419,12 +419,14 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                         "define-public" => {
                             let (f_name, f_type) = self.type_check_define_function(expression,
                                                                                    context)?;
-                            if !TypeSignature::new_atom(AtomTypeIdentifier::BoolType).admits_type(
-                                &f_type.return_type()) {
-                                Err(CheckError::new(CheckErrors::PublicFunctionMustReturnBool))
-                            } else {
+                            let return_type = f_type.return_type();
+                            let return_type = return_type.match_atomic()
+                                .ok_or(CheckError::new(CheckErrors::PublicFunctionMustReturnBool))?;
+                            if let AtomTypeIdentifier::ResponseType(_) = return_type {
                                 self.contract_context.add_public_function_type(f_name, f_type)?;
                                 Ok(Some(()))
+                            } else {
+                                Err(CheckError::new(CheckErrors::PublicFunctionMustReturnBool))
                             }
                         },
                         "define-read-only" => {

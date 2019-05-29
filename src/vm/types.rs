@@ -432,9 +432,6 @@ impl AtomTypeIdentifier {
             AtomTypeIdentifier::AnyType => {
                 true
             },
-            AtomTypeIdentifier::NoType => {
-                false
-            },
             AtomTypeIdentifier::BufferType(ref my_len) => {
                 if let AtomTypeIdentifier::BufferType(ref other_len) = other {
                     my_len >= other_len
@@ -588,7 +585,55 @@ impl TypeSignature {
                 Box::new(inner_type)))
     }
 
+    fn make_union_response_type(response_type_a: &(TypeSignature, TypeSignature),
+                                response_type_b: &(TypeSignature, TypeSignature)) -> Option<TypeSignature> {
+
+        // if a has any "no type" fields, then just use b's types for that field
+        let (a_type_okay, a_type_err) = {
+            let okay_type = match response_type_a.0.match_atomic() {
+                Some(AtomTypeIdentifier::NoType) => response_type_b.0.clone(),
+                _ => response_type_a.0.clone()
+            };
+            let err_type = match response_type_a.1.match_atomic() {
+                Some(AtomTypeIdentifier::NoType) => response_type_b.1.clone(),
+                _ => response_type_a.1.clone()
+            };
+            (okay_type, err_type)
+        };
+
+        // and vice-versa
+        let (b_type_okay, b_type_err) = {
+            let okay_type = match response_type_b.0.match_atomic() {
+                Some(AtomTypeIdentifier::NoType) => response_type_a.0.clone(),
+                _ => response_type_b.0.clone()
+            };
+            let err_type = match response_type_b.1.match_atomic() {
+                Some(AtomTypeIdentifier::NoType) => response_type_a.1.clone(),
+                _ => response_type_b.1.clone()
+            };
+            (okay_type, err_type)
+        };
+
+
+        let okay_type = TypeSignature::most_admissive(a_type_okay, b_type_okay);
+        let error_type = TypeSignature::most_admissive(a_type_err, b_type_err);
+        if let (Some(okay_type), Some(error_type)) = (okay_type, error_type) {
+            Some(TypeSignature::new_atom(
+                AtomTypeIdentifier::ResponseType(
+                    Box::new((okay_type, error_type)))))
+        } else {
+            None
+        }
+    }
+
     pub fn most_admissive(a: TypeSignature, b: TypeSignature) -> Option<TypeSignature> {
+        // if response type, we may need to return the union of a and b.
+        if let (Some(AtomTypeIdentifier::ResponseType(ref response_type_a)),
+                Some(AtomTypeIdentifier::ResponseType(ref response_type_b))) =
+            (a.match_atomic(), b.match_atomic()) {
+                return TypeSignature::make_union_response_type(response_type_a, response_type_b)
+            }
+
         if a.admits_type(&b) {
             Some(a)
         } else if b.admits_type(&a) {

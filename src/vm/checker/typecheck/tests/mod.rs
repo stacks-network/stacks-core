@@ -56,7 +56,7 @@ fn test_simple_arithmetic_checks() {
 #[test]
 fn test_simple_ifs() {
     let good = ["(if (> 1 2) (+ 1 2 3) (- 1 2))",
-                "(if 'true 'true)",
+                "(if 'true 'true 'false)",
                 "(if 'true \"abcdef\" \"abc\")",
                 "(if 'true \"a\" \"abcdef\")" ];
     let bad = ["(if 'true 'true 1)",
@@ -168,22 +168,21 @@ fn test_define() {
 #[test]
 fn test_factorial() {
     use vm::checker::type_check;
-    let contract = 
-        "(define-map factorials ((id int)) ((current int) (index int)))
+    let contract = "(define-map factorials ((id int)) ((current int) (index int)))
          (define (init-factorial (id int) (factorial int))
            (print (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
            (let ((entry (expects (fetch-entry factorials (tuple (id id)))
-                                 'false)))
+                                 (err 'false))))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
-                             'true
+                             (ok 'true)
                              (begin
                                (set-entry! factorials (tuple (id id))
                                                       (tuple (current (* current index))
                                                              (index (- index 1))))
-                               'true)))))
+                               (ok 'false))))))
         (begin (init-factorial 1337 3)
                (init-factorial 8008 5)
                'null)
