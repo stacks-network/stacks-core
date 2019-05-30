@@ -4,6 +4,7 @@ use vm::checker::typecheck::natives::SimpleNativeFunction;
 
 #[derive(Serialize, Deserialize)]
 struct FunctionAPI {
+    name: String,
     input_type: String,
     output_type: String,
     signature: String,
@@ -12,12 +13,14 @@ struct FunctionAPI {
 }
 
 struct SimpleFunctionAPI {
+    name: &'static str,
     signature: &'static str,
     description: &'static str,
     example: &'static str,
 }
 
 struct SpecialAPI {
+    name: &'static str,
     output_type: &'static str,
     input_type: &'static str,
     signature: &'static str,
@@ -26,12 +29,14 @@ struct SpecialAPI {
 }
 
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "+",
     signature: "(+ i1 i2...)",
     description: "Adds a variable number of integer inputs and returns the result. In the event of an _overflow_, throws a runtime error.",
     example: "(+ 1 2 3) => 6"
 };
 
 const SUB_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "-",
     signature: "(- i1 i2...)",
     description: "Subtracts a variable number of integer inputs and returns the result. In the event of an _underflow_, throws a runtime error.",
     example: "(- 2 1 1) => 0
@@ -40,6 +45,7 @@ const SUB_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const DIV_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "/",
     signature: "(/ i1 i2...)",
     description: "Integer divides a variable number of integer inputs and returns the result. In the event of division by zero, throws a runtime error.",
     example: "(/ 2 3) => 0
@@ -49,6 +55,7 @@ const DIV_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const MUL_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "*",
     signature: "(* i1 i2...)",
     description: "Multiplies a variable number of integer inputs and returns the result. In the event of an _overflow_, throws a runtime error.",
     example: "(* 2 3) => 6
@@ -58,6 +65,7 @@ const MUL_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const MOD_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "mod",
     signature: "(mod i1 i2)",
     description: "Returns the integer remainder from integer dividing i1 by i2. In the event of a division by zero, throws a runtime error.",
     example: "(mod 2 3) => 0
@@ -67,6 +75,7 @@ const MOD_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const POW_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "pow",
     signature: "(pow i1 i2)",
     description: "Returns the result of raising i1 to the power of i2. In the event of an _overflow_, throws a runtime error.",
     example: "(pow 2 3) => 8
@@ -76,6 +85,7 @@ const POW_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "xor",
     signature: "(xor i1 i2)",
     description: "Returns the result of bitwise exclusive or'ing i1 with i2.",
     example: "(xor 1 2) => 3
@@ -84,6 +94,7 @@ const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "and",
     signature: "(and b1 b2 ...)",
     description: "Returns true if all boolean inputs are true. Importantly, the supplied arguments are evaluated in-order and lazily, such that if one of the arguments returns false, no subsequent arguments are evaluated.",
     example: "(and 'true 'false) => false
@@ -93,6 +104,7 @@ const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "or",
     signature: "(or b1 b2 ...)",
     description: "Returns true if any boolean inputs are true. Importantly, the supplied arguments are evaluated in-order and lazily, such that if one of the arguments returns true, no subsequent arguments are evaluated.",
     example: "(or 'true 'false) => true
@@ -103,6 +115,7 @@ const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "not",
     signature: "(not b1)",
     description: "Returns the inverse of the boolean input.",
     example: "(not 'true) => false
@@ -111,6 +124,7 @@ const NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: ">=",
     signature: "(>= i1 i2)",
     description: "Compares two integers, returning true if i1 is greater than or equal to i2 and false otherwise.",
     example: "(>= 1 1) => true
@@ -119,6 +133,7 @@ const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: ">",
     signature: "(> i1 i2)",
     description: "Compares two integers, returning true if i1 is less than or equal to i2 and false otherwise.",
     example: "(<= 1 1) => true
@@ -127,6 +142,7 @@ const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const EQUALS_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "eq?",
     signature: "(eq? v1 v2...)",
     description: "Compares the inputted values, returning true if they are all equal. Note that _unlike_ the `(and ...)` function, `(eq? ...)` will _not_ short-circuit.",
     example: "(eq? 1 1) => true
@@ -136,6 +152,7 @@ const EQUALS_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: ">",
     signature: "(> i1 i2)",
     description: "Compares two integers, returning true if i1 is greater than i2 and false otherwise.",
     example: "(> 1 2) => false
@@ -144,6 +161,7 @@ const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const LESS_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: "<",
     signature: "(< i1 i2)",
     description: "Compares two integers, returning true if i1 is less than i2 and false otherwise.",
     example: "(< 1 2) => true
@@ -178,6 +196,7 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions) -
     };
 
     FunctionAPI {
+        name: api.name.to_string(),
         input_type: input_type,
         output_type: output_type,
         signature: api.signature.to_string(),
@@ -187,6 +206,7 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions) -
 }
 
 const IF_API: SpecialAPI = SpecialAPI {
+    name: "if",
     input_type: "bool, A, A",
     output_type: "A",
     signature: "(if bool1 expr1 expr2)",
@@ -198,7 +218,8 @@ which must return the same type. In the case that the boolean input is `true`, t
 (if (> 1 2) 1 2) => 2"
 };
 
-const LET_API: SpecialAPI = SpecialAPI {
+const LET_API: SpecialAPI = SpecialAPI { 
+    name: "let",
     input_type: "((name2 AnyType) (name2 AnyType) ...), A",
     output_type: "A",
     signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body)",
@@ -209,6 +230,7 @@ created by this set of bindings is used for evaluating and return the value of `
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
+    name: "map",
     input_type: "Function(A) -> B, (list A)",
     output_type: "(list B)",
     signature: "(map func list)",
@@ -218,6 +240,7 @@ input list, and outputs a list containing the _outputs_ from those function appl
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
+    name: "fold",
     input_type: "Function(A, B) -> B, (list A)",
     output_type: "B",
     signature: "(fold func list initial-value)",
@@ -230,6 +253,7 @@ value return by the successive applications.",
 };
 
 const LIST_API: SpecialAPI = SpecialAPI {
+    name: "list",
     input_type: "A, ...",
     output_type: "(list A)",
     signature: "(list expr1 expr2 expr3 ...)",
@@ -239,6 +263,7 @@ supplied value must be of the same type.",
 };
 
 const BEGIN_API: SpecialAPI = SpecialAPI {
+    name: "begin",
     input_type: "AnyType, ... A",
     output_type: "A",
     signature: "(begin expr1 expr2 expr3 ... expr-last)",
@@ -248,6 +273,7 @@ return value of the last such expression.",
 };
 
 const PRINT_API: SpecialAPI = SpecialAPI {
+    name: "print",
     input_type: "A",
     output_type: "A",
     signature: "(print expr)",
@@ -258,6 +284,7 @@ cause blockstack-core to print the resulting value to STDOUT.",
 };
 
 const FETCH_API: SpecialAPI = SpecialAPI {
+    name: "fetch",
     input_type: "MapName, Tuple",
     output_type: "Tuple|Void",
     signature: "(fetch-entry map-name key-tuple)",
@@ -268,6 +295,7 @@ map, the function returns Void.",
 };
 
 const SET_API: SpecialAPI = SpecialAPI {
+    name: "set",
     input_type: "MapName, TupleA, TupleB",
     output_type: "Void",
     signature: "(set-entry! map-name key-tuple value-tuple)",
@@ -278,6 +306,7 @@ with the key, the function overwrites that existing association.",
 };
 
 const INSERT_API: SpecialAPI = SpecialAPI {
+    name: "insert",
     input_type: "MapName, TupleA, TupleB",
     output_type: "bool",
     signature: "(insert-entry! map-name key-tuple value-tuple)",
@@ -291,6 +320,7 @@ this key in the data map, the function returns `false`.",
 };
 
 const DELETE_API: SpecialAPI = SpecialAPI {
+    name: "delete",
     input_type: "MapName, Tuple",
     output_type: "bool",
     signature: "(delete-entry! map-name key-tuple)",
@@ -303,6 +333,7 @@ If a value did not exist for this key in the data map, the function returns `fal
 };
 
 const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
+    name: "fetch",
     input_type: "ContractName, MapName, Tuple",
     output_type: "Tuple|Void",
     signature: "(fetch-contract-entry contract-name map-name key-tuple)",
@@ -313,6 +344,7 @@ If there is no value associated with that key in the data map, the function retu
 };
 
 const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
+    name: "tuple",
     input_type: "(list (KeyName AnyType))",
     output_type: "Tuple",
     signature: "(tuple ((key0 expr0) (key1 expr1) ...))",
@@ -324,6 +356,7 @@ associated with the expressions' paired key name.",
 };
 
 const TUPLE_GET_API: SpecialAPI = SpecialAPI {
+    name: "get",
     input_type: "KeyName, Tuple|Void",
     output_type: "AnyType",
     signature: "(get key-name tuple)",
@@ -335,6 +368,7 @@ If a Void value is supplied as the inputted tuple, `get` returns Void.",
 };
 
 const HASH160_API: SpecialAPI = SpecialAPI {
+    name: "hash160",
     input_type: "buff|int",
     output_type: "(buff 20)",
     signature: "(hash160 value)",
@@ -345,6 +379,7 @@ integer.",
 };
 
 const SHA256_API: SpecialAPI = SpecialAPI {
+    name: "sha256",
     input_type: "buff|int",
     output_type: "(buff 32)",
     signature: "(sha256 value)",
@@ -355,6 +390,7 @@ integer.",
 };
 
 const KECCAK256_API: SpecialAPI = SpecialAPI {
+    name: "keccak256",
     input_type: "buff|int",
     output_type: "(buff 32)",
     signature: "(keccak256 value)",
@@ -365,6 +401,7 @@ is supplied the hash is computer over the little endian representation of the in
 };
 
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
+    name: "contract-call",
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     output_type: "BoolType",
     signature: "(contract-call! contract-name function-name arg0 arg1 ...)",
@@ -376,6 +413,7 @@ If the function returns _true_, database changes have occurred.",
 };
 
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
+    name: "as-contract",
     input_type: "A",
     output_type: "A",
     signature: "(as-contract expr)",
@@ -385,6 +423,7 @@ principal, and executes `expr` with that context. It returns the resulting value
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
+    name: "get-block-info",
     input_type: "BlockInfoPropertyName, BlockHeightInt",
     output_type: "buff|int",
     signature: "(get-block-info prop-name block-height-expr)",
@@ -408,6 +447,7 @@ The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 3
 
 fn make_for_special(api: &SpecialAPI) -> FunctionAPI {
     FunctionAPI {
+        name: api.name.to_string(),
         input_type: api.input_type.to_string(),
         output_type: api.output_type.to_string(),
         signature: api.signature.to_string(),
