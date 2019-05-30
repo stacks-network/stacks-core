@@ -110,7 +110,8 @@ fn main() {
         let program: String = fs::read_to_string(&argv[2])
             .expect(&format!("Error reading file: {}", argv[2]));
         match vm::execute(&program) {
-            Ok(result) => println!("{}", result),
+            Ok(Some(result)) => println!("{}", result),
+            Ok(None) => println!(""),
             Err(error) => { 
                 panic!("Program Execution Error: \n{}", error);
             }

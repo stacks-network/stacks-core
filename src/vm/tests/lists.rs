@@ -13,20 +13,20 @@ fn test_simple_map() {
         Value::Int(1),
         Value::Int(4),
         Value::Int(9),
-        Value::Int(16)]);
+        Value::Int(16)]).unwrap();
 
-    assert_eq!(expected, execute(test1));
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
 
     // let's test lists of lists.
     let test2 = "(define (multiply (x int) (acc int)) (* x acc))
                  (define (multiply-all (x (list 10 int))) (fold multiply x 1))
                  (map multiply-all (list (list 1 1 1) (list 2 2 1) (list 3 3) (list 2 2 2 2)))";
-    assert_eq!(expected, execute(test2));
+    assert_eq!(expected, execute(test2).unwrap().unwrap());
 
     // let's test empty lists.
     let test2 = "(define (double (x int)) (* x 2))
                  (map double (list))";
-    assert_eq!(Value::list_from(vec![]), execute(test2));
+    assert_eq!(Value::list_from(vec![]).unwrap(), execute(test2).unwrap().unwrap());
 
 }
 
@@ -55,9 +55,9 @@ fn test_list_tuple_admission() {
                (tuple (value \"02\")))";
 
     
-    let result_type = TypeSignature::type_of(&execute(test).unwrap());
-    let expected_type = TypeSignature::type_of(&execute(expected_type).unwrap());
-    let testing_value = &execute(not_expected_type).unwrap();
+    let result_type = TypeSignature::type_of(&execute(test).unwrap().unwrap());
+    let expected_type = TypeSignature::type_of(&execute(expected_type).unwrap().unwrap());
+    let testing_value = &execute(not_expected_type).unwrap().unwrap();
     let not_expected_type = TypeSignature::type_of(testing_value);
 
     assert_eq!(expected_type, result_type);
@@ -73,7 +73,7 @@ fn test_simple_folds() {
 
     let expected = Value::Int(24);
 
-    assert_eq!(Ok(expected), execute(test1));
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 
 #[test]

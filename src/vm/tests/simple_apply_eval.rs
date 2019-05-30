@@ -1,4 +1,4 @@
-use vm::{eval, execute};
+use vm::{eval, execute as vm_execute};
 use vm::database::ContractDatabaseConnection;
 use vm::errors::{ErrType};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
@@ -7,6 +7,10 @@ use vm::callables::DefinedFunction;
 use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData};
 use vm::parser::parse;
 use util::hash::hex_bytes;
+
+fn execute(s: &str) -> Value {
+    vm_execute(s).unwrap().unwrap()
+}
 
 #[test]
 fn test_simple_let() {
@@ -56,7 +60,7 @@ fn test_sha256() {
     ];
 
     sha256_evals.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(Ok(to_buffer(expectation)), execute(program)));
+        .for_each(|(program, expectation)| assert_eq!(to_buffer(expectation), execute(program)));
 }
 
 #[test]
@@ -78,7 +82,7 @@ fn test_keccak256() {
     ];
 
     keccak256_evals.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(Ok(to_buffer(expectation)), execute(program)));
+        .for_each(|(program, expectation)| assert_eq!(to_buffer(expectation), execute(program)));
 }
 
 #[test]
@@ -95,7 +99,7 @@ fn test_buffer_equality() {
         Value::Bool(true)];
 
     tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), execute(program)));
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
 #[test]
@@ -109,7 +113,7 @@ fn test_principal_equality() {
         Value::Bool(true)];
 
     tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), execute(program)));
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
 #[test]
@@ -205,7 +209,7 @@ fn test_simple_arithmetic_functions() {
     ];
 
     tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), execute(program)));
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
 #[test]
@@ -244,7 +248,7 @@ fn test_arithmetic_errors() {
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, execute(program).unwrap_err().err_type);
+        assert_eq!(*expectation, vm_execute(program).unwrap_err().err_type);
     }
 }
 
@@ -269,7 +273,7 @@ fn test_bool_functions() {
         Value::Bool(false)];
 
     tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(Ok(expectation.clone()), execute(program)));
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
 }
 
 #[test]
@@ -285,5 +289,5 @@ fn test_bad_lets() {
         ErrType::VariableDefinedMultipleTimes("a".to_string())];
 
     tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(*expectation, execute(program).unwrap_err().err_type));
+        .for_each(|(program, expectation)| assert_eq!(*expectation, vm_execute(program).unwrap_err().err_type));
 }

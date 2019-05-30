@@ -26,8 +26,7 @@ const SIMPLE_TOKENS: &str =
                                       (tuple (balance (- balance amount))))
                    (token-credit! to amount)))))                     
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
-                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 300)
-                'null)";
+                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 300))";
 
 
 const SIMPLE_NAMES: &str =
@@ -68,7 +67,7 @@ const SIMPLE_NAMES: &str =
                   ;; name shouldn't *already* exist
                   ;; aaron: this check actually won't even work! but the insert-entry was kicking the failure out
                   ;;              anyways...
-                  (eq? name-entry 'null)
+                  ;; (eq? name-entry 'null)
                   ;; preorder must have paid enough
                   (<= (price-function name) 
                       (get paid preorder-entry))
@@ -144,7 +143,7 @@ fn test_bad_map_usage() {
          (define (get-balance (account int))
             (let ((balance
                   (get balance (fetch-entry tokens (tuple (account account))))))
-              (if (eq? balance 'null) 0 balance)))";
+              balance))";
     let bad_delete = 
         "(define-map tokens ((account principal)) ((balance int)))
          (define (del-balance (account principal))

@@ -17,7 +17,7 @@ impl Contract {
         let parsed: Vec<_> = parser::parse(contract)?;
         let mut contract_context = ContractContext::new(name.to_string());
 
-        let result = eval_all(&parsed, &mut contract_context, global_context)?;
+        eval_all(&parsed, &mut contract_context, global_context)?;
 
         Ok(Contract { contract_context: contract_context })
     }

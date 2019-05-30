@@ -3,6 +3,10 @@ use vm::types::{Value};
 
 use vm::execute;
 
+fn assert_executes(expected: Result<Value, Error>, input: &str) {
+    assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
+}
+
 #[test]
 fn test_simple_tea_shop() {
     let test1 =
@@ -49,7 +53,7 @@ fn test_simple_tea_shop() {
         Value::Bool(false)],
     );
 
-    assert_eq!(expected, execute(test1));
+    assert_executes(expected, test1);
 }
 
 #[test]
@@ -98,7 +102,7 @@ fn test_factorial_contract() {
         Value::Int(120),
     ]);
         
-    assert_eq!(expected, execute(test1));
+    assert_executes(expected, test1);
 }
 
 #[test]
@@ -140,7 +144,8 @@ fn silly_naming_system() {
         Value::Int(0),
         Value::Int(-1),
     ]);
-    assert_eq!(expected, execute(test1));
+
+    assert_executes(expected, test1);
 }
 
 #[test]
@@ -224,7 +229,7 @@ fn lists_system() {
         Value::list_from(vec![list1, list2])
     };
     
-    assert_eq!(expected(), execute(test1));
+    assert_executes(expected(), test1);
 
     for test in [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2,
                  test_bad_tuple_3, test_bad_tuple_4].iter() {
@@ -277,7 +282,7 @@ fn tuples_system() {
         Value::list_from(vec![buff1, buff2])
     };
 
-    assert_eq!(expected(), execute(test1));
+    assert_executes(expected(), test1);
 
     for test in [test_list_too_big, test_bad_tuple_1].iter() {
         let expected_type_error = match execute(test) {
@@ -331,7 +336,6 @@ fn bad_define_maps() {
 #[test]
 fn bad_tuples() {
     let tests = ["(tuple (name 1) (name 3))",
-                 "(tuple (name 'null))",
                  "(tuple name 1)",
                  "(tuple (name 1) (blame))",
                  "(get value (tuple (name 1)))",

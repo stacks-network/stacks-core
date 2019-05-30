@@ -248,12 +248,6 @@ fn native_eq(args: &[Value]) -> Result<Value> {
         let first = &args[0];
         // Using `fold` rather than `all` to prevent short-circuiting. 
         let result = args.iter()
-            .map(|x| {
-                match x {
-                    Value::Void => Value::static_none(),
-                    _ => x
-                }
-            })
             .fold(true, |acc, x| acc && (*x == *first));
         Ok(Value::Bool(result))
     }
@@ -310,7 +304,7 @@ fn native_keccak256(args: &[Value]) -> Result<Value> {
 fn native_begin(args: &[Value]) -> Result<Value> {
     match args.last() {
         Some(v) => Ok(v.clone()),
-        None => Ok(Value::Void)
+        None => Err(Error::new(ErrType::InvalidArguments("Must pass at least 1 expression to (begin ...)".to_string())))
     }
 }
 

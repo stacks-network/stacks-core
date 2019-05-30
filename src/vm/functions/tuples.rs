@@ -37,7 +37,6 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
     let value = eval(&args[1], env, context)?;
 
     match value {
-        Value::Void => Ok(Value::Void),
         Value::Optional(ref opt_data) => {
             match opt_data.data {
                 Some(ref data) => {

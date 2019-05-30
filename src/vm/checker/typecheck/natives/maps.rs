@@ -98,7 +98,7 @@ pub fn check_special_set_entry(checker: &mut TypeChecker, args: &[SymbolicExpres
     } else if !expected_value_type.admits_type(&value_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
     } else {
-        return Ok(TypeSignature::new_atom(AtomTypeIdentifier::VoidType))
+        return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
     }
 }
 

@@ -11,12 +11,12 @@ fn test_defines() {
          (define (f (a int) (b int)) (+ x y a b))
          (f 3 1)";
 
-    assert_eq!(Ok(Value::Int(29)), execute(&tests));
+    assert_eq!(Ok(Some(Value::Int(29))), execute(&tests));
 
     let tests =
         "1";
 
-    assert_eq!(Ok(Value::Int(1)), execute(&tests));
+    assert_eq!(Ok(Some(Value::Int(1))), execute(&tests));
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn test_define_read_only() {
     let test3 =
         "(define-read-only (silly) (set-entry! map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
 
-    assert_eq!(Ok(Value::Int(1)), execute(&test0));
+    assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
     assert_eq!(ErrType::WriteFromReadOnlyContext, execute(&test1).unwrap_err().err_type);
     assert_eq!(ErrType::WriteFromReadOnlyContext, execute(&test2).unwrap_err().err_type);
     assert_eq!(ErrType::WriteFromReadOnlyContext, execute(&test3).unwrap_err().err_type);
@@ -64,20 +64,20 @@ fn test_define_read_only() {
 fn test_stack_depth() {
     let mut function_defines = Vec::new();
     function_defines.push("(define (foo-0 (x int)) (+ 1 x))".to_string());
-    for i in 1..257 {
+    for i in 1..129 {
         function_defines.push(
             format!("(define (foo-{} (x int)) (foo-{} (+ 1 x)))",
                     i, i-1));
     }
     function_defines.push(
-        format!("(foo-254 1)"));
+        format!("(foo-126 1)"));
 
     let test0 = function_defines.join("\n");
     function_defines.push(
-        format!("(foo-255 2)"));
+        format!("(foo-127 2)"));
     let test1 = function_defines.join("\n");
 
-    assert_eq!(Ok(Value::Int(256)), execute(&test0));
+    assert_eq!(Ok(Some(Value::Int(128))), execute(&test0));
     assert_eq!(ErrType::MaxStackDepthReached, execute(&test1).unwrap_err().err_type);
 }
 
@@ -110,8 +110,9 @@ fn test_bad_variables() {
     assert_eq!(expected, execute(&test2).unwrap_err().err_type);
 
     let test4 = "()";
-    let expected = Ok(Value::Void);
-    assert_eq!(expected, execute(&test4));
+    let expected = ErrType::InvalidArguments(
+        "List expressions (...) are function applications, and must be supplied with function names to apply.".to_string());
+    assert_eq!(expected, execute(&test4).unwrap_err().err_type);
 }
 
 #[test]

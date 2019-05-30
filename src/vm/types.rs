@@ -18,7 +18,6 @@ pub struct TupleTypeSignature {
 pub enum AtomTypeIdentifier {
     AnyType,
     NoType,
-    VoidType,
     IntType,
     BoolType,
     BufferType(u32),
@@ -78,7 +77,6 @@ pub struct ResponseData {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Value {
-    Void,
     Int(i128),
     Bool(bool),
     Buffer(BuffData),
@@ -260,7 +258,6 @@ impl Value {
 
     pub fn size(&self) -> Result<i128> {
         match self {
-            Value::Void => AtomTypeIdentifier::VoidType.size(),
             Value::Int(_i) => AtomTypeIdentifier::IntType.size(),
             Value::Bool(_i) => AtomTypeIdentifier::BoolType.size(),
             Value::Principal(_) => AtomTypeIdentifier::PrincipalType.size(),
@@ -280,7 +277,6 @@ impl fmt::Display for AtomTypeIdentifier {
         match self {
             AnyType => write!(f, "AnyType"),
             NoType => write!(f, "NoType"),
-            VoidType => write!(f, "void"),
             IntType => write!(f, "int"),
             BoolType => write!(f, "bool"),
             PrincipalType => write!(f, "principal"),
@@ -333,7 +329,6 @@ impl fmt::Display for ResponseData {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Value::Void => write!(f, "null"),
             Value::Int(int) => write!(f, "{}", int),
             Value::Bool(boolean) => write!(f, "{}", boolean),
             Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes.data)),
@@ -376,7 +371,6 @@ impl AtomTypeIdentifier {
             //   in type checking native functions.
             AtomTypeIdentifier::AnyType => Err(Error::new(ErrType::BadTypeConstruction)),
             AtomTypeIdentifier::NoType => Err(Error::new(ErrType::BadTypeConstruction)),
-            AtomTypeIdentifier::VoidType => Ok(1),
             AtomTypeIdentifier::IntType => Ok(16),
             AtomTypeIdentifier::BoolType => Ok(1),
             AtomTypeIdentifier::PrincipalType => Ok(21),
@@ -531,9 +525,6 @@ impl TupleData {
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {
             let type_info = TypeSignature::type_of(&value);
-            if type_info.atomic_type == AtomTypeIdentifier::VoidType {
-                return Err(Error::new(ErrType::InvalidArguments("Cannot use VoidTypes in tuples.".to_string())))
-            }
             if let Some(_v) = type_map.insert(name.to_string(), type_info) {
                 return Err(Error::new(ErrType::InvalidArguments("Cannot use named argument twice in tuple construction.".to_string())))
             }
@@ -746,7 +737,6 @@ impl TypeSignature {
             list_data.type_signature.clone()
         } else {
             let atom = match x {
-                Value::Void => AtomTypeIdentifier::VoidType,
                 Value::Principal(_) => AtomTypeIdentifier::PrincipalType,
                 Value::Int(_v) => AtomTypeIdentifier::IntType,
                 Value::Bool(_v) => AtomTypeIdentifier::BoolType,
@@ -886,7 +876,6 @@ impl TypeSignature {
     fn parse_atom_type(typename: &str) -> Result<AtomTypeIdentifier> {
         match typename {
             "int" => Ok(AtomTypeIdentifier::IntType),
-            "void" => Ok(AtomTypeIdentifier::VoidType),
             "bool" => Ok(AtomTypeIdentifier::BoolType),
             "principal" => Ok(AtomTypeIdentifier::PrincipalType),
             _ => Err(Error::new(ErrType::ParseError(format!("Unknown type name: '{:?}'", typename))))

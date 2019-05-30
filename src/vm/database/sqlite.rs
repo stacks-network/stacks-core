@@ -272,7 +272,7 @@ impl <'a> ContractDatabase <'a> {
             "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
             &params);
 
-        return Ok(Value::Void)
+        return Ok(Value::Bool(true))
     }
 
     pub fn insert_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {

@@ -184,8 +184,7 @@ fn test_factorial() {
                                                              (index (- index 1))))
                                (ok 'false))))))
         (begin (init-factorial 1337 3)
-               (init-factorial 8008 5)
-               'null)
+               (init-factorial 8008 5))
         ";
 
     let mut contract = parse(contract).unwrap();

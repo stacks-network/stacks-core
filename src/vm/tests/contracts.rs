@@ -1,4 +1,4 @@
-use vm::execute;
+use vm::execute as vm_execute;
 use vm::errors::{Error, ErrType};
 use vm::types::{Value, PrincipalData, ResponseData};
 use vm::contexts::{OwnedEnvironment,GlobalContext};
@@ -6,6 +6,10 @@ use vm::database::{ContractDatabaseConnection};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
+
+fn execute(s: &str) -> Value {
+    vm_execute(s).unwrap().unwrap()
+}
 
 fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
     vec.drain(..).map(|value| SymbolicExpression::atom_value(value)).collect()
@@ -27,9 +31,7 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current in
                                                              (index (- index 1))))
                                (ok 'false))))))
         (begin (init-factorial 1337 3)
-               (init-factorial 8008 5)
-               'null)
-        ";
+               (init-factorial 8008 5))";
 
 const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (get-balance (account principal))
@@ -61,8 +63,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
                (err \"must be in the future\")))
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 200)
-                (token-credit! 'CTtokens 4)
-                'null)";
+                (token-credit! 'CTtokens 4))";
 
 #[test]
 fn test_get_block_info_eval(){
@@ -121,8 +122,8 @@ fn is_committed(v: &Value) -> bool {
 fn test_simple_token_system() {
     let tokens_contract = SIMPLE_TOKENS;
 
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").unwrap();
-    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
     let mut conn = ContractDatabaseConnection::memory().unwrap();
     let mut owned_env = OwnedEnvironment::new(&mut conn);
@@ -230,7 +231,7 @@ fn test_simple_naming_system() {
                   ;; name shouldn't *already* exist
                   ;; aaron: this check actually won't even work! but the insert-entry was kicking the failure out
                   ;;              anyways...
-                  (eq? name-entry 'null)
+                  ;; (eq? name-entry 'null)
                   ;; preorder must have paid enough
                   (<= (price-function name) 
                       (get paid preorder-entry))
@@ -247,12 +248,12 @@ fn test_simple_naming_system() {
                     (err 3))
                   (err 4))))";
 
-    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR").unwrap();
-    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+    let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
-    let name_hash_expensive_0 = execute("(hash160 1)").unwrap();
-    let name_hash_expensive_1 = execute("(hash160 2)").unwrap();
-    let name_hash_cheap_0 = execute("(hash160 100001)").unwrap();
+    let name_hash_expensive_0 = execute("(hash160 1)");
+    let name_hash_expensive_1 = execute("(hash160 2)");
+    let name_hash_cheap_0 = execute("(hash160 100001)");
 
     let mut conn = ContractDatabaseConnection::memory().unwrap();
     let mut owned_env = OwnedEnvironment::new(&mut conn);
@@ -494,7 +495,7 @@ fn test_factorial_contract() {
     }
 
     let err_result = env.execute_contract("factorial", "compute",
-                                          &symbols_from_values(vec![Value::Void]));
+                                          &symbols_from_values(vec![Value::Bool(true)]));
     match err_result {
         Err(Error{
             err_type: ErrType::TypeError(_, _),
