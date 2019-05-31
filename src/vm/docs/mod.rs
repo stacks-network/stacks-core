@@ -284,7 +284,7 @@ cause blockstack-core to print the resulting value to STDOUT.",
 };
 
 const FETCH_API: SpecialAPI = SpecialAPI {
-    name: "fetch",
+    name: "fetch-entry",
     input_type: "MapName, Tuple",
     output_type: "Tuple|Void",
     signature: "(fetch-entry map-name key-tuple)",
@@ -295,7 +295,7 @@ map, the function returns Void.",
 };
 
 const SET_API: SpecialAPI = SpecialAPI {
-    name: "set",
+    name: "set-entry",
     input_type: "MapName, TupleA, TupleB",
     output_type: "Void",
     signature: "(set-entry! map-name key-tuple value-tuple)",
@@ -306,7 +306,7 @@ with the key, the function overwrites that existing association.",
 };
 
 const INSERT_API: SpecialAPI = SpecialAPI {
-    name: "insert",
+    name: "insert-entry",
     input_type: "MapName, TupleA, TupleB",
     output_type: "bool",
     signature: "(insert-entry! map-name key-tuple value-tuple)",
@@ -320,7 +320,7 @@ this key in the data map, the function returns `false`.",
 };
 
 const DELETE_API: SpecialAPI = SpecialAPI {
-    name: "delete",
+    name: "delete-entry",
     input_type: "MapName, Tuple",
     output_type: "bool",
     signature: "(delete-entry! map-name key-tuple)",
@@ -333,7 +333,7 @@ If a value did not exist for this key in the data map, the function returns `fal
 };
 
 const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
-    name: "fetch",
+    name: "fetch-contract-entry",
     input_type: "ContractName, MapName, Tuple",
     output_type: "Tuple|Void",
     signature: "(fetch-contract-entry contract-name map-name key-tuple)",
