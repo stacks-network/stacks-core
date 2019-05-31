@@ -460,6 +460,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         DefaultTo => panic!("DefaultTo"),
         Expects => panic!("Expects"),
         IsOkay => panic!("IsOkay"),
+        IsNone => panic!("IsNone"),
     }
 }
 

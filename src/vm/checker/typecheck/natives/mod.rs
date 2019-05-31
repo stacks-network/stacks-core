@@ -6,6 +6,7 @@ use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check
 use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 
 mod maps;
+mod options;
 
 pub enum TypedNativeFunction {
     Special(SpecialNativeFunction),
@@ -52,80 +53,6 @@ fn check_special_print(checker: &mut TypeChecker, args: &[SymbolicExpression], c
     }
     
     checker.type_check(&args[0], context)
-}
-
-fn check_special_okay(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 1 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
-    }
-    
-    let inner_type = checker.type_check(&args[0], context)?;
-    let resp_type = TypeSignature::new_atom(
-        AtomTypeIdentifier::ResponseType(Box::new((inner_type.clone(), no_type()))));
-    Ok(resp_type)
-}
-
-fn check_special_error(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 1 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
-    }
-    
-    let inner_type = checker.type_check(&args[0], context)?;
-    let resp_type = TypeSignature::new_atom(
-        AtomTypeIdentifier::ResponseType(Box::new((no_type(), inner_type.clone()))));
-    Ok(resp_type)
-}
-
-fn check_special_is_okay(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 1 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))
-    }
-    
-    let input = checker.type_check(&args[0], context)?;
-
-    if let Some(AtomTypeIdentifier::ResponseType(_types)) = input.match_atomic() {
-        return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
-    } else {
-        return Err(CheckError::new(CheckErrors::ExpectedResponseType))
-    }
-}
-
-fn check_special_default_to(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))        
-    }
-    
-    let default = checker.type_check(&args[0], context)?;
-    let input = checker.type_check(&args[1], context)?;
-
-    if let Some(AtomTypeIdentifier::OptionalType(input_type)) = input.match_atomic() {
-        if input_type.admits_type(&default) {
-            return Ok((**input_type).clone())
-        } else if default.admits_type(&input_type) {
-            return Ok(default)
-        } else {
-            return Err(CheckError::new(CheckErrors::DefaultTypesMustMatch((**input_type).clone(), default)))
-        }
-    } else {
-        return Err(CheckError::new(CheckErrors::ExpectedOptionalType))
-    }
-}
-
-fn check_special_expects(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))        
-    }
-    
-    let input = checker.type_check(&args[0], context)?;
-    let on_error = checker.type_check(&args[1], context)?;
-
-    checker.track_return_type(on_error)?;
-
-    if let Some(AtomTypeIdentifier::OptionalType(input_type)) = input.match_atomic() {
-        return Ok((**input_type).clone())
-    } else {
-        return Err(CheckError::new(CheckErrors::ExpectedOptionalType))
-    }
 }
 
 fn check_special_as_contract(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -425,11 +352,12 @@ impl TypedNativeFunction {
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
             ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
-            ConsOkay => Special(SpecialNativeFunction(&check_special_okay)),
-            ConsError => Special(SpecialNativeFunction(&check_special_error)),
-            DefaultTo => Special(SpecialNativeFunction(&check_special_default_to)),
-            Expects => Special(SpecialNativeFunction(&check_special_expects)),
-            IsOkay => Special(SpecialNativeFunction(&check_special_is_okay))
+            ConsOkay => Special(SpecialNativeFunction(&options::check_special_okay)),
+            ConsError => Special(SpecialNativeFunction(&options::check_special_error)),
+            DefaultTo => Special(SpecialNativeFunction(&options::check_special_default_to)),
+            Expects => Special(SpecialNativeFunction(&options::check_special_expects)),
+            IsOkay => Special(SpecialNativeFunction(&options::check_special_is_okay)),
+            IsNone => Special(SpecialNativeFunction(&options::check_special_is_none))
         }
     }
 }

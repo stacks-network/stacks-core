@@ -4,6 +4,7 @@ mod arithmetic;
 mod boolean;
 mod database;
 mod tuples;
+mod options;
 
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::{Value, PrincipalData, ResponseData};
@@ -66,7 +67,8 @@ define_enum!(NativeFunctions {
     ConsError,
     DefaultTo,
     Expects,
-    IsOkay
+    IsOkay,
+    IsNone
 });
 
 impl NativeFunctions {
@@ -113,6 +115,7 @@ impl NativeFunctions {
             "default-to" => Some(DefaultTo),
             "expects" => Some(Expects),
             "is-ok?" => Some(IsOkay),
+            "is-none?" => Some(IsNone),
             _ => None
         }
     }
@@ -157,84 +160,16 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ContractCall => CallableType::SpecialFunction("native_contract-call", &database::special_contract_call),
             AsContract => CallableType::SpecialFunction("native_as-contract", &special_as_contract),
             GetBlockInfo => CallableType::SpecialFunction("native_get_block_info", &database::special_get_block_info),
-            ConsOkay => CallableType::NativeFunction("native_okay", &native_okay),
-            ConsError => CallableType::NativeFunction("native_error", &native_error),
-            DefaultTo => CallableType::NativeFunction("native_default_to", &default_to),
-            Expects => CallableType::NativeFunction("native_expects", &native_expects),
-            IsOkay => CallableType::NativeFunction("native_is_okay", &native_is_okay),
+            ConsOkay => CallableType::NativeFunction("native_okay", &options::native_okay),
+            ConsError => CallableType::NativeFunction("native_error", &options::native_error),
+            DefaultTo => CallableType::NativeFunction("native_default_to", &options::native_default_to),
+            Expects => CallableType::NativeFunction("native_expects", &options::native_expects),
+            IsOkay => CallableType::NativeFunction("native_is_okay", &options::native_is_okay),
+            IsNone => CallableType::NativeFunction("native_is_none", &options::native_is_none),
         };
         Some(callable)
     } else {
         None
-    }
-}
-
-fn native_expects(args: &[Value]) -> Result<Value> {
-    if args.len() != 2 {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to expects (expects input-value thrown-value)".to_string())))
-    }
-
-    let input = &args[0];
-    let thrown = &args[1];
-
-    match input {
-        Value::Optional(data) => {
-            match data.data {
-                Some(ref data) => Ok((**data).clone()),
-                None => Err(Error::new(ErrType::ExpectedValue(thrown.clone())))
-            }
-        },
-        _ => Err(Error::new(ErrType::TypeError("OptionalType".to_string(), input.clone())))
-    }
-}
-
-fn native_is_okay(args: &[Value]) -> Result<Value> {
-    if args.len() != 1 {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to is-ok? (expects 1)".to_string())))
-    }
-
-    let input = &args[0];
-
-    match input {
-        Value::Response(data) => Ok(Value::Bool(data.committed)),
-        _ => Err(Error::new(ErrType::TypeError("ResponseType".to_string(), input.clone())))
-    }
-}
-
-fn native_okay(args: &[Value]) -> Result<Value> {
-    if args.len() != 1 {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to ok (expects 1)".to_string())))
-    }
-
-    let input = &args[0];
-    Ok(Value::Response(ResponseData { committed: true, data: Box::new(input.clone()) }))
-}
-
-fn native_error(args: &[Value]) -> Result<Value> {
-    if args.len() != 1 {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to err (expects 1)".to_string())))
-    }
-
-    let input = &args[0];
-    Ok(Value::Response(ResponseData { committed: false, data: Box::new(input.clone()) }))
-}
-
-fn default_to(args: &[Value]) -> Result<Value> {
-    if args.len() != 2 {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to default-to (expects 2)".to_string())))
-    }
-
-    let default = &args[0];
-    let input = &args[1];
-
-    match input {
-        Value::Optional(data) => {
-            match data.data {
-                Some(ref data) => Ok((**data).clone()),
-                None => Ok(default.clone())
-            }
-        },
-        _ => Err(Error::new(ErrType::TypeError("OptionalType".to_string(), input.clone())))
     }
 }
 
