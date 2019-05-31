@@ -14,14 +14,14 @@ fn test_simple_tea_shop() {
          (define (stock (tea int) (amount int))
            (set-entry! proper-tea (tuple (tea-type tea)) (tuple (amount amount))))
          (define (consume (tea int))
-           (let ((current (expects 
-                            (get amount (fetch-entry proper-tea (tuple (tea-type tea)))) 'false)))
+           (let ((current (expects! 
+                            (get amount (fetch-entry proper-tea (tuple (tea-type tea)))) 3)))
               (if (and (>= current 1))
                   (begin
                     (set-entry! proper-tea (tuple (tea-type tea))
                                            (tuple (amount (- current 1))))
-                    'true)
-                  'false)))
+                    1)
+                  2)))
         (stock 1 3)
         (stock 2 5)
         (list (consume 1)
@@ -39,18 +39,18 @@ fn test_simple_tea_shop() {
         ";
 
     let expected = Value::list_from(vec![
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(false),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(false),
-        Value::Bool(false),
-        Value::Bool(false)],
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(2),
+        Value::Int(3)],
     );
 
     assert_executes(expected, test1);
@@ -63,7 +63,7 @@ fn test_factorial_contract() {
          (define (init-factorial (id int) (factorial int))
            (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
          (define (compute (id int))
-           (let ((entry (expects (fetch-entry factorials (tuple (id id))) 0)))
+           (let ((entry (expects! (fetch-entry factorials (tuple (id id))) 0)))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)

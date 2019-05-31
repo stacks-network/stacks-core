@@ -113,7 +113,7 @@ impl NativeFunctions {
             "err" => Some(ConsError),
             "ok" => Some(ConsOkay),
             "default-to" => Some(DefaultTo),
-            "expects" => Some(Expects),
+            "expects!" => Some(Expects),
             "is-ok?" => Some(IsOkay),
             "is-none?" => Some(IsNone),
             _ => None

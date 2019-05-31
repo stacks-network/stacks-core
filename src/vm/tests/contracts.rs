@@ -19,7 +19,7 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current in
          (define (init-factorial (id int) (factorial int))
            (print (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
-           (let ((entry (expects (fetch-entry factorials (tuple (id id)))
+           (let ((entry (expects! (fetch-entry factorials (tuple (id id)))
                                  (err 'false))))
                     (let ((current (get current entry))
                           (index   (get index entry)))
@@ -223,15 +223,12 @@ fn test_simple_naming_system() {
                         (salt int))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (expects (fetch-entry preorder-map
+                   (expects! (fetch-entry preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 2)))
                  (name-entry 
                    (fetch-entry name-map (tuple (name name)))))
              (if (and
-                  ;; name shouldn't *already* exist
-                  ;; aaron: this check actually won't even work! but the insert-entry was kicking the failure out
-                  ;;              anyways...
-                  ;; (eq? name-entry 'null)
+                  (is-none? name-entry)
                   ;; preorder must have paid enough
                   (<= (price-function name) 
                       (get paid preorder-entry))
@@ -339,7 +336,7 @@ fn test_simple_contract_call() {
         env.execute_contract("proxy-compute", "proxy-compute", &args).unwrap();
         assert_eq!(
             env.eval_read_only("factorial-contract",
-                               "(get current (expects (fetch-entry factorials (tuple (id 8008))) 'false))").unwrap(),
+                               "(get current (expects! (fetch-entry factorials (tuple (id 8008))) 'false))").unwrap(),
             *expected_result);
     }
 }
@@ -477,7 +474,7 @@ fn test_factorial_contract() {
 
         assert_eq!(*expectation,
                    env.eval_read_only("factorial",
-                                      &format!("(expects (get current (fetch-entry factorials (tuple (id {})))) 'false)", arguments[0]))
+                                      &format!("(expects! (get current (fetch-entry factorials (tuple (id {})))) 'false)", arguments[0]))
                    .unwrap());
     }
 

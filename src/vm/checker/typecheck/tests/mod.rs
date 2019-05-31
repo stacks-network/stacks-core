@@ -172,7 +172,7 @@ fn test_factorial() {
          (define (init-factorial (id int) (factorial int))
            (print (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
-           (let ((entry (expects (fetch-entry factorials (tuple (id id)))
+           (let ((entry (expects! (fetch-entry factorials (tuple (id id)))
                                  (err 'false))))
                     (let ((current (get current entry))
                           (index   (get index entry)))

@@ -312,7 +312,7 @@ impl fmt::Display for OptionalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.data {
             Some(ref x) => write!(f, "(some {})", x),
-            None => write!(f, "'null")
+            None => write!(f, "(none)")
         }
     }
 }

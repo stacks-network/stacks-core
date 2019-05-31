@@ -59,15 +59,13 @@ const SIMPLE_NAMES: &str =
                         (salt int))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (expects (fetch-entry preorder-map
+                   (expects! (fetch-entry preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 2)))
                  (name-entry 
                    (fetch-entry name-map (tuple (name name)))))
              (if (and
                   ;; name shouldn't *already* exist
-                  ;; aaron: this check actually won't even work! but the insert-entry was kicking the failure out
-                  ;;              anyways...
-                  ;; (eq? name-entry 'null)
+                  (is-none? name-entry)
                   ;; preorder must have paid enough
                   (<= (price-function name) 
                       (get paid preorder-entry))
@@ -199,13 +197,13 @@ fn test_expects() {
     let okay = 
         "(define-map tokens ((id int)) ((balance int)))
          (define (get-balance)
-            (let ((balance (expects 
+            (let ((balance (expects! 
                               (get balance (fetch-entry tokens (tuple (id 0)))) 
                               0)))
               (+ 0 balance)))
          (define (get-balance-2)
             (let ((balance 
-                    (get balance (expects (fetch-entry tokens (tuple (id 0))) 0)) 
+                    (get balance (expects! (fetch-entry tokens (tuple (id 0))) 0)) 
                               ))
               (+ 0 balance)))
           (+ (get-balance) (get-balance-2))";
@@ -213,7 +211,7 @@ fn test_expects() {
     let unmatched_return_types = 
         "(define-map tokens ((id int)) ((balance int)))
          (define (get-balance)
-            (let ((balance (expects 
+            (let ((balance (expects! 
                               (get balance (fetch-entry tokens (tuple (id 0)))) 
                               'false)))
               (+ 0 balance)))";
