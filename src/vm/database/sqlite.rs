@@ -38,9 +38,10 @@ impl ContractDatabaseConnection {
         contract_db.execute("CREATE TABLE IF NOT EXISTS maps_table
                       (map_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
                        contract_name TEXT NOT NULL,
-                       map_name TEXT UNIQUE NOT NULL,
+                       map_name TEXT NOT NULL,
                        key_type TEXT NOT NULL,
-                       value_type TEXT NOT NULL)",
+                       value_type TEXT NOT NULL,
+                       UNIQUE(contract_name, map_name))",
                             NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS data_table
                       (data_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
