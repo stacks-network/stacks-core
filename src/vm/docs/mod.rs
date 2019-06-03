@@ -29,14 +29,14 @@ struct SpecialAPI {
 }
 
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: "+",
+    name: "+ (add)",
     signature: "(+ i1 i2...)",
     description: "Adds a variable number of integer inputs and returns the result. In the event of an _overflow_, throws a runtime error.",
     example: "(+ 1 2 3) => 6"
 };
 
 const SUB_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: "-",
+    name: "- (subtract)",
     signature: "(- i1 i2...)",
     description: "Subtracts a variable number of integer inputs and returns the result. In the event of an _underflow_, throws a runtime error.",
     example: "(- 2 1 1) => 0
@@ -45,7 +45,7 @@ const SUB_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const DIV_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: "/",
+    name: "/ (divide)",
     signature: "(/ i1 i2...)",
     description: "Integer divides a variable number of integer inputs and returns the result. In the event of division by zero, throws a runtime error.",
     example: "(/ 2 3) => 0
@@ -55,7 +55,7 @@ const DIV_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const MUL_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: "*",
+    name: "* (multiply)",
     signature: "(* i1 i2...)",
     description: "Multiplies a variable number of integer inputs and returns the result. In the event of an _overflow_, throws a runtime error.",
     example: "(* 2 3) => 6
@@ -124,7 +124,7 @@ const NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: ">=",
+    name: ">= (greater than or equal)",
     signature: "(>= i1 i2)",
     description: "Compares two integers, returning true if i1 is greater than or equal to i2 and false otherwise.",
     example: "(>= 1 1) => true
@@ -133,7 +133,7 @@ const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: ">",
+    name: "<= (less than or equal)",
     signature: "(> i1 i2)",
     description: "Compares two integers, returning true if i1 is less than or equal to i2 and false otherwise.",
     example: "(<= 1 1) => true
@@ -152,7 +152,7 @@ const EQUALS_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: ">",
+    name: "> (greater than)",
     signature: "(> i1 i2)",
     description: "Compares two integers, returning true if i1 is greater than i2 and false otherwise.",
     example: "(> 1 2) => false
@@ -161,7 +161,7 @@ const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
 };
 
 const LESS_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: "<",
+    name: "< (less than)",
     signature: "(< i1 i2)",
     description: "Compares two integers, returning true if i1 is less than i2 and false otherwise.",
     example: "(< 1 2) => true
