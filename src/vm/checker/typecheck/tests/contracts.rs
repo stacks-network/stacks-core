@@ -206,15 +206,32 @@ fn test_expects() {
                     (get balance (expects! (fetch-entry tokens (tuple (id 0))) 0)) 
                               ))
               (+ 0 balance)))
+          (define (get-balance-3)
+             (let ((balance
+                     (expects! (get balance (fetch-entry tokens (tuple (id 0))))
+                               (err 'false))))
+               (ok balance)))
+          (define (get-balance-4)
+             (expects! (get-balance-3) 0))
+
           (+ (get-balance) (get-balance-2))";
 
-    let unmatched_return_types = 
+    let bad_return_types_tests = [
         "(define-map tokens ((id int)) ((balance int)))
          (define (get-balance)
             (let ((balance (expects! 
                               (get balance (fetch-entry tokens (tuple (id 0)))) 
                               'false)))
-              (+ 0 balance)))";
+              (+ 0 balance)))",
+        "(define-map tokens ((id int)) ((balance int)))
+         (define (get-balance)
+            (let ((balance (expects! 
+                              (get balance (fetch-entry tokens (tuple (id 0)))) 
+                              (err 1))))
+              (err 'false)))"];
+
+    let bad_default_type = "(define-map tokens ((id int)) ((balance int)))
+         (default-to 'false (get balance (fetch-entry tokens (tuple (id 0)))))";
 
     let mut analysis_conn = AnalysisDatabaseConnection::memory();
     let mut db = analysis_conn.begin_save_point();
@@ -222,12 +239,24 @@ fn test_expects() {
     let mut okay = parse(okay).unwrap();
     let result = type_check(&":transient:", &mut okay, &mut db, false).unwrap();
 
-    let mut unmatched_return_types = parse(unmatched_return_types).unwrap();
-    let err = type_check(&":transient:", &mut unmatched_return_types, &mut db, false)
+    for unmatched_return_types in bad_return_types_tests.iter() {
+        let mut unmatched_return_types = parse(unmatched_return_types).unwrap();
+        let err = type_check(&":transient:", &mut unmatched_return_types, &mut db, false)
+            .expect_err("Expected a type error.");
+        eprintln!("unmatched_return_types returned check error: {}", err);
+        assert!(match &err.err {
+            &CheckErrors::ReturnTypesMustMatch => true,
+            _ => false
+        })
+    }
+
+    let mut bad_default_type = parse(bad_default_type).unwrap();
+    let err = type_check(&":transient:", &mut bad_default_type, &mut db, false)
         .expect_err("Expected a type error.");
     eprintln!("unmatched_return_types returned check error: {}", err);
     assert!(match &err.err {
-        &CheckErrors::ReturnTypesMustMatch => true,
+        &CheckErrors::DefaultTypesMustMatch(_, _) => true,
         _ => false
     })
+
 }

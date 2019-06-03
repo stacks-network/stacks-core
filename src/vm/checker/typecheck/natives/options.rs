@@ -64,13 +64,9 @@ pub fn check_special_default_to(checker: &mut TypeChecker, args: &[SymbolicExpre
     let input = checker.type_check(&args[1], context)?;
 
     if let Some(AtomTypeIdentifier::OptionalType(input_type)) = input.match_atomic() {
-        if input_type.admits_type(&default) {
-            return Ok((**input_type).clone())
-        } else if default.admits_type(&input_type) {
-            return Ok(default)
-        } else {
-            return Err(CheckError::new(CheckErrors::DefaultTypesMustMatch((**input_type).clone(), default)))
-        }
+        let contained_type = (**input_type).clone();
+        TypeSignature::most_admissive(default.clone(), contained_type.clone())
+            .ok_or(CheckError::new(CheckErrors::DefaultTypesMustMatch(contained_type, default)))
     } else {
         return Err(CheckError::new(CheckErrors::ExpectedOptionalType))
     }
