@@ -295,7 +295,7 @@ map, the function returns Void.",
 };
 
 const SET_API: SpecialAPI = SpecialAPI {
-    name: "set-entry",
+    name: "set-entry!",
     input_type: "MapName, TupleA, TupleB",
     output_type: "Void",
     signature: "(set-entry! map-name key-tuple value-tuple)",
@@ -306,7 +306,7 @@ with the key, the function overwrites that existing association.",
 };
 
 const INSERT_API: SpecialAPI = SpecialAPI {
-    name: "insert-entry",
+    name: "insert-entry!",
     input_type: "MapName, TupleA, TupleB",
     output_type: "bool",
     signature: "(insert-entry! map-name key-tuple value-tuple)",
@@ -320,7 +320,7 @@ this key in the data map, the function returns `false`.",
 };
 
 const DELETE_API: SpecialAPI = SpecialAPI {
-    name: "delete-entry",
+    name: "delete-entry!",
     input_type: "MapName, Tuple",
     output_type: "bool",
     signature: "(delete-entry! map-name key-tuple)",
@@ -401,7 +401,7 @@ is supplied the hash is computer over the little endian representation of the in
 };
 
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
-    name: "contract-call",
+    name: "contract-call!",
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     output_type: "BoolType",
     signature: "(contract-call! contract-name function-name arg0 arg1 ...)",
