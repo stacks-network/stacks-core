@@ -7,7 +7,7 @@ use vm::errors::{ErrType};
 fn test_simple_list_admission() {
     let defines =
         "(define (square (x int)) (* x x))
-         (define (square-list (x (list 4 int)) (map square x)))";
+         (define (square-list (x (list 4 int))) (map square x))";
     let t1 = format!("{} (square-list (list 1 2 3 4))", defines);
     let t2 = format!("{} (square-list (list))", defines);
     let t3 = format!("{} (square-list (list 1 2 3 4 5))", defines);
@@ -21,8 +21,14 @@ fn test_simple_list_admission() {
 
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
     assert_eq!(Value::list_from(vec![]).unwrap(), execute(&t2).unwrap().unwrap());
-    eprintln!("{:?}", execute(&t3));
-    execute(&t3).unwrap().unwrap();
+    let err = execute(&t3).unwrap_err();
+    assert!(match err.err_type {
+        ErrType::TypeError(_, _) => true,
+        _ => {
+            eprintln!("Expected TypeError, but found: {:?}", err);
+            false
+        }
+    });
 }
 
 #[test]
