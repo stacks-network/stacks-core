@@ -69,3 +69,4 @@ Cargo.lock
 
 node_modules
 osxcross
+osxcross*.tar.xz
