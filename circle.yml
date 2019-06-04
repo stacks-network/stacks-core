@@ -26,7 +26,7 @@ jobs:
           command: |
             docker run --security-opt seccomp=unconfined -e RUST_BACKTRACE=1 -e BLOCKSTACK_DEBUG=1 \
             -e RUSTFLAGS=-Clink-dead-code -v "$PWD:/volume" xd009642/tarpaulin cargo tarpaulin -o Xml \
-            -- --bin blockstack-core -- --test-threads 1
+            -- --test-threads 1
       - run:
           name: Upload to codecov.io
           command: |
