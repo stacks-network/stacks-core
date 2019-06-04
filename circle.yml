@@ -25,7 +25,7 @@ jobs:
           name: Run tests in Cargo Tarpaulin Image
           command: |
             docker run --security-opt seccomp=unconfined -e RUST_BACKTRACE=1 -e BLOCKSTACK_DEBUG=1 \
-            -e RUSTFLAGS=-Clink-dead-code -v "$PWD:/volume" xd009642/tarpaulin cargo tarpaulin -o Xml \
+            -e RUSTFLAGS=-Clink-dead-code -v "$PWD:/volume" xd009642/tarpaulin cargo tarpaulin -t 300 -o Xml \
             -- --test-threads 1
       - run:
           name: Upload to codecov.io
