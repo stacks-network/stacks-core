@@ -4,6 +4,28 @@ use vm::execute;
 use vm::errors::{ErrType};
 
 #[test]
+fn test_simple_list_admission() {
+    let defines =
+        "(define (square (x int)) (* x x))
+         (define (square-list (x (list 4 int)) (map square x)))";
+    let t1 = format!("{} (square-list (list 1 2 3 4))", defines);
+    let t2 = format!("{} (square-list (list))", defines);
+    let t3 = format!("{} (square-list (list 1 2 3 4 5))", defines);
+    
+
+    let expected = Value::list_from(vec![
+        Value::Int(1),
+        Value::Int(4),
+        Value::Int(9),
+        Value::Int(16)]).unwrap();
+
+    assert_eq!(expected, execute(&t1).unwrap().unwrap());
+    assert_eq!(Value::list_from(vec![]).unwrap(), execute(&t2).unwrap().unwrap());
+    eprintln!("{:?}", execute(&t3));
+    execute(&t3).unwrap().unwrap();
+}
+
+#[test]
 fn test_simple_map() {
     let test1 =
         "(define (square (x int)) (* x x))

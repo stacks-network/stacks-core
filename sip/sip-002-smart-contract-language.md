@@ -83,6 +83,18 @@ there may be some database effects which are materialized from
 Unlike functions created by `define-public`, which may only return booleans,
 functions created with `define-read-only` may return any type.
 
+## List Operations
+
+* Lists may be multi-dimensional. However, note that runtime admission checks
+  on typed function-parameters and data-map functions like `set-entry!` will
+  be charged based on the _maximal_ size of the multi-dimensional list.
+* `filter` `map` and `fold` functions may only be called with user-defined functions
+  (i.e., functions defined with `(define ...)`, `(define-read-only ...)`, or
+  `(define-public ...)`
+* Functions that return lists of a different size than the input size
+  (e.g., `(append-item ...)`) take a required _constant_ parameter that indicates
+  the maximum output size of the function. This is enforced with a runtime check.
+
 ## Inter-Contract Calls
 
 A smart contract may call functions from other smart contracts using a
