@@ -8,6 +8,9 @@ set -e
 
 cd "$(dirname "$(dirname "$0")")"
 
+apt-get update
+apt-get install -y clang
+
 build_sdk () {
   apt-get update
   apt-get install -y clang cmake
