@@ -12,4 +12,4 @@ docker run \
   --tty \
   --env "DIST_TARGET_FILTER=$DIST_TARGET_FILTER" \
   $rust_image \
-  bash "$script_path/start-builds.sh"
+  bash "$(basename "$script_path")/start-builds.sh"
