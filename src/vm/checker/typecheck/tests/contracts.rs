@@ -39,19 +39,22 @@ const SIMPLE_NAMES: &str =
          (define-map preorder-map
            ((name-hash (buff 20)))
            ((buyer principal) (paid int)))
-         
+
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
-           (if (print (is-ok? (contract-call! tokens token-transfer
-                 burn-address name-price)))
+           (let ((xfer-result (contract-call! tokens token-transfer
+                                  burn-address name-price)))
+            (if (is-ok? xfer-result)
                (if
                  (insert-entry! preorder-map
                    (tuple (name-hash name-hash))
                    (tuple (paid name-price)
                           (buyer tx-sender)))
                  (ok 0) (err 2))
-               (err 1)))
+               (if (eq? (expects-err! xfer-result (err (- 1)))
+                        \"not enough balance\")
+                   (err 1) (err 3)))))
 
          (define-public (register 
                         (recipient-principal principal)
@@ -214,7 +217,12 @@ fn test_expects() {
           (define (get-balance-4)
              (expects! (get-balance-3) 0))
 
-          (+ (get-balance) (get-balance-2))";
+          (define (t-1)
+             (err 3))
+          (define (get-balance-5)
+             (expects-err! (t-1) 0))
+
+          (+ (get-balance) (get-balance-2) (get-balance-5))";
 
     let bad_return_types_tests = [
         "(define-map tokens ((id int)) ((balance int)))
@@ -232,6 +240,16 @@ fn test_expects() {
 
     let bad_default_type = "(define-map tokens ((id int)) ((balance int)))
          (default-to 'false (get balance (fetch-entry tokens (tuple (id 0)))))";
+
+    let notype_response_type = "
+         (define (t1) (ok 3))
+         (define (t2) (expects-err! (t1) 0))
+    ";
+
+    let notype_response_type_2 = "
+         (define (t1) (err 3))
+         (define (t2) (expects! (t1) 0))
+    ";
 
     let mut analysis_conn = AnalysisDatabaseConnection::memory();
     let mut db = analysis_conn.begin_save_point();
@@ -253,10 +271,28 @@ fn test_expects() {
     let mut bad_default_type = parse(bad_default_type).unwrap();
     let err = type_check(&":transient:", &mut bad_default_type, &mut db, false)
         .expect_err("Expected a type error.");
-    eprintln!("unmatched_return_types returned check error: {}", err);
+    eprintln!("bad_default_types returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::DefaultTypesMustMatch(_, _) => true,
         _ => false
-    })
+    });
+
+    let mut notype_response_type = parse(notype_response_type).unwrap();
+    let err = type_check(&":transient:", &mut notype_response_type, &mut db, false)
+        .expect_err("Expected a type error.");
+    eprintln!("notype_response_type returned check error: {}", err);
+    assert!(match &err.err {
+        &CheckErrors::CouldNotDetermineResponseErrType => true,
+        _ => false
+    });
+
+    let mut notype_response_type = parse(notype_response_type_2).unwrap();
+    let err = type_check(&":transient:", &mut notype_response_type, &mut db, false)
+        .expect_err("Expected a type error.");
+    eprintln!("notype_response_type_2 returned check error: {}", err);
+    assert!(match &err.err {
+        &CheckErrors::CouldNotDetermineResponseOkType => true,
+        _ => false
+    });
 
 }

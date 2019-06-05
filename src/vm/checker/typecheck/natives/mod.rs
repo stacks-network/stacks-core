@@ -356,6 +356,7 @@ impl TypedNativeFunction {
             ConsError => Special(SpecialNativeFunction(&options::check_special_error)),
             DefaultTo => Special(SpecialNativeFunction(&options::check_special_default_to)),
             Expects => Special(SpecialNativeFunction(&options::check_special_expects)),
+            ExpectsErr => Special(SpecialNativeFunction(&options::check_special_expects_err)),
             IsOkay => Special(SpecialNativeFunction(&options::check_special_is_okay)),
             IsNone => Special(SpecialNativeFunction(&options::check_special_is_none))
         }

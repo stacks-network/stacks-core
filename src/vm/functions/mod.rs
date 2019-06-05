@@ -67,6 +67,7 @@ define_enum!(NativeFunctions {
     ConsError,
     DefaultTo,
     Expects,
+    ExpectsErr,
     IsOkay,
     IsNone
 });
@@ -114,6 +115,7 @@ impl NativeFunctions {
             "ok" => Some(ConsOkay),
             "default-to" => Some(DefaultTo),
             "expects!" => Some(Expects),
+            "expects-err!" => Some(ExpectsErr),
             "is-ok?" => Some(IsOkay),
             "is-none?" => Some(IsNone),
             _ => None
@@ -164,6 +166,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ConsError => CallableType::NativeFunction("native_error", &options::native_error),
             DefaultTo => CallableType::NativeFunction("native_default_to", &options::native_default_to),
             Expects => CallableType::NativeFunction("native_expects", &options::native_expects),
+            ExpectsErr => CallableType::NativeFunction("native_expects_err", &options::native_expects_err),
             IsOkay => CallableType::NativeFunction("native_is_okay", &options::native_is_okay),
             IsNone => CallableType::NativeFunction("native_is_none", &options::native_is_none),
         };

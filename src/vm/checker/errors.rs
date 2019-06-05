@@ -17,6 +17,7 @@ pub enum CheckErrors {
     ExpectedOptionalType,
     ExpectedResponseType,
     CouldNotDetermineResponseOkType,
+    CouldNotDetermineResponseErrType,
 
     // Checker runtime failures
     TypeAlreadyAnnotatedFailure,

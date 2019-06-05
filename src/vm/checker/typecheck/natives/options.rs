@@ -95,3 +95,26 @@ pub fn check_special_expects(checker: &mut TypeChecker, args: &[SymbolicExpressi
         _ => Err(CheckError::new(CheckErrors::ExpectedOptionalType))
     }
 }
+
+pub fn check_special_expects_err(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() != 2 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))        
+    }
+    
+    let input = checker.type_check(&args[0], context)?;
+    let on_error = checker.type_check(&args[1], context)?;
+
+    checker.track_return_type(on_error)?;
+
+    match input.match_atomic() {
+        Some(AtomTypeIdentifier::ResponseType(response_type)) => { 
+            let err_type = (**response_type).1.clone();
+            if err_type.is_no_type() {
+                Err(CheckError::new(CheckErrors::CouldNotDetermineResponseErrType))
+            } else {
+                Ok(err_type)
+            }
+        }
+        _ => Err(CheckError::new(CheckErrors::ExpectedResponseType))
+    }
+}

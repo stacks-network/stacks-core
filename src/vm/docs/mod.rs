@@ -440,6 +440,18 @@ return the inner value of the `ok`. If the supplied argument is either an `(err 
     example: "(expects! (fetch-entry names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
 };
 
+const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {
+    input_type: "Response<A,B>, C",
+    output_type: "B",
+    name: "expects-err!",
+    signature: "(expects-err! response-input thrown-value)",
+    description: "The `expects-err!` function attempts to 'unpack' the first argument: if the argument
+is an `(err ...)` response, `expects-err!` will return the inner value of the `err`.
+If the supplied argument is either an `(ok ...)` value,
+`expects-err!` will _return_ `thrown-value` from the current function, exiting the current control-flow.",
+    example: "(expects-err! (err 1) 'false) ;; Returns 1",
+};
+
 const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
     input_type: "A, Optional<A>",
     output_type: "A",
@@ -574,6 +586,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ConsError => make_for_special(&CONS_ERR_API),
         DefaultTo => make_for_special(&DEFAULT_TO_API),
         Expects => make_for_special(&EXPECTS_API),
+        ExpectsErr => make_for_special(&EXPECTS_ERR_API),
         IsOkay => make_for_special(&IS_OK_API),
         IsNone => make_for_special(&IS_NONE_API),
     }

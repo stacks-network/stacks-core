@@ -27,6 +27,26 @@ pub fn native_expects(args: &[Value]) -> Result<Value> {
     }
 }
 
+pub fn native_expects_err(args: &[Value]) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to expects (expects-err! input-value thrown-value)".to_string())))
+    }
+
+    let input = &args[0];
+    let thrown = &args[1];
+
+    match input {
+        Value::Response(data) => {
+            if !data.committed {
+                Ok((*data.data).clone())
+            } else {
+                Err(Error::new(ErrType::ExpectedValue(thrown.clone())))
+            }
+        },
+        _ => Err(Error::new(ErrType::TypeError("ResponseType".to_string(), input.clone())))
+    }
+}
+
 pub fn native_is_none(args: &[Value]) -> Result<Value> {
     if args.len() != 1 {
         return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to is-none? (expects 1)".to_string())))
