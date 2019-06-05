@@ -28,6 +28,9 @@ jobs:
             -e RUSTFLAGS=-Clink-dead-code -v "$PWD:/volume" xd009642/tarpaulin cargo tarpaulin -t 300 -o Xml \
             -- --test-threads 1
       - run:
+          name: Test that Cargo Tarpaulin Suceeded
+          command: test -e cobertura.xml
+      - run:
           name: Upload to codecov.io
           command: |
             bash <(curl -s https://codecov.io/bash)
