@@ -364,7 +364,7 @@ const TUPLE_GET_API: SpecialAPI = SpecialAPI {
     signature: "(get key-name tuple)",
     description: "The `get` function fetches the value associated with a given key from the supplied typed tuple.
 If an Optional value is supplied as the inputted tuple, `get` will return an Optional type of the specified key in
-the tuple.",
+the tuple. If the supplied option is a `(none)` option, get will return `(none)`.",
     example: "(get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
 (get id (fetch-entry names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
 (get id (fetch-entry names-map (tuple (name \"non-existent\")))) ;; Returns (none)
