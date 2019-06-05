@@ -15,8 +15,9 @@ build_sdk () {
   apt-get update
   apt-get install -y clang cmake
   git clone https://github.com/blockstackpbc/osxcross --depth=1
-  wget -nc https://github.com/blockstackpbc/osxcross/releases/download/v1/MacOSX10.14.sdk.tar.bz2 --directory-prefix=osxcross/tarballs/
-  UNATTENDED=yes OSX_VERSION_MIN=10.7 ./osxcross/build.sh
+  wget -N "https://github.com/blockstackpbc/osxcross/releases/download/v1/MacOSX10.14.sdk.tar.bz2" --directory-prefix=osxcross/tarballs/
+  UNATTENDED=yes DISABLE_LTO_SUPPORT=1 OSX_VERSION_MIN=10.7 ./osxcross/build.sh
+  cd ./osxcross
   BINARYPACKAGE=1 ./package.sh
 }
 
