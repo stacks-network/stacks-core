@@ -16,6 +16,7 @@ pub enum CheckErrors {
     TypeError(TypeSignature, TypeSignature),
     ExpectedOptionalType,
     ExpectedResponseType,
+    CouldNotDetermineResponseOkType,
 
     // Checker runtime failures
     TypeAlreadyAnnotatedFailure,

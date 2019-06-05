@@ -84,7 +84,14 @@ pub fn check_special_expects(checker: &mut TypeChecker, args: &[SymbolicExpressi
 
     match input.match_atomic() {
         Some(AtomTypeIdentifier::OptionalType(input_type)) => Ok((**input_type).clone()),
-        Some(AtomTypeIdentifier::ResponseType(response_type)) => Ok((**response_type).0.clone()),
+        Some(AtomTypeIdentifier::ResponseType(response_type)) => { 
+            let ok_type = (**response_type).0.clone();
+            if ok_type.is_no_type() {
+                Err(CheckError::new(CheckErrors::CouldNotDetermineResponseOkType))
+            } else {
+                Ok(ok_type)
+            }
+        }
         _ => Err(CheckError::new(CheckErrors::ExpectedOptionalType))
     }
 }

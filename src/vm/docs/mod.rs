@@ -430,6 +430,7 @@ principal, and executes `expr` with that context. It returns the resulting value
 const EXPECTS_API: SpecialAPI = SpecialAPI {
     input_type: "Optional<A>|Response<A,B>, C",
     output_type: "A",
+    name: "expects!",
     signature: "(expects! option-input thrown-value)",
     description: "The `expects!` function attempts to 'unpack' the first argument: if the argument is
 an option type, and the argument is a `(some ...)` option, `expects!` will return the inner value of the
@@ -442,6 +443,7 @@ return the inner value of the `ok`. If the supplied argument is either an `(err 
 const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
     input_type: "A, Optional<A>",
     output_type: "A",
+    name: "default-to",
     signature: "(default-to default-value option-value)",
     description: "The `default-to` function attempts to 'unpack' the second argument: if the argument is
 a `(some ...)` option, it will return the inner value of the option. If the second argument is a `(none)` value,
@@ -454,6 +456,7 @@ a `(some ...)` option, it will return the inner value of the option. If the seco
 const CONS_OK_API: SpecialAPI = SpecialAPI {
     input_type: "A",
     output_type: "Response<A,B>",
+    name: "ok",
     signature: "(ok value)",
     description: "The `ok` function constructs a response type from the input value. This is used for
 creating return values in public functions. An _ok_ value indicates that any database changes during
@@ -464,6 +467,7 @@ the processing of the function should materialize.",
 const CONS_ERR_API: SpecialAPI = SpecialAPI {
     input_type: "A",
     output_type: "Response<A,B>",
+    name: "err",
     signature: "(err value)",
     description: "The `err` function constructs a response type from the input value. This is used for
 creating return values in public functions. An _err_ value indicates that any database changes during
@@ -474,6 +478,7 @@ the processing of the function should be rolled back.",
 const IS_OK_API: SpecialAPI = SpecialAPI {
     input_type: "Response<A,B>",
     output_type: "bool",
+    name: "is-ok?",
     signature: "(is-ok? value)",
     description: "The `is-ok?` tests a supplied response value, returning true if the response was `ok`,
 and false if it was an `err`.",
@@ -484,6 +489,7 @@ and false if it was an `err`.",
 const IS_NONE_API: SpecialAPI = SpecialAPI {
     input_type: "Option<A>",
     output_type: "bool",
+    name: "is-none?",
     signature: "(is-none? value)",
     description: "The `is-none?` tests a supplied option value, returning true if the option value is `(none)`,
 and false if it is a `(some ...)`.",
