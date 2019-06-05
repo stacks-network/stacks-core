@@ -447,7 +447,7 @@ const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {
     signature: "(expects-err! response-input thrown-value)",
     description: "The `expects-err!` function attempts to 'unpack' the first argument: if the argument
 is an `(err ...)` response, `expects-err!` will return the inner value of the `err`.
-If the supplied argument is either an `(ok ...)` value,
+If the supplied argument is an `(ok ...)` value,
 `expects-err!` will _return_ `thrown-value` from the current function, exiting the current control-flow.",
     example: "(expects-err! (err 1) 'false) ;; Returns 1",
 };
@@ -492,7 +492,7 @@ const IS_OK_API: SpecialAPI = SpecialAPI {
     output_type: "bool",
     name: "is-ok?",
     signature: "(is-ok? value)",
-    description: "The `is-ok?` tests a supplied response value, returning true if the response was `ok`,
+    description: "`is-ok?` tests a supplied response value, returning true if the response was `ok`,
 and false if it was an `err`.",
     example: "(is-ok? (ok 1)) ;; Returns 'true
 (is-ok? (err 1)) ;; Returns 'false",
@@ -503,7 +503,7 @@ const IS_NONE_API: SpecialAPI = SpecialAPI {
     output_type: "bool",
     name: "is-none?",
     signature: "(is-none? value)",
-    description: "The `is-none?` tests a supplied option value, returning true if the option value is `(none)`,
+    description: "`is-none?` tests a supplied option value, returning true if the option value is `(none)`,
 and false if it is a `(some ...)`.",
     example: "(is-none? (get id (fetch-entry names-map (tuple (name \"blockstack\"))))) ;; Returns 'false
 (is-none? (get id (fetch-entry names-map (tuple (name \"non-existant\"))))) ;; Returns 'true"
