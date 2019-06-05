@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "clarity-cli"
+test = false
 path = "src/clarity_cli.rs"
 
 [features]
