@@ -80,9 +80,9 @@ case $DIST_TARGET_FILTER in
     esac
     ;;
   (*)
+    build_mac_x64
     build_linux_x64
     build_linux_musl_x64
     build_win_x64
-    build_mac_x64
     ;;
 esac

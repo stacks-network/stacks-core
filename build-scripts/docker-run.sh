@@ -4,7 +4,7 @@ script_path="$(dirname "$0")"
 src_dir="$(dirname "$script_path")"
 cd "$src_dir"
 
-rust_image="rust:1.34-stretch"
+rust_image="rust:1.34.0-stretch"
 
 docker run \
   --volume `pwd`:/build \

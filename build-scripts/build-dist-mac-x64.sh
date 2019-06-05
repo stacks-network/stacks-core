@@ -31,6 +31,7 @@ fetch_extract_sdk
 rustup target add x86_64-apple-darwin
 
 PATH="$(pwd)/osxcross/bin:$PATH" \
+LD_LIBRARY_PATH="$(pwd)/osxcross/lib:$LD_LIBRARY_PATH" \
 CC=o64-clang \
 CXX=o64-clang++ \
 LIBZ_SYS_STATIC=1 \
