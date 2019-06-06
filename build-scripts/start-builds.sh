@@ -16,7 +16,7 @@ build_linux_x64 () {
   "$script_path/build-dist-linux-x64.sh"
   dist_archive_linux="$dist_dir/blockstack-core-linux-x64.tar.bz2"
   rm -f "$dist_archive_linux"
-  tar cfvj "$dist_archive_linux" -C "$src_dir/target/x86_64-unknown-linux-gnu/release" blockstack-core clarity
+  tar cfvj "$dist_archive_linux" -C "$src_dir/target/x86_64-unknown-linux-gnu/release" blockstack-core clarity-cli
 }
 
 
@@ -25,7 +25,7 @@ build_linux_musl_x64 () {
   "$script_path/build-dist-linux-musl-x64.sh"
   dist_archive_linux_musl="$dist_dir/blockstack-core-linux-musl-x64.tar.bz2"
   rm -f "$dist_archive_linux_musl"
-  tar cfvj "$dist_archive_linux_musl" -C "$src_dir/target/x86_64-unknown-linux-musl/release" blockstack-core clarity
+  tar cfvj "$dist_archive_linux_musl" -C "$src_dir/target/x86_64-unknown-linux-musl/release" blockstack-core clarity-cli
 }
 
 
@@ -34,7 +34,7 @@ build_mac_x64 () {
   "$script_path/build-dist-mac-x64.sh"
   dist_archive_mac="$dist_dir/blockstack-core-mac-x64.tar.bz2"
   rm -f "$dist_archive_mac"
-  tar cfvj "$dist_archive_mac" -C "$src_dir/target/x86_64-apple-darwin/release" blockstack-core clarity
+  tar cfvj "$dist_archive_mac" -C "$src_dir/target/x86_64-apple-darwin/release" blockstack-core clarity-cli
 }
 
 
@@ -46,7 +46,7 @@ build_win_x64 () {
   apt-get update && apt-get install -y zip
   zip -j "$dist_archive_win" \
     "$src_dir/target/x86_64-pc-windows-gnu/release/blockstack-core.exe" \
-    "$src_dir/target/x86_64-pc-windows-gnu/release/clarity.exe"
+    "$src_dir/target/x86_64-pc-windows-gnu/release/clarity-cli.exe"
 }
 
 case $DIST_TARGET_FILTER in

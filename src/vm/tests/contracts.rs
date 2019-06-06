@@ -118,6 +118,16 @@ fn is_committed(v: &Value) -> bool {
     }
 }
 
+fn is_err_code(v: &Value, e: i128) -> bool {
+    match v {
+        Value::Response(ref data) => {
+            !data.committed &&
+                *data.data == Value::Int(e)
+        },
+        _ => false
+    }
+}
+
 #[test]
 fn test_simple_token_system() {
     let tokens_contract = SIMPLE_TOKENS;
@@ -207,15 +217,18 @@ fn test_simple_naming_system() {
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
-           (if (print (is-ok? (contract-call! tokens token-transfer
-                 burn-address name-price)))
+           (let ((xfer-result (contract-call! tokens token-transfer
+                                  burn-address name-price)))
+            (if (is-ok? xfer-result)
                (if
                  (insert-entry! preorder-map
                    (tuple (name-hash name-hash))
                    (tuple (paid name-price)
                           (buyer tx-sender)))
                  (ok 0) (err 2))
-               (err 1)))
+               (if (eq? (expects-err! xfer-result (err (- 1)))
+                        \"not enough balance\")
+                   (err 1) (err 3)))))
 
          (define-public (register 
                         (recipient-principal principal)
@@ -224,7 +237,7 @@ fn test_simple_naming_system() {
            (let ((preorder-entry
                    ;; preorder entry must exist!
                    (expects! (fetch-entry preorder-map
-                                  (tuple (name-hash (hash160 (xor name salt))))) (err 2)))
+                                  (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
                    (fetch-entry name-map (tuple (name name)))))
              (if (and
@@ -262,23 +275,23 @@ fn test_simple_naming_system() {
 
     env.sender = Some(p2.clone());
 
-    assert!(!is_committed(&
+    assert!(is_err_code(&
         env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap()));
+                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(), 1));
 
     env.sender = Some(p1.clone());
     assert!(is_committed(&
         env.execute_contract("names", "preorder",
                              &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap()));
-    assert!(!is_committed(&
+    assert!(is_err_code(&
         env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap()));
+                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(), 2));
 
     // shouldn't be able to register a name you didn't preorder!
     env.sender = Some(p2.clone());
-    assert!(!is_committed(&
+    assert!(is_err_code(&
         env.execute_contract("names", "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap()));
+                             &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(), 4));
 
     // should work!
     env.sender = Some(p1.clone());
@@ -292,9 +305,9 @@ fn test_simple_naming_system() {
     assert!(is_committed(&
         env.execute_contract("names", "preorder",
                              &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap()));
-    assert!(!is_committed(&
+    assert!(is_err_code(&
         env.execute_contract("names", "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap()));
+                             &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap(), 4));
 
     // register a cheap name!
     assert!(is_committed(&
@@ -303,6 +316,12 @@ fn test_simple_naming_system() {
     assert!(is_committed(&
         env.execute_contract("names", "register",
                              &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap()));
+
+    // preorder must exist!
+    assert!(is_err_code(&
+        env.execute_contract("names", "register",
+                             &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap(), 5));
+
 }
 
 

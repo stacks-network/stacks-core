@@ -618,6 +618,14 @@ impl TypeSignature {
         }
     }
 
+    pub fn is_no_type(&self) -> bool {
+        if let Some(AtomTypeIdentifier::NoType) = self.match_atomic() {
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn most_admissive(a: TypeSignature, b: TypeSignature) -> Option<TypeSignature> {
         // if response type, we may need to return the union of a and b.
         if let (Some(AtomTypeIdentifier::ResponseType(ref response_type_a)),
