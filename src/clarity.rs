@@ -409,12 +409,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             };
             match result {
                 Ok(x) => {
-                    if let Value::Bool(x) = x {
+                    if let Value::Response(data) = x {
                         vm_env.commit();
-                        if x {
-                            println!("Transaction executed and committed.");
+                        if data.committed {
+                            println!("Transaction executed and committed. Returned: {}", data.data);
                         } else {
-                            println!("Aborted: Transaction returned false.");
+                            println!("Aborted: {}", data.data);
                         }
                     } else {
                         panic!(format!("Expected a bool result from transaction. Found: {}", x));

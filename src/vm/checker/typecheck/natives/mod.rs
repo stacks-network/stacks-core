@@ -6,6 +6,7 @@ use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check
 use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 
 mod maps;
+mod options;
 
 pub enum TypedNativeFunction {
     Special(SpecialNativeFunction),
@@ -75,6 +76,13 @@ fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], c
     Ok(last_return)
 }
 
+fn inner_handle_tuple_get(tuple_type_sig: &TupleTypeSignature, field_to_get: &str) -> TypeResult {
+    let return_type = tuple_type_sig.field_type(field_to_get)
+        .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.to_string())))?
+        .clone();
+    Ok(return_type)
+}
+
 fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
@@ -91,10 +99,17 @@ fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], con
         .ok_or(CheckError::new(CheckErrors::ExpectedTuple(argument_type.clone())))?;
     
     if let AtomTypeIdentifier::TupleType(tuple_type_sig) = atomic_type {
-        let return_type = tuple_type_sig.field_type(field_to_get)
-            .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.clone())))?
-            .clone();
-        Ok(return_type)
+        inner_handle_tuple_get(tuple_type_sig, field_to_get)
+    } else if let AtomTypeIdentifier::OptionalType(value_type_sig) = atomic_type {
+        let atomic_value_type = value_type_sig.match_atomic()
+            .ok_or(CheckError::new(CheckErrors::ExpectedTuple((**value_type_sig).clone())))?;
+        if let AtomTypeIdentifier::TupleType(tuple_type_sig) = atomic_value_type {
+            let inner_type = inner_handle_tuple_get(tuple_type_sig, field_to_get)?;
+            let option_type = TypeSignature::new_option(inner_type);
+            Ok(option_type)
+        } else {
+            Err(CheckError::new(CheckErrors::ExpectedTuple((**value_type_sig).clone())))
+        }
     } else {
         Err(CheckError::new(CheckErrors::ExpectedTuple(argument_type.clone())))
     }
@@ -221,32 +236,19 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
 }
 
 fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 2 && args.len() != 3 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+    if args.len() != 3 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
     }
     
-    checker.type_check_all(args, context)?;
+    let arg_types = checker.type_check_all(args, context)?;
 
-    check_atomic_type(AtomTypeIdentifier::BoolType, checker.type_map.get_type(&args[0])?)?;
+    check_atomic_type(AtomTypeIdentifier::BoolType, &arg_types[0])?;
     
-    let return_type = {
-        if args.len() == 2 {
-            checker.type_map.get_type(&args[1])?
-                .clone()
-            } else {
-            let expr1 = checker.type_map.get_type(&args[1])?;
-            let expr2 = checker.type_map.get_type(&args[2])?;
-            if expr1.admits_type(expr2) {
-                expr1.clone()
-            } else if expr2.admits_type(expr1) {
-                expr2.clone()
-            } else {
-                return Err(CheckError::new(CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone())));
-            }
-        }
-    };
-    
-    Ok(return_type)
+    let expr1 = &arg_types[1];
+    let expr2 = &arg_types[2];
+
+    TypeSignature::most_admissive(expr1.clone(), expr2.clone())
+        .ok_or(CheckError::new(CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone())))
 }
 
 fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -350,6 +352,13 @@ impl TypedNativeFunction {
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
             ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
+            ConsOkay => Special(SpecialNativeFunction(&options::check_special_okay)),
+            ConsError => Special(SpecialNativeFunction(&options::check_special_error)),
+            DefaultTo => Special(SpecialNativeFunction(&options::check_special_default_to)),
+            Expects => Special(SpecialNativeFunction(&options::check_special_expects)),
+            ExpectsErr => Special(SpecialNativeFunction(&options::check_special_expects_err)),
+            IsOkay => Special(SpecialNativeFunction(&options::check_special_is_okay)),
+            IsNone => Special(SpecialNativeFunction(&options::check_special_is_none))
         }
     }
 }

@@ -14,6 +14,10 @@ pub enum CheckErrors {
 
     // simple type expectation mismatch
     TypeError(TypeSignature, TypeSignature),
+    ExpectedOptionalType,
+    ExpectedResponseType,
+    CouldNotDetermineResponseOkType,
+    CouldNotDetermineResponseErrType,
 
     // Checker runtime failures
     TypeAlreadyAnnotatedFailure,
@@ -37,6 +41,7 @@ pub enum CheckErrors {
     BadMapTypeDefinition,
     PublicFunctionMustReturnBool,
     DefineVariableBadSignature,
+    ReturnTypesMustMatch,
 
     // contract-call errors
     NoSuchContract(String),
@@ -60,6 +65,7 @@ pub enum CheckErrors {
     VariadicNeedsOneArgument,
     IncorrectArgumentCount(usize, usize),
     IfArmsMustMatch(TypeSignature, TypeSignature),
+    DefaultTypesMustMatch(TypeSignature, TypeSignature),
     TooManyExpressions,
     IllegalOrUnknownFunctionApplication(String),
     UnknownFunction(String),

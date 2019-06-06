@@ -69,7 +69,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
         LexMatcher::new("[ \n\t\r]+", TokenType::Whitespace),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("(?P<value>[[:digit:]]+)", TokenType::IntLiteral),
-        LexMatcher::new("'(?P<value>true|false|null)", TokenType::QuoteLiteral),
+        LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
         LexMatcher::new("'CT(?P<value>[[:alpha:]]{5,40})", TokenType::ContractPrincipalLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
@@ -141,7 +141,6 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
                     TokenType::QuoteLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match str_value.as_str() {
-                            "null" => Ok(Value::Void),
                             "true" => Ok(Value::Bool(true)),
                             "false" => Ok(Value::Bool(false)),
                             _ => Err(Error::new(ErrType::ParseError(format!("Unknown 'quoted value '{}'", str_value))))

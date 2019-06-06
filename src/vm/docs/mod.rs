@@ -48,7 +48,7 @@ const DIV_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: "/ (divide)",
     signature: "(/ i1 i2...)",
     description: "Integer divides a variable number of integer inputs and returns the result. In the event of division by zero, throws a runtime error.",
-    example: "(/ 2 3) => 0
+    example: "(/ 2 3) ;; Returns 0
 (/ 5 2) ;; Returns 2
 (/ 4 2 2) ;; Returns 1
 "
@@ -137,7 +137,7 @@ const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(> i1 i2)",
     description: "Compares two integers, returning true if i1 is less than or equal to i2 and false otherwise.",
     example: "(<= 1 1) ;; Returns true
-(<= 5 2) => false
+(<= 5 2) ;; Returns false
 "
 };
 
@@ -146,7 +146,7 @@ const EQUALS_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(eq? v1 v2...)",
     description: "Compares the inputted values, returning true if they are all equal. Note that _unlike_ the `(and ...)` function, `(eq? ...)` will _not_ short-circuit.",
     example: "(eq? 1 1) ;; Returns true
-(eq? 1 'null) ;; Returns false
+(eq? 1 'false) ;; Returns false
 (eq? \"abc\" 234 234) ;; Returns false
 "
 };
@@ -286,23 +286,24 @@ cause blockstack-core to print the resulting value to STDOUT.",
 const FETCH_API: SpecialAPI = SpecialAPI {
     name: "fetch-entry",
     input_type: "MapName, Tuple",
-    output_type: "Tuple|Void",
+    output_type: "Optional<Tuple>",
     signature: "(fetch-entry map-name key-tuple)",
     description: "The `fetch-entry` function looks up and returns an entry from a contract's data map.
-The value is looked up using `key-tuple`. If there is no value associated with that key in the data
-map, the function returns Void.",
-    example: "(fetch-entry names-map (tuple (name \"blockstack\"))) ;; Returns (tuple (id 1337))",
+The value is looked up using `key-tuple`.
+If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
+it returns (some value)",
+    example: "(expects! (fetch-entry names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
 };
 
 const SET_API: SpecialAPI = SpecialAPI {
     name: "set-entry!",
     input_type: "MapName, TupleA, TupleB",
-    output_type: "Void",
+    output_type: "bool",
     signature: "(set-entry! map-name key-tuple value-tuple)",
     description: "The `set-entry!` function sets the value associated with the input key to the 
 inputted value. This function performs a _blind_ update; whether or not a value is already associated
 with the key, the function overwrites that existing association.",
-    example: "(set-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns Void",
+    example: "(set-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns true",
 };
 
 const INSERT_API: SpecialAPI = SpecialAPI {
@@ -335,12 +336,13 @@ If a value did not exist for this key in the data map, the function returns `fal
 const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
     name: "fetch-contract-entry",
     input_type: "ContractName, MapName, Tuple",
-    output_type: "Tuple|Void",
+    output_type: "Optional<Tuple>",
     signature: "(fetch-contract-entry contract-name map-name key-tuple)",
     description: "The `fetch-contract-entry` function looks up and returns an entry from a
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
-If there is no value associated with that key in the data map, the function returns Void.",
-    example: "(fetch-contract-entry names-contract names-map (tuple (name \"blockstack\"))) ;; Returns (tuple (id 1337))",
+If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
+it returns (some value)",
+    example: "(expects! (fetch-contract-entry names-contract names-map (tuple (name \"blockstack\")) (err 1)) ;; Returns (tuple (id 1337))",
 };
 
 const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
@@ -357,13 +359,15 @@ associated with the expressions' paired key name.",
 
 const TUPLE_GET_API: SpecialAPI = SpecialAPI {
     name: "get",
-    input_type: "KeyName, Tuple|Void",
+    input_type: "KeyName, Tuple|Optional<Tuple>",
     output_type: "AnyType",
     signature: "(get key-name tuple)",
     description: "The `get` function fetches the value associated with a given key from the supplied typed tuple.
-If a Void value is supplied as the inputted tuple, `get` returns Void.",
+If an Optional value is supplied as the inputted tuple, `get` will return an Optional type of the specified key in
+the tuple. If the supplied option is a `(none)` option, get will return `(none)`.",
     example: "(get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
-(get id 'null) ;; Returns 'null
+(get id (fetch-entry names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
+(get id (fetch-entry names-map (tuple (name \"non-existent\")))) ;; Returns (none)
 "
 };
 
@@ -403,13 +407,13 @@ is supplied the hash is computer over the little endian representation of the in
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     name: "contract-call!",
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
-    output_type: "BoolType",
+    output_type: "Response<A>",
     signature: "(contract-call! contract-name function-name arg0 arg1 ...)",
     description: "The `contract-call!` function executes the given public function of the given contract.
 This function _may not_ be used to call a public function defined in the current contract. If the public
-function returns _false_, any database changes resulting from calling `contract-call!` are aborted.
-If the function returns _true_, database changes have occurred.",
-    example: "(contract-call! tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns 'true"
+function returns _err_, any database changes resulting from calling `contract-call!` are aborted.
+If the function returns _ok_, database changes have occurred.",
+    example: "(contract-call! tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns (ok 1)"
 };
 
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
@@ -420,6 +424,89 @@ const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
     description: "The `as-contract` function switches the current context's `tx-sender` value to the _contract's_ 
 principal, and executes `expr` with that context. It returns the resulting value of `expr`.",
     example: "(as-contract (print tx-sender)) ;; Returns 'CTcontract.name"
+};
+
+
+const EXPECTS_API: SpecialAPI = SpecialAPI {
+    input_type: "Optional<A>|Response<A,B>, C",
+    output_type: "A",
+    name: "expects!",
+    signature: "(expects! option-input thrown-value)",
+    description: "The `expects!` function attempts to 'unpack' the first argument: if the argument is
+an option type, and the argument is a `(some ...)` option, `expects!` will return the inner value of the
+option. If the argument is a response type, and the argument is an `(ok ...)` response, `expects!` will
+return the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
+`expects!` will _return_ `thrown-value` from the current function, exiting the current control-flow.",
+    example: "(expects! (fetch-entry names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
+};
+
+const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {
+    input_type: "Response<A,B>, C",
+    output_type: "B",
+    name: "expects-err!",
+    signature: "(expects-err! response-input thrown-value)",
+    description: "The `expects-err!` function attempts to 'unpack' the first argument: if the argument
+is an `(err ...)` response, `expects-err!` will return the inner value of the `err`.
+If the supplied argument is an `(ok ...)` value,
+`expects-err!` will _return_ `thrown-value` from the current function, exiting the current control-flow.",
+    example: "(expects-err! (err 1) 'false) ;; Returns 1",
+};
+
+const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
+    input_type: "A, Optional<A>",
+    output_type: "A",
+    name: "default-to",
+    signature: "(default-to default-value option-value)",
+    description: "The `default-to` function attempts to 'unpack' the second argument: if the argument is
+a `(some ...)` option, it will return the inner value of the option. If the second argument is a `(none)` value,
+`default-to` will return the value of `default-value`.",
+    example: "(default-to 0 (get id (fetch-entry names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
+(default-to 0 (get id (fetch-entry names-map (tuple (name \"non-existant\"))))) ;; Returns 0
+",
+};
+
+const CONS_OK_API: SpecialAPI = SpecialAPI {
+    input_type: "A",
+    output_type: "Response<A,B>",
+    name: "ok",
+    signature: "(ok value)",
+    description: "The `ok` function constructs a response type from the input value. This is used for
+creating return values in public functions. An _ok_ value indicates that any database changes during
+the processing of the function should materialize.",
+    example: "(ok 1) ;; Returns (ok 1)",
+};
+
+const CONS_ERR_API: SpecialAPI = SpecialAPI {
+    input_type: "A",
+    output_type: "Response<A,B>",
+    name: "err",
+    signature: "(err value)",
+    description: "The `err` function constructs a response type from the input value. This is used for
+creating return values in public functions. An _err_ value indicates that any database changes during
+the processing of the function should be rolled back.",
+    example: "(err 'true) ;; Returns (err 'true)",
+};
+
+const IS_OK_API: SpecialAPI = SpecialAPI {
+    input_type: "Response<A,B>",
+    output_type: "bool",
+    name: "is-ok?",
+    signature: "(is-ok? value)",
+    description: "`is-ok?` tests a supplied response value, returning true if the response was `ok`,
+and false if it was an `err`.",
+    example: "(is-ok? (ok 1)) ;; Returns 'true
+(is-ok? (err 1)) ;; Returns 'false",
+};
+
+const IS_NONE_API: SpecialAPI = SpecialAPI {
+    input_type: "Option<A>",
+    output_type: "bool",
+    name: "is-none?",
+    signature: "(is-none? value)",
+    description: "`is-none?` tests a supplied option value, returning true if the option value is `(none)`,
+and false if it is a `(some ...)`.",
+    example: "(is-none? (get id (fetch-entry names-map (tuple (name \"blockstack\"))))) ;; Returns 'false
+(is-none? (get id (fetch-entry names-map (tuple (name \"non-existant\"))))) ;; Returns 'true"
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
@@ -495,6 +582,13 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ContractCall => make_for_special(&CONTRACT_CALL_API),
         AsContract => make_for_special(&AS_CONTRACT_API),
         GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API),
+        ConsOkay => make_for_special(&CONS_OK_API),
+        ConsError => make_for_special(&CONS_ERR_API),
+        DefaultTo => make_for_special(&DEFAULT_TO_API),
+        Expects => make_for_special(&EXPECTS_API),
+        ExpectsErr => make_for_special(&EXPECTS_ERR_API),
+        IsOkay => make_for_special(&IS_OK_API),
+        IsNone => make_for_special(&IS_NONE_API),
     }
 }
 

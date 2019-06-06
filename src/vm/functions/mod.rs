@@ -4,9 +4,10 @@ mod arithmetic;
 mod boolean;
 mod database;
 mod tuples;
+mod options;
 
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
-use vm::types::{Value, PrincipalData};
+use vm::types::{Value, PrincipalData, ResponseData};
 use vm::callables::CallableType;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List, Atom};
@@ -61,7 +62,14 @@ define_enum!(NativeFunctions {
     Print,
     ContractCall,
     AsContract,
-    GetBlockInfo
+    GetBlockInfo,
+    ConsOkay,
+    ConsError,
+    DefaultTo,
+    Expects,
+    ExpectsErr,
+    IsOkay,
+    IsNone
 });
 
 impl NativeFunctions {
@@ -103,6 +111,13 @@ impl NativeFunctions {
             "contract-call!" => Some(ContractCall),
             "as-contract" => Some(AsContract),
             "get-block-info" => Some(GetBlockInfo),
+            "err" => Some(ConsError),
+            "ok" => Some(ConsOkay),
+            "default-to" => Some(DefaultTo),
+            "expects!" => Some(Expects),
+            "expects-err!" => Some(ExpectsErr),
+            "is-ok?" => Some(IsOkay),
+            "is-none?" => Some(IsNone),
             _ => None
         }
     }
@@ -147,6 +162,13 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ContractCall => CallableType::SpecialFunction("native_contract-call", &database::special_contract_call),
             AsContract => CallableType::SpecialFunction("native_as-contract", &special_as_contract),
             GetBlockInfo => CallableType::SpecialFunction("native_get_block_info", &database::special_get_block_info),
+            ConsOkay => CallableType::NativeFunction("native_okay", &options::native_okay),
+            ConsError => CallableType::NativeFunction("native_error", &options::native_error),
+            DefaultTo => CallableType::NativeFunction("native_default_to", &options::native_default_to),
+            Expects => CallableType::NativeFunction("native_expects", &options::native_expects),
+            ExpectsErr => CallableType::NativeFunction("native_expects_err", &options::native_expects_err),
+            IsOkay => CallableType::NativeFunction("native_is_okay", &options::native_is_okay),
+            IsNone => CallableType::NativeFunction("native_is_none", &options::native_is_none),
         };
         Some(callable)
     } else {
@@ -163,7 +185,8 @@ fn native_eq(args: &[Value]) -> Result<Value> {
     } else {
         let first = &args[0];
         // Using `fold` rather than `all` to prevent short-circuiting. 
-        let result = args.iter().fold(true, |acc, x| acc && (*x == *first));
+        let result = args.iter()
+            .fold(true, |acc, x| acc && (*x == *first));
         Ok(Value::Bool(result))
     }
 }
@@ -219,7 +242,7 @@ fn native_keccak256(args: &[Value]) -> Result<Value> {
 fn native_begin(args: &[Value]) -> Result<Value> {
     match args.last() {
         Some(v) => Ok(v.clone()),
-        None => Ok(Value::Void)
+        None => Err(Error::new(ErrType::InvalidArguments("Must pass at least 1 expression to (begin ...)".to_string())))
     }
 }
 

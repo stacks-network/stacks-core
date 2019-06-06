@@ -30,7 +30,7 @@ use vm::database::{ContractDatabaseConnection};
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 
-const MAX_CALL_STACK_DEPTH: usize = 256;
+const MAX_CALL_STACK_DEPTH: usize = 128;
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
@@ -116,16 +116,15 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
         AtomValue(ref value) => Ok(value.clone()),
         Atom(ref value) => lookup_variable(&value, context, env),
         List(ref children) => {
-            if let Some((function_variable, rest)) = children.split_first() {
-                match function_variable.expr {
-                    Atom(ref value) => {
-                        let f = lookup_function(&value, env)?;
-                        apply(&f, &rest, env, context)
-                    },
-                    _ => Err(Error::new(ErrType::TryEvalToFunction))
-                }
-            } else {
-                Ok(Value::Void)
+            let (function_variable, rest) = children.split_first()
+                .ok_or(Error::new(ErrType::InvalidArguments(
+                    "List expressions (...) are function applications, and must be supplied with function names to apply.".to_string())))?;
+            match function_variable.expr {
+                Atom(ref value) => {
+                    let f = lookup_function(&value, env)?;
+                    apply(&f, &rest, env, context)
+                },
+                _ => Err(Error::new(ErrType::TryEvalToFunction))
             }
         }
     }
@@ -147,7 +146,7 @@ pub fn is_reserved(name: &str) -> bool {
  */
 fn eval_all (expressions: &[SymbolicExpression],
              contract_context: &mut ContractContext,
-             global_context: &mut GlobalContext) -> Result<Value> {
+             global_context: &mut GlobalContext) -> Result<Option<Value>> {
     let mut last_executed = None;
     let context = LocalContext::new();
 
@@ -180,24 +179,20 @@ fn eval_all (expressions: &[SymbolicExpression],
                     let mut call_stack = CallStack::new();
                     let mut env = Environment::new(
                         &mut global_context, contract_context, &mut call_stack, None);
-                    last_executed = Some(eval(exp, &mut env, &context));
+                    last_executed = Some(eval(exp, &mut env, &context)?);
                 }
                 global_context.commit();
             }
         }
     }
 
-    if let Some(result) = last_executed {
-        result
-    } else {
-        Ok(Value::Void)
-    }
+    Ok(last_executed)
 }
 
 /* Run provided program in a brand new environment, with a transient, empty
  *  database.
  */
-pub fn execute(program: &str) -> Result<Value> {
+pub fn execute(program: &str) -> Result<Option<Value>> {
     let mut contract_context = ContractContext::new(":transient:".to_string());
     let mut conn = ContractDatabaseConnection::memory()?;
     let mut global_context = GlobalContext::begin_from(&mut conn);

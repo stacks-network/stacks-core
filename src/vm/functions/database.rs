@@ -48,8 +48,11 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
         .ok_or(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))?;
 
     let key = eval(&args[1], env, context)?;
-
-    env.global_context.database.fetch_entry(&env.contract_context.name, map_name, &key)
+    let value = env.global_context.database.fetch_entry(&env.contract_context.name, map_name, &key)?;
+    match value {
+        Some(data) => Ok(Value::some(data)),
+        None => Ok(Value::none())
+    }
 }
 
 
@@ -70,7 +73,11 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
 
     let key = eval(&args[2], env, context)?;
 
-    env.global_context.database.fetch_entry(contract_name, map_name, &key)
+    let value = env.global_context.database.fetch_entry(contract_name, map_name, &key)?;
+    match value {
+        Some(data) => Ok(Value::some(data)),
+        None => Ok(Value::none())
+    }
 }
 
 pub fn special_set_entry(args: &[SymbolicExpression],
