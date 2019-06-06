@@ -68,3 +68,4 @@ Cargo.lock
 **/*.rs.bk
 
 node_modules
+tarpaulin-report.html
