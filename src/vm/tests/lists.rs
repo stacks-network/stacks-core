@@ -59,6 +59,30 @@ fn test_simple_map() {
 }
 
 #[test]
+fn test_simple_filter() {
+    let test1 =
+"    (define (test (x int)) (eq? 0 (mod x 2)))
+    (filter test (list 1 2 3 4 5))";
+
+    let bad_tests = [
+        "(filter 123 (list 123))",     // must have function name supplied
+        "(filter not (list 123) 3)",  // must be 2 args
+        "(filter not 'false)",       // must supply list
+        "(filter - (list 1 2 3))"]; // must return bool
+
+
+    let expected = Value::list_from(vec![
+        Value::Int(2),
+        Value::Int(4)]).unwrap();
+
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
+
+    for t in bad_tests.iter() {
+        execute(t).unwrap_err();
+    }
+}
+
+#[test]
 fn test_list_tuple_admission() {
     let test = 
         "(define (bufferize (x int)) (if (eq? x 1) \"abc\" \"ab\"))

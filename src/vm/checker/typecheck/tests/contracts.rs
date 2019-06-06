@@ -40,6 +40,11 @@ const SIMPLE_NAMES: &str =
            ((name-hash (buff 20)))
            ((buyer principal) (paid int)))
 
+         (define (check-balance)
+           (default-to 0 
+             (get balance (fetch-contract-entry
+              tokens tokens (tuple (account tx-sender))))))
+
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
@@ -135,6 +140,42 @@ fn test_names_tokens_contracts_bad() {
             _ => false
     });
 }
+
+#[test]
+fn test_names_tokens_contracts_bad_fetch_contract_entry() {
+    use vm::checker::type_check;
+    let broken_public = "
+         (define (check-balance)
+           (default-to 0 
+             (get balance (fetch-contract-entry
+              tokens tokens (tuple (accnt tx-sender)))))) ;; should be a non-admissable tuple!
+    ";
+
+    let names_contract =
+        format!("{}
+                 {}", SIMPLE_NAMES, broken_public);
+
+    let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
+    let mut names_contract = parse(&names_contract).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
+
+    let result = type_check(&"tokens", &mut tokens_contract, &mut db, true);
+    if let Err(ref e) = result { 
+        println!("{}", e);
+    }
+    result.unwrap();
+
+    let err = type_check(&"names", &mut names_contract, &mut db, true).expect_err("Expected type error.");
+    assert!(match &err.err {
+            &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
+                eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
+                format!("{} {}", expected_type, actual_type) == "(tuple ((account principal))) (tuple ((accnt principal)))"
+            },
+            _ => false
+    });
+}
+
 
 #[test]
 fn test_bad_map_usage() {

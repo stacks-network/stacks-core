@@ -26,7 +26,7 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
                     output.push(x);
                 } // else, filter out.
             } else {
-                return Err(Error::new(ErrType::TypeError("List".to_string(), filter_eval)))
+                return Err(Error::new(ErrType::TypeError("Bool".to_string(), filter_eval)))
             }
         }
         Value::list_from(output)
