@@ -55,6 +55,7 @@ pub struct BuffData {
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct ListData {
     pub data: Vec<Value>,
+    type_signature: TypeSignature
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
@@ -163,18 +164,6 @@ impl PartialEq for ListData {
     }
 }
 
-impl ListData {
-    fn size(&self) -> Result<i128> {
-        self.data.iter()
-            .try_fold(
-                0, |acc, ref v| {
-                    v.size()?
-                        .checked_add(acc)
-                        .ok_or(Error::new(ErrType::ValueTooLarge))
-                })
-    }
-}
-
 impl Hash for ListData {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.data.hash(state);
@@ -238,15 +227,15 @@ impl Value {
     }
 
     pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
+        let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
         // Aaron: at this point, we've _already_ allocated memory for this type.
         //     (e.g., from a (map...) call, or a (list...) call.
         //     this is a problem _if_ the static analyzer cannot already prevent
         //     this case. This applies to all the constructor size checks.
-        let list_data = ListData { data: list_data };
-        if list_data.size()? > MAX_VALUE_SIZE {
+        if type_sig.size()? > MAX_VALUE_SIZE {
             return Err(Error::new(ErrType::ValueTooLarge))
         }
-        Ok(Value::List(list_data))
+        Ok(Value::List(ListData { data: list_data, type_signature: type_sig }))
     }
 
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
@@ -274,7 +263,7 @@ impl Value {
             Value::Principal(_) => AtomTypeIdentifier::PrincipalType.size(),
             Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
             Value::Tuple(ref tuple_data) => tuple_data.size(),
-            Value::List(ref list_data) => list_data.size(),
+            Value::List(ref list_data) => list_data.type_signature.size(),
             Value::Optional(ref opt_data) => opt_data.type_signature().size(),
             Value::Response(ref res_data) => res_data.type_signature().size()
         }
@@ -764,8 +753,7 @@ impl TypeSignature {
 
     pub fn type_of(x: &Value) -> TypeSignature {
         if let Value::List(list_data) = x {
-            TypeSignature::construct_parent_list_type(&list_data.data)
-                .expect("Failed to construct TypeSignature for an already constructed list.")
+            list_data.type_signature.clone()
         } else {
             let atom = match x {
                 Value::Principal(_) => AtomTypeIdentifier::PrincipalType,
