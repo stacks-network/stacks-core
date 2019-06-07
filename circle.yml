@@ -13,23 +13,27 @@ jobs:
           path: /build/dist/
           destination: dist/
   build:
+    machine: true
     working_directory: ~/blockstack
-    docker:
-      - image: circleci/rust
     steps:
       - checkout
       - run:
+          name: Pull Cargo Tarpaulin Image
           command: |
-            cargo build
+            docker pull xd009642/tarpaulin
       - run:
-          environment:
-            RUST_BACKTRACE: 1
-            BLOCKSTACK_DEBUG: 1
-            RUSTFLAGS: -Clink-dead-code
+          name: Run tests in Cargo Tarpaulin Image
           command: |
-            cargo test -- --test-threads 1
-#            cargo kcov && bash <(curl -s https://codecov.io/bash)
-
+            docker run --security-opt seccomp=unconfined -e RUST_BACKTRACE=1 -e BLOCKSTACK_DEBUG=1 \
+            -e RUSTFLAGS=-Clink-dead-code -v "$PWD:/volume" xd009642/tarpaulin cargo tarpaulin -t 300 -o Xml \
+            -- --test-threads 1
+      - run:
+          name: Test that Cargo Tarpaulin Suceeded
+          command: test -e cobertura.xml
+      - run:
+          name: Upload to codecov.io
+          command: |
+            bash <(curl -s https://codecov.io/bash)
 
 workflows:
   version: 2

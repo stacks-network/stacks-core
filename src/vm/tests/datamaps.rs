@@ -3,6 +3,10 @@ use vm::types::{Value};
 
 use vm::execute;
 
+fn assert_executes(expected: Result<Value, Error>, input: &str) {
+    assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
+}
+
 #[test]
 fn test_simple_tea_shop() {
     let test1 =
@@ -10,14 +14,14 @@ fn test_simple_tea_shop() {
          (define (stock (tea int) (amount int))
            (set-entry! proper-tea (tuple (tea-type tea)) (tuple (amount amount))))
          (define (consume (tea int))
-           (let ((current (get amount (fetch-entry proper-tea (tuple (tea-type tea))))))
-              (if (and (not (eq? current 'null)) 
-                       (>= current 1))
+           (let ((current (expects! 
+                            (get amount (fetch-entry proper-tea (tuple (tea-type tea)))) 3)))
+              (if (and (>= current 1))
                   (begin
                     (set-entry! proper-tea (tuple (tea-type tea))
                                            (tuple (amount (- current 1))))
-                    'true)
-                  'false)))
+                    1)
+                  2)))
         (stock 1 3)
         (stock 2 5)
         (list (consume 1)
@@ -35,21 +39,21 @@ fn test_simple_tea_shop() {
         ";
 
     let expected = Value::list_from(vec![
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(false),
-        Value::Bool(true),
-        Value::Bool(true),
-        Value::Bool(false),
-        Value::Bool(false),
-        Value::Bool(false)],
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(1),
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(2),
+        Value::Int(3)],
     );
 
-    assert_eq!(expected, execute(test1));
+    assert_executes(expected, test1);
 }
 
 #[test]
@@ -59,9 +63,7 @@ fn test_factorial_contract() {
          (define (init-factorial (id int) (factorial int))
            (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
          (define (compute (id int))
-           (let ((entry (fetch-entry factorials (tuple (id id)))))
-                (if (eq? entry 'null)
-                    0
+           (let ((entry (expects! (fetch-entry factorials (tuple (id id))) 0)))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
@@ -70,7 +72,7 @@ fn test_factorial_contract() {
                                (set-entry! factorials (tuple (id id))
                                                       (tuple (current (* current index))
                                                              (index (- index 1))))
-                               0))))))
+                               0)))))
         (init-factorial 1337 3)
         (init-factorial 8008 5)
         (list (compute 1337)
@@ -100,7 +102,7 @@ fn test_factorial_contract() {
         Value::Int(120),
     ]);
         
-    assert_eq!(expected, execute(test1));
+    assert_executes(expected, test1);
 }
 
 #[test]
@@ -112,9 +114,9 @@ fn silly_naming_system() {
                1 0))
          (define (who-owns? (name int))
            (let ((owner (get owner (fetch-entry silly-names (tuple (name name))))))
-                (if (eq? 'null owner) (- 1) owner)))
+             (default-to (- 1) owner)))
          (define (invalidate! (name int) (owner int))
-           (let ((current-owner (get owner (fetch-entry silly-names (tuple (name name))))))
+           (let ((current-owner (who-owns? name)))
                 (if (eq? current-owner owner)
                     (if (delete-entry! silly-names (tuple (name name))) 1 0)
                     0)))
@@ -142,7 +144,8 @@ fn silly_naming_system() {
         Value::Int(0),
         Value::Int(-1),
     ]);
-    assert_eq!(expected, execute(test1));
+
+    assert_executes(expected, test1);
 }
 
 #[test]
@@ -190,7 +193,7 @@ fn lists_system() {
            (insert-entry! lists (tuple (name name))
                                 (tuple (contents content))))
          (define (get-list (name int))
-            (get contents (fetch-entry lists (tuple (name name)))))
+            (default-to (list) (get contents (fetch-entry lists (tuple (name name))))))
          (print (add-list 0 (list 1 2 3 4 5)))
          (print (add-list 1 (list 1 2 3)))
          (list      (get-list 0)
@@ -226,7 +229,7 @@ fn lists_system() {
         Value::list_from(vec![list1, list2])
     };
     
-    assert_eq!(expected(), execute(test1));
+    assert_executes(expected(), test1);
 
     for test in [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2,
                  test_bad_tuple_3, test_bad_tuple_4].iter() {
@@ -258,7 +261,7 @@ fn tuples_system() {
                                    (tuple (name content)
                                           (owner content))))))
          (define (get-tuple (name int))
-            (get name (get contents (fetch-entry tuples (tuple (name name))))))
+            (default-to \"\" (get name (get contents (fetch-entry tuples (tuple (name name)))))))
 
 
          (add-tuple 0 \"abcde\")
@@ -279,7 +282,7 @@ fn tuples_system() {
         Value::list_from(vec![buff1, buff2])
     };
 
-    assert_eq!(expected(), execute(test1));
+    assert_executes(expected(), test1);
 
     for test in [test_list_too_big, test_bad_tuple_1].iter() {
         let expected_type_error = match execute(test) {
@@ -333,7 +336,6 @@ fn bad_define_maps() {
 #[test]
 fn bad_tuples() {
     let tests = ["(tuple (name 1) (name 3))",
-                 "(tuple (name 'null))",
                  "(tuple name 1)",
                  "(tuple (name 1) (blame))",
                  "(get value (tuple (name 1)))",

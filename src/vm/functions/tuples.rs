@@ -23,8 +23,7 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
 
 pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     // (get arg-name (tuple ...))
-    //    if the tuple argument is 'null, then return 'null.
-    //  NOTE:  a tuple field value itself may _never_ be 'null
+    //    if the tuple argument is an option type, then return option(field-name).
 
     if args.len() != 2 {
         return Err(Error::new(ErrType::InvalidArguments(format!("(get ..) requires exactly 2 arguments"))))
@@ -37,7 +36,19 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
     let value = eval(&args[1], env, context)?;
 
     match value {
-        Value::Void => Ok(Value::Void),
+        Value::Optional(ref opt_data) => {
+            match opt_data.data {
+                Some(ref data) => {
+                    let data: &Value = data;
+                    if let Value::Tuple(tuple_data) = data {
+                        Ok(Value::some(tuple_data.get(arg_name)?))
+                    } else {
+                        Err(Error::new(ErrType::TypeError("TupleType".to_string(), data.clone())))
+                    }
+                },
+                None => Ok(value.clone()) // just pass through none-types.
+            }
+        },
         Value::Tuple(tuple_data) => tuple_data.get(arg_name),
         _ => Err(Error::new(ErrType::TypeError("TupleType".to_string(), value.clone())))
     }

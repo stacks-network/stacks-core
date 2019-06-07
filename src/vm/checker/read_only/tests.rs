@@ -50,13 +50,13 @@ fn test_contract_call_read_only_violations() {
             (begin
               (set-entry! tokens (tuple (account tx-sender))
                                               (tuple (balance 10)))
-              'true))";
+              (ok 1)))";
     let bad_caller = 
         "(define-read-only (not-reading-only)
             (contract-call! contract1 mint))";
     let ok_caller =
         "(define-read-only (is-reading-only)
-            (eq? 'null (contract-call! contract1 get-balance)))";
+            (eq? 0 (contract-call! contract1 get-balance)))";
 
     let mut contract1 = parse(contract1).unwrap();
     let mut bad_caller = parse(bad_caller).unwrap();

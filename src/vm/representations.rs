@@ -34,20 +34,20 @@ pub struct SymbolicExpression {
 
 impl SymbolicExpression {
     #[cfg(feature = "developer-mode")]
-     fn cons() -> Self {
-         Self {
-             id: 0,
-             line_number: 0,
-             expr: SymbolicExpressionType::AtomValue(Value::Void)
-         }
-     }
+    fn cons() -> Self {
+        Self {
+            id: 0,
+            line_number: 0,
+            expr: SymbolicExpressionType::AtomValue(Value::Bool(false))
+        }
+    }
     #[cfg(not(feature = "developer-mode"))]
-     fn cons() -> Self {
-         Self {
-             id: 0,
-             expr: SymbolicExpressionType::AtomValue(Value::Void)
-         }
-     }    
+    fn cons() -> Self {
+        Self {
+            id: 0,
+            expr: SymbolicExpressionType::AtomValue(Value::Bool(false))
+        }
+    }
 
     #[cfg(feature = "developer-mode")]
     pub fn set_line_number(&mut self, line_number: u32) {

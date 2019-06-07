@@ -51,7 +51,8 @@ pub enum ErrType {
     SerializationFailure(IncomparableError<SerdeJSONErr>),
     SqliteError(IncomparableError<SqliteError>),
     ContractMustReturnBoolean,
-    WriteFromReadOnlyContext
+    WriteFromReadOnlyContext,
+    ExpectedValue(Value)
 }
 
 pub type InterpreterResult <R> = Result<R, Error>;
@@ -110,8 +111,6 @@ mod test {
                    "Illegal operation: attempted recursion detected.");
         assert_eq!(format!("{}", Error::new(ErrType::TryEvalToFunction)),
                    "Illegal operation: attempt to evaluate to function.");
-        assert_eq!(format!("{}", Error::new(ErrType::TypeError("Test".to_string(), Value::Void))),
-                   "TypeError: Expected Test, found null.");
         assert_eq!(format!("{}", Error::new(ErrType::NotImplemented)),
                    "NotImplemented");
     }

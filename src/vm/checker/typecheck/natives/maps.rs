@@ -19,10 +19,12 @@ pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpr
     let (expected_key_type, value_type) = checker.contract_context.get_map_type(map_name)
         .ok_or(CheckError::new(CheckErrors::NoSuchMap(map_name.clone())))?;
 
+    let option_type = TypeSignature::new_option(value_type.clone());
+
     if !expected_key_type.admits_type(&key_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
     } else {
-        return Ok(value_type.clone())
+        return Ok(option_type)
     }
 }
 
@@ -43,11 +45,13 @@ pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[Sym
     let key_type = checker.type_check(&args[2], context)?;
     
     let (expected_key_type, value_type) = checker.db.get_map_type(contract_name, map_name)?;
+
+    let option_type = TypeSignature::new_option(value_type);
     
     if !expected_key_type.admits_type(&key_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
     } else {
-        return Ok(value_type)
+        return Ok(option_type)
     }
 }
 
@@ -94,7 +98,7 @@ pub fn check_special_set_entry(checker: &mut TypeChecker, args: &[SymbolicExpres
     } else if !expected_value_type.admits_type(&value_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
     } else {
-        return Ok(TypeSignature::new_atom(AtomTypeIdentifier::VoidType))
+        return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
     }
 }
 

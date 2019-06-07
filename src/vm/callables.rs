@@ -63,7 +63,15 @@ impl DefinedFunction {
                 return Err(Error::new(ErrType::VariableDefinedMultipleTimes(arg.clone())))
             }
         }
-        eval(&self.body, env, &context)
+        let result = eval(&self.body, env, &context);
+
+        // if the error wasn't actually an error, but a function return,
+        //    pull that out and return it.
+        if let Err(Error{ err_type: ErrType::ExpectedValue(ref v), ..}) = result {
+            Ok(v.clone())
+        } else {
+            result
+        }
     }
 
     pub fn is_read_only(&self) -> bool {
