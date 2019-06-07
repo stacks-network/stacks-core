@@ -111,6 +111,24 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                       Ok(acc? && self.is_read_only(&argument)?) })
     }
 
+    fn are_tuples_read_only(&self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
+
+        for tuple_expr in tuples.iter() {
+            println!("{:?}", tuple_expr);
+
+            let pair = tuple_expr.match_list()
+                .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
+            if pair.len() != 2 {
+                return Err(CheckError::new(CheckErrors::BadSyntaxBinding))
+            }
+
+            if !self.is_read_only(&pair[1])? {
+                return Ok(false)
+            }
+        }
+        Ok(false)
+    }
+
     fn try_native_function_check(&self, function: &str, args: &[SymbolicExpression]) -> Option<CheckResult<bool>> {
         if let Some(ref function) = NativeFunctions::lookup_by_name(function) {
             Some(self.handle_native_function(function, args))
@@ -126,8 +144,23 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater |
             Modulo | Power | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
             ConsOkay | ConsError | DefaultTo | Expects | ExpectsErr | IsOkay | IsNone |
-            ListCons | GetBlockInfo | FetchEntry | FetchContractEntry | TupleGet | Print | AsContract | Begin => {
+            ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin => {
                 self.are_all_read_only(true, args)
+            },
+            FetchEntry | FetchContractEntry => {
+                use vm::functions::tuples;
+                use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
+                
+                let res = match tuples::tuple_definition_type(&args[1]) {
+                    Implicit(ref tuple_expr) => {
+                        self.are_tuples_read_only(tuple_expr)
+                    },
+                    Explicit => {
+                        let outer = args[1].match_list().ok_or(CheckError::new(CheckErrors::BadTupleConstruction))?;
+                        self.are_tuples_read_only(&outer[1..outer.len()])
+                    },
+                };
+                res
             },
             SetEntry | DeleteEntry | InsertEntry => {
                 Ok(false)
