@@ -79,7 +79,10 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
     let map_name = args[1].match_atom()
         .ok_or(Error::new(ErrType::InvalidArguments("Second argument in fetch-contract-entry must be the map name".to_string())))?;
 
-    let key = eval(&args[2], env, context)?;
+    let key = match tuples::tuple_definition_type(&args[2]) {
+        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
+        Explicit => eval(&args[1], env, &context)?
+    };
 
     let value = env.global_context.database.fetch_entry(contract_name, map_name, &key)?;
     match value {
