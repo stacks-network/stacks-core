@@ -235,6 +235,30 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     Ok(body_return_type)
 }
 
+fn check_special_equals(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() < 1 {
+        return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
+    }
+    
+    let mut arg_types = checker.type_check_all(args, context)?;
+
+    let mut arg_type = arg_types[0].clone();
+    for x_type in arg_types.drain(..) {
+        arg_type = TypeSignature::most_admissive(x_type, arg_type)
+            .map_err(|(a,b)| CheckError::new(CheckErrors::DefaultTypesMustMatch(a, b)))?;
+
+    }
+    checker.type_map.set_type(&args[0], no_type())?;
+    let binding_list = args[0].match_list()
+        .ok_or(CheckError::new(CheckErrors::BadLetSyntax))?;
+    
+    let let_context = checker.type_check_list_pairs(binding_list, context)?;
+    
+    let body_return_type = checker.type_check(&args[1], &let_context)?;
+    
+    Ok(body_return_type)
+}
+
 fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 3 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
@@ -248,7 +272,7 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
     let expr2 = &arg_types[2];
 
     TypeSignature::most_admissive(expr1.clone(), expr2.clone())
-        .ok_or(CheckError::new(CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone())))
+        .map_err(|(a,b)| CheckError::new(CheckErrors::DefaultTypesMustMatch(a, b)))
 }
 
 fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
