@@ -1,6 +1,7 @@
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::{Value};
 use vm::representations::{SymbolicExpression,SymbolicExpressionType};
+use vm::representations::SymbolicExpressionType::{List};
 use vm::{LocalContext, Environment, eval};
 
 pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
@@ -53,3 +54,18 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
         _ => Err(Error::new(ErrType::TypeError("TupleType".to_string(), value.clone())))
     }
 }
+
+pub enum TupleDefinitionType {
+    Implicit(Box<[SymbolicExpression]>),
+    Explicit,
+}
+
+pub fn tuple_definition_type(args: &SymbolicExpression) -> TupleDefinitionType {
+    if let List(ref outer_expr) = args.expr {
+        if let List(_) = (&outer_expr[0]).expr {
+            return TupleDefinitionType::Implicit(outer_expr.clone());
+        }
+    }
+    TupleDefinitionType::Explicit
+}
+
