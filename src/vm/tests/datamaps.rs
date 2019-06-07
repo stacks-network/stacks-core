@@ -57,6 +57,83 @@ fn test_simple_tea_shop() {
 }
 
 #[test]
+fn test_explicit_syntax_tuple() {
+    let test =
+        "(define-map kv-store ((key int)) ((value int)))
+         (define (kv-add (key int) (value int))
+            (begin
+                (insert-entry! kv-store (tuple (key key))
+                                    (tuple (value value)))
+            value))
+         (define (kv-get (key int))
+            (expects! (get value (fetch-entry kv-store (tuple (key key)))) 0))
+         (define (kv-set (key int) (value int))
+            (begin
+                (set-entry! kv-store (tuple (key key))
+                                   (tuple (value value)))
+                value))
+         (define (kv-del (key int))
+            (begin
+                (delete-entry! kv-store (tuple (key key)))
+                key))
+        ";
+
+    let mut test_add_set_del = test.to_string();
+    test_add_set_del.push_str("(list (kv-add 1 1) (kv-set 1 2) (kv-del 1) (kv-add 1 1))");
+    let expected = Value::list_from(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(1),
+        Value::Int(1)],
+    );    
+    assert_executes(expected, &test_add_set_del);
+
+    let mut test_get = test.to_string();
+    test_get.push_str("(list (kv-get 1))");
+    let expected = Value::list_from(vec![Value::Int(0)]);    
+    assert_executes(expected, &test_get);
+}
+
+#[test]
+fn test_implicit_syntax_tuple() {
+    let test =
+        "(define-map kv-store ((key int)) ((value int)))
+         (define (kv-add (key int) (value int))
+            (begin
+                (insert-entry! kv-store ((key key))
+                                    ((value value)))
+            value))
+         (define (kv-get (key int))
+            (expects! (get value (fetch-entry kv-store ((key key)))) 0))
+         (define (kv-set (key int) (value int))
+            (begin
+                (set-entry! kv-store ((key key))
+                                   ((value value)))
+                value))
+         (define (kv-del (key int))
+            (begin
+                (delete-entry! kv-store ((key key)))
+                key))
+        ";
+
+    let mut test_add_set_del = test.to_string();
+    test_add_set_del.push_str("(list (kv-add 1 1) (kv-set 1 2) (kv-del 1) (kv-add 1 1))");
+    let expected = Value::list_from(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(1),
+        Value::Int(1)],
+    );    
+    assert_executes(expected, &test_add_set_del);
+
+    let mut test_get = test.to_string();
+    test_get.push_str("(list (kv-get 1))");
+    let expected = Value::list_from(vec![Value::Int(0)]);    
+    assert_executes(expected, &test_get);
+}
+
+
+#[test]
 fn test_factorial_contract() {
     let test1 =
         "(define-map factorials ((id int)) ((current int) (index int)))
