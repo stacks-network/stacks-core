@@ -1,5 +1,8 @@
 use std::convert::TryFrom;
 
+use vm::functions::tuples;
+use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
+
 use vm::types::{Value, BuffData, BlockInfoProperty};
 use vm::representations::{SymbolicExpression};
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
@@ -47,7 +50,12 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
     let map_name = args[0].match_atom()
         .ok_or(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))?;
 
-    let key = eval(&args[1], env, context)?;
+
+    let key = match tuples::tuple_definition_type(&args[1]) {
+        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
+        Explicit => eval(&args[1], env, &context)?
+    };
+
     let value = env.global_context.database.fetch_entry(&env.contract_context.name, map_name, &key)?;
     match value {
         Some(data) => Ok(Value::some(data)),
@@ -94,9 +102,16 @@ pub fn special_set_entry(args: &[SymbolicExpression],
         return Err(Error::new(ErrType::InvalidArguments("(set-entry! ...) requires exactly 3 arguments".to_string())))
     }
 
-    let key = eval(&args[1], env, context)?;
-    let value = eval(&args[2], env, context)?;
- 
+    let key = match tuples::tuple_definition_type(&args[1]) {
+        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
+        Explicit => eval(&args[1], env, &context)?
+    };
+
+    let value = match tuples::tuple_definition_type(&args[2]) {
+        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
+        Explicit => eval(&args[2], env, &context)?
+    };
+
     let map_name = args[0].match_atom()
         .ok_or(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))?;
 
@@ -116,9 +131,16 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
     if args.len() != 3 {
         return Err(Error::new(ErrType::InvalidArguments("(insert-entry! ...) requires exactly 3 arguments".to_string())))
     }
+    
+    let key = match tuples::tuple_definition_type(&args[1]) {
+        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
+        Explicit => eval(&args[1], env, &context)?
+    };
 
-    let key = eval(&args[1], env, context)?;
-    let value = eval(&args[2], env, context)?;
+    let value = match tuples::tuple_definition_type(&args[2]) {
+        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
+        Explicit => eval(&args[2], env, &context)?
+    };
 
     let map_name = args[0].match_atom()
         .ok_or(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))?;
@@ -139,7 +161,10 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
         return Err(Error::new(ErrType::InvalidArguments("(delete-entry! ...) requires exactly 2 arguments".to_string())))
     }
 
-    let key = eval(&args[1], env, context)?;
+    let key = match tuples::tuple_definition_type(&args[1]) {
+        Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
+        Explicit => eval(&args[1], env, &context)?
+    };
 
     let map_name = args[0].match_atom()
         .ok_or(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))?;
