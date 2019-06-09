@@ -112,21 +112,18 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     }
 
     fn are_tuples_read_only(&self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
-
         for tuple_expr in tuples.iter() {
-            println!("{:?}", tuple_expr);
-
             let pair = tuple_expr.match_list()
-                .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
+                .ok_or(CheckError::new(CheckErrors::TupleExpectsPairs))?;
             if pair.len() != 2 {
-                return Err(CheckError::new(CheckErrors::BadSyntaxBinding))
+                return Err(CheckError::new(CheckErrors::TupleExpectsPairs))
             }
 
             if !self.is_read_only(&pair[1])? {
                 return Ok(false)
             }
         }
-        Ok(false)
+        Ok(true)
     }
 
     fn try_native_function_check(&self, function: &str, args: &[SymbolicExpression]) -> Option<CheckResult<bool>> {
