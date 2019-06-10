@@ -852,7 +852,7 @@ impl TypeSignature {
                 false
             }
         } else {
-            self.atomic_type.admits(&x_type.atomic_type)
+            self.list_dimensions.is_none() && self.atomic_type.admits(&x_type.atomic_type)
         }
     }
 

@@ -245,18 +245,11 @@ fn check_special_equals(checker: &mut TypeChecker, args: &[SymbolicExpression], 
     let mut arg_type = arg_types[0].clone();
     for x_type in arg_types.drain(..) {
         arg_type = TypeSignature::most_admissive(x_type, arg_type)
-            .map_err(|(a,b)| CheckError::new(CheckErrors::DefaultTypesMustMatch(a, b)))?;
+            .map_err(|(a,b)| CheckError::new(CheckErrors::TypeError(a, b)))?;
 
     }
-    checker.type_map.set_type(&args[0], no_type())?;
-    let binding_list = args[0].match_list()
-        .ok_or(CheckError::new(CheckErrors::BadLetSyntax))?;
-    
-    let let_context = checker.type_check_list_pairs(binding_list, context)?;
-    
-    let body_return_type = checker.type_check(&args[1], &let_context)?;
-    
-    Ok(body_return_type)
+
+    Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
 }
 
 fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -356,9 +349,7 @@ impl TypedNativeFunction {
             Keccak256 =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
                                                                 TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
-            Equals =>
-                Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::AnyType ),
-                                                                   TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
+            Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),
             Map => Special(SpecialNativeFunction(&check_special_map)),
