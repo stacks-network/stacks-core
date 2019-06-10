@@ -57,7 +57,7 @@ fn test_simple_tea_shop() {
 }
 
 #[test]
-fn test_bounded_tuple() {
+fn test_bound_tuple() {
     let test =
         "(define-map kv-store ((key int)) ((value int)))
          (define (kv-add (key int) (value int))
