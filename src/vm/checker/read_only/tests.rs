@@ -72,3 +72,25 @@ fn test_contract_call_read_only_violations() {
     type_check(&"ok_caller", &mut ok_caller, &mut db, true).unwrap();
 
 }
+
+#[test]
+fn test_hidden_write_call_read_only_violations() {
+    let contract = 
+        "(define-map tokens ((account principal)) ((balance int)))
+         (define (update-balance-and-get-tx-sender)
+            (begin
+              (let ((balance (get balance (fetch-entry tokens (tuple (account tx-sender))))
+              (set-entry! tokens (tuple (account tx-sender))
+                                              (tuple (balance (+ balance 1))))
+              (ok tx-sender)))
+         (define-read-only (get-balance)
+            (begin
+              (fetch-entry tokens (tuple (account update-balance-and-get-tx-sender)))
+              (ok 1)))";
+
+    let mut ast = parse(contract).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
+    let err = type_check(&":transient:", &mut ast, &mut db, true).unwrap_err();
+    assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly)
+}
