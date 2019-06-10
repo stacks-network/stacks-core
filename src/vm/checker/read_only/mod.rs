@@ -111,7 +111,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                       Ok(acc? && self.is_read_only(&argument)?) })
     }
 
-    fn are_tuples_read_only(&self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn are_tuple_values_read_only(&self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
         for tuple_expr in tuples.iter() {
             let pair = tuple_expr.match_list()
                 .ok_or(CheckError::new(CheckErrors::TupleExpectsPairs))?;
@@ -150,12 +150,14 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 
                 let res = match tuples::tuple_definition_type(&args[1]) {
                     Implicit(ref tuple_expr) => {
-                        self.are_tuples_read_only(tuple_expr)
+                        self.are_tuple_values_read_only(tuple_expr)
                     },
                     Explicit => {
-                        let outer = args[1].match_list().ok_or(CheckError::new(CheckErrors::BadTupleConstruction))?;
-                        self.are_tuples_read_only(&outer[1..outer.len()])
-                    },
+                        match &args[1].expr {
+                            List(tuple_expr) => self.are_tuple_values_read_only(&tuple_expr[1..tuple_expr.len()]),
+                            _ => Ok(true)
+                        }
+                    }
                 };
                 res
             },
