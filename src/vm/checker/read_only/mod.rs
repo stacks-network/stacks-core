@@ -153,10 +153,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                         self.are_tuple_values_read_only(tuple_expr)
                     },
                     Explicit => {
-                        match &args[1].expr {
-                            List(tuple_expr) => self.are_tuple_values_read_only(&tuple_expr[1..tuple_expr.len()]),
-                            _ => Ok(true)
-                        }
+                        self.are_all_read_only(true, args)
                     }
                 };
                 res
