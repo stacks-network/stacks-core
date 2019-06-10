@@ -499,7 +499,7 @@ and `false` if it was an `err`.",
 };
 
 const IS_NONE_API: SpecialAPI = SpecialAPI {
-    input_type: "Option(A)",
+    input_type: "Optional(A)",
     output_type: "bool",
     name: "is-none?",
     signature: "(is-none? value)",
