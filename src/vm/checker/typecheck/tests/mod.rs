@@ -222,3 +222,100 @@ fn test_tuple_map() {
 
     type_check(&":transient:", &mut t, &mut analysis_db, false).unwrap();
 }
+
+
+#[test]
+fn test_explicit_tuple_map() {
+    use vm::checker::type_check;
+    let contract =
+        "(define-map kv-store ((key int)) ((value int)))
+          (define (kv-add (key int) (value int))
+             (begin
+                 (insert-entry! kv-store (tuple (key key))
+                                     (tuple (value value)))
+             value))
+          (define (kv-get (key int))
+             (expects! (get value (fetch-entry kv-store (tuple (key key)))) 0))
+          (define (kv-set (key int) (value int))
+             (begin
+                 (set-entry! kv-store (tuple (key key))
+                                    (tuple (value value)))
+                 value))
+          (define (kv-del (key int))
+             (begin
+                 (delete-entry! kv-store (tuple (key key)))
+                 key))
+         ";
+
+    let mut contract = parse(contract).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+}
+
+#[test]
+fn test_imlicit_tuple_map() {
+    use vm::checker::type_check;
+    let contract =
+         "(define-map kv-store ((key int)) ((value int)))
+          (define (kv-add (key int) (value int))
+             (begin
+                 (insert-entry! kv-store ((key key))
+                                     ((value value)))
+             value))
+          (define (kv-get (key int))
+             (expects! (get value (fetch-entry kv-store ((key key)))) 0))
+          (define (kv-set (key int) (value int))
+             (begin
+                 (set-entry! kv-store ((key key))
+                                    ((value value)))
+                 value))
+          (define (kv-del (key int))
+             (begin
+                 (delete-entry! kv-store ((key key)))
+                 key))
+         ";
+
+    let mut contract = parse(contract).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+}
+
+
+#[test]
+fn test_bound_tuple_map() {
+    use vm::checker::type_check;
+    let contract =
+        "(define-map kv-store ((key int)) ((value int)))
+         (define (kv-add (key int) (value int))
+            (begin
+                (let ((my-tuple (tuple (key key))))
+                (insert-entry! kv-store (tuple (key key))
+                                    (tuple (value value))))
+            value))
+         (define (kv-get (key int))
+            (let ((my-tuple (tuple (key key))))
+            (expects! (get value (fetch-entry kv-store my-tuple)) 0)))
+         (define (kv-set (key int) (value int))
+            (begin
+                (let ((my-tuple (tuple (key key))))
+                (set-entry! kv-store my-tuple
+                                   (tuple (value value))))
+                value))
+         (define (kv-del (key int))
+            (begin
+                (let ((my-tuple (tuple (key key))))
+                (delete-entry! kv-store my-tuple))
+                key))
+        ";
+
+    let mut contract = parse(contract).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+}
+
