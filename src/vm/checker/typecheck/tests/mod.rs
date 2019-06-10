@@ -2,6 +2,7 @@ use vm::parser::parse;
 use vm::representations::SymbolicExpression;
 use vm::checker::typecheck::{TypeResult, TypeChecker, TypingContext};
 use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection, identity_pass};
+use vm::checker::errors::CheckErrors;
 
 mod contracts;
 
@@ -12,6 +13,7 @@ fn type_check(exp: &SymbolicExpression) -> TypeResult {
     let contract_context = TypingContext::new();
     type_checker.type_check(exp, &contract_context)
 }
+
 
 #[test]
 fn test_get_block_info(){
@@ -125,10 +127,10 @@ fn test_tuples() {
     let bad = ["(+ 1 2      (get def (tuple (abc 1) (def 'true))))",
                "(and 'true  (get abc (tuple (abc 1) (def 'true))))"];
     
-        for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-            identity_pass::identity_pass(&mut good_test).unwrap();
-            type_check(&good_test[0]).unwrap();
-        }
+    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
+        identity_pass::identity_pass(&mut good_test).unwrap();
+        type_check(&good_test[0]).unwrap();
+    }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut bad_test).unwrap();
@@ -255,7 +257,7 @@ fn test_explicit_tuple_map() {
 }
 
 #[test]
-fn test_imlicit_tuple_map() {
+fn test_implicit_tuple_map() {
     use vm::checker::type_check;
     let contract =
          "(define-map kv-store ((key int)) ((value int)))
@@ -319,3 +321,172 @@ fn test_bound_tuple_map() {
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
 }
 
+#[test]
+fn test_fetch_entry_matching_type_signatures() {
+    let cases = [
+        "fetch-entry kv-store ((key key))",
+        "fetch-entry kv-store ((key 0))",
+        "fetch-entry kv-store (tuple (key 0))",
+        "fetch-entry kv-store (compatible-tuple)",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (compatible-tuple) (tuple (key 1)))
+             (define (kv-get (key int))
+                ({}))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        type_check(&contract[0]).unwrap();
+    }
+}
+
+#[test]
+fn test_fetch_entry_mismatching_type_signatures() {
+    let cases = [
+        "fetch-entry kv-store ((incomptible-key key))",
+        "fetch-entry kv-store ((key unknown-value))",
+        "fetch-entry kv-store ((key 'true))",
+        "fetch-entry kv-store (incompatible-key)",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (incompatible-tuple) (tuple (k 1)))
+             (define (kv-get (key int))
+                ({}))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        type_check(&contract[0]).unwrap_err();
+    }
+}
+
+
+#[test]
+fn test_insert_entry_matching_type_signatures() {
+    let cases = [
+        "insert-entry! kv-store ((key key)) ((value value))",
+        "insert-entry! kv-store ((key 0)) ((value 1))",
+        "insert-entry! kv-store (tuple (key 0)) (tuple (value 1))",
+        "insert-entry! kv-store (compatible-tuple) ((value 1))",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (compatible-tuple) (tuple (key 1)))
+             (define (kv-add (key int) (value int))
+                ({}))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        type_check(&contract[0]).unwrap();
+    }
+}
+
+#[test]
+fn test_insert_entry_mismatching_type_signatures() {
+    let cases = [
+        "insert-entry! kv-store ((incomptible-key key)) ((value value))",
+        "insert-entry! kv-store ((key key)) ((incomptible-key value))",
+        "insert-entry! kv-store ((key unknown-value)) ((value 1))",
+        "insert-entry! kv-store ((key key)) ((value unknown-value))",
+        "insert-entry! kv-store ((key 'true)) ((value 1))",
+        "insert-entry! kv-store ((key key)) ((value 'true))",
+        "insert-entry! kv-store (incompatible-tuple) ((value 1))",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (incompatible-tuple) (tuple (k 1)))
+             (define (kv-add (key int) (value int))
+                ({}))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        type_check(&contract[0]).unwrap_err();
+    }
+}
+
+#[test]
+fn test_delete_entry_matching_type_signatures() {
+    let cases = [
+        "delete-entry! kv-store ((key key))",
+        "delete-entry! kv-store ((key 1))",
+        "delete-entry! kv-store (tuple (key 1))",
+        "delete-entry! kv-store (compatible-tuple)",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (compatible-tuple) (tuple (key 1)))
+             (define (kv-del (key int))
+                ({}))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        type_check(&contract[0]).unwrap();
+    }
+}
+
+#[test]
+fn test_delete_entry_mismatching_type_signatures() {
+    let cases = [
+        "delete-entry! kv-store ((incomptible-key key))",
+        "delete-entry! kv-store ((key unknown-value))",
+        "delete-entry! kv-store ((key 'true))",
+        "delete-entry! kv-store (incompatible-tuple)",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (incompatible-tuple) (tuple (k 1)))
+             (define (kv-del (key int))
+                ({}))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        type_check(&contract[0]).unwrap_err();
+    }
+
+}
+
+#[test]
+fn test_set_entry_matching_type_signatures() {    
+    let cases = [
+        "set-entry! kv-store ((key key)) ((value value))",
+        "set-entry! kv-store ((key 0)) ((value 1))",
+        "set-entry! kv-store (tuple (key 0)) (tuple (value 1))",
+        "set-entry! kv-store (tuple (key 0)) (tuple (value known-value))",
+        "set-entry! kv-store (compatible-tuple) ((value 1))",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (compatible-tuple) (tuple (key 1)))
+             (define (kv-set (key int) (value int))
+                (let ((known-value 2))
+                ({})))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        type_check(&contract[0]).unwrap();
+    }
+}
+
+#[test]
+fn test_set_entry_mismatching_type_signatures() {    
+    let cases = [
+        "set-entry! kv-store ((incomptible-key key)) ((value value))",
+        "set-entry! kv-store ((key key)) ((incomptible-key value))",
+        "set-entry! kv-store ((key unknown-value)) ((value 1))",
+        "set-entry! kv-store ((key key)) ((value unknown-value))",
+        "set-entry! kv-store ((key 'true)) ((value 1))",
+        "set-entry! kv-store ((key key)) ((value 'true))",
+        "set-entry! kv-store (incompatible-tuple) ((value 1))",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (incompatible-tuple) (tuple (k 1)))
+             (define (kv-set (key int) (value int))
+                ({}))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        type_check(&contract[0]).unwrap_err();
+    }
+}
