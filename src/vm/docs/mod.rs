@@ -97,9 +97,9 @@ const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: "and",
     signature: "(and b1 b2 ...)",
     description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
-    example: "(and 'true 'false) ;; Returns false
-(and (eq? (+ 1 2) 1) (eq? 4 4)) ;; Returns false
-(and (eq? (+ 1 2) 3) (eq? 4 4)) ;; Returns true
+    example: "(and 'true 'false) ;; Returns 'false
+(and (eq? (+ 1 2) 1) (eq? 4 4)) ;; Returns 'false
+(and (eq? (+ 1 2) 3) (eq? 4 4)) ;; Returns 'true
 "
 };
 
@@ -107,10 +107,10 @@ const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: "or",
     signature: "(or b1 b2 ...)",
     description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function short-circuits, and no subsequent arguments are evaluated.",
-    example: "(or 'true 'false) ;; Returns true
-(or (eq? (+ 1 2) 1) (eq? 4 4)) ;; Returns true
-(or (eq? (+ 1 2) 1) (eq? 3 4)) ;; Returns false
-(or (eq? (+ 1 2) 3) (eq? 4 4)) ;; Returns true
+    example: "(or 'true 'false) ;; Returns 'true
+(or (eq? (+ 1 2) 1) (eq? 4 4)) ;; Returns 'true
+(or (eq? (+ 1 2) 1) (eq? 3 4)) ;; Returns 'false
+(or (eq? (+ 1 2) 3) (eq? 4 4)) ;; Returns 'true
 "
 };
 
@@ -118,8 +118,8 @@ const NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: "not",
     signature: "(not b1)",
     description: "Returns the inverse of the boolean input.",
-    example: "(not 'true) ;; Returns false
-(not (eq? 1 2)) ;; Returns `true`
+    example: "(not 'true) ;; Returns 'false
+(not (eq? 1 2)) ;; Returns 'true
 "
 };
 
@@ -127,8 +127,8 @@ const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: ">= (greater than or equal)",
     signature: "(>= i1 i2)",
     description: "Compares two integers, returning `true` if `i1` is greater than or equal to `i2` and `false` otherwise.",
-    example: "(>= 1 1) ;; Returns true
-(>= 5 2) ;; Returns true
+    example: "(>= 1 1) ;; Returns 'true
+(>= 5 2) ;; Returns 'true
 "
 };
 
@@ -136,8 +136,8 @@ const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: "<= (less than or equal)",
     signature: "(> i1 i2)",
     description: "Compares two integers, returning true if `i1` is less than or equal to `i2` and `false` otherwise.",
-    example: "(<= 1 1) ;; Returns true
-(<= 5 2) ;; Returns false
+    example: "(<= 1 1) ;; Returns 'true
+(<= 5 2) ;; Returns 'false
 "
 };
 
@@ -145,9 +145,9 @@ const EQUALS_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: "eq?",
     signature: "(eq? v1 v2...)",
     description: "Compares the inputted values, returning `true` if they are all equal. Note that _unlike_ the `(and ...)` function, `(eq? ...)` will _not_ short-circuit.",
-    example: "(eq? 1 1) ;; Returns true
-(eq? 1 'false) ;; Returns false
-(eq? \"abc\" 234 234) ;; Returns false
+    example: "(eq? 1 1) ;; Returns 'true
+(eq? 1 'false) ;; Returns 'false
+(eq? \"abc\" 234 234) ;; Returns 'false
 "
 };
 
@@ -155,8 +155,8 @@ const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: "> (greater than)",
     signature: "(> i1 i2)",
     description: "Compares two integers, returning `true` if `i1` is greater than `i2` and false otherwise.",
-    example: "(> 1 2) ;; Returns false
-(> 5 2) ;; Returns true
+    example: "(> 1 2) ;; Returns 'false
+(> 5 2) ;; Returns 'true
 "
 };
 
@@ -164,8 +164,8 @@ const LESS_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: "< (less than)",
     signature: "(< i1 i2)",
     description: "Compares two integers, returning `true` if `i1` is less than `i2` and `false` otherwise.",
-    example: "(< 1 2) ;; Returns true
-(< 5 2) ;; Returns false
+    example: "(< 1 2) ;; Returns 'true
+(< 5 2) ;; Returns 'false
 "
 };
 
@@ -236,7 +236,7 @@ const MAP_API: SpecialAPI = SpecialAPI {
     signature: "(map func list)",
     description: "The `map` function applies the input function `func` to each element of the
 input list, and outputs a list containing the _outputs_ from those function applications.",
-    example: "(map not (list true false true false)) ;; Returns false true false true"
+    example: "(map not (list true false true false)) ;; Returns 'false true false true"
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
@@ -277,9 +277,8 @@ const PRINT_API: SpecialAPI = SpecialAPI {
     input_type: "A",
     output_type: "A",
     signature: "(print expr)",
-    description: "The `print` function evaluates and returns its input expression. On blockstack-core
-nodes configured for development (as opposed to production mining nodes), this function will also
-cause blockstack-core to print the resulting value to STDOUT.",
+    description: "The `print` function evaluates and returns its input expression. On Blockstack Core
+nodes configured for development (as opposed to production mining nodes), this function prints the resulting value to `STDOUT` (standard output).",
     example: "(print (+ 1 2 3)) ;; Returns 6",
 };
 
@@ -303,7 +302,7 @@ const SET_API: SpecialAPI = SpecialAPI {
     description: "The `set-entry!` function sets the value associated with the input key to the 
 inputted value. This function performs a _blind_ update; whether or not a value is already associated
 with the key, the function overwrites that existing association.",
-    example: "(set-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns true",
+    example: "(set-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true",
 };
 
 const INSERT_API: SpecialAPI = SpecialAPI {
@@ -315,8 +314,8 @@ const INSERT_API: SpecialAPI = SpecialAPI {
 inputted value if and only if there is not already a value associated with the key in the map.
 If an insert occurs, the function returns `true`. If a value already existed for
 this key in the data map, the function returns `false`.",
-    example: "(insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns true
-(insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns false
+    example: "(insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
+(insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'false
 ",
 };
 
@@ -328,8 +327,8 @@ const DELETE_API: SpecialAPI = SpecialAPI {
     description: "The `delete-entry!` function removes the value associated with the input key for
 the given map. If an item exists, and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
-    example: "(delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns true
-(delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns false
+    example: "(delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns 'true
+(delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns 'false
 ",
 };
 
@@ -387,7 +386,7 @@ const SHA256_API: SpecialAPI = SpecialAPI {
     input_type: "buff|int",
     output_type: "(buff 32)",
     signature: "(sha256 value)",
-    description: "The `sha256` function computes SHA256(x) of the inputted value.
+    description: "The `sha256` function computes `SHA256(x)` of the inputted value.
 If an integer (128 bit) is supplied the hash is computed over the little endian representation of the
 integer.",
     example: "(sha256 0) ;; Returns 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb"
