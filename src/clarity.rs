@@ -27,6 +27,7 @@ where command is one of:
   eval_raw           to typecheck and evaluate an expression without a contract or database context.
   repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
+  generate_address   to generate a random Stacks public address for testing purposes.
 
 ", invoked_by);
     process::exit(1);
@@ -51,6 +52,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     process::exit(1);
                 }
             }
+        },
+        "generate_address" => {
+            use address::c32::c32_address;
+            use rand::Rng;
+            // random 20 bytes
+            let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
+            // version = 22
+            let addr = c32_address(22, &random_bytes).expect("Failed to generate address");
+            println!("{}", addr);
         },
         "mine_block" => {
             // TODO: add optional args for specifying timestamps and number of blocks to mine.
