@@ -57,6 +57,48 @@ fn test_simple_tea_shop() {
 }
 
 #[test]
+fn test_bounded_tuple() {
+    let test =
+        "(define-map kv-store ((key int)) ((value int)))
+         (define (kv-add (key int) (value int))
+            (begin
+                (let ((my-tuple (tuple (key key))))
+                (insert-entry! kv-store (tuple (key key))
+                                    (tuple (value value))))
+            value))
+         (define (kv-get (key int))
+            (let ((my-tuple (tuple (key key))))
+            (expects! (get value (fetch-entry kv-store my-tuple)) 0)))
+         (define (kv-set (key int) (value int))
+            (begin
+                (let ((my-tuple (tuple (key key))))
+                (set-entry! kv-store my-tuple
+                                   (tuple (value value))))
+                value))
+         (define (kv-del (key int))
+            (begin
+                (let ((my-tuple (tuple (key key))))
+                (delete-entry! kv-store my-tuple))
+                key))
+        ";
+
+    let mut test_add_set_del = test.to_string();
+    test_add_set_del.push_str("(list (kv-add 1 1) (kv-set 1 2) (kv-del 1) (kv-add 1 1))");
+    let expected = Value::list_from(vec![
+        Value::Int(1),
+        Value::Int(2),
+        Value::Int(1),
+        Value::Int(1)],
+    );    
+    assert_executes(expected, &test_add_set_del);
+
+    let mut test_get = test.to_string();
+    test_get.push_str("(list (kv-get 1))");
+    let expected = Value::list_from(vec![Value::Int(0)]);    
+    assert_executes(expected, &test_get);
+}
+
+#[test]
 fn test_explicit_syntax_tuple() {
     let test =
         "(define-map kv-store ((key int)) ((value int)))
