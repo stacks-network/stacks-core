@@ -64,8 +64,7 @@ fn test_bound_tuple() {
          (define (kv-add (key int) (value int))
             (begin
                 (let ((my-tuple (tuple (key key))))
-                (insert-entry! kv-store (tuple (key key))
-                                    (tuple (value value))))
+                (insert-entry! kv-store my-tuple (tuple (value value))))
             value))
          (define (kv-get (key int))
             (let ((my-tuple (tuple (key key))))
