@@ -34,7 +34,7 @@ fn test_get_block_info(){
 #[test]
 fn test_simple_arithmetic_checks() {
     let good = ["(>= (+ 1 2 3) (- 1 2))",
-                "(eq? (+ 1 2 3) 'true 'false)",
+                "(eq? (+ 1 2 3) 6 0)",
                 "(and (or 'true 'false) 'false)"];
     let bad = ["(+ 1 2 3 (>= 5 7))",
                "(-)",
@@ -88,6 +88,41 @@ fn test_simple_lets() {
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut bad_test).unwrap();
         assert!(type_check(&bad_test[0]).is_err())
+    }
+}
+
+#[test]
+fn test_eqs() {
+    let good = ["(eq? (list 1 2 3 4 5) (list 1 2 3 4 5 6 7))",
+                "(eq? (tuple (good 1) (bad 2)) (tuple (good 2) (bad 3)))",
+                "(eq? \"abcdef\" \"abc\" \"a\")"];
+    let bad = [
+        "(eq? 1 2 'false)",
+        "(eq? 1 2 3 (list 2))",
+        "(list (list 1 2) (list 'true) (list 5 1 7))",
+        "(list 1 2 3 'true 'false 4 5 6)",
+        "(map mod (list 1 2 3 4 5))",
+        "(map - (list 'true 'false 'true 'false))",
+        "(map hash160 (+ 1 2))",];
+                   
+    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
+        identity_pass::identity_pass(&mut good_test).unwrap();
+        let t_out = type_check(&good_test[0]);
+        match t_out {
+            Err(ref t_out) => eprintln!("{}", t_out),
+            _ => {}
+        }
+        t_out.unwrap();
+    }
+    
+    for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
+        identity_pass::identity_pass(&mut bad_test).unwrap();
+        let checked = type_check(&bad_test[0]);
+        match checked {
+            Err(ref t_out) => eprintln!("{}", t_out),
+            _ => {}
+        }
+        assert!(checked.is_err())
     }
 }
 

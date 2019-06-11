@@ -58,7 +58,7 @@ const SIMPLE_NAMES: &str =
                           (buyer tx-sender)))
                  (ok 0) (err 2))
                (if (eq? (expects-err! xfer-result (err (- 1)))
-                        \"not enough balance\")
+                        2)
                    (err 1) (err 3)))))
 
          (define-public (register 
