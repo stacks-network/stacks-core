@@ -33,6 +33,7 @@ where command is one of:
     process::exit(1);
 }
 
+#[cfg_attr(tarpaulin, skip)]
 pub fn invoke_command(invoked_by: &str, args: &[String]) {
     if args.len() < 1 {
         print_usage(invoked_by)
