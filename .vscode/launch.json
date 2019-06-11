@@ -33,10 +33,10 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=clarity"
+                    "--bin=clarity-cli"
                 ],
                 "filter": {
-                    "name": "clarity",
+                    "name": "clarity-cli",
                     "kind": "bin"
                 }
             },

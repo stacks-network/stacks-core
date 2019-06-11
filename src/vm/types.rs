@@ -41,6 +41,14 @@ pub struct TypeSignature {
     //       high dimensional lists are _expensive_ --- use lists of tuples!
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FunctionArg {
+    #[serde(flatten)]
+    pub signature: TypeSignature,
+    #[cfg(feature = "developer-mode")]
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
     type_signature: TupleTypeSignature,
@@ -291,6 +299,12 @@ impl fmt::Display for AtomTypeIdentifier {
                 write!(f, "))")
             }
         }
+    }
+}
+
+impl fmt::Display for FunctionArg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.signature)
     }
 }
 
@@ -561,6 +575,21 @@ impl fmt::Display for TupleData {
             write!(f, "({} {})", name, value)?;
         }
         write!(f, ")")
+    }
+}
+
+impl FunctionArg {
+    #[cfg(feature = "developer-mode")]
+    pub fn new(sig: TypeSignature, name: &str) -> FunctionArg {
+        FunctionArg { 
+            signature: sig, 
+            name: name.to_owned() }
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn new(sig: TypeSignature, name: &str) -> FunctionArg {
+        FunctionArg { 
+            signature: sig }
     }
 }
 

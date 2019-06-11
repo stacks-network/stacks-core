@@ -4,7 +4,7 @@ pub mod natives;
 
 use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
+use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, FunctionArg, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::variables::NativeVariables;
 
@@ -41,7 +41,7 @@ pub type TypeResult = CheckResult<TypeSignature>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FunctionType {
     Variadic(TypeSignature, TypeSignature),
-    Fixed(Vec<TypeSignature>, TypeSignature)
+    Fixed(Vec<FunctionArg>, TypeSignature)
 }
 
 pub struct TypeChecker <'a, 'b> {
@@ -71,7 +71,7 @@ impl FunctionType {
                     return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(
                         arg_types.len(), args.len())))
                 }
-                for (expected_type, found_type) in arg_types.iter().zip(args) {
+                for (expected_type, found_type) in arg_types.iter().map(|x| &x.signature).zip(args) {
                     if !expected_type.admits_type(found_type) {
                         return Err(CheckError::new(CheckErrors::TypeError(
                             expected_type.clone(), found_type.clone())))
@@ -281,10 +281,10 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
                 self.function_return_tracker = None;
 
-                let arg_types: Vec<TypeSignature> = args.drain(..)
-                    .map(|(_, arg_type)| arg_type).collect();
+                let func_args: Vec<FunctionArg> = args.drain(..)
+                    .map(|(arg_name, arg_type)| FunctionArg::new(arg_type, &arg_name)).collect();
 
-                Ok((function_name.to_string(), FunctionType::Fixed(arg_types, return_type)))
+                Ok((function_name.to_string(), FunctionType::Fixed(func_args, return_type)))
             }
         }
     }
