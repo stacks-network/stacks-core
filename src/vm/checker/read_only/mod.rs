@@ -2,8 +2,10 @@ use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
-use vm::variables::NativeVariables;
+use vm::functions::tuples;
+use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
+use vm::variables::NativeVariables;
 use std::collections::HashMap;
 
 use super::AnalysisDatabase;
@@ -144,10 +146,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin => {
                 self.are_all_read_only(true, args)
             },
-            FetchEntry | FetchContractEntry => {
-                use vm::functions::tuples;
-                use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
-                
+            FetchEntry | FetchContractEntry => {                
                 let res = match tuples::tuple_definition_type(&args[1]) {
                     Implicit(ref tuple_expr) => {
                         self.are_tuple_values_read_only(tuple_expr)
