@@ -3,10 +3,11 @@ use vm::representations::SymbolicExpression;
 use vm::checker::typecheck::{TypeResult, TypeChecker, TypingContext};
 use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection, identity_pass};
 use vm::checker::errors::CheckErrors;
+use vm::checker::type_check;
 
 mod contracts;
 
-fn type_check(exp: &SymbolicExpression) -> TypeResult {
+fn type_check_helper(exp: &SymbolicExpression) -> TypeResult {
     let mut analysis_conn = AnalysisDatabaseConnection::memory();
     let analysis_db = analysis_conn.begin_save_point();
     let mut type_checker = TypeChecker::new(&analysis_db);
@@ -24,12 +25,12 @@ fn test_get_block_info(){
                "(get-block-info time)"];
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut good_test).unwrap();
-        type_check(&good_test[0]).unwrap();
+        type_check_helper(&good_test[0]).unwrap();
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut bad_test).unwrap();
-        assert!(type_check(&bad_test[0]).is_err())
+        assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
 
@@ -46,12 +47,12 @@ fn test_simple_arithmetic_checks() {
                "(and (or 'true 'false) (+ 1 2 3))"];
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut good_test).unwrap();
-        type_check(&good_test[0]).unwrap();
+        type_check_helper(&good_test[0]).unwrap();
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut bad_test).unwrap();
-        assert!(type_check(&bad_test[0]).is_err())
+        assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
 
@@ -67,12 +68,12 @@ fn test_simple_ifs() {
                "(if 0 1 0)"];
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut good_test).unwrap();
-        type_check(&good_test[0]).unwrap();
+        type_check_helper(&good_test[0]).unwrap();
     }
 
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut bad_test).unwrap();
-        assert!(type_check(&bad_test[0]).is_err())
+        assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
 
@@ -84,12 +85,12 @@ fn test_simple_lets() {
                "(let ((1 2)) (+ 1 2))"];
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut good_test).unwrap();
-        type_check(&good_test[0]).unwrap();
+        type_check_helper(&good_test[0]).unwrap();
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut bad_test).unwrap();
-        assert!(type_check(&bad_test[0]).is_err())
+        assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
 
@@ -111,12 +112,12 @@ fn test_lists() {
                    
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut good_test).unwrap();
-        type_check(&good_test[0]).unwrap();
+        type_check_helper(&good_test[0]).unwrap();
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut bad_test).unwrap();
-        assert!(type_check(&bad_test[0]).is_err())
+        assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
 
@@ -129,19 +130,17 @@ fn test_tuples() {
     
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut good_test).unwrap();
-        type_check(&good_test[0]).unwrap();
+        type_check_helper(&good_test[0]).unwrap();
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut bad_test).unwrap();
-        assert!(type_check(&bad_test[0]).is_err())
+        assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
 
 #[test]
 fn test_define() {
-    use vm::checker::type_check;
-    
     let good = ["(define (foo (x int) (y int)) (+ x y))
                      (define (bar (x int) (y bool)) (if y (+ 1 x) 0))
                      (* (foo 1 2) (bar 3 'false))",
@@ -169,7 +168,6 @@ fn test_define() {
 
 #[test]
 fn test_factorial() {
-    use vm::checker::type_check;
     let contract = "(define-map factorials ((id int)) ((current int) (index int)))
          (define (init-factorial (id int) (factorial int))
            (print (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
@@ -198,7 +196,6 @@ fn test_factorial() {
 
 #[test]
 fn test_tuple_map() {
-    use vm::checker::type_check;
     let t = "(define-map tuples ((name int)) 
                             ((contents (tuple ((name (buff 5))
                                                (owner (buff 5)))))))
@@ -228,7 +225,6 @@ fn test_tuple_map() {
 
 #[test]
 fn test_explicit_tuple_map() {
-    use vm::checker::type_check;
     let contract =
         "(define-map kv-store ((key int)) ((value int)))
           (define (kv-add (key int) (value int))
@@ -258,7 +254,6 @@ fn test_explicit_tuple_map() {
 
 #[test]
 fn test_implicit_tuple_map() {
-    use vm::checker::type_check;
     let contract =
          "(define-map kv-store ((key int)) ((value int)))
           (define (kv-add (key int) (value int))
@@ -289,7 +284,6 @@ fn test_implicit_tuple_map() {
 
 #[test]
 fn test_bound_tuple_map() {
-    use vm::checker::type_check;
     let contract =
         "(define-map kv-store ((key int)) ((value int)))
          (define (kv-add (key int) (value int))
@@ -323,8 +317,6 @@ fn test_bound_tuple_map() {
 
 #[test]
 fn test_fetch_entry_matching_type_signatures() {
-    use vm::checker::type_check;
-    
     let cases = [
         "fetch-entry kv-store ((key key))",
         "fetch-entry kv-store ((key 0))",
@@ -347,8 +339,6 @@ fn test_fetch_entry_matching_type_signatures() {
 
 #[test]
 fn test_fetch_entry_mismatching_type_signatures() {
-    use vm::checker::type_check;
-    
     let cases = [
         "fetch-entry kv-store ((incomptible-key key))",
         "fetch-entry kv-store ((key 'true))",
@@ -374,8 +364,6 @@ fn test_fetch_entry_mismatching_type_signatures() {
 
 #[test]
 fn test_fetch_entry_unbound_variables() {
-    use vm::checker::type_check;
-    
     let cases = [
         "fetch-entry kv-store ((key unknown-value))",
     ];
@@ -398,8 +386,6 @@ fn test_fetch_entry_unbound_variables() {
 
 #[test]
 fn test_insert_entry_matching_type_signatures() {
-    use vm::checker::type_check;
-    
     let cases = [
         "insert-entry! kv-store ((key key)) ((value value))",
         "insert-entry! kv-store ((key 0)) ((value 1))",
@@ -422,8 +408,6 @@ fn test_insert_entry_matching_type_signatures() {
 
 #[test]
 fn test_insert_entry_mismatching_type_signatures() {
-    use vm::checker::type_check;
-    
     let cases = [
         "insert-entry! kv-store ((incomptible-key key)) ((value value))",
         "insert-entry! kv-store ((key key)) ((incomptible-key value))",
@@ -451,8 +435,6 @@ fn test_insert_entry_mismatching_type_signatures() {
 
 #[test]
 fn test_insert_entry_unbound_variables() {
-    use vm::checker::type_check;
-    
     let cases = [
         "insert-entry! kv-store ((key unknown-value)) ((value 1))",
         "insert-entry! kv-store ((key key)) ((value unknown-value))",
@@ -477,8 +459,6 @@ fn test_insert_entry_unbound_variables() {
 
 #[test]
 fn test_delete_entry_matching_type_signatures() {
-    use vm::checker::type_check;
-    
     let cases = [
         "delete-entry! kv-store ((key key))",
         "delete-entry! kv-store ((key 1))",
@@ -501,8 +481,6 @@ fn test_delete_entry_matching_type_signatures() {
 
 #[test]
 fn test_delete_entry_mismatching_type_signatures() {
-    use vm::checker::type_check;
-    
     let cases = [
         "delete-entry! kv-store ((incomptible-key key))",
         "delete-entry! kv-store ((key 'true))",
@@ -528,9 +506,7 @@ fn test_delete_entry_mismatching_type_signatures() {
 }
 
 #[test]
-fn test_delete_entry_unbound_variables() {
-    use vm::checker::type_check;
-    
+fn test_delete_entry_unbound_variables() {    
     let cases = [
         "delete-entry! kv-store ((key unknown-value))",
     ];
@@ -552,9 +528,7 @@ fn test_delete_entry_unbound_variables() {
 }
 
 #[test]
-fn test_set_entry_matching_type_signatures() {
-    use vm::checker::type_check;
-    
+fn test_set_entry_matching_type_signatures() {    
     let cases = [
         "set-entry! kv-store ((key key)) ((value value))",
         "set-entry! kv-store ((key 0)) ((value 1))",
@@ -580,9 +554,7 @@ fn test_set_entry_matching_type_signatures() {
 
 
 #[test]
-fn test_set_entry_mismatching_type_signatures() {
-    use vm::checker::type_check;
-    
+fn test_set_entry_mismatching_type_signatures() {    
     let cases = [
         "set-entry! kv-store ((incomptible-key key)) ((value value))",
         "set-entry! kv-store ((key key)) ((incomptible-key value))",
@@ -610,9 +582,7 @@ fn test_set_entry_mismatching_type_signatures() {
 
 
 #[test]
-fn test_set_entry_unbound_variables() {
-    use vm::checker::type_check;
-    
+fn test_set_entry_unbound_variables() {    
     let cases = [
         "set-entry! kv-store ((key unknown-value)) ((value 1))",
         "set-entry! kv-store ((key key)) ((value unknown-value))",
