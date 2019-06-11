@@ -323,6 +323,8 @@ fn test_bound_tuple_map() {
 
 #[test]
 fn test_fetch_entry_matching_type_signatures() {
+    use vm::checker::type_check;
+    
     let cases = [
         "fetch-entry kv-store ((key key))",
         "fetch-entry kv-store ((key 0))",
@@ -337,17 +339,20 @@ fn test_fetch_entry_matching_type_signatures() {
              (define (kv-get (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        type_check(&contract[0]).unwrap();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
     }
 }
 
 #[test]
 fn test_fetch_entry_mismatching_type_signatures() {
+    use vm::checker::type_check;
+    
     let cases = [
         "fetch-entry kv-store ((incomptible-key key))",
-        "fetch-entry kv-store ((key unknown-value))",
         "fetch-entry kv-store ((key 'true))",
-        "fetch-entry kv-store (incompatible-key)",
+        "fetch-entry kv-store (incompatible-tuple)",
     ];
 
     for case in cases.into_iter() {
@@ -357,13 +362,44 @@ fn test_fetch_entry_mismatching_type_signatures() {
              (define (kv-get (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        type_check(&contract[0]).unwrap_err();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::TypeError(_, _) => true,
+            _ => false
+        });
     }
 }
 
+#[test]
+fn test_fetch_entry_unbound_variables() {
+    use vm::checker::type_check;
+    
+    let cases = [
+        "fetch-entry kv-store ((key unknown-value))",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (kv-get (key int))
+                ({}))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::UnboundVariable(_) => true,
+            _ => false
+        });
+    }
+}
 
 #[test]
 fn test_insert_entry_matching_type_signatures() {
+    use vm::checker::type_check;
+    
     let cases = [
         "insert-entry! kv-store ((key key)) ((value value))",
         "insert-entry! kv-store ((key 0)) ((value 1))",
@@ -378,17 +414,19 @@ fn test_insert_entry_matching_type_signatures() {
              (define (kv-add (key int) (value int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        type_check(&contract[0]).unwrap();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
     }
 }
 
 #[test]
 fn test_insert_entry_mismatching_type_signatures() {
+    use vm::checker::type_check;
+    
     let cases = [
         "insert-entry! kv-store ((incomptible-key key)) ((value value))",
         "insert-entry! kv-store ((key key)) ((incomptible-key value))",
-        "insert-entry! kv-store ((key unknown-value)) ((value 1))",
-        "insert-entry! kv-store ((key key)) ((value unknown-value))",
         "insert-entry! kv-store ((key 'true)) ((value 1))",
         "insert-entry! kv-store ((key key)) ((value 'true))",
         "insert-entry! kv-store (incompatible-tuple) ((value 1))",
@@ -401,12 +439,46 @@ fn test_insert_entry_mismatching_type_signatures() {
              (define (kv-add (key int) (value int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        type_check(&contract[0]).unwrap_err();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::TypeError(_, _) => true,
+            _ => false
+        });
     }
 }
 
 #[test]
+fn test_insert_entry_unbound_variables() {
+    use vm::checker::type_check;
+    
+    let cases = [
+        "insert-entry! kv-store ((key unknown-value)) ((value 1))",
+        "insert-entry! kv-store ((key key)) ((value unknown-value))",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (kv-add (key int))
+                ({}))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::UnboundVariable(_) => true,
+            _ => false
+        });
+    }
+}
+
+
+#[test]
 fn test_delete_entry_matching_type_signatures() {
+    use vm::checker::type_check;
+    
     let cases = [
         "delete-entry! kv-store ((key key))",
         "delete-entry! kv-store ((key 1))",
@@ -421,15 +493,18 @@ fn test_delete_entry_matching_type_signatures() {
              (define (kv-del (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        type_check(&contract[0]).unwrap();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
     }
 }
 
 #[test]
 fn test_delete_entry_mismatching_type_signatures() {
+    use vm::checker::type_check;
+    
     let cases = [
         "delete-entry! kv-store ((incomptible-key key))",
-        "delete-entry! kv-store ((key unknown-value))",
         "delete-entry! kv-store ((key 'true))",
         "delete-entry! kv-store (incompatible-tuple)",
     ];
@@ -441,13 +516,45 @@ fn test_delete_entry_mismatching_type_signatures() {
              (define (kv-del (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        type_check(&contract[0]).unwrap_err();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::TypeError(_, _) => true,
+            _ => false
+        });
     }
 
 }
 
 #[test]
-fn test_set_entry_matching_type_signatures() {    
+fn test_delete_entry_unbound_variables() {
+    use vm::checker::type_check;
+    
+    let cases = [
+        "delete-entry! kv-store ((key unknown-value))",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (kv-del (key int))
+                ({}))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::UnboundVariable(_) => true,
+            _ => false
+        });
+    }
+}
+
+#[test]
+fn test_set_entry_matching_type_signatures() {
+    use vm::checker::type_check;
+    
     let cases = [
         "set-entry! kv-store ((key key)) ((value value))",
         "set-entry! kv-store ((key 0)) ((value 1))",
@@ -464,17 +571,21 @@ fn test_set_entry_matching_type_signatures() {
                 (let ((known-value 2))
                 ({})))", case);
         let mut contract = parse(&contract_src).unwrap();
-        type_check(&contract[0]).unwrap();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
     }
 }
 
+
+
 #[test]
-fn test_set_entry_mismatching_type_signatures() {    
+fn test_set_entry_mismatching_type_signatures() {
+    use vm::checker::type_check;
+    
     let cases = [
         "set-entry! kv-store ((incomptible-key key)) ((value value))",
         "set-entry! kv-store ((key key)) ((incomptible-key value))",
-        "set-entry! kv-store ((key unknown-value)) ((value 1))",
-        "set-entry! kv-store ((key key)) ((value unknown-value))",
         "set-entry! kv-store ((key 'true)) ((value 1))",
         "set-entry! kv-store ((key key)) ((value 'true))",
         "set-entry! kv-store (incompatible-tuple) ((value 1))",
@@ -487,6 +598,39 @@ fn test_set_entry_mismatching_type_signatures() {
              (define (kv-set (key int) (value int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        type_check(&contract[0]).unwrap_err();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::TypeError(_, _) => true,
+            _ => false
+        });
     }
 }
+
+
+#[test]
+fn test_set_entry_unbound_variables() {
+    use vm::checker::type_check;
+    
+    let cases = [
+        "set-entry! kv-store ((key unknown-value)) ((value 1))",
+        "set-entry! kv-store ((key key)) ((value unknown-value))",
+    ];
+
+    for case in cases.into_iter() {
+        let contract_src = format!(
+            "(define-map kv-store ((key int)) ((value int)))
+             (define (kv-set (key int) (value int))
+                ({}))", case);
+        let mut contract = parse(&contract_src).unwrap();
+        let mut analysis_conn = AnalysisDatabaseConnection::memory();
+        let mut analysis_db = analysis_conn.begin_save_point();
+        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        assert!(match &res.err {
+            &CheckErrors::UnboundVariable(_) => true,
+            _ => false
+        });
+    }
+}
+
