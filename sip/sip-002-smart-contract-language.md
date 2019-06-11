@@ -90,7 +90,7 @@ functions created with `define-read-only` may return any type.
   be charged based on the _maximal_ size of the multi-dimensional list.
 * `filter` `map` and `fold` functions may only be called with user-defined functions
   (i.e., functions defined with `(define ...)`, `(define-read-only ...)`, or
-  `(define-public ...)`
+  `(define-public ...)`) or simple native functions (e.g., `+`, `-`, `not`).
 * Functions that return lists of a different size than the input size
   (e.g., `(append-item ...)`) take a required _constant_ parameter that indicates
   the maximum output size of the function. This is enforced with a runtime check.

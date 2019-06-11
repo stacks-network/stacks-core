@@ -67,6 +67,7 @@ fn test_simple_filter() {
     let bad_tests = [
         "(filter 123 (list 123))",     // must have function name supplied
         "(filter not (list 123) 3)",  // must be 2 args
+        "(filter +)",  // must be 2 args
         "(filter not 'false)",       // must supply list
         "(filter - (list 1 2 3))"]; // must return bool
 
