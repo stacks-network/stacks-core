@@ -12,7 +12,7 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
         return Err(Error::new(ErrType::InvalidArguments(format!("Wrong number of arguments ({}) to filter", args.len()))))
     }
     let function_name = args[0].match_atom()
-        .ok_or(Error::new(ErrType::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string())))?;
+        .ok_or(Error::new(ErrType::InvalidArguments("Filter must be called with a function name. We do not support eval'ing to functions.".to_string())))?;
 
     let function = lookup_function(&function_name, env)?;
     let list = eval(&args[1], env, context)?;
