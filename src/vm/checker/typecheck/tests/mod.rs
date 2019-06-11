@@ -110,7 +110,7 @@ fn test_eqs() {
                    
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut good_test).unwrap();
-        let t_out = type_check(&good_test[0]);
+        let t_out = type_check_helper(&good_test[0]);
         match t_out {
             Err(ref t_out) => eprintln!("{}", t_out),
             _ => {}
@@ -120,7 +120,7 @@ fn test_eqs() {
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
         identity_pass::identity_pass(&mut bad_test).unwrap();
-        let checked = type_check(&bad_test[0]);
+        let checked = type_check_helper(&bad_test[0]);
         match checked {
             Err(ref t_out) => eprintln!("{}", t_out),
             _ => {}
