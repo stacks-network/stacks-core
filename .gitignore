@@ -68,3 +68,5 @@ Cargo.lock
 **/*.rs.bk
 
 node_modules
+osxcross
+osxcross*.tar.xz
