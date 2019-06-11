@@ -60,6 +60,12 @@ pub enum TupleDefinitionType {
     Explicit,
 }
 
+// Identify whether a symbolic expression is an implicit tuple structure ((key2 k1) (key2 k2)), 
+// or other - (tuple (key2 k1) (key2 k2)) / bound variable / function call. 
+// The caller is responsible for any eventual type checks or actual execution.
+// Used in:
+// - the type checker: doesn't eval the resulting structure, it only type checks it,
+// - the interpreter: want to eval the result, and then do type enforcement on the value, not the type signature.
 pub fn tuple_definition_type(args: &SymbolicExpression) -> TupleDefinitionType {
     if let List(ref outer_expr) = args.expr {
         if let List(_) = (&outer_expr[0]).expr {
