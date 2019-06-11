@@ -77,7 +77,7 @@ fn test_contract_call_read_only_violations() {
             (contract-call! contract1 mint))";
     let ok_caller =
         "(define-read-only (is-reading-only)
-            (eq? 0 (contract-call! contract1 get-balance)))";
+            (eq? 0 (expects! (contract-call! contract1 get-balance) 'false)))";
 
     let mut contract1 = parse(contract1).unwrap();
     let mut bad_caller = parse(bad_caller).unwrap();

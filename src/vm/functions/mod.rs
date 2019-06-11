@@ -7,7 +7,7 @@ mod database;
 mod options;
 
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
-use vm::types::{Value, PrincipalData, ResponseData};
+use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::CallableType;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List, Atom};
@@ -180,14 +180,22 @@ fn native_eq(args: &[Value]) -> Result<Value> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
+
     if args.len() < 2 {
         Ok(Value::Bool(true))
     } else {
         let first = &args[0];
-        // Using `fold` rather than `all` to prevent short-circuiting. 
-        let result = args.iter()
-            .fold(true, |acc, x| acc && (*x == *first));
-        Ok(Value::Bool(result))
+        // check types:
+        let mut arg_type = TypeSignature::type_of(first);
+        for x in args.iter() {
+            arg_type = TypeSignature::most_admissive(TypeSignature::type_of(x), arg_type)
+                .map_err(|(a,b)| Error::new(
+                    ErrType::TypeError(format!("{}", a), x.clone())))?;
+            if x != first {
+                return Ok(Value::Bool(false))
+            }
+        }
+        Ok(Value::Bool(true))
     }
 }
 
