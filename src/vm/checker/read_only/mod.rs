@@ -146,8 +146,19 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin => {
                 self.are_all_read_only(true, args)
             },
-            FetchEntry | FetchContractEntry => {                
+            FetchEntry => {                
                 let res = match tuples::tuple_definition_type(&args[1]) {
+                    Implicit(ref tuple_expr) => {
+                        self.are_tuple_values_read_only(tuple_expr)
+                    },
+                    Explicit => {
+                        self.are_all_read_only(true, args)
+                    }
+                };
+                res
+            },
+            FetchContractEntry => {                
+                let res = match tuples::tuple_definition_type(&args[2]) {
                     Implicit(ref tuple_expr) => {
                         self.are_tuple_values_read_only(tuple_expr)
                     },
