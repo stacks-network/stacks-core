@@ -1,6 +1,7 @@
 use vm::errors::{Error, ErrType};
-use vm::types::{Value};
-
+use vm::types::{Value, PrincipalData};
+use vm::contexts::{OwnedEnvironment};
+use vm::database::{ContractDatabaseConnection};
 use vm::execute;
 
 fn assert_executes(expected: Result<Value, Error>, input: &str) {
@@ -172,6 +173,41 @@ fn test_implicit_syntax_tuple() {
     test_get.push_str("(list (kv-get 1))");
     let expected = Value::list_from(vec![Value::Int(0)]);    
     assert_executes(expected, &test_get);
+}
+
+
+#[test]
+fn test_fetch_contract_entry() {
+    let kv_store_contract_src = r#"
+        (define-map kv-store ((key int)) ((value int)))
+        (define-read-only (kv-get (key int))
+            (expects! (get value (fetch-entry kv-store ((key key)))) 0))
+        (begin (insert-entry! kv-store ((key 42)) ((value 42))))"#;
+
+    let proxy_src = r#"
+        (define (fetch-via-conntract-call)
+            (contract-call! kv-store-contract kv-get 42))
+        (define (fetch-via-fetch-contract-entry-using-explicit-tuple)
+            (expects! (get value (fetch-contract-entry kv-store-contract kv-store (tuple (key 42)))) 0))
+        (define (fetch-via-fetch-contract-entry-using-implicit-tuple)
+            (expects! (get value (fetch-contract-entry kv-store-contract kv-store ((key 42)))) 0))
+        (define (fetch-via-fetch-contract-entry-using-bound-tuple)
+            (let ((t (tuple (key 42))))
+            (expects! (get value (fetch-contract-entry kv-store-contract kv-store t)) 0)))"#;
+
+    let mut conn = ContractDatabaseConnection::memory().unwrap();
+    let mut owned_env = OwnedEnvironment::new(&mut conn);
+
+    let mut env = owned_env.get_exec_environment(None);
+    let r = env.initialize_contract("kv-store-contract", kv_store_contract_src).unwrap();
+    env.initialize_contract("proxy-contract", proxy_src).unwrap();
+    env.sender = Some(Value::Principal(PrincipalData::StandardPrincipal
+                                       (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])));
+
+    assert_eq!(Value::Int(42), env.eval_read_only("proxy-contract", "(fetch-via-conntract-call)").unwrap());
+    assert_eq!(Value::Int(42), env.eval_read_only("proxy-contract", "(fetch-via-fetch-contract-entry-using-implicit-tuple)").unwrap());
+    assert_eq!(Value::Int(42), env.eval_read_only("proxy-contract", "(fetch-via-fetch-contract-entry-using-explicit-tuple)").unwrap());
+    assert_eq!(Value::Int(42), env.eval_read_only("proxy-contract", "(fetch-via-fetch-contract-entry-using-bound-tuple)").unwrap());
 }
 
 

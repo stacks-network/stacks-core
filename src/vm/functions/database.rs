@@ -81,7 +81,7 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
 
     let key = match tuples::tuple_definition_type(&args[2]) {
         Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
-        Explicit => eval(&args[1], env, &context)?
+        Explicit => eval(&args[2], env, &context)?
     };
 
     let value = env.global_context.database.fetch_entry(contract_name, map_name, &key)?;
