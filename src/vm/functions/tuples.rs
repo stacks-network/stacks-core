@@ -66,7 +66,7 @@ pub enum TupleDefinitionType {
 // Used in:
 // - the type checker: doesn't eval the resulting structure, it only type checks it,
 // - the interpreter: want to eval the result, and then do type enforcement on the value, not the type signature.
-pub fn tuple_definition_type(args: &SymbolicExpression) -> TupleDefinitionType {
+pub fn get_definition_type_of_tuple_argument(args: &SymbolicExpression) -> TupleDefinitionType {
     if let List(ref outer_expr) = args.expr {
         if let List(_) = (&outer_expr[0]).expr {
             return TupleDefinitionType::Implicit(outer_expr.clone());

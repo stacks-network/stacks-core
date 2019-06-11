@@ -51,7 +51,7 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
         .ok_or(Error::new(ErrType::InvalidArguments("First argument in data functions must be the map name".to_string())))?;
 
 
-    let key = match tuples::tuple_definition_type(&args[1]) {
+    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
         Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
         Explicit => eval(&args[1], env, &context)?
     };
@@ -79,7 +79,7 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
     let map_name = args[1].match_atom()
         .ok_or(Error::new(ErrType::InvalidArguments("Second argument in fetch-contract-entry must be the map name".to_string())))?;
 
-    let key = match tuples::tuple_definition_type(&args[2]) {
+    let key = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
         Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
         Explicit => eval(&args[2], env, &context)?
     };
@@ -105,12 +105,12 @@ pub fn special_set_entry(args: &[SymbolicExpression],
         return Err(Error::new(ErrType::InvalidArguments("(set-entry! ...) requires exactly 3 arguments".to_string())))
     }
 
-    let key = match tuples::tuple_definition_type(&args[1]) {
+    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
         Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
         Explicit => eval(&args[1], env, &context)?
     };
 
-    let value = match tuples::tuple_definition_type(&args[2]) {
+    let value = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
         Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
         Explicit => eval(&args[2], env, &context)?
     };
@@ -135,12 +135,12 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
         return Err(Error::new(ErrType::InvalidArguments("(insert-entry! ...) requires exactly 3 arguments".to_string())))
     }
     
-    let key = match tuples::tuple_definition_type(&args[1]) {
+    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
         Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
         Explicit => eval(&args[1], env, &context)?
     };
 
-    let value = match tuples::tuple_definition_type(&args[2]) {
+    let value = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
         Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
         Explicit => eval(&args[2], env, &context)?
     };
@@ -164,7 +164,7 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
         return Err(Error::new(ErrType::InvalidArguments("(delete-entry! ...) requires exactly 2 arguments".to_string())))
     }
 
-    let key = match tuples::tuple_definition_type(&args[1]) {
+    let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
         Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
         Explicit => eval(&args[1], env, &context)?
     };

@@ -113,7 +113,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                       Ok(acc? && self.is_read_only(&argument)?) })
     }
 
-    fn are_tuple_values_read_only(&self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn is_implicit_tuple_definition_read_only(&self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
         for tuple_expr in tuples.iter() {
             let pair = tuple_expr.match_list()
                 .ok_or(CheckError::new(CheckErrors::TupleExpectsPairs))?;
@@ -147,9 +147,9 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 self.are_all_read_only(true, args)
             },
             FetchEntry => {                
-                let res = match tuples::tuple_definition_type(&args[1]) {
+                let res = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
                     Implicit(ref tuple_expr) => {
-                        self.are_tuple_values_read_only(tuple_expr)
+                        self.is_implicit_tuple_definition_read_only(tuple_expr)
                     },
                     Explicit => {
                         self.are_all_read_only(true, args)
@@ -158,9 +158,9 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 res
             },
             FetchContractEntry => {                
-                let res = match tuples::tuple_definition_type(&args[2]) {
+                let res = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
                     Implicit(ref tuple_expr) => {
-                        self.are_tuple_values_read_only(tuple_expr)
+                        self.is_implicit_tuple_definition_read_only(tuple_expr)
                     },
                     Explicit => {
                         self.are_all_read_only(true, args)
