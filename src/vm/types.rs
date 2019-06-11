@@ -772,10 +772,9 @@ impl TypeSignature {
     }
 
     fn expand_to_admit(&mut self, x_type: &TypeSignature) -> Result<()> {
-        use self::TypeSignature::{Atom, List};
         match (self, x_type) {
-            (List(ref mut my_atomic, ref mut my_list_dimensions),
-             List(ref x_atomic, ref x_list_dimensions)) => {
+            (TypeSignature::List(ref mut my_atomic, ref mut my_list_dimensions),
+             TypeSignature::List(ref x_atomic, ref x_list_dimensions)) => {
                 if my_list_dimensions.dimension != x_list_dimensions.dimension {
                     return Err(Error::new(ErrType::BadTypeConstruction))
                 }
@@ -784,7 +783,8 @@ impl TypeSignature {
                 }
                 my_atomic.expand_to_admit(x_atomic)
             },
-            (Atom(ref mut my_atomic), Atom(ref x_atomic)) => {
+            (TypeSignature::Atom(ref mut my_atomic),
+             TypeSignature::Atom(ref x_atomic)) => {
                 my_atomic.expand_to_admit(x_atomic)
             },
             _ => Err(Error::new(ErrType::BadTypeConstruction))
