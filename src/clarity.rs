@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::io;
 use std::io::{Read, Write};
 use std::fs;
@@ -11,6 +12,8 @@ use vm::database::{ContractDatabase, ContractDatabaseConnection, ContractDatabas
 use vm::{SymbolicExpression, SymbolicExpressionType};
 use vm::checker::{type_check, AnalysisDatabase, AnalysisDatabaseConnection};
 use vm::types::Value;
+
+use address::c32::c32_address;
 
 use serde::Serialize;
 
@@ -55,8 +58,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
         },
         "generate_address" => {
-            use address::c32::c32_address;
-            use rand::Rng;
             // random 20 bytes
             let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
             // version = 22
