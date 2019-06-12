@@ -637,7 +637,7 @@ impl TypeSignature {
 
         let okay_type = TypeSignature::most_admissive(a_type_okay, b_type_okay);
         let error_type = TypeSignature::most_admissive(a_type_err, b_type_err);
-        if let (Some(okay_type), Some(error_type)) = (okay_type, error_type) {
+        if let (Ok(okay_type), Ok(error_type)) = (okay_type, error_type) {
             Some(TypeSignature::new_atom(
                 AtomTypeIdentifier::ResponseType(
                     Box::new((okay_type, error_type)))))
@@ -654,20 +654,22 @@ impl TypeSignature {
         }
     }
 
-    pub fn most_admissive(a: TypeSignature, b: TypeSignature) -> Option<TypeSignature> {
+    pub fn most_admissive(a: TypeSignature, b: TypeSignature) -> std::result::Result<TypeSignature, 
+                                                                                     (TypeSignature, TypeSignature)> {
         // if response type, we may need to return the union of a and b.
         if let (Some(AtomTypeIdentifier::ResponseType(ref response_type_a)),
                 Some(AtomTypeIdentifier::ResponseType(ref response_type_b))) =
             (a.match_atomic(), b.match_atomic()) {
                 return TypeSignature::make_union_response_type(response_type_a, response_type_b)
+                    .ok_or_else(|| (a.clone(), b.clone()))
             }
 
         if a.admits_type(&b) {
-            Some(a)
+            Ok(a)
         } else if b.admits_type(&a) {
-            Some(b)
+            Ok(b)
         } else {
-            None
+            Err((a,b))
         }
     }
 
@@ -879,7 +881,7 @@ impl TypeSignature {
                 false
             }
         } else {
-            self.atomic_type.admits(&x_type.atomic_type)
+            self.list_dimensions.is_none() && self.atomic_type.admits(&x_type.atomic_type)
         }
     }
 

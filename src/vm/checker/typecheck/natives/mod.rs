@@ -235,6 +235,23 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     Ok(body_return_type)
 }
 
+fn check_special_equals(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() < 1 {
+        return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
+    }
+    
+    let mut arg_types = checker.type_check_all(args, context)?;
+
+    let mut arg_type = arg_types[0].clone();
+    for x_type in arg_types.drain(..) {
+        arg_type = TypeSignature::most_admissive(x_type, arg_type)
+            .map_err(|(a,b)| CheckError::new(CheckErrors::TypeError(a, b)))?;
+
+    }
+
+    Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
+}
+
 fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 3 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
@@ -248,7 +265,7 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
     let expr2 = &arg_types[2];
 
     TypeSignature::most_admissive(expr1.clone(), expr2.clone())
-        .ok_or(CheckError::new(CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone())))
+        .map_err(|(a,b)| CheckError::new(CheckErrors::DefaultTypesMustMatch(a, b)))
 }
 
 fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -332,9 +349,7 @@ impl TypedNativeFunction {
             Keccak256 =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(vec![FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::AnyType ), "value")],
                                                                 TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
-            Equals =>
-                Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::AnyType ),
-                                                                   TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
+            Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),
             Map => Special(SpecialNativeFunction(&check_special_map)),

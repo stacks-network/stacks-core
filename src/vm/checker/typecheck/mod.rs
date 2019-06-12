@@ -133,7 +133,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 let new_type = match tracker.take() {
                     Some(expected_type) => {
                         TypeSignature::most_admissive(expected_type, return_type)
-                            .ok_or(CheckError::new(CheckErrors::ReturnTypesMustMatch))?
+                            .map_err(|_| CheckError::new(CheckErrors::ReturnTypesMustMatch))?
                     },
                     None => return_type
                 };
@@ -273,7 +273,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                         // check if the computed return type matches the return type
                         //   of any early exits from the call graph (e.g., (expects ...) calls)
                         TypeSignature::most_admissive(expected.clone(), return_type)
-                            .ok_or(CheckError::new(CheckErrors::ReturnTypesMustMatch))?
+                            .map_err(|_| CheckError::new(CheckErrors::ReturnTypesMustMatch))?
                     } else {
                         return_type
                     }
