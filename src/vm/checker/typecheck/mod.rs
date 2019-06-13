@@ -211,7 +211,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
             self.type_map.set_type(&binding_exps[0], no_type())?;
             let typed_result = self.type_check(&binding_exps[1], context)?;
-            out_context.variable_types.insert(var_name.clone(),
+            out_context.constant_types.insert(var_name.clone(),
                                               typed_result);
         }
 
@@ -254,7 +254,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
         let mut function_context = context.extend()?;
         for (arg_name, arg_type) in args.iter() {
-            function_context.variable_types.insert(arg_name.clone(),
+            function_context.constant_types.insert(arg_name.clone(),
                                                    arg_type.clone());
         }
 
@@ -350,9 +350,9 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     fn lookup_variable(&self, name: &str, context: &TypingContext) -> TypeResult {
         if let Some(type_result) = type_reserved_variable(name) {
             Ok(type_result)
-        } else if let Some(type_result) = self.contract_context.get_variable_type(name) {
+        } else if let Some(type_result) = self.contract_context.get_constant_type(name) {
             Ok(type_result.clone())
-        } else if let Some(type_result) = context.lookup_variable_type(name) {
+        } else if let Some(type_result) = context.lookup_constant_type(name) {
             Ok(type_result.clone())
         } else {
             Err(CheckError::new(CheckErrors::UnboundVariable(name.to_string())))
@@ -406,7 +406,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                                 } else {
                                     let (v_name, v_type) = self.type_check_define_variable(function_args,
                                                                                            context)?;
-                                    self.contract_context.add_variable_type(v_name, v_type)?;
+                                    self.contract_context.add_constant_type(v_name, v_type)?;
                                     Ok(Some(()))
                                 }
                             }
