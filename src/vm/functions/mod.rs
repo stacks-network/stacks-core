@@ -1,9 +1,9 @@
 pub mod define;
+pub mod tuples;
 mod lists;
 mod arithmetic;
 mod boolean;
 mod database;
-mod tuples;
 mod options;
 
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
