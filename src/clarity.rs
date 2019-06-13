@@ -36,6 +36,20 @@ where command is one of:
     process::exit(1);
 }
 
+fn friendly_expect<A,B: std::fmt::Display>(input: Result<A,B>, msg: &str) -> A {
+    input.unwrap_or_else(|e| {
+        eprintln!("{}\nCaused by: {}", msg, e);
+        process::exit(1);
+    })
+}
+
+fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
+    input.unwrap_or_else(|| {
+        eprintln!("{}", msg);
+        process::exit(1);
+    })
+}
+
 #[cfg_attr(tarpaulin, skip)]
 pub fn invoke_command(invoked_by: &str, args: &[String]) {
     if args.len() < 1 {
@@ -61,7 +75,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             // random 20 bytes
             let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
             // version = 22
-            let addr = c32_address(22, &random_bytes).expect("Failed to generate address");
+            let addr = friendly_expect(c32_address(22, &random_bytes), "Failed to generate address");
             println!("{}", addr);
         },
         "mine_block" => {
@@ -71,7 +85,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 process::exit(1);
             }
 
-            let block_time: u64 = args[1].parse().expect("Failed to parse block time");
+            let block_time: u64 = friendly_expect(args[1].parse(), "Failed to parse block time");
 
             let mut db = match ContractDatabaseConnection::open(&args[2]) {
                 Ok(db) => db,
@@ -118,8 +132,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 process::exit(1);
             }
             
-            let content: String = fs::read_to_string(&args[1])
-                .expect(&format!("Error reading file: {}", args[1]));
+            let content: String = friendly_expect(fs::read_to_string(&args[1]),
+                                                  &format!("Error reading file: {}", args[1]));
             
             let mut db_conn = {
                 if args.len() >= 3 {
@@ -130,17 +144,18 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             };
             
             let mut db = db_conn.begin_save_point();
-            let mut ast = parse(&content).expect("Failed to parse program");
-            let mut contract_analysis = type_check(&":transient:", &mut ast, &mut db, false).unwrap_or_else(|e| {
-                eprintln!("Type check error.\n{}", e);
-                process::exit(1);
-            });
+            let mut ast = friendly_expect(parse(&content), "Failed to parse program");
+            let mut contract_analysis = friendly_expect(
+                type_check(&":transient:", &mut ast, &mut db, false),
+                "Type check error.");
 
             match args.last() {
                 Some(s) if s == "--output_analysis" => {
                     println!("{}", contract_analysis.serialize());
                 },
-                _ => {}
+                _ => {
+                    println!("Checks passed.");
+                }
             }
         },
         "repl" => {
@@ -211,8 +226,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "eval_raw" => {
             let content: String = {
                 let mut buffer = String::new();
-                io::stdin().read_to_string(&mut buffer)
-                    .expect("Error reading from stdin.");
+                friendly_expect(io::stdin().read_to_string(&mut buffer), "Error reading from stdin.");
                 buffer
             };
 
@@ -230,7 +244,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let mut vm_env = OwnedEnvironment::new(&mut db);
 
-            let mut ast = parse(&content).expect("Failed to parse program.");
+            let mut ast = friendly_expect(parse(&content), "Failed to parse program.");
             let mut analysis_db = analysis_db_conn.begin_save_point();
             match type_check(":transient:", &mut ast, &mut analysis_db, true) {
                 Ok(_) => {
@@ -276,12 +290,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let content: String = {
                 if args.len() == 3 {
                     let mut buffer = String::new();
-                    io::stdin().read_to_string(&mut buffer)
-                        .expect("Error reading from stdin.");
+                    friendly_expect(io::stdin().read_to_string(&mut buffer),
+                                    "Error reading from stdin.");
                     buffer
                 } else {
-                    fs::read_to_string(&args[2])
-                        .expect(&format!("Error reading file: {}", args[2]))
+                    friendly_expect(fs::read_to_string(&args[2]),
+                                    &format!("Error reading file: {}", args[2]))
                 }
             };
 
@@ -309,8 +323,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let vm_filename = &args[3];
 
             let contract_name = &args[1];
-            let contract_content: String = fs::read_to_string(&args[2])
-                .expect(&format!("Error reading file: {}", args[2]));
+            let contract_content: String = friendly_expect(fs::read_to_string(&args[2]),
+                                                           &format!("Error reading file: {}", args[2]));
 
             // typecheck and insert into typecheck tables
             // Aaron todo: AnalysisDatabase and ContractDatabase now use savepoints
@@ -331,14 +345,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             { 
                 let mut analysis_db = AnalysisDatabase::from_savepoint(
-                    outer_sp.savepoint().expect("Failed to initialize savepoint for analysis"));
-                let mut ast = parse(&contract_content).expect("Failed to parse program.");
+                    friendly_expect(outer_sp.savepoint(),
+                                    "Failed to initialize savepoint for analysis"));
+                let mut ast = friendly_expect(parse(&contract_content), "Failed to parse program.");
 
-                type_check(contract_name, &mut ast, &mut analysis_db, true)
-                    .unwrap_or_else(|e| {
-                        eprintln!("Type check error.\n{}", e);
-                        process::exit(1);
-                    });
+                friendly_expect(type_check(contract_name, &mut ast, &mut analysis_db, true),
+                                "Type check error.");
 
                 analysis_db.commit()
             }
@@ -389,10 +401,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             
             let sender_in = &args[4];
 
-            let mut sender = parse(&format!("'{}", sender_in))
-                .expect(&format!("Error parsing sender {}", sender_in))
-                .pop()
-                .expect(&format!("Failed to read a sender from {}", sender_in));
+            let mut sender = 
+                friendly_expect_opt(
+                    friendly_expect(parse(&format!("'{}", sender_in)),
+                                    &format!("Error parsing sender {}", sender_in))
+                        .pop(),
+                    &format!("Failed to read a sender from {}", sender_in));
             let sender = {
                 if let Some(Value::Principal(principal_data)) = sender.match_atom_value() {
                     Value::Principal(principal_data.clone())
@@ -404,13 +418,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let arguments: Vec<_> = args[5..]
                 .iter()
                 .map(|argument| {
-                    let mut argument_parsed = parse(argument)
-                        .expect(&format!("Error parsing argument \"{}\"", argument));
-                    let argument_value = argument_parsed.pop()
-                        .expect(&format!("Failed to parse a value from the argument: {}", argument));
-                    let argument_value = argument_value
-                        .match_atom_value()
-                        .expect(&format!("Expected a literal value from the argument: {}", argument));
+                    let mut argument_parsed = friendly_expect(
+                        parse(argument),
+                        &format!("Error parsing argument \"{}\"", argument));
+                    let argument_value = friendly_expect_opt(
+                        argument_parsed.pop(),
+                        &format!("Failed to parse a value from the argument: {}", argument));
+                    let argument_value = friendly_expect_opt(
+                        argument_value.match_atom_value(),
+                        &format!("Expected a literal value from the argument: {}", argument));
                     SymbolicExpression::atom_value(argument_value.clone())
                 })
                 .collect();
@@ -429,7 +445,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                             println!("Aborted: {}", data.data);
                         }
                     } else {
-                        panic!(format!("Expected a bool result from transaction. Found: {}", x));
+                        panic!(format!("Expected a ResponseType result from transaction. Found: {}", x));
                     }
                 },
                 Err(error) => {
