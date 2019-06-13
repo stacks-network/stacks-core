@@ -60,4 +60,5 @@ workflows:
   build-deploy:
     jobs:
       - build
+      - test_demo
       - deploy
