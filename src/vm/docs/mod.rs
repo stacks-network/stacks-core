@@ -703,3 +703,15 @@ pub fn make_json_api_reference() -> String {
     format!("{}", serde_json::to_string(&json_references)
             .expect("Failed to serialize documentation"))
 }
+
+#[cfg(test)]
+mod test {
+    use super::make_json_api_reference;
+
+    #[test]
+    fn ensure_docgen_runs() {
+        // add a test to make sure that we don't inadvertently break
+        //  docgen in a panic-y way.
+        make_json_api_reference();
+    }
+}
