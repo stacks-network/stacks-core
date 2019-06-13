@@ -270,27 +270,19 @@ Anyone can submit their candidacy as a leader by issuing a burn transaction on
 the underlying burn chain, and have a non-zero chance of being selected by the
 network as the leader of a future block.
 
-The proof-of-work and the proof-of-burn are converted into a combined tunable
-proof score by the following process:
-
-1.  Measure _W[burn]_ -- the expected amount of logic gates evaluated to mine
-the burn chain cryptocurrency units destroyed.
-2.  Convert _W[burn]_ into an equivalent quantity _W[stacks]_ -- the expected
-Stacks proof-of-work score that could have been achieved by applying _W[burn]_
-logic gates to evaluating the Stacks proof-of-work algorithm instead.
-3.  Calculate a weighted sum of _W[burn]_ and the submitted Stacks proof-of-work score
-(also measured as the number of logic gates required to generate the proof).
-
-Converting _W[burn]_ to _W[stacks]_ is achieved by multiplying _W[burn]_ by
-a constant _K_, which is the ratio between the number of gates required
-to make one "guess" for a proof-of-work solution
-in the Stacks chain to the number of gates required to make one "guess" for
-a proof-of-work solution in the burn chain.  For example, if the underlying burn
-chain is Bitcoin, then _W[burn]_ is the number of gates that must be used to
-calculate the double-SHA-256 of a 32-bit nonce and an 80-byte block header.
-
-The Stacks proof-of-work algorithm, values for _W[burn]_, _W[stacks]_,
-and _K_, and a calculation methodology will be described in a subsequent SIP.
+The proof-of-work and the proof-of-burn are first normalized, and then 
+converted into a combined tunable
+proof score simply by calculating their weighted sum, according to a weight
+parameter _t_.  If the normalized PoW score is `W` and the normalized
+proof-of-burn score is `B`, then
+the tunable proof score is `S = (1-t)W + tB`.  A value for `S`
+will be calculated for each candidate, and used to calculate the probability
+that the candidate will be selected.  The value `W` will be measured as the
+number of tokens burned, divided by the total number of tokens burned by all
+candidates.  The value `B` will be measured as the
+expected number of proof-of-work attempts the candidate had to make to calculate their 
+solution, divided by the total expected number of attempts across all
+candidates.
 
 ## Committing to a chain tip
 
@@ -812,6 +804,13 @@ on top of them is awarded 40%.  This ensures that leaders are rewarded for
 processing and validating transactions correctly _while also_ incentivizing the
 subsequent leader to include them in their block, instead of orphaning them.
 
+The amount of tokens awarded from the coinbase is variable, and depends on how
+many _Stacks_ tokens are burned by smart contracts.  The chain defines a
+_minimum_ and _maximum_ coinbase, and awards an amount between these two values
+based on the average number of tokens destroyed per block in a prior _evaluation
+window_ (a sliding window of prior blocks).  The details are discussed in the
+Blockstack Token Economics whitepaper.
+
 # Recovery from data loss
 
 Stacks block data can get lost after a leader commits to it.  However, the burn
@@ -895,36 +894,29 @@ attacks.  This section will be updated as our understanding evolves.
 # Fork Selection
 
 Fork selection in the Stacks blockchain requires a metric to determine which
-chain, between two candidates, is the "best" chain.  Using tunable proofs as the
-security method for the blockchain implies a direct metric:  the total sum of
-the proof scores in the election blocks for a candidate chain.  In particular, **the Stacks
-blockchain measures a fork's quality by the total amount of _blocks_ which _confirms_ block _N_** (as
-opposed to the amount of burns and work required for the _election_ of block _N_).
-
-This fork choice rule means that the best fork is the _longest valid_ fork.
-This fork has the most valid blocks available of all forks, and over time will have the
-highest cumulative tunable proof score of all forks (but is not guaranteed to be the
-chain with the highest cumulative score at all times). 
+chain, between two candidates, is the "best" chain.  For Stacks, **the fork with
+the most blocks is the best fork.**  That is, the Stacks blockchain measures the
+quality of block _N_'s fork by the total amount of _blocks_ which _confirm_
+block _N_.
 
 Using chain length as the fork choice rule makes it time-consuming for alternative forks to
 overtake the "canonical" fork, no matter how much capacity they have to submit tunable proofs.
-In order to carry out a deep fork, the majority coalition of participants needs to spend
-at least as many epochs working on the new fork as they did on the old fork.
-We consider this acceptable because it also has the effect of keeping the chain
-history relatively stable, and makes it so every participant can observe (and
-prepare for) any upcoming forks that would overtake the canonical history.  However, a minority
-coalition of dishonest leaders can cause short-lived reorgs by continuously
+In order to carry out a deep fork of _K_ blocks, the majority coalition of participants needs to spend
+at least _K_ epochs working on the new fork. We consider this acceptable
+because it also has the effect of keeping the chain history relatively stable, 
+and makes it so every participant can observe (and prepare for) any upcoming
+forks that would overtake the canonical history.  However, a minority
+coalition of dishonest leaders can create short-lived forks by continuously
 building forks (i.e. in order to selfishly mine), driving up the confirmation
 time for transactions in the honest fork.
 
-An alternative fork-selection rule was considered whereby the chain with the
-highest cumulative tunable proof score would have been the "best" chain, no matter how long it was.
-This idea was ultimately
-rejected because it would mean that a single rich leader could invalidate a
-large number of blocks with a single massive tunable proof.  This is not only an unacceptable risk
-to tunable proof blockchains that are just getting off the ground, but also 
-does not reward liveness as well -- i.e. users want the chain history 
-to be relatively stable and to usually make forward progress.
+This fork choice rule implies a time-based transaction security measurement.  A
+transaction _K_ blocks in the past will take at least _K_ epochs to reverse.
+The expected cost of doing so can be calculated given the total amount of burned
+tokens and work put into producing blocks, and the expected fraction of the
+totals controlled by the attacker.  Note that the attacker is only guaranteed to
+reverse a transaction _K_ blocks back if they consistently control over 50% of the total
+tunable proof score.
 
 # Migration to a native proof-of-work chain
 
