@@ -36,7 +36,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Res
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(Error::new(ErrType::BadSymbolicRepresentation(format!("Unexpected variable name: {}", name))))
     } else {
-        if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
+        if let Some(value) = variables::lookup_reserved_constant(name, context, env)? {
             Ok(value)
         }else if let Some(value) = context.lookup_variable(name) {
             Ok(value)
@@ -134,7 +134,7 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
 pub fn is_reserved(name: &str) -> bool {
     if let Some(_result) = functions::lookup_reserved_functions(name) {
         true
-    } else if variables::is_reserved_variable(name) {
+    } else if variables::is_reserved_name(name) {
         true
     } else {
         false
@@ -163,7 +163,7 @@ fn eval_all (expressions: &[SymbolicExpression],
             define_result
         };
         match try_define {
-            DefineResult::Variable(name, value) => {
+            DefineResult::Constant(name, value) => {
                 contract_context.variables.insert(name, value);
             },
             DefineResult::Function(name, value) => {

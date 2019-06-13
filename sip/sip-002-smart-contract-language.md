@@ -54,7 +54,7 @@ following limitations:
    the only variable length lists in the language appear as function
    inputs (i.e., there is no support for list operations like append
    or join).
-5. Variables may only be created via `let` binding and there
+5. Constants may only be created via `let` binding and there
    is no support for mutating functions like `set`.
 6. Defining of constants and functions are allowed for simplifying
    code using `define` statement. However, these are purely
