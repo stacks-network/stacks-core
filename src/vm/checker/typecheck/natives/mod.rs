@@ -116,7 +116,7 @@ fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     }
 }
 
-fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 1 {
         return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
     }

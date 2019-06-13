@@ -301,7 +301,9 @@ const FETCH_API: SpecialAPI = SpecialAPI {
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
 it returns (some value)",
-    example: "(expects! (fetch-entry names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
+    example: "(expects! (fetch-entry names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
+(expects! (fetch-entry names-map ((name \"blockstack\"))) (err 1)) ;; Same command, using a shorthand for constructing the tuple
+",
 };
 
 const SET_API: SpecialAPI = SpecialAPI {
@@ -312,7 +314,9 @@ const SET_API: SpecialAPI = SpecialAPI {
     description: "The `set-entry!` function sets the value associated with the input key to the 
 inputted value. This function performs a _blind_ update; whether or not a value is already associated
 with the key, the function overwrites that existing association.",
-    example: "(set-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true",
+    example: "(set-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
+(set-entry! names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+",
 };
 
 const INSERT_API: SpecialAPI = SpecialAPI {
@@ -326,6 +330,7 @@ If an insert occurs, the function returns `true`. If a value already existed for
 this key in the data map, the function returns `false`.",
     example: "(insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
 (insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'false
+(insert-entry! names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -339,6 +344,7 @@ the given map. If an item exists, and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
     example: "(delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns 'true
 (delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns 'false
+(delete-entry! names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -351,7 +357,9 @@ const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
 it returns (some value)",
-    example: "(expects! (fetch-contract-entry names-contract names-map (tuple (name \"blockstack\")) (err 1)) ;; Returns (tuple (id 1337))",
+    example: "(expects! (fetch-contract-entry names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
+(expects! (fetch-contract-entry names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
+",
 };
 
 const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
