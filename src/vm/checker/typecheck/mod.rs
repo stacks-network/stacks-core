@@ -6,7 +6,7 @@ use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
-use vm::variables::NativeConstants;
+use vm::constants::NativeConstants;
 
 use super::AnalysisDatabase;
 use self::contexts::{TypeMap, TypingContext, ContractContext};
@@ -92,7 +92,7 @@ impl FunctionType {
 
 fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
     if let Some(variable) = NativeConstants::lookup_by_name(variable_name) {
-        use vm::variables::NativeConstants::*;
+        use vm::constants::NativeConstants::*;
         let var_type = match variable {
             TxSender => TypeSignature::new_atom(AtomTypeIdentifier::PrincipalType),
             BlockHeight => TypeSignature::new_atom(AtomTypeIdentifier::IntType),

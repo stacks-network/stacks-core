@@ -9,7 +9,7 @@ pub enum NativeConstants {
 
 impl NativeConstants {
     pub fn lookup_by_name(name: &str) -> Option<NativeConstants> {
-        use vm::variables::NativeConstants::*;
+        use vm::constants::NativeConstants::*;
         match name {
             "tx-sender" => Some(TxSender),
             "block-height" => Some(BlockHeight),
