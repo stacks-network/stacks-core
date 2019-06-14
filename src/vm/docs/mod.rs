@@ -543,7 +543,7 @@ The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 3
 const DEFINE_PUBLIC_API: SpecialAPI = SpecialAPI {
     name: "define-public",
     input_type: "MethodSignature, MethodBody",
-    output_type: "",
+    output_type: "Not Applicable",
     signature: "(define-public (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
     description: "`define-public` is used to define a _public_ function and transaction for a smart contract. Public
 functions are callable from other smart contracts, and may be invoked directly by users by submitting a transaction
@@ -565,7 +565,7 @@ contracts via `contract-call!`.",
 const DEFINE_PRIVATE_API: SpecialAPI = SpecialAPI {
     name: "define",
     input_type: "MethodSignature, MethodBody",
-    output_type: "",
+    output_type: "Not Applicable",
     signature: "(define (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
     description: "`define` is used to define _private_ functions for a smart contract. Private
 functions may not be called from other smart contracts, nor may they be invoked directly by users.
@@ -587,7 +587,7 @@ Private functions may return any type.",
 const DEFINE_READ_ONLY_API: SpecialAPI = SpecialAPI {
     name: "define-read-only",
     input_type: "MethodSignature, MethodBody",
-    output_type: "",
+    output_type: "Not Applicable",
     signature: "(define-read-only (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
     description: "`define-read-only` is used to define a _public read-only_ function for a smart contract. Such
 functions are callable from other smart contracts.
@@ -608,7 +608,7 @@ be invoked by other contracts via `contract-call!`.",
 const DEFINE_MAP_API: SpecialAPI = SpecialAPI {
     name: "define-map",
     input_type: "MapName, KeyTupleDefinition, MapTupleDefinition",
-    output_type: "",
+    output_type: "Not Applicable",
     signature: "(define-map map-name ((key-name-0 key-type-0) ...) ((val-name-0 val-type-0) ...))",
     description: "`define-map` is used to define a new datamap for use in a smart contract. Such
 maps are only modifiable by the current smart contract.
