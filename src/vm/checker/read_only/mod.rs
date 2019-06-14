@@ -193,7 +193,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     
                 self.is_read_only(&args[1])
             },
-            Map => {
+            Map | Filter => {
                 if args.len() != 2 {
                     return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
                 }

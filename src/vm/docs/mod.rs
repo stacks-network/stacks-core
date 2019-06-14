@@ -241,6 +241,16 @@ input list, and outputs a list containing the _outputs_ from those function appl
     example: "(map not (list true false true false)) ;; Returns 'false true false true"
 };
 
+const FILTER_API: SpecialAPI = SpecialAPI {
+    name: "map",
+    input_type: "Function(A) -> bool, (list A)",
+    output_type: "(list A)",
+    signature: "(filter func list)",
+    description: "The `filter` function applies the input function `func` to each element of the
+input list, and returns the same list with any elements removed for which the `func` returned `false`.",
+    example: "(filter not (list true false true false)) ;; Returns (list false false)"
+};
+
 const FOLD_API: SpecialAPI = SpecialAPI {
     name: "fold",
     input_type: "Function(A, B) -> B, (list A)",
@@ -664,6 +674,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         If => make_for_special(&IF_API),
         Let => make_for_special(&LET_API),
         Map => make_for_special(&MAP_API),
+        Filter => make_for_special(&FILTER_API),
         Fold => make_for_special(&FOLD_API),
         ListCons => make_for_special(&LIST_API),
         FetchEntry => make_for_special(&FETCH_API),
