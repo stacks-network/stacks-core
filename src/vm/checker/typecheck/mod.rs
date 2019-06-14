@@ -436,6 +436,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                             self.contract_context.add_map_type(f_name, f_type)?;
                             Ok(Some(()))
                         },
+                        "define-data-var" => {
+                            let (v_name, v_type) = self.type_check_define_variable(expression,
+                                                                                   context)?;
+                            self.contract_context.add_variable_type(v_name, v_type)?;
+                            Ok(Some(()))
+                        },
                         _ => {
                             Ok(None)
                         }

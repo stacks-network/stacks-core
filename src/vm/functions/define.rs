@@ -1,4 +1,4 @@
-use vm::types::{Value, TupleTypeSignature, parse_name_type_pairs};
+use vm::types::{Value, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
 use vm::callables::{DefinedFunction, DefineType};
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List};
@@ -10,6 +10,7 @@ pub enum DefineResult {
     Constant(String, Value),
     Function(String, DefinedFunction),
     Map(String, TupleTypeSignature, TupleTypeSignature),
+    Variable(String, TypeSignature),
     NoDefine
 }
 
@@ -55,6 +56,17 @@ fn handle_define_function(signature: &[SymbolicExpression],
         &env.contract_context.name);
 
     Ok(DefineResult::Function(function_name.clone(), function))
+}
+
+fn handle_define_variable(variable_name: &SymbolicExpression, value_type: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
+    let variable_str = variable_name.match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments("Non-name argument to define-data-var".to_string())))?;
+
+    check_legal_define(&variable_str, &env.contract_context)?;
+
+    let value_type_signature = TypeSignature::parse_type_repr(value_type, true)?;
+
+    Ok(DefineResult::Variable(variable_str.clone(), value_type_signature))
 }
 
 fn handle_define_map(map_name: &SymbolicExpression,
@@ -119,6 +131,13 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                         Err(Error::new(ErrType::InvalidArguments("(define-map ...) must be supplied a name, a list of key fields, and a list of value fields".to_string())))
                     } else {
                         handle_define_map(&elements[1], &elements[2], &elements[3], env)
+                    }
+                }
+                "define-data-var" => {
+                    if elements.len() != 3 {
+                        Err(Error::new(ErrType::InvalidArguments("(define-data-var ...) must be supplied a name and a type".to_string())))
+                    } else {
+                        handle_define_variable(&elements[1], &elements[2], env)
                     }
                 }
                 _ => Ok(DefineResult::NoDefine)

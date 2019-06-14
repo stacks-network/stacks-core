@@ -91,6 +91,9 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                         "define-map" => {
                             Ok(()) // define-map never needs to be checked.
                         },
+                        "define-data-var" => {
+                            Ok(()) // define-data-var never needs to be checked.
+                        },
                         _ => {
                             Ok(())
                         }
