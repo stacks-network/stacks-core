@@ -43,9 +43,17 @@ impl ContractDatabaseConnection {
                        value_type TEXT NOT NULL,
                        UNIQUE(contract_name, map_name))",
                             NO_PARAMS);
+        contract_db.execute("CREATE TABLE IF NOT EXISTS variables_table
+                      (variable_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
+                       contract_name TEXT NOT NULL,
+                       variable_name TEXT NOT NULL,
+                       value_type TEXT NOT NULL,
+                       UNIQUE(contract_name, variable_name))",
+                            NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS data_table
                       (data_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
                        map_identifier INTEGER NOT NULL,
+                       variable_identifier INTEGER NOT NULL,
                        key TEXT NOT NULL,
                        value TEXT)",
                             NO_PARAMS);
@@ -270,7 +278,7 @@ impl <'a> ContractDatabase <'a> {
                                    &Some(value.serialize())];
 
         self.execute(
-            "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
+            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, '')",
             &params);
 
         return Ok(Value::Bool(true))
@@ -295,7 +303,7 @@ impl <'a> ContractDatabase <'a> {
                                    &Some(value.serialize())];
 
         self.execute(
-            "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
+            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, '')",
             &params);
 
         return Ok(Value::Bool(true))
@@ -318,7 +326,7 @@ impl <'a> ContractDatabase <'a> {
                                    &none];
 
         self.execute(
-            "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
+            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, '')",
             &params);
 
         return Ok(Value::Bool(exists))
