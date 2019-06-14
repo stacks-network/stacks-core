@@ -235,6 +235,28 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     Ok(body_return_type)
 }
 
+fn check_special_set(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() < 2 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+    }
+    
+    let var_name = args[0].match_atom()
+        .ok_or(CheckError::new(CheckErrors::BadMapName))?;
+    
+    checker.type_map.set_type(&args[0], no_type())?;
+    
+    let value_type = checker.type_check(&args[1], context)?;
+    
+    let expected_value_type = checker.contract_context.get_variable_type(var_name)
+        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.clone())))?;
+    
+    if !expected_value_type.admits_type(&value_type) {
+        return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))
+    } else {
+        return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
+    }
+}
+
 fn check_special_equals(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 1 {
         return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
@@ -352,6 +374,7 @@ impl TypedNativeFunction {
             Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),
+            Set => Special(SpecialNativeFunction(&check_special_set)),
             Map => Special(SpecialNativeFunction(&check_special_map)),
             Fold => Special(SpecialNativeFunction(&check_special_fold)),
             ListCons => Special(SpecialNativeFunction(&check_special_list_cons)),

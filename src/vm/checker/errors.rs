@@ -31,6 +31,9 @@ pub enum CheckErrors {
     BadTupleConstruction,
     TupleExpectsPairs,
 
+    // variables
+    NoSuchVariable(String),
+
     // data map
     BadMapName,
     NoSuchMap(String),

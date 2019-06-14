@@ -171,7 +171,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 };
                 res
             },
-            SetEntry | DeleteEntry | InsertEntry => {
+            SetEntry | DeleteEntry | InsertEntry | Set => {
                 Ok(false)
             },
             Let => {

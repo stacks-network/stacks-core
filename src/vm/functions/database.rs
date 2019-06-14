@@ -38,6 +38,27 @@ pub fn special_contract_call(args: &[SymbolicExpression],
         contract_name, function_name, &rest_args)
 }
 
+pub fn special_set_variable(args: &[SymbolicExpression],
+                            env: &mut Environment,
+                            context: &LocalContext) -> Result<Value> {
+    if env.global_context.is_read_only() {
+        return Err(Error::new(ErrType::WriteFromReadOnlyContext))
+    }
+
+    // arg0 -> var name
+    // arg1 -> value
+    if args.len() != 2 {
+        return Err(Error::new(ErrType::InvalidArguments("(set! ...) requires exactly 2 arguments".to_string())))
+    }
+
+    let value = eval(&args[1], env, &context)?;
+
+    let var_name = args[0].match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments("First argument in set function must be the variable name".to_string())))?;
+
+    env.global_context.database.set_variable(&env.contract_context.name, var_name, value)
+}
+
 pub fn special_fetch_entry(args: &[SymbolicExpression],
                            env: &mut Environment,
                            context: &LocalContext) -> Result<Value> {
