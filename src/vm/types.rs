@@ -28,17 +28,17 @@ pub enum AtomTypeIdentifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ListTypeData {
+pub struct ListTypeData {
+    // NOTE: for the purposes of type-checks and cost computations, list size = dimension * max_length!
+    //       high dimensional lists are _expensive_ --- use lists of tuples!
     max_len: u32,
     dimension: u8
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TypeSignature {
-    atomic_type: AtomTypeIdentifier,
-    list_dimensions: Option<ListTypeData>,
-    // NOTE: for the purposes of type-checks and cost computations, list size = dimension * max_length!
-    //       high dimensional lists are _expensive_ --- use lists of tuples!
+pub enum TypeSignature {
+    Atom(AtomTypeIdentifier),
+    List(AtomTypeIdentifier, ListTypeData),
 }
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
@@ -295,15 +295,17 @@ impl fmt::Display for AtomTypeIdentifier {
 }
 
 impl fmt::Display for TypeSignature {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {        
-        if let Some(ref list_type_data) = self.list_dimensions {
-            write!(f, "(list {}", list_type_data.max_len)?;
-            if list_type_data.dimension > 1 {
-                write!(f, "{}", list_type_data.dimension)?;
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TypeSignature::Atom(ref atomic_type) => write!(f, "{}", atomic_type),
+            TypeSignature::List(ref atomic_type,
+                                ref list_type_data) => {
+                write!(f, "(list {}", list_type_data.max_len)?;
+                if list_type_data.dimension > 1 {
+                    write!(f, "{}", list_type_data.dimension)?;
+                }
+                write!(f, "{})", atomic_type)
             }
-            write!(f, "{})", self.atomic_type)
-        } else {
-            write!(f, "{}", self.atomic_type)
         }
     }
 }
@@ -566,8 +568,7 @@ impl fmt::Display for TupleData {
 
 impl TypeSignature {
     pub fn new_atom(atomic_type: AtomTypeIdentifier) -> TypeSignature {
-        TypeSignature { atomic_type: atomic_type,
-                        list_dimensions: None }
+        TypeSignature::Atom(atomic_type)
     }
 
     pub fn new_option(inner_type: TypeSignature) -> TypeSignature {
@@ -650,10 +651,10 @@ impl TypeSignature {
         } else if max_len > u32::max_value() as i128 || dimension > u8::max_value() as i128 {
             Err(Error::new(ErrType::ListTooLarge))
         } else {
-            let list_dimensions = Some(ListTypeData { max_len: max_len as u32,
-                                                      dimension: dimension as u8 });
-            let type_sig = TypeSignature { atomic_type: atomic_type,
-                                           list_dimensions: list_dimensions };
+            let list_dimensions = ListTypeData { max_len: max_len as u32,
+                                                 dimension: dimension as u8 };
+            let type_sig = TypeSignature::List(atomic_type,
+                                               list_dimensions);
             if type_sig.size()? > MAX_VALUE_SIZE {
                 Err(Error::new(ErrType::ValueTooLarge))
             } else {
@@ -663,7 +664,7 @@ impl TypeSignature {
     }
 
     pub fn list_max_len(&self) -> Option<u32> {
-        if let Some(ListTypeData{ max_len, dimension: _ }) = self.list_dimensions {
+        if let TypeSignature::List(_, ListTypeData{ max_len, dimension: _ }) = self {
             Some(max_len.clone())
         } else {
             None
@@ -671,8 +672,9 @@ impl TypeSignature {
     }
 
     pub fn list_of(item_type: TypeSignature, max_len: u32) -> Result<TypeSignature> {
-        let next_dimensions = {
-            if let Some(ListTypeData{ max_len: item_max_len, dimension: item_dim }) = item_type.list_dimensions {
+        let next_dimensions = match item_type {
+            TypeSignature::List(_, ListTypeData { max_len: item_max_len,
+                                                  dimension: item_dim }) => {
                 let dimension = item_dim.checked_add(1)
                     .ok_or(Error::new(ErrType::ListTooLarge))?;
                 let max_len = {
@@ -683,13 +685,16 @@ impl TypeSignature {
                     }
                 };
                 ListTypeData { max_len: max_len, dimension: dimension }
-            } else {
-                ListTypeData { max_len: max_len, dimension: 1 }
-            }
+            },
+            TypeSignature::Atom(_) => ListTypeData { max_len: max_len, dimension: 1 }
         };
 
-        Ok(TypeSignature { atomic_type: item_type.atomic_type,
-                           list_dimensions: Some(next_dimensions) })
+        let atomic_type = match item_type {
+            TypeSignature::List(t, _) => t,
+            TypeSignature::Atom(t) => t
+        };
+
+        Ok(TypeSignature::List(atomic_type, next_dimensions))
     }
 
     pub fn deserialize(json: &str) -> TypeSignature {
@@ -727,19 +732,25 @@ impl TypeSignature {
         // TODO: empty list type should be typed/handled differently.
         //         any list type should _admit_
         //         an empty list type
-        TypeSignature { atomic_type: AtomTypeIdentifier::IntType,
-                        list_dimensions: Some(ListTypeData { max_len: 0,
-                                                             dimension: 1 })}
+        TypeSignature::List(AtomTypeIdentifier::NoType,
+                            ListTypeData { max_len: 0,
+                                           dimension: 1 })
     }
 
     pub fn size(&self) -> Result<i128> {
-        let list_multiplier = match self.list_dimensions {
-                Some(ref list_data) => (list_data.max_len as i128).checked_mul(list_data.dimension as i128)
-                .ok_or(Error::new(ErrType::ValueTooLarge)),
-                None => Ok(1)
-        }?;
-        list_multiplier.checked_mul(self.atomic_type.size()?)
-            .ok_or(Error::new(ErrType::ValueTooLarge))
+        match self {
+            TypeSignature::List(ref atomic_type, ref list_data) => {
+                if list_data.max_len <= 0 {
+                    Ok(32 as i128)
+                } else {
+                    let multiplier = (list_data.max_len as i128).checked_mul(list_data.dimension as i128)
+                        .ok_or(Error::new(ErrType::ValueTooLarge))?;
+                    multiplier.checked_mul(atomic_type.size()?)
+                        .ok_or(Error::new(ErrType::ValueTooLarge))
+                }
+            },
+            TypeSignature::Atom(atomic_type) => atomic_type.size()
+        }
     }
 
     pub fn type_of(x: &Value) -> TypeSignature {
@@ -763,24 +774,23 @@ impl TypeSignature {
     }
 
     fn expand_to_admit(&mut self, x_type: &TypeSignature) -> Result<()> {
-        if let Some(ref mut my_list_dimensions) = self.list_dimensions {
-            if let Some(ref x_list_dimensions) = x_type.list_dimensions {
+        match (self, x_type) {
+            (TypeSignature::List(ref mut my_atomic, ref mut my_list_dimensions),
+             TypeSignature::List(ref x_atomic, ref x_list_dimensions)) => {
                 if my_list_dimensions.dimension != x_list_dimensions.dimension {
                     return Err(Error::new(ErrType::BadTypeConstruction))
                 }
                 if my_list_dimensions.max_len < x_list_dimensions.max_len {
                     my_list_dimensions.max_len = x_list_dimensions.max_len;
                 }
-            } else {
-                return Err(Error::new(ErrType::BadTypeConstruction))
-            }
-        } else {
-            if let Some(_) = x_type.list_dimensions {
-                return Err(Error::new(ErrType::BadTypeConstruction))
-            }
+                my_atomic.expand_to_admit(x_atomic)
+            },
+            (TypeSignature::Atom(ref mut my_atomic),
+             TypeSignature::Atom(ref x_atomic)) => {
+                my_atomic.expand_to_admit(x_atomic)
+            },
+            _ => Err(Error::new(ErrType::BadTypeConstruction))
         }
-
-        self.atomic_type.expand_to_admit(& x_type.atomic_type)
     }
 
     // Checks if resulting type signature is of valid size.
@@ -815,20 +825,29 @@ impl TypeSignature {
                 }
             }?;
 
-            let parent_dimension = match child_type.list_dimensions {
-                Some(ref type_data) => {
+            let parent_dimension = match child_type {
+                TypeSignature::List(_, ref type_data) => {
                     if type_data.max_len > parent_max_len {
                         parent_max_len = type_data.max_len
                     }
                     type_data.dimension.checked_add(1)
                         .ok_or(Error::new(ErrType::ListDimensionTooHigh))
                 },
-                None => {
+                TypeSignature::Atom(_) => {
                     Ok(1)
                 }
             }?;
 
-            TypeSignature::new_list(child_type.atomic_type,
+            let atomic_type = match child_type {
+                TypeSignature::List(atomic_type, _) => {
+                    atomic_type
+                },
+                TypeSignature::Atom(atomic_type) => {
+                    atomic_type
+                }
+            };
+
+            TypeSignature::new_list(atomic_type,
                                     parent_max_len as i128, parent_dimension as i128)
         } else {
             Ok(TypeSignature::get_empty_list_type())
@@ -841,18 +860,25 @@ impl TypeSignature {
     }
 
     pub fn admits_type(&self, x_type: &TypeSignature) -> bool {
-        if let Some(ref x_type_data) = x_type.list_dimensions {
-            if let Some(ref my_type_data) = self.list_dimensions {
-                if my_type_data.dimension == x_type_data.dimension && my_type_data.max_len >= x_type_data.max_len {
-                    self.atomic_type.admits(&x_type.atomic_type)
+        match (x_type, self) {
+            (TypeSignature::List(ref x_atomic_type, ref x_list_dim),
+             TypeSignature::List(ref my_atomic_type, ref my_list_dim)) => {
+                if x_list_dim.max_len <= 0 {
+                    // if x_type is an empty list, a list type should always admit.
+                    return true
+                }
+
+                if my_list_dim.dimension == x_list_dim.dimension
+                    && my_list_dim.max_len >= x_list_dim.max_len {
+                    my_atomic_type.admits(x_atomic_type)
                 } else {
                     false
                 }
-            } else {
-                false
-            }
-        } else {
-            self.list_dimensions.is_none() && self.atomic_type.admits(&x_type.atomic_type)
+            },
+            (TypeSignature::Atom(ref x_atomic_type), TypeSignature::Atom(ref my_atomic_type)) => {
+                my_atomic_type.admits(x_atomic_type)
+            },
+            _ => false
         }
     }
 
@@ -860,23 +886,24 @@ impl TypeSignature {
     //   is an atomic type.
     //  If this type is a _list_, however, return None
     pub fn match_atomic(&self) -> Option<&AtomTypeIdentifier> {
-        if self.list_dimensions.is_some() {
-            return None
+        if let TypeSignature::Atom(ref atomic_type) = self {
+            Some(atomic_type)
+        } else {
+            None
         }
-        Some(&self.atomic_type)
     }
 
     pub fn get_list_item_type(&self) -> Option<TypeSignature> {
-        if let Some(ref my_dimensions) = self.list_dimensions {
+        if let TypeSignature::List(ref atomic_type, ref my_dimensions) = self {
             if my_dimensions.dimension == 0 {
                 None // should never occur, but this case will handle it gracefully anyways...
             } else if my_dimensions.dimension == 1 {
-                Some(TypeSignature::new_atom(self.atomic_type.clone()))
+                Some(TypeSignature::new_atom(atomic_type.clone()))
             } else {
-                let list_dimensions = Some(ListTypeData { max_len: my_dimensions.max_len.clone(),
-                                                          dimension: my_dimensions.dimension - 1 });
-                Some(TypeSignature { atomic_type: self.atomic_type.clone(),
-                                     list_dimensions: list_dimensions })
+                let list_dimensions = ListTypeData { max_len: my_dimensions.max_len.clone(),
+                                                     dimension: my_dimensions.dimension - 1 };
+                Some(TypeSignature::List(atomic_type.clone(),
+                                         list_dimensions))
             }
         } else {
             None
@@ -914,7 +941,11 @@ impl TypeSignature {
         if let SymbolicExpressionType::AtomValue(Value::Int(max_len)) = &type_args[0].expr {            
             let atomic_type_arg = &type_args[type_args.len()-1];
             let atomic_type = TypeSignature::parse_type_repr(atomic_type_arg, false)?;
-            TypeSignature::new_list(atomic_type.atomic_type, *max_len, dimension)
+            if let TypeSignature::Atom(atomic_type) = atomic_type {
+                TypeSignature::new_list(atomic_type, *max_len, dimension)
+            } else {
+                panic!("Parser should not have returned a non-atom")
+            }
         } else {
             Err(Error::new(ErrType::InvalidTypeDescription))
         }
