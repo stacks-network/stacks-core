@@ -146,7 +146,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater |
             Modulo | Power | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
             ConsOkay | ConsError | DefaultTo | Expects | ExpectsErr | IsOkay | IsNone |
-            ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin => {
+            ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin | FetchVar => {
                 self.are_all_read_only(true, args)
             },
             FetchEntry => {                
@@ -171,7 +171,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 };
                 res
             },
-            SetEntry | DeleteEntry | InsertEntry | Set => {
+            SetEntry | DeleteEntry | InsertEntry | SetVar => {
                 Ok(false)
             },
             Let => {

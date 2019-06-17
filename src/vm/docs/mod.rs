@@ -229,15 +229,27 @@ created by this set of bindings is used for evaluating and return the value of `
     example: "(let ((a 2) (b (+ 5 6 7))) (+ a b)) ;; Returns 20"
 };
 
-const SET_API: SpecialAPI = SpecialAPI { 
-    name: "set!",
+const FETCH_VAR_API: SpecialAPI = SpecialAPI { 
+    name: "fetch-var",
+    input_type: "VarName",
+    output_type: "A",
+    signature: "(fetch-var var-name)",
+    description: "The `fetch-var` function looks up and returns an entry from a contract's data map.
+The value is looked up using `var-name`.
+If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
+it returns (some value)",
+    example: "(expects! (fetch-var cursor) (err 1)) ;; Returns cursor"
+};
+
+const SET_VAR_API: SpecialAPI = SpecialAPI { 
+    name: "set-var!",
     input_type: "VarName, AnyType",
     output_type: "bool",
-    signature: "(set! var-name expr1)",
-    description: "The `set!` function sets the value associated with the input variable to the 
+    signature: "(set-var! var-name expr1)",
+    description: "The `set-var!` function sets the value associated with the input variable to the 
 inputted value. This function performs a _blind_ update; whether or not a value is already associated
 with the key, the function overwrites that existing association.",
-    example: "(set! cursor (+ cursor 1)) ;; Returns 'true"
+    example: "(set-var! cursor (+ cursor 1)) ;; Returns 'true"
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
@@ -582,7 +594,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Equals => make_for_simple_native(&EQUALS_API, &Equals),
         If => make_for_special(&IF_API),
         Let => make_for_special(&LET_API),
-        Set => make_for_special(&SET_API),
+        FetchVar => make_for_special(&FETCH_VAR_API),
+        SetVar => make_for_special(&SET_VAR_API),
         Map => make_for_special(&MAP_API),
         Fold => make_for_special(&FOLD_API),
         ListCons => make_for_special(&LIST_API),

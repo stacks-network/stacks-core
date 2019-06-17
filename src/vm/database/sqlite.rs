@@ -276,9 +276,7 @@ impl <'a> ContractDatabase <'a> {
     }
 
     pub fn lookup_variable(&self, contract_name: &str, variable_name: &str) -> Result<Option<Value>> {
-        println!("Lookup {:?}", variable_name);
         let variable_descriptor = self.load_variable(contract_name, variable_name)?;
-        println!("{:?}", variable_descriptor.variable_identifier);
 
         let params: [&ToSql; 1] = [&variable_descriptor.variable_identifier];
 

@@ -38,7 +38,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Res
     } else {
         if let Some(value) = constants::lookup_reserved_constant(name, context, env)? {
             Ok(value)
-        }else if let Some(value) = context.lookup_variable(name) {
+        } else if let Some(value) = context.lookup_variable(name) {
             Ok(value)
         } else if let Some(value) = env.contract_context.lookup_variable(name) {
             Ok(value)

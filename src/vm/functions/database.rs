@@ -38,6 +38,24 @@ pub fn special_contract_call(args: &[SymbolicExpression],
         contract_name, function_name, &rest_args)
 }
 
+pub fn special_fetch_variable(args: &[SymbolicExpression],
+                              env: &mut Environment,
+                              context: &LocalContext) -> Result<Value> {
+    // arg0 -> var name
+    if args.len() != 1 {
+        return Err(Error::new(ErrType::InvalidArguments("(fetch-var ...) requires exactly 1 argument".to_string())))
+    }
+
+    let var_name = args[0].match_atom()
+        .ok_or(Error::new(ErrType::InvalidArguments("First argument in fetch-var function must be the variable name".to_string())))?;
+
+    let value = env.global_context.database.lookup_variable(&env.contract_context.name, var_name)?;
+    match value {
+        Some(data) => Ok(data),
+        None => Ok(Value::none())
+    }
+}
+
 pub fn special_set_variable(args: &[SymbolicExpression],
                             env: &mut Environment,
                             context: &LocalContext) -> Result<Value> {
@@ -48,7 +66,7 @@ pub fn special_set_variable(args: &[SymbolicExpression],
     // arg0 -> var name
     // arg1 -> value
     if args.len() != 2 {
-        return Err(Error::new(ErrType::InvalidArguments("(set! ...) requires exactly 2 arguments".to_string())))
+        return Err(Error::new(ErrType::InvalidArguments("(set-var! ...) requires exactly 2 arguments".to_string())))
     }
 
     let value = eval(&args[1], env, &context)?;
