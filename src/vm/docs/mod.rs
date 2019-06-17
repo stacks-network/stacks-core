@@ -229,6 +229,17 @@ created by this set of bindings is used for evaluating and return the value of `
     example: "(let ((a 2) (b (+ 5 6 7))) (+ a b)) ;; Returns 20"
 };
 
+const SET_API: SpecialAPI = SpecialAPI { 
+    name: "set!",
+    input_type: "VarName, AnyType",
+    output_type: "bool",
+    signature: "(set! var-name expr1)",
+    description: "The `set!` function sets the value associated with the input variable to the 
+inputted value. This function performs a _blind_ update; whether or not a value is already associated
+with the key, the function overwrites that existing association.",
+    example: "(set! cursor (+ cursor 1)) ;; Returns 'true"
+};
+
 const MAP_API: SpecialAPI = SpecialAPI {
     name: "map",
     input_type: "Function(A) -> B, (list A)",
@@ -282,7 +293,7 @@ nodes configured for development (as opposed to production mining nodes), this f
     example: "(print (+ 1 2 3)) ;; Returns 6",
 };
 
-const FETCH_API: SpecialAPI = SpecialAPI {
+const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "fetch-entry",
     input_type: "MapName, Tuple",
     output_type: "Optional(Tuple)",
@@ -296,7 +307,7 @@ it returns (some value)",
 ",
 };
 
-const SET_API: SpecialAPI = SpecialAPI {
+const SET_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "set-entry!",
     input_type: "MapName, TupleA, TupleB",
     output_type: "bool",
@@ -309,7 +320,7 @@ with the key, the function overwrites that existing association.",
 ",
 };
 
-const INSERT_API: SpecialAPI = SpecialAPI {
+const INSERT_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "insert-entry!",
     input_type: "MapName, TupleA, TupleB",
     output_type: "bool",
@@ -324,7 +335,7 @@ this key in the data map, the function returns `false`.",
 ",
 };
 
-const DELETE_API: SpecialAPI = SpecialAPI {
+const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "delete-entry!",
     input_type: "MapName, Tuple",
     output_type: "bool",
@@ -571,14 +582,15 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Equals => make_for_simple_native(&EQUALS_API, &Equals),
         If => make_for_special(&IF_API),
         Let => make_for_special(&LET_API),
+        Set => make_for_special(&SET_API),
         Map => make_for_special(&MAP_API),
         Fold => make_for_special(&FOLD_API),
         ListCons => make_for_special(&LIST_API),
-        FetchEntry => make_for_special(&FETCH_API),
+        FetchEntry => make_for_special(&FETCH_ENTRY_API),
         FetchContractEntry => make_for_special(&FETCH_CONTRACT_API),
-        SetEntry => make_for_special(&SET_API),
-        InsertEntry => make_for_special(&INSERT_API),
-        DeleteEntry => make_for_special(&DELETE_API),
+        SetEntry => make_for_special(&SET_ENTRY_API),
+        InsertEntry => make_for_special(&INSERT_ENTRY_API),
+        DeleteEntry => make_for_special(&DELETE_ENTRY_API),
         TupleCons => make_for_special(&TUPLE_CONS_API),
         TupleGet => make_for_special(&TUPLE_GET_API),
         Begin => make_for_special(&BEGIN_API),
