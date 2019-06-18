@@ -228,9 +228,32 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     let binding_list = args[0].match_list()
         .ok_or(CheckError::new(CheckErrors::BadLetSyntax))?;
     
-    let let_context = checker.type_check_list_pairs(binding_list, context)?;
+    let mut out_context = context.extend()?;
+
+    for binding in binding_list.iter() {
+        let binding_exps = binding.match_list()
+            .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
+        
+        if binding_exps.len() != 2 {
+            return Err(CheckError::new(CheckErrors::BadSyntaxBinding))
+        }
+
+        let var_name = binding_exps[0].match_atom()
+            .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
+
+        checker.contract_context.check_name_used(var_name)?;
+
+        if out_context.constant_types.contains_key(var_name) {
+            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.to_string())))
+        }
+
+        checker.type_map.set_type(&binding_exps[0], no_type())?;
+        let typed_result = checker.type_check(&binding_exps[1], context)?;
+        out_context.constant_types.insert(var_name.clone(),
+                                            typed_result);
+    }
     
-    let body_return_type = checker.type_check(&args[1], &let_context)?;
+    let body_return_type = checker.type_check(&args[1], &out_context)?;
     
     Ok(body_return_type)
 }

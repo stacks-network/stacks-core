@@ -378,6 +378,17 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok(type_sig)
     }
 
+    fn type_check_define_constant(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
+        if args.len() != 2 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+        }
+        let var_name = args[0].match_atom()
+            .ok_or(CheckError::new(CheckErrors::DefineConstantBadSignature))?
+            .clone();
+        let var_type = self.type_check(&args[1], context)?;
+        Ok((var_name, var_type))
+    }
+
     fn type_check_define_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
         if args.len() != 2 {
             return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len() - 1)))
@@ -391,19 +402,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             _ => Err(CheckError::new(CheckErrors::DefineVariableBadSignature))
         }        
     }
-
-
-// fn handle_define_variable(variable_name: &SymbolicExpression, value_type: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
-//     let variable_str = variable_name.match_atom()
-//         .ok_or(Error::new(ErrType::InvalidArguments("Non-name argument to define-data-var".to_string())))?;
-
-//     check_legal_define(&variable_str, &env.contract_context)?;
-
-//     let value_type_signature = TypeSignature::parse_type_repr(value_type, true)?;
-
-//     Ok(DefineResult::Variable(variable_str.clone(), value_type_signature))
-// }
-
 
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
     fn try_type_check_define(&mut self, expr: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
@@ -421,7 +419,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                                     self.contract_context.add_private_function_type(f_name, f_type)?;
                                     Ok(Some(()))
                                 } else {
-                                    let (v_name, v_type) = self.type_check_define_variable(function_args,
+                                    let (v_name, v_type) = self.type_check_define_constant(function_args,
                                                                                            context)?;
                                     self.contract_context.add_constant_type(v_name, v_type)?;
                                     Ok(Some(()))

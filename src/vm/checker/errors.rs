@@ -44,6 +44,7 @@ pub enum CheckErrors {
     BadMapTypeDefinition,
     PublicFunctionMustReturnBool,
     DefineVariableBadSignature,
+    DefineConstantBadSignature,
     ReturnTypesMustMatch,
 
     // contract-call errors

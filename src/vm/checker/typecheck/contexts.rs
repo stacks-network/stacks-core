@@ -145,7 +145,7 @@ impl ContractContext {
         }
     }
 
-    fn check_name_used(&self, name: &str) -> CheckResult<()> {
+    pub fn check_name_used(&self, name: &str) -> CheckResult<()> {
         if self.constant_types.contains_key(name) ||
             self.variable_types.contains_key(name) ||
             self.private_function_types.contains_key(name) ||
