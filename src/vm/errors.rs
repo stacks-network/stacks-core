@@ -11,19 +11,11 @@ pub struct IncomparableError<T> {
     pub err: T
 }
 
-/// RuntimeErrors are errors that smart contracts are expected
-///   to be able to trigger during execution (e.g., arithmetic errors)
-#[derive(Debug, PartialEq)]
-pub struct RuntimeError {
-    pub err_type: RuntimeErrorType,
-    pub stack_trace: Option<StackTrace>,
-}
-
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
     Unchecked(UncheckedError),
     Interpreter(InterpreterError),
-    Runtime(RuntimeError),
+    Runtime(RuntimeErrorType, Option<StackTrace>),
     ShortReturn(ShortReturnType)
 }
 
@@ -58,6 +50,9 @@ pub enum InterpreterError {
     InterpreterError(String),
 }
 
+
+/// RuntimeErrors are errors that smart contracts are expected
+///   to be able to trigger during execution (e.g., arithmetic errors)
 #[derive(Debug, PartialEq)]
 pub enum RuntimeErrorType {
     Arithmetic(String),
@@ -88,27 +83,34 @@ impl <T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     }
 }
 
-impl fmt::Display for RuntimeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.err_type {
-            _ =>  write!(f, "{:?}", self.err_type)
-        }?;
-
-        if let Some(ref stack_trace) = self.stack_trace {
-            write!(f, "\n Stack Trace: \n")?;
-            for item in stack_trace.iter() {
-                write!(f, "{}\n", item)?;
-            }
+impl PartialEq<Error> for Error {
+    fn eq(&self, other: &Error) -> bool {
+        match (self, other) {
+            (Error::Runtime(x, _), Error::Runtime(y, _)) => x == y,
+            (Error::Unchecked(x), Error::Unchecked(y)) => x == y,
+            (Error::ShortReturn(x), Error::ShortReturn(y)) => x == y,
+            (Error::Interpreter(x), Error::Interpreter(y)) => x == y,
+            _ => false
         }
-
-        Ok(())
     }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::Runtime(ref err) => write!(f, "{}", err),
+            Error::Runtime(ref err, ref stack) => {
+                match err {
+                    _ =>  write!(f, "{:?}", err)
+                }?;
+
+                if let Some(ref stack_trace) = stack {
+                    write!(f, "\n Stack Trace: \n")?;
+                    for item in stack_trace.iter() {
+                        write!(f, "{}\n", item)?;
+                    }
+                }
+                Ok(())
+            },
             _ =>  write!(f, "{:?}", self)
         }
     }
@@ -122,7 +124,7 @@ impl error::Error for Error {
 
 impl From<RuntimeErrorType> for Error {
     fn from(err: RuntimeErrorType) -> Self {
-        Error::Runtime(RuntimeError::new(err))
+        Error::Runtime(err, None)
     }
 }
 
@@ -152,24 +154,11 @@ impl Into<Value> for ShortReturnType {
     }
 }
 
-impl RuntimeError {
-    pub fn new(err_type: RuntimeErrorType) -> RuntimeError {
-        RuntimeError { err_type: err_type,
-                       stack_trace: None }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
     fn error_formats() {
-        assert_eq!(format!("{}", Error::new(ErrType::RecursionDetected)),
-                   "Illegal operation: attempted recursion detected.");
-        assert_eq!(format!("{}", Error::new(ErrType::TryEvalToFunction)),
-                   "Illegal operation: attempt to evaluate to function.");
-        assert_eq!(format!("{}", Error::new(ErrType::NotImplemented)),
-                   "NotImplemented");
     }
 }

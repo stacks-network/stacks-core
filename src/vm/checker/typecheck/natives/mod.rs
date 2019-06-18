@@ -39,8 +39,8 @@ fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression
     TypeSignature::parent_list_type(&typed_args)
         .map_err(|x| {
             let error_type = match x {
-                InterpError::Runtime(ref runtime_err) => {
-                    match runtime_err.err_type {
+                InterpError::Runtime(ref runtime_err, _) => {
+                    match runtime_err {
                         RuntimeErrorType::BadTypeConstruction => CheckErrors::ListTypesMustMatch,
                         RuntimeErrorType::ListTooLarge => CheckErrors::ConstructedListTooLarge,
                         RuntimeErrorType::ListDimensionTooHigh => CheckErrors::ConstructedListTooLarge,

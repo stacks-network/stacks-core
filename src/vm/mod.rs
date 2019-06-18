@@ -59,9 +59,9 @@ pub fn lookup_function(name: &str, env: &Environment)-> Result<CallableType> {
 }
 
 fn add_stack_trace(result: &mut Result<Value>, env: &Environment) {
-    if let Err(Error::Runtime(ref mut e)) = result {
-        if e.stack_trace.is_none() {
-            e.stack_trace.replace(env.call_stack.make_stack_trace());
+    if let Err(Error::Runtime(_, ref mut stack_trace)) = result {
+        if stack_trace.is_none() {
+            stack_trace.replace(env.call_stack.make_stack_trace());
         }
     }
 }

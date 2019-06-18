@@ -1,6 +1,6 @@
 use vm::{eval, execute as vm_execute};
 use vm::database::ContractDatabaseConnection;
-use vm::errors::{ErrType};
+use vm::errors::{UncheckedError, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
@@ -230,25 +230,25 @@ fn test_arithmetic_errors() {
          "(pow 2 (pow 2 32))",
          "(pow 2 (- 1))"];
 
-    let expectations = [
-        ErrType::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()),
-        ErrType::TypeError("IntType".to_string(), Value::Bool(true)),
-        ErrType::Arithmetic("Divide by 0".to_string()),
-        ErrType::Arithmetic("Modulus by 0".to_string()),
-        ErrType::Arithmetic("Overflowed in power".to_string()),
-        ErrType::Arithmetic("Overflowed in multiplication".to_string()),
-        ErrType::Arithmetic("Overflowed in addition".to_string()),
-        ErrType::Arithmetic("Underflowed in subtraction".to_string()),
-        ErrType::InvalidArguments("(- ...) must be called with at least 1 argument".to_string()),
-        ErrType::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string()),
-        ErrType::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string()),
-        ErrType::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()),
-        ErrType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()),
-        ErrType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())
+    let expectations: &[Error] = &[
+        UncheckedError::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()).into(),
+        UncheckedError::TypeError("IntType".to_string(), Value::Bool(true)).into(),
+        RuntimeErrorType::Arithmetic("Divide by 0".to_string()).into(),
+        RuntimeErrorType::Arithmetic("Modulus by 0".to_string()).into(),
+        RuntimeErrorType::Arithmetic("Overflowed in power".to_string()).into(),
+        RuntimeErrorType::Arithmetic("Overflowed in multiplication".to_string()).into(),
+        RuntimeErrorType::Arithmetic("Overflowed in addition".to_string()).into(),
+        RuntimeErrorType::Arithmetic("Underflowed in subtraction".to_string()).into(),
+        UncheckedError::InvalidArguments("(- ...) must be called with at least 1 argument".to_string()).into(),
+        UncheckedError::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string()).into(),
+        UncheckedError::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string()).into(),
+        UncheckedError::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()).into(),
+        RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
+        RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into()
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
-        assert_eq!(*expectation, vm_execute(program).unwrap_err().err_type);
+        assert_eq!(*expectation, vm_execute(program).unwrap_err());
     }
 }
 
@@ -283,11 +283,11 @@ fn test_bad_lets() {
         "(let ((* 1)) (+ * *))",
         "(let ((a 1) (a 2)) (+ a a))"];
 
-    let expectations = [
-        ErrType::ReservedName("tx-sender".to_string()),
-        ErrType::ReservedName("*".to_string()),
-        ErrType::VariableDefinedMultipleTimes("a".to_string())];
+    let expectations: &[Error] = &[
+        UncheckedError::ReservedName("tx-sender".to_string()).into(),
+        UncheckedError::ReservedName("*".to_string()).into(),
+        UncheckedError::VariableDefinedMultipleTimes("a".to_string()).into()];
 
     tests.iter().zip(expectations.iter())
-        .for_each(|(program, expectation)| assert_eq!(*expectation, vm_execute(program).unwrap_err().err_type));
+        .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));
 }

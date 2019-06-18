@@ -337,7 +337,7 @@ mod test {
 
     #[test]
     fn test_parse_failures() {
-        use vm::errors::ErrType;
+        use vm::errors::{Error, RuntimeErrorType};
 
         let too_much_closure = "(let ((x 1) (y 2))))";
         let not_enough_closure = "(let ((x 1) (y 2))";
@@ -345,32 +345,32 @@ mod test {
         let unicode = "(let ((x🎶 1)) (eq x🎶 1))";
         let split_tokens = "(let ((023ab13 1)))";
 
-        assert!(match parser::parse(&split_tokens).unwrap_err().err_type {
-            ErrType::ParseError(_) => true,
+        assert!(match parser::parse(&split_tokens).unwrap_err() {
+            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse with an expectation of whitespace or parens");
 
-        assert!(match parser::parse(&too_much_closure).unwrap_err().err_type {
-            ErrType::ParseError(_) => true,
+        assert!(match parser::parse(&too_much_closure).unwrap_err() {
+            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse with too many right parens");
         
-        assert!(match parser::parse(&not_enough_closure).unwrap_err().err_type {
-            ErrType::ParseError(_) => true,
+        assert!(match parser::parse(&not_enough_closure).unwrap_err() {
+            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse with too few right parens");
         
-        let x = parser::parse(&middle_hash).unwrap_err().err_type;
+        let x = parser::parse(&middle_hash).unwrap_err();
         assert!(match x {
-            ErrType::ParseError(_) => true,
+            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => {
                 println!("Expected parser error. Unexpected value is:\n {:?}", x);
                 false
             }
         }, "Should have failed to parse with a middle hash");
 
-        assert!(match parser::parse(&unicode).unwrap_err().err_type {
-            ErrType::ParseError(_) => true,
+        assert!(match parser::parse(&unicode).unwrap_err() {
+            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse a unicode variable name");
 

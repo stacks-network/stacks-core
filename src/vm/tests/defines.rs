@@ -1,7 +1,11 @@
 use vm::execute;
-use vm::errors::{ErrType};
+use vm::errors::{UncheckedError, RuntimeErrorType, Error};
 use vm::types::Value;
 
+fn assert_eq_err(e1: UncheckedError, e2: Error) {
+    let e1: Error = e1.into();
+    assert_eq!(e1, e2)
+}
 
 #[test]
 fn test_defines() {
@@ -35,12 +39,12 @@ fn test_bad_define_names() {
          (define foo 2)
          (+ foo foo)";
 
-    assert_eq!(ErrType::ReservedName("tx-sender".to_string()), execute(&test0).unwrap_err().err_type);
-    assert_eq!(ErrType::ReservedName("*".to_string()), execute(&test1).unwrap_err().err_type);
-    assert_eq!(ErrType::InvalidArguments("Illegal operation: attempted to re-define a value type.".to_string()),
-               execute(&test2).unwrap_err().err_type);
-    assert_eq!(ErrType::VariableDefinedMultipleTimes("foo".to_string()),
-               execute(&test3).unwrap_err().err_type);
+    assert_eq_err(UncheckedError::ReservedName("tx-sender".to_string()), execute(&test0).unwrap_err());
+    assert_eq_err(UncheckedError::ReservedName("*".to_string()), execute(&test1).unwrap_err());
+    assert_eq_err(UncheckedError::InvalidArguments("Illegal operation: attempted to re-define a value type.".to_string()),
+                   execute(&test2).unwrap_err());
+    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("foo".to_string()),
+                   execute(&test3).unwrap_err());
 }
 
 #[test]
@@ -55,9 +59,9 @@ fn test_define_read_only() {
         "(define-read-only (silly) (set-entry! map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
-    assert_eq!(ErrType::WriteFromReadOnlyContext, execute(&test1).unwrap_err().err_type);
-    assert_eq!(ErrType::WriteFromReadOnlyContext, execute(&test2).unwrap_err().err_type);
-    assert_eq!(ErrType::WriteFromReadOnlyContext, execute(&test3).unwrap_err().err_type);
+    assert_eq_err(UncheckedError::WriteFromReadOnlyContext, execute(&test1).unwrap_err());
+    assert_eq_err(UncheckedError::WriteFromReadOnlyContext, execute(&test2).unwrap_err());
+    assert_eq_err(UncheckedError::WriteFromReadOnlyContext, execute(&test3).unwrap_err());
 }
 
 #[test]
@@ -78,7 +82,10 @@ fn test_stack_depth() {
     let test1 = function_defines.join("\n");
 
     assert_eq!(Ok(Some(Value::Int(128))), execute(&test0));
-    assert_eq!(ErrType::MaxStackDepthReached, execute(&test1).unwrap_err().err_type);
+    assert!(match execute(&test1).unwrap_err() {
+        Error::Runtime(RuntimeErrorType::MaxStackDepthReached, _) => true,
+        _ => false
+    })
 }
 
 #[test]
@@ -90,43 +97,43 @@ fn test_recursive_panic() {
               (* a (factorial (- a 1)))))
          (factorial 10)";
 
-    assert_eq!(ErrType::RecursionDetected, execute(&tests).unwrap_err().err_type);
+    assert_eq_err(UncheckedError::RecursionDetected, execute(&tests).unwrap_err());
 }
 
 #[test]
 fn test_bad_variables() {
     let test0 = "(+ a 1)";
-    let expected = ErrType::UndefinedVariable("a".to_string());
-    assert_eq!(expected, execute(&test0).unwrap_err().err_type);
+    let expected = UncheckedError::UndefinedVariable("a".to_string());
+    assert_eq_err(expected, execute(&test0).unwrap_err());
 
 
     let test1 = "(foo 2 1)";
-    let expected = ErrType::UndefinedFunction("foo".to_string());
-    assert_eq!(expected, execute(&test1).unwrap_err().err_type);
+    let expected = UncheckedError::UndefinedFunction("foo".to_string());
+    assert_eq_err(expected, execute(&test1).unwrap_err());
 
 
     let test2 = "((lambda (x y) 1) 2 1)";
-    let expected = ErrType::TryEvalToFunction;
-    assert_eq!(expected, execute(&test2).unwrap_err().err_type);
+    let expected = UncheckedError::TryEvalToFunction;
+    assert_eq_err(expected, execute(&test2).unwrap_err());
 
     let test4 = "()";
-    let expected = ErrType::InvalidArguments(
+    let expected = UncheckedError::InvalidArguments(
         "List expressions (...) are function applications, and must be supplied with function names to apply.".to_string());
-    assert_eq!(expected, execute(&test4).unwrap_err().err_type);
+    assert_eq_err(expected, execute(&test4).unwrap_err());
 }
 
 #[test]
 fn test_define_parse_panic() {
     let tests = "(define () 1)";
-    let expected = ErrType::InvalidArguments("Must supply atleast a name argument to define a function".to_string());
-    assert_eq!(expected, execute(&tests).unwrap_err().err_type);
+    let expected = UncheckedError::InvalidArguments("Must supply atleast a name argument to define a function".to_string());
+    assert_eq_err(expected, execute(&tests).unwrap_err());
 }
 
 #[test]
 fn test_define_parse_panic_2() {
     let tests = "(define (a b (d)) 1)";
-    assert_eq!(
-        ErrType::ExpectedListPairs,
-        execute(&tests).unwrap_err().err_type);
+    assert_eq_err(
+        UncheckedError::ExpectedListPairs,
+        execute(&tests).unwrap_err());
 }
 
