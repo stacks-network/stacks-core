@@ -1,6 +1,7 @@
 pub mod contexts;
 //mod maps;
 pub mod natives;
+pub mod interface;
 
 use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};

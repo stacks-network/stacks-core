@@ -228,7 +228,6 @@ fn test_define() {
 }
 
 #[test]
-#[cfg(feature = "developer-mode")]
 fn test_function_arg_names() {
     use vm::checker::type_check;
     

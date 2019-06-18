@@ -11,7 +11,7 @@ const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
-    type_map: BTreeMap<String, TypeSignature>
+    pub type_map: BTreeMap<String, TypeSignature>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,8 +31,8 @@ pub enum AtomTypeIdentifier {
 pub struct ListTypeData {
     // NOTE: for the purposes of type-checks and cost computations, list size = dimension * max_length!
     //       high dimensional lists are _expensive_ --- use lists of tuples!
-    max_len: u32,
-    dimension: u8
+    pub max_len: u32,
+    pub dimension: u8
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,7 +45,7 @@ pub enum TypeSignature {
 pub struct FunctionArg {
     #[serde(flatten)]
     pub signature: TypeSignature,
-    #[cfg(feature = "developer-mode")]
+    #[serde(skip)]
     pub name: String,
 }
 
@@ -581,17 +581,10 @@ impl fmt::Display for TupleData {
 }
 
 impl FunctionArg {
-    #[cfg(feature = "developer-mode")]
     pub fn new(sig: TypeSignature, name: &str) -> FunctionArg {
         FunctionArg { 
             signature: sig, 
             name: name.to_owned() }
-    }
-
-    #[cfg(not(feature = "developer-mode"))]
-    pub fn new(sig: TypeSignature, name: &str) -> FunctionArg {
-        FunctionArg { 
-            signature: sig }
     }
 }
 

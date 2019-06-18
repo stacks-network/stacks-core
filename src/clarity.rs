@@ -138,7 +138,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             match args.last() {
                 Some(s) if s == "--output_analysis" => {
-                    println!("{}", contract_analysis.serialize());
+                    println!("{}", contract_analysis.to_interface().serialize());
                 },
                 _ => {}
             }

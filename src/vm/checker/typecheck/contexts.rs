@@ -5,7 +5,7 @@ use vm::types::{TypeSignature};
 use vm::contexts::MAX_CONTEXT_DEPTH;
 
 use vm::checker::errors::{CheckResult, CheckError, CheckErrors};
-use vm::checker::typecheck::{FunctionType};
+use vm::checker::typecheck::{FunctionType, interface};
 
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
 const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
@@ -59,6 +59,40 @@ impl ContractAnalysis {
     pub fn serialize(&self) -> String {
         serde_json::to_string(self)
             .expect(SERIALIZE_FAIL_MESSAGE)
+    }
+
+    pub fn to_interface(&self) -> interface::ContractInterface {
+
+        let mut contract_interface = interface::ContractInterface {
+            functions: Vec::new(),
+            variables: Vec::new(),
+            maps: Vec::new(),
+        };
+
+        contract_interface.functions.append(
+            &mut interface::ContractInterfaceFunction::from_map(
+                &self.public_function_types, 
+                interface::ContractInterfaceFunctionAccess::public));
+
+        contract_interface.functions.append(
+            &mut interface::ContractInterfaceFunction::from_map(
+                &self.read_only_function_types, 
+                interface::ContractInterfaceFunctionAccess::read_only));
+
+        contract_interface.functions.append(
+            &mut interface::ContractInterfaceFunction::from_map(
+                &self.private_function_types, 
+                interface::ContractInterfaceFunctionAccess::private));
+
+        contract_interface.variables.append(
+            &mut interface::ContractInterfaceVariable::from_map(
+                &self.variable_types, 
+                interface::ContractInterfaceVariableAccess::constant));
+
+        contract_interface.maps.append(
+            &mut interface::ContractInterfaceMap::from_map(&self.map_types));
+
+        contract_interface
     }
 
     pub fn add_map_type(&mut self, name: &str, key_type: &TypeSignature, map_type: &TypeSignature) {
