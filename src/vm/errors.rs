@@ -157,8 +157,30 @@ impl Into<Value> for ShortReturnType {
 #[cfg(test)]
 mod test {
     use super::*;
+    use vm::{execute};
 
     #[test]
     fn error_formats() {
+        let t = "(/ 10 0)";
+        let expected = "Arithmetic(\"Divide by 0\")
+ Stack Trace: 
+_native_:native_div
+";
+
+        assert_eq!(
+            format!("{}", execute(t).unwrap_err()),
+            expected);
     }
+
+    #[test]
+    fn equality() {
+        assert_eq!(Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true))),
+                   Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true))));
+        assert_eq!(Error::Interpreter(InterpreterError::InterpreterError("".to_string())),
+                   Error::Interpreter(InterpreterError::InterpreterError("".to_string())));
+        assert!(Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true))) !=
+                Error::Interpreter(InterpreterError::InterpreterError("".to_string())));
+
+    }
+
 }
