@@ -1,6 +1,7 @@
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::types::{Value};
 use vm::representations::{SymbolicExpression,SymbolicExpressionType};
+use vm::representations::SymbolicExpressionType::{List};
 use vm::{LocalContext, Environment, eval};
 
 pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
@@ -53,3 +54,24 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
         _ => Err(Error::new(ErrType::TypeError("TupleType".to_string(), value.clone())))
     }
 }
+
+pub enum TupleDefinitionType {
+    Implicit(Box<[SymbolicExpression]>),
+    Explicit,
+}
+
+/// Identify whether a symbolic expression is an implicit tuple structure ((key2 k1) (key2 k2)), 
+/// or other - (tuple (key2 k1) (key2 k2)) / bound variable / function call. 
+/// The caller is responsible for any eventual type checks or actual execution.
+/// Used in:
+/// - the type checker: doesn't eval the resulting structure, it only type checks it,
+/// - the interpreter: want to eval the result, and then do type enforcement on the value, not the type signature.
+pub fn get_definition_type_of_tuple_argument(args: &SymbolicExpression) -> TupleDefinitionType {
+    if let List(ref outer_expr) = args.expr {
+        if let List(_) = (&outer_expr[0]).expr {
+            return TupleDefinitionType::Implicit(outer_expr.clone());
+        }
+    }
+    TupleDefinitionType::Explicit
+}
+

@@ -2,8 +2,10 @@ use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
-use vm::variables::NativeVariables;
+use vm::functions::tuples;
+use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
+use vm::variables::NativeVariables;
 use std::collections::HashMap;
 
 use super::AnalysisDatabase;
@@ -111,6 +113,21 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                       Ok(acc? && self.is_read_only(&argument)?) })
     }
 
+    fn is_implicit_tuple_definition_read_only(&self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
+        for tuple_expr in tuples.iter() {
+            let pair = tuple_expr.match_list()
+                .ok_or(CheckError::new(CheckErrors::TupleExpectsPairs))?;
+            if pair.len() != 2 {
+                return Err(CheckError::new(CheckErrors::TupleExpectsPairs))
+            }
+
+            if !self.is_read_only(&pair[1])? {
+                return Ok(false)
+            }
+        }
+        Ok(true)
+    }
+
     fn try_native_function_check(&self, function: &str, args: &[SymbolicExpression]) -> Option<CheckResult<bool>> {
         if let Some(ref function) = NativeFunctions::lookup_by_name(function) {
             Some(self.handle_native_function(function, args))
@@ -126,8 +143,30 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater |
             Modulo | Power | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
             ConsOkay | ConsError | DefaultTo | Expects | ExpectsErr | IsOkay | IsNone |
-            ListCons | GetBlockInfo | FetchEntry | FetchContractEntry | TupleGet | Print | AsContract | Begin => {
+            ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin => {
                 self.are_all_read_only(true, args)
+            },
+            FetchEntry => {                
+                let res = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
+                    Implicit(ref tuple_expr) => {
+                        self.is_implicit_tuple_definition_read_only(tuple_expr)
+                    },
+                    Explicit => {
+                        self.are_all_read_only(true, args)
+                    }
+                };
+                res
+            },
+            FetchContractEntry => {                
+                let res = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
+                    Implicit(ref tuple_expr) => {
+                        self.is_implicit_tuple_definition_read_only(tuple_expr)
+                    },
+                    Explicit => {
+                        self.are_all_read_only(true, args)
+                    }
+                };
+                res
             },
             SetEntry | DeleteEntry | InsertEntry => {
                 Ok(false)
@@ -154,7 +193,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     
                 self.is_read_only(&args[1])
             },
-            Map => {
+            Map | Filter => {
                 if args.len() != 2 {
                     return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
                 }

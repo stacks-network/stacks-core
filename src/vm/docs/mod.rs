@@ -141,16 +141,6 @@ const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
 "
 };
 
-const EQUALS_API: SimpleFunctionAPI = SimpleFunctionAPI {
-    name: "eq?",
-    signature: "(eq? v1 v2...)",
-    description: "Compares the inputted values, returning `true` if they are all equal. Note that _unlike_ the `(and ...)` function, `(eq? ...)` will _not_ short-circuit.",
-    example: "(eq? 1 1) ;; Returns 'true
-(eq? 1 'false) ;; Returns 'false
-(eq? \"abc\" 234 234) ;; Returns 'false
-"
-};
-
 const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: "> (greater than)",
     signature: "(> i1 i2)",
@@ -191,7 +181,7 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions) -
             };
             (input_type, output_type)
         } else {
-            panic!("Attempted to auto-generate docs for non-simple native function.")
+            panic!("Attempted to auto-generate docs for non-simple native function: {}", api.name)
         }
     };
 
@@ -204,6 +194,18 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions) -
         example: api.example.to_string()
     }
 }
+
+const EQUALS_API: SpecialAPI = SpecialAPI {
+    name: "eq?",
+    input_type: "A, A, ...",
+    output_type: "bool",
+    signature: "(eq? v1 v2...)",
+    description: "Compares the inputted values, returning `true` if they are all equal. Note that _unlike_ the `(and ...)` function, `(eq? ...)` will _not_ short-circuit.",
+    example: "(eq? 1 1) ;; Returns 'true
+(eq? 1 'false) ;; Returns 'false
+(eq? \"abc\" 234 234) ;; Returns 'false
+"
+};
 
 const IF_API: SpecialAPI = SpecialAPI {
     name: "if",
@@ -237,6 +239,16 @@ const MAP_API: SpecialAPI = SpecialAPI {
     description: "The `map` function applies the input function `func` to each element of the
 input list, and outputs a list containing the _outputs_ from those function applications.",
     example: "(map not (list true false true false)) ;; Returns 'false true false true"
+};
+
+const FILTER_API: SpecialAPI = SpecialAPI {
+    name: "map",
+    input_type: "Function(A) -> bool, (list A)",
+    output_type: "(list A)",
+    signature: "(filter func list)",
+    description: "The `filter` function applies the input function `func` to each element of the
+input list, and returns the same list with any elements removed for which the `func` returned `false`.",
+    example: "(filter not (list true false true false)) ;; Returns (list false false)"
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
@@ -291,7 +303,9 @@ const FETCH_API: SpecialAPI = SpecialAPI {
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
 it returns (some value)",
-    example: "(expects! (fetch-entry names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
+    example: "(expects! (fetch-entry names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
+(expects! (fetch-entry names-map ((name \"blockstack\"))) (err 1)) ;; Same command, using a shorthand for constructing the tuple
+",
 };
 
 const SET_API: SpecialAPI = SpecialAPI {
@@ -302,7 +316,9 @@ const SET_API: SpecialAPI = SpecialAPI {
     description: "The `set-entry!` function sets the value associated with the input key to the 
 inputted value. This function performs a _blind_ update; whether or not a value is already associated
 with the key, the function overwrites that existing association.",
-    example: "(set-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true",
+    example: "(set-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
+(set-entry! names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+",
 };
 
 const INSERT_API: SpecialAPI = SpecialAPI {
@@ -316,6 +332,7 @@ If an insert occurs, the function returns `true`. If a value already existed for
 this key in the data map, the function returns `false`.",
     example: "(insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
 (insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'false
+(insert-entry! names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -329,6 +346,7 @@ the given map. If an item exists, and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
     example: "(delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns 'true
 (delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns 'false
+(delete-entry! names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -341,7 +359,9 @@ const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
 it returns (some value)",
-    example: "(expects! (fetch-contract-entry names-contract names-map (tuple (name \"blockstack\")) (err 1)) ;; Returns (tuple (id 1337))",
+    example: "(expects! (fetch-contract-entry names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
+(expects! (fetch-contract-entry names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
+",
 };
 
 const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
@@ -530,6 +550,96 @@ The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 3
 "
 };
 
+const DEFINE_PUBLIC_API: SpecialAPI = SpecialAPI {
+    name: "define-public",
+    input_type: "MethodSignature, MethodBody",
+    output_type: "Not Applicable",
+    signature: "(define-public (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
+    description: "`define-public` is used to define a _public_ function and transaction for a smart contract. Public
+functions are callable from other smart contracts, and may be invoked directly by users by submitting a transaction
+to the Stacks blockchain.
+
+Like other kinds of definition statements, `define-public` may only be used at the top level of a smart contract
+definition (i.e., you cannot put a define statement in the middle of a function body).
+
+Public functions _must_ return a ResponseType (using either `ok` or `err`). Any datamap modifications performed by
+a public function will be aborted if the function returns an `err` type. Public functions may be invoked by other
+contracts via `contract-call!`.",
+    example: "
+(define-public (hello-world (input int))
+  (begin (print (+ 2 input))
+         (ok input)))
+"
+};
+
+const DEFINE_PRIVATE_API: SpecialAPI = SpecialAPI {
+    name: "define",
+    input_type: "MethodSignature, MethodBody",
+    output_type: "Not Applicable",
+    signature: "(define (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
+    description: "`define` is used to define _private_ functions for a smart contract. Private
+functions may not be called from other smart contracts, nor may they be invoked directly by users.
+Instead, these functions may only be invoked by other functions defined in the same smart contract.
+
+Like other kinds of definition statements, `define` may only be used at the top level of a smart contract
+definition (i.e., you cannot put a define statement in the middle of a function body).
+
+Private functions may return any type.",
+    example: "
+(define (max-of (i1 int) (i2 int))
+  (if (> i1 i2)
+      i1
+      i2))
+(max-of 4 6) ;; returns 6
+"
+};
+
+const DEFINE_READ_ONLY_API: SpecialAPI = SpecialAPI {
+    name: "define-read-only",
+    input_type: "MethodSignature, MethodBody",
+    output_type: "Not Applicable",
+    signature: "(define-read-only (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
+    description: "`define-read-only` is used to define a _public read-only_ function for a smart contract. Such
+functions are callable from other smart contracts.
+
+Like other kinds of definition statements, `define-read-only` may only be used at the top level of a smart contract
+definition (i.e., you cannot put a define statement in the middle of a function body).
+
+Read-only functions may return any type. However, read-only functions
+may not perform any datamap modifications, or call any functions which
+perform such modifications. This is enforced both during type checks and during
+the execution of the function. Public read-only functions may
+be invoked by other contracts via `contract-call!`.",
+    example: "
+(define-read-only (just-return-one-hundred) 
+  (* 10 10))"
+};
+
+const DEFINE_MAP_API: SpecialAPI = SpecialAPI {
+    name: "define-map",
+    input_type: "MapName, KeyTupleDefinition, MapTupleDefinition",
+    output_type: "Not Applicable",
+    signature: "(define-map map-name ((key-name-0 key-type-0) ...) ((val-name-0 val-type-0) ...))",
+    description: "`define-map` is used to define a new datamap for use in a smart contract. Such
+maps are only modifiable by the current smart contract.
+
+Maps are defined with a key tuple type and value tuple type. These are defined using a list
+of name and type pairs, e.g., a key type might be `((id int))`, which is a tuple with a single \"id\"
+field of type `int`.
+
+Like other kinds of definition statements, `define-map` may only be used at the top level of a smart contract
+definition (i.e., you cannot put a define statement in the middle of a function body).",
+    example: "
+(define-map squares ((x int)) ((square int)))
+(define (add-entry (x int))
+  (insert-entry! squares ((x 2)) ((square (* x x)))))
+(add-entry 1)
+(add-entry 2)
+(add-entry 3)
+(add-entry 4)
+(add-entry 5)
+"
+};
 
 fn make_for_special(api: &SpecialAPI) -> FunctionAPI {
     FunctionAPI {
@@ -560,10 +670,11 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         And => make_for_simple_native(&AND_API, &And),
         Or => make_for_simple_native(&OR_API, &Or),
         Not => make_for_simple_native(&NOT_API, &Not),
-        Equals => make_for_simple_native(&EQUALS_API, &Equals),
+        Equals => make_for_special(&EQUALS_API),
         If => make_for_special(&IF_API),
         Let => make_for_special(&LET_API),
         Map => make_for_special(&MAP_API),
+        Filter => make_for_special(&FILTER_API),
         Fold => make_for_special(&FOLD_API),
         ListCons => make_for_special(&LIST_API),
         FetchEntry => make_for_special(&FETCH_API),
@@ -593,9 +704,25 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
 
 pub fn make_json_api_reference() -> String {
     use vm::functions::NativeFunctions;
-    let json_references: Vec<_> = NativeFunctions::ALL.iter()
+    let mut json_references: Vec<_> = NativeFunctions::ALL.iter()
         .map(|x| make_api_reference(x))
         .collect();
+    json_references.push(make_for_special(&DEFINE_MAP_API));
+    json_references.push(make_for_special(&DEFINE_PUBLIC_API));
+    json_references.push(make_for_special(&DEFINE_PRIVATE_API));
+    json_references.push(make_for_special(&DEFINE_READ_ONLY_API));
     format!("{}", serde_json::to_string(&json_references)
             .expect("Failed to serialize documentation"))
+}
+
+#[cfg(test)]
+mod test {
+    use super::make_json_api_reference;
+
+    #[test]
+    fn ensure_docgen_runs() {
+        // add a test to make sure that we don't inadvertently break
+        //  docgen in a panic-y way.
+        make_json_api_reference();
+    }
 }
