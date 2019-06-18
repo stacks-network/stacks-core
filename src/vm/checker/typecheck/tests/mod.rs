@@ -233,7 +233,7 @@ fn test_factorial() {
 }
 
 #[test]
-fn test_simple_set_variable() {
+fn test_set_variable() {
     let contract_src = r#"
         (define-data-var cursor int)
         (define (get-cursor)
@@ -253,6 +253,50 @@ fn test_simple_set_variable() {
     let mut analysis_db = analysis_conn.begin_save_point();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+}
+
+#[test]
+fn test_set_variable_type_mismatch() {
+    let contract_src = r#"
+        (define-data-var cursor int)
+        (define (get-cursor)
+            (expects! (fetch-var cursor) 0))
+        (define (set-cursor (value principal))
+            (if (set-var! cursor value)
+                value
+                0))
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::TypeError(_, _) => true,
+        _ => false
+    });
+}
+#[test]
+fn test_data_var_shadowed_by_let_should_fail() {
+    let contract_src = r#"
+        (define-data-var cursor int)
+        (define (set-cursor (value int))
+            (let ((cursor 0))
+               (if (set-var! cursor value)
+                   value
+                    0)))
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::NameAlreadyUsed(_) => true,
+        _ => false
+    });
 }
 
 #[test]

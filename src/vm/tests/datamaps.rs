@@ -209,6 +209,36 @@ fn test_fetch_contract_entry() {
     assert_eq!(Value::Int(42), env.eval_read_only("proxy-contract", "(fetch-via-fetch-contract-entry-using-bound-tuple)").unwrap());
 }
 
+#[test]
+fn test_set_variable() {
+        let simple_set_variable_src = r#"
+        (define-data-var cursor int)
+        (define (get-cursor)
+            (expects! (fetch-var cursor) 0))
+        (define (set-cursor (value int))
+            (if (set-var! cursor value)
+                value
+                0))
+        (define (increment-cursor)
+            (begin
+                (set-var! cursor (+ 1 (get-cursor)))
+                (get-cursor)))
+    "#;
+
+
+    let mut test_simple_set_variable = simple_set_variable_src.to_string();
+    test_simple_set_variable.push_str("(list (get-cursor) (set-cursor 8) (get-cursor) (set-cursor 255) (get-cursor) (increment-cursor))");
+    let expected = Value::list_from(vec![
+        Value::Int(0),
+        Value::Int(8),
+        Value::Int(8),
+        Value::Int(255),
+        Value::Int(255),
+        Value::Int(256),
+    ]);    
+    assert_executes(expected, &test_simple_set_variable);
+}
+
 
 #[test]
 fn test_factorial_contract() {
