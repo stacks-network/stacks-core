@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
-use vm::types::{Value, BuffData, BlockInfoProperty};
+use vm::types::{Value, OptionalData, BuffData, BlockInfoProperty};
 use vm::representations::{SymbolicExpression};
 use vm::errors::{Error, ErrType, InterpreterResult as Result};
 use vm::{eval, LocalContext, Environment};
@@ -74,7 +74,12 @@ pub fn special_set_variable(args: &[SymbolicExpression],
     let var_name = args[0].match_atom()
         .ok_or(Error::new(ErrType::InvalidArguments("First argument in set function must be the variable name".to_string())))?;
 
-    env.global_context.database.set_variable(&env.contract_context.name, var_name, value)
+    // (define-data-var my-var int) is implicitely implying that my-var is optional.
+    // (setvar! my-var 1) however, will return an Int type signature. 
+    // As such, we will wrap `value` in an Optional<Int>. 
+    let optional_value = Value::Optional(OptionalData { data: Some(Box::new(value)) });
+
+    env.global_context.database.set_variable(&env.contract_context.name, var_name, optional_value)
 }
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],

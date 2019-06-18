@@ -5,7 +5,7 @@ use rusqlite::types::ToSql;
 
 use vm::contracts::Contract;
 use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
-use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, NONE};
+use vm::types::{Value, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, NONE};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -258,15 +258,13 @@ impl <'a> ContractDatabase <'a> {
     }
 
     pub fn set_variable(&mut self, contract_name: &str, variable_name: &str, value: Value) -> Result<Value> {
-        
-        let optional_value = Value::Optional(OptionalData { data: Some(Box::new(value)) });
         let variable_descriptor = self.load_variable(contract_name, variable_name)?;
-        if !variable_descriptor.value_type.admits(&optional_value) {
-            return Err(Error::new(ErrType::TypeError(format!("{:?}", variable_descriptor.value_type), optional_value)))
+        if !variable_descriptor.value_type.admits(&value) {
+            return Err(Error::new(ErrType::TypeError(format!("{:?}", variable_descriptor.value_type), value)))
         }
 
         let params: [&ToSql; 2] = [&variable_descriptor.variable_identifier,
-                                   &optional_value.serialize()];
+                                   &value.serialize()];
 
         self.execute(
             "INSERT INTO data_table (variable_identifier, value, key, map_identifier) VALUES (?, ?, '', '')",
