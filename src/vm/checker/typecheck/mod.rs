@@ -354,8 +354,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Ok(type_result.clone())
         } else if let Some(type_result) = context.lookup_constant_type(name) {
             Ok(type_result.clone())
-        } else if let Some(type_result) = self.contract_context.get_variable_type(name) {
-            Ok(type_result.clone())
         } else {
             Err(CheckError::new(CheckErrors::UnboundVariable(name.to_string())))
         }
