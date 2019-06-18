@@ -209,3 +209,4 @@ impl ContractInterface {
         serde_json::to_string(self).expect("Failed to serialize contract interface")
     }
 }
+

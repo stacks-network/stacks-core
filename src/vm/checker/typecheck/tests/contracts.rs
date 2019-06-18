@@ -104,6 +104,19 @@ fn test_names_tokens_contracts() {
 }
 
 #[test]
+fn test_names_tokens_contracts_interface() {
+    use vm::checker::type_check;
+
+    let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
+    let mut names_contract = parse(SIMPLE_NAMES).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
+
+    type_check(&"tokens", &mut tokens_contract, &mut db, true).unwrap().to_interface().serialize();
+    type_check(&"names", &mut names_contract, &mut db, true).unwrap().to_interface().serialize();
+}
+
+#[test]
 fn test_names_tokens_contracts_bad() {
     use vm::checker::type_check;
     let broken_public = "
