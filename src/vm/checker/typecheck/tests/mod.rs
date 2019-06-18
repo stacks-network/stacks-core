@@ -300,6 +300,45 @@ fn test_data_var_shadowed_by_let_should_fail() {
 }
 
 #[test]
+fn test_mutating_unknown_data_var_should_fail() {
+    let contract_src = r#"
+        (define (set-cursor (value int))
+            (if (set-var! cursor value)
+                value
+                0))
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::NoSuchVariable(_) => true,
+        _ => false
+    });
+}
+
+#[test]
+fn test_accessing_unknown_data_var_should_fail() {
+    let contract_src = r#"
+        (define (get-cursor)
+            (expects! (fetch-var cursor) 0))
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::NoSuchVariable(_) => true,
+        _ => false
+    });
+}
+
+
+#[test]
 fn test_tuple_map() {
     let t = "(define-map tuples ((name int)) 
                             ((contents (tuple ((name (buff 5))
