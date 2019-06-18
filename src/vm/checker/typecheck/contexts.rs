@@ -194,7 +194,7 @@ impl ContractContext {
 
     pub fn add_variable_type(&mut self, var_name: String, var_type: TypeSignature) -> CheckResult<()> {
         self.check_name_used(&var_name)?;
-        self.constant_types.insert(var_name, var_type);
+        self.variable_types.insert(var_name, var_type);
         Ok(())
     }
 

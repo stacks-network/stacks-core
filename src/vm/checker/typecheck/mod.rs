@@ -354,6 +354,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Ok(type_result.clone())
         } else if let Some(type_result) = context.lookup_constant_type(name) {
             Ok(type_result.clone())
+        } else if let Some(type_result) = self.contract_context.get_variable_type(name) {
+            Ok(type_result.clone())
         } else {
             Err(CheckError::new(CheckErrors::UnboundVariable(name.to_string())))
         }
@@ -378,14 +380,29 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     fn type_check_define_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
         if args.len() != 2 {
-            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len() - 1)))
         }
         let var_name = args[0].match_atom()
             .ok_or(CheckError::new(CheckErrors::DefineVariableBadSignature))?
             .clone();
-        let var_type = self.type_check(&args[1], context)?;
-        Ok((var_name, var_type))
+
+        match TypeSignature::parse_type_repr(&args[1], true) {
+            Ok(var_type) => Ok((var_name, var_type)),
+            _ => Err(CheckError::new(CheckErrors::DefineVariableBadSignature))
+        }        
     }
+
+
+// fn handle_define_variable(variable_name: &SymbolicExpression, value_type: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
+//     let variable_str = variable_name.match_atom()
+//         .ok_or(Error::new(ErrType::InvalidArguments("Non-name argument to define-data-var".to_string())))?;
+
+//     check_legal_define(&variable_str, &env.contract_context)?;
+
+//     let value_type_signature = TypeSignature::parse_type_repr(value_type, true)?;
+
+//     Ok(DefineResult::Variable(variable_str.clone(), value_type_signature))
+// }
 
 
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
@@ -437,7 +454,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                             Ok(Some(()))
                         },
                         "define-data-var" => {
-                            let (v_name, v_type) = self.type_check_define_variable(expression,
+                            let (v_name, v_type) = self.type_check_define_variable(function_args,
                                                                                    context)?;
                             self.contract_context.add_variable_type(v_name, v_type)?;
                             Ok(Some(()))

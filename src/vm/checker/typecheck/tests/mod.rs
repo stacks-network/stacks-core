@@ -233,6 +233,29 @@ fn test_factorial() {
 }
 
 #[test]
+fn test_simple_set_variable() {
+    let contract_src = r#"
+        (define-data-var cursor int)
+        (define (get-cursor)
+            (expects! (fetch-var cursor) 0))
+        (define (set-cursor (value int))
+            (if (set-var! cursor value)
+                value
+                0))
+        (define (increment-cursor)
+            (begin
+                (set-var! cursor (+ 1 (get-cursor)))
+                (get-cursor)))
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+}
+
+#[test]
 fn test_tuple_map() {
     let t = "(define-map tuples ((name int)) 
                             ((contents (tuple ((name (buff 5))
