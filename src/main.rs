@@ -104,7 +104,7 @@ fn main() {
 
     if argv[1] == "exec_program" {
         if argv.len() < 3 {
-            eprintln!("Usage: {} exec_program [program-file.scm]", argv[0]);
+            eprintln!("Usage: {} exec_program [program-file.clar]", argv[0]);
             process::exit(1);
         }
         let program: String = fs::read_to_string(&argv[2])

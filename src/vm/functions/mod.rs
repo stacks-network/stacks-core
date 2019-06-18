@@ -71,7 +71,8 @@ define_enum!(NativeFunctions {
     Expects,
     ExpectsErr,
     IsOkay,
-    IsNone
+    IsNone,
+    Filter
 });
 
 impl NativeFunctions {
@@ -122,6 +123,7 @@ impl NativeFunctions {
             "expects-err!" => Some(ExpectsErr),
             "is-ok?" => Some(IsOkay),
             "is-none?" => Some(IsNone),
+            "filter" => Some(Filter),
             _ => None
         }
     }
@@ -151,6 +153,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             FetchVar => CallableType::SpecialFunction("native_fetch-var", &database::special_fetch_variable),
             SetVar => CallableType::SpecialFunction("native_set-var", &database::special_set_variable),
             Map => CallableType::SpecialFunction("native_map", &lists::list_map),
+            Filter => CallableType::SpecialFunction("native_filter", &lists::list_filter),
             Fold => CallableType::SpecialFunction("native_fold", &lists::list_fold),
             ListCons => CallableType::NativeFunction("native_cons", &lists::list_cons),
             FetchEntry => CallableType::SpecialFunction("native_fetch-entry", &database::special_fetch_entry),

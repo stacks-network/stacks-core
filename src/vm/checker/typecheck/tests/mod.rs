@@ -136,6 +136,7 @@ fn test_eqs() {
 fn test_lists() {
     let good = ["(map hash160 (list 1 2 3 4 5))",
                 "(list (list 1 2) (list 3 4) (list 5 1 7))",
+                "(filter not (list 'false 'true 'false))",
                 "(fold and (list 'true 'true 'false 'false) 'true)",
                 "(map - (list (+ 1 2) 3 (+ 4 5) (* (+ 1 2) 3)))"];
     let bad = [
@@ -144,6 +145,11 @@ fn test_lists() {
         "(fold >= (list 1 2 3 4) 2)",
         "(list (list 1 2) (list 'true) (list 5 1 7))",
         "(list 1 2 3 'true 'false 4 5 6)",
+        "(filter hash160 (list 1 2 3 4))",
+        "(filter not (list 1 2 3 4))",
+        "(filter not (list 1 2 3 4) 1)",
+        "(filter ynot (list 1 2 3 4) 1)",
+        "(map if (list 1 2 3 4 5))",
         "(map mod (list 1 2 3 4 5))",
         "(map - (list 'true 'false 'true 'false))",
         "(map hash160 (+ 1 2))",];
@@ -157,6 +163,23 @@ fn test_lists() {
         identity_pass::identity_pass(&mut bad_test).unwrap();
         assert!(type_check_helper(&bad_test[0]).is_err())
     }
+}
+
+#[test]
+fn test_lists_in_defines() {
+    use vm::checker::type_check;
+
+    let good = "
+    (define (test (x int)) (eq? 0 (mod x 2)))
+    (filter test (list 1 2 3 4 5))
+";
+
+    let mut c1 = parse(good).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
+
+    type_check(&":transient1:", &mut c1, &mut db, true).unwrap();
+
 }
 
 #[test]

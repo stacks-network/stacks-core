@@ -114,7 +114,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         },
         "check" => {
             if args.len() < 2 {
-                eprintln!("Usage: {} {} [program-file.scm] (vm-state.db)", invoked_by, args[0]);
+                eprintln!("Usage: {} {} [program-file.clar] (vm-state.db)", invoked_by, args[0]);
                 process::exit(1);
             }
             
@@ -253,7 +253,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         },
         "eval" => {
             if args.len() < 3 {
-                eprintln!("Usage: {} {} [context-contract-name] (program.scm) [vm-state.db]", invoked_by, args[0]);
+                eprintln!("Usage: {} {} [context-contract-name] (program.clar) [vm-state.db]", invoked_by, args[0]);
                 process::exit(1);
             }
 
@@ -303,7 +303,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         },
         "launch" => {
             if args.len() < 4 {
-                eprintln!("Usage: {} {} [contract-name] [contract-definition.scm] [vm-state.db]", invoked_by, args[0]);
+                eprintln!("Usage: {} {} [contract-name] [contract-definition.clar] [vm-state.db]", invoked_by, args[0]);
                 process::exit(1);
             }
             let vm_filename = &args[3];
