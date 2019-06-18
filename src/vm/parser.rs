@@ -1,7 +1,7 @@
 use util::hash::hex_bytes;
 use regex::{Regex, Captures};
 use address::c32::c32_address_decode;
-use vm::errors::{Error, ErrType, InterpreterResult as Result};
+use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
 use vm::types::{Value, PrincipalData};
 
@@ -44,7 +44,7 @@ impl LexMatcher {
 
 fn get_value_or_err(input: &str, captures: Captures) -> Result<String> {
     let matched = captures.name("value").ok_or(
-        Error::new(ErrType::ParseError("Failed to capture value from input".to_string())))?;
+        RuntimeErrorType::ParseError("Failed to capture value from input".to_string()))?;
     Ok(input[matched.start()..matched.end()].to_string())
 }
 
@@ -89,7 +89,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
             if munch_index > next_line_ix {
                 next_line_break = line_indices.pop();
                 current_line = current_line.checked_add(1)
-                    .ok_or(Error::new(ErrType::ParseError("Program too large to parse.".to_string())))?;
+                    .ok_or(RuntimeErrorType::ParseError("Program too large to parse.".to_string()))?;
             }
         }
 
@@ -110,8 +110,8 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
                         match matcher.handler {
                             TokenType::RParens => Ok(()),
                             TokenType::Whitespace => Ok(()),
-                            _ => Err(Error::new(ErrType::ParseError(format!("Expected whitespace or a close parens. Found: '{}'",
-                                                                            &current_slice[..whole_match.end()]))))
+                            _ => Err(RuntimeErrorType::ParseError(format!("Expected whitespace or a close parens. Found: '{}'",
+                                                                          &current_slice[..whole_match.end()])))
                         }
                     }
                 }?;
@@ -134,16 +134,17 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
                     TokenType::Variable => {
                         let value = get_value_or_err(current_slice, captures)?;
                         if value.contains("#") {
-                            return Err(Error::new(ErrType::ParseError(format!("Illegal variable name: '{}'", value))))
+                            Err(RuntimeErrorType::ParseError(format!("Illegal variable name: '{}'", value)))
+                        } else {
+                            Ok(LexItem::Variable(value))
                         }
-                        Ok(LexItem::Variable(value))
                     },
                     TokenType::QuoteLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match str_value.as_str() {
                             "true" => Ok(Value::Bool(true)),
                             "false" => Ok(Value::Bool(false)),
-                            _ => Err(Error::new(ErrType::ParseError(format!("Unknown 'quoted value '{}'", str_value))))
+                            _ => Err(RuntimeErrorType::ParseError(format!("Unknown 'quoted value '{}'", str_value)))
                         }?;
                         Ok(LexItem::LiteralValue(value))
                     },
@@ -151,7 +152,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match i128::from_str_radix(&str_value, 10) {
                             Ok(parsed) => Ok(Value::Int(parsed)),
-                            Err(_e) => Err(Error::new(ErrType::ParseError(format!("Failed to parse int literal '{}'", str_value))))
+                            Err(_e) => Err(RuntimeErrorType::ParseError(format!("Failed to parse int literal '{}'", str_value)))
                         }?;
                         Ok(LexItem::LiteralValue(value))
                     },
@@ -163,9 +164,9 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
                     TokenType::PrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let (version, data) = c32_address_decode(&str_value)
-                            .map_err(|x| { Error::new(ErrType::ParseError(format!("Invalid principal literal: {}", x))) })?;
+                            .map_err(|x| { RuntimeErrorType::ParseError(format!("Invalid principal literal: {}", x)) })?;
                         if data.len() != 20 {
-                            Err(Error::new(ErrType::ParseError("Invalid principal literal: Expected 20 data bytes.".to_string())))
+                            Err(RuntimeErrorType::ParseError("Invalid principal literal: Expected 20 data bytes.".to_string()))
                         } else {
                             let mut fixed_data = [0; 20];
                             fixed_data.copy_from_slice(&data[..20]);
@@ -176,7 +177,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
                     TokenType::HexStringLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let byte_vec = hex_bytes(&str_value)
-                            .map_err(|x| { Error::new(ErrType::ParseError(format!("Invalid hex-string literal {}: {}", &str_value, x))) })?;
+                            .map_err(|x| { RuntimeErrorType::ParseError(format!("Invalid hex-string literal {}: {}", &str_value, x)) })?;
                         let value = Value::buff_from(byte_vec)?;
                         Ok(LexItem::LiteralValue(value))
                     },
@@ -200,7 +201,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
     if munch_index == input.len() {
         Ok(result)
     } else {
-        Err(Error::new(ErrType::ParseError(format!("Failed to lex input remainder: {}", &input[munch_index..]))))
+        Err(RuntimeErrorType::ParseError(format!("Failed to lex input remainder: {}", &input[munch_index..])).into())
     }
 }
 
@@ -231,7 +232,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32)>) -> Result<Vec<SymbolicExpress
                         }
                     };
                 } else {
-                    return Err(Error::new(ErrType::ParseError("Tried to close list which isn't open.".to_string())))
+                    return Err(RuntimeErrorType::ParseError("Tried to close list which isn't open.".to_string()).into())
                 }
             },
             LexItem::Variable(value) => {
@@ -258,7 +259,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32)>) -> Result<Vec<SymbolicExpress
 
     // check unfinished stack:
     if parse_stack.len() > 0 {
-        Err(Error::new(ErrType::ParseError("List expressions (..) left opened.".to_string())))
+        Err(RuntimeErrorType::ParseError("List expressions (..) left opened.".to_string()).into())
     } else {
         Ok(output_list)
     }

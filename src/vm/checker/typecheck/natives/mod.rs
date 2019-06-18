@@ -1,4 +1,4 @@
-use vm::errors::{ErrType as InterpError};
+use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
 use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty};
@@ -38,10 +38,15 @@ fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression
     let typed_args = checker.type_check_all(args, context)?;
     TypeSignature::parent_list_type(&typed_args)
         .map_err(|x| {
-            let error_type = match x.err_type {
-                InterpError::BadTypeConstruction => CheckErrors::ListTypesMustMatch,
-                InterpError::ListTooLarge => CheckErrors::ConstructedListTooLarge,
-                InterpError::ListDimensionTooHigh => CheckErrors::ConstructedListTooLarge,
+            let error_type = match x {
+                InterpError::Runtime(ref runtime_err) => {
+                    match runtime_err.err_type {
+                        RuntimeErrorType::BadTypeConstruction => CheckErrors::ListTypesMustMatch,
+                        RuntimeErrorType::ListTooLarge => CheckErrors::ConstructedListTooLarge,
+                        RuntimeErrorType::ListDimensionTooHigh => CheckErrors::ConstructedListTooLarge,
+                        _ => CheckErrors::UnknownListConstructionFailure
+                    }
+                },
                 _ => CheckErrors::UnknownListConstructionFailure
             };
             CheckError::new(error_type)

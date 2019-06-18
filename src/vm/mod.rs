@@ -25,7 +25,7 @@ use vm::callables::CallableType;
 use vm::contexts::{ContractContext, LocalContext, Environment, CallStack};
 use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
-use vm::errors::{Error, ErrType, InterpreterResult as Result};
+use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result};
 use vm::database::{ContractDatabaseConnection};
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType};
@@ -34,7 +34,7 @@ const MAX_CALL_STACK_DEPTH: usize = 128;
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
-        Err(Error::new(ErrType::BadSymbolicRepresentation(format!("Unexpected variable name: {}", name))))
+        Err(InterpreterError::BadSymbolicRepresentation(format!("Unexpected variable name: {}", name)).into())
     } else {
         if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
             Ok(value)
@@ -43,7 +43,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Res
         } else if let Some(value) = env.contract_context.lookup_variable(name) {
             Ok(value)
         } else {
-            Err(Error::new(ErrType::UndefinedVariable(name.to_string())))
+            Err(UncheckedError::UndefinedVariable(name.to_string()).into())
         }
     }
 }
@@ -53,13 +53,13 @@ pub fn lookup_function(name: &str, env: &Environment)-> Result<CallableType> {
         Ok(result)
     } else {
         let user_function = env.contract_context.lookup_function(name).ok_or(
-            Error::new(ErrType::UndefinedFunction(name.to_string())))?;
+            UncheckedError::UndefinedFunction(name.to_string()))?;
         Ok(CallableType::UserFunction(user_function))
     }
 }
 
 fn add_stack_trace(result: &mut Result<Value>, env: &Environment) {
-    if let Err(ref mut e) = result {
+    if let Err(Error::Runtime(ref mut e)) = result {
         if e.stack_trace.is_none() {
             e.stack_trace.replace(env.call_stack.make_stack_trace());
         }
@@ -79,11 +79,11 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
     };
 
     if track_recursion && env.call_stack.contains(&identifier) {
-        return Err(Error::new(ErrType::RecursionDetected))
+        return Err(UncheckedError::RecursionDetected.into())
     }
 
     if env.call_stack.depth() >= MAX_CALL_STACK_DEPTH {
-        return Err(Error::new(ErrType::MaxStackDepthReached))
+        return Err(RuntimeErrorType::MaxStackDepthReached.into())
     }
 
     if let CallableType::SpecialFunction(_, function) = function {
@@ -117,14 +117,14 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
         Atom(ref value) => lookup_variable(&value, context, env),
         List(ref children) => {
             let (function_variable, rest) = children.split_first()
-                .ok_or(Error::new(ErrType::InvalidArguments(
-                    "List expressions (...) are function applications, and must be supplied with function names to apply.".to_string())))?;
+                .ok_or(UncheckedError::InvalidArguments(
+                    "List expressions (...) are function applications, and must be supplied with function names to apply.".to_string()))?;
             match function_variable.expr {
                 Atom(ref value) => {
                     let f = lookup_function(&value, env)?;
                     apply(&f, &rest, env, context)
                 },
-                _ => Err(Error::new(ErrType::TryEvalToFunction))
+                _ => Err(UncheckedError::TryEvalToFunction.into())
             }
         }
     }

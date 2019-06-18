@@ -1,6 +1,6 @@
 use vm::{Value, apply, eval_all};
 use vm::representations::{SymbolicExpression};
-use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
+use vm::errors::{InterpreterResult as Result};
 use vm::callables::CallableType;
 use vm::contexts::{Environment, LocalContext, ContractContext, GlobalContext};
 use vm::parser;

@@ -6,7 +6,7 @@ mod boolean;
 mod database;
 mod options;
 
-use vm::errors::{Error, ErrType, InterpreterResult as Result};
+use vm::errors::{UncheckedError, RuntimeErrorType, InterpreterResult as Result};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::CallableType;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
@@ -192,8 +192,7 @@ fn native_eq(args: &[Value]) -> Result<Value> {
         let mut arg_type = TypeSignature::type_of(first);
         for x in args.iter() {
             arg_type = TypeSignature::most_admissive(TypeSignature::type_of(x), arg_type)
-                .map_err(|(a,b)| Error::new(
-                    ErrType::TypeError(format!("{}", a), x.clone())))?;
+                .map_err(|(a,b)| UncheckedError::TypeError(format!("{}", a), x.clone()))?;
             if x != first {
                 return Ok(Value::Bool(false))
             }
@@ -206,13 +205,13 @@ fn native_hash160(args: &[Value]) -> Result<Value> {
     use util::hash::Hash160;
 
     if !(args.len() == 1) {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to hash160 (expects 1)".to_string())))
+        return Err(UncheckedError::InvalidArguments("Wrong number of arguments to hash160 (expects 1)".to_string()).into())
     }
     let input = &args[0];
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(Error::new(ErrType::NotImplemented))
+        _ => Err(RuntimeErrorType::NotImplemented)
     }?;
     let hash160 = Hash160::from_data(&bytes);
     Value::buff_from(hash160.as_bytes().to_vec())
@@ -222,13 +221,13 @@ fn native_sha256(args: &[Value]) -> Result<Value> {
     use util::hash::Sha256Sum;
 
     if !(args.len() == 1) {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to sha256 (expects 1)".to_string())))
+        return Err(UncheckedError::InvalidArguments("Wrong number of arguments to sha256 (expects 1)".to_string()).into())
     }
     let input = &args[0];
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(Error::new(ErrType::NotImplemented))
+        _ => Err(RuntimeErrorType::NotImplemented)
     }?;
     let sha256 = Sha256Sum::from_data(&bytes);
     Value::buff_from(sha256.as_bytes().to_vec())
@@ -238,13 +237,13 @@ fn native_keccak256(args: &[Value]) -> Result<Value> {
     use util::hash::Keccak256Hash;
 
     if !(args.len() == 1) {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to keccak256 (expects 1)".to_string())))
+        return Err(UncheckedError::InvalidArguments("Wrong number of arguments to keccak256 (expects 1)".to_string()).into())
     }
     let input = &args[0];
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(Error::new(ErrType::NotImplemented))
+        _ => Err(RuntimeErrorType::NotImplemented)
     }?;
     let keccak256 = Keccak256Hash::from_data(&bytes);
     Value::buff_from(keccak256.as_bytes().to_vec())
@@ -253,13 +252,13 @@ fn native_keccak256(args: &[Value]) -> Result<Value> {
 fn native_begin(args: &[Value]) -> Result<Value> {
     match args.last() {
         Some(v) => Ok(v.clone()),
-        None => Err(Error::new(ErrType::InvalidArguments("Must pass at least 1 expression to (begin ...)".to_string())))
+        None => Err(UncheckedError::InvalidArguments("Must pass at least 1 expression to (begin ...)".to_string()).into())
     }
 }
 
 fn native_print(args: &[Value]) -> Result<Value> {
     if !(args.len() == 1) {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to print (expects 1)".to_string())))
+        return Err(UncheckedError::InvalidArguments("Wrong number of arguments to print (expects 1)".to_string()).into())
     }
     if cfg!(feature = "developer-mode") {
         eprintln!("{:?}", args[0]);
@@ -269,7 +268,7 @@ fn native_print(args: &[Value]) -> Result<Value> {
 
 fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if args.len() != 3 {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to if (expects 3)".to_string())))
+        return Err(UncheckedError::InvalidArguments("Wrong number of arguments to if (expects 3)".to_string()).into())
     }
     // handle the conditional clause.
     let conditional = eval(&args[0], env, context)?;
@@ -281,7 +280,7 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
                 eval(&args[2], env, context)
             }
         },
-        _ => Err(Error::new(ErrType::TypeError("BoolType".to_string(), conditional)))
+        _ => Err(UncheckedError::TypeError("BoolType".to_string(), conditional).into())
     }
 }
 
@@ -291,16 +290,16 @@ fn parse_eval_bindings(bindings: &[SymbolicExpression],
     for binding in bindings.iter() {
         if let List(ref binding_exps) = binding.expr {
             if binding_exps.len() != 2 {
-                return Err(Error::new(ErrType::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string())))
+                return Err(UncheckedError::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string()).into())
             }
             if let Atom(ref var_name) = binding_exps[0].expr {
                 let value = eval(&binding_exps[1], env, context)?;
                 result.push((var_name.clone(), value));
             } else {
-                return Err(Error::new(ErrType::InvalidArguments("Passed bad variable name as a binding. Bindings should be of the form (name value).".to_string())))
+                return Err(UncheckedError::InvalidArguments("Passed bad variable name as a binding. Bindings should be of the form (name value).".to_string()).into())
             }
         } else {
-            return Err(Error::new(ErrType::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string())))
+            return Err(UncheckedError::InvalidArguments("Passed non 2-length list as a binding. Bindings should be of the form (name value).".to_string()).into())
         }
     }
 
@@ -314,7 +313,7 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     // arg0 => binding list
     // arg1 => body
     if args.len() != 2 {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to let (expect 2)".to_string())))
+        return Err(UncheckedError::InvalidArguments("Wrong number of arguments to let (expect 2)".to_string()).into())
     }
     // create a new context.
     let mut inner_context = context.extend()?;
@@ -324,10 +323,10 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
         let mut binding_results = parse_eval_bindings(bindings, env, context)?;
         for (binding_name, binding_value) in binding_results.drain(..) {
             if is_reserved(&binding_name) {
-                return Err(Error::new(ErrType::ReservedName(binding_name)))
+                return Err(UncheckedError::ReservedName(binding_name).into())
             }
             if inner_context.variables.contains_key(&binding_name) {
-                return Err(Error::new(ErrType::VariableDefinedMultipleTimes(binding_name)))
+                return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
             }
             inner_context.variables.insert(binding_name, binding_value);
         }
@@ -335,7 +334,7 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
         // evaluate the let-body
         eval(&args[1], env, &inner_context)
     } else {
-        Err(Error::new(ErrType::InvalidArguments("Passed non-list as second argument to let expression.".to_string())))
+        Err(UncheckedError::InvalidArguments("Passed non-list as second argument to let expression.".to_string()).into())
     }
 }
 
@@ -345,7 +344,7 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     // (as-contract (..))
     // arg0 => body
     if args.len() != 1 {
-        return Err(Error::new(ErrType::InvalidArguments("Wrong number of arguments to as-contract (expects 1)".to_string())))
+        return Err(UncheckedError::InvalidArguments("Wrong number of arguments to as-contract (expects 1)".to_string()).into())
     }
 
     // nest an environment.
