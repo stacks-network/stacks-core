@@ -14,6 +14,8 @@ pub enum CheckErrors {
 
     // simple type expectation mismatch
     TypeError(TypeSignature, TypeSignature),
+    // union type mismatch
+    UnionTypeError(Vec<TypeSignature>, TypeSignature),
     ExpectedOptionalType,
     ExpectedResponseType,
     CouldNotDetermineResponseOkType,

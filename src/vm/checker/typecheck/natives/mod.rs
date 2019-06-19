@@ -1,7 +1,7 @@
-use vm::errors::{ErrType as InterpError};
+use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty};
+use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE};
 use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
 use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 
@@ -38,10 +38,15 @@ fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression
     let typed_args = checker.type_check_all(args, context)?;
     TypeSignature::parent_list_type(&typed_args)
         .map_err(|x| {
-            let error_type = match x.err_type {
-                InterpError::BadTypeConstruction => CheckErrors::ListTypesMustMatch,
-                InterpError::ListTooLarge => CheckErrors::ConstructedListTooLarge,
-                InterpError::ListDimensionTooHigh => CheckErrors::ConstructedListTooLarge,
+            let error_type = match x {
+                InterpError::Runtime(ref runtime_err, _) => {
+                    match runtime_err {
+                        RuntimeErrorType::BadTypeConstruction => CheckErrors::ListTypesMustMatch,
+                        RuntimeErrorType::ListTooLarge => CheckErrors::ConstructedListTooLarge,
+                        RuntimeErrorType::ListDimensionTooHigh => CheckErrors::ConstructedListTooLarge,
+                        _ => CheckErrors::UnknownListConstructionFailure
+                    }
+                },
                 _ => CheckErrors::UnknownListConstructionFailure
             };
             CheckError::new(error_type)
@@ -308,7 +313,7 @@ impl TypedNativeFunction {
         use self::TypedNativeFunction::{Special, Simple};
         match self {
             Special(SpecialNativeFunction(check)) => check(checker, args, context),
-            Simple(SimpleNativeFunction(function_type)) => checker.type_check_function_type(function_type, args, context)
+            Simple(SimpleNativeFunction(function_type)) => checker.type_check_function_type(function_type, args, context),
         }
     }
 
@@ -329,14 +334,20 @@ impl TypedNativeFunction {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::BoolType )],
                                                                 TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
             Hash160 =>
-                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
-                                                                TypeSignature::new_atom( AtomTypeIdentifier::BufferType(20) )))),
+                Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                    vec![TypeSignature::new_atom(AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32)),
+                         TypeSignature::new_atom(AtomTypeIdentifier::IntType),],
+                    TypeSignature::new_atom( AtomTypeIdentifier::BufferType(20) )))),
             Sha256 =>
-                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
-                                                                TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
+                Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                    vec![TypeSignature::new_atom(AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32)),
+                         TypeSignature::new_atom(AtomTypeIdentifier::IntType),],
+                    TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
             Keccak256 =>
-                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
-                                                                TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
+                Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                    vec![TypeSignature::new_atom(AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32)),
+                         TypeSignature::new_atom(AtomTypeIdentifier::IntType),],
+                    TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
             Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),

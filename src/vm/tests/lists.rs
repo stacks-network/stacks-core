@@ -1,7 +1,7 @@
 use vm::types::{Value, TypeSignature};
 
 use vm::execute;
-use vm::errors::{ErrType};
+use vm::errors::{UncheckedError, RuntimeErrorType, Error};
 
 #[test]
 fn test_simple_list_admission() {
@@ -22,8 +22,8 @@ fn test_simple_list_admission() {
     assert_eq!(expected, execute(&t1).unwrap().unwrap());
     assert_eq!(Value::list_from(vec![]).unwrap(), execute(&t2).unwrap().unwrap());
     let err = execute(&t3).unwrap_err();
-    assert!(match err.err_type {
-        ErrType::TypeError(_, _) => true,
+    assert!(match err {
+        Error::Unchecked(UncheckedError::TypeError(_, _)) => true,
         _ => {
             eprintln!("Expected TypeError, but found: {:?}", err);
             false
@@ -133,31 +133,31 @@ fn test_simple_folds() {
 fn test_construct_bad_list() {
     let test1 = "(list 1 2 3 'true)";
     assert!(
-        match execute(test1).unwrap_err().err_type {
-            ErrType::BadTypeConstruction => true,
+        match execute(test1).unwrap_err() {
+            Error::Runtime(RuntimeErrorType::BadTypeConstruction, _) => true,
             _ => false
         });
 
     let test2 = "(define (bad-function (x int)) (if (eq? x 1) 'true x))
                  (map bad-function (list 0 1 2 3))";
     assert!(
-        match execute(test2).unwrap_err().err_type {
-            ErrType::BadTypeConstruction => true,
+        match execute(test2).unwrap_err() {
+            Error::Runtime(RuntimeErrorType::BadTypeConstruction, _) => true,
             _ => false
         });
 
     let bad_2d_list = "(list (list 1 2 3) (list 'true 'false 'true))";
     let bad_high_order_list = "(list (list 1 2 3) (list (list 1 2 3)))";
 
-    let expected_err_1 = match execute(bad_2d_list).unwrap_err().err_type {
-        ErrType::BadTypeConstruction => true,
+    let expected_err_1 = match execute(bad_2d_list).unwrap_err() {
+        Error::Runtime(RuntimeErrorType::BadTypeConstruction, _) => true,
         _ => false
     };
 
     assert!(expected_err_1);
 
-    let expected_err_2 = match execute(bad_high_order_list).unwrap_err().err_type {
-        ErrType::BadTypeConstruction => true,
+    let expected_err_2 = match execute(bad_high_order_list).unwrap_err() {
+        Error::Runtime(RuntimeErrorType::BadTypeConstruction, _) => true,
         _ => false
     };
 
@@ -167,19 +167,23 @@ fn test_construct_bad_list() {
 #[test]
 fn test_eval_func_arg_panic() {
     let test1 = "(fold (lambda (x y) (* x y)) (list 1 2 3 4) 1)";
-    assert_eq!(ErrType::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string()),
-               execute(test1).unwrap_err().err_type);
+    let e: Error = UncheckedError::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string())
+        .into();
+    assert_eq!(e, execute(test1).unwrap_err());
 
     let test2 = "(map (lambda (x) (* x x)) (list 1 2 3 4))";
-    assert_eq!(ErrType::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string()),
-               execute(test2).unwrap_err().err_type);
+    let e: Error = UncheckedError::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string())
+        .into();
+    assert_eq!(e, execute(test2).unwrap_err());
 
     let test3 = "(map square (list 1 2 3 4) 2)";
-    assert_eq!(ErrType::InvalidArguments("Wrong number of arguments (3) to map".to_string()),
-               execute(test3).unwrap_err().err_type);
+    let e: Error = UncheckedError::InvalidArguments("Wrong number of arguments (3) to map".to_string())
+        .into();
+    assert_eq!(e, execute(test3).unwrap_err());
 
     let test4 = "(define (multiply-all (x int) (acc int)) (* x acc))
          (fold multiply-all (list 1 2 3 4))";
-    assert_eq!(ErrType::InvalidArguments("Wrong number of arguments (2) to fold".to_string()),
-               execute(test4).unwrap_err().err_type);
+    let e: Error = UncheckedError::InvalidArguments("Wrong number of arguments (2) to fold".to_string())
+        .into();
+    assert_eq!(e, execute(test4).unwrap_err());
 }

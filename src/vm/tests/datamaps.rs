@@ -1,4 +1,4 @@
-use vm::errors::{Error, ErrType};
+use vm::errors::{Error, UncheckedError, RuntimeErrorType};
 use vm::types::{Value, PrincipalData};
 use vm::contexts::{OwnedEnvironment};
 use vm::database::{ContractDatabaseConnection};
@@ -340,8 +340,8 @@ fn datamap_errors() {
     ];
 
     for program in tests.iter() {
-        assert_eq!( ErrType::UndefinedMap("non-existent".to_string()),
-                    execute(program).unwrap_err().err_type );
+        assert_eq!( Error::Unchecked(UncheckedError::UndefinedMap("non-existent".to_string())),
+                    execute(program).unwrap_err() );
     }
 }
 
@@ -361,14 +361,11 @@ fn lists_system_2() {
         (insert-entry! lists (tuple (name 1)) (tuple (contentious (list 1 2 6))))";
 
     match execute(test) {
-        Err(Error{
-            err_type: ErrType::TypeError(_,_),
-            stack_trace: _ }) => true,
-        _ => {
-            false
-        }
-    };    
+        Err(Error::Unchecked(UncheckedError::TypeError(_,_))) => true,
+        _ => false
+    };
 }
+
 #[test]
 fn lists_system() {
     let test1 =
@@ -417,14 +414,10 @@ fn lists_system() {
 
     for test in [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2,
                  test_bad_tuple_3, test_bad_tuple_4].iter() {
+    
         let expected_type_error = match execute(test) {
-            Err(Error{
-                err_type: ErrType::TypeError(_,_),
-                stack_trace: _ }) => true,
-            _ => {
-                println!("{} -> {:?}", test, execute(test));
-                false
-            }
+            Err(Error::Unchecked(UncheckedError::TypeError(_,_))) => true,
+            _ => false
         };
 
         assert!(expected_type_error);
@@ -460,6 +453,18 @@ fn tuples_system() {
     let mut test_bad_tuple_1 = test1.to_string();
     test_bad_tuple_1.push_str("(insert-entry! tuples (tuple (name 1)) (tuple (contents (tuple (name \"abcde\") (owner \"abcdef\")))))");
 
+    let mut test_bad_tuple_2 = test1.to_string();
+    test_bad_tuple_2.push_str("(fetch-entry tuples (tuple (names 1)))");
+
+    let mut test_bad_tuple_3 = test1.to_string();
+    test_bad_tuple_3.push_str("(set-entry! tuples (tuple (names 1)) (tuple (contents (tuple (name \"abcde\") (owner \"abcde\")))))");
+
+    let mut test_bad_tuple_4 = test1.to_string();
+    test_bad_tuple_4.push_str("(set-entry! tuples (tuple (name 1)) (tuple (contents 1)))");
+
+    let mut test_bad_tuple_5 = test1.to_string();
+    test_bad_tuple_5.push_str("(delete-entry! tuples (tuple (names 1)))");
+
     let expected = || {
         let buff1 = Value::buff_from("abcde".to_string().into_bytes())?;
         let buff2 = Value::buff_from("abcd".to_string().into_bytes())?;
@@ -468,11 +473,12 @@ fn tuples_system() {
 
     assert_executes(expected(), test1);
 
-    for test in [test_list_too_big, test_bad_tuple_1].iter() {
+    let type_error_tests = [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2, test_bad_tuple_3,
+                            test_bad_tuple_4, test_bad_tuple_5];
+
+    for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(Error{
-                err_type: ErrType::TypeError(_,_),
-                stack_trace: _ }) => true,
+            Err(Error::Unchecked(UncheckedError::TypeError(_,_))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -500,20 +506,21 @@ fn bad_define_maps() {
     
     for test in test_list_pairs.iter() {
         println!("Test: {:?}", test);
-        assert_eq!(ErrType::ExpectedListPairs, execute(test).unwrap_err().err_type);
+        assert_eq!(Error::Unchecked(UncheckedError::ExpectedListPairs), execute(test).unwrap_err());
     }
 
     for test in test_define_args.iter() {
         assert!(match execute(test) {
-            Err(Error{
-                err_type: ErrType::InvalidArguments(_),
-                stack_trace: _ }) => true,
+            Err(Error::Unchecked(UncheckedError::InvalidArguments(_))) => true,
             _ => false
         })
     }
 
     for test in test_bad_type.iter() {
-        assert_eq!(ErrType::InvalidTypeDescription, execute(test).unwrap_err().err_type);
+        assert!(match execute(test).unwrap_err() {
+            Error::Runtime(RuntimeErrorType::InvalidTypeDescription, _) => true,
+            _ => false
+        })
     }
 }
 
@@ -529,9 +536,7 @@ fn bad_tuples() {
     for test in tests.iter() {
         let outcome = execute(test);
         match outcome {
-            Err(Error{
-                err_type: ErrType::InvalidArguments(_),
-                stack_trace: _ }) => continue,
+            Err(Error::Unchecked(UncheckedError::InvalidArguments(_))) => continue,
             _ => {
                 println!("Expected InvalidArguments Error, but found {:?}", outcome);
                 assert!(false)

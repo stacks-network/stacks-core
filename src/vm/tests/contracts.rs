@@ -1,5 +1,5 @@
 use vm::execute as vm_execute;
-use vm::errors::{Error, ErrType};
+use vm::errors::{Error, UncheckedError};
 use vm::types::{Value, PrincipalData, ResponseData};
 use vm::contexts::{OwnedEnvironment,GlobalContext};
 use vm::database::{ContractDatabaseConnection};
@@ -499,11 +499,9 @@ fn test_factorial_contract() {
 
     let err_result = env.execute_contract("factorial", "init-factorial",
                                           &symbols_from_values(vec![Value::Int(9000),
-                                                                    Value::Int(15)]));
+                                                                    Value::Int(15)])).unwrap_err();
     match err_result {
-        Err(Error{
-            err_type: ErrType::NonPublicFunction(_),
-            stack_trace: _ }) => {},
+        Error::Unchecked(UncheckedError::NonPublicFunction(_)) => {},
         _ => {
             println!("{:?}", err_result);
             panic!("Attempt to call init-factorial should fail!")
@@ -511,11 +509,9 @@ fn test_factorial_contract() {
     }
 
     let err_result = env.execute_contract("factorial", "compute",
-                                          &symbols_from_values(vec![Value::Bool(true)]));
+                                          &symbols_from_values(vec![Value::Bool(true)])).unwrap_err();
     match err_result {
-        Err(Error{
-            err_type: ErrType::TypeError(_, _),
-            stack_trace: _ }) => {},
+        Error::Unchecked(UncheckedError::TypeError(_, _)) => {},
         _ => {
             println!("{:?}", err_result);
             assert!(false, "Attempt to call compute with void type should fail!")

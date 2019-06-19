@@ -12,6 +12,26 @@ jobs:
       - store_artifacts:
           path: /build/dist/
           destination: dist/
+  test_demo:
+    working_directory: /test
+    docker:
+      - image: rust:1.34.0-stretch
+    steps:
+      - checkout
+      - run:
+          command: |
+            cargo build --release && cargo install --path . 
+      - run:
+          command: |
+            blockstack-core local initialize db &&
+            blockstack-core local check sample-programs/tokens.clar db &&
+            blockstack-core local launch tokens sample-programs/tokens.clar db &&
+            blockstack-core local check sample-programs/names.clar db &&
+            blockstack-core local launch names sample-programs/names.clar db &&
+            blockstack-core local execute db tokens mint! SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 100000
+      - run:
+          command: |
+            echo "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | blockstack-core local eval tokens db
   build:
     machine: true
     working_directory: ~/blockstack
@@ -40,4 +60,5 @@ workflows:
   build-deploy:
     jobs:
       - build
+      - test_demo
       - deploy
