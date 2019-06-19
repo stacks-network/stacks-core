@@ -7,7 +7,7 @@ use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
 use util::hash;
 
-const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
+pub const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {

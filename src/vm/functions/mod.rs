@@ -211,7 +211,7 @@ fn native_hash160(args: &[Value]) -> Result<Value> {
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(RuntimeErrorType::NotImplemented)
+        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
     }?;
     let hash160 = Hash160::from_data(&bytes);
     Value::buff_from(hash160.as_bytes().to_vec())
@@ -227,7 +227,7 @@ fn native_sha256(args: &[Value]) -> Result<Value> {
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(RuntimeErrorType::NotImplemented)
+        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
     }?;
     let sha256 = Sha256Sum::from_data(&bytes);
     Value::buff_from(sha256.as_bytes().to_vec())
@@ -243,7 +243,7 @@ fn native_keccak256(args: &[Value]) -> Result<Value> {
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(RuntimeErrorType::NotImplemented)
+        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
     }?;
     let keccak256 = Keccak256Hash::from_data(&bytes);
     Value::buff_from(keccak256.as_bytes().to_vec())

@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
 use rusqlite::types::ToSql;
 
 use vm::contracts::Contract;
-use vm::errors::{Error, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
+use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
@@ -121,22 +121,22 @@ impl ContractDatabaseConnection {
         let sql = "SELECT sql FROM sqlite_master WHERE name=?";
         let _: String = self.conn.query_row(sql, &["maps_table"],
                                             |row| row.get(0))
-            .map_err(|x| RuntimeErrorType::SqliteError(IncomparableError{ err: x }))?;
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
         let _: String = self.conn.query_row(sql, &["contracts"],
                                             |row| row.get(0))
-            .map_err(|x| RuntimeErrorType::SqliteError(IncomparableError{ err: x }))?;
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
         let _: String = self.conn.query_row(sql, &["data_table"],
                                             |row| row.get(0))
-            .map_err(|x| RuntimeErrorType::SqliteError(IncomparableError{ err: x }))?;
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
         let _: String = self.conn.query_row(sql, &["simmed_block_table"],
                                             |row| row.get(0))
-            .map_err(|x| RuntimeErrorType::SqliteError(IncomparableError{ err: x }))?;
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
         Ok(())
     }
 
     pub fn inner_open(filename: &str) -> Result<ContractDatabaseConnection> {
         let conn = Connection::open(filename)
-            .map_err(|x| RuntimeErrorType::SqliteError(IncomparableError{ err: x }))?;
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
         Ok(ContractDatabaseConnection {
             conn: conn
         })

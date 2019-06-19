@@ -284,6 +284,31 @@ fn test_options_errors() {
 }
 
 #[test]
+fn test_hash_errors() {
+    let tests = [
+        "(sha256 2 1)",
+        "(keccak256 3 1)",
+        "(hash160 2 1)",
+        "(sha256 'true)",
+        "(keccak256 'true)",
+        "(hash160 'true)",
+    ];
+
+    let expectations: &[Error] = &[
+        UncheckedError::InvalidArguments("Wrong number of arguments to sha256 (expects 1)".to_string()).into(),
+        UncheckedError::InvalidArguments("Wrong number of arguments to keccak256 (expects 1)".to_string()).into(),
+        UncheckedError::InvalidArguments("Wrong number of arguments to hash160 (expects 1)".to_string()).into(),
+        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
+        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
+        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+    }
+}
+
+#[test]
 fn test_bool_functions() {
     let tests = [
         "'true",

@@ -1,7 +1,7 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty};
+use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE};
 use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
 use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 
@@ -250,7 +250,7 @@ impl TypedNativeFunction {
         use self::TypedNativeFunction::{Special, Simple};
         match self {
             Special(SpecialNativeFunction(check)) => check(checker, args, context),
-            Simple(SimpleNativeFunction(function_type)) => checker.type_check_function_type(function_type, args, context)
+            Simple(SimpleNativeFunction(function_type)) => checker.type_check_function_type(function_type, args, context),
         }
     }
 
@@ -271,14 +271,20 @@ impl TypedNativeFunction {
                 Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::BoolType )],
                                                                 TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
             Hash160 =>
-                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
-                                                                TypeSignature::new_atom( AtomTypeIdentifier::BufferType(20) )))),
+                Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                    vec![TypeSignature::new_atom(AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32)),
+                         TypeSignature::new_atom(AtomTypeIdentifier::IntType),],
+                    TypeSignature::new_atom( AtomTypeIdentifier::BufferType(20) )))),
             Sha256 =>
-                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
-                                                                TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
+                Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                    vec![TypeSignature::new_atom(AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32)),
+                         TypeSignature::new_atom(AtomTypeIdentifier::IntType),],
+                    TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
             Keccak256 =>
-                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::AnyType )],
-                                                                TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
+                Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                    vec![TypeSignature::new_atom(AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32)),
+                         TypeSignature::new_atom(AtomTypeIdentifier::IntType),],
+                    TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
             Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),

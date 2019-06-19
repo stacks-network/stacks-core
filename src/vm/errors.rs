@@ -48,6 +48,7 @@ pub enum InterpreterError {
     BadSender(Value),
     BadSymbolicRepresentation(String),
     InterpreterError(String),
+    SqliteError(IncomparableError<SqliteError>),
 }
 
 
@@ -67,7 +68,6 @@ pub enum RuntimeErrorType {
     InvalidTypeDescription,
     BadBlockHeight(String),
     NotImplemented,
-    SqliteError(IncomparableError<SqliteError>),
 }
 
 #[derive(Debug, PartialEq)]
