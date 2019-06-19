@@ -49,9 +49,9 @@ pub fn special_fetch_variable(args: &[SymbolicExpression],
     let var_name = args[0].match_atom()
         .ok_or(UncheckedError::InvalidArguments("First argument in fetch-var must be the var name".to_string()))?;
 
-    let value = env.global_context.database.lookup_variable(&env.contract_context.name, var_name)?;
-    match value {
-        Some(data) => Ok(data),
+    let data = env.global_context.database.lookup_variable(&env.contract_context.name, var_name)?;
+    match data {
+        Some(data) => Ok(Value::some(data)),
         None => Ok(Value::none())
     }
 }
@@ -74,12 +74,7 @@ pub fn special_set_variable(args: &[SymbolicExpression],
     let var_name = args[0].match_atom()
         .ok_or(UncheckedError::InvalidArguments("First argument in set-var! function must be the map name".to_string()))?;
 
-    // (define-data-var my-var int) is implicitely implying that my-var is optional.
-    // (setvar! my-var 1) however, will return an Int type signature. 
-    // As such, we will wrap `value` in an Optional<Int>. 
-    let optional_value = Value::Optional(OptionalData { data: Some(Box::new(value)) });
-
-    env.global_context.database.set_variable(&env.contract_context.name, var_name, optional_value)
+    env.global_context.database.set_variable(&env.contract_context.name, var_name, value)
 }
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],

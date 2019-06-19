@@ -251,8 +251,6 @@ impl <'a> ContractDatabase <'a> {
     }
 
     pub fn create_variable(&mut self, contract_name: &str, variable_name: &str, value_type: TypeSignature) {
-        let value_type = TypeSignature::new_atom(AtomTypeIdentifier::OptionalType(Box::new(value_type)));
-
         self.execute("INSERT INTO variables_table (contract_name, variable_name, value_type) VALUES (?, ?, ?)",
                      &[contract_name, variable_name, &value_type.serialize()]);
     }
@@ -273,7 +271,7 @@ impl <'a> ContractDatabase <'a> {
         return Ok(Value::Bool(true))
     }
 
-    pub fn lookup_variable(&self, contract_name: &str, variable_name: &str) -> Result<Option<Value>> {
+    pub fn lookup_variable(&self, contract_name: &str, variable_name: &str) -> Result<Option<Value>>  {
         let variable_descriptor = self.load_variable(contract_name, variable_name)?;
 
         let params: [&ToSql; 1] = [&variable_descriptor.variable_identifier];
@@ -286,10 +284,10 @@ impl <'a> ContractDatabase <'a> {
                     row.get(0)
                 });
         match sql_result {
-            None => Ok(Some(NONE)),
+            None => Ok(None),
             Some(sql_result) => {
                 match sql_result {
-                    None => Ok(Some(NONE)),
+                    None => Ok(None),
                     Some(value_data) => Ok(Some(Value::deserialize(&value_data)))
                 }
             }
