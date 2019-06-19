@@ -65,7 +65,7 @@ You should see a message saying "Database created".
 Start by type checking the "names" sample contract.
 
 ```bash
-$ blockstack-core local check sample-programs/names.scm /data/db
+$ blockstack-core local check sample-programs/names.clar /data/db
 ```
 
 You should get an error:
@@ -77,13 +77,13 @@ Near:
 ( contract-call! tokens token-transfer burn-address name-price )
 ```
 
-This happens because the `names.scm` contract _calls_ the `tokens` contract, and
+This happens because the `names.clar` contract _calls_ the `tokens` contract, and
 that contract doesn't exist yet!
 
-If you type check the `tokens.scm` contract, it should pass validation:
+If you type check the `tokens.clar` contract, it should pass validation:
 
 ```bash
-$ blockstack-core local check sample-programs/tokens.scm /data/db
+$ blockstack-core local check sample-programs/tokens.clar /data/db
 ```
 
 When the `check` command executes successfully, it does not output any information,
@@ -94,20 +94,20 @@ it just exits with the stand UNIX `0` exit code.
 Now, let's instantiate the tokens contract:
 
 ```bash
-$ blockstack-core local launch tokens sample-programs/tokens.scm /data/db
+$ blockstack-core local launch tokens sample-programs/tokens.clar /data/db
 ```
 
 Now that our development database has an instantiated tokens contract, let's see if
-the `names.scm` contract will successfully pass the type checker now:
+the `names.clar` contract will successfully pass the type checker now:
 
 ```bash
-$ blockstack-core local check sample-programs/names.scm /data/db
+$ blockstack-core local check sample-programs/names.clar /data/db
 ```
 
 It should pass validation. So now let's instantiate the names contract as well.
 
 ```bash
-$ blockstack-core local launch names sample-programs/names.scm /data/db
+$ blockstack-core local launch names sample-programs/names.clar /data/db
 ```
 
 ### Executing a contract
@@ -137,7 +137,7 @@ Program executed successfully! Output:
  110000
 ```
 
-Now, let's register a name using the `names.scm` contract:
+Now, let's register a name using the `names.clar` contract:
 
 First, we have to preorder the name -- so let's compute the
 hash of the name we want to register. Names in the sample contract are just
@@ -160,7 +160,7 @@ So now let's preorder the name using the _execute_ command:
 $ blockstack-core local execute /data/db names preorder $DEMO_ADDRESS 0xb572fb1ce2e9665f1efd0994fe077b50c3a48fde 1000
 ```
 
-This will execute the _preorder_ function defined in the `names.scm` contract, which reserves a name
+This will execute the _preorder_ function defined in the `names.clar` contract, which reserves a name
 by paying the name fee (in this case, 1000 tokens).
 
 After executing the transaction, let's check the demo address' new balance:
