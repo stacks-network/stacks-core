@@ -242,7 +242,7 @@ input list, and outputs a list containing the _outputs_ from those function appl
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
-    name: "map",
+    name: "filter",
     input_type: "Function(A) -> bool, (list A)",
     output_type: "(list A)",
     signature: "(filter func list)",
