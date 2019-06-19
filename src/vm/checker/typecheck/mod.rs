@@ -195,29 +195,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok(func_type.return_type().clone())
     }
 
-    fn type_check_list_pairs<'c> (&mut self, bindings: &[SymbolicExpression],
-                                  context: &'c TypingContext) -> CheckResult<TypingContext<'c>> {
-        let mut out_context = context.extend()?;
-        for binding in bindings.iter() {
-            let binding_exps = binding.match_list()
-                .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
-            
-            if binding_exps.len() != 2 {
-                return Err(CheckError::new(CheckErrors::BadSyntaxBinding))
-            }
-
-            let var_name = binding_exps[0].match_atom()
-                .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
-
-            self.type_map.set_type(&binding_exps[0], no_type())?;
-            let typed_result = self.type_check(&binding_exps[1], context)?;
-            out_context.variable_types.insert(var_name.clone(),
-                                              typed_result);
-        }
-
-        Ok(out_context)
-    }
-
     fn get_function_type(&self, function_name: &str) -> Option<FunctionType> {
         if let Some(function_type) = self.contract_context.get_function_type(function_name) {
             Some(function_type.clone())
