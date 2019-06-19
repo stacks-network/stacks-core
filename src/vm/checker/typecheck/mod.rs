@@ -387,7 +387,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok((var_name, var_type))
     }
 
-    fn type_check_define_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
+    fn type_check_define_persisted_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
         if args.len() != 2 {
             return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len() - 1)))
         }
@@ -398,7 +398,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         match TypeSignature::parse_type_repr(&args[1], true) {
             Ok(var_type) => Ok((var_name, var_type)),
             _ => Err(CheckError::new(CheckErrors::DefineVariableBadSignature))
-        }        
+        }
     }
 
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
@@ -450,9 +450,9 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                             Ok(Some(()))
                         },
                         "define-data-var" => {
-                            let (v_name, v_type) = self.type_check_define_variable(function_args,
+                            let (v_name, v_type) = self.type_check_define_persisted_variable(function_args,
                                                                                    context)?;
-                            self.contract_context.add_variable_type(v_name, v_type)?;
+                            self.contract_context.add_persisted_variable_type(v_name, v_type)?;
                             Ok(Some(()))
                         },
                         _ => {

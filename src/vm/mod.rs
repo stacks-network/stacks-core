@@ -163,13 +163,13 @@ fn eval_all (expressions: &[SymbolicExpression],
             define_result
         };
         match try_define {
-            DefineResult::Constant(name, value) => {
+            DefineResult::Variable(name, value) => {
                 contract_context.variables.insert(name, value);
             },
             DefineResult::Function(name, value) => {
                 contract_context.functions.insert(name, value);
             },
-            DefineResult::Variable(name, value_type) => {
+            DefineResult::PersistedVariable(name, value_type) => {
                 global_context.database.create_variable(&contract_context.name, &name, value_type);
             },
             DefineResult::Map(name, key_type, value_type) => {

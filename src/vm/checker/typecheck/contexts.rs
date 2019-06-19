@@ -23,7 +23,7 @@ pub struct ContractAnalysis {
     public_function_types: BTreeMap<String, FunctionType>,
     read_only_function_types: BTreeMap<String, FunctionType>,
     map_types: BTreeMap<String, (TypeSignature, TypeSignature)>,
-    variable_types: BTreeMap<String, TypeSignature>,
+    persisted_variable_types: BTreeMap<String, TypeSignature>,
 }
 
 pub struct TypingContext <'a> {
@@ -38,7 +38,7 @@ pub struct ContractContext {
     private_function_types: HashMap<String, FunctionType>,
     public_function_types: HashMap<String, FunctionType>,
     read_only_function_types: HashMap<String, FunctionType>,
-    variable_types: HashMap<String, TypeSignature>,
+    persisted_variable_types: HashMap<String, TypeSignature>,
 }
 
 
@@ -50,7 +50,7 @@ impl ContractAnalysis {
             read_only_function_types: BTreeMap::new(),
             constant_types: BTreeMap::new(),
             map_types: BTreeMap::new(),
-            variable_types: BTreeMap::new(),
+            persisted_variable_types: BTreeMap::new(),
         }
     }
 
@@ -73,8 +73,8 @@ impl ContractAnalysis {
         self.constant_types.insert(name.to_string(), constant_type.clone());
     }
     
-    pub fn add_variable_type(&mut self, name: &str, variable_type: &TypeSignature) {
-        self.variable_types.insert(name.to_string(), variable_type.clone());
+    pub fn add_persisted_variable_type(&mut self, name: &str, persisted_variable_type: &TypeSignature) {
+        self.persisted_variable_types.insert(name.to_string(), persisted_variable_type.clone());
     }
 
     pub fn add_read_only_function(&mut self, name: &str, function_type: &FunctionType) {
@@ -109,8 +109,8 @@ impl ContractAnalysis {
         self.constant_types.get(name)
     }
 
-    pub fn get_variable_type(&self, name: &str) -> Option<&TypeSignature> {
-        self.variable_types.get(name)
+    pub fn get_persisted_variable_type(&self, name: &str) -> Option<&TypeSignature> {
+        self.persisted_variable_types.get(name)
     }
 }
 
@@ -141,13 +141,13 @@ impl ContractContext {
             public_function_types: HashMap::new(),
             read_only_function_types: HashMap::new(),
             map_types: HashMap::new(),
-            variable_types: HashMap::new(),
+            persisted_variable_types: HashMap::new(),
         }
     }
 
     pub fn check_name_used(&self, name: &str) -> CheckResult<()> {
         if self.constant_types.contains_key(name) ||
-            self.variable_types.contains_key(name) ||
+            self.persisted_variable_types.contains_key(name) ||
             self.private_function_types.contains_key(name) ||
             self.public_function_types.contains_key(name) ||
             self.map_types.contains_key(name) {
@@ -192,9 +192,9 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn add_variable_type(&mut self, var_name: String, var_type: TypeSignature) -> CheckResult<()> {
+    pub fn add_persisted_variable_type(&mut self, var_name: String, var_type: TypeSignature) -> CheckResult<()> {
         self.check_name_used(&var_name)?;
-        self.variable_types.insert(var_name, var_type);
+        self.persisted_variable_types.insert(var_name, var_type);
         Ok(())
     }
 
@@ -206,8 +206,8 @@ impl ContractContext {
         self.constant_types.get(name)
     }
 
-    pub fn get_variable_type(&self, name: &str) -> Option<&TypeSignature> {
-        self.variable_types.get(name)
+    pub fn get_persisted_variable_type(&self, name: &str) -> Option<&TypeSignature> {
+        self.persisted_variable_types.get(name)
     }
 
     pub fn get_function_type(&self, name: &str) -> Option<&FunctionType> {
@@ -243,8 +243,8 @@ impl ContractContext {
             contract_analysis.add_constant_type(name, constant_type);
         }
 
-        for (name, variable_type) in self.variable_types.iter() {
-            contract_analysis.add_variable_type(name, variable_type);
+        for (name, persisted_variable_type) in self.persisted_variable_types.iter() {
+            contract_analysis.add_persisted_variable_type(name, persisted_variable_type);
         }
 
         contract_analysis

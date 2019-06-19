@@ -193,7 +193,7 @@ fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression
     
     checker.type_map.set_type(&args[0], no_type())?;
         
-    let value_type = checker.contract_context.get_variable_type(var_name)
+    let value_type = checker.contract_context.get_persisted_variable_type(var_name)
         .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.clone())))?;
 
     let value_type_made_optional = TypeSignature::new_option(value_type.clone());
@@ -213,7 +213,7 @@ fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression],
     
     let value_type = checker.type_check(&args[1], context)?;
     
-    let expected_value_type = checker.contract_context.get_variable_type(var_name)
+    let expected_value_type = checker.contract_context.get_persisted_variable_type(var_name)
         .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.clone())))?;
     
     if !expected_value_type.admits_type(&value_type) {
