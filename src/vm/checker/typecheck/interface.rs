@@ -54,10 +54,13 @@ impl ContractInterfaceAtomType {
             AtomTypeIdentifier::OptionalType(sig) => ContractInterfaceAtomType::optional { 
                 r#type: Box::new(Self::from_type_signature(&sig)) 
             },
-            AtomTypeIdentifier::ResponseType(sig) => ContractInterfaceAtomType::response { 
-                ok: Box::new(Self::from_type_signature(&sig.0)), 
-                error: Box::new(Self::from_type_signature(&sig.1))
-            },
+            AtomTypeIdentifier::ResponseType(boxed_sig) => {
+                let (ok_sig, err_sig) = boxed_sig.as_ref();
+                ContractInterfaceAtomType::response { 
+                    ok: Box::new(Self::from_type_signature(&ok_sig)), 
+                    error: Box::new(Self::from_type_signature(&err_sig))
+                }
+            }
         }
     }
 
