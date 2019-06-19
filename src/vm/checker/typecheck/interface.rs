@@ -3,20 +3,20 @@ use std::collections::BTreeMap;
 use vm::types::{TypeSignature, FunctionArg, AtomTypeIdentifier, TupleTypeSignature};
 use vm::checker::typecheck::FunctionType;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Clone)]
 pub enum ContractInterfaceFunctionAccess {
     private,
     public,
     read_only,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ContractInterfaceTupleType {
     pub name: String,
     pub r#type: ContractInterfaceAtomType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub enum ContractInterfaceAtomType {
     none,
     int128,
@@ -80,7 +80,7 @@ impl ContractInterfaceAtomType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ContractInterfaceFunctionArg {
     pub name: String,
     pub r#type: ContractInterfaceAtomType,
@@ -99,12 +99,12 @@ impl ContractInterfaceFunctionArg {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ContractInterfaceFunctionOutput {
     pub r#type: ContractInterfaceAtomType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ContractInterfaceFunction {
     pub name: String,
     pub access: ContractInterfaceFunctionAccess,
@@ -137,13 +137,13 @@ impl ContractInterfaceFunction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Clone)]
 pub enum ContractInterfaceVariableAccess {
     constant,
     variable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ContractInterfaceVariable { 
     pub name: String,
     pub r#type: ContractInterfaceAtomType,
@@ -162,7 +162,7 @@ impl ContractInterfaceVariable {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ContractInterfaceMap {
     pub name: String,
     pub key_name: String,
@@ -200,7 +200,7 @@ impl ContractInterfaceMap {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct ContractInterface {
     pub functions: Vec<ContractInterfaceFunction>,
     pub variables: Vec<ContractInterfaceVariable>,

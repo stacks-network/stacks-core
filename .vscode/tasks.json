@@ -31,7 +31,7 @@
                 "$rustc"
             ]
         },
-        { 
+        {
             "label": "cargo: test clarity-vm",
             "type": "shell",
             "command": "cargo test vm",
