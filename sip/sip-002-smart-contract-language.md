@@ -310,7 +310,7 @@ in addition to the map name:
 (fetch-contract-entry
   'contract-principal
   'map-name
-  'key-tuple) -> value tuple or null
+  'key-tuple) -> value tuple or none
 
 Example:
 
