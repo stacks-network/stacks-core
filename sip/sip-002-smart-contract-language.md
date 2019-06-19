@@ -80,8 +80,9 @@ effects from calling `foo.A` materialize--- including effects from
 there may be some database effects which are materialized from
 `foo.A`, but _no_ effects from calling `bar.B` will materialize.
 
-Unlike functions created by `define-public`, which may only return booleans,
-functions created with `define-read-only` may return any type.
+Unlike functions created by `define-public`, which may only return
+Response types, functions created with `define-read-only` may return
+any type.
 
 ## List Operations
 
@@ -230,7 +231,7 @@ language is an 16-byte signed integer, which allows it to specify the
 maximum amount of microstacks spendable in a single Stacks transfer.
 
 Like any other public smart contract function, this function call
-returns true if the transfer was successful, and false otherwise.
+returns an `ok` if the transfer was successful, and `err` otherwise.
 
 ## Data-Space Primitives
 
@@ -598,8 +599,8 @@ practice, a buffer would probably be used.
 (define-public (preorder 
                (name-hash (buffer 20))
                (name-price integer))
-  (if (and (stacks-transfer!
-            name-price burn-address)
+  (if (and (is-ok? (stacks-transfer!
+                    name-price burn-address))
            (insert-entry! preorder-map
             (tuple (name-hash name-hash))
             (tuple (paid name-price)
