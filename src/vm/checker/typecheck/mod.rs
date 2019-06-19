@@ -42,7 +42,9 @@ pub type TypeResult = CheckResult<TypeSignature>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FunctionType {
     Variadic(TypeSignature, TypeSignature),
-    Fixed(Vec<FunctionArg>, TypeSignature)
+    Fixed(Vec<FunctionArg>, TypeSignature),
+    // Functions where the single input is a union type, e.g., Buffer or Int
+    UnionArgs(Vec<TypeSignature>, TypeSignature),
 }
 
 pub struct TypeChecker <'a, 'b> {
@@ -79,6 +81,20 @@ impl FunctionType {
                     }
                 }
                 Ok(())
+            },
+            FunctionType::UnionArgs(arg_types, _) => {
+                if args.len() != 1 {
+                    return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(
+                        1, args.len())))
+                }
+                let found_type = &args[0];
+                for expected_type in arg_types.iter() {
+                    if expected_type.admits_type(found_type) {
+                        return  Ok(())
+                    }
+                }
+                Err(CheckError::new(CheckErrors::UnionTypeError(
+                    arg_types.clone(), found_type.clone())))
             }
         }
     }
@@ -86,7 +102,8 @@ impl FunctionType {
     pub fn return_type(&self) -> TypeSignature {
         match self {
             FunctionType::Variadic(_, return_type) => return_type.clone(),
-            FunctionType::Fixed(_, return_type) => return_type.clone()
+            FunctionType::Fixed(_, return_type) => return_type.clone(),
+            FunctionType::UnionArgs(_, return_type) => return_type.clone()
         }
     }
 }

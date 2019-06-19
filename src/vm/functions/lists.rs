@@ -1,4 +1,4 @@
-use vm::errors::{Error, ErrType, InterpreterResult as Result};
+use vm::errors::{UncheckedError, InterpreterResult as Result};
 use vm::types::Value;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::{LocalContext, Environment, eval, apply, lookup_function};
@@ -9,10 +9,10 @@ pub fn list_cons(args: &[Value]) -> Result<Value> {
 
 pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if args.len() != 2 {
-        return Err(Error::new(ErrType::InvalidArguments(format!("Wrong number of arguments ({}) to filter", args.len()))))
+        return Err(UncheckedError::InvalidArguments(format!("Wrong number of arguments ({}) to filter", args.len())).into())
     }
     let function_name = args[0].match_atom()
-        .ok_or(Error::new(ErrType::InvalidArguments("Filter must be called with a function name. We do not support eval'ing to functions.".to_string())))?;
+        .ok_or(UncheckedError::InvalidArguments("Filter must be called with a function name. We do not support eval'ing to functions.".to_string()))?;
 
     let function = lookup_function(&function_name, env)?;
     let list = eval(&args[1], env, context)?;
@@ -26,21 +26,21 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
                     output.push(x);
                 } // else, filter out.
             } else {
-                return Err(Error::new(ErrType::TypeError("Bool".to_string(), filter_eval)))
+                return Err(UncheckedError::TypeError("Bool".to_string(), filter_eval).into())
             }
         }
         Value::list_from(output)
     } else {
-        Err(Error::new(ErrType::TypeError("List".to_string(), list)))
+        Err(UncheckedError::TypeError("List".to_string(), list).into())
     }
 }
 
 pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if args.len() != 3 {
-        return Err(Error::new(ErrType::InvalidArguments(format!("Wrong number of arguments ({}) to fold", args.len()))))
+        return Err(UncheckedError::InvalidArguments(format!("Wrong number of arguments ({}) to fold", args.len())).into())
     }
     let function_name = args[0].match_atom()
-        .ok_or(Error::new(ErrType::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string())))?;
+        .ok_or(UncheckedError::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string()))?;
 
     let function = lookup_function(&function_name, env)?;
     let list = eval(&args[1], env, context)?;
@@ -54,16 +54,16 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &L
                 apply(&function, &argument, env, context)
             })
     } else {
-        Err(Error::new(ErrType::TypeError("List".to_string(), list)))
+        Err(UncheckedError::TypeError("List".to_string(), list).into())
     }
 }
 
 pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if args.len() != 2 {
-        return Err(Error::new(ErrType::InvalidArguments(format!("Wrong number of arguments ({}) to map", args.len()))))
+        return Err(UncheckedError::InvalidArguments(format!("Wrong number of arguments ({}) to map", args.len())).into())
     }
     let function_name = args[0].match_atom()
-        .ok_or(Error::new(ErrType::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string())))?;
+        .ok_or(UncheckedError::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string()))?;
     let function = lookup_function(&function_name, env)?;
 
     let list = eval(&args[1], env, context)?;
@@ -74,6 +74,6 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
         }).collect();
         Value::list_from(mapped_vec?)
     } else {
-        Err(Error::new(ErrType::TypeError("List".to_string(), list)))
+        Err(UncheckedError::TypeError("List".to_string(), list).into())
     }
 }

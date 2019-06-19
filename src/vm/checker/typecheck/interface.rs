@@ -123,14 +123,16 @@ impl ContractInterfaceFunction {
                         FunctionType::Fixed(_, fnType) => {
                             ContractInterfaceAtomType::from_type_signature(&fnType)
                         },
-                        FunctionType::Variadic(_, _) => panic!("Contract functions should never have a variadic return type!")
+                        FunctionType::Variadic(_, _) => panic!("Contract functions should never have a variadic return type!"),
+                        FunctionType::UnionArgs(_, _) => panic!("Contract functions should never have a union return type!"),
                     }
                 },
                 args: match function_type {
                     FunctionType::Fixed(fnArgs, _) => {
                         ContractInterfaceFunctionArg::from_function_args(&fnArgs)
                     },
-                    FunctionType::Variadic(_, _) => panic!("Contract functions should never have variadic arguments!")
+                    FunctionType::Variadic(_, _) => panic!("Contract functions should never have variadic arguments!"),
+                    FunctionType::UnionArgs(_, _) => panic!("Contract functions should never have union arguments!"),
                 }
             }
         }).collect()

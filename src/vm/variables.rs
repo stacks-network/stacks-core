@@ -1,7 +1,7 @@
 use::std::convert::TryFrom;
 use vm::types::Value;
 use vm::contexts::{LocalContext, Environment};
-use vm::errors::{Error, ErrType, InterpreterResult as Result};
+use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result};
 
 pub enum NativeVariables {
     TxSender, BlockHeight, BurnBlockHeight
@@ -28,9 +28,9 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &Envir
         match variable {
             NativeVariables::TxSender => {
                 let sender = env.sender.clone()
-                    .ok_or(Error::new(ErrType::InvalidArguments(
+                    .ok_or(UncheckedError::InvalidArguments(
                         "No sender in current context. Did you attempt to (contract-call ...) from a non-contract aware environment?"
-                            .to_string())))?;
+                            .to_string()))?;
                 Ok(Some(sender))
             },
             NativeVariables::BlockHeight => {
@@ -38,7 +38,7 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &Envir
                 Ok(Some(Value::Int(block_height as i128)))
             },
             NativeVariables::BurnBlockHeight => {
-                Err(Error::new(ErrType::NotImplemented))
+                Err(RuntimeErrorType::NotImplemented.into())
             }
         }
     } else {

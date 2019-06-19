@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
 use rusqlite::types::ToSql;
 
 use vm::contracts::Contract;
-use vm::errors::{Error, ErrType, InterpreterResult as Result, IncomparableError};
+use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
@@ -121,22 +121,22 @@ impl ContractDatabaseConnection {
         let sql = "SELECT sql FROM sqlite_master WHERE name=?";
         let _: String = self.conn.query_row(sql, &["maps_table"],
                                             |row| row.get(0))
-            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
         let _: String = self.conn.query_row(sql, &["contracts"],
                                             |row| row.get(0))
-            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
         let _: String = self.conn.query_row(sql, &["data_table"],
                                             |row| row.get(0))
-            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
         let _: String = self.conn.query_row(sql, &["simmed_block_table"],
                                             |row| row.get(0))
-            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
         Ok(())
     }
 
     pub fn inner_open(filename: &str) -> Result<ContractDatabaseConnection> {
         let conn = Connection::open(filename)
-            .map_err(|x| Error::new(ErrType::SqliteError(IncomparableError{ err: x })))?;
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError{ err: x }))?;
         Ok(ContractDatabaseConnection {
             conn: conn
         })
@@ -197,7 +197,7 @@ impl <'a> ContractDatabase <'a> {
                 |row| {
                     (row.get(0), row.get(1), row.get(2))
                 })
-            .ok_or(Error::new(ErrType::UndefinedMap(map_name.to_string())))?;
+            .ok_or(UncheckedError::UndefinedMap(map_name.to_string()))?;
 
         Ok(SqliteDataMap {
             map_identifier: map_identifier,
@@ -232,7 +232,7 @@ impl <'a> ContractDatabase <'a> {
     pub fn fetch_entry(&self, contract_name: &str, map_name: &str, key: &Value) -> Result<Option<Value>> {
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(key) {
-            return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.key_type), (*key).clone())))
+            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), (*key).clone()).into())
         }
 
         let params: [&ToSql; 2] = [&map_descriptor.map_identifier,
@@ -259,10 +259,10 @@ impl <'a> ContractDatabase <'a> {
     pub fn set_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(&key) {
-            return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.key_type), key)))
+            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), key).into())
         }
         if !map_descriptor.value_type.admits(&value) {
-            return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.value_type), value)))
+            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.value_type), value).into())
         }
 
         let params: [&ToSql; 3] = [&map_descriptor.map_identifier,
@@ -279,10 +279,10 @@ impl <'a> ContractDatabase <'a> {
     pub fn insert_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(&key) {
-            return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.key_type), key)))
+            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), key).into())
         }
         if !map_descriptor.value_type.admits(&value) {
-            return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.value_type), value)))
+            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.value_type), value).into())
         }
 
         let exists = self.fetch_entry(contract_name, map_name, &key)?.is_some();
@@ -309,7 +309,7 @@ impl <'a> ContractDatabase <'a> {
 
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(key) {
-            return Err(Error::new(ErrType::TypeError(format!("{:?}", map_descriptor.key_type), (*key).clone())))
+            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), (*key).clone()).into())
         }
 
         let none: Option<String> = None;
@@ -327,7 +327,7 @@ impl <'a> ContractDatabase <'a> {
 
     pub fn get_contract(&mut self, contract_name: &str) -> Result<Contract> {
         self.load_contract(contract_name)
-            .ok_or_else(|| { Error::new(ErrType::UndefinedContract(contract_name.to_string())) })
+            .ok_or_else(|| { UncheckedError::UndefinedContract(contract_name.to_string()).into() })
     }
 
     pub fn insert_contract(&mut self, contract_name: &str, contract: Contract) {
@@ -348,7 +348,7 @@ impl <'a> ContractDatabase <'a> {
             .expect("Failed to fetch simulated block height");
 
         u64::try_from(block_height)
-            .map_err(|_| Error::new(ErrType::Arithmetic("Overflowed fetching block height".to_string())))
+            .map_err(|_| RuntimeErrorType::Arithmetic("Overflowed fetching block height".to_string()).into())
     }
 
     pub fn get_simmed_block_time(&self, block_height: u64) -> Result<u64> {
@@ -361,7 +361,7 @@ impl <'a> ContractDatabase <'a> {
             .expect("Failed to fetch simulated block time");
 
         u64::try_from(block_time)
-            .map_err(|_| Error::new(ErrType::Arithmetic("Overflowed fetching block time".to_string())))
+            .map_err(|_| RuntimeErrorType::Arithmetic("Overflowed fetching block time".to_string()).into())
     }
 
     pub fn get_simmed_block_header_hash(&self, block_height: u64) -> Result<BlockHeaderHash> {
@@ -374,7 +374,7 @@ impl <'a> ContractDatabase <'a> {
             .expect("Failed to fetch simulated block header hash");
         
         BlockHeaderHash::from_bytes(&block_header_hash)
-            .ok_or(Error::new(ErrType::ParseError("Failed to instantiate BlockHeaderHash from simmed db data".to_string())))
+            .ok_or(RuntimeErrorType::ParseError("Failed to instantiate BlockHeaderHash from simmed db data".to_string()).into())
     }
 
     pub fn get_simmed_burnchain_block_header_hash(&self, block_height: u64) -> Result<BurnchainHeaderHash> {
@@ -387,7 +387,7 @@ impl <'a> ContractDatabase <'a> {
             .expect("Failed to fetch simulated block header hash");
         
         BurnchainHeaderHash::from_bytes(&block_header_hash)
-            .ok_or(Error::new(ErrType::ParseError("Failed to instantiate BurnchainHeaderHash from simmed db data".to_string())))
+            .ok_or(RuntimeErrorType::ParseError("Failed to instantiate BurnchainHeaderHash from simmed db data".to_string()).into())
     }
 
     pub fn get_simmed_block_vrf_seed(&self, block_height: u64) -> Result<VRFSeed> {
@@ -399,7 +399,7 @@ impl <'a> ContractDatabase <'a> {
                 |row| row.get(0))
             .expect("Failed to fetch simulated block vrf seed");
         VRFSeed::from_bytes(&block_vrf_seed)
-            .ok_or(Error::new(ErrType::ParseError("Failed to instantiate VRF seed from simmed db data".to_string())))
+            .ok_or(RuntimeErrorType::ParseError("Failed to instantiate VRF seed from simmed db data".to_string()).into())
     }
 
     pub fn sim_mine_block_with_time(&mut self, block_time: u64) {

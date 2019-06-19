@@ -170,14 +170,15 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions) -
                     let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x.signature)).collect();
                     in_types.join(", ")
                 },
+                FunctionType::UnionArgs(ref in_types, _) => {
+                    let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x)).collect();
+                    in_types.join(" | ")
+                },
             };
             let output_type = match function_type {
-                FunctionType::Variadic(_, ref out_type) => {
-                    format!("{}", out_type)
-                },
-                FunctionType::Fixed(_, ref out_type) => {
-                    format!("{}", out_type)
-            },
+                FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
+                FunctionType::Fixed(_, ref out_type) => format!("{}", out_type),
+                FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type)
             };
             (input_type, output_type)
         } else {
@@ -242,7 +243,7 @@ input list, and outputs a list containing the _outputs_ from those function appl
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
-    name: "map",
+    name: "filter",
     input_type: "Function(A) -> bool, (list A)",
     output_type: "(list A)",
     signature: "(filter func list)",
