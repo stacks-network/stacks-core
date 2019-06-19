@@ -1,6 +1,6 @@
 use std::fmt;
 
-use vm::errors::{InterpreterResult as Result, Error, ErrType};
+use vm::errors::{InterpreterResult as Result, Error, UncheckedError};
 use vm::representations::SymbolicExpression;
 use vm::types::TypeSignature;
 use vm::{eval, Value, LocalContext, Environment};
@@ -57,20 +57,24 @@ impl DefinedFunction {
         let arg_iterator = self.arguments.iter().zip(self.arg_types.iter()).zip(args.iter());
         for ((arg, type_sig), value) in arg_iterator {
             if !type_sig.admits(value) {
-                return Err(Error::new(ErrType::TypeError(format!("{:?}", type_sig), value.clone()))) 
+                return Err(UncheckedError::TypeError(format!("{:?}", type_sig), value.clone()).into()) 
             }
             if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {
-                return Err(Error::new(ErrType::VariableDefinedMultipleTimes(arg.clone())))
+                return Err(UncheckedError::VariableDefinedMultipleTimes(arg.clone()).into())
             }
         }
         let result = eval(&self.body, env, &context);
 
         // if the error wasn't actually an error, but a function return,
         //    pull that out and return it.
-        if let Err(Error{ err_type: ErrType::ExpectedValue(ref v), ..}) = result {
-            Ok(v.clone())
-        } else {
-            result
+        match result {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                match e {
+                    Error::ShortReturn(v) => Ok(v.into()),
+                    _ => Err(e)
+                }
+            }
         }
     }
 

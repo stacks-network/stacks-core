@@ -1,4 +1,4 @@
-use vm::errors::{Error, ErrType, InterpreterResult as Result};
+use vm::errors::{UncheckedError, InterpreterResult as Result};
 use vm::types::{Value};
 use vm::representations::{SymbolicExpression,SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List};
@@ -14,7 +14,7 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
     use super::parse_eval_bindings;
 
     if args.len() < 1 {
-        return Err(Error::new(ErrType::InvalidArguments(format!("Tuples must be constructed with named-arguments and corresponding values"))))
+        return Err(UncheckedError::InvalidArguments(format!("Tuples must be constructed with named-arguments and corresponding values")).into())
     }
 
     let bindings = parse_eval_bindings(args, env, context)?;
@@ -27,11 +27,11 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
     //    if the tuple argument is an option type, then return option(field-name).
 
     if args.len() != 2 {
-        return Err(Error::new(ErrType::InvalidArguments(format!("(get ..) requires exactly 2 arguments"))))
+        return Err(UncheckedError::InvalidArguments(format!("(get ..) requires exactly 2 arguments")).into())
     }
     let arg_name = match args[0].expr {
         SymbolicExpressionType::Atom(ref name) => Ok(name),
-        _ => Err(Error::new(ErrType::InvalidArguments(format!("Second argument to (get ..) must be a name, found: {:?}", args[0]))))
+        _ => Err(UncheckedError::InvalidArguments(format!("Second argument to (get ..) must be a name, found: {:?}", args[0])))
     }?;
 
     let value = eval(&args[1], env, context)?;
@@ -44,14 +44,14 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
                     if let Value::Tuple(tuple_data) = data {
                         Ok(Value::some(tuple_data.get(arg_name)?))
                     } else {
-                        Err(Error::new(ErrType::TypeError("TupleType".to_string(), data.clone())))
+                        Err(UncheckedError::TypeError("TupleType".to_string(), data.clone()).into())
                     }
                 },
                 None => Ok(value.clone()) // just pass through none-types.
             }
         },
         Value::Tuple(tuple_data) => tuple_data.get(arg_name),
-        _ => Err(Error::new(ErrType::TypeError("TupleType".to_string(), value.clone())))
+        _ => Err(UncheckedError::TypeError("TupleType".to_string(), value.clone()).into())
     }
 }
 

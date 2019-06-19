@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use vm::errors::{Error, ErrType, InterpreterResult as Result};
+use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, InterpreterResult as Result};
 use vm::types::Value;
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ContractDatabase, ContractDatabaseTransacter};
@@ -123,7 +123,7 @@ impl <'a, 'b> Environment <'a, 'b> {
     pub fn eval_read_only(&mut self, contract_name: &str, program: &str) -> Result<Value> {
         let parsed = parser::parse(program)?;
         if parsed.len() < 1 {
-            return Err(Error::new(ErrType::ParseError("Expected a program of at least length 1".to_string())))
+            return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }
 
         let contract = self.global_context.database.get_contract(contract_name)?;
@@ -141,7 +141,7 @@ impl <'a, 'b> Environment <'a, 'b> {
     pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
         let parsed = parser::parse(program)?;
         if parsed.len() < 1 {
-            return Err(Error::new(ErrType::ParseError("Expected a program of at least length 1".to_string())))
+            return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }
         let local_context = LocalContext::new();
         let result = {
@@ -155,16 +155,16 @@ impl <'a, 'b> Environment <'a, 'b> {
         let contract = self.global_context.database.get_contract(contract_name)?;
 
         let func = contract.contract_context.lookup_function(tx_name)
-            .ok_or_else(|| { Error::new(ErrType::UndefinedFunction(tx_name.to_string())) })?;
+            .ok_or_else(|| { UncheckedError::UndefinedFunction(tx_name.to_string()) })?;
         if !func.is_public() {
-            return Err(Error::new(ErrType::NonPublicFunction(tx_name.to_string())));
+            return Err(UncheckedError::NonPublicFunction(tx_name.to_string()).into());
         }
 
         let args: Result<Vec<Value>> = args.iter()
             .map(|arg| {
                 let value = arg.match_atom_value()
-                    .ok_or_else(|| Error::new(ErrType::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
-                                                                                tx_name))))?;
+                    .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
+                                                                              tx_name)))?;
                 Ok(value.clone())
             })
             .collect();
@@ -295,7 +295,7 @@ impl <'a> GlobalContext <'a> {
                 }
                 Ok(Value::Response(data))
             } else {
-                Err(Error::new(ErrType::ContractMustReturnBoolean))
+                Err(UncheckedError::ContractMustReturnBoolean.into())
             }
         } else {
             self.database.roll_back();
@@ -339,7 +339,7 @@ impl <'a> LocalContext <'a> {
     
     pub fn extend(&'a self) -> Result<LocalContext<'a>> {
         if self.depth >= MAX_CONTEXT_DEPTH {
-            Err(Error::new(ErrType::MaxContextDepthReached))
+            Err(RuntimeErrorType::MaxContextDepthReached.into())
         } else {
             Ok(LocalContext {
                 parent: Some(self),
@@ -388,14 +388,14 @@ impl CallStack {
     pub fn remove(&mut self, function: &FunctionIdentifier, tracked: bool) -> Result<()> {
         if let Some(removed) = self.stack.pop() {
             if removed != *function {
-                return Err(Error::new(ErrType::InterpreterError("Tried to remove item from empty call stack.".to_string())))
+                return Err(InterpreterError::InterpreterError("Tried to remove item from empty call stack.".to_string()).into())
             }
             if tracked && !self.set.remove(&function) {
                 panic!("Tried to remove tracked function from call stack, but could not find in current context.")
             }
             Ok(())
         } else {
-            return Err(Error::new(ErrType::InterpreterError("Tried to remove item from empty call stack.".to_string())))
+            return Err(InterpreterError::InterpreterError("Tried to remove item from empty call stack.".to_string()).into())
         }
     }
 

@@ -60,6 +60,37 @@ fn test_simple_arithmetic_checks() {
 }
 
 #[test]
+fn test_simple_hash_checks() {
+    let good = ["(hash160 1)",
+                "(sha256 (keccak256 1))"];
+    let bad_types = ["(hash160 'true)",
+                     "(sha256 'false)",
+                     "(keccak256 (list 1 2 3))"];
+    let invalid_args = ["(sha256 1 2 3)"];
+
+    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
+        identity_pass::identity_pass(&mut good_test).unwrap();
+        type_check_helper(&good_test[0]).unwrap();
+    }
+    
+    for mut bad_test in bad_types.iter().map(|x| parse(x).unwrap()) {
+        identity_pass::identity_pass(&mut bad_test).unwrap();
+        assert!(match type_check_helper(&bad_test[0]).unwrap_err().err {
+            CheckErrors::UnionTypeError(_, _) => true,
+            _ => false
+        })
+    }
+
+    for mut bad_test in invalid_args.iter().map(|x| parse(x).unwrap()) {
+        identity_pass::identity_pass(&mut bad_test).unwrap();
+        assert!(match type_check_helper(&bad_test[0]).unwrap_err().err {
+            CheckErrors::IncorrectArgumentCount(_, _) => true,
+            _ => false
+        })
+    }
+}
+
+#[test]
 fn test_simple_ifs() {
     let good = ["(if (> 1 2) (+ 1 2 3) (- 1 2))",
                 "(if 'true 'true 'false)",
