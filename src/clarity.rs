@@ -53,7 +53,6 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     })
 }
 
-#[cfg_attr(tarpaulin, skip)]
 pub fn invoke_command(invoked_by: &str, args: &[String]) {
     if args.len() < 1 {
         print_usage(invoked_by)
@@ -460,5 +459,21 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         _ => {
             print_usage(invoked_by)
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_samples() {
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        invoke_command("test", &["initialize".to_string(), db_name.clone()]);
+        invoke_command("test", &["check".to_string(), "sample-programs/tokens.clar".to_string(), db_name.clone()]);
+        invoke_command("test", &["launch".to_string(), "tokens".to_string(),
+                                 "sample-programs/tokens.clar".to_string(), db_name.clone()]);
+        invoke_command("test", &["execute".to_string(), db_name.clone(), "tokens".to_string(),
+                                 "mint!".to_string(), "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
+                                 "1000".to_string()]);
     }
 }
