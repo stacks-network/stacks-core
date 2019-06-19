@@ -423,6 +423,18 @@ fn tuples_system() {
     let mut test_bad_tuple_1 = test1.to_string();
     test_bad_tuple_1.push_str("(insert-entry! tuples (tuple (name 1)) (tuple (contents (tuple (name \"abcde\") (owner \"abcdef\")))))");
 
+    let mut test_bad_tuple_2 = test1.to_string();
+    test_bad_tuple_2.push_str("(fetch-entry tuples (tuple (names 1)))");
+
+    let mut test_bad_tuple_3 = test1.to_string();
+    test_bad_tuple_3.push_str("(set-entry! tuples (tuple (names 1)) (tuple (contents (tuple (name \"abcde\") (owner \"abcde\")))))");
+
+    let mut test_bad_tuple_4 = test1.to_string();
+    test_bad_tuple_4.push_str("(set-entry! tuples (tuple (name 1)) (tuple (contents 1)))");
+
+    let mut test_bad_tuple_5 = test1.to_string();
+    test_bad_tuple_5.push_str("(delete-entry! tuples (tuple (names 1)))");
+
     let expected = || {
         let buff1 = Value::buff_from("abcde".to_string().into_bytes())?;
         let buff2 = Value::buff_from("abcd".to_string().into_bytes())?;
@@ -431,7 +443,10 @@ fn tuples_system() {
 
     assert_executes(expected(), test1);
 
-    for test in [test_list_too_big, test_bad_tuple_1].iter() {
+    let type_error_tests = [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2, test_bad_tuple_3,
+                            test_bad_tuple_4, test_bad_tuple_5];
+
+    for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
             Err(Error::Unchecked(UncheckedError::TypeError(_,_))) => true,
             _ => {

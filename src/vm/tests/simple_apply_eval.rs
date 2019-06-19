@@ -227,6 +227,7 @@ fn test_arithmetic_errors() {
         "(/)",
         "(mod 1)",
         "(pow 1)",
+        "(xor 1)",
          "(pow 2 (pow 2 32))",
          "(pow 2 (- 1))"];
 
@@ -243,8 +244,38 @@ fn test_arithmetic_errors() {
         UncheckedError::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string()).into(),
         UncheckedError::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string()).into(),
         UncheckedError::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()).into(),
+        UncheckedError::InvalidArguments("(xor ...) must be called with exactly 2 arguments".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into()
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+    }
+}
+
+#[test]
+fn test_options_errors() {
+    let tests = [
+        "(is-none? 2 1)",
+        "(is-none? 'true)",
+        "(is-ok? 2 1)",
+        "(is-ok? 'true)",
+        "(ok 2 3)",
+        "(err 4 5)",
+        "(default-to 4 5 7)",
+        "(default-to 4 'true)",
+        ];
+
+    let expectations: &[Error] = &[
+        UncheckedError::InvalidArguments("Wrong number of arguments to is-none? (expects 1)".to_string()).into(),
+        UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
+        UncheckedError::InvalidArguments("Wrong number of arguments to is-ok? (expects 1)".to_string()).into(),
+        UncheckedError::TypeError("ResponseType".to_string(), Value::Bool(true)).into(),
+        UncheckedError::InvalidArguments("Wrong number of arguments to ok (expects 1)".to_string()).into(),
+        UncheckedError::InvalidArguments("Wrong number of arguments to err (expects 1)".to_string()).into(),
+        UncheckedError::InvalidArguments("Wrong number of arguments to default-to (expects 2)".to_string()).into(),
+        UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {

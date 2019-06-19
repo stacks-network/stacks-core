@@ -48,6 +48,35 @@ fn test_bad_define_names() {
 }
 
 #[test]
+fn test_expects() {
+    let test0 =
+        "(define (foo) (expects! (ok 1) 2)) (foo)";
+    let test1 =
+        "(define (foo) (expects! (ok 1))) (foo)";
+    let test2 =
+        "(define (foo) (expects! 1 2)) (foo)";
+    let test3 =
+        "(define (foo) (expects-err! 1 2)) (foo)";
+    let test4 =
+        "(define (foo) (expects-err! (err 1) 2)) (foo)";
+    let test5 =
+        "(define (foo) (expects-err! (err 1))) (foo)";
+
+    assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
+    assert_eq_err(UncheckedError::InvalidArguments(
+        "Wrong number of arguments to expects (expects! input-value thrown-value)".to_string()),
+                  execute(&test1).unwrap_err());
+    assert_eq_err(UncheckedError::TypeError("OptionalType|ResponseType".to_string(), Value::Int(1)),
+                  execute(&test2).unwrap_err());
+    assert_eq_err(UncheckedError::TypeError("ResponseType".to_string(), Value::Int(1)),
+                  execute(&test3).unwrap_err());
+    assert_eq!(Ok(Some(Value::Int(1))), execute(&test4));
+    assert_eq_err(UncheckedError::InvalidArguments(
+        "Wrong number of arguments to expects (expects-err! input-value thrown-value)".to_string()),
+                  execute(&test5).unwrap_err());
+}
+
+#[test]
 fn test_define_read_only() {
     let test0 =
         "(define-read-only (silly) 1) (silly)";
