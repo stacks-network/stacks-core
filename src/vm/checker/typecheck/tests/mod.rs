@@ -300,6 +300,26 @@ fn test_set_variable_type_mismatch() {
         _ => false
     });
 }
+
+#[test]
+fn test_direct_access_to_persisted_var_should_fail() {
+    let contract_src = r#"
+        (define-data-var cursor int)
+        (define (get-cursor)
+            cursor)
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::UnboundVariable(_) => true,
+        _ => false
+    });
+}
+
 #[test]
 fn test_data_var_shadowed_by_let_should_fail() {
     let contract_src = r#"
