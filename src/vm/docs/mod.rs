@@ -235,7 +235,7 @@ created by this set of bindings is used for evaluating and return the value of `
 const FETCH_VAR_API: SpecialAPI = SpecialAPI { 
     name: "fetch-var",
     input_type: "VarName",
-    output_type: "A",
+    output_type: "Optional(A)",
     signature: "(fetch-var var-name)",
     description: "The `fetch-var` function looks up and returns an entry from a contract's data map.
 The value is looked up using `var-name`.
