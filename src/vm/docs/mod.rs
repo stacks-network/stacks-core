@@ -664,6 +664,27 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 "
 };
 
+const DEFINE_DATA_VAR_API: SpecialAPI = SpecialAPI {
+    name: "define-data-var",
+    input_type: "VarName, TypeDefinition",
+    output_type: "Not Applicable",
+    signature: "(define-data-var var-name type)",
+    description: "`define-data-var` is used to define a new persisted variable for use in a smart contract. Such
+variable are only modifiable by the current smart contract.
+
+Persisted variable are defined with a type.
+
+Like other kinds of definition statements, `define-data-var` may only be used at the top level of a smart contract
+definition (i.e., you cannot put a define statement in the middle of a function body).",
+    example: "
+(define-data-var size int)
+(define (set-size (value int))
+  (set-var! size value))
+(set-size 1)
+(set-size 2)
+"
+};
+
 fn make_for_special(api: &SpecialAPI) -> FunctionAPI {
     FunctionAPI {
         name: api.name.to_string(),
@@ -733,6 +754,7 @@ pub fn make_json_api_reference() -> String {
         .map(|x| make_api_reference(x))
         .collect();
     json_references.push(make_for_special(&DEFINE_MAP_API));
+    json_references.push(make_for_special(&DEFINE_DATA_VAR_API));
     json_references.push(make_for_special(&DEFINE_PUBLIC_API));
     json_references.push(make_for_special(&DEFINE_PRIVATE_API));
     json_references.push(make_for_special(&DEFINE_READ_ONLY_API));
