@@ -5,7 +5,7 @@ use vm::functions::NativeFunctions;
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
-use vm::constants::NativeConstants;
+use vm::variables::NativeVariables;
 use std::collections::HashMap;
 
 use super::AnalysisDatabase;

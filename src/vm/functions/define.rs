@@ -7,7 +7,7 @@ use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::eval;
 
 pub enum DefineResult {
-    Constant(String, Value),
+    Variable(String, Value),
     Function(String, DefinedFunction),
     Map(String, TupleTypeSignature, TupleTypeSignature),
     PersistedVariable(String, TypeSignature),
@@ -26,12 +26,12 @@ fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<
     }
 }
 
-fn handle_define_constant(constant: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
+fn handle_define_variable(variable: &String, expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     // is the variable name legal?
-    check_legal_define(constant, &env.contract_context)?;
+    check_legal_define(variable, &env.contract_context)?;
     let context = LocalContext::new();
     let value = eval(expression, env, &context)?;
-    Ok(DefineResult::Constant(constant.clone(), value))
+    Ok(DefineResult::Variable(variable.clone(), value))
 }
 
 fn handle_define_function(signature: &[SymbolicExpression],
@@ -98,7 +98,7 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                         Err(Error::new(ErrType::InvalidArguments("(define ...) requires 2 arguments".to_string())))
                     } else {
                         match elements[1].expr {
-                            Atom(ref constant) => handle_define_constant(constant, &elements[2], env),
+                            Atom(ref variable) => handle_define_variable(variable, &elements[2], env),
                             AtomValue(ref _value) => Err(Error::new(ErrType::InvalidArguments(
                                 "Illegal operation: attempted to re-define a value type.".to_string()))),
                             List(ref function_signature) =>

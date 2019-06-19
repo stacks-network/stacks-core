@@ -168,13 +168,13 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
 
         checker.contract_context.check_name_used(var_name)?;
 
-        if out_context.constant_types.contains_key(var_name) {
+        if out_context.variable_types.contains_key(var_name) {
             return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.to_string())))
         }
 
         checker.type_map.set_type(&binding_exps[0], no_type())?;
         let typed_result = checker.type_check(&binding_exps[1], context)?;
-        out_context.constant_types.insert(var_name.clone(),
+        out_context.variable_types.insert(var_name.clone(),
                                             typed_result);
     }
     

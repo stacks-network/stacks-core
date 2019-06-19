@@ -19,7 +19,7 @@ pub struct ContractAnalysis {
     // matt: is okay to let these new fields end up in the db?
     // #[serde(skip)]
     private_function_types: BTreeMap<String, FunctionType>,
-    constant_types: BTreeMap<String, TypeSignature>,
+    variable_types: BTreeMap<String, TypeSignature>,
     public_function_types: BTreeMap<String, FunctionType>,
     read_only_function_types: BTreeMap<String, FunctionType>,
     map_types: BTreeMap<String, (TypeSignature, TypeSignature)>,
@@ -27,14 +27,14 @@ pub struct ContractAnalysis {
 }
 
 pub struct TypingContext <'a> {
-    pub constant_types: HashMap<String, TypeSignature>,
+    pub variable_types: HashMap<String, TypeSignature>,
     pub parent: Option<&'a TypingContext<'a>>,
     pub depth: u16
 }
 
 pub struct ContractContext {
     map_types: HashMap<String, (TypeSignature, TypeSignature)>,
-    constant_types: HashMap<String, TypeSignature>,
+    variable_types: HashMap<String, TypeSignature>,
     private_function_types: HashMap<String, FunctionType>,
     public_function_types: HashMap<String, FunctionType>,
     read_only_function_types: HashMap<String, FunctionType>,
@@ -48,7 +48,7 @@ impl ContractAnalysis {
             private_function_types: BTreeMap::new(),
             public_function_types: BTreeMap::new(),
             read_only_function_types: BTreeMap::new(),
-            constant_types: BTreeMap::new(),
+            variable_types: BTreeMap::new(),
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
         }
@@ -69,8 +69,8 @@ impl ContractAnalysis {
                                                  map_type.clone()));
     }
     
-    pub fn add_constant_type(&mut self, name: &str, constant_type: &TypeSignature) {
-        self.constant_types.insert(name.to_string(), constant_type.clone());
+    pub fn add_variable_type(&mut self, name: &str, variable_type: &TypeSignature) {
+        self.variable_types.insert(name.to_string(), variable_type.clone());
     }
     
     pub fn add_persisted_variable_type(&mut self, name: &str, persisted_variable_type: &TypeSignature) {
@@ -105,8 +105,8 @@ impl ContractAnalysis {
         self.map_types.get(name)
     }
 
-    pub fn get_constant_type(&self, name: &str) -> Option<&TypeSignature> {
-        self.constant_types.get(name)
+    pub fn get_variable_type(&self, name: &str) -> Option<&TypeSignature> {
+        self.variable_types.get(name)
     }
 
     pub fn get_persisted_variable_type(&self, name: &str) -> Option<&TypeSignature> {
@@ -136,7 +136,7 @@ impl TypeMap {
 impl ContractContext {
     pub fn new() -> ContractContext {
         ContractContext {
-            constant_types: HashMap::new(),
+            variable_types: HashMap::new(),
             private_function_types: HashMap::new(),
             public_function_types: HashMap::new(),
             read_only_function_types: HashMap::new(),
@@ -146,7 +146,7 @@ impl ContractContext {
     }
 
     pub fn check_name_used(&self, name: &str) -> CheckResult<()> {
-        if self.constant_types.contains_key(name) ||
+        if self.variable_types.contains_key(name) ||
             self.persisted_variable_types.contains_key(name) ||
             self.private_function_types.contains_key(name) ||
             self.public_function_types.contains_key(name) ||
@@ -186,9 +186,9 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn add_constant_type(&mut self, const_name: String, var_type: TypeSignature) -> CheckResult<()> {
+    pub fn add_variable_type(&mut self, const_name: String, var_type: TypeSignature) -> CheckResult<()> {
         self.check_name_used(&const_name)?;
-        self.constant_types.insert(const_name, var_type);
+        self.variable_types.insert(const_name, var_type);
         Ok(())
     }
 
@@ -202,8 +202,8 @@ impl ContractContext {
         self.map_types.get(map_name)
     }
 
-    pub fn get_constant_type(&self, name: &str) -> Option<&TypeSignature> {
-        self.constant_types.get(name)
+    pub fn get_variable_type(&self, name: &str) -> Option<&TypeSignature> {
+        self.variable_types.get(name)
     }
 
     pub fn get_persisted_variable_type(&self, name: &str) -> Option<&TypeSignature> {
@@ -239,8 +239,8 @@ impl ContractContext {
             contract_analysis.add_private_function(name, function_type);
         }
 
-        for (name, constant_type) in self.constant_types.iter() {
-            contract_analysis.add_constant_type(name, constant_type);
+        for (name, variable_type) in self.variable_types.iter() {
+            contract_analysis.add_variable_type(name, variable_type);
         }
 
         for (name, persisted_variable_type) in self.persisted_variable_types.iter() {
@@ -254,7 +254,7 @@ impl ContractContext {
 impl <'a> TypingContext <'a> {
     pub fn new() -> TypingContext<'static> {
         TypingContext {
-            constant_types: HashMap::new(),
+            variable_types: HashMap::new(),
             depth: 0,
             parent: None
         }
@@ -265,19 +265,19 @@ impl <'a> TypingContext <'a> {
             Err(CheckError::new(CheckErrors::MaxContextDepthReached))
         } else {
             Ok(TypingContext {
-                constant_types: HashMap::new(),
+                variable_types: HashMap::new(),
                 parent: Some(self),
                 depth: self.depth + 1
             })
         }
     }
 
-    pub fn lookup_constant_type(&self, name: &str) -> Option<&TypeSignature> {
-        match self.constant_types.get(name) {
+    pub fn lookup_variable_type(&self, name: &str) -> Option<&TypeSignature> {
+        match self.variable_types.get(name) {
             Some(value) => Some(value),
             None => {
                 match self.parent {
-                    Some(parent) => parent.lookup_constant_type(name),
+                    Some(parent) => parent.lookup_variable_type(name),
                     None => None
                 }
             }
