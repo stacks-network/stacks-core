@@ -524,7 +524,7 @@ impl TupleTypeSignature {
 }
 
 impl TupleData {
-    fn from_data(mut data: Vec<(String, Value)>) -> Result<TupleData> {
+    pub fn from_data(mut data: Vec<(String, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {

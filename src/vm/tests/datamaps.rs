@@ -1,5 +1,5 @@
 use vm::errors::{Error, UncheckedError, RuntimeErrorType};
-use vm::types::{Value, PrincipalData};
+use vm::types::{Value, PrincipalData, TupleData};
 use vm::contexts::{OwnedEnvironment};
 use vm::database::{ContractDatabaseConnection};
 use vm::execute;
@@ -210,11 +210,11 @@ fn test_fetch_contract_entry() {
 }
 
 #[test]
-fn test_set_variable() {
-        let simple_set_variable_src = r#"
-        (define-data-var cursor int)
+fn test_set_int_variable() {
+        let contract_src = r#"
+        (define-data-var cursor int 0)
         (define (get-cursor)
-            (expects! (fetch-var cursor) 0))
+            (fetch-var cursor))
         (define (set-cursor (value int))
             (if (set-var! cursor value)
                 value
@@ -225,9 +225,8 @@ fn test_set_variable() {
                 (get-cursor)))
     "#;
 
-
-    let mut test_simple_set_variable = simple_set_variable_src.to_string();
-    test_simple_set_variable.push_str("(list (get-cursor) (set-cursor 8) (get-cursor) (set-cursor 255) (get-cursor) (increment-cursor))");
+    let mut contract_src = contract_src.to_string();
+    contract_src.push_str("(list (get-cursor) (set-cursor 8) (get-cursor) (set-cursor 255) (get-cursor) (increment-cursor))");
     let expected = Value::list_from(vec![
         Value::Int(0),
         Value::Int(8),
@@ -236,9 +235,95 @@ fn test_set_variable() {
         Value::Int(255),
         Value::Int(256),
     ]);    
-    assert_executes(expected, &test_simple_set_variable);
+    assert_executes(expected, &contract_src);
 }
 
+#[test]
+fn test_set_bool_variable() {
+    let contract_src = r#"
+        (define-data-var is-ok bool 'true)
+        (define (get-ok)
+            (fetch-var is-ok))
+        (define (set-ok (new-ok bool))
+            (if (set-var! is-ok new-ok)
+                new-ok
+                (get-ok)))
+    "#;
+
+    let mut contract_src = contract_src.to_string();
+    contract_src.push_str("(list (get-ok) (set-ok 'false) (get-ok))");
+    let expected = Value::list_from(vec![
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(false)
+    ]);    
+    assert_executes(expected, &contract_src);
+}
+
+#[test]
+fn test_set_tuple_variable() {
+    let contract_src = r#"
+        (define-data-var keys (tuple ((k1 int) (v1 int))) (tuple (k1 1) (v1 1)))
+        (define (get-keys)
+            (fetch-var keys))
+        (define (set-keys (value (tuple ((k1 int) (v1 int)))))
+            (if (set-var! keys value)
+                value
+                (get-keys)))
+    "#;
+    let mut contract_src = contract_src.to_string();
+    contract_src.push_str("(list (get-keys) (set-keys (tuple (k1 2) (v1 0))) (get-keys))");
+    let expected = Value::list_from(vec![
+        Value::Tuple(TupleData::from_data(vec![("k1".to_string(), Value::Int(1)), ("v1".to_string(), Value::Int(1))]).unwrap()),
+        Value::Tuple(TupleData::from_data(vec![("k1".to_string(), Value::Int(2)), ("v1".to_string(), Value::Int(0))]).unwrap()),
+        Value::Tuple(TupleData::from_data(vec![("k1".to_string(), Value::Int(2)), ("v1".to_string(), Value::Int(0))]).unwrap()),
+    ]);    
+    assert_executes(expected, &contract_src);
+}
+
+#[test]
+fn test_set_list_variable() {
+    let contract_src = r#"
+        (define-data-var ranking (list 3 int) (list 1 2 3))
+        (define (get-ranking)
+            (fetch-var ranking))
+        (define (set-ranking (new-ranking (list 3 int)))
+            (if (set-var! ranking new-ranking)
+                new-ranking
+                (get-ranking)))
+    "#;
+
+    let mut contract_src = contract_src.to_string();
+    contract_src.push_str("(list (get-ranking) (set-ranking (list 2 3 1)) (get-ranking))");
+    let expected = Value::list_from(vec![
+        Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap(),
+        Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(1)]).unwrap(),
+        Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(1)]).unwrap()
+    ]);    
+    assert_executes(expected, &contract_src);
+}
+
+#[test]
+fn test_set_buffer_variable() {
+    let contract_src = r#"
+        (define-data-var name (buff 5) "alice")
+        (define (get-name)
+            (fetch-var name))
+        (define (set-name (new-name (buff 5)))
+            (if (set-var! name new-name)
+                new-name
+                (get-name)))
+    "#;
+
+    let mut contract_src = contract_src.to_string();
+    contract_src.push_str("(list (get-name) (set-name \"celia\") (get-name))");
+    let expected = Value::list_from(vec![
+        Value::buff_from("alice".to_string().into_bytes()).unwrap(),
+        Value::buff_from("celia".to_string().into_bytes()).unwrap(),
+        Value::buff_from("celia".to_string().into_bytes()).unwrap(),
+    ]);    
+    assert_executes(expected, &contract_src);
+}
 
 #[test]
 fn test_factorial_contract() {
