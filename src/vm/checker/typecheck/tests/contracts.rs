@@ -137,98 +137,98 @@ fn test_names_tokens_contracts_interface() {
         "functions": [
             { "name": "f00",
                 "access": "private",
-                "args": [{ "name": "a1", "data_type": "int128" }],
-                "outputs": { "data_type": "bool" } 
+                "args": [{ "name": "a1", "type": "int128" }],
+                "outputs": { "type": "bool" } 
             },
             { "name": "f01",
                 "access": "private",
-                "args": [{ "name": "a1", "data_type": "bool" }],
-                "outputs": { "data_type": "bool" } 
+                "args": [{ "name": "a1", "type": "bool" }],
+                "outputs": { "type": "bool" } 
             },
             { "name": "f02",
                 "access": "private",
-                "args": [{ "name": "a1", "data_type": "principal" }],
-                "outputs": { "data_type": "bool" } 
+                "args": [{ "name": "a1", "type": "principal" }],
+                "outputs": { "type": "bool" } 
             },
             { "name": "f03",
                 "access": "private",
-                "args": [{ "name": "a1", "data_type": { "buffer": { "length": 54 } } }],
-                "outputs": { "data_type": "bool" } 
+                "args": [{ "name": "a1", "type": { "buffer": { "length": 54 } } }],
+                "outputs": { "type": "bool" } 
             },
             { "name": "f04",
                 "access": "private",
-                "args": [{ "name": "a1", "data_type": { "tuple": { "data_types": [
-                    { "name": "tname1", "data_type": "bool" },
-                    { "name": "tname2", "data_type": "int128" }
-                ] } } }],
-                "outputs": { "data_type": "bool" } 
+                "args": [{ "name": "a1", "type": { "tuple": [
+                    { "name": "tname1", "type": "bool" },
+                    { "name": "tname2", "type": "int128" }
+                ] } }],
+                "outputs": { "type": "bool" } 
             },
             { "name": "f05",
                 "access": "private",
-                "args": [{ "name": "a1", "data_type": { "list": { "data_type": "int128", "length": 7, "dimension": 6 } } }],
-                "outputs": { "data_type": "bool" } 
+                "args": [{ "name": "a1", "type": { "list": { "type": "int128", "length": 7, "dimension": 6 } } }],
+                "outputs": { "type": "bool" } 
             },
             { "name": "f06",
                 "access": "private",
                 "args": [],
-                "outputs": { "data_type": "int128" } 
+                "outputs": { "type": "int128" } 
             },
             { "name": "f07",
                 "access": "private",
                 "args": [],
-                "outputs": { "data_type": "bool" } 
+                "outputs": { "type": "bool" } 
             },
             { "name": "f08",
                 "access": "private",
                 "args": [],
-                "outputs": { "data_type": "principal" } 
+                "outputs": { "type": "principal" } 
             },
             { "name": "f09",
                 "access": "private",
                 "args": [],
-                "outputs": { "data_type": { "buffer": { "length": 4 } } } 
+                "outputs": { "type": { "buffer": { "length": 4 } } } 
             },
             { "name": "f10",
                 "access": "private",
                 "args": [],
-                "outputs": { "data_type": { "tuple": { "data_types": [
-                    { "name": "tn1", "data_type": "bool" },
-                    { "name": "tn2", "data_type": "int128" },
-                    { "name": "tn3", "data_type": { "buffer": { "length": 1 } }}
-                ] } } } 
+                "outputs": { "type": { "tuple": [
+                    { "name": "tn1", "type": "bool" },
+                    { "name": "tn2", "type": "int128" },
+                    { "name": "tn3", "type": { "buffer": { "length": 1 } }}
+                ] } } 
             },
             { "name": "f11",
                 "access": "private",
                 "args": [],
-                "outputs": { "data_type": { "optional": { "data_type": { "tuple": { "data_types": [ {
+                "outputs": { "type": { "optional": { "tuple": [ {
                     "name": "owner",
-                    "data_type": "principal"
-                 } ] } } } } } 
+                    "type": "principal"
+                 } ] } } } 
             },
             { "name": "f12",
                 "access": "private",
                 "args": [],
-                "outputs": { "data_type": { "response": { "ok": "int128", "error": "none" } } }
+                "outputs": { "type": { "response": { "ok": "int128", "error": "none" } } }
             },
             { "name": "f13",
                 "access": "private",
                 "args": [],
-                "outputs": { "data_type": { "response": { "ok": "none", "error": "int128" } } }
+                "outputs": { "type": { "response": { "ok": "none", "error": "int128" } } }
             },
             { "name": "f14",
                 "access": "private",
                 "args": [],
-                "outputs": { "data_type": { "response": { "ok": "int128", "error": "int128" } } }
+                "outputs": { "type": { "response": { "ok": "int128", "error": "int128" } } }
             },
             { "name": "f15",
                 "access": "private",
                 "args": [],
-                "outputs": { "data_type": { "list": { "data_type": "int128", "length": 3, "dimension": 1 } } }
+                "outputs": { "type": { "list": { "type": "int128", "length": 3, "dimension": 1 } } }
             },
             { "name": "f16",
                 "access": "private",
                 "args": [],
-                "outputs": { "data_type": { "list": { "data_type": "int128", "length": 2, "dimension": 3 } } }
+                "outputs": { "type": { "list": { "type": "int128", "length": 2, "dimension": 3 } } }
             }
         ],
         "maps": [
@@ -241,9 +241,9 @@ fn test_names_tokens_contracts_interface() {
             }
         ],
         "variables": [
-            { "name": "var1", "access": "constant", "data_type": "principal" },
-            { "name": "var2", "access": "constant", "data_type": "bool" },
-            { "name": "var3", "access": "constant", "data_type": "int128" }
+            { "name": "var1", "access": "constant", "type": "principal" },
+            { "name": "var2", "access": "constant", "type": "bool" },
+            { "name": "var3", "access": "constant", "type": "int128" }
         ]
     }"#).unwrap();
 
