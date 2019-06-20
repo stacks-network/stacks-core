@@ -23,6 +23,11 @@ use sha2::Digest;
 
 const C32_CHARACTERS: &str = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
+pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22;       // P
+pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20;        // M
+pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26;       // T
+pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21;        // N
+
 fn c32_encode(input_bytes: &[u8]) -> String {
     let c32_chars: &[u8] = C32_CHARACTERS.as_bytes();
 
