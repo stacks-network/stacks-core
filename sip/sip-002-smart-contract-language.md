@@ -72,11 +72,11 @@ following limitations:
 Public functions return a Response type result. If the function returns
 an `ok` type, then the function call is considered valid, and any changes
 made to the blockchain state will be materialized. If the function
-returns `err`, it will be considered invalid, and will have _no
+returns an `err` type, it will be considered invalid, and will have _no
 effect_ on the smart contract's state. So if function `foo.A` calls
-`bar.B`, and `bar.B` returns `ok`, but `foo.A` returns `err`, no
+`bar.B`, and `bar.B` returns an `ok`, but `foo.A` returns an `err`, no
 effects from calling `foo.A` materialize--- including effects from
-`bar.B`. If, however, `bar.B` returns `err` and `foo.A` returns `ok`,
+`bar.B`. If, however, `bar.B` returns an `err` and `foo.A` returns an `ok`,
 there may be some database effects which are materialized from
 `foo.A`, but _no_ effects from calling `bar.B` will materialize.
 
@@ -116,8 +116,8 @@ you would use:
 ```
 
 This function returns a boolean-- the return value of the called smart
-contract function. Note that if a called smart contract returns
-`err`, it is guaranteed to not alter any smart contract state
+contract function. Note that if a called smart contract returns an
+`err` type, it is guaranteed to not alter any smart contract state
 whatsoever. Of course, any transaction fees paid for the execution
 of that function will not be returned.
 
