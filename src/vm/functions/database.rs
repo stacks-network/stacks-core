@@ -5,7 +5,7 @@ use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
 use vm::types::{Value, OptionalData, BuffData, BlockInfoProperty};
 use vm::representations::{SymbolicExpression};
-use vm::errors::{UncheckedError, RuntimeErrorType, InterpreterResult as Result};
+use vm::errors::{UncheckedError, InterpreterError, RuntimeErrorType, InterpreterResult as Result};
 use vm::{eval, LocalContext, Environment};
 
 pub fn special_contract_call(args: &[SymbolicExpression],
@@ -52,7 +52,7 @@ pub fn special_fetch_variable(args: &[SymbolicExpression],
     let data = env.global_context.database.lookup_variable(&env.contract_context.name, var_name)?;
     match data {
         Some(data) => Ok(data),
-        None => Ok(Value::none())
+        None => Err(InterpreterError::UninitializedPersistedVariable.into())
     }
 }
 
