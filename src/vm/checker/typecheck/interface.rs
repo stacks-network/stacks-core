@@ -13,7 +13,7 @@ pub enum ContractInterfaceFunctionAccess {
 #[derive(Debug, Serialize)]
 pub struct ContractInterfaceTupleType {
     pub name: String,
-    pub r#type: ContractInterfaceAtomType,
+    pub data_type: ContractInterfaceAtomType,
 }
 
 #[derive(Debug, Serialize)]
@@ -23,20 +23,20 @@ pub enum ContractInterfaceAtomType {
     bool,
     buffer { length: u32 },
     principal,
-    tuple { types: Vec<ContractInterfaceTupleType> },
-    optional { r#type: Box<ContractInterfaceAtomType> },
+    tuple { data_types: Vec<ContractInterfaceTupleType> },
+    optional { data_type: Box<ContractInterfaceAtomType> },
     response { ok: Box<ContractInterfaceAtomType>, error: Box<ContractInterfaceAtomType> },
-    list { r#type: Box<ContractInterfaceAtomType>, max_len: u32, dimension: u8 },
+    list { data_type: Box<ContractInterfaceAtomType>, max_len: u32, dimension: u8 },
 }
 
 impl ContractInterfaceAtomType {
 
     pub fn from_tuple_type(tuple_type: &TupleTypeSignature) -> ContractInterfaceAtomType {
         ContractInterfaceAtomType::tuple { 
-            types: tuple_type.type_map.iter().map(|(name, sig)| 
+            data_types: tuple_type.type_map.iter().map(|(name, sig)| 
                 ContractInterfaceTupleType { 
                     name: name.to_string(), 
-                    r#type: Self::from_type_signature(sig)
+                    data_type: Self::from_type_signature(sig)
                 }
             ).collect()
         }
@@ -52,7 +52,7 @@ impl ContractInterfaceAtomType {
             AtomTypeIdentifier::PrincipalType => ContractInterfaceAtomType::principal,
             AtomTypeIdentifier::TupleType(sig) => Self::from_tuple_type(sig),
             AtomTypeIdentifier::OptionalType(sig) => ContractInterfaceAtomType::optional { 
-                r#type: Box::new(Self::from_type_signature(&sig)) 
+                data_type: Box::new(Self::from_type_signature(&sig)) 
             },
             AtomTypeIdentifier::ResponseType(boxed_sig) => {
                 let (ok_sig, err_sig) = boxed_sig.as_ref();
@@ -71,7 +71,7 @@ impl ContractInterfaceAtomType {
             },
             TypeSignature::List(atom_type, list_data) => {
                 ContractInterfaceAtomType::list {
-                    r#type: Box::new(Self::from_atom_type(atom_type)),
+                    data_type: Box::new(Self::from_atom_type(atom_type)),
                     max_len: list_data.max_len,
                     dimension: list_data.dimension
                 }
@@ -83,7 +83,7 @@ impl ContractInterfaceAtomType {
 #[derive(Debug, Serialize)]
 pub struct ContractInterfaceFunctionArg {
     pub name: String,
-    pub r#type: ContractInterfaceAtomType,
+    pub data_type: ContractInterfaceAtomType,
 }
 
 impl ContractInterfaceFunctionArg {
@@ -92,7 +92,7 @@ impl ContractInterfaceFunctionArg {
         for ref fnArg in fnArgs.iter() {
             args.push(ContractInterfaceFunctionArg { 
                 name: fnArg.name.to_string(), 
-                r#type: ContractInterfaceAtomType::from_type_signature(&fnArg.signature)
+                data_type: ContractInterfaceAtomType::from_type_signature(&fnArg.signature)
             });
         }
         args
@@ -101,7 +101,7 @@ impl ContractInterfaceFunctionArg {
 
 #[derive(Debug, Serialize)]
 pub struct ContractInterfaceFunctionOutput {
-    pub r#type: ContractInterfaceAtomType,
+    pub data_type: ContractInterfaceAtomType,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,7 +109,7 @@ pub struct ContractInterfaceFunction {
     pub name: String,
     pub access: ContractInterfaceFunctionAccess,
     pub args: Vec<ContractInterfaceFunctionArg>,
-    pub r#return: ContractInterfaceFunctionOutput,
+    pub outputs: ContractInterfaceFunctionOutput,
 }
 
 impl ContractInterfaceFunction {
@@ -118,8 +118,8 @@ impl ContractInterfaceFunction {
             ContractInterfaceFunction {
                 name: name.to_string(),
                 access: access.to_owned(),
-                r#return: ContractInterfaceFunctionOutput { 
-                    r#type: match function_type {
+                outputs: ContractInterfaceFunctionOutput { 
+                    data_type: match function_type {
                         FunctionType::Fixed(_, fnType) => {
                             ContractInterfaceAtomType::from_type_signature(&fnType)
                         },
@@ -148,7 +148,7 @@ pub enum ContractInterfaceVariableAccess {
 #[derive(Debug, Serialize)]
 pub struct ContractInterfaceVariable { 
     pub name: String,
-    pub r#type: ContractInterfaceAtomType,
+    pub data_type: ContractInterfaceAtomType,
     pub access: ContractInterfaceVariableAccess,
 }
 
@@ -158,7 +158,7 @@ impl ContractInterfaceVariable {
             ContractInterfaceVariable {
                 name: name.to_string(),
                 access: access.to_owned(),
-                r#type: ContractInterfaceAtomType::from_type_signature(type_sig),
+                data_type: ContractInterfaceAtomType::from_type_signature(type_sig),
             }
         }).collect()
     }
