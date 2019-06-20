@@ -51,7 +51,7 @@ pub fn special_fetch_variable(args: &[SymbolicExpression],
 
     let data = env.global_context.database.lookup_variable(&env.contract_context.name, var_name)?;
     match data {
-        Some(data) => Ok(Value::some(data)),
+        Some(data) => Ok(data),
         None => Ok(Value::none())
     }
 }

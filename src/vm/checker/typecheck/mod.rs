@@ -382,17 +382,25 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     fn type_check_define_persisted_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
-        if args.len() != 2 {
-            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len() - 1)))
+        if args.len() != 3 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len() - 1)))
         }
         let var_name = args[0].match_atom()
             .ok_or(CheckError::new(CheckErrors::DefineVariableBadSignature))?
             .clone();
 
-        match TypeSignature::parse_type_repr(&args[1], true) {
-            Ok(var_type) => Ok((var_name, var_type)),
-            _ => Err(CheckError::new(CheckErrors::DefineVariableBadSignature))
+        let expected_type = match TypeSignature::parse_type_repr(&args[1], true) {
+            Ok(expected_type) => expected_type,
+            _ => return Err(CheckError::new(CheckErrors::DefineVariableBadSignature))
+        };
+
+        let value_type = self.type_check(&args[2], context)?;
+
+        if !expected_type.admits_type(&value_type) {
+            return Err(CheckError::new(CheckErrors::TypeError(expected_type, value_type.clone())));
         }
+
+        Ok((var_name, expected_type))
     }
 
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)

@@ -169,8 +169,9 @@ fn eval_all (expressions: &[SymbolicExpression],
             DefineResult::Function(name, value) => {
                 contract_context.functions.insert(name, value);
             },
-            DefineResult::PersistedVariable(name, value_type) => {
+            DefineResult::PersistedVariable(name, value_type, value) => {
                 global_context.database.create_variable(&contract_context.name, &name, value_type);
+                global_context.database.set_variable(&contract_context.name, &name, value)?;
             },
             DefineResult::Map(name, key_type, value_type) => {
                 global_context.database.create_map(&contract_context.name, &name, key_type, value_type);

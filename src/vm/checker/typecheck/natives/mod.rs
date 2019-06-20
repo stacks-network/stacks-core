@@ -201,9 +201,7 @@ fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression
     let value_type = checker.contract_context.get_persisted_variable_type(var_name)
         .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.clone())))?;
 
-    let value_type_made_optional = TypeSignature::new_option(value_type.clone());
-
-    Ok(value_type_made_optional)
+    Ok(value_type.clone())
 }
 
 fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -251,6 +249,7 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
     }
     
     let arg_types = checker.type_check_all(args, context)?;
+
 
     check_atomic_type(AtomTypeIdentifier::BoolType, &arg_types[0])?;
     
