@@ -103,13 +103,15 @@ fn test_names_tokens_contracts_interface() {
         (define var2 'true)
         (define var3 45)
 
-        (define-map name-map ((name int)) ((owner principal)))
+        (define-map map1 ((name int)) ((owner principal)) )
+        (define-map map2 ((k-name-1 bool)) ((v-name-1 (buff 33))) )
+        (define-map map3 ((k-name-2 bool)) ((v-name-2 (tuple ((n1 int) (n2 bool))))) )
 
         (define (f00 (a1 int)) 'true)
         (define (f01 (a1 bool)) 'true)
         (define (f02 (a1 principal)) 'true)
         (define (f03 (a1 (buff 54))) 'true)
-        (define (f04 (a1 (tuple ((tname1 bool) (tname2 int))))) 'true)
+        (define (f04 (a1 (tuple ((t-name1 bool) (t-name2 int))))) 'true)
         (define (f05 (a1 (list 7 6 int))) 'true)
 
         (define (f06) 1)
@@ -117,12 +119,21 @@ fn test_names_tokens_contracts_interface() {
         (define (f08) 'SP000000000000000000002Q6VF78) 
         (define (f09) 0xdeadbeef)
         (define (f10) (tuple (tn1 'true) (tn2 0) (tn3 0xff) ))
-        (define (f11) (fetch-entry name-map (tuple (name 0))))
+        (define (f11) (fetch-entry map1 (tuple (name 0))))
         (define (f12) (ok 3))
         (define (f13) (err 6))
         (define (f14) (if 'true (ok 1) (err 2)))
         (define (f15) (list 1 2 3))
         (define (f16) (list (list (list 5)) (list (list 55))))
+
+        (define-public (pub-f01) (ok 1))
+        (define-public (pub-f02) (ok 'true))
+        (define-public (pub-f03) (err 'true))
+        (define-public (pub-f04) (if 'true (ok 1) (err 2)))
+        (define-public (pub-f05 (a1 int)) (ok 'true))
+
+        (define-read-only (ro-f01) 0)
+        (define-read-only (ro-f02 (a1 int)) 0)
     ";
 
 
@@ -158,8 +169,8 @@ fn test_names_tokens_contracts_interface() {
             { "name": "f04",
                 "access": "private",
                 "args": [{ "name": "a1", "type": { "tuple": [
-                    { "name": "tname1", "type": "bool" },
-                    { "name": "tname2", "type": "int128" }
+                    { "name": "t-name1", "type": "bool" },
+                    { "name": "t-name2", "type": "int128" }
                 ] } }],
                 "outputs": { "type": "bool" } 
             },
@@ -229,15 +240,69 @@ fn test_names_tokens_contracts_interface() {
                 "access": "private",
                 "args": [],
                 "outputs": { "type": { "list": { "type": "int128", "length": 2, "dimension": 3 } } }
+            },
+            { "name": "pub-f01",
+                "access": "public",
+                "args": [],
+                "outputs": { "type": { "response": { "ok": "int128", "error": "none" } } }
+            },
+            { "name": "pub-f02",
+                "access": "public",
+                "args": [],
+                "outputs": { "type": { "response": { "ok": "bool", "error": "none" } } }
+            },
+            { "name": "pub-f03",
+                "access": "public",
+                "args": [],
+                "outputs": { "type": { "response": { "ok": "none", "error": "bool" } } }
+            },
+            { "name": "pub-f04",
+                "access": "public",
+                "args": [],
+                "outputs": { "type": { "response": { "ok": "int128", "error": "int128" } } }
+            },
+            { "name": "pub-f05",
+                "access": "public",
+                "args": [{ "name": "a1", "type": "int128" }],
+                "outputs": { "type": { "response": { "ok": "bool", "error": "none" } } }
+            },
+            { "name": "ro-f01",
+                "access": "read_only",
+                "args": [],
+                "outputs": { "type": "int128" }
+            },
+            { "name": "ro-f02",
+                "access": "read_only",
+                "args": [{ "name": "a1", "type": "int128" }],
+                "outputs": { "type": "int128" }
             }
         ],
         "maps": [
             {
-                "name": "name-map",
+                "name": "map1",
                 "key_name": "name",
                 "key_type": "int128",
                 "value_name": "owner",
                 "value_type": "principal"
+            },
+            {
+                "name": "map2",
+                "key_name": "k-name-1",
+                "key_type": "bool",
+                "value_name": "v-name-1",
+                "value_type": { "buffer": { "length": 33 } }
+            },
+            {
+                "name": "map3",
+                "key_name": "k-name-2",
+                "key_type": "bool",
+                "value_name": "v-name-2",
+                "value_type": {
+                    "tuple": [
+                        { "name": "n1", "type": "int128" },
+                        { "name": "n2", "type": "bool" }
+                    ]
+                }
             }
         ],
         "variables": [

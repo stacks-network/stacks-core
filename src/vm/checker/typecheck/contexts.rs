@@ -71,6 +71,11 @@ impl ContractAnalysis {
 
         contract_interface.functions.append(
             &mut interface::ContractInterfaceFunction::from_map(
+                &self.private_function_types, 
+                interface::ContractInterfaceFunctionAccess::private));
+
+        contract_interface.functions.append(
+            &mut interface::ContractInterfaceFunction::from_map(
                 &self.public_function_types, 
                 interface::ContractInterfaceFunctionAccess::public));
 
@@ -78,11 +83,6 @@ impl ContractAnalysis {
             &mut interface::ContractInterfaceFunction::from_map(
                 &self.read_only_function_types, 
                 interface::ContractInterfaceFunctionAccess::read_only));
-
-        contract_interface.functions.append(
-            &mut interface::ContractInterfaceFunction::from_map(
-                &self.private_function_types, 
-                interface::ContractInterfaceFunctionAccess::private));
 
         contract_interface.variables.append(
             &mut interface::ContractInterfaceVariable::from_map(
