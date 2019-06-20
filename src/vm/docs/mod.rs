@@ -343,7 +343,7 @@ const DELETE_API: SpecialAPI = SpecialAPI {
     output_type: "bool",
     signature: "(delete-entry! map-name key-tuple)",
     description: "The `delete-entry!` function removes the value associated with the input key for
-the given map. If an item exists, and is removed, the function returns `true`.
+the given map. If an item exists and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
     example: "(delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns 'true
 (delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns 'false
@@ -359,7 +359,7 @@ const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
     description: "The `fetch-contract-entry` function looks up and returns an entry from a
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
-it returns (some value)",
+it returns (some value).",
     example: "(expects! (fetch-contract-entry names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
 (expects! (fetch-contract-entry names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
 ",
@@ -397,7 +397,7 @@ const HASH160_API: SpecialAPI = SpecialAPI {
     output_type: "(buff 20)",
     signature: "(hash160 value)",
     description: "The `hash160` function computes `RIPEMD160(SHA256(x))` of the inputted value.
-If an integer (128 bit) is supplied the hash is computed over the little endian representation of the
+If an integer (128 bit) is supplied the hash is computed over the little-endian representation of the
 integer.",
     example: "(hash160 0) ;; Returns 0xe4352f72356db555721651aa612e00379167b30f"
 };
@@ -408,7 +408,7 @@ const SHA256_API: SpecialAPI = SpecialAPI {
     output_type: "(buff 32)",
     signature: "(sha256 value)",
     description: "The `sha256` function computes `SHA256(x)` of the inputted value.
-If an integer (128 bit) is supplied the hash is computed over the little endian representation of the
+If an integer (128 bit) is supplied the hash is computed over the little-endian representation of the
 integer.",
     example: "(sha256 0) ;; Returns 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb"
 };
@@ -420,7 +420,7 @@ const KECCAK256_API: SpecialAPI = SpecialAPI {
     signature: "(keccak256 value)",
     description: "The `keccak256` function computes `KECCAK256(value)` of the inputted value.
 Note that this differs from the `NIST SHA-3` (that is, FIPS 202) standard. If an integer (128 bit) 
-is supplied the hash is computer over the little endian representation of the integer.",
+is supplied the hash is computed over the little-endian representation of the integer.",
     example: "(keccak256 0) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4"
 };
 
@@ -442,7 +442,7 @@ const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
     output_type: "A",
     signature: "(as-contract expr)",
     description: "The `as-contract` function switches the current context's `tx-sender` value to the _contract's_ 
-principal, and executes `expr` with that context. It returns the resulting value of `expr`.",
+principal and executes `expr` with that context. It returns the resulting value of `expr`.",
     example: "(as-contract (print tx-sender)) ;; Returns 'CTcontract.name"
 };
 
@@ -535,7 +535,7 @@ const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
     output_type: "buff | int",
     signature: "(get-block-info prop-name block-height-expr)",
     description: "The `get-block-info` function fetches data for a block of the given block height. The 
-value and type returned is determined by the specified `BlockInfoPropertyName`. If the provided `BlockHeightInt` does
+value and type returned are determined by the specified `BlockInfoPropertyName`. If the provided `BlockHeightInt` does
 not correspond to an existing block, the function is aborted. The currently available property names 
 are `time`, `header-hash`, `burnchain-header-hash`, and `vrf-seed`. 
 
@@ -557,14 +557,14 @@ const DEFINE_PUBLIC_API: SpecialAPI = SpecialAPI {
     output_type: "Not Applicable",
     signature: "(define-public (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
     description: "`define-public` is used to define a _public_ function and transaction for a smart contract. Public
-functions are callable from other smart contracts, and may be invoked directly by users by submitting a transaction
+functions are callable from other smart contracts and may be invoked directly by users by submitting a transaction
 to the Stacks blockchain.
 
 Like other kinds of definition statements, `define-public` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).
 
 Public functions _must_ return a ResponseType (using either `ok` or `err`). Any datamap modifications performed by
-a public function will be aborted if the function returns an `err` type. Public functions may be invoked by other
+a public function is aborted if the function returns an `err` type. Public functions may be invoked by other
 contracts via `contract-call!`.",
     example: "
 (define-public (hello-world (input int))
