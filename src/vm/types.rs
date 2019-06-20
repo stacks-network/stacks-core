@@ -16,7 +16,6 @@ pub struct TupleTypeSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AtomTypeIdentifier {
-    AnyType,
     NoType,
     IntType,
     BoolType,
@@ -275,7 +274,6 @@ impl fmt::Display for AtomTypeIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::AtomTypeIdentifier::*;
         match self {
-            AnyType => write!(f, "AnyType"),
             NoType => write!(f, "NoType"),
             IntType => write!(f, "int"),
             BoolType => write!(f, "bool"),
@@ -369,9 +367,8 @@ impl fmt::Display for PrincipalData {
 impl AtomTypeIdentifier {
     pub fn size(&self) -> Result<i128> {
         match self {
-            // AnyType/NoType should _never_ be asked for size. It is only ever used
+            // NoType should _never_ be asked for size. It is only ever used
             //   in type checking native functions.
-            AtomTypeIdentifier::AnyType => Err(RuntimeErrorType::BadTypeConstruction.into()),
             AtomTypeIdentifier::NoType => Err(RuntimeErrorType::BadTypeConstruction.into()),
             AtomTypeIdentifier::IntType => Ok(16),
             AtomTypeIdentifier::BoolType => Ok(1),
@@ -425,9 +422,6 @@ impl AtomTypeIdentifier {
 
     fn admits(&self, other: &AtomTypeIdentifier) -> bool {
         match self {
-            AtomTypeIdentifier::AnyType => {
-                true
-            },
             AtomTypeIdentifier::OptionalType(ref my_inner_type) => {
                 if let AtomTypeIdentifier::OptionalType(other_inner_type) = other {
                     // Option types will always admit a "NoType" OptionalType -- which
