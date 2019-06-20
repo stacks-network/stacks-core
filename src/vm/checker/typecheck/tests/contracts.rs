@@ -1,3 +1,6 @@
+use assert_json_diff;
+use serde_json;
+
 use vm::parser::parse;
 use vm::checker::errors::CheckErrors;
 use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection};
@@ -90,6 +93,165 @@ const SIMPLE_NAMES: &str =
                     (err 3))
                   (err 4))))";
 
+
+#[test]
+fn test_names_tokens_contracts_interface() {
+    use vm::checker::type_check;
+
+    const INTERFACE_TEST_CONTRACT: &str = "
+        (define var1 'SP000000000000000000002Q6VF78)
+        (define var2 'true)
+        (define var3 45)
+
+        (define-map name-map ((name int)) ((owner principal)))
+
+        (define (f00 (a1 int)) 'true)
+        (define (f01 (a1 bool)) 'true)
+        (define (f02 (a1 principal)) 'true)
+        (define (f03 (a1 (buff 54))) 'true)
+        (define (f04 (a1 (tuple ((tname1 bool) (tname2 int))))) 'true)
+        (define (f05 (a1 (list 7 6 int))) 'true)
+
+        (define (f06) 1)
+        (define (f07) 'true)
+        (define (f08) 'SP000000000000000000002Q6VF78) 
+        (define (f09) 0xdeadbeef)
+        (define (f10) (tuple (tn1 'true) (tn2 0) (tn3 0xff) ))
+        (define (f11) (fetch-entry name-map (tuple (name 0))))
+        (define (f12) (ok 3))
+        (define (f13) (err 6))
+        (define (f14) (if 'true (ok 1) (err 2)))
+        (define (f15) (list 1 2 3))
+        (define (f16) (list (list (list 5)) (list (list 55))))
+    ";
+
+
+    let mut test_contract = parse(INTERFACE_TEST_CONTRACT).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
+
+    let test_contract_json_str = type_check(&"test_contract", &mut test_contract, &mut db, true).unwrap().to_interface().serialize();
+    let test_contract_json = serde_json::from_str(&test_contract_json_str).unwrap();
+
+    let test_contract_json_expected = serde_json::from_str(r#"{
+        "functions": [
+            { "name": "f00",
+                "access": "private",
+                "args": [{ "name": "a1", "data_type": "int128" }],
+                "outputs": { "data_type": "bool" } 
+            },
+            { "name": "f01",
+                "access": "private",
+                "args": [{ "name": "a1", "data_type": "bool" }],
+                "outputs": { "data_type": "bool" } 
+            },
+            { "name": "f02",
+                "access": "private",
+                "args": [{ "name": "a1", "data_type": "principal" }],
+                "outputs": { "data_type": "bool" } 
+            },
+            { "name": "f03",
+                "access": "private",
+                "args": [{ "name": "a1", "data_type": { "buffer": { "length": 54 } } }],
+                "outputs": { "data_type": "bool" } 
+            },
+            { "name": "f04",
+                "access": "private",
+                "args": [{ "name": "a1", "data_type": { "tuple": { "data_types": [
+                    { "name": "tname1", "data_type": "bool" },
+                    { "name": "tname2", "data_type": "int128" }
+                ] } } }],
+                "outputs": { "data_type": "bool" } 
+            },
+            { "name": "f05",
+                "access": "private",
+                "args": [{ "name": "a1", "data_type": { "list": { "data_type": "int128", "length": 7, "dimension": 6 } } }],
+                "outputs": { "data_type": "bool" } 
+            },
+            { "name": "f06",
+                "access": "private",
+                "args": [],
+                "outputs": { "data_type": "int128" } 
+            },
+            { "name": "f07",
+                "access": "private",
+                "args": [],
+                "outputs": { "data_type": "bool" } 
+            },
+            { "name": "f08",
+                "access": "private",
+                "args": [],
+                "outputs": { "data_type": "principal" } 
+            },
+            { "name": "f09",
+                "access": "private",
+                "args": [],
+                "outputs": { "data_type": { "buffer": { "length": 4 } } } 
+            },
+            { "name": "f10",
+                "access": "private",
+                "args": [],
+                "outputs": { "data_type": { "tuple": { "data_types": [
+                    { "name": "tn1", "data_type": "bool" },
+                    { "name": "tn2", "data_type": "int128" },
+                    { "name": "tn3", "data_type": { "buffer": { "length": 1 } }}
+                ] } } } 
+            },
+            { "name": "f11",
+                "access": "private",
+                "args": [],
+                "outputs": { "data_type": { "optional": { "data_type": { "tuple": { "data_types": [ {
+                    "name": "owner",
+                    "data_type": "principal"
+                 } ] } } } } } 
+            },
+            { "name": "f12",
+                "access": "private",
+                "args": [],
+                "outputs": { "data_type": { "response": { "ok": "int128", "error": "none" } } }
+            },
+            { "name": "f13",
+                "access": "private",
+                "args": [],
+                "outputs": { "data_type": { "response": { "ok": "none", "error": "int128" } } }
+            },
+            { "name": "f14",
+                "access": "private",
+                "args": [],
+                "outputs": { "data_type": { "response": { "ok": "int128", "error": "int128" } } }
+            },
+            { "name": "f15",
+                "access": "private",
+                "args": [],
+                "outputs": { "data_type": { "list": { "data_type": "int128", "length": 3, "dimension": 1 } } }
+            },
+            { "name": "f16",
+                "access": "private",
+                "args": [],
+                "outputs": { "data_type": { "list": { "data_type": "int128", "length": 2, "dimension": 3 } } }
+            }
+        ],
+        "maps": [
+            {
+                "name": "name-map",
+                "key_name": "name",
+                "key_type": "int128",
+                "value_name": "owner",
+                "value_type": "principal"
+            }
+        ],
+        "variables": [
+            { "name": "var1", "access": "constant", "data_type": "principal" },
+            { "name": "var2", "access": "constant", "data_type": "bool" },
+            { "name": "var3", "access": "constant", "data_type": "int128" }
+        ]
+    }"#).unwrap();
+
+    assert_json_eq!(test_contract_json, test_contract_json_expected);
+
+}
+
+
 #[test]
 fn test_names_tokens_contracts() {
     use vm::checker::type_check;
@@ -101,19 +263,6 @@ fn test_names_tokens_contracts() {
 
     type_check(&"tokens", &mut tokens_contract, &mut db, true).unwrap();
     type_check(&"names", &mut names_contract, &mut db, true).unwrap();
-}
-
-#[test]
-fn test_names_tokens_contracts_interface() {
-    use vm::checker::type_check;
-
-    let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
-    let mut names_contract = parse(SIMPLE_NAMES).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut db = analysis_conn.begin_save_point();
-
-    type_check(&"tokens", &mut tokens_contract, &mut db, true).unwrap().to_interface().serialize();
-    type_check(&"names", &mut names_contract, &mut db, true).unwrap().to_interface().serialize();
 }
 
 #[test]

@@ -43,7 +43,6 @@ pub enum TypeSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionArg {
-    #[serde(flatten)]
     pub signature: TypeSignature,
     #[serde(skip)]
     pub name: String,

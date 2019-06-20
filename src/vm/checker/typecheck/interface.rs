@@ -21,12 +21,12 @@ pub enum ContractInterfaceAtomType {
     none,
     int128,
     bool,
-    buffer { length: u32 },
     principal,
+    buffer { length: u32 },
     tuple { data_types: Vec<ContractInterfaceTupleType> },
     optional { data_type: Box<ContractInterfaceAtomType> },
     response { ok: Box<ContractInterfaceAtomType>, error: Box<ContractInterfaceAtomType> },
-    list { data_type: Box<ContractInterfaceAtomType>, max_len: u32, dimension: u8 },
+    list { data_type: Box<ContractInterfaceAtomType>, length: u32, dimension: u8 },
 }
 
 impl ContractInterfaceAtomType {
@@ -48,8 +48,8 @@ impl ContractInterfaceAtomType {
             AtomTypeIdentifier::NoType => ContractInterfaceAtomType::none,
             AtomTypeIdentifier::IntType => ContractInterfaceAtomType::int128,
             AtomTypeIdentifier::BoolType => ContractInterfaceAtomType::bool,
-            AtomTypeIdentifier::BufferType(len) => ContractInterfaceAtomType::buffer { length: *len },
             AtomTypeIdentifier::PrincipalType => ContractInterfaceAtomType::principal,
+            AtomTypeIdentifier::BufferType(len) => ContractInterfaceAtomType::buffer { length: *len },
             AtomTypeIdentifier::TupleType(sig) => Self::from_tuple_type(sig),
             AtomTypeIdentifier::OptionalType(sig) => ContractInterfaceAtomType::optional { 
                 data_type: Box::new(Self::from_type_signature(&sig)) 
@@ -72,7 +72,7 @@ impl ContractInterfaceAtomType {
             TypeSignature::List(atom_type, list_data) => {
                 ContractInterfaceAtomType::list {
                     data_type: Box::new(Self::from_atom_type(atom_type)),
-                    max_len: list_data.max_len,
+                    length: list_data.max_len,
                     dimension: list_data.dimension
                 }
             }

@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug 'blockstack-core'",
+            "name": "Debug executable 'blockstack-core'",
             "cargo": {
                 "args": [
                     "build",
@@ -21,36 +21,12 @@
             },
             "args": [],
             "cwd": "${workspaceFolder}",
-            "sourceLanguages": [
-                "rust"
-            ],
             "terminal": "integrated"
         },
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug 'clarity'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=clarity-cli"
-                ],
-                "filter": {
-                    "name": "clarity-cli",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}",
-            "sourceLanguages": [
-                "rust"
-            ],
-            "terminal": "integrated"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in 'blockstack-core'",
+            "name": "Debug unit tests in executable 'blockstack-core'",
             "cargo": {
                 "args": [
                     "test",
@@ -63,13 +39,47 @@
                     "kind": "bin"
                 }
             },
-            "args": [
-                "--nocapture"
-            ],
+            "args": [],
             "cwd": "${workspaceFolder}",
-            "sourceLanguages": [
-                "rust"
-            ],
+            "terminal": "integrated"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'clarity-cli'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=clarity-cli",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "clarity-cli",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "terminal": "integrated"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'clarity-cli'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=clarity-cli",
+                    "--package=blockstack-core"
+                ],
+                "filter": {
+                    "name": "clarity-cli",
+                    "kind": "bin"
+                }
+            },
+            "args": ["vm"],
+            "cwd": "${workspaceFolder}",
             "terminal": "integrated"
         }
     ]
