@@ -304,6 +304,7 @@ impl TypedNativeFunction {
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
             ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
+            ConsSome => Special(SpecialNativeFunction(&options::check_special_some)),
             ConsOkay => Special(SpecialNativeFunction(&options::check_special_okay)),
             ConsError => Special(SpecialNativeFunction(&options::check_special_error)),
             DefaultTo => Special(SpecialNativeFunction(&options::check_special_default_to)),

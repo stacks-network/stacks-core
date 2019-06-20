@@ -4,7 +4,7 @@ use vm::contexts::{LocalContext, Environment};
 use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result};
 
 pub enum NativeVariables {
-    TxSender, BlockHeight, BurnBlockHeight
+    TxSender, BlockHeight, BurnBlockHeight, NativeNone
 }
 
 impl NativeVariables {
@@ -14,6 +14,7 @@ impl NativeVariables {
             "tx-sender" => Some(TxSender),
             "block-height" => Some(BlockHeight),
             "burn-block-height" => Some(BurnBlockHeight),
+            "none" => Some(NativeNone),
             _ => None
         }
     }
@@ -39,7 +40,10 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &Envir
             },
             NativeVariables::BurnBlockHeight => {
                 Err(RuntimeErrorType::NotImplemented.into())
-            }
+            },
+            NativeVariables::NativeNone => {
+                Ok(Some(Value::none()))
+            },
         }
     } else {
         Ok(None)

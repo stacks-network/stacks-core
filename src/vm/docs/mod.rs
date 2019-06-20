@@ -507,6 +507,16 @@ the processing of the function should be rolled back.",
     example: "(err 'true) ;; Returns (err 'true)",
 };
 
+const CONS_SOME_API: SpecialAPI = SpecialAPI {
+    input_type: "A",
+    output_type: "Optional(A)",
+    name: "some",
+    signature: "(some value)",
+    description: "The `some` function constructs a `optional` type from the input value.",
+    example: "(some 1) ;; Returns (some 1)
+(is-none? (some 2)) ;; Returns 'false",
+};
+
 const IS_OK_API: SpecialAPI = SpecialAPI {
     input_type: "Response(A,B)",
     output_type: "bool",
@@ -695,6 +705,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetBlockInfo => make_for_special(&GET_BLOCK_INFO_API),
         ConsOkay => make_for_special(&CONS_OK_API),
         ConsError => make_for_special(&CONS_ERR_API),
+        ConsSome =>  make_for_special(&CONS_SOME_API),
         DefaultTo => make_for_special(&DEFAULT_TO_API),
         Expects => make_for_special(&EXPECTS_API),
         ExpectsErr => make_for_special(&EXPECTS_ERR_API),

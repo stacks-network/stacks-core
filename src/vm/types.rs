@@ -639,12 +639,36 @@ impl TypeSignature {
                     .ok_or_else(|| (a.clone(), b.clone()))
             }
 
-        if a.admits_type(&b) {
-            Ok(a)
-        } else if b.admits_type(&a) {
-            Ok(b)
-        } else {
-            Err((a,b))
+        // same goes for the option type
+        // this little monster is an attempt to avoid an unneccessary clone
+        //   I'm not sure there's a better way to do this. I think _maybe_
+        //     a match statement would work, but I think that'd be nasty too.
+        let short_return_optional = 
+            if let (TypeSignature::Atom(AtomTypeIdentifier::OptionalType(ref opt_type_a)),
+                    TypeSignature::Atom(AtomTypeIdentifier::OptionalType(ref opt_type_b))) = (&a, &b) {
+                if opt_type_b.is_no_type() {
+                    Some(0)
+                } else if opt_type_a.is_no_type() {
+                    Some(1)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+        match short_return_optional {
+            Some(0) => Ok(a),
+            Some(1) => Ok(b),
+            _ => {
+                if a.admits_type(&b) {
+                    Ok(a)
+                } else if b.admits_type(&a) {
+                    Ok(b)
+                } else {
+                    Err((a,b))
+                }
+            }
         }
     }
 
@@ -977,6 +1001,15 @@ impl TypeSignature {
         }
     }
 
+    fn parse_optional_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+        if type_args.len() != 1 {
+            return Err(RuntimeErrorType::InvalidTypeDescription.into())
+        }
+        let inner_type = TypeSignature::parse_type_repr(&type_args[0], true)?;
+        Ok(TypeSignature::Atom(AtomTypeIdentifier::OptionalType(
+            Box::new(inner_type))))
+    }
+
     fn parse_type_repr(x: &SymbolicExpression, allow_list: bool) -> Result<TypeSignature> {
         match x.expr {
             SymbolicExpressionType::Atom(ref atom_type_str) => {
@@ -996,6 +1029,7 @@ impl TypeSignature {
                             },
                         "buff" => TypeSignature::parse_buff_type_repr(rest),
                         "tuple" => TypeSignature::parse_tuple_type_repr(rest),
+                        "optional" => TypeSignature::parse_optional_type_repr(rest),
                         _ => Err(RuntimeErrorType::InvalidTypeDescription.into())
                     }
                 } else {
