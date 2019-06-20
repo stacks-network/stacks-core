@@ -428,6 +428,19 @@ impl AtomTypeIdentifier {
             AtomTypeIdentifier::AnyType => {
                 true
             },
+            AtomTypeIdentifier::OptionalType(ref my_inner_type) => {
+                if let AtomTypeIdentifier::OptionalType(other_inner_type) = other {
+                    // Option types will always admit a "NoType" OptionalType -- which
+                    //   can only be a None
+                    if other_inner_type.is_no_type() {
+                        true
+                    } else {
+                        my_inner_type.admits_type(other_inner_type)
+                    }
+                } else {
+                    false
+                }
+            },
             AtomTypeIdentifier::BufferType(ref my_len) => {
                 if let AtomTypeIdentifier::BufferType(ref other_len) = other {
                     my_len >= other_len

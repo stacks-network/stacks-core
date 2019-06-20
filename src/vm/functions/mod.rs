@@ -115,6 +115,7 @@ impl NativeFunctions {
             "get-block-info" => Some(GetBlockInfo),
             "err" => Some(ConsError),
             "ok" => Some(ConsOkay),
+            "some" => Some(ConsSome),
             "default-to" => Some(DefaultTo),
             "expects!" => Some(Expects),
             "expects-err!" => Some(ExpectsErr),

@@ -24,6 +24,30 @@ fn test_defines() {
 }
 
 #[test]
+fn test_accept_options() {
+    let defun =
+        "(define (f (b (optional int))) (* 10 (default-to 0 b)))";
+    let tests = [
+        format!("{} {}", defun, "(f none)"),
+        format!("{} {}", defun, "(f (some 1))"),
+        format!("{} {}", defun, "(f (some 'true))") ];
+    let expectations: &[Result<_, Error>] = &[
+        Ok(Some(Value::Int(0))),
+        Ok(Some(Value::Int(10))),
+        Err(UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()),
+    ];
+    
+    for (test, expect) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expect, execute(test));
+    }
+
+    let bad_defun =
+        "(define (f (b (optional int int))) (* 10 (default-to 0 b)))";
+    assert_eq!(Error::Runtime(RuntimeErrorType::InvalidTypeDescription, None),
+               execute(bad_defun).unwrap_err());
+}
+
+#[test]
 fn test_bad_define_names() {
     let test0 =
         "(define tx-sender 1)

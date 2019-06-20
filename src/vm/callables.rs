@@ -57,7 +57,7 @@ impl DefinedFunction {
         let arg_iterator = self.arguments.iter().zip(self.arg_types.iter()).zip(args.iter());
         for ((arg, type_sig), value) in arg_iterator {
             if !type_sig.admits(value) {
-                return Err(UncheckedError::TypeError(format!("{:?}", type_sig), value.clone()).into()) 
+                return Err(UncheckedError::TypeError(format!("{}", type_sig), value.clone()).into()) 
             }
             if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {
                 return Err(UncheckedError::VariableDefinedMultipleTimes(arg.clone()).into())
