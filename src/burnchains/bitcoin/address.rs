@@ -27,6 +27,12 @@ use util::log;
 
 use address::b58 as base58;
 use address::c32::c32_address;
+use address::c32::{
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG
+};
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
 pub enum BitcoinAddressType {
@@ -45,11 +51,6 @@ pub const ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 0;
 pub const ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 5;
 pub const ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 111;
 pub const ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 196;
-
-pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22;       // P
-pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20;        // M
-pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26;       // T
-pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21;        // N
 
 fn address_type_to_version_byte(addrtype: BitcoinAddressType, network_id: BitcoinNetworkType) -> u8 {
     match (addrtype, network_id) {
