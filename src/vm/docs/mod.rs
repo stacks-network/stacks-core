@@ -235,13 +235,11 @@ created by this set of bindings is used for evaluating and return the value of `
 const FETCH_VAR_API: SpecialAPI = SpecialAPI { 
     name: "fetch-var",
     input_type: "VarName",
-    output_type: "Optional(A)",
+    output_type: "A",
     signature: "(fetch-var var-name)",
     description: "The `fetch-var` function looks up and returns an entry from a contract's data map.
-The value is looked up using `var-name`.
-If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
-it returns (some value)",
-    example: "(expects! (fetch-var cursor) (err 1)) ;; Returns cursor"
+The value is looked up using `var-name`.",
+    example: "(fetch-var cursor) ;; Returns cursor"
 };
 
 const SET_VAR_API: SpecialAPI = SpecialAPI { 
@@ -250,8 +248,7 @@ const SET_VAR_API: SpecialAPI = SpecialAPI {
     output_type: "bool",
     signature: "(set-var! var-name expr1)",
     description: "The `set-var!` function sets the value associated with the input variable to the 
-inputted value. This function performs a _blind_ update; whether or not a value is already associated
-with the key, the function overwrites that existing association.",
+inputted value.",
     example: "(set-var! cursor (+ cursor 1)) ;; Returns 'true"
 };
 
@@ -667,18 +664,18 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 
 const DEFINE_DATA_VAR_API: SpecialAPI = SpecialAPI {
     name: "define-data-var",
-    input_type: "VarName, TypeDefinition",
+    input_type: "VarName, TypeDefinition, Value",
     output_type: "Not Applicable",
-    signature: "(define-data-var var-name type)",
+    signature: "(define-data-var var-name type value)",
     description: "`define-data-var` is used to define a new persisted variable for use in a smart contract. Such
 variable are only modifiable by the current smart contract.
 
-Persisted variable are defined with a type.
+Persisted variable are defined with a type and a value.
 
 Like other kinds of definition statements, `define-data-var` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).",
     example: "
-(define-data-var size int)
+(define-data-var size int 0)
 (define (set-size (value int))
   (set-var! size value))
 (set-size 1)
