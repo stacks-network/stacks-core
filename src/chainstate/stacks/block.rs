@@ -72,6 +72,10 @@ impl StacksMessageCodec for StacksBlockHeader {
         write_next(&mut ret, &self.last_microblock);
         write_next(&mut ret, &self.proof);
         write_next(&mut ret, &self.merkle_root);
+        write_next(&mut ret, &self.balance_root);
+        write_next(&mut ret, &self.state_root);
+        write_next(&mut ret, &self.principal);
+        write_next(&mut ret, &self.reserved);
         ret
     }
 
@@ -81,13 +85,21 @@ impl StacksMessageCodec for StacksBlockHeader {
         let last_microblock: BlockHeaderHash    = read_next(&buf, index, max_size)?;
         let proof : ECVRF_Proof                 = read_next(&buf, index, max_size)?;
         let merkle_root: DoubleSha256           = read_next(&buf, index, max_size)?;
+        let balance_root: DoubleSha256          = read_next(&buf, index, max_size)?;
+        let state_root: DoubleSha256            = read_next(&buf, index, max_size)?;
+        let principal: StacksAddress            = read_next(&buf, index, max_size)?;
+        let reserved: [u8; 32]                  = read_next(&buf, index, max_size)?;
 
         Ok(StacksBlockHeader {
             version,
             parent_block,
             last_microblock,
             proof,
-            merkle_root
+            merkle_root,
+            balance_root,
+            state_root,
+            principal,
+            reserved
         })
     }
 }
@@ -165,7 +177,6 @@ impl StacksMessageCodec for StacksMicroblockHeader {
         })
     }
 }
-
 
 impl StacksMessageCodec for StacksMicroblock {
     /// NOTE: the merkle root will _not_ be checked against the transactions!

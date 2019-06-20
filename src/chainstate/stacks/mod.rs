@@ -21,6 +21,7 @@ pub mod address;
 pub mod auth;
 pub mod block;
 pub mod transaction;
+pub mod db;
 
 use std::fmt;
 use std::error;
@@ -45,6 +46,12 @@ pub enum Error {
     DecodeError,
     /// Failed to validate spending condition 
     AuthError,
+    /// Principal does not match public keys
+    PublicKeyMismatch,
+    /// Signing error 
+    SigningError(String),
+    /// Verifying error 
+    VerifyingError(String),
 }
 
 impl fmt::Display for Error {
@@ -53,6 +60,9 @@ impl fmt::Display for Error {
             Error::EncodeError => f.write_str(error::Error::description(self)),
             Error::DecodeError => f.write_str(error::Error::description(self)),
             Error::AuthError => f.write_str(error::Error::description(self)),
+            Error::PublicKeyMismatch => f.write_str(error::Error::description(self)),
+            Error::SigningError(s) => fmt::Display::fmt(s, f),
+            Error::VerifyingError(s) => fmt::Display::fmt(s, f),
         }
     }
 }
@@ -63,6 +73,9 @@ impl error::Error for Error {
             Error::EncodeError => None,
             Error::DecodeError => None,
             Error::AuthError => None,
+            Error::PublicKeyMismatch => None,
+            Error::SigningError(ref s) => None,
+            Error::VerifyingError(ref s) => None,
         }
     }
 
@@ -71,6 +84,9 @@ impl error::Error for Error {
             Error::EncodeError => "Failed to encode",
             Error::DecodeError => "Failed to decode",
             Error::AuthError => "Failed to authenticate transaction",
+            Error::PublicKeyMismatch => "Public keys do not match principal",
+            Error::SigningError(ref s) => s.as_str(),
+            Error::VerifyingError(ref s) => s.as_str()
         }
     }
 }
@@ -98,10 +114,13 @@ pub enum TransactionAnchorMode {
 /// nonce is the "check number" for the Principal.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransactionAuth {
+    pub principal: StacksAddress,
     pub nonce: u64,                             // nth operation on the principal
+    pub signatures_required: u8,
+
+    // these are intentionally at the end of this struct
     pub public_keys: Vec<StacksPublicKey>, 
     pub signatures: Vec<MessageSignature>,
-    pub signatures_required: u16,
 }
 
 /// A transaction that pays microStacks to a principal
@@ -114,6 +133,13 @@ pub struct TransactionPayment {
 /// A transaction that instantiates a smart contract
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransactionSmartContract {
+    pub contract_name: vec<u8>,
+    pub code_body: Vec<u8>
+}
+
+/// A transaction that invokes a smart contract 
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransactionSmartContractCall {
     pub code_body: Vec<u8>
 }
 
@@ -121,6 +147,7 @@ pub struct TransactionSmartContract {
 pub enum TransactionPayload {
     Payment(TransactionPayment),
     SmartContract(TransactionSmartContract),
+    SmartConractCall(TransactionSmartContractCall)
 }
 
 #[repr(u8)]
@@ -128,16 +155,18 @@ pub enum TransactionPayload {
 pub enum TransactionPayloadID {
     Payment = 0,
     SmartContract = 1,
+    SmartContractCall = 2
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksTransaction {
     pub version: u8,
-    pub principal: StacksAddress,
-    pub auth: TransactionAuth,
     pub fee: u64,
     pub anchor_mode: TransactionAnchorMode,
-    pub payload: TransactionPayload
+    pub payload: TransactionPayload,
+
+    // this is intentionally at the end of the struct
+    pub auth: TransactionAuth
 }
 
 /// The header for an on-chain-anchored Stacks block
@@ -147,7 +176,11 @@ pub struct StacksBlockHeader {
     parent_block: BlockHeaderHash,
     last_microblock: BlockHeaderHash,
     proof: ECVRF_Proof,
-    merkle_root: DoubleSha256
+    merkle_root: DoubleSha256,
+    balance_root: DoubleSha256,
+    state_root: DoubleSha256,
+    principal: StacksAddress,
+    reserved: [u8; 32]
 }
 
 /// A block that contains blockchain-anchored data 
