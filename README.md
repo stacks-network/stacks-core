@@ -6,6 +6,10 @@
 This package provides the reference implementation of a [Blockstack](https://blockstack.org) node, as well
 as tools and scripts for deploying it.
 
+Stacks blockchain v1 is implemented in the blockstack-core master branch (this branch).
+
+Stacks blockchain v2 is actively developed in the blockcstack-core [develop branch](https://github.com/blockstack/blockstack-core/tree/develop).
+
 If you are looking to get started with Blockstack applications, we recommend you start with the [Blockstack Browser](https://github.com/blockstack/blockstack-browser) first.
 
 ## Table of Contents
