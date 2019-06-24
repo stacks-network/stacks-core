@@ -92,6 +92,11 @@ impl ContractAnalysis {
                 &self.variable_types, 
                 interface::ContractInterfaceVariableAccess::constant));
 
+        contract_interface.variables.append(
+            &mut interface::ContractInterfaceVariable::from_map(
+                &self.persisted_variable_types, 
+                interface::ContractInterfaceVariableAccess::variable));
+
         contract_interface.maps.append(
             &mut interface::ContractInterfaceMap::from_map(&self.map_types));
 

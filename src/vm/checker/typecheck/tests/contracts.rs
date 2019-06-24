@@ -103,6 +103,10 @@ fn test_names_tokens_contracts_interface() {
         (define var2 'true)
         (define var3 45)
 
+        (define-data-var d-var1 bool 'true)
+        (define-data-var d-var2 int 2)
+        (define-data-var d-var3 (buff 5) 0xdeadbeef)
+
         (define-map map1 ((name int)) ((owner principal)) )
         (define-map map2 ((k-name-1 bool)) ((v-name-1 (buff 33))) )
         (define-map map3 ((k-name-2 bool)) ((v-name-2 (tuple ((n1 int) (n2 bool))))) )
@@ -308,7 +312,10 @@ fn test_names_tokens_contracts_interface() {
         "variables": [
             { "name": "var1", "access": "constant", "type": "principal" },
             { "name": "var2", "access": "constant", "type": "bool" },
-            { "name": "var3", "access": "constant", "type": "int128" }
+            { "name": "var3", "access": "constant", "type": "int128" },
+            { "name": "d-var1", "access": "variable", "type": "bool" },
+            { "name": "d-var2", "access": "variable", "type": "int128" },
+            { "name": "d-var3", "access": "variable", "type": { "buffer": { "length": 5 } } }
         ]
     }"#).unwrap();
 
