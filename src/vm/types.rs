@@ -450,7 +450,7 @@ impl AtomTypeIdentifier {
 
 impl TupleTypeSignature {
     pub fn new(type_data: Vec<(String, TypeSignature)>) -> Result<TupleTypeSignature> {
-        if type_data.len() != 1 {
+        if type_data.len() == 0 {
             return Err(UncheckedError::ExpectedListPairs.into())
         }
 
