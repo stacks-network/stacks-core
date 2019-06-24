@@ -213,29 +213,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok(func_type.return_type().clone())
     }
 
-    fn type_check_list_pairs<'c> (&mut self, bindings: &[SymbolicExpression],
-                                  context: &'c TypingContext) -> CheckResult<TypingContext<'c>> {
-        let mut out_context = context.extend()?;
-        for binding in bindings.iter() {
-            let binding_exps = binding.match_list()
-                .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
-            
-            if binding_exps.len() != 2 {
-                return Err(CheckError::new(CheckErrors::BadSyntaxBinding))
-            }
-
-            let var_name = binding_exps[0].match_atom()
-                .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
-
-            self.type_map.set_type(&binding_exps[0], no_type())?;
-            let typed_result = self.type_check(&binding_exps[1], context)?;
-            out_context.variable_types.insert(var_name.clone(),
-                                              typed_result);
-        }
-
-        Ok(out_context)
-    }
-
     fn get_function_type(&self, function_name: &str) -> Option<FunctionType> {
         if let Some(function_type) = self.contract_context.get_function_type(function_name) {
             Some(function_type.clone())
@@ -405,6 +382,27 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok((var_name, var_type))
     }
 
+    fn type_check_define_persisted_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
+        if args.len() != 3 {
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len() - 1)))
+        }
+        let var_name = args[0].match_atom()
+            .ok_or(CheckError::new(CheckErrors::DefineVariableBadSignature))?
+            .clone();
+
+        let expected_type = match TypeSignature::parse_type_repr(&args[1], true) {
+            Ok(expected_type) => expected_type,
+            _ => return Err(CheckError::new(CheckErrors::DefineVariableBadSignature))
+        };
+
+        let value_type = self.type_check(&args[2], context)?;
+
+        if !expected_type.admits_type(&value_type) {
+            return Err(CheckError::new(CheckErrors::TypeError(expected_type, value_type.clone())));
+        }
+
+        Ok((var_name, expected_type))
+    }
 
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
     fn try_type_check_define(&mut self, expr: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
@@ -452,6 +450,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                             let (f_name, f_type) = self.type_check_define_map(expression,
                                                                               context)?;
                             self.contract_context.add_map_type(f_name, f_type)?;
+                            Ok(Some(()))
+                        },
+                        "define-data-var" => {
+                            let (v_name, v_type) = self.type_check_define_persisted_variable(function_args,
+                                                                                   context)?;
+                            self.contract_context.add_persisted_variable_type(v_name, v_type)?;
                             Ok(Some(()))
                         },
                         _ => {

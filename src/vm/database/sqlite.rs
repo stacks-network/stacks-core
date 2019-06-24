@@ -5,7 +5,7 @@ use rusqlite::types::ToSql;
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
-use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier};
+use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, NONE};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -28,6 +28,11 @@ pub struct SqliteDataMap {
     value_type: TypeSignature
 }
 
+pub struct SqliteDataVariable {
+    variable_identifier: i64,
+    value_type: TypeSignature
+}
+
 pub trait ContractDatabaseTransacter {
     fn begin_save_point(&mut self) -> ContractDatabase<'_>;
 }
@@ -43,9 +48,17 @@ impl ContractDatabaseConnection {
                        value_type TEXT NOT NULL,
                        UNIQUE(contract_name, map_name))",
                             NO_PARAMS);
+        contract_db.execute("CREATE TABLE IF NOT EXISTS variables_table
+                      (variable_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
+                       contract_name TEXT NOT NULL,
+                       variable_name TEXT NOT NULL,
+                       value_type TEXT NOT NULL,
+                       UNIQUE(contract_name, variable_name))",
+                            NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS data_table
                       (data_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
                        map_identifier INTEGER NOT NULL,
+                       variable_identifier INTEGER NOT NULL,
                        key TEXT NOT NULL,
                        value TEXT)",
                             NO_PARAMS);
@@ -221,6 +234,66 @@ impl <'a> ContractDatabase <'a> {
         }
     }
 
+    fn load_variable(&self, contract_name: &str, variable_name: &str) -> Result<SqliteDataVariable> {
+        let (variable_identifier, value_type): (_, String) =
+            self.query_row(
+                "SELECT variable_identifier, value_type FROM variables_table WHERE contract_name = ? AND variable_name = ?",
+                &[contract_name, variable_name],
+                |row| {
+                    (row.get(0), row.get(1))
+                })
+            .ok_or(UncheckedError::UndefinedVariable(variable_name.to_string()))?;
+
+        Ok(SqliteDataVariable {
+            variable_identifier: variable_identifier,
+            value_type: TypeSignature::deserialize(&value_type)
+        })
+    }
+
+    pub fn create_variable(&mut self, contract_name: &str, variable_name: &str, value_type: TypeSignature) {
+        self.execute("INSERT INTO variables_table (contract_name, variable_name, value_type) VALUES (?, ?, ?)",
+                     &[contract_name, variable_name, &value_type.serialize()]);
+    }
+
+    pub fn set_variable(&mut self, contract_name: &str, variable_name: &str, value: Value) -> Result<Value> {
+        let variable_descriptor = self.load_variable(contract_name, variable_name)?;
+        if !variable_descriptor.value_type.admits(&value) {
+            return Err(UncheckedError::TypeError(format!("{:?}", variable_descriptor.value_type), value).into())
+        }
+
+        let params: [&ToSql; 2] = [&variable_descriptor.variable_identifier,
+                                   &value.serialize()];
+
+        self.execute(
+            "INSERT INTO data_table (variable_identifier, value, key, map_identifier) VALUES (?, ?, '', 0)",
+            &params);
+
+        return Ok(Value::Bool(true))
+    }
+
+    pub fn lookup_variable(&self, contract_name: &str, variable_name: &str) -> Result<Option<Value>>  {
+        let variable_descriptor = self.load_variable(contract_name, variable_name)?;
+
+        let params: [&ToSql; 1] = [&variable_descriptor.variable_identifier];
+
+        let sql_result: Option<Option<String>> = 
+            self.query_row(
+                "SELECT value FROM data_table WHERE variable_identifier = ? ORDER BY data_identifier DESC LIMIT 1",
+                &params,
+                |row| {
+                    row.get(0)
+                });
+        match sql_result {
+            None => Ok(None),
+            Some(sql_result) => {
+                match sql_result {
+                    None => Ok(None),
+                    Some(value_data) => Ok(Some(Value::deserialize(&value_data)))
+                }
+            }
+        }
+    }
+
     pub fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {
         let key_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(key_type));
         let value_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type));
@@ -270,7 +343,7 @@ impl <'a> ContractDatabase <'a> {
                                    &Some(value.serialize())];
 
         self.execute(
-            "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
+            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
             &params);
 
         return Ok(Value::Bool(true))
@@ -295,7 +368,7 @@ impl <'a> ContractDatabase <'a> {
                                    &Some(value.serialize())];
 
         self.execute(
-            "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
+            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
             &params);
 
         return Ok(Value::Bool(true))
@@ -318,7 +391,7 @@ impl <'a> ContractDatabase <'a> {
                                    &none];
 
         self.execute(
-            "INSERT INTO data_table (map_identifier, key, value) VALUES (?, ?, ?)",
+            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
             &params);
 
         return Ok(Value::Bool(exists))
