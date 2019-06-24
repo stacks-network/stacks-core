@@ -265,7 +265,7 @@ impl <'a> ContractDatabase <'a> {
                                    &value.serialize()];
 
         self.execute(
-            "INSERT INTO data_table (variable_identifier, value, key, map_identifier) VALUES (?, ?, '', '')",
+            "INSERT INTO data_table (variable_identifier, value, key, map_identifier) VALUES (?, ?, '', 0)",
             &params);
 
         return Ok(Value::Bool(true))
@@ -343,7 +343,7 @@ impl <'a> ContractDatabase <'a> {
                                    &Some(value.serialize())];
 
         self.execute(
-            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, '')",
+            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
             &params);
 
         return Ok(Value::Bool(true))
@@ -368,7 +368,7 @@ impl <'a> ContractDatabase <'a> {
                                    &Some(value.serialize())];
 
         self.execute(
-            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, '')",
+            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
             &params);
 
         return Ok(Value::Bool(true))
@@ -391,7 +391,7 @@ impl <'a> ContractDatabase <'a> {
                                    &none];
 
         self.execute(
-            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, '')",
+            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
             &params);
 
         return Ok(Value::Bool(exists))
