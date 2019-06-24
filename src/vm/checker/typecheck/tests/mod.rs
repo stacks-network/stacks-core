@@ -331,10 +331,10 @@ fn test_set_bool_variable() {
 #[test]
 fn test_set_tuple_variable() {
     let contract_src = r#"
-        (define-data-var cursor (tuple ((k1 int) (v1 int))) (tuple (k1 1) (v1 1)))
+        (define-data-var cursor (tuple (k1 int) (v1 int)) (tuple (k1 1) (v1 1)))
         (define (get-cursor)
             (fetch-var cursor))
-        (define (set-cursor (value (tuple ((k1 int) (v1 int)))))
+        (define (set-cursor (value (tuple (k1 int) (v1 int))))
             (if (set-var! cursor value)
                 value
                 (get-cursor)))
@@ -521,12 +521,11 @@ fn test_accessing_unknown_data_var_should_fail() {
     });
 }
 
-
 #[test]
 fn test_tuple_map() {
     let t = "(define-map tuples ((name int)) 
-                            ((contents (tuple ((name (buff 5))
-                                               (owner (buff 5)))))))
+                            ((contents (tuple (name (buff 5))
+                                              (owner (buff 5))))))
 
          (define (add-tuple (name int) (content (buff 5)))
            (insert-entry! tuples (tuple (name name))
