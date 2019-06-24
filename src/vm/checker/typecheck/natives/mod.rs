@@ -158,11 +158,72 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     let binding_list = args[0].match_list()
         .ok_or(CheckError::new(CheckErrors::BadLetSyntax))?;
     
-    let let_context = checker.type_check_list_pairs(binding_list, context)?;
+    let mut out_context = context.extend()?;
+
+    for binding in binding_list.iter() {
+        let binding_exps = binding.match_list()
+            .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
+        
+        if binding_exps.len() != 2 {
+            return Err(CheckError::new(CheckErrors::BadSyntaxBinding))
+        }
+
+        let var_name = binding_exps[0].match_atom()
+            .ok_or(CheckError::new(CheckErrors::BadSyntaxBinding))?;
+
+        checker.contract_context.check_name_used(var_name)?;
+
+        if out_context.variable_types.contains_key(var_name) {
+            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.to_string())))
+        }
+
+        checker.type_map.set_type(&binding_exps[0], no_type())?;
+        let typed_result = checker.type_check(&binding_exps[1], context)?;
+        out_context.variable_types.insert(var_name.clone(),
+                                            typed_result);
+    }
     
-    let body_return_type = checker.type_check(&args[1], &let_context)?;
+    let body_return_type = checker.type_check(&args[1], &out_context)?;
     
     Ok(body_return_type)
+}
+
+fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() != 1 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))
+    }
+    
+    let var_name = args[0].match_atom()
+        .ok_or(CheckError::new(CheckErrors::BadMapName))?;
+    
+    checker.type_map.set_type(&args[0], no_type())?;
+        
+    let value_type = checker.contract_context.get_persisted_variable_type(var_name)
+        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.clone())))?;
+
+    Ok(value_type.clone())
+}
+
+fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() < 2 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
+    }
+    
+    let var_name = args[0].match_atom()
+        .ok_or(CheckError::new(CheckErrors::BadMapName))?;
+    
+    checker.type_map.set_type(&args[0], no_type())?;
+    
+    let value_type = checker.type_check(&args[1], context)?;
+    
+    let expected_value_type = checker.contract_context.get_persisted_variable_type(var_name)
+        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.clone())))?;
+    
+    if !expected_value_type.admits_type(&value_type) {
+        return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))
+    } else {
+        return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
+    }
 }
 
 fn check_special_equals(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -188,6 +249,7 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
     }
     
     let arg_types = checker.type_check_all(args, context)?;
+
 
     check_atomic_type(AtomTypeIdentifier::BoolType, &arg_types[0])?;
     
@@ -288,6 +350,8 @@ impl TypedNativeFunction {
             Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),
+            FetchVar => Special(SpecialNativeFunction(&check_special_fetch_var)),
+            SetVar => Special(SpecialNativeFunction(&check_special_set_var)),
             Map => Special(SpecialNativeFunction(&lists::check_special_map)),
             Filter => Special(SpecialNativeFunction(&lists::check_special_filter)),
             Fold => Special(SpecialNativeFunction(&lists::check_special_fold)),

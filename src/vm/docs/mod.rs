@@ -232,6 +232,26 @@ created by this set of bindings is used for evaluating and return the value of `
     example: "(let ((a 2) (b (+ 5 6 7))) (+ a b)) ;; Returns 20"
 };
 
+const FETCH_VAR_API: SpecialAPI = SpecialAPI { 
+    name: "fetch-var",
+    input_type: "VarName",
+    output_type: "A",
+    signature: "(fetch-var var-name)",
+    description: "The `fetch-var` function looks up and returns an entry from a contract's data map.
+The value is looked up using `var-name`.",
+    example: "(fetch-var cursor) ;; Returns cursor"
+};
+
+const SET_VAR_API: SpecialAPI = SpecialAPI { 
+    name: "set-var!",
+    input_type: "VarName, AnyType",
+    output_type: "bool",
+    signature: "(set-var! var-name expr1)",
+    description: "The `set-var!` function sets the value associated with the input variable to the 
+inputted value.",
+    example: "(set-var! cursor (+ cursor 1)) ;; Returns 'true"
+};
+
 const MAP_API: SpecialAPI = SpecialAPI {
     name: "map",
     input_type: "Function(A) -> B, (list A)",
@@ -295,7 +315,7 @@ nodes configured for development (as opposed to production mining nodes), this f
     example: "(print (+ 1 2 3)) ;; Returns 6",
 };
 
-const FETCH_API: SpecialAPI = SpecialAPI {
+const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "fetch-entry",
     input_type: "MapName, Tuple",
     output_type: "Optional(Tuple)",
@@ -309,7 +329,7 @@ it returns (some value)",
 ",
 };
 
-const SET_API: SpecialAPI = SpecialAPI {
+const SET_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "set-entry!",
     input_type: "MapName, TupleA, TupleB",
     output_type: "bool",
@@ -322,7 +342,7 @@ with the key, the function overwrites that existing association.",
 ",
 };
 
-const INSERT_API: SpecialAPI = SpecialAPI {
+const INSERT_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "insert-entry!",
     input_type: "MapName, TupleA, TupleB",
     output_type: "bool",
@@ -337,7 +357,7 @@ this key in the data map, the function returns `false`.",
 ",
 };
 
-const DELETE_API: SpecialAPI = SpecialAPI {
+const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "delete-entry!",
     input_type: "MapName, Tuple",
     output_type: "bool",
@@ -642,6 +662,27 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 "
 };
 
+const DEFINE_DATA_VAR_API: SpecialAPI = SpecialAPI {
+    name: "define-data-var",
+    input_type: "VarName, TypeDefinition, Value",
+    output_type: "Not Applicable",
+    signature: "(define-data-var var-name type value)",
+    description: "`define-data-var` is used to define a new persisted variable for use in a smart contract. Such
+variable are only modifiable by the current smart contract.
+
+Persisted variable are defined with a type and a value.
+
+Like other kinds of definition statements, `define-data-var` may only be used at the top level of a smart contract
+definition (i.e., you cannot put a define statement in the middle of a function body).",
+    example: "
+(define-data-var size int 0)
+(define (set-size (value int))
+  (set-var! size value))
+(set-size 1)
+(set-size 2)
+"
+};
+
 fn make_for_special(api: &SpecialAPI) -> FunctionAPI {
     FunctionAPI {
         name: api.name.to_string(),
@@ -674,15 +715,17 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Equals => make_for_special(&EQUALS_API),
         If => make_for_special(&IF_API),
         Let => make_for_special(&LET_API),
+        FetchVar => make_for_special(&FETCH_VAR_API),
+        SetVar => make_for_special(&SET_VAR_API),
         Map => make_for_special(&MAP_API),
         Filter => make_for_special(&FILTER_API),
         Fold => make_for_special(&FOLD_API),
         ListCons => make_for_special(&LIST_API),
-        FetchEntry => make_for_special(&FETCH_API),
+        FetchEntry => make_for_special(&FETCH_ENTRY_API),
         FetchContractEntry => make_for_special(&FETCH_CONTRACT_API),
-        SetEntry => make_for_special(&SET_API),
-        InsertEntry => make_for_special(&INSERT_API),
-        DeleteEntry => make_for_special(&DELETE_API),
+        SetEntry => make_for_special(&SET_ENTRY_API),
+        InsertEntry => make_for_special(&INSERT_ENTRY_API),
+        DeleteEntry => make_for_special(&DELETE_ENTRY_API),
         TupleCons => make_for_special(&TUPLE_CONS_API),
         TupleGet => make_for_special(&TUPLE_GET_API),
         Begin => make_for_special(&BEGIN_API),
@@ -709,6 +752,7 @@ pub fn make_json_api_reference() -> String {
         .map(|x| make_api_reference(x))
         .collect();
     json_references.push(make_for_special(&DEFINE_MAP_API));
+    json_references.push(make_for_special(&DEFINE_DATA_VAR_API));
     json_references.push(make_for_special(&DEFINE_PUBLIC_API));
     json_references.push(make_for_special(&DEFINE_PRIVATE_API));
     json_references.push(make_for_special(&DEFINE_READ_ONLY_API));

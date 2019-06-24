@@ -3,9 +3,9 @@ use std::convert::TryFrom;
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
-use vm::types::{Value, BuffData, BlockInfoProperty};
+use vm::types::{Value, OptionalData, BuffData, BlockInfoProperty};
 use vm::representations::{SymbolicExpression};
-use vm::errors::{UncheckedError, RuntimeErrorType, InterpreterResult as Result};
+use vm::errors::{UncheckedError, InterpreterError, RuntimeErrorType, InterpreterResult as Result};
 use vm::{eval, LocalContext, Environment};
 
 pub fn special_contract_call(args: &[SymbolicExpression],
@@ -38,6 +38,45 @@ pub fn special_contract_call(args: &[SymbolicExpression],
         contract_name, function_name, &rest_args)
 }
 
+pub fn special_fetch_variable(args: &[SymbolicExpression],
+                              env: &mut Environment,
+                              context: &LocalContext) -> Result<Value> {
+    // arg0 -> var name
+    if args.len() != 1 {
+        return Err(UncheckedError::InvalidArguments("(fetch-entry ...) requires exactly 1 argument".to_string()).into())
+    }
+
+    let var_name = args[0].match_atom()
+        .ok_or(UncheckedError::InvalidArguments("First argument in fetch-var must be the var name".to_string()))?;
+
+    let data = env.global_context.database.lookup_variable(&env.contract_context.name, var_name)?;
+    match data {
+        Some(data) => Ok(data),
+        None => Err(InterpreterError::UninitializedPersistedVariable.into())
+    }
+}
+
+pub fn special_set_variable(args: &[SymbolicExpression],
+                            env: &mut Environment,
+                            context: &LocalContext) -> Result<Value> {
+    if env.global_context.is_read_only() {
+        return Err(UncheckedError::WriteFromReadOnlyContext.into())
+    }
+
+    // arg0 -> var name
+    // arg1 -> value
+    if args.len() != 2 {
+        return Err(UncheckedError::InvalidArguments("(set-var! ...) requires exactly 2 arguments".to_string()).into())
+    }
+
+    let value = eval(&args[1], env, &context)?;
+
+    let var_name = args[0].match_atom()
+        .ok_or(UncheckedError::InvalidArguments("First argument in set-var! function must be the map name".to_string()))?;
+
+    env.global_context.database.set_variable(&env.contract_context.name, var_name, value)
+}
+
 pub fn special_fetch_entry(args: &[SymbolicExpression],
                            env: &mut Environment,
                            context: &LocalContext) -> Result<Value> {
@@ -48,7 +87,7 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
     }
 
     let map_name = args[0].match_atom()
-        .ok_or(UncheckedError::InvalidArguments("First argument in data functions must be the map name".to_string()))?;
+        .ok_or(UncheckedError::InvalidArguments("First argument in data functions must be the var name".to_string()))?;
 
 
     let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {

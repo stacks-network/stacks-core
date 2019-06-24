@@ -194,7 +194,7 @@ impl Hash for TupleData {
     }
 }
 
-const NONE: Value = Value::Optional(OptionalData { data: None });
+pub const NONE: Value = Value::Optional(OptionalData { data: None });
 
 impl Value {
     pub fn deserialize(json: &str) -> Value {
@@ -524,7 +524,7 @@ impl TupleTypeSignature {
 }
 
 impl TupleData {
-    fn from_data(mut data: Vec<(String, Value)>) -> Result<TupleData> {
+    pub fn from_data(mut data: Vec<(String, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {
@@ -977,7 +977,7 @@ impl TypeSignature {
         }
     }
 
-    fn parse_type_repr(x: &SymbolicExpression, allow_list: bool) -> Result<TypeSignature> {
+    pub fn parse_type_repr(x: &SymbolicExpression, allow_list: bool) -> Result<TypeSignature> {
         match x.expr {
             SymbolicExpressionType::Atom(ref atom_type_str) => {
                 let atomic_type = TypeSignature::parse_atom_type(atom_type_str)?;
