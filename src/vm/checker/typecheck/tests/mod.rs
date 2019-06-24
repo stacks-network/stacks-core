@@ -521,6 +521,81 @@ fn test_accessing_unknown_data_var_should_fail() {
     });
 }
 
+#[test]
+fn test_let_shadowed_by_let_should_fail() {
+    let contract_src = r#"
+        (let ((cursor 1) (cursor 2))
+            cursor)
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::NameAlreadyUsed(_) => true,
+        _ => false
+    });
+}
+
+#[test]
+fn test_let_shadowed_by_nested_let_should_fail() {
+    let contract_src = r#"
+        (let ((cursor 1))
+            (let ((cursor 2))
+                cursor))
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::NameAlreadyUsed(_) => true,
+        _ => false
+    });
+}
+
+#[test]
+fn test_define_constant_shadowed_by_let_should_fail() {
+    let contract_src = r#"
+        (define (cursor) 0)
+        (define (set-cursor (value int))
+            (let ((cursor 1))
+               cursor))
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::NameAlreadyUsed(_) => true,
+        _ => false
+    });
+}
+
+#[test]
+fn test_define_constant_shadowed_by_argument_should_fail() {
+    let contract_src = r#"
+        (define (cursor) 0)
+        (define (set-cursor (cursor int))
+            cursor)
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::NameAlreadyUsed(_) => true,
+        _ => false
+    });
+}
 
 #[test]
 fn test_tuple_map() {
