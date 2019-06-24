@@ -450,6 +450,10 @@ impl AtomTypeIdentifier {
 
 impl TupleTypeSignature {
     pub fn new(type_data: Vec<(String, TypeSignature)>) -> Result<TupleTypeSignature> {
+        if type_data.len() != 1 {
+            return Err(UncheckedError::ExpectedListPairs.into())
+        }
+
         let mut type_map = BTreeMap::new();
         for (name, type_info) in type_data {
             if let Some(_v) = type_map.insert(name, type_info) {
