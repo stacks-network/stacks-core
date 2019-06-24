@@ -955,12 +955,10 @@ impl TypeSignature {
     }
 
     // Parses type signatures of the following form:
-    // (tuple ((key-name-0 value-type-0) (key-name-1 value-type-1)))
+    // (tuple (key-name-0 value-type-0) (key-name-1 value-type-1))
     fn parse_tuple_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
-        if type_args.len() != 1 {
-            return Err(RuntimeErrorType::InvalidTypeDescription.into())
-        }
-        let tuple_type_signature = TupleTypeSignature::parse_name_type_pair_list(&type_args[0])?;
+        let mapped_key_types = parse_name_type_pairs(type_args)?;
+        let tuple_type_signature = TupleTypeSignature::new(mapped_key_types)?;
         TypeSignature::new_tuple(tuple_type_signature)
     }
 
