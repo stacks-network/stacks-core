@@ -284,11 +284,11 @@ impl fmt::Display for AtomTypeIdentifier {
             OptionalType(t) => write!(f, "(optional {})", t),
             ResponseType(v) => write!(f, "(response {} {})", v.0, v.1),
             TupleType(TupleTypeSignature{ type_map }) => {
-                write!(f, "(tuple (")?;
+                write!(f, "(tuple ")?;
                 for (key_name, value_type) in type_map.iter() {
                     write!(f, "({} {})", key_name, value_type)?;
                 }
-                write!(f, "))")
+                write!(f, ")")
             }
         }
     }
