@@ -173,8 +173,8 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
 
         checker.contract_context.check_name_used(var_name)?;
 
-        if out_context.variable_types.contains_key(var_name) {
-            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.to_string())))
+        if let Some(existing_var_name) = out_context.lookup_variable_type(var_name) {
+            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(existing_var_name.to_string())))
         }
 
         checker.type_map.set_type(&binding_exps[0], no_type())?;

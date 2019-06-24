@@ -248,6 +248,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
         let mut function_context = context.extend()?;
         for (arg_name, arg_type) in args.iter() {
+            self.contract_context.check_name_used(arg_name)?;
+
             function_context.variable_types.insert(arg_name.clone(),
                                                    arg_type.clone());
         }
