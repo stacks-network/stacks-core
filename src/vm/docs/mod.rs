@@ -1,8 +1,23 @@
-use vm::functions::NativeFunctions;
+use vm::functions::{NativeFunctions};
+use vm::variables::{NativeVariables};
 use vm::checker::typecheck::{FunctionType, TypedNativeFunction};
 use vm::checker::typecheck::natives::SimpleNativeFunction;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
+struct ReferenceAPIs {
+    functions: Vec<FunctionAPI>,
+    keywords: Vec<KeywordAPI>
+}
+
+#[derive(Serialize, Clone)]
+struct KeywordAPI {
+    name: &'static str,
+    output_type: &'static str,
+    description: &'static str,
+    example: &'static str
+}
+
+#[derive(Serialize)]
 struct FunctionAPI {
     name: String,
     input_type: String,
@@ -27,6 +42,35 @@ struct SpecialAPI {
     description: &'static str,
     example: &'static str,
 }
+
+const BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
+    name: "block-height",
+    output_type: "int",
+    description: "Returns the current block height of the Stacks blockchain as an int",
+    example: "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks."
+};
+
+const TX_SENDER_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "tx-sender",
+    output_type: "principal",
+    description: "Returns the current context's transaction sender. This is either the principal that signed and submitted the transaction,
+or if `as-contract` was used to change the tx-sender context, it will be that contract's principal.",
+    example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
+};
+
+const NONE_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "none",
+    output_type: "Optional(?)",
+    description: "Represents the _none_ option indicating no value for a given optional (analogous to a null value).",
+    example: "
+(define (only-if-positive (a int))
+  (if (> a 0)
+      (some a)
+      none))
+(only-if-positive 4) ;; Returns (some 4)
+(only-if-positive (- 3)) ;; Returns none
+"
+};
 
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: "+ (add)",
@@ -757,17 +801,35 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     }
 }
 
+fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
+    match variable {
+        NativeVariables::TxSender => Some(TX_SENDER_KEYWORD.clone()),
+        NativeVariables::NativeNone => Some(NONE_KEYWORD.clone()),
+        NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
+        NativeVariables::BurnBlockHeight => None,
+    }
+}
+
 pub fn make_json_api_reference() -> String {
-    use vm::functions::NativeFunctions;
-    let mut json_references: Vec<_> = NativeFunctions::ALL.iter()
+    let mut functions: Vec<_> = NativeFunctions::ALL.iter()
         .map(|x| make_api_reference(x))
         .collect();
-    json_references.push(make_for_special(&DEFINE_MAP_API));
-    json_references.push(make_for_special(&DEFINE_DATA_VAR_API));
-    json_references.push(make_for_special(&DEFINE_PUBLIC_API));
-    json_references.push(make_for_special(&DEFINE_PRIVATE_API));
-    json_references.push(make_for_special(&DEFINE_READ_ONLY_API));
-    format!("{}", serde_json::to_string(&json_references)
+    functions.push(make_for_special(&DEFINE_MAP_API));
+    functions.push(make_for_special(&DEFINE_DATA_VAR_API));
+    functions.push(make_for_special(&DEFINE_PUBLIC_API));
+    functions.push(make_for_special(&DEFINE_PRIVATE_API));
+    functions.push(make_for_special(&DEFINE_READ_ONLY_API));
+
+    let mut keywords = Vec::new();
+    for variable in NativeVariables::ALL.iter() {
+        let output = make_keyword_reference(variable);
+        if let Some(api_ref) = output {
+            keywords.push(api_ref)
+        }
+    }
+
+    let api_out = ReferenceAPIs { functions, keywords };
+    format!("{}", serde_json::to_string(&api_out)
             .expect("Failed to serialize documentation"))
 }
 
