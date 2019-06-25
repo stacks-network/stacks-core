@@ -20,7 +20,7 @@ impl NativeVariables {
     }
 }
 
-pub fn is_reserved_variable(name: &str) -> bool {
+pub fn is_reserved_name(name: &str) -> bool {
     NativeVariables::lookup_by_name(name).is_some()
 }
 

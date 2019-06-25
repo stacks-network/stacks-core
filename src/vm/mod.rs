@@ -38,7 +38,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &Environment) -> Res
     } else {
         if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
             Ok(value)
-        }else if let Some(value) = context.lookup_variable(name) {
+        } else if let Some(value) = context.lookup_variable(name) {
             Ok(value)
         } else if let Some(value) = env.contract_context.lookup_variable(name) {
             Ok(value)
@@ -134,7 +134,7 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
 pub fn is_reserved(name: &str) -> bool {
     if let Some(_result) = functions::lookup_reserved_functions(name) {
         true
-    } else if variables::is_reserved_variable(name) {
+    } else if variables::is_reserved_name(name) {
         true
     } else {
         false
@@ -168,6 +168,10 @@ fn eval_all (expressions: &[SymbolicExpression],
             },
             DefineResult::Function(name, value) => {
                 contract_context.functions.insert(name, value);
+            },
+            DefineResult::PersistedVariable(name, value_type, value) => {
+                global_context.database.create_variable(&contract_context.name, &name, value_type);
+                global_context.database.set_variable(&contract_context.name, &name, value)?;
             },
             DefineResult::Map(name, key_type, value_type) => {
                 global_context.database.create_map(&contract_context.name, &name, key_type, value_type);

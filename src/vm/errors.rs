@@ -48,6 +48,7 @@ pub enum InterpreterError {
     BadSender(Value),
     BadSymbolicRepresentation(String),
     InterpreterError(String),
+    UninitializedPersistedVariable,
     SqliteError(IncomparableError<SqliteError>),
 }
 

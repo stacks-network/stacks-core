@@ -22,7 +22,8 @@ pub struct ContractAnalysis {
     variable_types: BTreeMap<String, TypeSignature>,
     public_function_types: BTreeMap<String, FunctionType>,
     read_only_function_types: BTreeMap<String, FunctionType>,
-    map_types: BTreeMap<String, (TypeSignature, TypeSignature)>
+    map_types: BTreeMap<String, (TypeSignature, TypeSignature)>,
+    persisted_variable_types: BTreeMap<String, TypeSignature>,
 }
 
 pub struct TypingContext <'a> {
@@ -36,7 +37,8 @@ pub struct ContractContext {
     variable_types: HashMap<String, TypeSignature>,
     private_function_types: HashMap<String, FunctionType>,
     public_function_types: HashMap<String, FunctionType>,
-    read_only_function_types: HashMap<String, FunctionType>
+    read_only_function_types: HashMap<String, FunctionType>,
+    persisted_variable_types: HashMap<String, TypeSignature>,
 }
 
 
@@ -47,7 +49,8 @@ impl ContractAnalysis {
             public_function_types: BTreeMap::new(),
             read_only_function_types: BTreeMap::new(),
             variable_types: BTreeMap::new(),
-            map_types: BTreeMap::new()
+            map_types: BTreeMap::new(),
+            persisted_variable_types: BTreeMap::new(),
         }
     }
 
@@ -70,6 +73,10 @@ impl ContractAnalysis {
         self.variable_types.insert(name.to_string(), variable_type.clone());
     }
     
+    pub fn add_persisted_variable_type(&mut self, name: &str, persisted_variable_type: &TypeSignature) {
+        self.persisted_variable_types.insert(name.to_string(), persisted_variable_type.clone());
+    }
+
     pub fn add_read_only_function(&mut self, name: &str, function_type: &FunctionType) {
         self.read_only_function_types.insert(name.to_string(), function_type.clone());
     }
@@ -101,6 +108,10 @@ impl ContractAnalysis {
     pub fn get_variable_type(&self, name: &str) -> Option<&TypeSignature> {
         self.variable_types.get(name)
     }
+
+    pub fn get_persisted_variable_type(&self, name: &str) -> Option<&TypeSignature> {
+        self.persisted_variable_types.get(name)
+    }
 }
 
 impl TypeMap {
@@ -130,11 +141,13 @@ impl ContractContext {
             public_function_types: HashMap::new(),
             read_only_function_types: HashMap::new(),
             map_types: HashMap::new(),
+            persisted_variable_types: HashMap::new(),
         }
     }
 
-    fn check_name_used(&self, name: &str) -> CheckResult<()> {
+    pub fn check_name_used(&self, name: &str) -> CheckResult<()> {
         if self.variable_types.contains_key(name) ||
+            self.persisted_variable_types.contains_key(name) ||
             self.private_function_types.contains_key(name) ||
             self.public_function_types.contains_key(name) ||
             self.map_types.contains_key(name) {
@@ -173,9 +186,15 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn add_variable_type(&mut self, var_name: String, var_type: TypeSignature) -> CheckResult<()> {
+    pub fn add_variable_type(&mut self, const_name: String, var_type: TypeSignature) -> CheckResult<()> {
+        self.check_name_used(&const_name)?;
+        self.variable_types.insert(const_name, var_type);
+        Ok(())
+    }
+
+    pub fn add_persisted_variable_type(&mut self, var_name: String, var_type: TypeSignature) -> CheckResult<()> {
         self.check_name_used(&var_name)?;
-        self.variable_types.insert(var_name, var_type);
+        self.persisted_variable_types.insert(var_name, var_type);
         Ok(())
     }
 
@@ -185,6 +204,10 @@ impl ContractContext {
 
     pub fn get_variable_type(&self, name: &str) -> Option<&TypeSignature> {
         self.variable_types.get(name)
+    }
+
+    pub fn get_persisted_variable_type(&self, name: &str) -> Option<&TypeSignature> {
+        self.persisted_variable_types.get(name)
     }
 
     pub fn get_function_type(&self, name: &str) -> Option<&FunctionType> {
@@ -218,6 +241,10 @@ impl ContractContext {
 
         for (name, variable_type) in self.variable_types.iter() {
             contract_analysis.add_variable_type(name, variable_type);
+        }
+
+        for (name, persisted_variable_type) in self.persisted_variable_types.iter() {
+            contract_analysis.add_persisted_variable_type(name, persisted_variable_type);
         }
 
         contract_analysis
