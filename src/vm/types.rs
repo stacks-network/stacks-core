@@ -284,11 +284,11 @@ impl fmt::Display for AtomTypeIdentifier {
             OptionalType(t) => write!(f, "(optional {})", t),
             ResponseType(v) => write!(f, "(response {} {})", v.0, v.1),
             TupleType(TupleTypeSignature{ type_map }) => {
-                write!(f, "(tuple (")?;
+                write!(f, "(tuple ")?;
                 for (key_name, value_type) in type_map.iter() {
                     write!(f, "({} {})", key_name, value_type)?;
                 }
-                write!(f, "))")
+                write!(f, ")")
             }
         }
     }
@@ -450,6 +450,10 @@ impl AtomTypeIdentifier {
 
 impl TupleTypeSignature {
     pub fn new(type_data: Vec<(String, TypeSignature)>) -> Result<TupleTypeSignature> {
+        if type_data.len() == 0 {
+            return Err(UncheckedError::ExpectedListPairs.into())
+        }
+
         let mut type_map = BTreeMap::new();
         for (name, type_info) in type_data {
             if let Some(_v) = type_map.insert(name, type_info) {
@@ -955,12 +959,10 @@ impl TypeSignature {
     }
 
     // Parses type signatures of the following form:
-    // (tuple ((key-name-0 value-type-0) (key-name-1 value-type-1)))
+    // (tuple (key-name-0 value-type-0) (key-name-1 value-type-1))
     fn parse_tuple_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
-        if type_args.len() != 1 {
-            return Err(RuntimeErrorType::InvalidTypeDescription.into())
-        }
-        let tuple_type_signature = TupleTypeSignature::parse_name_type_pair_list(&type_args[0])?;
+        let mapped_key_types = parse_name_type_pairs(type_args)?;
+        let tuple_type_signature = TupleTypeSignature::new(mapped_key_types)?;
         TypeSignature::new_tuple(tuple_type_signature)
     }
 
