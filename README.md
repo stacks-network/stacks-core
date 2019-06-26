@@ -9,7 +9,7 @@ Stacks blockchain v1 is implemented in the blockstack-core master branch (this b
 
 Stacks blockchain v2 is actively developed in the blockcstack-core [develop branch](https://github.com/blockstack/blockstack-core/tree/develop).
 
-If you want to use Blockstack applications, we recommend you start with our [end user documentation](https://docs.blockstack.org/browser/browser-introduction.html). If you want to make applications with Blockstack, we recommend you start with (([our developer documentation](https://docs.blockstack.org/browser/hello-blockstack.html).
+If you want to use Blockstack applications, we recommend you start with our [end user documentation](https://docs.blockstack.org/browser/browser-introduction.html). If you want to make applications with Blockstack, we recommend you start with [our developer documentation](https://docs.blockstack.org/browser/hello-blockstack.html).
 
 ### Interested in the Clarity Smart Contracting language?
 
