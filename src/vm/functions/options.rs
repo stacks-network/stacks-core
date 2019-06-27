@@ -47,6 +47,14 @@ pub fn native_expects_err(args: &[Value]) -> Result<Value> {
     }
 }
 
+pub fn native_some(args: &[Value]) -> Result<Value> {
+    if args.len() != 1 {
+        return Err(UncheckedError::InvalidArguments("Wrong number of arguments to some (expects 1)".to_string()).into())
+    }
+
+    Ok(Value::some(args[0].clone()))
+}
+
 pub fn native_is_none(args: &[Value]) -> Result<Value> {
     if args.len() != 1 {
         return Err(UncheckedError::InvalidArguments("Wrong number of arguments to is-none? (expects 1)".to_string()).into())

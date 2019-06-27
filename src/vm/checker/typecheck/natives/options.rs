@@ -12,7 +12,18 @@ pub fn check_special_okay(checker: &mut TypeChecker, args: &[SymbolicExpression]
     
     let inner_type = checker.type_check(&args[0], context)?;
     let resp_type = TypeSignature::new_atom(
-        AtomTypeIdentifier::ResponseType(Box::new((inner_type.clone(), no_type()))));
+        AtomTypeIdentifier::ResponseType(Box::new((inner_type, no_type()))));
+    Ok(resp_type)
+}
+
+pub fn check_special_some(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    if args.len() != 1 {
+        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
+    }
+    
+    let inner_type = checker.type_check(&args[0], context)?;
+    let resp_type = TypeSignature::new_atom(
+        AtomTypeIdentifier::OptionalType(Box::new(inner_type)));
     Ok(resp_type)
 }
 
@@ -23,7 +34,7 @@ pub fn check_special_error(checker: &mut TypeChecker, args: &[SymbolicExpression
     
     let inner_type = checker.type_check(&args[0], context)?;
     let resp_type = TypeSignature::new_atom(
-        AtomTypeIdentifier::ResponseType(Box::new((no_type(), inner_type.clone()))));
+        AtomTypeIdentifier::ResponseType(Box::new((no_type(), inner_type))));
     Ok(resp_type)
 }
 

@@ -3,9 +3,23 @@ use vm::types::Value;
 use vm::contexts::{LocalContext, Environment};
 use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result};
 
-pub enum NativeVariables {
-    TxSender, BlockHeight, BurnBlockHeight
+
+macro_rules! define_enum {
+    ($Name:ident { $($Variant:ident),* $(,)* }) =>
+    {
+        #[derive(Debug)]
+        pub enum $Name {
+            $($Variant),*,
+        }
+        impl $Name {
+            pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
+        }
+    }
 }
+
+define_enum!(NativeVariables {
+    TxSender, BlockHeight, BurnBlockHeight, NativeNone
+});
 
 impl NativeVariables {
     pub fn lookup_by_name(name: &str) -> Option<NativeVariables> {
@@ -14,6 +28,7 @@ impl NativeVariables {
             "tx-sender" => Some(TxSender),
             "block-height" => Some(BlockHeight),
             "burn-block-height" => Some(BurnBlockHeight),
+            "none" => Some(NativeNone),
             _ => None
         }
     }
@@ -39,7 +54,10 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &Envir
             },
             NativeVariables::BurnBlockHeight => {
                 Err(RuntimeErrorType::NotImplemented.into())
-            }
+            },
+            NativeVariables::NativeNone => {
+                Ok(Some(Value::none()))
+            },
         }
     } else {
         Ok(None)

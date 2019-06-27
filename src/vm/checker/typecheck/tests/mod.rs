@@ -6,7 +6,7 @@ use vm::checker::errors::CheckErrors;
 use vm::checker::type_check;
 use vm::contexts::{OwnedEnvironment};
 use vm::database::{ContractDatabaseConnection};
-use vm::types::{Value, PrincipalData};
+use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier};
 
 mod contracts;
 
@@ -136,6 +136,7 @@ fn test_eqs() {
     let bad = [
         "(eq? 1 2 'false)",
         "(eq? 1 2 3 (list 2))",
+        "(eq? (some 1) (some 'true))",
         "(list (list 1 2) (list 'true) (list 5 1 7))",
         "(list 1 2 3 'true 'false 4 5 6)",
         "(map mod (list 1 2 3 4 5))",
@@ -302,6 +303,55 @@ fn test_factorial() {
     let mut analysis_db = analysis_conn.begin_save_point();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+}
+
+#[test]
+fn test_options() {
+    let contract = "
+         (define (foo (id (optional int)))
+           (+ 1 (default-to 1 id)))
+         (define (bar (x int))
+           (if (> 0 x)
+               (some x)
+               none))
+         (+ (foo none)
+            (foo (bar 1))
+            (foo (bar 0)))
+         ";
+
+    let mut contract = parse(contract).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+
+    let contract = "
+         (define (foo (id (optional bool)))
+           (if (default-to 'false id)
+               1
+               0))
+         (define (bar (x int))
+           (if (> 0 x)
+               (some x)
+               none))
+         (+ (foo (bar 1)) 1)
+         ";
+
+    let mut contract = parse(contract).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    assert!(
+        match type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err().err {
+            CheckErrors::TypeError(t1, t2) => {
+                t1 == TypeSignature::Atom(AtomTypeIdentifier::OptionalType(
+                    Box::new(TypeSignature::Atom(AtomTypeIdentifier::BoolType)))) &&
+                t2 == TypeSignature::Atom(AtomTypeIdentifier::OptionalType(
+                    Box::new(TypeSignature::Atom(AtomTypeIdentifier::IntType))))
+            },
+            _ => false
+        });
+
 }
 
 #[test]

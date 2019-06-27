@@ -228,8 +228,9 @@ fn test_arithmetic_errors() {
         "(mod 1)",
         "(pow 1)",
         "(xor 1)",
-         "(pow 2 (pow 2 32))",
-         "(pow 2 (- 1))"];
+        "(pow 2 (pow 2 32))",
+        "(pow 2 (- 1))",
+        "(eq? (some 1) (some 'true))"];
 
     let expectations: &[Error] = &[
         UncheckedError::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()).into(),
@@ -246,7 +247,8 @@ fn test_arithmetic_errors() {
         UncheckedError::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()).into(),
         UncheckedError::InvalidArguments("(xor ...) must be called with exactly 2 arguments".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into()
+        RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
+        UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -262,6 +264,7 @@ fn test_options_errors() {
         "(is-ok? 2 1)",
         "(is-ok? 'true)",
         "(ok 2 3)",
+        "(some 2 3)",
         "(err 4 5)",
         "(default-to 4 5 7)",
         "(default-to 4 'true)",
@@ -273,6 +276,7 @@ fn test_options_errors() {
         UncheckedError::InvalidArguments("Wrong number of arguments to is-ok? (expects 1)".to_string()).into(),
         UncheckedError::TypeError("ResponseType".to_string(), Value::Bool(true)).into(),
         UncheckedError::InvalidArguments("Wrong number of arguments to ok (expects 1)".to_string()).into(),
+        UncheckedError::InvalidArguments("Wrong number of arguments to some (expects 1)".to_string()).into(),
         UncheckedError::InvalidArguments("Wrong number of arguments to err (expects 1)".to_string()).into(),
         UncheckedError::InvalidArguments("Wrong number of arguments to default-to (expects 2)".to_string()).into(),
         UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
@@ -280,6 +284,31 @@ fn test_options_errors() {
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
         assert_eq!(*expectation, vm_execute(program).unwrap_err());
+    }
+}
+
+#[test]
+fn test_some() {
+    let tests = [
+        "(eq? (some 1) (some 1))",
+        "(eq? none none)",
+        "(is-none? (some 1))",
+        "(eq? (some 1) none)",
+        "(eq? none (some 1))",
+        "(eq? (some 1) (some 2))",
+        ];
+
+    let expectations = [
+        Value::Bool(true),
+        Value::Bool(true),
+        Value::Bool(false),
+        Value::Bool(false),
+        Value::Bool(false),
+        Value::Bool(false),
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).unwrap().unwrap());
     }
 }
 
