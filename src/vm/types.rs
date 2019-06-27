@@ -652,8 +652,11 @@ impl TypeSignature {
 
         // same goes for the option type
         // this little monster is an attempt to avoid an unneccessary clone
-        //   I'm not sure there's a better way to do this. I think _maybe_
-        //     a match statement would work, but I think that'd be nasty too.
+        // Some(0) indicates that we should return type_a
+        // Some(1) indicates that we should return type_b
+        // None indicates that we should continue trying to find the most
+        //   admissive of type_a, type_b or error if no such
+        //   admission is possible.
         let short_return_optional = 
             if let (TypeSignature::Atom(AtomTypeIdentifier::OptionalType(ref opt_type_a)),
                     TypeSignature::Atom(AtomTypeIdentifier::OptionalType(ref opt_type_b))) = (&a, &b) {

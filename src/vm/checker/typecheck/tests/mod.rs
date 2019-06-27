@@ -136,6 +136,7 @@ fn test_eqs() {
     let bad = [
         "(eq? 1 2 'false)",
         "(eq? 1 2 3 (list 2))",
+        "(eq? (some 1) (some 'true))",
         "(list (list 1 2) (list 'true) (list 5 1 7))",
         "(list 1 2 3 'true 'false 4 5 6)",
         "(map mod (list 1 2 3 4 5))",

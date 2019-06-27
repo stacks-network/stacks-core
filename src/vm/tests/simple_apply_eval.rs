@@ -228,8 +228,9 @@ fn test_arithmetic_errors() {
         "(mod 1)",
         "(pow 1)",
         "(xor 1)",
-         "(pow 2 (pow 2 32))",
-         "(pow 2 (- 1))"];
+        "(pow 2 (pow 2 32))",
+        "(pow 2 (- 1))",
+        "(eq? (some 1) (some 'true))"];
 
     let expectations: &[Error] = &[
         UncheckedError::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()).into(),
@@ -246,7 +247,8 @@ fn test_arithmetic_errors() {
         UncheckedError::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()).into(),
         UncheckedError::InvalidArguments("(xor ...) must be called with exactly 2 arguments".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into()
+        RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
+        UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {

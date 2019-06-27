@@ -170,7 +170,7 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
     assert!(match &err.err {
             &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
                 eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
-                format!("{} {}", expected_type, actual_type) == "(tuple ((account principal))) (tuple ((accnt principal)))"
+                format!("{} {}", expected_type, actual_type) == "(tuple (account principal)) (tuple (accnt principal))"
             },
             _ => false
     });
