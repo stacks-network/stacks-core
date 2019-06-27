@@ -232,6 +232,24 @@ fn test_tuples() {
 }
 
 #[test]
+fn test_empty_tuple_should_fail() {
+    let contract_src = r#"
+        (define (set-cursor (value (tuple)))
+            value)
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::BadSyntaxBinding => true,
+        _ => false
+    });
+}
+
+#[test]
 fn test_define() {
     let good = ["(define (foo (x int) (y int)) (+ x y))
                      (define (bar (x int) (y bool)) (if y (+ 1 x) 0))
@@ -380,10 +398,10 @@ fn test_set_bool_variable() {
 #[test]
 fn test_set_tuple_variable() {
     let contract_src = r#"
-        (define-data-var cursor (tuple ((k1 int) (v1 int))) (tuple (k1 1) (v1 1)))
+        (define-data-var cursor (tuple (k1 int) (v1 int)) (tuple (k1 1) (v1 1)))
         (define (get-cursor)
             (fetch-var cursor))
-        (define (set-cursor (value (tuple ((k1 int) (v1 int)))))
+        (define (set-cursor (value (tuple (k1 int) (v1 int))))
             (if (set-var! cursor value)
                 value
                 (get-cursor)))
@@ -570,12 +588,11 @@ fn test_accessing_unknown_data_var_should_fail() {
     });
 }
 
-
 #[test]
 fn test_tuple_map() {
     let t = "(define-map tuples ((name int)) 
-                            ((contents (tuple ((name (buff 5))
-                                               (owner (buff 5)))))))
+                            ((contents (tuple (name (buff 5))
+                                              (owner (buff 5))))))
 
          (define (add-tuple (name int) (content (buff 5)))
            (insert-entry! tuples (tuple (name name))

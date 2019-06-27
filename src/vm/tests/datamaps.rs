@@ -263,10 +263,10 @@ fn test_set_bool_variable() {
 #[test]
 fn test_set_tuple_variable() {
     let contract_src = r#"
-        (define-data-var keys (tuple ((k1 int) (v1 int))) (tuple (k1 1) (v1 1)))
+        (define-data-var keys (tuple (k1 int) (v1 int)) (tuple (k1 1) (v1 1)))
         (define (get-keys)
             (fetch-var keys))
-        (define (set-keys (value (tuple ((k1 int) (v1 int)))))
+        (define (set-keys (value (tuple (k1 int) (v1 int))))
             (if (set-var! keys value)
                 value
                 (get-keys)))
@@ -514,8 +514,8 @@ fn lists_system() {
 fn tuples_system() {
     let test1 =
         "(define-map tuples ((name int)) 
-                            ((contents (tuple ((name (buff 5))
-                                               (owner (buff 5)))))))
+                            ((contents (tuple (name (buff 5))
+                                              (owner (buff 5))))))
 
          (define (add-tuple (name int) (content (buff 5)))
            (insert-entry! tuples (tuple (name name))

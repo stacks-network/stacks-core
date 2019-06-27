@@ -69,19 +69,20 @@ following limitations:
    modify contract state by these functions or functions called by
    these functions will result in an error.
 
-Public functions return a boolean result. If the function returns
-`true`, then the function call is considered valid, and any changes
+Public functions return a Response type result. If the function returns
+an `ok` type, then the function call is considered valid, and any changes
 made to the blockchain state will be materialized. If the function
-returns `false`, it will be considered invalid, and will have _no
+returns an `err` type, it will be considered invalid, and will have _no
 effect_ on the smart contract's state. So if function `foo.A` calls
-`bar.B`, and `bar.B` returns true, but `foo.A` returns false, no
+`bar.B`, and `bar.B` returns an `ok`, but `foo.A` returns an `err`, no
 effects from calling `foo.A` materialize--- including effects from
-`bar.B`. If, however, `bar.B` returns false and `foo.A` returns true,
+`bar.B`. If, however, `bar.B` returns an `err` and `foo.A` returns an `ok`,
 there may be some database effects which are materialized from
 `foo.A`, but _no_ effects from calling `bar.B` will materialize.
 
-Unlike functions created by `define-public`, which may only return booleans,
-functions created with `define-read-only` may return any type.
+Unlike functions created by `define-public`, which may only return
+Response types, functions created with `define-read-only` may return
+any type.
 
 ## List Operations
 
@@ -115,8 +116,8 @@ you would use:
 ```
 
 This function returns a boolean-- the return value of the called smart
-contract function. Note that if a called smart contract returns
-`false`, it is guaranteed to not alter any smart contract state
+contract function. Note that if a called smart contract returns an
+`err` type, it is guaranteed to not alter any smart contract state
 whatsoever. Of course, any transaction fees paid for the execution
 of that function will not be returned.
 
@@ -194,10 +195,11 @@ faucet" could be implemented as so:
 
 ```scheme
 (define-public (claim-from-faucet)
-  (if (isnull? (fetch-entry claimed-before (tuple #sender tx-sender)))
+  (if (is-none? (fetch-entry claimed-before (tuple (sender tx-sender))))
       (let ((requester tx-sender)) ;; set a local variable requester = tx-sender
-        (insert-entry! claimed-before (tuple #sender requester) (tuple #claimed 'true))
-        (as-contract (stacks-transfer! requester 1)))))
+        (insert-entry! claimed-before (tuple (sender requester)) (tuple (claimed 'true)))
+        (as-contract (stacks-transfer! requester 1))))
+      (err 1))
 ```
 
 Here, the public function `claim-from-faucet`:
@@ -229,7 +231,7 @@ language is an 16-byte signed integer, which allows it to specify the
 maximum amount of microstacks spendable in a single Stacks transfer.
 
 Like any other public smart contract function, this function call
-returns true if the transfer was successful, and false otherwise.
+returns an `ok` if the transfer was successful, and `err` otherwise.
 
 ## Data-Space Primitives
 
@@ -240,7 +242,7 @@ structure, a map will only associate a given key with exactly one
 value. Values in a given mapping are set or fetched using:
 
 1. `(fetch-entry map-name key-tuple)` - This fetches the value
-  associated with a given key in the map, or returns `'null` if there
+  associated with a given key in the map, or returns `none` if there
   is no such value.
 2. `(set-entry! map-name key-tuple value-tuple)` - This will set the
   value of `key-tuple` in the data map
@@ -282,8 +284,8 @@ allows the construction of named tuples using a function `(tuple ...)`,
 e.g.,
 
 ```
-(define imaginary-number-a (tuple #real 1 #i 2))
-(define imaginary-number-b (tuple #real 2 #i 3))
+(define imaginary-number-a (tuple (real 1) (i 2)))
+(define imaginary-number-b (tuple (real 2) (i 3)))
 
 ```
 
@@ -308,7 +310,7 @@ in addition to the map name:
 (fetch-contract-entry
   'contract-principal
   'map-name
-  'key-tuple) -> value tuple or null
+  'key-tuple) -> value tuple or none
 
 Example:
 
@@ -597,13 +599,14 @@ practice, a buffer would probably be used.
 (define-public (preorder 
                (name-hash (buffer 20))
                (name-price integer))
-  (if (stacks-transfer!
-        name-price burn-address)
-      (insert-entry! preorder-map
-        (tuple #name-hash name-hash)
-        (tuple #paid name-price
-               #buyer tx-sender))
-      false))
+  (if (and (is-ok? (stacks-transfer!
+                    name-price burn-address))
+           (insert-entry! preorder-map
+            (tuple (name-hash name-hash))
+            (tuple (paid name-price)
+                   (buyer tx-sender))))
+      (ok 0)
+      (err 1)))
 
 (define-public (register 
                (recipient-principal principal)
@@ -611,25 +614,25 @@ practice, a buffer would probably be used.
                (salt integer))
   (let ((preorder-entry
           (fetch-entry preorder-map
-                         (tuple #name-hash (hash160 name salt))))
+                         (tuple (name-hash (hash160 name salt)))))
         (name-entry 
-          (fetch-entry name-map (tuple #name name))))
+          (fetch-entry name-map (tuple (name name)))))
     (if (and
          ;; must be preordered
-         (not (eq? preorder-entry) 'null)
+         (not (is-none? preorder-entry))
          ;; name shouldn't *already* exist
-         (eq? name-entry 'null)
+         (is-none? name-entry)
          ;; preorder must have paid enough
-         (<= (price-funcion name) 
-             (get #paid preorder-entry))
+         (<= (price-funcion name)
+             (default-to 0 (get paid preorder-entry)))
          ;; preorder must have been the current principal
          (eq? tx-sender
-              (get #buyer preorder-entry)))
-         (begin
-           (insert-entry! name-table
-             (tuple #name name)
-             (tuple #owner recipient)))
-         false)))
+              (expects! (get buyer preorder-entry) (err 1)))
+         (insert-entry! name-table
+           (tuple (name name))
+           (tuple (owner recipient))))
+         (ok 0)
+         (err 1))))
 ```
 
 
