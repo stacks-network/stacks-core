@@ -1,4 +1,5 @@
 pub mod typecheck;
+pub mod diagnostic;
 mod errors;
 mod identity_pass;
 mod check_db;
