@@ -56,17 +56,18 @@ fn get_lines_at(input: &str) -> Vec<usize> {
     out
 }
 
-pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
+pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
     // Aaron: I'd like these to be static, but that'd require using
     //    lazy_static (or just hand implementing that), and I'm not convinced
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
 
     let lex_matchers: &[LexMatcher] = &[
         LexMatcher::new(r##""(?P<value>((\\")|([[:print:]&&[^"\n\r\t]]))*)""##, TokenType::StringLiteral),
-        LexMatcher::new(";;[[:print:]&&[^\n\r\t]]*", TokenType::Whitespace), // ;; comments.
+        LexMatcher::new(";;[[:print:]&&[^\n\r]]*", TokenType::Whitespace), // ;; comments.
+        LexMatcher::new("[\n\r]+", TokenType::Whitespace),
+        LexMatcher::new("[ \t]+", TokenType::Whitespace),
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
-        LexMatcher::new("[ \n\t\r]+", TokenType::Whitespace),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("(?P<value>[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
@@ -83,11 +84,13 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
 
     let mut result = Vec::new();
     let mut munch_index = 0;
+    let mut column_pos: u32 = 1;
     let mut did_match = true;
     while did_match && munch_index < input.len() {
         if let Some(next_line_ix) = next_line_break {
             if munch_index > next_line_ix {
                 next_line_break = line_indices.pop();
+                column_pos = 1;
                 current_line = current_line.checked_add(1)
                     .ok_or(RuntimeErrorType::ParseError("Program too large to parse.".to_string()))?;
             }
@@ -191,7 +194,8 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
                     }
                 }?;
 
-                result.push((token, current_line));
+                result.push((token, current_line, column_pos));
+                column_pos += whole_match.end() as u32;
                 did_match = true;
                 break;
             }
@@ -205,29 +209,30 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32)>> {
     }
 }
 
-pub fn parse_lexed(mut input: Vec<(LexItem, u32)>) -> Result<Vec<SymbolicExpression>> {
+pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> Result<Vec<SymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
 
-    for (item, line_number) in input.drain(..) {
+    for (item, line_pos, column_pos) in input.drain(..) {
         match item {
             LexItem::LeftParen => {
                 // start new list.
                 let new_list = Vec::new();
-                parse_stack.push((new_list, line_number));
+                parse_stack.push((new_list, line_pos, column_pos));
             },
             LexItem::RightParen => {
                 // end current list.
-                if let Some((value, starting_line)) = parse_stack.pop() {
+                if let Some((value, start_line, start_column)) = parse_stack.pop() {
                     let mut expression = SymbolicExpression::list(value.into_boxed_slice());
-                    expression.set_line_number(starting_line);
+                    // we set end_column to (column_pos - 1) for capturing the span of the inner expression
+                    expression.set_span(start_line, start_column, line_pos, column_pos - 1);
                     match parse_stack.last_mut() {
                         None => {
                             // no open lists on stack, add current to result.
                             output_list.push(expression)
                         },
-                        Some((ref mut list, _)) => {
+                        Some((ref mut list, _, _)) => {
                             list.push(expression);
                         }
                     };
@@ -236,21 +241,22 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32)>) -> Result<Vec<SymbolicExpress
                 }
             },
             LexItem::Variable(value) => {
+                let var_len = value.len() as u32; 
                 let mut expression = SymbolicExpression::atom(value);
-                expression.set_line_number(line_number);
+                expression.set_span(line_pos, column_pos, line_pos, column_pos + var_len);
 
                 match parse_stack.last_mut() {
                     None => output_list.push(expression),
-                    Some((ref mut list, _)) => list.push(expression)
+                    Some((ref mut list, _, _)) => list.push(expression)
                 };
             },
             LexItem::LiteralValue(value) => {
                 let mut expression = SymbolicExpression::atom_value(value);
-                expression.set_line_number(line_number);
+                expression.set_span(line_pos, column_pos, line_pos, column_pos + 1);
 
                 match parse_stack.last_mut() {
                     None => output_list.push(expression),
-                    Some((ref mut list, _)) => list.push(expression)
+                    Some((ref mut list, _, _)) => list.push(expression)
                 };
             },
             LexItem::Whitespace => ()
@@ -277,19 +283,19 @@ mod test {
 
     fn make_atom(x: &str, line: u32) -> SymbolicExpression {
         let mut e = SymbolicExpression::atom(x.to_string());
-        e.set_line_number(line);
+        // e.set_line_number(line);
         e
     }
 
     fn make_atom_value(x: Value, line: u32) -> SymbolicExpression {
         let mut e = SymbolicExpression::atom_value(x);
-        e.set_line_number(line);
+        // e.set_line_number(line);
         e
     }
 
     fn make_list(line: u32, x: Box<[SymbolicExpression]>) -> SymbolicExpression {
         let mut e = SymbolicExpression::list(x);
-        e.set_line_number(line);
+        // e.set_line_number(line);
         e
     }
 
