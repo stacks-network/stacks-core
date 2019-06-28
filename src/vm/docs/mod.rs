@@ -54,8 +54,16 @@ const TX_SENDER_KEYWORD: KeywordAPI = KeywordAPI {
     name: "tx-sender",
     output_type: "principal",
     description: "Returns the current context's transaction sender. This is either the principal that signed and submitted the transaction,
-or if `as-contract` was used to change the tx-sender context, it will be that contract's principal.",
+or if `contract-call!` was used to change the tx-sender context, it will be that contract's principal.",
     example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
+};
+
+const TX_ORIGIN_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "tx-origin",
+    output_type: "principal",
+    description: "Returns the original sender of the current transaction, or if `as-contract` was called to modify the sending context, it returns that
+contract principal. This can be used to determine the original signer of a transaction, even if tx-sender has changed due to inter-contract calls.",
+    example: "(print tx-origin) ;; Will print out a Stacks address of the transaction sender",
 };
 
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
@@ -505,7 +513,7 @@ const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
     input_type: "A",
     output_type: "A",
     signature: "(as-contract expr)",
-    description: "The `as-contract` function switches the current context's `tx-sender` value to the _contract's_ 
+    description: "The `as-contract` function switches the current context's `tx-origin` value to the _contract's_ 
 principal and executes `expr` with that context. It returns the resulting value of `expr`.",
     example: "(as-contract (print tx-sender)) ;; Returns 'CTcontract.name"
 };
@@ -804,6 +812,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
 fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
     match variable {
         NativeVariables::TxSender => Some(TX_SENDER_KEYWORD.clone()),
+        NativeVariables::TxOrigin => Some(TX_ORIGIN_KEYWORD.clone()),
         NativeVariables::NativeNone => Some(NONE_KEYWORD.clone()),
         NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
         NativeVariables::BurnBlockHeight => None,

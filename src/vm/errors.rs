@@ -69,6 +69,7 @@ pub enum RuntimeErrorType {
     InvalidTypeDescription,
     BadBlockHeight(String),
     NotImplemented,
+    NoSenderInContext
 }
 
 #[derive(Debug, PartialEq)]

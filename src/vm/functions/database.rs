@@ -3,14 +3,14 @@ use std::convert::TryFrom;
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
-use vm::types::{Value, OptionalData, BuffData, BlockInfoProperty};
+use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty};
 use vm::representations::{SymbolicExpression};
 use vm::errors::{UncheckedError, InterpreterError, RuntimeErrorType, InterpreterResult as Result};
 use vm::{eval, LocalContext, Environment};
 
 pub fn special_contract_call(args: &[SymbolicExpression],
-                         env: &mut Environment,
-                         context: &LocalContext) -> Result<Value> {
+                             env: &mut Environment,
+                             context: &LocalContext) -> Result<Value> {
     if args.len() < 2 {
         return Err(UncheckedError::InvalidArguments(
             "(contract-call ...) requires at least 2 arguments: the contract name and the public function name".to_string()).into())
@@ -28,13 +28,11 @@ pub fn special_contract_call(args: &[SymbolicExpression],
     let mut rest_args = rest_args?;
     let rest_args: Vec<_> = rest_args.drain(..).map(|x| { SymbolicExpression::atom_value(x) }).collect();
 
-    if env.sender.is_none() {
-        return Err(UncheckedError::InvalidArguments(
-            "No sender in current context. Did you attempt to (contract-call ...) from a non-contract aware environment?"
-                .to_string()).into());
-    }
+    let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(
+        env.contract_context.name.clone()));
+    let mut nested_env = env.nest_with_sender(contract_principal);
 
-    env.execute_contract(
+    nested_env.execute_contract(
         contract_name, function_name, &rest_args)
 }
 

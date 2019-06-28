@@ -156,7 +156,7 @@ fn eval_all (expressions: &[SymbolicExpression],
             let define_result = {
                 let mut call_stack = CallStack::new();
                 let mut env = Environment::new(
-                    &mut global_context, contract_context, &mut call_stack, None);
+                    &mut global_context, contract_context, &mut call_stack, None, None);
                 functions::define::evaluate_define(exp, &mut env)
             }?;
             global_context.commit();
@@ -182,7 +182,7 @@ fn eval_all (expressions: &[SymbolicExpression],
                 {
                     let mut call_stack = CallStack::new();
                     let mut env = Environment::new(
-                        &mut global_context, contract_context, &mut call_stack, None);
+                        &mut global_context, contract_context, &mut call_stack, None, None);
                     last_executed = Some(eval(exp, &mut env, &context)?);
                 }
                 global_context.commit();
@@ -248,7 +248,7 @@ mod test {
         contract_context.functions.insert("do_work".to_string(), user_function);
 
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None);
+        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None, None);
         assert_eq!(Ok(Value::Int(64)), eval(&content[0], &mut env, &context));
     }
 }
