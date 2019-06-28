@@ -151,8 +151,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Some(ref mut tracker) => {
                 let new_type = match tracker.take() {
                     Some(expected_type) => {
-                        TypeSignature::most_admissive(expected_type, return_type)
-                            .map_err(|_| CheckError::new(CheckErrors::ReturnTypesMustMatch))?
+                        TypeSignature::most_admissive(expected_type.clone(), return_type.clone())
+                            .map_err(|_| CheckError::new(CheckErrors::ReturnTypesMustMatch(expected_type, return_type)))?
                     },
                     None => return_type
                 };
@@ -268,8 +268,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     if let Some(Some(ref expected)) = self.function_return_tracker {
                         // check if the computed return type matches the return type
                         //   of any early exits from the call graph (e.g., (expects ...) calls)
-                        TypeSignature::most_admissive(expected.clone(), return_type)
-                            .map_err(|_| CheckError::new(CheckErrors::ReturnTypesMustMatch))?
+                        TypeSignature::most_admissive(expected.clone(), return_type.clone())
+                            .map_err(|_| CheckError::new(CheckErrors::ReturnTypesMustMatch(expected.clone(), return_type)))?
                     } else {
                         return_type
                     }
@@ -433,12 +433,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                                                                                    context)?;
                             let return_type = f_type.return_type();
                             let return_type = return_type.match_atomic()
-                                .ok_or(CheckError::new(CheckErrors::PublicFunctionMustReturnBool))?;
+                                .ok_or(CheckError::new(CheckErrors::PublicFunctionMustReturnBool(f_type.return_type())))?;
                             if let AtomTypeIdentifier::ResponseType(_) = return_type {
                                 self.contract_context.add_public_function_type(f_name, f_type)?;
                                 Ok(Some(()))
                             } else {
-                                Err(CheckError::new(CheckErrors::PublicFunctionMustReturnBool))
+                                Err(CheckError::new(CheckErrors::PublicFunctionMustReturnBool(f_type.return_type())))
                             }
                         },
                         "define-read-only" => {

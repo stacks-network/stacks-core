@@ -84,7 +84,7 @@ fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 
 fn inner_handle_tuple_get(tuple_type_sig: &TupleTypeSignature, field_to_get: &str) -> TypeResult {
     let return_type = tuple_type_sig.field_type(field_to_get)
-        .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.to_string())))?
+        .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.to_string(), tuple_type_sig.clone())))?
         .clone();
     Ok(return_type)
 }
@@ -173,8 +173,8 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
 
         checker.contract_context.check_name_used(var_name)?;
 
-        if out_context.variable_types.contains_key(var_name) {
-            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.to_string())))
+        if out_context.lookup_variable_type(var_name).is_some() {
+            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.clone())))
         }
 
         checker.type_map.set_type(&binding_exps[0], no_type())?;

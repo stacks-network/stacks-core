@@ -48,7 +48,7 @@ pub fn check_special_is_okay(checker: &mut TypeChecker, args: &[SymbolicExpressi
     if let Some(AtomTypeIdentifier::ResponseType(_types)) = input.match_atomic() {
         return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
     } else {
-        return Err(CheckError::new(CheckErrors::ExpectedResponseType))
+        return Err(CheckError::new(CheckErrors::ExpectedResponseType(input.clone())))
     }
 }
 
@@ -62,7 +62,7 @@ pub fn check_special_is_none(checker: &mut TypeChecker, args: &[SymbolicExpressi
     if let Some(AtomTypeIdentifier::OptionalType(_type)) = input.match_atomic() {
         return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
     } else {
-        return Err(CheckError::new(CheckErrors::ExpectedOptionalType))
+        return Err(CheckError::new(CheckErrors::ExpectedOptionalType(input.clone())))
     }
 }
 
@@ -79,7 +79,7 @@ pub fn check_special_default_to(checker: &mut TypeChecker, args: &[SymbolicExpre
         TypeSignature::most_admissive(default, contained_type)
             .map_err(|(a,b)| CheckError::new(CheckErrors::DefaultTypesMustMatch(a, b)))
     } else {
-        return Err(CheckError::new(CheckErrors::ExpectedOptionalType))
+        return Err(CheckError::new(CheckErrors::ExpectedOptionalType(input.clone())))
     }
 }
 
@@ -103,7 +103,7 @@ pub fn check_special_expects(checker: &mut TypeChecker, args: &[SymbolicExpressi
                 Ok(ok_type)
             }
         }
-        _ => Err(CheckError::new(CheckErrors::ExpectedOptionalType))
+        _ => Err(CheckError::new(CheckErrors::ExpectedOptionalType(input.clone())))
     }
 }
 
@@ -126,6 +126,6 @@ pub fn check_special_expects_err(checker: &mut TypeChecker, args: &[SymbolicExpr
                 Ok(err_type)
             }
         }
-        _ => Err(CheckError::new(CheckErrors::ExpectedResponseType))
+        _ => Err(CheckError::new(CheckErrors::ExpectedResponseType(input.clone())))
     }
 }

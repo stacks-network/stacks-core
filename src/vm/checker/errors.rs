@@ -17,20 +17,19 @@ pub enum CheckErrors {
     TypeError(TypeSignature, TypeSignature),
     // union type mismatch
     UnionTypeError(Vec<TypeSignature>, TypeSignature),
-    ExpectedOptionalType,
-    ExpectedResponseType,
+    ExpectedOptionalType(TypeSignature),
+    ExpectedResponseType(TypeSignature),
     CouldNotDetermineResponseOkType,
     CouldNotDetermineResponseErrType,
 
     // Checker runtime failures
     TypeAlreadyAnnotatedFailure,
     CheckerImplementationFailure,
-    TypeNotAnnotatedFailure,
 
     // tuples
     BadTupleFieldName,
     ExpectedTuple(TypeSignature),
-    NoSuchTupleField(String),
+    NoSuchTupleField(String, TupleTypeSignature),
     BadTupleConstruction,
     TupleExpectsPairs,
 
@@ -45,9 +44,9 @@ pub enum CheckErrors {
     DefineFunctionBadSignature,
     BadFunctionName,
     BadMapTypeDefinition,
-    PublicFunctionMustReturnBool,
+    PublicFunctionMustReturnBool(TypeSignature),
     DefineVariableBadSignature,
-    ReturnTypesMustMatch,
+    ReturnTypesMustMatch(TypeSignature, TypeSignature),
 
     // contract-call errors
     NoSuchContract(String),
@@ -129,36 +128,48 @@ impl error::Error for CheckError {
     }
 }
 
+fn formatted_expected_types(expected_types: & Vec<TypeSignature>) -> String {
+    let mut expected_types_joined = String::new();
+    expected_types_joined = format!("'{}'", expected_types[0]);
+
+    if expected_types.len() > 2 {
+        for expected_type in expected_types[1..expected_types.len()-2].into_iter() {
+            expected_types_joined.push_str(&format!(", '{}'", expected_type));
+        }
+    }
+    expected_types_joined.push_str(&format!(" or '{}'", expected_types[expected_types.len()-1]));
+    expected_types_joined
+}
+
 impl DiagnosableError for CheckErrors {
 
     fn message(&self) -> String {
-        let message = match &self {
+        match &self {
             CheckErrors::UnknownListConstructionFailure => format!("invalid syntax for list definition"),
             CheckErrors::ListTypesMustMatch => format!("expecting elements of same type in a list"),
             CheckErrors::ConstructedListTooLarge => format!("reached limit of elements in a list"),
-            CheckErrors::TypeError(type1, type2) => format!("{:?}", self),
-            CheckErrors::UnionTypeError(type_signatures, type_signature) => format!("{:?}", self),
-            CheckErrors::ExpectedOptionalType => format!("cannot convert return expression of type '' to return type 'optional'"), // todo(@ludo) add current type
-            CheckErrors::ExpectedResponseType => format!("cannot convert return expression of type '' to return type 'response'"), // todo(@ludo) add current type
+            CheckErrors::TypeError(expected_type, found_type) => format!("expecting expression of type '{}', found '{}'", expected_type, found_type),
+            CheckErrors::UnionTypeError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
+            CheckErrors::ExpectedOptionalType(found_type) => format!("expecting expression of type 'optional', found '{}'", found_type),
+            CheckErrors::ExpectedResponseType(found_type) => format!("expecting expression of type 'response', found '{}'", found_type),
             CheckErrors::CouldNotDetermineResponseOkType => format!("expecting a response of type 'ok'"),
             CheckErrors::CouldNotDetermineResponseErrType => format!("expecting a response of type 'err'"),
-            CheckErrors::TypeAlreadyAnnotatedFailure => format!("{:?}", self),
-            CheckErrors::CheckerImplementationFailure => format!("{:?}", self),
-            CheckErrors::TypeNotAnnotatedFailure => format!("{:?}", self),
-            CheckErrors::BadTupleFieldName => format!("cannot get tuple field '' from tuple ''"), // todo(@ludo) add field name + tuple struct
-            CheckErrors::ExpectedTuple(type_signature) => format!("expecting tuple, got {}", type_signature),
-            CheckErrors::NoSuchTupleField(field_name) => format!("cannot fint field '{}' from tuple", field_name),
+            CheckErrors::TypeAlreadyAnnotatedFailure => format!("{:?}", self), // ?
+            CheckErrors::CheckerImplementationFailure => format!("{:?}", self), // ?
+            CheckErrors::BadTupleFieldName => format!("invalid tuple field name"), // Returning the tuple would be helpful, but it requires re-structuring the code
+            CheckErrors::ExpectedTuple(type_signature) => format!("expecting tuple, found '{}'", type_signature),
+            CheckErrors::NoSuchTupleField(field_name, tuple_signature) => format!("cannot find field '{}' in tuple '{}'", field_name, tuple_signature),
             CheckErrors::BadTupleConstruction => format!("invalid tuple syntax, expecting list of pair"),
             CheckErrors::TupleExpectsPairs => format!("invalid tuple syntax, expecting pair"),
             CheckErrors::NoSuchVariable(var_name) => format!("variable '{}' unknown", var_name),
-            CheckErrors::BadMapName => format!("invalid map name"), // todo(@ludo) add map_name
+            CheckErrors::BadMapName => format!("invalid map name"),
             CheckErrors::NoSuchMap(map_name) => format!("use of unresolved map '{}'", map_name),
-            CheckErrors::DefineFunctionBadSignature => format!("invalid function definition"), // add function name?
-            CheckErrors::BadFunctionName => format!("invalid function name"), // todo(@ludo) add function name?
+            CheckErrors::DefineFunctionBadSignature => format!("invalid function definition"),
+            CheckErrors::BadFunctionName => format!("invalid function name"),
             CheckErrors::BadMapTypeDefinition => format!("invalid map definition"), 
-            CheckErrors::PublicFunctionMustReturnBool => format!("cannot convert return expression of type '' to return type 'bool'"), // todo(@ludo) is that still true? + add current type
+            CheckErrors::PublicFunctionMustReturnBool(found_type) => format!("public functions must return an expression of type 'bool', found '{}'", found_type), // todo(@ludo) - I'm confused
             CheckErrors::DefineVariableBadSignature => format!("invalid variable definition"),
-            CheckErrors::ReturnTypesMustMatch => format!("cannot convert return expression of type '' to return type ''"), // todo(@ludo) add current + expected
+            CheckErrors::ReturnTypesMustMatch(type_1, type_2) => format!("detected two execution paths, returning two different expression types (got '{}' and '{}')", type_1, type_2),
             CheckErrors::NoSuchContract(contract_name) => format!("use of unresolved contract '{}'", contract_name),
             CheckErrors::NoSuchPublicFunction(contract_name, function_name) => format!("contract '{}' has no public function '{}'", contract_name, function_name),
             CheckErrors::ContractAlreadyExists(contract_name) => format!("contract name '{}' conflicts with existing contract", contract_name),
@@ -167,23 +178,21 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::GetBlockInfoExpectPropertyName => format!("missing property name for block info introspection"),
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
             CheckErrors::NonFunctionApplication => format!("{:?}", self),
-            CheckErrors::ExpectedListApplication => format!("{:?}", self), // todo(@ludo) add current
-            CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"), // todo(@ludo) suggestion: show an exemple
-            CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"), // todo(@ludo) suggestion: show an exemple
+            CheckErrors::ExpectedListApplication => format!("{:?}", self),
+            CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
+            CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),
             CheckErrors::MaxContextDepthReached => format!("reached depth limit"),
-            CheckErrors::UnboundVariable(var_name) => format!("use of unresolved variable"),
+            CheckErrors::UnboundVariable(var_name) => format!("use of unresolved variable '{}'", var_name),
             CheckErrors::VariadicNeedsOneArgument => format!("expecting at least 1 argument"),
-            CheckErrors::IncorrectArgumentCount(current_count, expected_count) => format!("expecting {} arguments, got {}", expected_count, current_count),
-            CheckErrors::IfArmsMustMatch(type_signature_branch_1, type_signature_branch_2) => format!("{:?}", self),
-            CheckErrors::DefaultTypesMustMatch(type_signature_branch_1, type_signature_branch_2) => format!("{:?}", self),
+            CheckErrors::IncorrectArgumentCount(expected_count, found_count) => format!("expecting {} arguments, got {}", expected_count, found_count),
+            CheckErrors::IfArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'if' must match (got '{}' and '{}')", type_1, type_2),
+            CheckErrors::DefaultTypesMustMatch(type_1, type_2) => format!("expression types passed in 'default-to' must match (got '{}' and '{}')", type_1, type_2),
             CheckErrors::TooManyExpressions => format!("reached limit of expressions"),
             CheckErrors::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{}", function_name),
             CheckErrors::UnknownFunction(function_name) => format!("use of unresolved function '{}'", function_name),
             CheckErrors::NotImplemented => format!("use of unimplemented feature"),
             CheckErrors::WriteAttemptedInReadOnly => format!("{:?}", self),
-        };
-
-        message
+        }
     }
 
     fn context(&self) -> Option<String> {
@@ -191,6 +200,10 @@ impl DiagnosableError for CheckErrors {
     }
 
     fn suggestion(&self) -> Option<String> {
-        None
+        match &self {
+            CheckErrors::BadSyntaxBinding => Some(format!("binding syntax example: ((supply int) (ttl int))")),
+            CheckErrors::BadLetSyntax => Some(format!("'let' syntax example: (let ((supply 1000) (ttl 60)) <next-expression>)")),
+            _ => None
+        }
     }
 }
