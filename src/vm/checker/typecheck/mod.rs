@@ -173,13 +173,19 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         let mut local_context = TypingContext::new();
 
         for exp in contract {
-            if type_checker.try_type_check_define(exp, &mut local_context)?
-                .is_none() {
-                    // was _not_ a define statement, so handle like a normal statement.
-                    type_checker.type_check(exp, &local_context)?;
-                }
-        }
 
+            let mut result = type_checker.try_type_check_define(exp, &mut local_context);
+            if let Err(ref mut error) = result {
+                if !error.has_expression() {
+                    error.set_expression(exp);
+                }
+            }
+            let result = result?;
+            if result.is_none() {
+                // was _not_ a define statement, so handle like a normal statement.
+                type_checker.type_check(exp, &local_context)?;
+            }
+        }
 
         Ok(type_checker.contract_context.to_contract_analysis())
     }
