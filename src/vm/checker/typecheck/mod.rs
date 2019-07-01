@@ -439,12 +439,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                                                                                    context)?;
                             let return_type = f_type.return_type();
                             let return_type = return_type.match_atomic()
-                                .ok_or(CheckError::new(CheckErrors::PublicFunctionMustReturnBool(f_type.return_type())))?;
+                                .ok_or(CheckError::new(CheckErrors::PublicFunctionMustReturnResponse(f_type.return_type())))?;
                             if let AtomTypeIdentifier::ResponseType(_) = return_type {
                                 self.contract_context.add_public_function_type(f_name, f_type)?;
                                 Ok(Some(()))
                             } else {
-                                Err(CheckError::new(CheckErrors::PublicFunctionMustReturnBool(f_type.return_type())))
+                                Err(CheckError::new(CheckErrors::PublicFunctionMustReturnResponse(f_type.return_type())))
                             }
                         },
                         "define-read-only" => {

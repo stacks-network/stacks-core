@@ -44,7 +44,7 @@ pub enum CheckErrors {
     DefineFunctionBadSignature,
     BadFunctionName,
     BadMapTypeDefinition,
-    PublicFunctionMustReturnBool(TypeSignature),
+    PublicFunctionMustReturnResponse(TypeSignature),
     DefineVariableBadSignature,
     ReturnTypesMustMatch(TypeSignature, TypeSignature),
 
@@ -154,9 +154,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ExpectedResponseType(found_type) => format!("expecting expression of type 'response', found '{}'", found_type),
             CheckErrors::CouldNotDetermineResponseOkType => format!("expecting a response of type 'ok'"),
             CheckErrors::CouldNotDetermineResponseErrType => format!("expecting a response of type 'err'"),
-            CheckErrors::TypeAlreadyAnnotatedFailure => format!("{:?}", self), // ?
-            CheckErrors::CheckerImplementationFailure => format!("{:?}", self), // ?
-            CheckErrors::BadTupleFieldName => format!("invalid tuple field name"), // Returning the tuple would be helpful, but it requires re-structuring the code
+            CheckErrors::BadTupleFieldName => format!("invalid tuple field name"),
             CheckErrors::ExpectedTuple(type_signature) => format!("expecting tuple, found '{}'", type_signature),
             CheckErrors::NoSuchTupleField(field_name, tuple_signature) => format!("cannot find field '{}' in tuple '{}'", field_name, tuple_signature),
             CheckErrors::BadTupleConstruction => format!("invalid tuple syntax, expecting list of pair"),
@@ -167,7 +165,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::DefineFunctionBadSignature => format!("invalid function definition"),
             CheckErrors::BadFunctionName => format!("invalid function name"),
             CheckErrors::BadMapTypeDefinition => format!("invalid map definition"), 
-            CheckErrors::PublicFunctionMustReturnBool(found_type) => format!("public functions must return an expression of type 'bool', found '{}'", found_type), // todo(@ludo) - I'm confused
+            CheckErrors::PublicFunctionMustReturnResponse(found_type) => format!("public functions must return an expression of type 'response', found '{}'", found_type),
             CheckErrors::DefineVariableBadSignature => format!("invalid variable definition"),
             CheckErrors::ReturnTypesMustMatch(type_1, type_2) => format!("detected two execution paths, returning two different expression types (got '{}' and '{}')", type_1, type_2),
             CheckErrors::NoSuchContract(contract_name) => format!("use of unresolved contract '{}'", contract_name),
@@ -177,8 +175,8 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),
             CheckErrors::GetBlockInfoExpectPropertyName => format!("missing property name for block info introspection"),
             CheckErrors::NameAlreadyUsed(name) => format!("defining '{}' conflicts with previous value", name),
-            CheckErrors::NonFunctionApplication => format!("{:?}", self),
-            CheckErrors::ExpectedListApplication => format!("{:?}", self),
+            CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
+            CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
             CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),
             CheckErrors::MaxContextDepthReached => format!("reached depth limit"),
@@ -190,8 +188,10 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TooManyExpressions => format!("reached limit of expressions"),
             CheckErrors::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{}", function_name),
             CheckErrors::UnknownFunction(function_name) => format!("use of unresolved function '{}'", function_name),
-            CheckErrors::NotImplemented => format!("use of unimplemented feature"),
-            CheckErrors::WriteAttemptedInReadOnly => format!("{:?}", self),
+            CheckErrors::WriteAttemptedInReadOnly => format!("expecting read-only statements, detected a writing operation"),
+            CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure | CheckErrors::NotImplemented => {
+                format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
+            },
         }
     }
 
