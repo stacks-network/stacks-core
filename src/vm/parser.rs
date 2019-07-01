@@ -307,7 +307,7 @@ mod test {
     #[test]
     fn test_parse_let_expression() {
 
-        // Add comment about indentation
+        // This test includes some assertions ont the spans of each atom / atom_value / list, which makes indentation important.
         let input = 
 r#"z (let ((x 1) (y 2))
     (+ x ;; "comments section?"
