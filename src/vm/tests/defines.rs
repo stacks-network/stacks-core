@@ -152,6 +152,35 @@ fn test_bad_variables() {
 }
 
 #[test]
+fn test_variable_shadowing() {
+    let test0 =
+        "(let ((cursor 1) (cursor 2)) cursor)";
+    let test1 =
+        r#"
+        (let ((cursor 1))
+            (let ((cursor 2))
+                cursor))
+        "#;
+    let test2 =
+        r#"
+        (define (cursor) 0)
+        (let ((cursor 1))
+            cursor)
+        "#;
+    let test3 =
+        r#"
+        (define (cursor) 0)
+        (define (set-cursor (cursor int))
+            cursor)
+        "#;
+
+    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test0).unwrap_err());
+    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test1).unwrap_err());
+    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test2).unwrap_err());
+    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test3).unwrap_err());
+}
+
+#[test]
 fn test_define_parse_panic() {
     let tests = "(define () 1)";
     let expected = UncheckedError::InvalidArguments("Must supply atleast a name argument to define a function".to_string());
