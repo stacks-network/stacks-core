@@ -114,6 +114,8 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
             TxSender => TypeSignature::new_atom(AtomTypeIdentifier::PrincipalType),
             BlockHeight => TypeSignature::new_atom(AtomTypeIdentifier::IntType),
             BurnBlockHeight => TypeSignature::new_atom(AtomTypeIdentifier::IntType),
+            NativeNone => TypeSignature::new_atom(AtomTypeIdentifier::OptionalType(
+                Box::new(no_type()))),
         };
         Some(var_type)
     } else {

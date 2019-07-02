@@ -6,7 +6,7 @@ use vm::checker::errors::CheckErrors;
 use vm::checker::type_check;
 use vm::contexts::{OwnedEnvironment};
 use vm::database::{ContractDatabaseConnection};
-use vm::types::{Value, PrincipalData};
+use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier};
 
 mod contracts;
 
@@ -136,6 +136,7 @@ fn test_eqs() {
     let bad = [
         "(eq? 1 2 'false)",
         "(eq? 1 2 3 (list 2))",
+        "(eq? (some 1) (some 'true))",
         "(list (list 1 2) (list 'true) (list 5 1 7))",
         "(list 1 2 3 'true 'false 4 5 6)",
         "(map mod (list 1 2 3 4 5))",
@@ -232,6 +233,24 @@ fn test_tuples() {
 }
 
 #[test]
+fn test_empty_tuple_should_fail() {
+    let contract_src = r#"
+        (define (set-cursor (value (tuple)))
+            value)
+    "#;
+
+    let mut contract = parse(contract_src).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    assert!(match &res.err {
+        &CheckErrors::BadSyntaxBinding => true,
+        _ => false
+    });
+}
+
+#[test]
 fn test_define() {
     let good = ["(define (foo (x int) (y int)) (+ x y))
                      (define (bar (x int) (y bool)) (if y (+ 1 x) 0))
@@ -287,6 +306,55 @@ fn test_factorial() {
 }
 
 #[test]
+fn test_options() {
+    let contract = "
+         (define (foo (id (optional int)))
+           (+ 1 (default-to 1 id)))
+         (define (bar (x int))
+           (if (> 0 x)
+               (some x)
+               none))
+         (+ (foo none)
+            (foo (bar 1))
+            (foo (bar 0)))
+         ";
+
+    let mut contract = parse(contract).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+
+    let contract = "
+         (define (foo (id (optional bool)))
+           (if (default-to 'false id)
+               1
+               0))
+         (define (bar (x int))
+           (if (> 0 x)
+               (some x)
+               none))
+         (+ (foo (bar 1)) 1)
+         ";
+
+    let mut contract = parse(contract).unwrap();
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    assert!(
+        match type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err().err {
+            CheckErrors::TypeError(t1, t2) => {
+                t1 == TypeSignature::Atom(AtomTypeIdentifier::OptionalType(
+                    Box::new(TypeSignature::Atom(AtomTypeIdentifier::BoolType)))) &&
+                t2 == TypeSignature::Atom(AtomTypeIdentifier::OptionalType(
+                    Box::new(TypeSignature::Atom(AtomTypeIdentifier::IntType))))
+            },
+            _ => false
+        });
+
+}
+
+#[test]
 fn test_set_int_variable() {
     let contract_src = r#"
         (define-data-var cursor int 0)
@@ -331,10 +399,10 @@ fn test_set_bool_variable() {
 #[test]
 fn test_set_tuple_variable() {
     let contract_src = r#"
-        (define-data-var cursor (tuple ((k1 int) (v1 int))) (tuple (k1 1) (v1 1)))
+        (define-data-var cursor (tuple (k1 int) (v1 int)) (tuple (k1 1) (v1 1)))
         (define (get-cursor)
             (fetch-var cursor))
-        (define (set-cursor (value (tuple ((k1 int) (v1 int)))))
+        (define (set-cursor (value (tuple (k1 int) (v1 int))))
             (if (set-var! cursor value)
                 value
                 (get-cursor)))
@@ -600,8 +668,8 @@ fn test_define_constant_shadowed_by_argument_should_fail() {
 #[test]
 fn test_tuple_map() {
     let t = "(define-map tuples ((name int)) 
-                            ((contents (tuple ((name (buff 5))
-                                               (owner (buff 5)))))))
+                            ((contents (tuple (name (buff 5))
+                                              (owner (buff 5))))))
 
          (define (add-tuple (name int) (content (buff 5)))
            (insert-entry! tuples (tuple (name name))
