@@ -173,7 +173,7 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
 
         checker.contract_context.check_name_used(var_name)?;
 
-        if out_context.variable_types.contains_key(var_name) { {
+        if out_context.variable_types.contains_key(var_name) {
             return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.to_string())))
         }
 
