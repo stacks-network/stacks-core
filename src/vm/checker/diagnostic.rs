@@ -11,12 +11,6 @@ pub enum Level {
     Hint,
 }
 
-impl fmt::Display for Level {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
 pub trait DiagnosableError {
     fn context(&self) -> Option<String>;
     fn message(&self) -> String;
@@ -43,19 +37,11 @@ impl Diagnostic {
             suggestion: error.suggestion(),
         }
     }
-
-    pub fn to_json(&self) -> String {
-        format!("{}", serde_json::to_string_pretty(&self).unwrap())
-    }
-
-    pub fn to_text(&self) -> String {
-        format!("{}", self)
-    }
 }
 
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.level)?;
+        write!(f, "{:?}", self.level)?;
         if let Some(span) = &self.span {
             write!(f, " (line {}, column {})", span.start_line, span.start_column)?;
         }
