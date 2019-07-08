@@ -195,10 +195,6 @@ impl DiagnosableError for CheckErrors {
         }
     }
 
-    fn context(&self) -> Option<String> {
-        None
-    }
-
     fn suggestion(&self) -> Option<String> {
         match &self {
             CheckErrors::BadSyntaxBinding => Some(format!("binding syntax example: ((supply int) (ttl int))")),

@@ -147,9 +147,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             
             let mut db = db_conn.begin_save_point();
             let mut ast = friendly_expect(parse(&content), "Failed to parse program");
-            let mut contract_analysis = friendly_expect(
-                type_check(&":transient:", &mut ast, &mut db, false),
-                "Type check error.");
+            let contract_analysis = type_check(&":transient:", &mut ast, &mut db, false).unwrap_or_else(|e| {
+                println!("{}", &e.diagnostic);
+                process::exit(1);
+            });
 
             match args.last() {
                 Some(s) if s == "--output_analysis" => {
