@@ -21,3 +21,6 @@ pub fn type_check(contract_name: &str, contract: &mut [SymbolicExpression],
     }
     Ok(contract_analysis)
 }
+
+#[cfg(test)]
+mod tests;
