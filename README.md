@@ -3,13 +3,18 @@
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![Slack](https://img.shields.io/badge/join-slack-e32072.svg?style=flat)](http://slack.blockstack.org/)
 
-This package provides the reference implementation of a [Blockstack](https://blockstack.org) node, as well as tools and scripts for deploying it.
+This repo provides the packaged reference implementation of a [Blockstack](https://blockstack.org) node, as well as tools and scripts for deploying it. Use the following table to learn more about Blockstack:
 
-Stacks blockchain v1 is implemented in the blockstack-core master branch (this branch).
+| Blockstack Topic/Tech | Where to learn more more |
+|---------------------------------|------------------------------------------------------------------------------|
+| Stacks blockchain v1 | [master branch](https://github.com/blockstack/blockstack-core/tree/mast) |
+| Stacks blockchain v2 | [develop branch](https://github.com/blockstack/blockstack-core/tree/develop) |
+| Clarity smart contract language (preview) | [develop branch](https://github.com/blockstack/blockstack-core/tree/develop) |
+| Use the package | [our core docs](https://docs.blockstack.org/core/naming/introduction.html) |
+| Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html) |
+| Use a Blockstack App | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
+| Blockstack the company | [our website](https://blockstack.com) |
 
-Stacks blockchain v2 is actively developed in the blockcstack-core [develop branch](https://github.com/blockstack/blockstack-core/tree/develop).
-
-If you want to use Blockstack applications, we recommend you start with our [end user documentation](https://docs.blockstack.org/browser/browser-introduction.html). If you want to make applications with Blockstack, we recommend you start with [our developer documentation](https://docs.blockstack.org/browser/hello-blockstack.html).
 
 ### Interested in the Clarity Smart Contracting language?
 
