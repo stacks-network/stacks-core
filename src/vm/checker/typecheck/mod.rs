@@ -294,7 +294,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     fn type_check_define_map(&mut self, map_expression: &[SymbolicExpression],
                                  _context: &TypingContext) -> CheckResult<(String, (TypeSignature, TypeSignature))> {
         if map_expression.len() != 4 {
-            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, map_expression.len() - 2)))
+            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, map_expression.len() - 1)))
         }
 
         self.type_map.set_type(&map_expression[0], no_type())?;

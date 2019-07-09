@@ -159,7 +159,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NoSuchTupleField(field_name, tuple_signature) => format!("cannot find field '{}' in tuple '{}'", field_name, tuple_signature),
             CheckErrors::BadTupleConstruction => format!("invalid tuple syntax, expecting list of pair"),
             CheckErrors::TupleExpectsPairs => format!("invalid tuple syntax, expecting pair"),
-            CheckErrors::NoSuchVariable(var_name) => format!("variable '{}' unknown", var_name),
+            CheckErrors::NoSuchVariable(var_name) => format!("use of unresolved persisted variable '{}'", var_name),
             CheckErrors::BadMapName => format!("invalid map name"),
             CheckErrors::NoSuchMap(map_name) => format!("use of unresolved map '{}'", map_name),
             CheckErrors::DefineFunctionBadSignature => format!("invalid function definition"),
@@ -199,6 +199,7 @@ impl DiagnosableError for CheckErrors {
         match &self {
             CheckErrors::BadSyntaxBinding => Some(format!("binding syntax example: ((supply int) (ttl int))")),
             CheckErrors::BadLetSyntax => Some(format!("'let' syntax example: (let ((supply 1000) (ttl 60)) <next-expression>)")),
+            CheckErrors::NoSuchBlockInfoProperty(_) => Some(format!("properties available: time, header-hash, burnchain-header-hash, vrf-seed")),
             _ => None
         }
     }
