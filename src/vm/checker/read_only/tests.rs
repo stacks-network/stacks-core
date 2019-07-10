@@ -48,6 +48,11 @@ fn test_simple_read_only_violations() {
          (define-read-only (get-balance)
             (fetch-entry tokens ((account (update-balance-and-get-tx-sender)))))",
         "(define-map tokens ((account principal)) ((balance int)))
+         (define-read-only (not-reading-only)
+            (let ((x 1))
+              (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10)))
+              x))",
+        "(define-map tokens ((account principal)) ((balance int)))
          (define (func1) (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10))))
          (define-read-only (not-reading-only)
             (fold func1 (list 1 2 3) 1))"];
