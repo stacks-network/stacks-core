@@ -67,7 +67,7 @@ explains the conventions used to encode Stacks messages as a sequence of bytes.
 All Stacks network messages are composed of _scalars_, _byte buffers_ of fixed
 length, _vectors_ of variable length, and _typed containers_ of variable length.
 
-A scalar is a number represnted by 1, 2, 4, or 8 bytes, and is unsigned.
+A scalar is a number represented by 1, 2, 4, or 8 bytes, and is unsigned.
 Scalars requiring 2, 4, and 8 bytes are encoded in network byte order (i.e. big-endian).
 
 Byte buffers have known length and are transmitted as-is.
@@ -123,7 +123,7 @@ Consider the following instantiation of an `ExampleMessage` on a little-endian
 machine (such as an Intel x86):
 
 ```
-pub msg = ExampleMessage {
+let msg = ExampleMessage {
    a: 0x80,
    b: 0x9091,
    c: 0xa0a1a2a3,
@@ -172,7 +172,7 @@ cc dd                            # msg.payload_list[0].aa, where msg.payload_lis
 
 ### Byte Buffer Types
 
-THe following byte buffers are used within Stacks peer messsages:
+The following byte buffers are used within Stacks peer messsages:
 
 ```
 pub struct MessageSignature([u8; 80]);
@@ -197,7 +197,7 @@ make neighbor selections:
 
 1. Encode the secp256k1 signature as a DER-encoded byte string
 2. Set `MessageSignature[0]` to be the length fo the DER-encoded string
-3. Copy the DER-encoded string to `MessageSignature[1..79]`
+3. Copy the DER-encoded string to `MessageSignature[1..80]`
 
 Any high-address unused bytes beyond the length of the DER-encoded string
 will be ignored.
@@ -292,7 +292,7 @@ All Stacks messages have three components:
 * A fixed-length **preamble** which describes some metadata about the peer's view of the
   network.
 
-* A variable-length but bound-sized **relayer** vector which describes the order of peers that
+* A variable-length but bound-sized **relayers** vector which describes the order of peers that
   relayed a message.
 
 * A variable-length **payload**, which encodes a specific peer message as a
@@ -323,7 +323,7 @@ pub struct Preamble {
     ///   0x15000001 -- this is "testnet"
     pub network_id: u32,
 
-    /// A 4-byte scalar to encode the message sequence number.  A peer will
+    /// A 4-byte scalar to encode the message sequence number. A peer will
     /// maintain a sequence number for each neighbor it talks to, and will
     /// increment it each time it sends a new message (wrapping around if
     /// necessary).
@@ -375,7 +375,8 @@ pub enum StacksMessageType {
     Microblocks(MicroblocksData),
     Transaction(StacksTransaction),
     Nack(NackData),
-    Ping
+    Ping,
+    Pong
 }
 ```
 
@@ -402,7 +403,7 @@ pub struct HandshakeData {
     /// This peer's public key
     pub node_public_key: Secp256k1PublicKey,
 
-    /// Burn chain block height at which this key will expire
+    /// Burn chain block height at which this handshake will expire
     pub expire_block_height: u64
 }
 ```
@@ -625,6 +626,13 @@ Type identifier: 13
 
 Structure: [empty]
 
+**Pong**
+
+Type identifier: 14
+
+Structure: [empty]
+
+
 ## Protocol Description
 
 This section describes the algorithms that make up the Stacks peer-to-peer
@@ -642,11 +650,11 @@ All messages are signed with the node's session private key using ECDSA on the
 secp256k1 curve.  To sign a `StacksMessage`, a peer uses the following algorithm:
 
 1. Serialize the `payload` to a byte string.
-2. Set the `payload_len` field to the length of the `payload` byte string
-3. Set the `seq` field in the `preamble` to be the number of messages sent to
+2. Set the `preamble.payload_len` field to the length of the `payload` byte string
+3. Set the `preamble.seq` field to be the number of messages sent to
    this peer so far.
 4. Set the `preamble.signature` field to all 0's
-5. Serialize the `premable` to a byte string.
+5. Serialize the `preamble` to a byte string.
 6. Calculate the SHA256 over the `preamble` and `payload` byte strings
 7. Calculate the (variable-length) secp256k1 signature from the SHA256
 8. Encode the secp256k1 signature as a DER byte string
@@ -1014,7 +1022,7 @@ When relaying data, the relaying peer must re-sign the message preamble and upda
 sequence number to match each recipient peer's expectations on what the signature 
 and message sequence will be.  In addition, the relaying peer appends the
 upstream peer's message signature and previous sequence number in the
-message's `relayer` vector.  In doing so, the recipient peers learn about the
+message's `relayers` vector.  In doing so, the recipient peers learn about the
 _path_ that a message took through the peer network.  This information will be
 used over time to promote message route diversity (see below).
 
@@ -1049,7 +1057,7 @@ violates the protocol by advertising their `SERVICE_RELAY` bit and not
 updating the `relayers` vector should be blacklisted by downstream
 peers.
 
-A peer must not forward messages with invalid `relayer` vectors.  At a minimum,
+A peer must not forward messages with invalid `relayers` vectors.  At a minimum,
 the peer should authenticate the upstream peer's signature on the last entry of
 the `relayers` vector.  If the message is invalid, then the message must not be
 forwarded (and the sender may be throttled).  In addition, 
