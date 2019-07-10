@@ -376,3 +376,17 @@ fn test_bad_lets() {
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));
 }
+
+#[test]
+fn test_lets() {
+    let tests = [
+        "(let ((a 1) (b 2)) (+ a b))",
+        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (set-var! cursor a) (set-var! cursor (+ b (fetch-var cursor))) (fetch-var cursor))"];
+
+    let expectations = [
+        Value::Int(3),
+        Value::Int(3)];
+
+    tests.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation.clone(), execute(program)));
+}

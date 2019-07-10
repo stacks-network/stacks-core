@@ -321,8 +321,8 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1 => body
-    if args.len() != 2 {
-        return Err(UncheckedError::InvalidArguments("Wrong number of arguments to let (expect 2)".to_string()).into())
+    if args.len() < 2 {
+        return Err(UncheckedError::InvalidArguments("Wrong number of arguments to let (expect at least 2)".to_string()).into())
     }
     // create a new context.
     let mut inner_context = context.extend()?;
@@ -343,8 +343,16 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
             inner_context.variables.insert(binding_name, binding_value);
         }
 
-        // evaluate the let-body
-        eval(&args[1], env, &inner_context)
+        // evaluate the let-bodies
+        let mut results = Vec::new();
+        for body in args[1..args.len()].iter() {
+            results.push(eval(&body, env, &inner_context));
+        }
+
+        match results.pop() {
+            Some(result) => result,
+            None => Err(UncheckedError::InvalidArguments("Must pass at least 1 body to (let ...)".to_string()).into())
+        }
     } else {
         Err(UncheckedError::InvalidArguments("Passed non-list as second argument to let expression.".to_string()).into())
     }
