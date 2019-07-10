@@ -2,14 +2,14 @@
 (define (get-balance (account principal))
   (default-to 0 (get balance (fetch-entry tokens (tuple (account account))))))
 
-(define (token-credit! (account principal) (tokens int))
-  (if (<= tokens 0)
+(define (token-credit! (account principal) (amount int))
+  (if (<= amount 0)
       (err "must move positive balance")
       (let ((current-amount (get-balance account)))
         (begin
           (set-entry! tokens (tuple (account account))
-                      (tuple (balance (+ tokens current-amount))))
-          (ok tokens)))))
+                      (tuple (balance (+ amount current-amount))))
+          (ok amount)))))
 
 (define-public (token-transfer (to principal) (amount int))
   (let ((balance (get-balance tx-sender)))

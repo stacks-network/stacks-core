@@ -48,6 +48,10 @@ fn handle_define_function(signature: &[SymbolicExpression],
 
     let arguments = parse_name_type_pairs(arg_symbols)?;
 
+    for (argument, _) in arguments.iter() {
+        check_legal_define(argument, &env.contract_context)?;
+    }
+
     let function = DefinedFunction::new(
         arguments,
         expression.clone(),

@@ -25,8 +25,8 @@ fn test_simple_let() {
 
     let program = "(let ((x 1) (y 2))
                      (+ x
-                        (let ((x 3))
-                             (+ x y))
+                        (let ((z 3))
+                             (+ z y))
                         x))";
 
     if let Ok(parsed_program) = parse(&program) {
