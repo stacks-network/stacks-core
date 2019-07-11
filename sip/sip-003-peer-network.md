@@ -403,7 +403,7 @@ pub struct HandshakeData {
     /// This peer's public key
     pub node_public_key: Secp256k1PublicKey,
 
-    /// Burn chain block height at which this handshake will expire
+    /// Burn chain block height at which this key will expire
     pub expire_block_height: u64
 }
 ```
