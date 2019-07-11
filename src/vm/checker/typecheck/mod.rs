@@ -151,8 +151,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Some(ref mut tracker) => {
                 let new_type = match tracker.take() {
                     Some(expected_type) => {
-                        TypeSignature::most_admissive(expected_type.clone(), return_type.clone())
-                            .map_err(|_| CheckError::new(CheckErrors::ReturnTypesMustMatch(expected_type, return_type)))?
+                        TypeSignature::most_admissive(expected_type, return_type)
+                            .map_err(|(expected_type, return_type)| CheckError::new(CheckErrors::ReturnTypesMustMatch(expected_type, return_type)))?
                     },
                     None => return_type
                 };
@@ -274,8 +274,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     if let Some(Some(ref expected)) = self.function_return_tracker {
                         // check if the computed return type matches the return type
                         //   of any early exits from the call graph (e.g., (expects ...) calls)
-                        TypeSignature::most_admissive(expected.clone(), return_type.clone())
-                            .map_err(|_| CheckError::new(CheckErrors::ReturnTypesMustMatch(expected.clone(), return_type)))?
+                        TypeSignature::most_admissive(expected, return_type)
+                            .map_err(|(expected, return_type)| CheckError::new(CheckErrors::ReturnTypesMustMatch(expected, return_type)))?
                     } else {
                         return_type
                     }
