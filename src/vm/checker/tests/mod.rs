@@ -72,7 +72,7 @@ fn test_could_not_determine_response_ok_type() {
     let mut analysis_db = analysis_conn.begin_save_point();
 
     let err = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting a response of type 'ok'"));
+    assert!(format!("{}", err.diagnostic).contains("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"));
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn test_could_not_determine_response_err_type() {
     let mut analysis_db = analysis_conn.begin_save_point();
 
     let err = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting a response of type 'err'"));
+    assert!(format!("{}", err.diagnostic).contains("attempted to obtain 'err' value from response, but 'err' type is indeterminate"));
 }
 
 #[test]

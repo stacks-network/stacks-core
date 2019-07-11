@@ -274,7 +274,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     if let Some(Some(ref expected)) = self.function_return_tracker {
                         // check if the computed return type matches the return type
                         //   of any early exits from the call graph (e.g., (expects ...) calls)
-                        TypeSignature::most_admissive(expected, return_type)
+                        TypeSignature::most_admissive(expected.clone(), return_type)
                             .map_err(|(expected, return_type)| CheckError::new(CheckErrors::ReturnTypesMustMatch(expected, return_type)))?
                     } else {
                         return_type
