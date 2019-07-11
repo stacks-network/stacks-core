@@ -272,7 +272,7 @@ const LET_API: SpecialAPI = SpecialAPI {
     signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
     description: "The `let` function accepts a list of `variable name` and `expression` pairs,
 evaluating each expression and _binding_ it to the corresponding variable name. The _context_
-created by this set of bindings is used for evaluating its body expressions and return the value of the last such expression.",
+created by this set of bindings is used for evaluating its body expressions. The let expression returns the value of the last such body expression.",
     example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20"
 };
 

@@ -344,15 +344,16 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
         }
 
         // evaluate the let-bodies
-        let mut results = Vec::new();
-        for body in args[1..args.len()].iter() {
-            results.push(eval(&body, env, &inner_context));
+
+        let mut last_result = None;
+        for body in args[1..].iter() {
+            let body_result = eval(&body, env, &inner_context)?;
+            last_result.replace(body_result);
         }
 
-        match results.pop() {
-            Some(result) => result,
-            None => Err(UncheckedError::InvalidArguments("Must pass at least 1 body to (let ...)".to_string()).into())
-        }
+        last_result
+            .ok_or(UncheckedError::InvalidArguments("Must pass at least 1 body to (let ...)".to_string()).into())
+
     } else {
         Err(UncheckedError::InvalidArguments("Passed non-list as second argument to let expression.".to_string()).into())
     }
