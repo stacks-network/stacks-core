@@ -30,7 +30,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
 
     let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(
         env.contract_context.name.clone()));
-    let mut nested_env = env.nest_with_sender(contract_principal);
+    let mut nested_env = env.nest_with_caller(contract_principal);
 
     nested_env.execute_contract(
         contract_name, function_name, &rest_args)

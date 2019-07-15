@@ -18,7 +18,7 @@ macro_rules! define_enum {
 }
 
 define_enum!(NativeVariables {
-    TxOrigin, TxSender, BlockHeight, BurnBlockHeight, NativeNone
+    ContractCaller, TxSender, BlockHeight, BurnBlockHeight, NativeNone
 });
 
 impl NativeVariables {
@@ -26,7 +26,7 @@ impl NativeVariables {
         use vm::variables::NativeVariables::*;
         match name {
             "tx-sender" => Some(TxSender),
-            "tx-origin" => Some(TxOrigin),
+            "contract-caller" => Some(ContractCaller),
             "block-height" => Some(BlockHeight),
             "burn-block-height" => Some(BurnBlockHeight),
             "none" => Some(NativeNone),
@@ -47,8 +47,8 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &Envir
                     .ok_or(RuntimeErrorType::NoSenderInContext)?;
                 Ok(Some(sender))
             },
-            NativeVariables::TxOrigin => {
-                let sender = env.origin.clone()
+            NativeVariables::ContractCaller => {
+                let sender = env.caller.clone()
                     .ok_or(RuntimeErrorType::NoSenderInContext)?;
                 Ok(Some(sender))
             },

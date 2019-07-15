@@ -21,7 +21,7 @@ pub struct Environment <'a,'b> {
     pub contract_context: &'a ContractContext,
     pub call_stack: &'a mut CallStack,
     pub sender: Option<Value>,
-    pub origin: Option<Value>
+    pub caller: Option<Value>
 }
 
 pub struct OwnedEnvironment <'a> {
@@ -97,17 +97,17 @@ impl <'a, 'b> Environment <'a, 'b> {
     pub fn new(global_context: &'a mut GlobalContext<'b>,
                contract_context: &'a ContractContext,
                call_stack: &'a mut CallStack,
-               sender: Option<Value>, origin: Option<Value>) -> Environment<'a,'b> {
+               sender: Option<Value>, caller: Option<Value>) -> Environment<'a,'b> {
         if let Some(ref sender) = sender {
             if let Value::Principal(_) = sender {
             } else {
                 panic!("Tried to construct environment with bad sender {}", sender);
             }
         }
-        if let Some(ref origin) = origin {
-            if let Value::Principal(_) = origin {
+        if let Some(ref caller) = caller {
+            if let Value::Principal(_) = caller {
             } else {
-                panic!("Tried to construct environment with bad origin {}", origin);
+                panic!("Tried to construct environment with bad caller {}", caller);
             }
         }
 
@@ -116,18 +116,18 @@ impl <'a, 'b> Environment <'a, 'b> {
             contract_context,
             call_stack,
             sender,
-            origin
+            caller
         }
     }
 
-    pub fn nest_with_sender <'c> (&'c mut self, sender: Value) -> Environment<'c, 'b> {
+    pub fn nest_as_principal <'c> (&'c mut self, sender: Value) -> Environment<'c, 'b> {
         Environment::new(self.global_context, self.contract_context, self.call_stack,
-                         Some(sender), self.origin.clone())
+                         Some(sender.clone()), Some(sender))
     }
 
-    pub fn nest_with_origin <'c> (&'c mut self, origin: Value) -> Environment<'c, 'b> {
+    pub fn nest_with_caller <'c> (&'c mut self, caller: Value) -> Environment<'c, 'b> {
         Environment::new(self.global_context, self.contract_context, self.call_stack,
-                         self.sender.clone(), Some(origin))
+                         self.sender.clone(), Some(caller))
     }
 
     pub fn eval_read_only(&mut self, contract_name: &str, program: &str) -> Result<Value> {
@@ -140,7 +140,7 @@ impl <'a, 'b> Environment <'a, 'b> {
         let mut nested_context = self.global_context.nest();
         let result = {
             let mut nested_env = Environment::new(&mut nested_context, &contract.contract_context,
-                                                  self.call_stack, self.sender.clone(), self.origin.clone());
+                                                  self.call_stack, self.sender.clone(), self.caller.clone());
             let local_context = LocalContext::new();
             eval(&parsed[0], &mut nested_env, &local_context)
         };
@@ -201,7 +201,7 @@ impl <'a, 'b> Environment <'a, 'b> {
 
         let result = {
             let mut nested_env = Environment::new(&mut nested_context, next_contract_context, self.call_stack,
-                                                  self.sender.clone(), self.origin.clone());
+                                                  self.sender.clone(), self.caller.clone());
 
             function.execute_apply(args, &mut nested_env)
         };

@@ -50,20 +50,22 @@ const BLOCK_HEIGHT: KeywordAPI = KeywordAPI {
     example: "(> block-height 1000) ;; returns true if the current block-height has passed 1000 blocks."
 };
 
+const CONTRACT_CALLER_KEYWORD: KeywordAPI = KeywordAPI {
+    name: "contract-caller",
+    output_type: "principal",
+    description: "Returns the caller of the current contract context. If this contract is the first one called by a signed transaction, 
+the caller will be equal to the signing principal. If `contract-call!` was used to invoke a function from a new contract, `contract-caller`
+changes to the _calling_ contract's principal. If `as-contract` is used to change the `tx-sender` context, `contract-caller` _also_ changes
+to the same contract principal.",
+    example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
+};
+
 const TX_SENDER_KEYWORD: KeywordAPI = KeywordAPI {
     name: "tx-sender",
     output_type: "principal",
-    description: "Returns the current context's transaction sender. This is either the principal that signed and submitted the transaction,
-or if `contract-call!` was used to change the tx-sender context, it will be that contract's principal.",
-    example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
-};
-
-const TX_ORIGIN_KEYWORD: KeywordAPI = KeywordAPI {
-    name: "tx-origin",
-    output_type: "principal",
     description: "Returns the original sender of the current transaction, or if `as-contract` was called to modify the sending context, it returns that
-contract principal. This can be used to determine the original signer of a transaction, even if tx-sender has changed due to inter-contract calls.",
-    example: "(print tx-origin) ;; Will print out a Stacks address of the transaction sender",
+contract principal.",
+    example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
 };
 
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
@@ -812,7 +814,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
 fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
     match variable {
         NativeVariables::TxSender => Some(TX_SENDER_KEYWORD.clone()),
-        NativeVariables::TxOrigin => Some(TX_ORIGIN_KEYWORD.clone()),
+        NativeVariables::ContractCaller => Some(CONTRACT_CALLER_KEYWORD.clone()),
         NativeVariables::NativeNone => Some(NONE_KEYWORD.clone()),
         NativeVariables::BlockHeight => Some(BLOCK_HEIGHT.clone()),
         NativeVariables::BurnBlockHeight => None,

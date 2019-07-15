@@ -112,7 +112,7 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
         use vm::variables::NativeVariables::*;
         let var_type = match variable {
             TxSender => TypeSignature::new_atom(AtomTypeIdentifier::PrincipalType),
-            TxOrigin => TypeSignature::new_atom(AtomTypeIdentifier::PrincipalType),
+            ContractCaller => TypeSignature::new_atom(AtomTypeIdentifier::PrincipalType),
             BlockHeight => TypeSignature::new_atom(AtomTypeIdentifier::IntType),
             BurnBlockHeight => TypeSignature::new_atom(AtomTypeIdentifier::IntType),
             NativeNone => TypeSignature::new_atom(AtomTypeIdentifier::OptionalType(

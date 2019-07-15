@@ -18,16 +18,15 @@ const SIMPLE_TOKENS: &str =
                                        (tuple (balance (+ tokens current-amount))))
                     (ok 0)))))
          (define-public (token-transfer (to principal) (amount int))
-          (let ((balance (get-balance tx-origin)))
+          (let ((balance (get-balance tx-sender)))
              (if (or (> amount balance) (<= amount 0))
                  (err 2)
                  (begin
-                   (set-entry! tokens (tuple (account tx-origin))
+                   (set-entry! tokens (tuple (account tx-sender))
                                       (tuple (balance (- balance amount))))
                    (token-credit! to amount)))))                     
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 300))";
-
 
 const SIMPLE_NAMES: &str =
         "(define burn-address 'SP000000000000000000002Q6VF78)
