@@ -13,7 +13,7 @@ This repo provides the packaged reference implementation of a [Blockstack](https
 | Use the package | [our core docs](https://docs.blockstack.org/core/naming/introduction.html) |
 | Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html) |
 | Use a Blockstack App | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
-| Blockstack the company | [our website](https://blockstack.com) |
+| Blockstack the company | [our website](https://blockstack.org) |
 
 
 ### Interested in the Clarity Smart Contracting language?
