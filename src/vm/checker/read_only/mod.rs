@@ -16,7 +16,8 @@ mod tests;
 
 pub struct ReadOnlyChecker <'a, 'b> {
     db: &'a AnalysisDatabase<'b>,
-    defined_functions: HashMap<String, bool>
+    top_level_definitions: HashMap<String, &'a SymbolicExpression>,
+    checked_functions: HashMap<String, bool>
 }
 
 
@@ -24,7 +25,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     
 
     fn new(db: &'a AnalysisDatabase<'b>) -> ReadOnlyChecker<'a, 'b> {
-        ReadOnlyChecker { db, defined_functions: HashMap::new() }
+        ReadOnlyChecker { db, top_level_definitions: HashMap::new(), checked_functions: HashMap::new() }
     }
 
     pub fn check_contract(contract: &[SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<()> {
@@ -36,6 +37,63 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
 
 
         Ok(())
+    }
+
+    fn identify_top_level_definitions(contract: &'a [SymbolicExpression]) -> (HashMap<String, &SymbolicExpression>, Vec<&SymbolicExpression>) {
+        let mut tlds = HashMap::new(); 
+        let mut exprs = vec![];
+        for exp in contract {
+            if let Some(expression) = exp.match_list() {
+                if let Some((function_name, function_args)) = expression.split_first() {
+                    if let Some(definition_type) = function_name.match_atom() {
+                        match definition_type.as_str() {
+                            "define-map" | "define-data-var" => {
+                                if function_args.len() > 1 {
+                                    if let Some(function_name) = function_args[0].match_atom() {
+                                        tlds.insert(function_name.clone(), exp);
+                                        exprs.insert(0, exp);
+                                    }
+                                }
+                            }
+                            "define" => {
+                                if function_args.len() > 1 {
+                                    if let Some(list) = function_args[0].match_list() {
+                                        if let Some(function_name) = list[0].match_atom() {
+                                            tlds.insert(function_name.clone(), exp);
+                                            exprs.push(exp);
+                                        }   
+                                    } else {
+                                        if let Some(function_name) = function_args[0].match_atom() {
+                                            tlds.insert(function_name.clone(), exp);
+                                            exprs.insert(0, exp);
+                                        }   
+                                    }
+                                }
+                            }
+                            "define-public" | "define-read-only" => {
+                                if function_args.len() > 1 {
+                                    if let Some(list) = function_args[0].match_list() {
+                                        if let Some(function_name) = list[0].match_atom() {
+                                            tlds.insert(function_name.clone(), exp);
+                                            exprs.push(exp);
+                                        }   
+                                    } else {
+                                        if let Some(function_name) = function_args[0].match_atom() {
+                                            tlds.insert(function_name.clone(), exp);
+                                            exprs.push(exp);
+                                        }   
+                                    }
+                                }
+                            }
+                            _ => {
+                                exprs.push(exp);
+                            }
+                        }
+                    } 
+                } 
+            }
+        }
+        (tlds, exprs)
     }
 
     fn check_define_function(&self, expr: &[SymbolicExpression]) -> CheckResult<(String, bool)> {
@@ -66,7 +124,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                             } else {
                                 if function_args[0].match_list().is_some() {
                                     let (f_name, is_read_only) = self.check_define_function(expression)?;
-                                    self.defined_functions.insert(f_name, is_read_only);
+                                    self.checked_functions.insert(f_name, is_read_only);
                                     Ok(())
                                 } else {
                                     // this is trying to define a variable -- doesn't need to be checked.
@@ -76,7 +134,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                         },
                         "define-public" => {
                             let (f_name, is_read_only) = self.check_define_function(expression)?;
-                            self.defined_functions.insert(f_name, is_read_only);
+                            self.checked_functions.insert(f_name, is_read_only);
                             Ok(())
                         },
                         "define-read-only" => {
@@ -84,7 +142,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                             if !is_read_only {
                                 Err(CheckError::new(CheckErrors::WriteAttemptedInReadOnly))
                             } else {
-                                self.defined_functions.insert(f_name, is_read_only);
+                                self.checked_functions.insert(f_name, is_read_only);
                                 Ok(())
                             }
                         },

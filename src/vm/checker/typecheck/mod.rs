@@ -7,6 +7,7 @@ use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::variables::NativeVariables;
+use std::collections::HashMap;
 
 use super::AnalysisDatabase;
 use self::contexts::{TypeMap, TypingContext, ContractContext};
@@ -50,7 +51,8 @@ pub struct TypeChecker <'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
-    db: &'a AnalysisDatabase<'b>
+    db: &'a AnalysisDatabase<'b>,
+    top_level_definitions: HashMap<String, &'a SymbolicExpression>,
 }
 
 impl FunctionType {
@@ -64,7 +66,7 @@ impl FunctionType {
                     if !expected_type.admits_type(found_type) {
                         return Err(CheckError::new(CheckErrors::TypeError(
                             expected_type.clone(), found_type.clone())))
-                    }                    
+                    }
                 }
                 Ok(())
             },
@@ -142,7 +144,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             db: db,
             contract_context: ContractContext::new(),
             function_return_tracker: None,
-            type_map: TypeMap::new()
+            type_map: TypeMap::new(),
+            top_level_definitions: HashMap::new()
         }
     }
 
@@ -184,6 +187,63 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok(type_checker.contract_context.to_contract_analysis())
     }
 
+    fn identify_top_level_definitions(contract: &'a [SymbolicExpression]) -> (HashMap<String, &SymbolicExpression>, Vec<&SymbolicExpression>) {
+        let mut tlds = HashMap::new(); 
+        let mut exprs = vec![];
+        for exp in contract {
+            if let Some(expression) = exp.match_list() {
+                if let Some((function_name, function_args)) = expression.split_first() {
+                    if let Some(definition_type) = function_name.match_atom() {
+                        match definition_type.as_str() {
+                            "define-map" | "define-data-var" => {
+                                if function_args.len() > 1 {
+                                    if let Some(function_name) = function_args[0].match_atom() {
+                                        println!("1 Registering {:?}", function_name);
+                                        tlds.insert(function_name.clone(), exp);
+                                        exprs.insert(0, exp);
+                                    }
+                                }
+                            }
+                            "define" => {
+                                if function_args.len() > 1 {
+                                    if let Some(list) = function_args[0].match_list() {
+                                        if let Some(function_name) = list[0].match_atom() {
+                                            println!("2 Registering {:?}", function_name);
+                                            tlds.insert(function_name.clone(), exp);
+                                            exprs.push(exp);
+                                        }   
+                                    } else {
+                                        if let Some(function_name) = function_args[0].match_atom() {
+                                            println!("3 Registering {:?}", function_name);
+                                            tlds.insert(function_name.clone(), exp);
+                                            exprs.insert(0, exp);
+                                        }   
+                                    }
+                                }
+                            }
+                            "define-public" | "define-read-only" => {
+                                if let Some(list) = function_args[0].match_list() {
+                                    if let Some(function_name) = list[0].match_atom() {
+                                        tlds.insert(function_name.clone(), exp);
+                                        exprs.push(exp);
+                                    }   
+                                } else {
+                                    if let Some(function_name) = function_args[0].match_atom() {
+                                        tlds.insert(function_name.clone(), exp);
+                                        exprs.insert(0, exp);
+                                    }   
+                                }
+                            }
+                            _ => {
+                                exprs.push(exp);
+                            }
+                        }
+                    } 
+                } 
+            }
+        }
+        (tlds, exprs)
+    }
 
     // Type checks an expression, recursively type checking its subexpressions
     pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
