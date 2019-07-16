@@ -168,7 +168,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 
-    pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<ContractAnalysis> {
+    pub fn type_check_contract(contract: &[SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<ContractAnalysis> {
         let mut type_checker = TypeChecker::new(analysis_db);
         let mut local_context = TypingContext::new();
 

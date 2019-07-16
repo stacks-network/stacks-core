@@ -27,7 +27,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         ReadOnlyChecker { db, defined_functions: HashMap::new() }
     }
 
-    pub fn check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<()> {
+    pub fn check_contract(contract: &[SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<()> {
         let mut checker = ReadOnlyChecker::new(analysis_db);
 
         for exp in contract {
