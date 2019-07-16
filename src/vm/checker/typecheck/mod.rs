@@ -175,14 +175,43 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         let mut type_checker = TypeChecker::new(analysis_db);
         let mut local_context = TypingContext::new();
 
-        for exp in contract {
-            if type_checker.try_type_check_define(exp, &mut local_context)?
-                .is_none() {
-                    // was _not_ a define statement, so handle like a normal statement.
-                    type_checker.type_check(exp, &local_context)?;
-                }
-        }
+        let (tlds, mut exprs) = TypeChecker::identify_top_level_definitions(contract);
+        type_checker.top_level_definitions = tlds;
+        let mut cycle_tracker = 0;
 
+        while exprs.len() > 0 {
+            if cycle_tracker > exprs.len() {
+                return Err(CheckError::new(CheckErrors::InterdependencyDetected));
+            }
+
+            let exp = exprs.remove(0);
+            let res = type_checker.try_type_check_define(exp, &mut local_context);
+            if let Err(err) = res {
+                if let CheckErrors::UncheckedDependency = err.err {
+                    cycle_tracker += 1;
+                    exprs.push(exp);
+                } else {
+                    return Err(err);
+                }
+            } else {
+                if res.unwrap().is_none() {
+                    // was _not_ a define statement, so handle like a normal statement.
+                    let res = type_checker.type_check(exp, &local_context);
+                    if let Err(err) = res {
+                        if let CheckErrors::UncheckedDependency = err.err {
+                            cycle_tracker += 1;
+                            exprs.push(exp);
+                        } else {
+                            return Err(err);
+                        }
+                    } else {
+                        cycle_tracker = 0;
+                    }
+                } else {
+                    cycle_tracker = 0;
+                }
+            }
+        }
 
         Ok(type_checker.contract_context.to_contract_analysis())
     }
@@ -396,9 +425,13 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             if let Some(type_result) = self.try_native_function_check(function_name, args, context) {
                 type_result
             } else {
-                let function_type = self.get_function_type(function_name)
-                    .ok_or(CheckError::new(CheckErrors::UnknownFunction(function_name.clone())))?;
-                self.type_check_function_type(&function_type, args, context)
+                if self.top_level_definitions.contains_key(function_name) {
+                    let function_type = self.get_function_type(function_name)
+                        .ok_or(CheckError::new(CheckErrors::UncheckedDependency))?;
+                    self.type_check_function_type(&function_type, args, context)
+                } else {
+                    Err(CheckError::new(CheckErrors::UnknownFunction(function_name.clone())))
+                }
             }
         } else {
             Err(CheckError::new(CheckErrors::NonFunctionApplication))

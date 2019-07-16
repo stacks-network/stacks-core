@@ -75,6 +75,9 @@ pub enum CheckErrors {
     IllegalOrUnknownFunctionApplication(String),
     UnknownFunction(String),
 
+    UncheckedDependency,
+    InterdependencyDetected,
+
     NotImplemented,
     WriteAttemptedInReadOnly,
 }

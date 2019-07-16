@@ -31,10 +31,29 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     pub fn check_contract(contract: &[SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<()> {
         let mut checker = ReadOnlyChecker::new(analysis_db);
 
-        for exp in contract {
-            checker.check_reads_only_valid(exp)?;
-        }
+        let (tlds, mut exprs) = ReadOnlyChecker::identify_top_level_definitions(contract);
+        checker.top_level_definitions = tlds;
+        let mut cycle_tracker = 0;
 
+        while exprs.len() > 0 {
+            if cycle_tracker > exprs.len() {
+                return Err(CheckError::new(CheckErrors::InterdependencyDetected));
+            }
+
+            let exp = exprs.remove(0);
+            let res = checker.check_reads_only_valid(exp);
+
+            if let Err(err) = res {
+                if let CheckErrors::UncheckedDependency = err.err {
+                    cycle_tracker += 1;
+                    exprs.push(exp);
+                } else {
+                    return Err(err);
+                }
+            } else {
+                cycle_tracker = 0;
+            }
+        }
 
         Ok(())
     }
@@ -319,9 +338,13 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         if let Some(result) = self.try_native_function_check(function_name, args) {
             result
         } else {
-            let is_function_read_only = self.defined_functions.get(function_name)
-                .ok_or(CheckError::new(CheckErrors::UnknownFunction(function_name.clone())))?;
-            self.are_all_read_only(*is_function_read_only, args)
+            if self.top_level_definitions.contains_key(function_name) {
+                let is_function_read_only = self.checked_functions.get(function_name)
+                    .ok_or(CheckError::new(CheckErrors::UncheckedDependency))?;
+                self.are_all_read_only(*is_function_read_only, args)
+            } else {
+                Err(CheckError::new(CheckErrors::UnknownFunction(function_name.clone())))
+            }
         }
     }
 
