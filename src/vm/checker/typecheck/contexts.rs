@@ -121,7 +121,8 @@ impl TypeMap {
 
     pub fn set_type(&mut self, expr: &SymbolicExpression, type_sig: TypeSignature) -> CheckResult<()> {
         if self.map.insert(expr.id, type_sig).is_some() {
-            Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
+            // Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
+            Ok(())
         } else {
             Ok(())
         }
