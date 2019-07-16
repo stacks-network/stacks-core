@@ -519,3 +519,37 @@ fn test_factorial_contract() {
     }
 
 }
+
+
+#[test]
+fn test_contract_with_unordered_functions() {
+    let contract = r#"
+        (define (wrapped-kv-del (key int))
+            (kv-del key))
+        (define (kv-del (key int))
+            (begin
+                (delete-entry! kv-store ((key key)))
+                key))
+        (define-map kv-store ((key int)) ((value int)))
+        (begin (set-entry! kv-store ((key 1)) ((value 1))))
+    "#;
+
+    let mut conn = ContractDatabaseConnection::memory().unwrap();
+    let mut owned_env = OwnedEnvironment::new(&mut conn);
+
+    let mut env = owned_env.get_exec_environment(None);
+
+    env.initialize_contract("simple-store", contract).unwrap();
+
+    let args = symbols_from_values(vec![]);
+    env.sender = Some(Value::Principal(PrincipalData::StandardPrincipal
+                                       (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])));
+
+    let expected = [Value::Int(1)];
+    for expected_result in &expected {
+        assert_eq!(
+            env.eval_read_only("simple-store",
+                               "(wrapped-kv-del 1)").unwrap(),
+            *expected_result);
+    }
+}

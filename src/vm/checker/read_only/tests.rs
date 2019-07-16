@@ -93,3 +93,45 @@ fn test_contract_call_read_only_violations() {
     type_check(&"ok_caller", &mut ok_caller, &mut db, true).unwrap();
 
 }
+
+#[test]
+fn test_contract_call_define_ordering() {
+    let contract = r#"
+        (define (wrapped-kv-del (key int))
+            (kv-del key))
+        (define (kv-del (key int))
+            (begin
+                (delete-entry! kv-store ((key key)))
+                key))
+        (define-map kv-store ((key int)) ((value int)))
+    "#;
+
+    let mut contract = parse(contract).unwrap();
+
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
+
+    type_check(&"contract", &mut contract, &mut db, true).unwrap();
+}
+
+
+#[test]
+fn test_interdependencies_detection() {
+    let contract = r#"
+        (define (func-1)
+            (func-2))
+        (define (func-2)
+            (func-3))
+        (define (func-3)
+            (func-1))
+    "#;
+
+    let mut contract = parse(contract).unwrap();
+
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
+
+    let err = type_check(&"contract", &mut contract, &mut db, true).unwrap_err();
+    assert_eq!(err.err, CheckErrors::InterdependencyDetected,);
+}
+
