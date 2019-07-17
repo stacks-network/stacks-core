@@ -21,7 +21,7 @@ materialized view of all of the state the transaction log represents in order to
 validate a subsequent transaction.  The Stacks blockchain in particular not only
 maintains a materialized view of the state of every fork, but also requires
 miners to cryptographically commit to that view whenever they mine a block.
-This document describes a **Merklized Adaptive Radix Trie** (MARF), an
+This document describes a **Merklized Adaptive Radix Forest** (MARF), an
 authenticated index data structure structure for efficiently encoding a 
 cryptographic commitment to blockchain state.
 
@@ -207,7 +207,7 @@ shares part of the suffix, the common bytes will be split off of the existing
 leaf to form a `node4`, whose two immediate children are the two leaves.  Each
 of the two leaves will store the path bytes that are unqiue to them.  For
 example, consider this trie with a root `node256` and a single leaf, located at
-path `aabbccddeeff99887766` and having value hash `123456`:
+path `aabbccddeeff00112233` and having value hash `123456`:
 
 ```
 node256
@@ -215,7 +215,7 @@ node256
         (aa)leaf[path=bbccddeeff00112233]=123456
 ```
 
-If the peer inserts the value hash `98765` at path `aabbccddeeff00112233`, the
+If the peer inserts the value hash `98765` at path `aabbccddeeff998877`, the
 single leaf's path will be split into a shared prefix and two distinct suffixes,
 as follows:
 
@@ -390,7 +390,7 @@ node256                                 | /* back-pointer to N - 10 */
                                        (99)leaf[path=887766]=98765
 ```
 
-By maintaing trie child pointers this way, the act of looking up a path to a value in
+By maintaining trie child pointers this way, the act of looking up a path to a value in
 a previous block is a matter of following back-pointers to previous tries.
 Another data structure described in the next section, called a _fork table_,
 makes resolving back-pointers to nodes inexpensive.
@@ -798,7 +798,7 @@ path character as the index.
 
 The disk pointer stored in a child pointer, as well as the storage mechanism for
 mapping hashes of values (leaves in the MARF) to the values themselves, are both
-unspecified by the concensus rules.  Any mechanism or representation is
+unspecified by the consensus rules.  Any mechanism or representation is
 permitted.
 
 ## Implementation
