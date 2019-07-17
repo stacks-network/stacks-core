@@ -87,7 +87,7 @@ pub fn native_okay(args: &[Value]) -> Result<Value> {
     }
 
     let input = &args[0];
-    Ok(Value::Response(ResponseData { committed: true, data: Box::new(input.clone()) }))
+    Ok(Value::okay(input.clone()))
 }
 
 pub fn native_error(args: &[Value]) -> Result<Value> {
@@ -96,7 +96,7 @@ pub fn native_error(args: &[Value]) -> Result<Value> {
     }
 
     let input = &args[0];
-    Ok(Value::Response(ResponseData { committed: false, data: Box::new(input.clone()) }))
+    Ok(Value::error(input.clone()))
 }
 
 pub fn native_default_to(args: &[Value]) -> Result<Value> {

@@ -5,6 +5,7 @@ mod arithmetic;
 mod boolean;
 mod database;
 mod options;
+mod assets;
 
 use vm::errors::{UncheckedError, RuntimeErrorType, InterpreterResult as Result};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};

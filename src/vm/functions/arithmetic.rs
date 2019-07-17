@@ -55,7 +55,7 @@ pub fn native_add(args: &[Value]) -> Result<Value> {
     if let Some(result) = checked_result{
         Ok(Value::Int(result))
     } else {
-        Err(RuntimeErrorType::Arithmetic("Overflowed in addition".to_string()).into())
+        Err(RuntimeErrorType::ArithmeticOverflow.into())
     }
 }
 
@@ -93,7 +93,7 @@ pub fn native_mul(args: &[Value]) -> Result<Value> {
     if let Some(result) = checked_result{
         Ok(Value::Int(result))
     } else {
-        Err(RuntimeErrorType::Arithmetic("Overflowed in multiplication".to_string()).into())
+        Err(RuntimeErrorType::ArithmeticOverflow.into())
     }
 }
 
@@ -153,7 +153,7 @@ pub fn native_pow(args: &[Value]) -> Result<Value> {
         if let Some(result) = checked_result{
             Ok(Value::Int(result))
         } else {
-            Err(RuntimeErrorType::Arithmetic("Overflowed in power".to_string()).into())
+            Err(RuntimeErrorType::ArithmeticOverflow.into())
         }
     } else {
         Err(UncheckedError::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()).into())

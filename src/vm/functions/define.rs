@@ -11,6 +11,8 @@ pub enum DefineResult {
     Function(String, DefinedFunction),
     Map(String, TupleTypeSignature, TupleTypeSignature),
     PersistedVariable(String, TypeSignature, Value),
+    FungibleToken(String),
+    NonFungibleAsset(String, TypeSignature),
     NoDefine
 }
 
@@ -72,6 +74,26 @@ fn handle_define_persisted_variable(variable_name: &SymbolicExpression, value_ty
     Ok(DefineResult::PersistedVariable(variable_str.clone(), value_type_signature, value))
 }
 
+fn handle_define_nonfungible_asset(asset_name: &SymbolicExpression, key_type: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
+    let asset_name = asset_name.match_atom()
+        .ok_or(UncheckedError::InvalidArguments("Non-name argument to define-asset".to_string()))?;
+
+    check_legal_define(&asset_name, &env.contract_context)?;
+
+    let key_type_signature = TypeSignature::parse_type_repr(key_type, true)?;
+
+    Ok(DefineResult::NonFungibleAsset(asset_name.clone(), key_type_signature))
+}
+
+fn handle_define_fungible_token(asset_name: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
+    let asset_name = asset_name.match_atom()
+        .ok_or(UncheckedError::InvalidArguments("Non-name argument to define-token".to_string()))?;
+
+    check_legal_define(&asset_name, &env.contract_context)?;
+
+    Ok(DefineResult::FungibleToken(asset_name.clone()))
+}
+
 fn handle_define_map(map_name: &SymbolicExpression,
                      key_type: &SymbolicExpression,
                      value_type: &SymbolicExpression,
@@ -117,6 +139,20 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                             .ok_or(UncheckedError::InvalidArguments(
                                 "Illegal operation: attempted to define-read-only a non-function.".to_string()))?;
                         handle_define_function(&function_signature, &elements[2], env, DefineType::ReadOnly)
+                    }
+                },
+                "define-asset" => {
+                    if elements.len() != 3 {
+                        Err(UncheckedError::InvalidArguments("(define-asset ...) must be supplied with a name and a type for the asset".to_string()).into())
+                    } else {
+                        handle_define_nonfungible_asset(&elements[0], &elements[1], env)
+                    }
+                },
+                "define-token" => {
+                    if elements.len() != 2 {
+                        Err(UncheckedError::InvalidArguments("(define-token ...) must be supplied with a name".to_string()).into())
+                    } else {
+                        handle_define_fungible_token(&elements[0], env)
                     }
                 },
                 "define-public" => {

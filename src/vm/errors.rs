@@ -27,6 +27,7 @@ pub enum UncheckedError {
     NonPublicFunction(String),
     TypeError(String, Value),
     InvalidArguments(String),
+    IncorrectArgumentCount(usize, usize),
     UndefinedVariable(String),
     UndefinedFunction(String),
     UndefinedContract(String),
@@ -37,6 +38,7 @@ pub enum UncheckedError {
     ReservedName(String),
     ContractAlreadyExists(String),
     VariableDefinedMultipleTimes(String),
+    InvalidArgumentExpectedName,
     ContractMustReturnBoolean,
     WriteFromReadOnlyContext,
 }
@@ -58,6 +60,7 @@ pub enum InterpreterError {
 #[derive(Debug, PartialEq)]
 pub enum RuntimeErrorType {
     Arithmetic(String),
+    ArithmeticOverflow,
     ParseError(String),
     MaxStackDepthReached,
     MaxContextDepthReached,
@@ -68,6 +71,8 @@ pub enum RuntimeErrorType {
     ValueTooLarge,
     InvalidTypeDescription,
     BadBlockHeight(String),
+    TransferNonPositiveAmount,
+    NoSuchAsset,
     NotImplemented,
     NoSenderInContext
 }
@@ -153,6 +158,14 @@ impl Into<Value> for ShortReturnType {
         match self {
             ShortReturnType::ExpectedValue(v) => v
         }
+    }
+}
+
+pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), UncheckedError> {
+    if args.len() != expected {
+        Err(UncheckedError::IncorrectArgumentCount(expected, args.len()))
+    } else {
+        Ok(())
     }
 }
 

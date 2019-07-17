@@ -186,6 +186,9 @@ fn eval_all (expressions: &[SymbolicExpression],
                     last_executed = Some(eval(exp, &mut env, &context)?);
                 }
                 global_context.commit();
+            },
+            _ => {
+                Err(RuntimeErrorType::NotImplemented)?;
             }
         }
     }

@@ -216,6 +216,18 @@ impl Value {
             data: None })
     }
 
+    pub fn okay(data: Value) -> Value {
+        Value::Response(ResponseData { 
+            committed: true,
+            data: Box::new(data) })
+    }
+
+    pub fn error(data: Value) -> Value {
+        Value::Response(ResponseData { 
+            committed: false,
+            data: Box::new(data) })
+    }
+
     pub fn static_none() -> &'static Value {
         &NONE
     }

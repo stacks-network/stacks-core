@@ -5,7 +5,7 @@ use rusqlite::types::ToSql;
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
-use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, NONE};
+use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, PrincipalData, NONE};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -13,6 +13,13 @@ use burnchains::BurnchainHeaderHash;
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in Smart Contract VM.";
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
+
+const DATA_MAP_TYPE: u8 = 0;
+const VARIABLE_TYPE: u8 = 1;
+const TOKEN_TYPE: u8    = 2;
+const ASSET_TYPE: u8    = 3;
+
+const DUMMY_KEY: &str = "";
 
 pub struct ContractDatabaseConnection {
     conn: Connection
@@ -55,10 +62,23 @@ impl ContractDatabaseConnection {
                        value_type TEXT NOT NULL,
                        UNIQUE(contract_name, variable_name))",
                             NO_PARAMS);
+        contract_db.execute("CREATE TABLE IF NOT EXISTS assets_table
+                      (asset_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
+                       contract_name TEXT NOT NULL,
+                       asset_name TEXT NOT NULL,
+                       key_type TEXT NOT NULL,
+                       UNIQUE(contract_name, asset_name))",
+                            NO_PARAMS);
+        contract_db.execute("CREATE TABLE IF NOT EXISTS tokens_table
+                      (asset_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
+                       contract_name TEXT NOT NULL,
+                       token_name TEXT NOT NULL,
+                       UNIQUE(contract_name, token_name))",
+                            NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS data_table
                       (data_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
-                       map_identifier INTEGER NOT NULL,
-                       variable_identifier INTEGER NOT NULL,
+                       data_type INTEGER NOT NULL,
+                       data_store_identifier INTEGER NOT NULL,
                        key TEXT NOT NULL,
                        value TEXT)",
                             NO_PARAMS);
@@ -261,11 +281,13 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(format!("{:?}", variable_descriptor.value_type), value).into())
         }
 
-        let params: [&ToSql; 2] = [&variable_descriptor.variable_identifier,
-                                   &value.serialize()];
+        let params: [&ToSql; 4] = [&VARIABLE_TYPE,
+                                   &variable_descriptor.variable_identifier,
+                                   &value.serialize(),
+                                   &DUMMY_KEY];
 
         self.execute(
-            "INSERT INTO data_table (variable_identifier, value, key, map_identifier) VALUES (?, ?, '', 0)",
+            "INSERT INTO data_table (data_type, data_store_identifier, value, key) VALUES (?, ?, ?, ?)",
             &params);
 
         return Ok(Value::Bool(true))
@@ -274,11 +296,11 @@ impl <'a> ContractDatabase <'a> {
     pub fn lookup_variable(&self, contract_name: &str, variable_name: &str) -> Result<Option<Value>>  {
         let variable_descriptor = self.load_variable(contract_name, variable_name)?;
 
-        let params: [&ToSql; 1] = [&variable_descriptor.variable_identifier];
+        let params: [&ToSql; 2] = [&VARIABLE_TYPE, &variable_descriptor.variable_identifier];
 
         let sql_result: Option<Option<String>> = 
             self.query_row(
-                "SELECT value FROM data_table WHERE variable_identifier = ? ORDER BY data_identifier DESC LIMIT 1",
+                "SELECT value FROM data_table WHERE data_type = ? AND data_store_identifier = ? ORDER BY data_identifier DESC LIMIT 1",
                 &params,
                 |row| {
                     row.get(0)
@@ -292,6 +314,24 @@ impl <'a> ContractDatabase <'a> {
                 }
             }
         }
+    }
+
+    // Asset functions return error if no such token exists
+    pub fn get_token_balance(&mut self, contract_name: &str, token_name: &str, principal: &PrincipalData) -> Result<i128> {
+        panic!("Not implemented");
+    }
+    pub fn set_token_balance(&mut self, contract_name: &str, token_name: &str, principal: &PrincipalData, balance: i128) -> Result<()> {
+        panic!("Not implemented");
+    }
+    pub fn get_asset_key_type(&mut self, contract_name: &str, asset_name: &str) -> Result<TypeSignature> {
+        panic!("Not implemented");
+    }
+    // Return errors if no such asset name, or asset is not the correct type.
+    pub fn set_asset_owner(&mut self, contract_name: &str, asset_name: &str, asset: &Value, principal: &PrincipalData) -> Result<()> {
+        panic!("Not implemented");
+    }
+    pub fn get_asset_owner(&mut self, contract_name: &str, asset_name: &str, asset: &Value) -> Result<PrincipalData> {
+        panic!("Not implemented");
     }
 
     pub fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {
@@ -308,12 +348,13 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), (*key).clone()).into())
         }
 
-        let params: [&ToSql; 2] = [&map_descriptor.map_identifier,
+        let params: [&ToSql; 3] = [&DATA_MAP_TYPE,
+                                   &map_descriptor.map_identifier,
                                    &key.serialize()];
 
         let sql_result: Option<Option<String>> = 
             self.query_row(
-                "SELECT value FROM data_table WHERE map_identifier = ? AND key = ? ORDER BY data_identifier DESC LIMIT 1",
+                "SELECT value FROM data_table WHERE data_type = ? AND data_store_identifier = ? AND key = ? ORDER BY data_identifier DESC LIMIT 1",
                 &params,
                 |row| {
                     row.get(0)
@@ -330,26 +371,14 @@ impl <'a> ContractDatabase <'a> {
     }
 
     pub fn set_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {
-        let map_descriptor = self.load_map(contract_name, map_name)?;
-        if !map_descriptor.key_type.admits(&key) {
-            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), key).into())
-        }
-        if !map_descriptor.value_type.admits(&value) {
-            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.value_type), value).into())
-        }
-
-        let params: [&ToSql; 3] = [&map_descriptor.map_identifier,
-                                   &key.serialize(),
-                                   &Some(value.serialize())];
-
-        self.execute(
-            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
-            &params);
-
-        return Ok(Value::Bool(true))
+        self.inner_set_entry(contract_name, map_name, key, value, false)
     }
 
     pub fn insert_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {
+        self.inner_set_entry(contract_name, map_name, key, value, true)
+    }
+    
+    fn inner_set_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value, return_if_exists: bool) -> Result<Value> {
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(&key) {
             return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), key).into())
@@ -358,17 +387,17 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.value_type), value).into())
         }
 
-        let exists = self.fetch_entry(contract_name, map_name, &key)?.is_some();
-        if exists {
+        if return_if_exists && self.fetch_entry(contract_name, map_name, &key)?.is_some() {
             return Ok(Value::Bool(false))
         }
 
-        let params: [&ToSql; 3] = [&map_descriptor.map_identifier,
+        let params: [&ToSql; 4] = [&DATA_MAP_TYPE,
+                                   &map_descriptor.map_identifier,
                                    &key.serialize(),
                                    &Some(value.serialize())];
 
         self.execute(
-            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
+            "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
             &params);
 
         return Ok(Value::Bool(true))
@@ -386,12 +415,13 @@ impl <'a> ContractDatabase <'a> {
         }
 
         let none: Option<String> = None;
-        let params: [&ToSql; 3] = [&map_descriptor.map_identifier,
+        let params: [&ToSql; 4] = [&DATA_MAP_TYPE,
+                                   &map_descriptor.map_identifier,
                                    &key.serialize(),
                                    &none];
 
         self.execute(
-            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
+            "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
             &params);
 
         return Ok(Value::Bool(exists))
