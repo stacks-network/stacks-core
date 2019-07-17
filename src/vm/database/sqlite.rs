@@ -29,6 +29,15 @@ pub struct ContractDatabase <'a> {
     savepoint: Savepoint<'a>
 }
 
+pub struct SqliteToken {
+    token_identifier: i64
+}
+
+pub struct SqliteAsset {
+    asset_identifier: i64,
+    key_type: TypeSignature
+}
+
 pub struct SqliteDataMap {
     map_identifier: i64,
     key_type: TypeSignature,
@@ -70,7 +79,7 @@ impl ContractDatabaseConnection {
                        UNIQUE(contract_name, asset_name))",
                             NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS tokens_table
-                      (asset_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
+                      (token_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
                        contract_name TEXT NOT NULL,
                        token_name TEXT NOT NULL,
                        UNIQUE(contract_name, token_name))",
@@ -316,22 +325,127 @@ impl <'a> ContractDatabase <'a> {
         }
     }
 
+    fn load_token(&self, contract_name: &str, token_name: &str) -> Result<SqliteToken> {
+        println!("load_token({}, {})", contract_name, token_name);
+
+        let identifier =
+            self.query_row(
+                "SELECT token_identifier FROM tokens_table WHERE contract_name = ? AND token_name = ?",
+                &[contract_name, token_name],
+                |row| row.get(0))
+            .ok_or(UncheckedError::UndefinedAssetType(token_name.to_string()))?;
+
+        Ok(SqliteToken {
+            token_identifier: identifier })
+    }
+
+    fn load_asset(&self, contract_name: &str, asset_name: &str) -> Result<SqliteAsset> {
+        let (identifier, key_type) : (_, String) =
+            self.query_row(
+                "SELECT asset_identifier, key_type FROM assets_table WHERE contract_name = ? AND asset_name = ?",
+                &[contract_name, asset_name],
+                |row| (row.get(0), row.get(1)))
+            .ok_or(UncheckedError::UndefinedAssetType(asset_name.to_string()))?;
+
+        Ok(SqliteAsset {
+            asset_identifier: identifier,
+            key_type: TypeSignature::deserialize(&key_type) })
+    }
+
+    pub fn create_token(&mut self, contract_name: &str, token_name: &str) {
+        println!("create_token({}, {})", contract_name, token_name);
+        self.execute("INSERT INTO tokens_table (contract_name, token_name) VALUES (?, ?)",
+                     &[contract_name, token_name]);
+    }
+
+    pub fn create_asset(&mut self, contract_name: &str, asset_name: &str, key_type: &TypeSignature) {
+
+        self.execute("INSERT INTO assets_table (contract_name, asset_name, key_type) VALUES (?, ?, ?)",
+                     &[contract_name, asset_name, &key_type.serialize()]);
+    }
+
     // Asset functions return error if no such token exists
     pub fn get_token_balance(&mut self, contract_name: &str, token_name: &str, principal: &PrincipalData) -> Result<i128> {
-        panic!("Not implemented");
+        let descriptor = self.load_token(contract_name, token_name)?;
+
+        let params: [&ToSql; 3] = [&TOKEN_TYPE,
+                                   &descriptor.token_identifier,
+                                   &principal.serialize()];
+        let sql_result: Option<i128> = 
+            self.query_row(
+                "SELECT value FROM data_table WHERE data_type = ? AND data_store_identifier = ? AND key = ? ORDER BY data_identifier DESC LIMIT 1",
+                &params,
+                |row| row.get(0));
+        match sql_result {
+            None => Ok(0),
+            Some(balance) => Ok(balance)
+        }
     }
+
     pub fn set_token_balance(&mut self, contract_name: &str, token_name: &str, principal: &PrincipalData, balance: i128) -> Result<()> {
-        panic!("Not implemented");
+        let descriptor = self.load_token(contract_name, token_name)?;
+
+        let params: [&ToSql; 4] = [&TOKEN_TYPE,
+                                   &descriptor.token_identifier,
+                                   &principal.serialize(),
+                                   &balance];
+        self.execute(
+            "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
+            &params);
+
+        Ok(())
     }
+
     pub fn get_asset_key_type(&mut self, contract_name: &str, asset_name: &str) -> Result<TypeSignature> {
-        panic!("Not implemented");
+        let descriptor = self.load_asset(contract_name, asset_name)?;
+        Ok(descriptor.key_type)
     }
+
     // Return errors if no such asset name, or asset is not the correct type.
     pub fn set_asset_owner(&mut self, contract_name: &str, asset_name: &str, asset: &Value, principal: &PrincipalData) -> Result<()> {
-        panic!("Not implemented");
+        let descriptor = self.load_asset(contract_name, asset_name)?;
+        if !descriptor.key_type.admits(asset) {
+            return Err(UncheckedError::TypeError(descriptor.key_type.to_string(), (*asset).clone()).into())
+        }
+
+        let params: [&ToSql; 4] = [&ASSET_TYPE,
+                                   &descriptor.asset_identifier,
+                                   &asset.serialize(),
+                                   &principal.serialize()];
+        self.execute(
+            "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
+            &params);
+
+        Ok(())
     }
+
     pub fn get_asset_owner(&mut self, contract_name: &str, asset_name: &str, asset: &Value) -> Result<PrincipalData> {
-        panic!("Not implemented");
+        let descriptor = self.load_asset(contract_name, asset_name)?;
+        if !descriptor.key_type.admits(asset) {
+            return Err(UncheckedError::TypeError(descriptor.key_type.to_string(), (*asset).clone()).into())
+        }
+
+        let params: [&ToSql; 3] = [&ASSET_TYPE,
+                                   &descriptor.asset_identifier,
+                                   &asset.serialize()];
+        let sql_result: Option<Option<String>> = 
+            self.query_row(
+                "SELECT value FROM data_table WHERE data_type = ? AND data_store_identifier = ? AND key = ? ORDER BY data_identifier DESC LIMIT 1",
+                &params,
+                |row| {
+                    row.get(0)
+                });
+        let deserialized = match sql_result {
+            None => None,
+            Some(sql_result) => {
+                match sql_result {
+                    None => None,
+                    Some(value_data) => Some(PrincipalData::deserialize(&value_data))
+                }
+            }
+        };
+
+        deserialized.ok_or(RuntimeErrorType::NoSuchAsset.into())
     }
 
     pub fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {

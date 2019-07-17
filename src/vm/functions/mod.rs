@@ -74,7 +74,13 @@ define_enum!(NativeFunctions {
     ExpectsErr,
     IsOkay,
     IsNone,
-    Filter
+    Filter,
+    MintAsset,
+    MintToken,
+    TransferAsset,
+    TransferToken,
+    GetTokenBalance,
+    GetAssetOwner,
 });
 
 impl NativeFunctions {
@@ -127,6 +133,12 @@ impl NativeFunctions {
             "is-ok?" => Some(IsOkay),
             "is-none?" => Some(IsNone),
             "filter" => Some(Filter),
+            "get-token-balance" => Some(GetTokenBalance),
+            "get-owner" => Some(GetAssetOwner),
+            "transfer-token!" => Some(TransferToken),
+            "transfer-asset!" => Some(TransferAsset),
+            "mint-asset!" => Some(MintAsset),
+            "mint-token!" => Some(MintToken),
             _ => None
         }
     }
@@ -182,6 +194,12 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ExpectsErr => CallableType::NativeFunction("native_expects_err", &options::native_expects_err),
             IsOkay => CallableType::NativeFunction("native_is_okay", &options::native_is_okay),
             IsNone => CallableType::NativeFunction("native_is_none", &options::native_is_none),
+            MintAsset => CallableType::SpecialFunction("special_mint_asset", &assets::special_mint_asset),
+            MintToken => CallableType::SpecialFunction("special_mint_token", &assets::special_mint_token),
+            TransferAsset => CallableType::SpecialFunction("special_transfer_asset", &assets::special_transfer_asset),
+            TransferToken => CallableType::SpecialFunction("special_transfer_token", &assets::special_transfer_token),
+            GetTokenBalance => CallableType::SpecialFunction("special_get_balance", &assets::special_get_balance),
+            GetAssetOwner => CallableType::SpecialFunction("special_get_owner", &assets::special_get_owner),
         };
         Some(callable)
     } else {

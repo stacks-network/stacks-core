@@ -176,6 +176,12 @@ fn eval_all (expressions: &[SymbolicExpression],
             DefineResult::Map(name, key_type, value_type) => {
                 global_context.database.create_map(&contract_context.name, &name, key_type, value_type);
             },
+            DefineResult::FungibleToken(name) => {
+                global_context.database.create_token(&contract_context.name, &name);
+            },
+            DefineResult::NonFungibleAsset(name, asset_type) => {
+                global_context.database.create_asset(&contract_context.name, &name, &asset_type);
+            },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
                 let mut global_context = GlobalContext::begin_from(&mut global_context.database);
@@ -186,9 +192,6 @@ fn eval_all (expressions: &[SymbolicExpression],
                     last_executed = Some(eval(exp, &mut env, &context)?);
                 }
                 global_context.commit();
-            },
-            _ => {
-                Err(RuntimeErrorType::NotImplemented)?;
             }
         }
     }

@@ -359,6 +359,17 @@ impl fmt::Display for Value {
     }
 }
 
+impl PrincipalData {
+    pub fn deserialize(json: &str) -> PrincipalData {
+        serde_json::from_str(json)
+            .expect("Failed to deserialize vm.PrincipalData")
+    }
+    pub fn serialize(&self) -> String {
+        serde_json::to_string(self)
+            .expect("Failed to serialize vm.PrincipalData")
+    }
+}
+
 impl fmt::Display for PrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

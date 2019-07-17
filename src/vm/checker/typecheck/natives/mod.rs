@@ -347,6 +347,7 @@ impl TypedNativeFunction {
                     vec![TypeSignature::new_atom(AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32)),
                          TypeSignature::new_atom(AtomTypeIdentifier::IntType),],
                     TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
+            GetTokenBalance | GetAssetOwner | TransferToken | TransferAsset | MintAsset | MintToken => panic!("Not implemented"),
             Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),

@@ -808,6 +808,7 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ExpectsErr => make_for_special(&EXPECTS_ERR_API),
         IsOkay => make_for_special(&IS_OK_API),
         IsNone => make_for_special(&IS_NONE_API),
+        GetTokenBalance | GetAssetOwner | TransferToken | TransferAsset | MintAsset | MintToken => panic!("Not implemented"),
     }
 }
 

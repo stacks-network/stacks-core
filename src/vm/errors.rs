@@ -32,6 +32,7 @@ pub enum UncheckedError {
     UndefinedFunction(String),
     UndefinedContract(String),
     UndefinedMap(String),
+    UndefinedAssetType(String),
     TryEvalToFunction,
     RecursionDetected,
     ExpectedListPairs,

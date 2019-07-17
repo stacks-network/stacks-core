@@ -32,7 +32,7 @@ pub fn special_mint_token(args: &[SymbolicExpression],
 
         env.global_context.database.set_token_balance(&env.contract_context.name, token_name, to_principal, final_to_bal)?;
 
-        Ok(Value::okay(Value::Bool(true)))
+        Ok(Value::Bool(true))
     } else {
         Err(UncheckedError::InvalidArguments("mint-token! expects an integer amount and a to principal".to_string()).into())
     }
@@ -72,7 +72,8 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
 }
 
 // Error Codes => 1: from principal is not the current owner of the asset
-//                2: asset does not exist
+//                2: from == to
+//                3: asset does not exist
 pub fn special_transfer_asset(args: &[SymbolicExpression],
                               env: &mut Environment,
                               context: &LocalContext) -> Result<Value> {
@@ -94,9 +95,13 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
     if let (Value::Principal(ref from_principal),
             Value::Principal(ref to_principal)) = (from, to) {
 
+        if from_principal == to_principal {
+            return Ok(Value::error(Value::Int(2)))
+        }
+
         let current_owner = match env.global_context.database.get_asset_owner(&env.contract_context.name, asset_name, &asset) {
             Ok(owner) => Ok(owner),
-            Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => return Ok(Value::error(Value::Int(2))),
+            Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => return Ok(Value::error(Value::Int(3))),
             Err(e) => Err(e)
         }?;
             
@@ -114,6 +119,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
 }
 
 // Error Codes => 1: not enough balance
+//                2: from == to
 pub fn special_transfer_token(args: &[SymbolicExpression],
                               env: &mut Environment,
                               context: &LocalContext) -> Result<Value> {
@@ -131,6 +137,10 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
             Value::Principal(ref to_principal)) = (amount, from, to) {
         if amount <= 0 {
             return Err(RuntimeErrorType::TransferNonPositiveAmount.into())
+        }
+
+        if from_principal == to_principal {
+            return Ok(Value::error(Value::Int(2)))
         }
 
         let from_bal = env.global_context.database.get_token_balance(&env.contract_context.name, token_name, from_principal)?;
@@ -158,7 +168,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
 pub fn special_get_balance(args: &[SymbolicExpression],
                            env: &mut Environment,
                            context: &LocalContext) -> Result<Value> {
-    check_argument_count(4, args)?;
+    check_argument_count(2, args)?;
 
     let token_name = args[0].match_atom()
         .ok_or(UncheckedError::InvalidArgumentExpectedName)?;
@@ -167,9 +177,31 @@ pub fn special_get_balance(args: &[SymbolicExpression],
 
     if let Value::Principal(ref principal) = owner {
         let balance = env.global_context.database.get_token_balance(&env.contract_context.name, token_name, principal)?;
-        Ok(Value::okay(Value::Int(balance)))
+        Ok(Value::Int(balance))
     } else {
         Err(UncheckedError::TypeError(AtomTypeIdentifier::PrincipalType.to_string(), owner).into())
     }
 
+}
+
+pub fn special_get_owner(args: &[SymbolicExpression],
+                         env: &mut Environment,
+                         context: &LocalContext) -> Result<Value> {
+    check_argument_count(2, args)?;
+
+    let asset_name = args[0].match_atom()
+        .ok_or(UncheckedError::InvalidArgumentExpectedName)?;
+
+    let asset = eval(&args[1], env, context)?;
+    let expected_asset_type = env.global_context.database.get_asset_key_type(&env.contract_context.name, asset_name)?;
+
+    if !expected_asset_type.admits(&asset) {
+        return Err(UncheckedError::TypeError(expected_asset_type.to_string(), asset).into())
+    }
+
+    match env.global_context.database.get_asset_owner(&env.contract_context.name, asset_name, &asset) {
+        Ok(owner) => Ok(Value::some(Value::Principal(owner))),
+        Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => Ok(Value::none()),
+        Err(e) => Err(e)
+    }
 }
