@@ -20,6 +20,7 @@
 pub mod address;
 pub mod auth;
 pub mod block;
+pub mod index;
 pub mod transaction;
 
 use std::fmt;
