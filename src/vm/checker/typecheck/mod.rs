@@ -14,7 +14,7 @@ use self::contexts::{TypeMap, TypingContext, ContractContext};
 pub use self::natives::{TypedNativeFunction, SimpleNativeFunction};
 
 pub use self::contexts::ContractAnalysis;
-pub use super::errors::{CheckResult, CheckError, CheckErrors};
+pub use super::errors::{CheckResult, CheckError, CheckErrors, check_argument_count};
 
 
 #[cfg(test)]
@@ -374,9 +374,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     fn type_check_define_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
-        if args.len() != 2 {
-            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
-        }
+        check_argument_count(2, args)?;
         let var_name = args[0].match_atom()
             .ok_or(CheckError::new(CheckErrors::DefineVariableBadSignature))?
             .clone();
@@ -385,25 +383,44 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     fn type_check_define_persisted_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
-        if args.len() != 3 {
-            return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len() - 1)))
-        }
+        check_argument_count(3, args)?;
         let var_name = args[0].match_atom()
             .ok_or(CheckError::new(CheckErrors::DefineVariableBadSignature))?
             .clone();
 
-        let expected_type = match TypeSignature::parse_type_repr(&args[1], true) {
-            Ok(expected_type) => expected_type,
-            _ => return Err(CheckError::new(CheckErrors::DefineVariableBadSignature))
-        };
+        let expected_type = TypeSignature::parse_type_repr(&args[1], true)
+            .or_else(|_| Err(CheckErrors::DefineVariableBadSignature))?;
 
         let value_type = self.type_check(&args[2], context)?;
 
         if !expected_type.admits_type(&value_type) {
-            return Err(CheckError::new(CheckErrors::TypeError(expected_type, value_type.clone())));
+            return Err(CheckError::new(CheckErrors::TypeError(expected_type, value_type)));
         }
 
         Ok((var_name, expected_type))
+    }
+
+    fn type_check_define_token(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<String> {
+        check_argument_count(1, args)?;
+
+        let token_name = args[0].match_atom()
+            .ok_or(CheckErrors::DefineTokenBadSignature)?
+            .clone();
+
+        Ok(token_name)
+    }
+
+    fn type_check_define_asset(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
+        check_argument_count(2, args)?;
+
+        let asset_name = args[0].match_atom()
+            .ok_or(CheckErrors::DefineAssetBadSignature)?
+            .clone();
+
+        let asset_type = TypeSignature::parse_type_repr(&args[1], true)
+            .or_else(|_| Err(CheckErrors::DefineAssetBadSignature))?;
+
+        Ok((asset_name, asset_type))
     }
 
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
@@ -411,7 +428,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         if let Some(ref expression) = expr.match_list() {
             if let Some((function_name, function_args)) = expression.split_first() {
                 if let Some(function_name) = function_name.match_atom() {
-                    match function_name.as_str() {
+                    return match function_name.as_str() {
                         "define" => {
                             if function_args.len() < 1 {
                                 return Err(CheckError::new(CheckErrors::DefineFunctionBadSignature))
@@ -456,23 +473,29 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                         },
                         "define-data-var" => {
                             let (v_name, v_type) = self.type_check_define_persisted_variable(function_args,
-                                                                                   context)?;
+                                                                                             context)?;
                             self.contract_context.add_persisted_variable_type(v_name, v_type)?;
+                            Ok(Some(()))
+                        },
+                        "define-token" => {
+                            let token_name = self.type_check_define_token(function_args, context)?;
+                            self.contract_context.add_token(token_name)?;
+                            Ok(Some(()))
+                        },
+                        "define-asset" => {
+                            let (asset_name, asset_type) = self.type_check_define_asset(function_args, context)?;
+                            self.contract_context.add_asset(asset_name, asset_type)?;
                             Ok(Some(()))
                         },
                         _ => {
                             Ok(None)
                         }
                     }
-                } else {
-                    Ok(None)
                 }
-            } else {
-                Ok(None) // not a define
             }
-        } else {
-            Ok(None) // not a define.
         }
+        // not a define.
+        return Ok(None)
     }
 }
 

@@ -8,6 +8,7 @@ use vm::contexts::{OwnedEnvironment};
 use vm::database::{ContractDatabaseConnection};
 use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier};
 
+mod assets;
 mod contracts;
 
 fn type_check_helper(exp: &SymbolicExpression) -> TypeResult {

@@ -26,6 +26,12 @@ pub enum CheckErrors {
     CheckerImplementationFailure,
     TypeNotAnnotatedFailure,
 
+    // Assets
+    BadAssetName,
+    DefineTokenBadSignature,
+    DefineAssetBadSignature,
+    NoSuchAsset(String),
+
     // tuples
     BadTupleFieldName,
     ExpectedTuple(TypeSignature),
@@ -122,5 +128,19 @@ impl error::Error for CheckError {
         match self.err {
             _ => None
         }
+    }
+}
+
+impl From<CheckErrors> for CheckError {
+    fn from(err: CheckErrors) -> Self {
+        CheckError::new(err)
+    }
+}
+
+pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), CheckError> {
+    if args.len() != expected {
+        Err(CheckErrors::IncorrectArgumentCount(expected, args.len()).into())
+    } else {
+        Ok(())
     }
 }

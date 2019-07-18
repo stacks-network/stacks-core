@@ -1,4 +1,4 @@
-use std::collections::{HashMap, BTreeMap};
+use std::collections::{HashMap, BTreeMap, HashSet, BTreeSet};
 use vm::representations::{SymbolicExpression};
 use vm::types::{TypeSignature};
 
@@ -24,6 +24,8 @@ pub struct ContractAnalysis {
     read_only_function_types: BTreeMap<String, FunctionType>,
     map_types: BTreeMap<String, (TypeSignature, TypeSignature)>,
     persisted_variable_types: BTreeMap<String, TypeSignature>,
+    tokens: BTreeSet<String>,
+    assets: BTreeMap<String, TypeSignature>,
 }
 
 pub struct TypingContext <'a> {
@@ -39,6 +41,8 @@ pub struct ContractContext {
     public_function_types: HashMap<String, FunctionType>,
     read_only_function_types: HashMap<String, FunctionType>,
     persisted_variable_types: HashMap<String, TypeSignature>,
+    tokens: HashSet<String>,
+    assets: HashMap<String, TypeSignature>
 }
 
 
@@ -51,6 +55,8 @@ impl ContractAnalysis {
             variable_types: BTreeMap::new(),
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
+            tokens: BTreeSet::new(),
+            assets: BTreeMap::new()
         }
     }
 
@@ -142,6 +148,8 @@ impl ContractContext {
             read_only_function_types: HashMap::new(),
             map_types: HashMap::new(),
             persisted_variable_types: HashMap::new(),
+            tokens: HashSet::new(),
+            assets: HashMap::new(),
         }
     }
 
@@ -150,6 +158,8 @@ impl ContractContext {
             self.persisted_variable_types.contains_key(name) ||
             self.private_function_types.contains_key(name) ||
             self.public_function_types.contains_key(name) ||
+            self.tokens.contains(name) ||
+            self.assets.contains_key(name) ||
             self.map_types.contains_key(name) {
                 Err(CheckError::new(CheckErrors::NameAlreadyUsed(name.to_string())))
             } else {
@@ -160,6 +170,14 @@ impl ContractContext {
     fn check_function_type(&mut self, f_name: &str) -> CheckResult<()> {
         self.check_name_used(f_name)?;
         Ok(())
+    }
+
+    pub fn token_exists(&self, name: &str) -> bool {
+        self.tokens.contains(name)
+    }
+
+    pub fn get_asset_type(&self, name: &str) -> Option<&TypeSignature> {
+        self.assets.get(name)
     }
 
     pub fn add_public_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
@@ -195,6 +213,18 @@ impl ContractContext {
     pub fn add_persisted_variable_type(&mut self, var_name: String, var_type: TypeSignature) -> CheckResult<()> {
         self.check_name_used(&var_name)?;
         self.persisted_variable_types.insert(var_name, var_type);
+        Ok(())
+    }
+
+    pub fn add_token(&mut self, token_name: String) -> CheckResult<()> {
+        self.check_name_used(&token_name)?;
+        self.tokens.insert(token_name);
+        Ok(())
+    }
+
+    pub fn add_asset(&mut self, asset_name: String, asset_type: TypeSignature) -> CheckResult<()> {
+        self.check_name_used(&asset_name)?;
+        self.assets.insert(asset_name, asset_type);
         Ok(())
     }
 

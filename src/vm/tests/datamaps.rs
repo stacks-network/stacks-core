@@ -583,7 +583,8 @@ fn bad_define_maps() {
         "(define-map lists ((name int)) (contents bool))",
         "(define-map lists ((name int)) contents)"];
     let test_define_args = [
-        "(define-map (lists) ((name int)) contents)",
+        "(define-map (lists) ((name int)) contents)"];
+    let test_define_num_args = [
         "(define-map lists ((name int)) contents 5)"];
 
     let test_bad_type = [
@@ -597,6 +598,13 @@ fn bad_define_maps() {
     for test in test_define_args.iter() {
         assert!(match execute(test) {
             Err(Error::Unchecked(UncheckedError::InvalidArguments(_))) => true,
+            _ => false
+        })
+    }
+
+    for test in test_define_num_args.iter() {
+        assert!(match execute(test) {
+            Err(Error::Unchecked(UncheckedError::IncorrectArgumentCount(_,_))) => true,
             _ => false
         })
     }

@@ -32,7 +32,7 @@ pub fn special_mint_token(args: &[SymbolicExpression],
 
         env.global_context.database.set_token_balance(&env.contract_context.name, token_name, to_principal, final_to_bal)?;
 
-        Ok(Value::Bool(true))
+        Ok(Value::okay(Value::Bool(true)))
     } else {
         Err(UncheckedError::InvalidArguments("mint-token! expects an integer amount and a to principal".to_string()).into())
     }

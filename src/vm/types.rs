@@ -387,6 +387,12 @@ impl fmt::Display for PrincipalData {
     }
 }
 
+impl Into<TypeSignature> for AtomTypeIdentifier {
+    fn into(self) -> TypeSignature {
+        TypeSignature::new_atom(self)
+    }
+}
+
 impl AtomTypeIdentifier {
     pub fn size(&self) -> Result<i128> {
         match self {
