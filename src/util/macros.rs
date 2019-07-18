@@ -17,6 +17,8 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::cell::RefCell;
+
 // is this machine big-endian?
 pub fn is_big_endian() -> bool {
     u32::from_be(0x1Au32) == 0x1Au32
@@ -295,6 +297,39 @@ macro_rules! test_debug {
         {
             use std::env;
             if env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
+                debug!($($arg)*);
+            }
+        }
+    )
+}
+
+// extra-verbose debug statements while testing (can be selectively disabled by certain tests)
+thread_local!(static TRACE: RefCell<bool> = RefCell::new(true));
+
+pub fn set_trace(trace: bool) -> () {
+    TRACE.with(move |t| {
+        *t.borrow_mut() = trace;
+    });
+}
+
+pub fn is_trace() -> bool {
+    let mut trace = false;
+    TRACE.with(|t| {
+        trace = *t.borrow();
+    });
+    trace
+}
+
+// disables trace!() at compile-time
+pub const TRACE_ENABLED : bool = false;
+
+#[allow(unused_macros)]
+macro_rules! trace {
+    ($($arg:tt)*) => (
+        #[cfg(test)]
+        {
+            use std::env;
+            if ::util::macros::TRACE_ENABLED && !::util::macros::is_trace() && env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
                 debug!($($arg)*);
             }
         }
