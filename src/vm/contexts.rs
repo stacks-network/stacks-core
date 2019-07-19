@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 
 use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, InterpreterResult as Result};
 use vm::types::{Value, AssetIdentifier, PrincipalData};
@@ -147,6 +148,19 @@ impl AssetMap {
     }
 }
 
+impl fmt::Display for AssetMap {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for (principal, principal_map) in self.map.iter() {
+            for (asset, amount) in principal_map.iter() {
+                write!(f, "{} spent {} {}\n", principal, amount, asset)?;
+            }
+        }
+        write!(f, "]")
+    }
+}
+
+
 impl <'a> OwnedEnvironment <'a> {
     pub fn new(database: &'a mut ContractDatabaseTransacter) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
@@ -161,6 +175,15 @@ impl <'a> OwnedEnvironment <'a> {
                          &self.default_contract,
                          &mut self.call_stack,
                          sender.clone(), sender)
+    }
+
+    pub fn initialize_contract(mut self, contract_name: &str, contract_content: &str) -> Result<()> {
+        {
+            let mut exec_env = self.get_exec_environment(None);
+            exec_env.initialize_contract(contract_name, contract_content)?;
+        }
+        self.commit()?;
+        Ok(())
     }
 
     pub fn execute_transaction(mut self, sender: Value, contract_name: &str, 

@@ -1,7 +1,7 @@
 use vm::execute as vm_execute;
 use vm::errors::{Error, UncheckedError};
 use vm::types::{Value, PrincipalData, ResponseData};
-use vm::contexts::{OwnedEnvironment,GlobalContext};
+use vm::contexts::{OwnedEnvironment, GlobalContext, AssetMap};
 use vm::database::{ContractDatabaseConnection};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
@@ -99,6 +99,12 @@ fn is_err_code(v: &Value, e: i128) -> bool {
     }
 }
 
+fn execute_transaction(conn: &mut ContractDatabaseConnection, sender: Value, contract: &str,
+                       tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap), Error> {
+    let owned_env = OwnedEnvironment::new(conn);
+    owned_env.execute_transaction(sender, contract, tx, args)
+}
+
 #[test]
 fn test_simple_token_system() {
     let tokens_contract = FIRST_CLASS_TOKENS;
@@ -106,73 +112,100 @@ fn test_simple_token_system() {
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
+    let p1_principal = match p1 {
+        Value::Principal(ref data) => data.clone(),
+        _ => panic!()
+    };
+
+    let p2_principal = match p2 {
+        Value::Principal(ref data) => data.clone(),
+        _ => panic!()
+    };
+
+    let contract_principal = PrincipalData::ContractPrincipal("tokens".to_string());
+
     let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
 
     {
-        let mut env = owned_env.get_exec_environment(None);
-
-        env.initialize_contract("tokens", tokens_contract).unwrap();
+        let owned_env = OwnedEnvironment::new(&mut conn);
+        owned_env.initialize_contract("tokens", tokens_contract).unwrap();
     }
 
-    {
-        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
-        assert!(!is_committed(&env.execute_contract("tokens", "my-token-transfer",
-                                                    &symbols_from_values(vec![p1.clone(), Value::Int(210)])).unwrap()));
-    }
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p2.clone(), "tokens", "my-token-transfer",
+        &symbols_from_values(vec![p1.clone(), Value::Int(210)])).unwrap();
+    assert!(!is_committed(&result));
+    assert_eq!(asset_map.to_table().len(), 0);
 
-    {
-        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
-        assert!(is_committed(&
-                             env.execute_contract("tokens", "my-token-transfer",
-                                                  &symbols_from_values(vec![p2.clone(), Value::Int(9000)])).unwrap()));
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "my-token-transfer",
+        &symbols_from_values(vec![p2.clone(), Value::Int(9000)])).unwrap();
+    
+    assert!(is_committed(&result));
 
-        assert!(!is_committed(&
-                              env.execute_contract("tokens", "my-token-transfer",
-                                                   &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap()));
-        assert!(!is_committed(& // send to self!
-                             env.execute_contract("tokens", "my-token-transfer",
-                                                  &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap()));
-        
-        assert_eq!(
-            env.eval_read_only("tokens",
-                               "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
-            Value::Int(1000));
-        assert_eq!(
-            env.eval_read_only("tokens",
-                               "(get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
-            Value::Int(9200));
-        assert!(is_committed(&
-                             env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
-        
-        assert!(is_committed(&
-                             env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
-        
-        assert!(is_committed(&
-                             env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
-        
-        assert_eq!(
-            env.eval_read_only("tokens",
-                               "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
-            Value::Int(1003));
-        assert!(!is_committed(&
-                              env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap()));
-        
-        env.global_context.database.sim_mine_blocks(10);
-        assert!(is_committed(&
-                             env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap()));
-        
-        assert!(!is_committed(&
-                              env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
-        
-        assert_eq!(
-            env.eval_read_only("tokens",
-                               "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
-            Value::Int(1004));
-        assert_eq!(
-            env.execute_contract("tokens", "get-balance", &symbols_from_values(vec![p1.clone()])).unwrap(),
-            Value::Int(1004));
-    }
+    assert_eq!(asset_map.to_table().get(&p1_principal).unwrap()[0].1, 9000);
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "my-token-transfer",
+        &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap();
+
+    assert!(!is_committed(&result));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "my-token-transfer",
+        &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap();
+
+    assert!(!is_committed(&result));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
+
+    assert_eq!(
+        result,
+        Value::Int(1000));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "get-balance", &symbols_from_values(vec![p2.clone()])).unwrap();
+
+    assert_eq!(
+        result,
+        Value::Int(9200));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "faucet", &vec![]).unwrap();
+
+    assert!(is_committed(&result));
+    assert_eq!(asset_map.to_table().get(&contract_principal).unwrap()[0].1, 1);
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "faucet", &vec![]).unwrap();
+
+    assert!(is_committed(&result));
+    assert_eq!(asset_map.to_table().get(&contract_principal).unwrap()[0].1, 1);
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "faucet", &vec![]).unwrap();
+
+    assert!(is_committed(&result));
+    assert_eq!(asset_map.to_table().get(&contract_principal).unwrap()[0].1, 1);
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
+
+    assert_eq!(
+        result,
+        Value::Int(1003));
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap();
+
+    assert!(!is_committed(&result));
+    assert_eq!(asset_map.to_table().len(), 0);
+    
 }
 
 #[test]

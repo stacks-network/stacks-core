@@ -156,6 +156,11 @@ impl BlockInfoProperty {
     }
 }
 
+impl fmt::Display for AssetIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}::{}", &self.contract_name, &self.asset_name)
+    }
+}
 
 impl fmt::Display for BlockInfoProperty {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
