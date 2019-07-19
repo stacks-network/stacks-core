@@ -159,7 +159,7 @@ fn eval_all (expressions: &[SymbolicExpression],
                     &mut global_context, contract_context, &mut call_stack, None, None);
                 functions::define::evaluate_define(exp, &mut env)
             }?;
-            global_context.commit();
+            global_context.commit()?;
             define_result
         };
         match try_define {
@@ -191,7 +191,7 @@ fn eval_all (expressions: &[SymbolicExpression],
                         &mut global_context, contract_context, &mut call_stack, None, None);
                     last_executed = Some(eval(exp, &mut env, &context)?);
                 }
-                global_context.commit();
+                global_context.commit()?;
             }
         }
     }
@@ -210,7 +210,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
         let parsed = parser::parse(program)?;
         eval_all(&parsed, &mut contract_context, &mut global_context)
     }?;
-    global_context.commit();
+    global_context.commit()?;
     Ok(result)
 }
 

@@ -9,8 +9,8 @@ use vm::errors::{Error, UncheckedError, InterpreterError, RuntimeErrorType, Inte
 use vm::{eval, LocalContext, Environment};
 
 pub fn special_mint_token(args: &[SymbolicExpression],
-                              env: &mut Environment,
-                              context: &LocalContext) -> Result<Value> {
+                          env: &mut Environment,
+                          context: &LocalContext) -> Result<Value> {
     check_argument_count(3, args)?;
 
     let token_name = args[0].match_atom()
@@ -112,6 +112,8 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
 
         env.global_context.database.set_asset_owner(&env.contract_context.name, asset_name, &asset, to_principal)?;
 
+        env.global_context.log_asset_transfer(from_principal, &env.contract_context.name, asset_name, 1)?;
+
         Ok(Value::okay(Value::Bool(true)))
     } else {
         Err(UncheckedError::InvalidArguments("transer-asset! expects a from principal and a to principal".to_string()).into())
@@ -158,6 +160,8 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
 
         env.global_context.database.set_token_balance(&env.contract_context.name, token_name, from_principal, final_from_bal)?;
         env.global_context.database.set_token_balance(&env.contract_context.name, token_name, to_principal, final_to_bal)?;
+
+        env.global_context.log_asset_transfer(from_principal, &env.contract_context.name, token_name, amount)?;
 
         Ok(Value::okay(Value::Bool(true)))
     } else {

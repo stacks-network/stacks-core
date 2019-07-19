@@ -354,7 +354,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 friendly_expect(type_check(contract_name, &mut ast, &mut analysis_db, true),
                                 "Type check error.");
 
-                analysis_db.commit()
+                analysis_db.commit();
             }
             
             let mut db = ContractDatabase::from_savepoint(outer_sp);
@@ -366,7 +366,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     env.initialize_contract(&contract_name, &contract_content)
                 };
                 if result.is_ok() {
-                    vm_env.commit();
+                    friendly_expect(vm_env.commit(), "Failed to calculate asset expenditure table");
                 }
                 result
             };
@@ -433,14 +433,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 })
                 .collect();
 
-            let result = {
-                let mut env = vm_env.get_exec_environment(Some(sender));
-                env.execute_contract(&contract_name, &tx_name, &arguments)
-            };
+            let result = vm_env.execute_transaction(sender, &contract_name, &tx_name, &arguments);
+
             match result {
-                Ok(x) => {
+                Ok((x, _)) => {
                     if let Value::Response(data) = x {
-                        vm_env.commit();
                         if data.committed {
                             println!("Transaction executed and committed. Returned: {}", data.data);
                         } else {

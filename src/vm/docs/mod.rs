@@ -70,7 +70,7 @@ contract principal.",
 
 const NONE_KEYWORD: KeywordAPI = KeywordAPI {
     name: "none",
-    output_type: "Optional(?)",
+    output_type: "(optional ?)",
     description: "Represents the _none_ option indicating no value for a given optional (analogous to a null value).",
     example: "
 (define (only-if-positive (a int))
@@ -371,8 +371,8 @@ nodes configured for development (as opposed to production mining nodes), this f
 
 const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "fetch-entry",
-    input_type: "MapName, Tuple",
-    output_type: "Optional(Tuple)",
+    input_type: "MapName, tuple",
+    output_type: "(optional (tuple))",
     signature: "(fetch-entry map-name key-tuple)",
     description: "The `fetch-entry` function looks up and returns an entry from a contract's data map.
 The value is looked up using `key-tuple`.
@@ -385,7 +385,7 @@ it returns (some value)",
 
 const SET_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "set-entry!",
-    input_type: "MapName, TupleA, TupleB",
+    input_type: "MapName, tuple_A, tuple_B",
     output_type: "bool",
     signature: "(set-entry! map-name key-tuple value-tuple)",
     description: "The `set-entry!` function sets the value associated with the input key to the 
@@ -398,7 +398,7 @@ with the key, the function overwrites that existing association.",
 
 const INSERT_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "insert-entry!",
-    input_type: "MapName, TupleA, TupleB",
+    input_type: "MapName, tuple_A, tuple_B",
     output_type: "bool",
     signature: "(insert-entry! map-name key-tuple value-tuple)",
     description: "The `insert-entry!` function sets the value associated with the input key to the 
@@ -413,7 +413,7 @@ this key in the data map, the function returns `false`.",
 
 const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     name: "delete-entry!",
-    input_type: "MapName, Tuple",
+    input_type: "MapName, tuple",
     output_type: "bool",
     signature: "(delete-entry! map-name key-tuple)",
     description: "The `delete-entry!` function removes the value associated with the input key for
@@ -427,8 +427,8 @@ If a value did not exist for this key in the data map, the function returns `fal
 
 const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
     name: "fetch-contract-entry",
-    input_type: "ContractName, MapName, Tuple",
-    output_type: "Optional(Tuple)",
+    input_type: "ContractName, MapName, tuple",
+    output_type: "(optional (tuple))",
     signature: "(fetch-contract-entry contract-name map-name key-tuple)",
     description: "The `fetch-contract-entry` function looks up and returns an entry from a
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
@@ -441,8 +441,8 @@ it returns (some value).",
 
 const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
     name: "tuple",
-    input_type: "(list (KeyName AnyType))",
-    output_type: "Tuple",
+    input_type: "(key-name A), (key-name-2 B), ...",
+    output_type: "(tuple (key-name A) (key-name-2 B) ...)",
     signature: "(tuple ((key0 expr0) (key1 expr1) ...))",
     description: "The `tuple` function constructs a typed tuple from the supplied key and expression pairs.
 A `get` function can use typed tuples as input to select specific values from a given tuple.
@@ -453,8 +453,8 @@ associated with the expressions' paired key name.",
 
 const TUPLE_GET_API: SpecialAPI = SpecialAPI {
     name: "get",
-    input_type: "KeyName and Tuple | Optional(Tuple)",
-    output_type: "AnyType",
+    input_type: "KeyName, (tuple) | (optional (tuple))",
+    output_type: "A",
     signature: "(get key-name tuple)",
     description: "The `get` function fetches the value associated with a given key from the supplied typed tuple.
 If an `Optional` value is supplied as the inputted tuple, `get` returns an `Optional` type of the specified key in
@@ -501,7 +501,7 @@ is supplied the hash is computed over the little-endian representation of the in
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     name: "contract-call!",
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
-    output_type: "Response(A,B)",
+    output_type: "(response A B)",
     signature: "(contract-call! contract-name function-name arg0 arg1 ...)",
     description: "The `contract-call!` function executes the given public function of the given contract.
 You _may not_ this function to call a public function defined in the current contract. If the public
@@ -522,7 +522,7 @@ principal and executes `expr` with that context. It returns the resulting value 
 
 
 const EXPECTS_API: SpecialAPI = SpecialAPI {
-    input_type: "Optional(A) | Response(A,B), C",
+    input_type: "(optional A) | (response A B), C",
     output_type: "A",
     name: "expects!",
     signature: "(expects! option-input thrown-value)",
@@ -535,7 +535,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
 };
 
 const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {
-    input_type: "Response(A,B), C",
+    input_type: "(response A B), C",
     output_type: "B",
     name: "expects-err!",
     signature: "(expects-err! response-input thrown-value)",
@@ -547,7 +547,7 @@ If the supplied argument is an `(ok ...)` value,
 };
 
 const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
-    input_type: "A, Optional(A)",
+    input_type: "A, (optional A)",
     output_type: "A",
     name: "default-to",
     signature: "(default-to default-value option-value)",
@@ -561,7 +561,7 @@ a `(some ...)` option, it returns the inner value of the option. If the second a
 
 const CONS_OK_API: SpecialAPI = SpecialAPI {
     input_type: "A",
-    output_type: "Response(A,B)",
+    output_type: "(response A B)",
     name: "ok",
     signature: "(ok value)",
     description: "The `ok` function constructs a response type from the input value. Use `ok` for
@@ -572,7 +572,7 @@ the processing of the function should materialize.",
 
 const CONS_ERR_API: SpecialAPI = SpecialAPI {
     input_type: "A",
-    output_type: "Response(A,B)",
+    output_type: "(response A B)",
     name: "err",
     signature: "(err value)",
     description: "The `err` function constructs a response type from the input value. Use `err` for
@@ -583,7 +583,7 @@ the processing of the function should be rolled back.",
 
 const CONS_SOME_API: SpecialAPI = SpecialAPI {
     input_type: "A",
-    output_type: "Optional(A)",
+    output_type: "(optional A)",
     name: "some",
     signature: "(some value)",
     description: "The `some` function constructs a `optional` type from the input value.",
@@ -592,7 +592,7 @@ const CONS_SOME_API: SpecialAPI = SpecialAPI {
 };
 
 const IS_OK_API: SpecialAPI = SpecialAPI {
-    input_type: "Response(A,B)",
+    input_type: "(response A B)",
     output_type: "bool",
     name: "is-ok?",
     signature: "(is-ok? value)",
@@ -603,7 +603,7 @@ and `false` if it was an `err`.",
 };
 
 const IS_NONE_API: SpecialAPI = SpecialAPI {
-    input_type: "Optional(A)",
+    input_type: "(optional A)",
     output_type: "bool",
     name: "is-none?",
     signature: "(is-none? value)",
@@ -747,6 +747,114 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 "
 };
 
+const MINT_TOKEN: SpecialAPI = SpecialAPI {
+    name: "mint-token!",
+    input_type: "TokenName, int, principal",
+    output_type: "(response bool int)",
+    signature: "(mint-token! token-name amount recipient)",
+    description: "`mint-token!` is used to increase the token balance for the `recipient` principal for a token
+type defined using `define-token`. The increased token balance is _not_ transfered from another principal, but
+rather minted.",
+    example: "
+(define-token stackaroo)
+(mint-token! stackaroo 100 tx-sender)
+"
+};
+
+const MINT_ASSET: SpecialAPI = SpecialAPI {
+    name: "mint-asset!",
+    input_type: "AssetName, A, principal",
+    output_type: "(response bool int)",
+    signature: "(mint-asset! asset-class asset-identifier recipient)",
+    description: "`mint-asset!` is used to instantiate an asset and set that asset's owner to the `recipient` principal.
+The asset must have been defined using `define-asset`, and the supplied `asset-identifier` must be of the same type specified in
+that definition.
+
+If an asset identified by `asset-identifier` _already exists_, this function will return an error with the following error code:
+
+`(err 1)`
+",
+    example: "
+(define-asset stackaroo (buff 40))
+(mint-token! stackaroo \"Roo\" tx-sender)
+"
+};
+
+const GET_OWNER: SpecialAPI = SpecialAPI {
+    name: "get-owner",
+    input_type: "AssetName, A",
+    output_type: "(optional principal)",
+    signature: "(get-owner asset-class asset-identifier)",
+    description: "`get-owner` returns the owner of an asset, identified by `asset-identifier`, or `none` if the asset does not exist.
+The asset type must have been defined using `define-asset`, and the supplied `asset-identifier` must be of the same type specified in
+that definition.",
+    example: "
+(define-asset stackaroo (buff 40))
+(get-owner stackaroo \"Roo\")
+"
+};
+
+
+const GET_BALANCE: SpecialAPI = SpecialAPI {
+    name: "get-balance",
+    input_type: "TokenName, principal",
+    output_type: "int",
+    signature: "(get-balance token-name principal)",
+    description: "`get-balance` returns `token-name` balance of the principal `principal`.
+The token type must have been defined using `define-token`.",
+    example: "
+(define-token stackaroos)
+(get-balance stackaroos tx-sender)
+"
+};
+
+const TOKEN_TRANSFER: SpecialAPI = SpecialAPI {
+    name: "transfer-token!",
+    input_type: "TokenName, int, principal, principal",
+    output_type: "(response bool int)",
+    signature: "(transfer-token! token-name amount sender recipient)",
+    description: "`transfer-token!` is used to increase the token balance for the `recipient` principal for a token
+type defined using `define-token` by debiting the `sender` principal.
+
+This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
+one of the following error codes:
+
+`(err 1)` -- `sender` does not have enough balance to transfer
+`(err 2)` -- `sender` and `recipient` are the same principal
+",
+    example: "
+(define-token stackaroo)
+(mint-token! stackaroo 100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(transfer-token! stackaroo 50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
+(transfer-token! stackaroo 60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
+"
+};
+
+const ASSET_TRANSFER: SpecialAPI = SpecialAPI {
+    name: "transfer-asset!",
+    input_type: "AssetName, A, principal, principal",
+    output_type: "(response bool int)",
+    signature: "(transfer-asset! asset-class asset-identifier sender recipient)",
+    description: "`transfer-asset!` is used to change the owner of an asset identified by `asset-identifier`
+from `sender` to `recipient`. The `asset-class` must have been defined by `define-asset` and `asset-identifier`
+must be of the type specified in that definition.
+
+This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
+one of the following error codes:
+
+`(err 1)` -- `sender` does not own the asset
+`(err 2)` -- `sender` and `recipient` are the same principal
+`(err 3)` -- asset identified by asset-identifier does not exist
+",
+    example: "
+(define-token stackaroo (buff 40))
+(mint-asset! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(transfer-asset! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
+(transfer-asset! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
+(transfer-asset! stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 3)
+"
+};
+
 fn make_for_special(api: &SpecialAPI) -> FunctionAPI {
     FunctionAPI {
         name: api.name.to_string(),
@@ -808,7 +916,12 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ExpectsErr => make_for_special(&EXPECTS_ERR_API),
         IsOkay => make_for_special(&IS_OK_API),
         IsNone => make_for_special(&IS_NONE_API),
-        GetTokenBalance | GetAssetOwner | TransferToken | TransferAsset | MintAsset | MintToken => panic!("Not implemented"),
+        MintAsset => make_for_special(&MINT_ASSET),
+        MintToken => make_for_special(&MINT_TOKEN),
+        GetTokenBalance => make_for_special(&GET_BALANCE),
+        GetAssetOwner => make_for_special(&GET_OWNER),
+        TransferToken => make_for_special(&TOKEN_TRANSFER),
+        TransferAsset => make_for_special(&ASSET_TRANSFER)
     }
 }
 

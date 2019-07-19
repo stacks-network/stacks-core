@@ -9,6 +9,12 @@ use util::hash;
 
 pub const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct AssetIdentifier {
+    pub contract_name: String,
+    pub asset_name: String
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
     type_map: BTreeMap<String, TypeSignature>

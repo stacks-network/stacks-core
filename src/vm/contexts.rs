@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, InterpreterResult as Result};
-use vm::types::Value;
+use vm::types::{Value, AssetIdentifier, PrincipalData};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ContractDatabase, ContractDatabaseTransacter};
 use vm::{SymbolicExpression};
@@ -30,6 +30,16 @@ pub struct OwnedEnvironment <'a> {
     call_stack: CallStack
 }
 
+/**
+ The AssetMap is used to track which assets have been transfered from whom
+ during the execution of a transaction.
+ */
+pub struct AssetMap {
+    // Q: currently we just track balance transfers, but for NFT,
+    //     tracking the actual identifier transfered is probably more useful.
+    map: HashMap<PrincipalData, HashMap<AssetIdentifier, i128>>
+}
+
 /** GlobalContext represents the outermost context for a transaction's
       execution. Logically, this context _never_ changes for the execution of
       transaction. However, due to the use of SavePoints for executing cross-contract
@@ -40,8 +50,10 @@ pub struct OwnedEnvironment <'a> {
       modified during 
  */
 pub struct GlobalContext <'a> {
+    parent_map: Option<&'a mut AssetMap>,
     pub database: ContractDatabase<'a>,
-    read_only: bool
+    read_only: bool,
+    asset_map: AssetMap
 }
 
 #[derive(Serialize, Deserialize)]
@@ -64,6 +76,77 @@ pub struct CallStack {
 
 pub type StackTrace = Vec<FunctionIdentifier>;
 
+impl AssetMap {
+    pub fn new() -> AssetMap {
+        AssetMap {
+            map: HashMap::new()
+        }
+    }
+
+    // This will get the next amount for a (principal, asset) entry in the asset table.
+    fn get_next_amount(&self, principal: &PrincipalData, asset: &AssetIdentifier, amount: i128) -> Result<i128> {
+        let current_amount = match self.map.get(principal) {
+            Some(principal_map) => *principal_map.get(&asset).unwrap_or(&0),
+            None => 0
+        };
+            
+        current_amount.checked_add(amount)
+            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+    }
+
+    pub fn add_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, amount: i128) -> Result<()> {
+        let next_amount = self.get_next_amount(principal, &asset, amount)?;
+
+        if !self.map.contains_key(principal) {
+            self.map.insert(principal.clone(), HashMap::new());
+        }
+
+        let principal_map = self.map.get_mut(principal)
+            .unwrap(); // should always exist, because of checked insert above.
+
+        principal_map.insert(asset, next_amount);
+
+        Ok(())
+    }
+
+    // This will add any asset transfer data from other to self,
+    //   aborting _all_ changes in the event of an error, leaving self unchanged
+    pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
+        let mut to_add = Vec::new();
+        for (principal, mut principal_map) in other.map.drain() {
+            for (asset, amount) in principal_map.drain() {
+                let next_amount = self.get_next_amount(&principal, &asset, amount)?;
+                to_add.push((principal.clone(), asset, next_amount));
+            }
+        }
+
+        for (principal, asset, amount) in to_add.drain(..) {
+            if !self.map.contains_key(&principal) {
+                self.map.insert(principal.clone(), HashMap::new());
+            }
+
+            let principal_map = self.map.get_mut(&principal)
+                .unwrap(); // should always exist, because of checked insert above.
+            principal_map.insert(asset, amount);
+        }
+
+        Ok(())
+    }
+
+    pub fn to_table(mut self) -> HashMap<PrincipalData, Vec<(AssetIdentifier, i128)>> {
+        let mut map = HashMap::new();
+        for (principal, mut principal_map) in self.map.drain() {
+            let mut vec = Vec::new();
+            for (asset, amount) in principal_map.drain() {
+                vec.push((asset, amount));
+            }
+            map.insert(principal, vec);
+        }
+
+        return map
+    }
+}
+
 impl <'a> OwnedEnvironment <'a> {
     pub fn new(database: &'a mut ContractDatabaseTransacter) -> OwnedEnvironment<'a> {
         OwnedEnvironment {
@@ -80,8 +163,19 @@ impl <'a> OwnedEnvironment <'a> {
                          sender.clone(), sender)
     }
 
-    pub fn commit(self) {
-        self.context.commit()
+    pub fn execute_transaction(mut self, sender: Value, contract_name: &str, 
+                               tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap)> {
+        let return_value = {
+            let mut exec_env = self.get_exec_environment(Some(sender));
+            exec_env.execute_contract(contract_name, tx_name, args)
+        }?;
+        let asset_map = self.commit()?;
+        Ok((return_value, asset_map))
+    }
+
+    pub fn commit(self) -> Result<AssetMap> {
+        self.context.commit()?
+            .ok_or(InterpreterError::FailedToConstructAssetTable.into())
     }
 }
 
@@ -221,7 +315,7 @@ impl <'a, 'b> Environment <'a, 'b> {
         match result {
             Ok(contract) => {
                 nested_context.database.insert_contract(contract_name, contract);
-                nested_context.commit();
+                nested_context.commit()?;
                 Ok(())
             },
             Err(e) => {
@@ -236,9 +330,17 @@ impl <'a> GlobalContext <'a> {
     
     pub fn new(database: ContractDatabase<'a>) -> GlobalContext<'a> {
         GlobalContext {
+            parent_map: None,
             database: database,
-            read_only: false
+            read_only: false,
+            asset_map: AssetMap::new()
         }
+    }
+
+    pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: i128) -> Result<()> {
+        let asset_identifier = AssetIdentifier { contract_name: contract_name.to_string(),
+                                                 asset_name: asset_name.to_string() };
+        self.asset_map.add_transfer(sender, asset_identifier, transfered)
     }
 
     pub fn get_block_height(&self) -> u64 {
@@ -270,8 +372,10 @@ impl <'a> GlobalContext <'a> {
         let database = self.database.begin_save_point();
 
         GlobalContext {
+            parent_map: Some(&mut self.asset_map),
             database: database,
-            read_only: self.read_only
+            read_only: self.read_only,
+            asset_map: AssetMap::new()
         }
     }
 
@@ -279,8 +383,10 @@ impl <'a> GlobalContext <'a> {
         let database = self.database.begin_save_point();
 
         GlobalContext {
+            parent_map: Some(&mut self.asset_map),
             database: database,
-            read_only: true
+            read_only: true,
+            asset_map: AssetMap::new()
         }
     }
 
@@ -293,15 +399,28 @@ impl <'a> GlobalContext <'a> {
         GlobalContext::new(db)
     }
 
-    pub fn commit(self) {
-        self.database.commit()
+    pub fn commit(self) -> Result<Option<AssetMap>> {
+        let Self { parent_map, asset_map, database, .. } = self;
+
+        let out_map = match parent_map {
+            Some(parent_map) => { 
+                parent_map.commit_other(asset_map)?;
+                None
+            },
+            None => {
+                Some(asset_map)
+            }
+        };
+
+        database.commit();
+        Ok(out_map)
     }
 
     pub fn handle_tx_result(mut self, result: Result<Value>) -> Result<Value> {
         if let Ok(result) = result {
             if let Value::Response(data) = result {
                 if data.committed {
-                    self.commit();
+                    self.commit()?;
                 } else {
                     self.database.roll_back();
                 }

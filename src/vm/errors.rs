@@ -52,6 +52,7 @@ pub enum InterpreterError {
     BadSymbolicRepresentation(String),
     InterpreterError(String),
     UninitializedPersistedVariable,
+    FailedToConstructAssetTable,
     SqliteError(IncomparableError<SqliteError>),
 }
 
