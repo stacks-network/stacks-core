@@ -2,7 +2,7 @@
 layout: core
 permalink: /:collection/:path.html
 ---
-## Decentralized Identifiers (DIDs)
+# Decentralized Identifiers (DIDs)
 
 BNS nodes are compliant with the emerging
 [Decentralized Identity Foundation](http://identity.foundation) protocol
