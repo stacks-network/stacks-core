@@ -303,33 +303,21 @@ macro_rules! test_debug {
     )
 }
 
-// extra-verbose debug statements while testing (can be selectively disabled by certain tests)
-thread_local!(static TRACE: RefCell<bool> = RefCell::new(true));
-
-pub fn set_trace(trace: bool) -> () {
-    TRACE.with(move |t| {
-        *t.borrow_mut() = trace;
-    });
-}
+// enables/disables trace!() at compile-time
+pub const TRACE_ENABLED : bool = true;
 
 pub fn is_trace() -> bool {
-    let mut trace = false;
-    TRACE.with(|t| {
-        trace = *t.borrow();
-    });
-    trace
+    use std::env;
+    TRACE_ENABLED && env::var("BLOCKSTACK_TRACE") == Ok("1".to_string()) 
 }
 
-// disables trace!() at compile-time
-pub const TRACE_ENABLED : bool = false;
 
 #[allow(unused_macros)]
 macro_rules! trace {
     ($($arg:tt)*) => (
         #[cfg(test)]
         {
-            use std::env;
-            if ::util::macros::TRACE_ENABLED && !::util::macros::is_trace() && env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
+            if ::util::macros::is_trace() {
                 debug!($($arg)*);
             }
         }
