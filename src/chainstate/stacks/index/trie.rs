@@ -758,7 +758,7 @@ where
     /// The root hashes of each trie form a Merkle skip-list -- the hash of Trie i is calculated
     /// from the hash of its children, plus the hash Tries i-1, i-2, i-4, i-8, ..., i-2**j, ...
     /// This is required for Merkle proofs to work (specifically, the shunt proofs).
-    pub fn update_root_hash(s: &mut S, c: &TrieCursor) -> Result<(), Error> {
+    fn recalculate_root_hash(s: &mut S, c: &TrieCursor, update_skiplist: bool) -> Result<(), Error> {
         assert!(c.node_ptrs.len() > 0);
 
         let mut ptrs = c.node_ptrs.clone();
@@ -781,7 +781,15 @@ where
                     let mut hash_buf = Vec::with_capacity(TRIEHASH_ENCODED_SIZE * 256);
                     Trie::get_children_hashes_bytes(s, &node, &mut hash_buf)?;
 
-                    let h = Trie::get_trie_root_hash(s, &get_node_hash_bytes(data, &hash_buf))?;
+                    let h = 
+                        if update_skiplist {
+                            trace!("Update root skiplist");
+                            Trie::get_trie_root_hash(s, &get_node_hash_bytes(data, &hash_buf))?
+                        }
+                        else {
+                            trace!("Not updating root skiplist");
+                            get_node_hash_bytes(data, &hash_buf)
+                        };
 
                     // for debug purposes
                     if is_trace() {
@@ -884,6 +892,14 @@ where
         assert_eq!(child_ptr, TriePtr::new(TrieNodeID::Node256, 0, root_disk_ptr as u32));
         Ok(())
     }
+    
+    pub fn update_root_hash(s: &mut S, c: &TrieCursor) -> Result<(), Error> {
+        Trie::recalculate_root_hash(s, c, true)
+    }
+    
+    pub fn update_root_node_hash(s: &mut S, c: &TrieCursor) -> Result<(), Error> {
+        Trie::recalculate_root_hash(s, c, false)
+    }
 }
 
 #[cfg(test)]
@@ -984,7 +1000,7 @@ mod test {
                             assert!(update_res.is_ok());
 
                             // we must be able to query it now 
-                            let leaf_opt_res = MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
+                            let leaf_opt_res = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
                             assert!(leaf_opt_res.is_ok());
                             
                             let leaf_opt = leaf_opt_res.unwrap();
@@ -1005,7 +1021,7 @@ mod test {
                 let mut path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
                 path[i] = 32;
 
-                let leaf_opt_res = MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
+                let leaf_opt_res = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
                 assert!(leaf_opt_res.is_ok());
                 
                 let leaf_opt = leaf_opt_res.unwrap();
@@ -1076,7 +1092,7 @@ mod test {
             }
         }
 
-        assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]).unwrap()).unwrap().unwrap(), 
+        assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]).unwrap()).unwrap().unwrap(), 
                    TrieLeaf::new(&vec![1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31], &[128; 40].to_vec()));
 
         merkle_test(&mut f, &[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31].to_vec(), &[128; 40].to_vec());
@@ -1117,7 +1133,7 @@ mod test {
                         Trie::update_root_hash(&mut f, &c).unwrap();
 
                         // make sure we can query it again 
-                        let leaf_opt_res = MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
+                        let leaf_opt_res = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
                         assert!(leaf_opt_res.is_ok());
                         
                         let leaf_opt = leaf_opt_res.unwrap();
@@ -1138,7 +1154,7 @@ mod test {
             let mut path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             path[i] = 32;
 
-            let leaf_opt_res = MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
+            let leaf_opt_res = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
             assert!(leaf_opt_res.is_ok());
             
             let leaf_opt = leaf_opt_res.unwrap();
@@ -1242,7 +1258,7 @@ mod test {
                 }
 
                 // should have inserted
-                assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+                assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                            TrieLeaf::new(&path[k+1..].to_vec(), &[128 + j as u8; 40].to_vec()));
             
                 merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
@@ -1284,7 +1300,7 @@ mod test {
             }
 
             // should have inserted
-            assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+            assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                        TrieLeaf::new(&path[k+1..].to_vec(), &[192 + k as u8; 40].to_vec()));
             
             merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
@@ -1381,7 +1397,7 @@ mod test {
                 }
 
                 // should have inserted
-                assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+                assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                            TrieLeaf::new(&path[k+1..].to_vec(), &[128 + j as u8; 40].to_vec()));
                 
                 merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
@@ -1423,7 +1439,7 @@ mod test {
             }
 
             // should have inserted
-            assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+            assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                        TrieLeaf::new(&path[k+1..].to_vec(), &[192 + k as u8; 40].to_vec()));
             
             merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
@@ -1470,7 +1486,7 @@ mod test {
                 }
 
                 // should have inserted
-                assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+                assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                            TrieLeaf::new(&path[k+1..].to_vec(), &[128 + j as u8; 40].to_vec()));
 
                 merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
@@ -1514,7 +1530,7 @@ mod test {
             }
 
             // should have inserted
-            assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+            assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                        TrieLeaf::new(&path[k+1..].to_vec(), &[192 + k as u8; 40].to_vec()));
 
             merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
@@ -1610,7 +1626,7 @@ mod test {
                 }
 
                 // should have inserted
-                assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+                assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                            TrieLeaf::new(&path[k+1..].to_vec(), &[128 + j as u8; 40].to_vec()));
                 
                 merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
@@ -1652,7 +1668,7 @@ mod test {
             }
 
             // should have inserted
-            assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+            assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                        TrieLeaf::new(&path[k+1..].to_vec(), &[192 + k as u8; 40].to_vec()));
 
             merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
@@ -1699,7 +1715,7 @@ mod test {
                 }
 
                 // should have inserted
-                assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+                assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                            TrieLeaf::new(&path[k+1..].to_vec(), &[128 + j as u8; 40].to_vec()));
                 
                 merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
@@ -1743,7 +1759,7 @@ mod test {
             }
 
             // should have inserted
-            assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+            assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                        TrieLeaf::new(&path[k+1..].to_vec(), &[192 + k as u8; 40].to_vec()));
 
             merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
@@ -1790,7 +1806,7 @@ mod test {
                 }
 
                 // should have inserted
-                assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+                assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                            TrieLeaf::new(&path[k+1..].to_vec(), &[128 + j as u8; 40].to_vec()));
                 
                 merkle_test(&mut f, &path.to_vec(), &[(j + 128) as u8; 40].to_vec());
@@ -1834,7 +1850,7 @@ mod test {
             }
 
             // should have inserted
-            assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+            assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                        TrieLeaf::new(&path[k+1..].to_vec(), &[192 + k as u8; 40].to_vec()));
             
             merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
@@ -1909,7 +1925,7 @@ mod test {
                 }
 
                 // should have inserted
-                assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+                assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                            TrieLeaf::new(&path[5*k+3..].to_vec(), &[192 + k as u8; 40].to_vec()));
                 
                 merkle_test(&mut f, &path.to_vec(), &[(k + 192) as u8; 40].to_vec());
@@ -1976,7 +1992,7 @@ mod test {
                 }
 
                 // should have inserted
-                assert_eq!(MARF::get(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
+                assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                            TrieLeaf::new(&path[3*k+2..].to_vec(), &[192 + k as u8; 40].to_vec()));
 
                 // proofs should still work
@@ -2001,7 +2017,7 @@ mod test {
             let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
             let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-            MARF::insert(&mut f, &block_header, &triepath, &value).unwrap();
+            MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
 
             merkle_test(&mut f, &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
         }
@@ -2011,8 +2027,8 @@ mod test {
             let i1 = i % 256;
             let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
-            let value = MARF::get(&mut f, &block_header, &triepath).unwrap().unwrap();
-            assert_eq!(value.reserved.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
+            let value = MARF::get_path(&mut f, &block_header, &triepath).unwrap().unwrap();
+            assert_eq!(value.data.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
             
             merkle_test(&mut f, &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
         }
@@ -2034,7 +2050,7 @@ mod test {
             let path = [i0 as u8, i1 as u8, 2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
             let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-            MARF::insert(&mut f, &block_header, &triepath, &value).unwrap();
+            MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
             
             merkle_test(&mut f, &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
         }
@@ -2044,8 +2060,8 @@ mod test {
             let i1 = i % 256;
             let path = [i0 as u8, i1 as u8, 2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
-            let value = MARF::get(&mut f, &block_header, &triepath).unwrap().unwrap();
-            assert_eq!(value.reserved.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
+            let value = MARF::get_path(&mut f, &block_header, &triepath).unwrap().unwrap();
+            assert_eq!(value.data.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
 
             merkle_test(&mut f, &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
         }
@@ -2069,7 +2085,7 @@ mod test {
             let path = [0,1,i0 as u8,i1 as u8,i2 as u8,i3 as u8,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
             let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-            MARF::insert(&mut f, &block_header, &triepath, &value).unwrap();
+            MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
             
             merkle_test(&mut f, &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
         }
@@ -2081,8 +2097,8 @@ mod test {
             let i3 = (i % 256) % 16;
             let path = [0,1,i0 as u8,i1 as u8,i2 as u8,i3 as u8,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
-            let value = MARF::get(&mut f, &block_header, &triepath).unwrap().unwrap();
-            assert_eq!(value.reserved.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
+            let value = MARF::get_path(&mut f, &block_header, &triepath).unwrap().unwrap();
+            assert_eq!(value.data.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
 
             merkle_test(&mut f, &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
         }
@@ -2109,7 +2125,7 @@ mod test {
 
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
             let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-            MARF::insert(&mut f, &block_header, &triepath, &value).unwrap();
+            MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
             
             merkle_test(&mut f, &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
         }
@@ -2123,8 +2139,8 @@ mod test {
             seed = path.clone();
             
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
-            let value = MARF::get(&mut f, &block_header, &triepath).unwrap().unwrap();
-            assert_eq!(value.reserved.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
+            let value = MARF::get_path(&mut f, &block_header, &triepath).unwrap().unwrap();
+            assert_eq!(value.data.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
             
             merkle_test(&mut f, &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
         }
@@ -2151,7 +2167,7 @@ mod test {
 
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
             let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-            MARF::insert(&mut f, &block_header, &triepath, &value).unwrap();
+            MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
 
             merkle_test(&mut f, &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
         }
@@ -2170,8 +2186,8 @@ mod test {
             seed = path.clone();
             
             let triepath = TriePath::from_bytes(&path[..]).unwrap();
-            let value = MARF::get(&mut f, &block_header, &triepath).unwrap().unwrap();
-            assert_eq!(value.reserved.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
+            let value = MARF::get_path(&mut f, &block_header, &triepath).unwrap().unwrap();
+            assert_eq!(value.data.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
             
             merkle_test(&mut f, &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
         }
