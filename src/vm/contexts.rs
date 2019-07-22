@@ -35,6 +35,7 @@ pub struct OwnedEnvironment <'a> {
  The AssetMap is used to track which assets have been transfered from whom
  during the execution of a transaction.
  */
+#[derive(Debug)]
 pub struct AssetMap {
     // Q: currently we just track balance transfers, but for NFT,
     //     tracking the actual identifier transfered is probably more useful.

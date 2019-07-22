@@ -326,8 +326,6 @@ impl <'a> ContractDatabase <'a> {
     }
 
     fn load_token(&self, contract_name: &str, token_name: &str) -> Result<SqliteToken> {
-        println!("load_token({}, {})", contract_name, token_name);
-
         let identifier =
             self.query_row(
                 "SELECT token_identifier FROM tokens_table WHERE contract_name = ? AND token_name = ?",
@@ -353,7 +351,6 @@ impl <'a> ContractDatabase <'a> {
     }
 
     pub fn create_token(&mut self, contract_name: &str, token_name: &str) {
-        println!("create_token({}, {})", contract_name, token_name);
         self.execute("INSERT INTO tokens_table (contract_name, token_name) VALUES (?, ?)",
                      &[contract_name, token_name]);
     }

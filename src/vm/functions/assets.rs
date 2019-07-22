@@ -21,7 +21,7 @@ pub fn special_mint_token(args: &[SymbolicExpression],
 
     if let (Value::Int(amount),
             Value::Principal(ref to_principal)) = (amount, to) {
-        if amount <= 0 {
+        if amount < 0 {
             return Err(RuntimeErrorType::TransferNonPositiveAmount.into())
         }
 
@@ -137,7 +137,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
     if let (Value::Int(amount),
             Value::Principal(ref from_principal),
             Value::Principal(ref to_principal)) = (amount, from, to) {
-        if amount <= 0 {
+        if amount < 0 {
             return Err(RuntimeErrorType::TransferNonPositiveAmount.into())
         }
 

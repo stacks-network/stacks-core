@@ -1,5 +1,5 @@
 use vm::execute as vm_execute;
-use vm::errors::{Error, UncheckedError};
+use vm::errors::{Error, UncheckedError, RuntimeErrorType};
 use vm::types::{Value, PrincipalData, ResponseData};
 use vm::contexts::{OwnedEnvironment, GlobalContext, AssetMap};
 use vm::database::{ContractDatabaseConnection};
@@ -56,6 +56,28 @@ const ASSET_NAMES: &str =
                (if (eq? xfer-result (err 1)) ;; not enough balance
                    (err 1) (err 3)))))
 
+         (define-public (force-mint (name int))
+           (mint-asset! names name tx-sender))
+         (define-public (try-bad-transfers)
+           (begin
+             (contract-call! tokens my-token-transfer burn-address 50000)
+             (contract-call! tokens my-token-transfer burn-address 1000)
+             (contract-call! tokens my-token-transfer burn-address 1)
+             (err 0)))
+         (define-public (try-bad-transfers-but-ok)
+           (begin
+             (contract-call! tokens my-token-transfer burn-address 50000)
+             (contract-call! tokens my-token-transfer burn-address 1000)
+             (contract-call! tokens my-token-transfer burn-address 1)
+             (ok 0)))
+         (define-public (transfer (name int) (recipient principal))
+           (let ((transfer-name-result (transfer-asset! names name tx-sender recipient))
+                 (token-to-contract-result (contract-call! tokens my-token-transfer 'CTnames 1))
+                 (contract-to-burn-result (as-contract (contract-call! tokens my-token-transfer burn-address 1))))
+             (begin (expects! transfer-name-result transfer-name-result)
+                    (expects! token-to-contract-result token-to-contract-result)
+                    (expects! contract-to-burn-result contract-to-burn-result)
+                    (ok 0))))
          (define-public (register 
                         (recipient-principal principal)
                         (name int)
@@ -83,6 +105,8 @@ const ASSET_NAMES: &str =
                   (err 4))))";
 
 fn is_committed(v: &Value) -> bool {
+    eprintln!("is_committed?: {}", v);
+
     match v {
         Value::Response(ref data) => data.committed,
         _ => false
@@ -90,6 +114,7 @@ fn is_committed(v: &Value) -> bool {
 }
 
 fn is_err_code(v: &Value, e: i128) -> bool {
+    eprintln!("is_err_code?: {}", v);
     match v {
         Value::Response(ref data) => {
             !data.committed &&
@@ -149,15 +174,24 @@ fn test_simple_token_system() {
         p1.clone(), "tokens", "my-token-transfer",
         &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap();
 
-    assert!(!is_committed(&result));
+    assert!(is_err_code(&result, 1));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(&mut conn,
         p1.clone(), "tokens", "my-token-transfer",
         &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap();
 
-    assert!(!is_committed(&result));
+    assert!(is_err_code(&result, 2));
     assert_eq!(asset_map.to_table().len(), 0);
+
+    let err = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "my-token-transfer",
+        &symbols_from_values(vec![p1.clone(), Value::Int(-1)])).unwrap_err();
+
+    if let Error::Runtime(RuntimeErrorType::TransferNonPositiveAmount, _) = err {
+    } else {
+        panic!("Expected TransferNonPositiveAmount error");
+    }
 
     let (result, asset_map) = execute_transaction(&mut conn,
         p1.clone(), "tokens", "get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
@@ -217,81 +251,176 @@ fn test_simple_naming_system() {
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
+    let p1_principal = match p1 {
+        Value::Principal(ref data) => data.clone(),
+        _ => panic!()
+    };
+
+    let p2_principal = match p2 {
+        Value::Principal(ref data) => data.clone(),
+        _ => panic!()
+    };
+
     let name_hash_expensive_0 = execute("(hash160 1)");
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
     let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
 
     {
+        let owned_env = OwnedEnvironment::new(&mut conn);
+        owned_env.initialize_contract("tokens", tokens_contract).unwrap();
+    }
+
+    {
+        let owned_env = OwnedEnvironment::new(&mut conn);
+        owned_env.initialize_contract("names", names_contract).unwrap();
+    }
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p2.clone(), "names", "preorder",
+                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();
+
+        assert!(is_err_code(&result, 1));
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p1.clone(), "names", "preorder",
+        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();
+    
+    assert!(is_committed(&result));
+    
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p1.clone(), "names", "preorder",
+        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();
+
+    assert!(is_err_code(&result, 2));
+
+
+    // shouldn't be able to register a name you didn't preorder!
+
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p2.clone(), "names", "register",
+        &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap();
+
+    assert!(is_err_code(&result, 4));
+
+    // should work!
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p1.clone(), "names", "register",
+        &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap();
+            
+    assert!(is_committed(&result));
+    
+
+    {
+        let mut owned_env = OwnedEnvironment::new(&mut conn);
         let mut env = owned_env.get_exec_environment(None);
-
-        env.initialize_contract("tokens", tokens_contract).unwrap();
-        env.initialize_contract("names", names_contract).unwrap();
-    }
-
-    {
-        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
-
-        assert!(is_err_code(&
-                            env.execute_contract("names", "preorder",
-                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(), 1));
-    }
-
-    {
-        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
-        assert!(is_committed(&
-                             env.execute_contract("names", "preorder",
-                                                  &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap()));
-        assert!(is_err_code(&
-                            env.execute_contract("names", "preorder",
-                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(), 2));
-    }
-
-    {
-        // shouldn't be able to register a name you didn't preorder!
-        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
-        assert!(is_err_code(&
-                            env.execute_contract("names", "register",
-                                                 &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(), 4));
-    }
-
-    {
-        // should work!
-        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
-        assert!(is_committed(&
-                             env.execute_contract("names", "register",
-                                                  &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap()));
-
         assert_eq!(
             env.eval_read_only("names",
                                "(get-owner names 1)").unwrap(),
             Value::some(p2.clone()));
-        
     }
 
-    {
-        // try to underpay!
-        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
-        assert!(is_committed(&
-                             env.execute_contract("names", "preorder",
-                                                  &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap()));
-        assert!(is_err_code(&
-                            env.execute_contract("names", "register",
-                                                 &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap(), 4));
-        
-        // register a cheap name!
-        assert!(is_committed(&
-                             env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::Int(100)])).unwrap()));
-        assert!(is_committed(&
-                             env.execute_contract("names", "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap()));
-        
-        // preorder must exist!
-        assert!(is_err_code(&
-                            env.execute_contract("names", "register",
-                                                 &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap(), 5));
-    }
+    // let's try some token-transfers
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p1.clone(), "names", "try-bad-transfers", &vec![]).unwrap();
+    assert!(is_err_code(&result, 0));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p1.clone(), "names", "try-bad-transfers-but-ok", &vec![]).unwrap();
+
+    assert!(is_committed(&result));
+    assert_eq!(asset_map.to_table().get(&p1_principal).unwrap()[0].1, 1001);
+
+    // let's mint some names
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p1.clone(), "names", "force-mint", 
+        &symbols_from_values(vec![Value::Int(1)])).unwrap();
+
+    assert!(is_err_code(&result, 1));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p1.clone(), "names", "force-mint", 
+        &symbols_from_values(vec![Value::Int(5)])).unwrap();
+
+    assert!(is_committed(&result));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    // let's transfer name
+
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p1.clone(), "names", "transfer", 
+        &symbols_from_values(vec![Value::Int(7), p2.clone()])).unwrap();
+
+    assert!(is_err_code(&result, 3));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p1.clone(), "names", "transfer", 
+        &symbols_from_values(vec![Value::Int(1), p2.clone()])).unwrap();
+
+    assert!(is_err_code(&result, 1));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p2.clone(), "names", "transfer", 
+        &symbols_from_values(vec![Value::Int(1), p2.clone()])).unwrap();
+
+    assert!(is_err_code(&result, 2));
+    assert_eq!(asset_map.to_table().len(), 0);
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p1.clone(), "names", "transfer", 
+        &symbols_from_values(vec![Value::Int(5), p2.clone()])).unwrap();
+
+    let asset_map = asset_map.to_table();
+
+    assert!(is_committed(&result));
+    assert_eq!(asset_map.get(&p1_principal).unwrap()[0].1, 1);
+    assert_eq!(asset_map.get(&p1_principal).unwrap()[1].1, 1);
+
+    // try to underpay!
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p2.clone(), "names", "preorder",
+        &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap();
+
+    assert!(is_committed(&result));
+    
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p2.clone(), "names", "register",
+        &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap();
+
+    assert!(is_err_code(&result, 4));
+    
+    // register a cheap name!
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p2.clone(), "names", "preorder",
+        &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::Int(100)])).unwrap();
+
+    assert!(is_committed(&result));
+
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p2.clone(), "names", "register",
+        &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap();
+
+    assert!(is_committed(&result));
+    
+
+    let (result, asset_map) = execute_transaction(
+        &mut conn, p2.clone(), "names", "register",
+        &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap();
+
+    // preorder must exist!
+    assert!(is_err_code(&result, 5));
 }
