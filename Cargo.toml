@@ -35,6 +35,7 @@ dirs = "1.0.4"
 regex = "1"
 mio = "0.6.16"
 hashbrown = "0.5"
+libc = "0.2"
 
 [dependencies.secp256k1]
 version = "0.11.5"
