@@ -50,7 +50,8 @@ use chainstate::stacks::index::bits::{
     read_root_hash,
     hash_buf_to_trie_hashes,
     get_node_hash_bytes,
-    get_node_hash
+    get_node_hash,
+    trie_hash_from_bytes
 };
 
 use chainstate::stacks::index::node::{
@@ -77,6 +78,7 @@ use chainstate::stacks::index::fork_table::{
 
 use chainstate::stacks::index::{
     TrieHash,
+    MARFValue,
     TRIEHASH_ENCODED_SIZE,
     fast_extend_from_slice,
     slice_partialeq
@@ -847,7 +849,9 @@ impl TrieMerkleProof {
         node_hash = match root_to_block.get(&trie_hash) {
             Some(bhh) => {
                 trace!("Block hash for {:?} is {:?}", &trie_hash, bhh);
-                TrieHash::from_bytes(bhh.as_bytes()).unwrap()
+
+                // safe because block header hashes are 32 bytes long
+                trie_hash_from_bytes(&bhh.as_bytes().to_vec())
             },
             None => {
                 trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
@@ -948,7 +952,9 @@ impl TrieMerkleProof {
             node_hash = match root_to_block.get(&trie_hash) {
                 Some(bhh) => {
                     trace!("Block hash for {:?} is {:?}", &trie_hash, bhh);
-                    TrieHash::from_bytes(bhh.as_bytes()).unwrap()
+
+                    // safe because block header hashes are 32 bytes long
+                    trie_hash_from_bytes(&bhh.as_bytes().to_vec())
                 },
                 None => {
                     trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
@@ -1074,7 +1080,7 @@ impl TrieMerkleProof {
             if cursor.ptr().id() == TrieNodeID::Leaf {
                 match reached_node {
                     TrieNodeType::Leaf(ref data) => {
-                        if data.reserved.to_vec() != expected_value.reserved.to_vec() {
+                        if data.data.to_vec() != expected_value.data.to_vec() {
                             trace!("Did not find leaf {:?} at {:?} (but got {:?})", expected_value, path, data);
                             return Err(Error::NotFoundError);
                         }
@@ -1109,6 +1115,15 @@ impl TrieMerkleProof {
         }
         
         Ok(TrieMerkleProof(proof))
+    }
+    
+    /// Make a merkle proof of inclusion from a key/value pair.
+    /// If the path doesn't resolve, return an error (NotFoundError)
+    pub fn from_entry<S: TrieStorage + Seek>(s: &mut S, key: &String, value: &String, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
+        let marf_value = MARFValue::from_value(value);
+        let marf_leaf = TrieLeaf::from_value(&vec![], marf_value);
+        let path = TriePath::from_key(key);
+        TrieMerkleProof::from_path(s, &path, &marf_leaf, root_block_header)
     }
 }
 
