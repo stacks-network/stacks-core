@@ -276,7 +276,7 @@ impl TrieForkTable {
                     }
                     
                     // skip the rest of the fork column
-                    cnt += parent_index;
+                    cnt += parent_index + 1;
 
                     trace!("Step from {:?} to {:?} ({} steps): {} of {}", block_ptr, &fork_column[0], parent_index, cnt, back_block);
                     fork_column[0].clone()
@@ -362,12 +362,12 @@ mod test {
         for i in 0..5 {
             let bhh = BlockHeaderHash([i as u8; 32]);
             MARF::extend_trie(&mut f, &bhh).unwrap();
+            f.flush().unwrap();
 
             // file must be created
             let block_path = TrieFileStorage::block_path(&f.dir_path, &bhh);
             match fs::metadata(&block_path) {
                 Ok(md) => {
-                    assert_eq!(md.len(), 32);
                 },
                 Err(_) => {
                     assert!(false);
@@ -437,12 +437,12 @@ mod test {
             let fork_bhh = BlockHeaderHash([(i + 128) as u8; 32]);
 
             MARF::extend_trie(&mut f, &bhh).unwrap();
+            f.flush().unwrap();
             
             // file must be created
             let block_path = TrieFileStorage::block_path(&f.dir_path, &bhh);
             match fs::metadata(&block_path) {
                 Ok(md) => {
-                    assert_eq!(md.len(), 32);
                 },
                 Err(_) => {
                     assert!(false);
@@ -462,12 +462,12 @@ mod test {
             if i > 0 {
                 f.open(&parent_hash, true).unwrap();
                 MARF::extend_trie(&mut f, &fork_bhh).unwrap();
+                f.flush().unwrap();
             
                 // file must be created
                 let block_path = TrieFileStorage::block_path(&f.dir_path, &fork_bhh);
                 match fs::metadata(&block_path) {
                     Ok(md) => {
-                        assert_eq!(md.len(), 32);
                     },
                     Err(_) => {
                         assert!(false);
@@ -563,12 +563,12 @@ mod test {
             expected_root_fork.push(bhh.clone());
 
             MARF::extend_trie(&mut f, &bhh).unwrap();
+            f.flush().unwrap();
 
             // file must be created
             let block_path = TrieFileStorage::block_path(&f.dir_path, &bhh);
             match fs::metadata(&block_path) {
                 Ok(md) => {
-                    assert_eq!(md.len(), 32);
                 },
                 Err(_) => {
                     assert!(false);
@@ -598,12 +598,12 @@ mod test {
                 expected_forks[i].push(bhh);
 
                 MARF::extend_trie(&mut f, &bhh).unwrap();
+                f.flush().unwrap();
 
                 // file must be created
                 let block_path = TrieFileStorage::block_path(&f.dir_path, &bhh);
                 match fs::metadata(&block_path) {
                     Ok(md) => {
-                        assert_eq!(md.len(), 32);
                     },
                     Err(_) => {
                         assert!(false);
@@ -675,5 +675,100 @@ mod test {
                 }
             }
         }
-    } 
-}    
+    }
+
+    #[test]
+    fn triefilestorage_extend_fork_tree_256() {
+        // make a 256-item binary tree of forks
+        let path = "/tmp/rust_triefilestorage_extend_fork_tree_256".to_string();
+        match fs::metadata(&path) {
+            Ok(_) => {
+                fs::remove_dir_all(&path).unwrap();
+            },
+            Err(_) => {}
+        };
+        let mut f = TrieFileStorage::new(&path).unwrap();
+        let mut fork_headers = vec![];
+        
+        MARF::extend_trie(&mut f, &BlockHeaderHash([0u8; 32])).unwrap();
+
+        let mut pattern = 0u8;
+        for c in 0..8 {
+            let mut next_fork_row = vec![];
+            for i in 0..(1 << c) {
+                next_fork_row.push(BlockHeaderHash([pattern; 32]));
+                pattern += 1;
+            }
+            fork_headers.push(next_fork_row);
+        }
+
+        for i in 1..8 {
+            let parent_row = &fork_headers[i-1];
+            for j in 0..parent_row.len() {
+                let parent_hash = &parent_row[j];
+                for k in (2*j)..(2*j+2) {
+                    let child_hash = &fork_headers[i][k];
+
+                    test_debug!("Branch from {:?} to {:?}", parent_hash, child_hash);
+                    
+                    f.open(&parent_hash, true).unwrap();
+                    MARF::extend_trie(&mut f, child_hash).unwrap();
+                    f.flush().unwrap();
+            
+                    // file must be created
+                    let block_path = TrieFileStorage::block_path(&f.dir_path, child_hash);
+                    match fs::metadata(&block_path) {
+                        Ok(md) => {
+                        },
+                        Err(_) => {
+                            assert!(false);
+                        }
+                    }
+
+                    // file must have parent hash
+                    let parent_hash_read = TrieFileStorage::read_block_parent(&f.dir_path, child_hash).unwrap();
+                    if i == 0 {
+                        assert_eq!(parent_hash_read, TrieFileStorage::block_sentinel());
+                    }
+                    else {
+                        assert_eq!(parent_hash_read, *parent_hash);
+                    }
+                }
+            }
+        }
+        
+        let mut expected_chain_tips = fork_headers[fork_headers.len() - 1].clone();
+        expected_chain_tips.sort();
+
+        let mut chain_tips = f.fork_table.chain_tips();
+        chain_tips.sort();
+
+        trace!("fork table = \n{:#?}", &f.fork_table);
+        assert_eq!(chain_tips, expected_chain_tips);
+
+        let f2 = TrieFileStorage::new(&path).unwrap();
+        assert_eq!(f2.fork_table, f.fork_table);
+
+        test_debug!("fork_headers = \n{:#?}", fork_headers);
+        for i in 1..8 {
+            let parent_row = &fork_headers[i-1];
+            for j in 0..parent_row.len() {
+                let parent_hash = &parent_row[j];
+                for d in i..8 {
+                    let depth = d - i + 1;
+                    for k in ((1 << depth)*j)..((1 << depth)*(j+1)) {
+                        test_debug!("Test walk back from [{}][{}] to [{}][{}]", i + depth - 1, k, i-1, j);
+
+                        let child_hash = &fork_headers[i + depth - 1][k];
+                        
+                        test_debug!("Test walk back from [{}][{}] {:?} to [{}][{}] {:?} (back {})", i + depth - 1, k, child_hash, i-1, j, parent_hash, depth);
+                        let ph = f.fork_table.walk_back(&child_hash, depth as u32).unwrap();
+                        assert_eq!(*parent_hash, ph);
+                    }
+                }
+            }
+        }
+    }
+}
+
+
