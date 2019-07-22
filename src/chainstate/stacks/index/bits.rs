@@ -289,8 +289,16 @@ pub fn read_root_hash<S: TrieStorage + Seek>(s: &mut S) -> Result<TrieHash, Erro
     let mut hash_bytes = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
     s.read_node_hash_bytes(&ptr, &mut hash_bytes)?;
 
-    // unwrap() is safe here because we have exactly TRIEHASH_ENCODED_SIZE bytes
-    Ok(TrieHash::from_bytes(&hash_bytes[..]).unwrap())
+    // safe because this is TRIEHASH_ENCODED_SIZE bytes long
+    Ok(trie_hash_from_bytes(&hash_bytes))
+}
+
+/// Converts a vec of bytes to a TrieHash.
+/// Panics if the vec isn't TRIEHASH_ENCODED_SIZE bytes long
+#[inline]
+pub fn trie_hash_from_bytes(v: &Vec<u8>) -> TrieHash {
+    assert_eq!(v.len(), TRIEHASH_ENCODED_SIZE);
+    TrieHash::from_bytes(&v[..]).unwrap()
 }
 
 /// count the number of allocated children in a list of a node's children pointers.
