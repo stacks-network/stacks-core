@@ -51,7 +51,9 @@ use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
     fast_extend_from_slice,
-    slice_partialeq
+    slice_partialeq,
+    MARFValue, 
+    MARF_VALUE_ENCODED_SIZE,
 };
 
 use chainstate::stacks::index::Error as Error;
@@ -93,6 +95,15 @@ impl_array_hexstring_fmt!(TriePath);
 impl_byte_array_newtype!(TriePath, u8, 32);
 
 pub const TRIEPATH_MAX_LEN : usize = 32;
+
+impl TriePath {
+    pub fn from_key(k: &String) -> TriePath {
+        let h = TrieHash::from_data(k.as_bytes());
+        let mut hb = [0u8; TRIEPATH_MAX_LEN];
+        hb.copy_from_slice(h.as_bytes());
+        TriePath(hb)
+    }
+}
 
 /// All Trie nodes implement the following methods:
 pub trait TrieNode {
@@ -494,20 +505,20 @@ impl TrieCursor {
 /// Leaf of a Trie.
 #[derive(Clone)]
 pub struct TrieLeaf {
-    pub path: Vec<u8>,          // path to be lazily expanded
-    pub reserved: [u8; 40],     // the actual data
+    pub path: Vec<u8>,      // path to be lazily expanded
+    pub data: MARFValue,    // the actual data
     backptr: TriePtr        // pointer back to the previous version of this leaf
 }
 
 impl fmt::Debug for TrieLeaf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "TrieLeaf(path={} reserved={} backptr={:?})", &to_hex(&self.path), &to_hex(&self.reserved.to_vec()), &self.backptr)
+        write!(f, "TrieLeaf(path={} data={} backptr={:?})", &to_hex(&self.path), &to_hex(&self.data.to_vec()), &self.backptr)
     }
 }
 
 impl PartialEq for TrieLeaf {
     fn eq(&self, other: &TrieLeaf) -> bool {
-        self.path == other.path && slice_partialeq(&self.reserved, &other.reserved) && self.backptr == other.backptr
+        self.path == other.path && slice_partialeq(self.data.as_bytes(), other.data.as_bytes()) && self.backptr == other.backptr
     }
 }
 
@@ -519,7 +530,15 @@ impl TrieLeaf {
         bytes.copy_from_slice(&data[..]);
         TrieLeaf {
             path: path.clone(),
-            reserved: bytes,
+            data: MARFValue(bytes),
+            backptr: TriePtr::default()
+        }
+    }
+
+    pub fn from_value(path: &Vec<u8>, value: MARFValue) -> TrieLeaf {
+        TrieLeaf {
+            path: path.clone(),
+            data: value,
             backptr: TriePtr::default()
         }
     }
@@ -1050,8 +1069,7 @@ impl TrieNode for TrieLeaf {
         let id = self.id();
         ret.push(id);
         path_to_bytes(&self.path, ret);
-        // ret.extend_from_slice(&self.reserved);
-        fast_extend_from_slice(ret, &self.reserved);
+        fast_extend_from_slice(ret, self.data.as_bytes());
         ptrs_to_bytes(id, &[self.backptr], ret);
     }
 
@@ -1060,7 +1078,7 @@ impl TrieNode for TrieLeaf {
     }
     
     fn byte_len(&self) -> usize {
-        1 + get_path_byte_len(&self.path) + self.reserved.len() + get_ptrs_byte_len(&[self.backptr])
+        1 + get_path_byte_len(&self.path) + self.data.len() + get_ptrs_byte_len(&[self.backptr])
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieLeaf, Error> {
@@ -1077,12 +1095,12 @@ impl TrieNode for TrieLeaf {
         }
 
         let path = path_from_bytes(r)?;
-        let mut reserved = [0u8; 40];
-        let l_reserved = r.read(&mut reserved)
+        let mut leaf_data = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
+        let l_leaf_data = r.read(&mut leaf_data)
             .map_err(Error::IOError)?;
 
-        if l_reserved != 40 {
-            return Err(Error::CorruptionError(format!("Leaf: read only {} out of {} bytes", l_reserved, 40)));
+        if l_leaf_data != (MARF_VALUE_ENCODED_SIZE as usize) {
+            return Err(Error::CorruptionError(format!("Leaf: read only {} out of {} bytes", l_leaf_data, MARF_VALUE_ENCODED_SIZE)));
         }
         
         let mut ptrs_slice = [TriePtr::default(); 1];
@@ -1090,7 +1108,7 @@ impl TrieNode for TrieLeaf {
 
         Ok(TrieLeaf {
             path: path,
-            reserved: reserved,
+            data: MARFValue(leaf_data),
             backptr: ptrs_slice[0]
         })
     }
@@ -1577,7 +1595,7 @@ mod test {
                 0x14,
                 // path
                 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,
-                // reserved
+                // data
                 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,
                 // backptr
                 TrieNodeID::Leaf,0,0,0,0,0,0,0,0,0,0
