@@ -1,8 +1,11 @@
+use vm::types::AtomTypeIdentifier;
 use vm::parser::parse;
 use vm::checker::errors::CheckErrors;
 use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection};
 
 const FIRST_CLASS_TOKENS: &str = "(define-token stackaroos)
+         (define-asset stacka-nfts (buff 10))
+         (get-owner stacka-nfts \"1234567890\" )
          (define-read-only (get-balance (account principal))
             (get-token-balance stackaroos account))
          (define-public (my-token-transfer (to principal) (amount int))
@@ -80,4 +83,91 @@ fn test_names_tokens_contracts() {
 
     type_check(&"tokens", &mut tokens_contract, &mut db, true).unwrap();
     type_check(&"names", &mut names_contract, &mut db, true).unwrap();
+}
+
+
+#[test]
+fn test_bad_asset_usage() {
+    use vm::checker::type_check;
+
+    let bad_scripts = ["(get-token-balance stackoos tx-sender)",
+                       "(get-token-balance 1234 tx-sender)",
+                       "(get-token-balance stackaroos 100)",
+                       "(get-owner 1234 \"abc\")",
+                       "(get-owner stackoos \"abc\")",
+                       "(get-owner stacka-nfts 1234 )",
+                       "(get-owner stacka-nfts \"123456789012345\" )",
+                       "(mint-asset! 1234 \"abc\" tx-sender)",
+                       "(mint-asset! stackoos \"abc\" tx-sender)",
+                       "(mint-asset! stacka-nfts 1234 tx-sender)",
+                       "(mint-asset! stacka-nfts \"123456789012345\" tx-sender)",
+                       "(mint-asset! stacka-nfts \"abc\" 2)",
+                       "(mint-token! stackoos 1 tx-sender)",
+                       "(mint-token! 1234 1 tx-sender)",
+                       "(mint-token! stackaroos 2 100)",
+                       "(mint-token! stackaroos 'true tx-sender)",
+                       "(transfer-asset! 1234 \"a\" tx-sender tx-sender)",
+                       "(transfer-asset! stackoos    \"a\" tx-sender tx-sender)",
+                       "(transfer-asset! stacka-nfts \"a\" 2 tx-sender)",
+                       "(transfer-asset! stacka-nfts \"a\" tx-sender 2)",
+                       "(transfer-asset! stacka-nfts 2 tx-sender tx-sender)",
+                       "(transfer-token! stackoos 1 tx-sender tx-sender)",
+                       "(transfer-token! 1234 1 tx-sender tx-sender)",
+                       "(transfer-token! stackaroos 2 100 tx-sender)",
+                       "(transfer-token! stackaroos 'true tx-sender tx-sender)",
+                       "(transfer-token! stackaroos 2 tx-sender 100)",
+    ];
+
+    let expected = [
+        CheckErrors::NoSuchAsset("stackoos".to_string()),
+        CheckErrors::BadAssetName,
+        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
+                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::BadAssetName,
+        CheckErrors::NoSuchAsset("stackoos".to_string()),
+        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
+                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
+                               AtomTypeIdentifier::BufferType(15).into()),
+        CheckErrors::BadAssetName,
+        CheckErrors::NoSuchAsset("stackoos".to_string()),
+        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
+                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
+                               AtomTypeIdentifier::BufferType(15).into()),
+        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
+                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::NoSuchAsset("stackoos".to_string()),
+        CheckErrors::BadAssetName,
+        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
+                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::TypeError(AtomTypeIdentifier::IntType.into(),
+                               AtomTypeIdentifier::BoolType.into()),
+        CheckErrors::BadAssetName,
+        CheckErrors::NoSuchAsset("stackoos".to_string()),
+        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
+                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
+                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
+                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::NoSuchAsset("stackoos".to_string()),
+        CheckErrors::BadAssetName,
+        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
+                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::TypeError(AtomTypeIdentifier::IntType.into(),
+                               AtomTypeIdentifier::BoolType.into()),
+        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
+                               AtomTypeIdentifier::IntType.into()),
+    ];
+
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut db = analysis_conn.begin_save_point();
+    for (script, expected_err) in bad_scripts.iter().zip(expected.iter()) {
+        let tokens_contract = format!("{}\n{}", FIRST_CLASS_TOKENS, script);
+        let mut tokens_contract = parse(&tokens_contract).unwrap();
+        let actual_err = type_check(&"tokens", &mut tokens_contract, &mut db, true).unwrap_err();
+
+        assert_eq!(&actual_err.err, expected_err);
+    }
 }
