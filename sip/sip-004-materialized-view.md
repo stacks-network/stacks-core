@@ -265,13 +265,13 @@ Inserting one more node with a prefix `aabbccddeeff` will promote the
 intermediate `node4` to a `node16`:
 
 ```
-insert (aabbccddeeff02aabbcc, 314159)
+insert (aabbccddeeff03aabbcc, 314159)
 
 node256                                 (00)leaf[path=112233]=123456
        \                               /
         \                             /  (01)leaf[path=445566]=67890
          \                           /  /
-          (aa)node16[path=bbccddeeff]-----(02)leaf[path=aabbcc]=314159
+          (aa)node16[path=bbccddeeff]-----(03)leaf[path=aabbcc]=314159
                                      \  \
                                       \  (02)leaf[path=778899]=abcdef
                                        \
@@ -281,7 +281,7 @@ node256                                 (00)leaf[path=112233]=123456
 The trie now encodes the following:
    * `aabbccddeeff00112233=123456`
    * `aabbccddeeff01445566=67890`
-   * `aabbccddeeff02aabbcc=314159`
+   * `aabbccddeeff03aabbcc=314159`
    * `aabbccddeeff02778899=abcdef`
    * `aabbccddeeff99887766=9876`
 
@@ -303,7 +303,7 @@ node256                                 (00)leaf[path=112233]=123456
        \                               /
         \                             /  (01)leaf[path=445566]=67890
          \                           /  /
-          (aa)node16[path=bbccddeeff]-----(02)leaf[path=aabbcc]=314159
+          (aa)node16[path=bbccddeeff]-----(03)leaf[path=aabbcc]=314159
                                      \  \
                                       \  (02)leaf[path=778899]=abcdef
                                        \
@@ -313,7 +313,7 @@ node256                                 (00)leaf[path=112233]=123456
 This trie encodes the following:
    * `aabbccddeeff00112233=123456`
    * `aabbccddeeff01445566=67890`
-   * `aabbccddeeff02aabbcc=314159`
+   * `aabbccddeeff03aabbcc=314159`
    * `aabbccddeeff02778899=abcdef`
    * `aabbccddeeff99887766=9876`
 
@@ -331,7 +331,7 @@ node256                      /                       (00)leaf[path=112233]=12345
        \                    /                       /
         (aa)node4[path=bbcc]                       /  (01)leaf[path=445566]=67890
                             \                     /  /
-                             (dd)node16[path=eeff]-----(02)leaf[path=aabbcc]=314159
+                             (dd)node16[path=eeff]-----(03)leaf[path=aabbcc]=314159
                                                   \  \
                                                    \  (02)leaf[path=778899]=abcdef
                                                     \
@@ -342,7 +342,7 @@ The resulting trie now encodes the following:
    * `aabbcc00112233445566=21878`
    * `aabbccddeeff00112233=123456`
    * `aabbccddeeff01445566=67890`
-   * `aabbccddeeff02aabbcc=314159`
+   * `aabbccddeeff03aabbcc=314159`
    * `aabbccddeeff02778899=abcdef`
    * `aabbccddeeff99887766=9876`
 
@@ -370,7 +370,7 @@ node256                                 (00)leaf[path=112233]=123456
        \                               /
         \                             /  (01)leaf[path=445566]=67890
          \                           /  /
-          (aa)node16[path=bbccddeeff]-----(02)leaf[path=aabbcc]=314159
+          (aa)node16[path=bbccddeeff]-----(03)leaf[path=aabbcc]=314159
                                      \  \
                                       \  (02)leaf[path=778899]=abcdef
                                        \
@@ -625,7 +625,7 @@ node256                                 (00)leaf[path=112233]=123456
        \                               /
         \                             /  (01)leaf[path=445566]=67890
          \                           /  /
-          (aa)node16[path=bbccddeeff]-----(02)leaf[path=aabbcc]=314159
+          (aa)node16[path=bbccddeeff]-----(03)leaf[path=aabbcc]=314159
                                      \  \
                                       \  (02)leaf[path=778899]=abcdef
                                        \
