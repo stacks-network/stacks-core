@@ -68,6 +68,15 @@ impl_array_hexstring_fmt!(TrieHash);
 impl_byte_array_newtype!(TrieHash, u8, 32);
 pub const TRIEHASH_ENCODED_SIZE : usize = 32;
 
+/// Structure that holds the actual data in a MARF leaf node.
+/// It only stores the hash of some value string, but we add 8 extra bytes for future extensions.
+/// If not used (the rule today), then they should all be 0.
+pub struct MARFValue(pub [u8; 40]);
+impl_array_newtype!(MARFValue, u8, 40);
+impl_array_hexstring_fmt!(MARFValue);
+impl_byte_array_newtype!(MARFValue, u8, 40);
+pub const MARF_VALUE_ENCODED_SIZE : u32 = 40;
+
 impl TrieHash {
     /// TrieHash of zero bytes
     #[inline]
@@ -91,7 +100,60 @@ impl TrieHash {
 
         TrieHash(tmp)
     }
+
+    /// Convert to a String that can be used in e.g. sqlite
+    pub fn to_string(&self) -> String {
+        let s = format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                          self.0[0],     self.0[1],       self.0[2],       self.0[3],
+                          self.0[4],     self.0[5],       self.0[6],       self.0[7],
+                          self.0[8],     self.0[9],       self.0[10],      self.0[11],
+                          self.0[12],    self.0[13],      self.0[14],      self.0[15],
+                          self.0[16],    self.0[17],      self.0[18],      self.0[19],
+                          self.0[20],    self.0[21],      self.0[22],      self.0[23],
+                          self.0[24],    self.0[25],      self.0[26],      self.0[27],
+                          self.0[28],    self.0[29],      self.0[30],      self.0[31]);
+        s
+    }
 }
+
+impl MARFValue {
+    /// Construct from a TRIEHASH_ENCODED_SIZE-length slice
+    pub fn from_value_hash_bytes(h: &[u8; TRIEHASH_ENCODED_SIZE]) -> MARFValue {
+        let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
+        for i in 0..TRIEHASH_ENCODED_SIZE {
+            d[i] = h[i];
+        }
+        MARFValue(d)
+    }
+
+    /// Construct from a TrieHash
+    pub fn from_value_hash(h: &TrieHash) -> MARFValue {
+        MARFValue::from_value_hash_bytes(h.as_bytes())
+    }
+
+    /// Construct from a String that encodes a value inserted into the underlying data store
+    pub fn from_value(s: &String) -> MARFValue {
+        let mut tmp = [0u8; 32];
+       
+        let mut hasher = TrieHasher::new();
+        hasher.input(s.as_bytes());
+        tmp.copy_from_slice(hasher.result().as_slice());
+
+        MARFValue::from_value_hash_bytes(&tmp)
+    }
+
+    /// Convert to a byte vector
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.as_bytes().to_vec()
+    }
+
+    /// Extract the value hash from the MARF value
+    pub fn to_value_hash(&self) -> TrieHash {
+        let mut h = [0u8; TRIEHASH_ENCODED_SIZE];
+        h.copy_from_slice(&self.0[0..TRIEHASH_ENCODED_SIZE]);
+        TrieHash(h)
+    }
+}   
 
 #[derive(Debug)]
 pub enum Error {
@@ -103,6 +165,9 @@ pub enum Error {
     CorruptionError(String),
     ReadOnlyError,
     NotDirectoryError,
+    PartialWriteError,
+    InProgressError,
+    WriteNotBegunError,
 }
 
 impl fmt::Display for Error {
@@ -116,6 +181,9 @@ impl fmt::Display for Error {
             Error::CorruptionError(ref s) => fmt::Display::fmt(s, f),
             Error::ReadOnlyError => f.write_str(error::Error::description(self)),
             Error::NotDirectoryError => f.write_str(error::Error::description(self)),
+            Error::PartialWriteError => f.write_str(error::Error::description(self)),
+            Error::InProgressError => f.write_str(error::Error::description(self)),
+            Error::WriteNotBegunError => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -131,6 +199,9 @@ impl error::Error for Error {
             Error::CorruptionError(ref _s) => None,
             Error::ReadOnlyError => None,
             Error::NotDirectoryError => None,
+            Error::PartialWriteError => None,
+            Error::InProgressError => None,
+            Error::WriteNotBegunError => None,
         }
     }
 
@@ -143,7 +214,10 @@ impl error::Error for Error {
             Error::BadSeekValue => "Bad seek value",
             Error::CorruptionError(ref s) => s.as_str(),
             Error::ReadOnlyError => "Storage is in read-only mode",
-            Error::NotDirectoryError => "Not a directory"
+            Error::NotDirectoryError => "Not a directory",
+            Error::PartialWriteError => "Data is partially written and not yet recovered",
+            Error::InProgressError => "Write was in progress",
+            Error::WriteNotBegunError => "Write has not begun",
         }
     }
 }
@@ -455,6 +529,10 @@ mod test {
         fn num_blocks(&self) -> usize {
             self.bufs.len()
         }
+
+        fn chain_tips(&self) -> Vec<BlockHeaderHash> {
+            panic!("Getting chain-tips is not supported on TrieIOBuffer test harnass");
+        }
     }
 
     impl Seek for TrieIOBuffer {
@@ -501,7 +579,26 @@ mod test {
         let root_to_block = s.read_root_to_block_table().unwrap();
         assert!(proof.verify(&root_hash, &root_to_block));
     }
+    
+    pub fn merkle_test_marf_key_value(s: &mut TrieFileStorage, header: &BlockHeaderHash, key: &String, value: &String) -> () {
+        test_debug!("---------");
+        test_debug!("MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?", header, key, value);
+        test_debug!("---------");
 
+        s.open(header, false).unwrap();
+        let (_, root_hash) = Trie::read_root(s).unwrap();
+        let proof = TrieMerkleProof::from_entry(s, key, value, &header).unwrap();
+
+        test_debug!("---------");
+        test_debug!("MARF merkle verify: {:?}", &proof);
+        test_debug!("MARF merkle verify target root hash: {:?}", &root_hash);
+        test_debug!("MARF merkle verify source block: {:?}", header);
+        test_debug!("---------");
+
+        let root_to_block = s.read_root_to_block_table().unwrap();
+        assert!(proof.verify(&root_hash, &root_to_block));
+    }
+    
     pub fn make_node_path<S: TrieStorage + Seek>(s: &mut S, node_id: u8, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         // make a fully-fleshed-out path of node's to a leaf 
         let root_ptr = s.root_ptr();
