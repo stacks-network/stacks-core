@@ -109,13 +109,13 @@ fn test_names_tokens_contracts_interface() {
 
         (define-map map1 ((name int)) ((owner principal)) )
         (define-map map2 ((k-name-1 bool)) ((v-name-1 (buff 33))) )
-        (define-map map3 ((k-name-2 bool)) ((v-name-2 (tuple ((n1 int) (n2 bool))))) )
+        (define-map map3 ((k-name-2 bool)) ((v-name-2 (tuple (n1 int) (n2 bool)))) )
 
         (define (f00 (a1 int)) 'true)
         (define (f01 (a1 bool)) 'true)
         (define (f02 (a1 principal)) 'true)
         (define (f03 (a1 (buff 54))) 'true)
-        (define (f04 (a1 (tuple ((t-name1 bool) (t-name2 int))))) 'true)
+        (define (f04 (a1 (tuple (t-name1 bool) (t-name2 int)))) 'true)
         (define (f05 (a1 (list 7 6 int))) 'true)
 
         (define (f06) 1)

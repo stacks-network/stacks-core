@@ -54,7 +54,6 @@ impl ContractInterfaceAtomType {
 
     pub fn from_atom_type(atom_type: &AtomTypeIdentifier) -> ContractInterfaceAtomType {
         match atom_type {
-            AtomTypeIdentifier::AnyType => panic!("Contract functions should never return `{}`", atom_type),
             AtomTypeIdentifier::NoType => ContractInterfaceAtomType::none,
             AtomTypeIdentifier::IntType => ContractInterfaceAtomType::int128,
             AtomTypeIdentifier::BoolType => ContractInterfaceAtomType::bool,
