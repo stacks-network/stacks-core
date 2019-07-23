@@ -284,29 +284,51 @@ fn test_names_tokens_contracts_interface() {
         "maps": [
             {
                 "name": "map1",
-                "key_name": "name",
-                "key_type": "int128",
-                "value_name": "owner",
-                "value_type": "principal"
+                "key": [ {
+                    "name": "name",
+                    "type": "int128"
+                } ],
+                "value": [ {
+                    "name": "owner",
+                    "type": "principal"
+                } ]
             },
             {
                 "name": "map2",
-                "key_name": "k-name-1",
-                "key_type": "bool",
-                "value_name": "v-name-1",
-                "value_type": { "buffer": { "length": 33 } }
+                "key": [ {
+                    "name": "k-name-1",
+                    "type": "bool"
+                } ],
+                "value": [ {
+                    "name": "v-name-1",
+                    "type": {
+                        "buffer": { "length": 33 }
+                    }
+                } ]
             },
             {
                 "name": "map3",
-                "key_name": "k-name-2",
-                "key_type": "bool",
-                "value_name": "v-name-2",
-                "value_type": {
-                    "tuple": [
-                        { "name": "n1", "type": "int128" },
-                        { "name": "n2", "type": "bool" }
-                    ]
-                }
+                "key": [
+                    {
+                        "name": "k-name-2",
+                        "type": "bool"
+                    }
+                ],
+                "value": [ {
+                    "name": "v-name-2",
+                    "type": {
+                        "tuple": [
+                            {
+                                "name": "n1",
+                                "type": "int128"
+                            },
+                            {
+                                "name": "n2",
+                                "type": "bool"
+                            }
+                        ] }
+                    }
+                ]
             }
         ],
         "variables": [

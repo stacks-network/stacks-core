@@ -39,13 +39,17 @@ impl ContractInterfaceAtomType {
 
     pub fn from_tuple_type(tuple_type: &TupleTypeSignature) -> ContractInterfaceAtomType {
         ContractInterfaceAtomType::tuple( 
-            tuple_type.type_map.iter().map(|(name, sig)| 
-                ContractInterfaceTupleType { 
-                    name: name.to_string(), 
-                    type_f: Self::from_type_signature(sig)
-                }
-            ).collect()
+            Self::vec_from_tuple_type(&tuple_type)
         )
+    }
+
+    pub fn vec_from_tuple_type(tuple_type: &TupleTypeSignature) -> Vec<ContractInterfaceTupleType> {
+        tuple_type.type_map.iter().map(|(name, sig)| 
+            ContractInterfaceTupleType { 
+                name: name.to_string(), 
+                type_f: Self::from_type_signature(sig)
+            }
+        ).collect()
     }
 
     pub fn from_atom_type(atom_type: &AtomTypeIdentifier) -> ContractInterfaceAtomType {
@@ -176,36 +180,28 @@ impl ContractInterfaceVariable {
 #[derive(Debug, Serialize)]
 pub struct ContractInterfaceMap {
     pub name: String,
-    pub key_name: String,
-    pub key_type: ContractInterfaceAtomType,
-    pub value_name: String,
-    pub value_type: ContractInterfaceAtomType,
+    pub key: Vec<ContractInterfaceTupleType>,
+    pub value: Vec<ContractInterfaceTupleType>,
 }
 
 impl ContractInterfaceMap {
     pub fn from_map(map: &BTreeMap<String, (TypeSignature, TypeSignature)>) -> Vec<ContractInterfaceMap> {
         map.iter().map(|(name, (key_sig, val_sig))| {
 
-            let key_map = match key_sig {
-                TypeSignature::Atom(AtomTypeIdentifier::TupleType(tuple_sig)) => &tuple_sig.type_map,
+            let key_type = match key_sig {
+                TypeSignature::Atom(AtomTypeIdentifier::TupleType(tuple_sig)) => ContractInterfaceAtomType::vec_from_tuple_type(&tuple_sig),
                 _ => panic!("Contract map key should always be a tuple type!")
             };
-            let (key_name, key_type) = key_map.iter().nth(0)
-                .expect("Contract map key tuple should have a first entry!");
 
-            let val_map = match val_sig {
-                TypeSignature::Atom(AtomTypeIdentifier::TupleType(tuple_sig)) => &tuple_sig.type_map,
+            let val_type = match val_sig {
+                TypeSignature::Atom(AtomTypeIdentifier::TupleType(tuple_sig)) => ContractInterfaceAtomType::vec_from_tuple_type(&tuple_sig),
                 _ => panic!("Contract map value should always be a tuple type!")
             };
-            let (val_name, val_type) = val_map.iter().nth(0)
-                .expect("Contract map value tuple should have a first entry!");
 
             ContractInterfaceMap {
                 name: name.to_string(),
-                key_name: key_name.to_string(),
-                key_type: ContractInterfaceAtomType::from_type_signature(&key_type),
-                value_name: val_name.to_string(),
-                value_type: ContractInterfaceAtomType::from_type_signature(&val_type),
+                key: key_type,
+                value: val_type,
             }
         }).collect()
     }
