@@ -16,8 +16,8 @@ fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
 }
 
 const FIRST_CLASS_TOKENS: &str = "(define-token stackaroos)
-         (define-read-only (get-balance (account principal))
-            (get-token-balance stackaroos account))
+         (define-read-only (my-get-balance (account principal))
+            (get-balance stackaroos account))
          (define-public (my-token-transfer (to principal) (amount int))
             (transfer-token! stackaroos amount tx-sender to))
          (define-public (faucet)
@@ -194,7 +194,7 @@ fn test_simple_token_system() {
     }
 
     let (result, asset_map) = execute_transaction(&mut conn,
-        p1.clone(), "tokens", "get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
+        p1.clone(), "tokens", "my-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
 
     assert_eq!(
         result,
@@ -202,7 +202,7 @@ fn test_simple_token_system() {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(&mut conn,
-        p1.clone(), "tokens", "get-balance", &symbols_from_values(vec![p2.clone()])).unwrap();
+        p1.clone(), "tokens", "my-get-balance", &symbols_from_values(vec![p2.clone()])).unwrap();
 
     assert_eq!(
         result,
@@ -228,7 +228,7 @@ fn test_simple_token_system() {
     assert_eq!(asset_map.to_table().get(&contract_principal).unwrap()[0].1, 1);
 
     let (result, asset_map) = execute_transaction(&mut conn,
-        p1.clone(), "tokens", "get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
+        p1.clone(), "tokens", "my-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
 
     assert_eq!(
         result,

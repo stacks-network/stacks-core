@@ -133,7 +133,7 @@ impl NativeFunctions {
             "is-ok?" => Some(IsOkay),
             "is-none?" => Some(IsNone),
             "filter" => Some(Filter),
-            "get-token-balance" => Some(GetTokenBalance),
+            "get-balance" => Some(GetTokenBalance),
             "get-owner" => Some(GetAssetOwner),
             "transfer-token!" => Some(TransferToken),
             "transfer-asset!" => Some(TransferAsset),

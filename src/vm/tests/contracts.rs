@@ -34,20 +34,20 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current in
                (init-factorial 8008 5))";
 
 const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance int)))
-         (define-read-only (get-balance (account principal))
+         (define-read-only (my-get-balance (account principal))
             (default-to 0 (get balance (fetch-entry tokens (tuple (account account))))))
          (define-read-only (explode (account principal))
              (delete-entry! tokens (tuple (account account))))
          (define (token-credit! (account principal) (amount int))
             (if (<= amount 0)
                 (err \"must be positive\")
-                (let ((current-amount (get-balance account)))
+                (let ((current-amount (my-get-balance account)))
                   (begin
                     (set-entry! tokens (tuple (account account))
                                        (tuple (balance (+ amount current-amount))))
                     (ok 0)))))
          (define-public (token-transfer (to principal) (amount int))
-          (let ((balance (get-balance tx-sender)))
+          (let ((balance (my-get-balance tx-sender)))
              (if (or (> amount balance) (<= amount 0))
                  (err \"not enough balance\")
                  (begin
@@ -165,11 +165,11 @@ fn test_simple_token_system() {
         
         assert_eq!(
             env.eval_read_only("tokens",
-                               "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+                               "(my-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
             Value::Int(1000));
         assert_eq!(
             env.eval_read_only("tokens",
-                               "(get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
+                               "(my-get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
             Value::Int(9200));
         assert!(is_committed(&
                              env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
@@ -182,7 +182,7 @@ fn test_simple_token_system() {
         
         assert_eq!(
             env.eval_read_only("tokens",
-                               "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+                               "(my-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
             Value::Int(1003));
         assert!(!is_committed(&
                               env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap()));
@@ -196,10 +196,10 @@ fn test_simple_token_system() {
         
         assert_eq!(
             env.eval_read_only("tokens",
-                               "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+                               "(my-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
             Value::Int(1004));
         assert_eq!(
-            env.execute_contract("tokens", "get-balance", &symbols_from_values(vec![p1.clone()])).unwrap(),
+            env.execute_contract("tokens", "my-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap(),
             Value::Int(1004));
     }
 }

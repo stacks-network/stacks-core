@@ -6,8 +6,8 @@ use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection};
 const FIRST_CLASS_TOKENS: &str = "(define-token stackaroos)
          (define-asset stacka-nfts (buff 10))
          (get-owner stacka-nfts \"1234567890\" )
-         (define-read-only (get-balance (account principal))
-            (get-token-balance stackaroos account))
+         (define-read-only (my-get-balance (account principal))
+            (get-balance stackaroos account))
          (define-public (my-token-transfer (to principal) (amount int))
             (transfer-token! stackaroos amount tx-sender to))
          (define-public (faucet)
@@ -90,9 +90,9 @@ fn test_names_tokens_contracts() {
 fn test_bad_asset_usage() {
     use vm::checker::type_check;
 
-    let bad_scripts = ["(get-token-balance stackoos tx-sender)",
-                       "(get-token-balance 1234 tx-sender)",
-                       "(get-token-balance stackaroos 100)",
+    let bad_scripts = ["(get-balance stackoos tx-sender)",
+                       "(get-balance 1234 tx-sender)",
+                       "(get-balance stackaroos 100)",
                        "(get-owner 1234 \"abc\")",
                        "(get-owner stackoos \"abc\")",
                        "(get-owner stacka-nfts 1234 )",
