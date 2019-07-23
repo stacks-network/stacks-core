@@ -233,7 +233,7 @@ fn test_arithmetic_errors() {
         "(eq? (some 1) (some 'true))"];
 
     let expectations: &[Error] = &[
-        UncheckedError::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
         UncheckedError::TypeError("IntType".to_string(), Value::Bool(true)).into(),
         RuntimeErrorType::Arithmetic("Divide by 0".to_string()).into(),
         RuntimeErrorType::Arithmetic("Modulus by 0".to_string()).into(),
@@ -271,14 +271,14 @@ fn test_options_errors() {
         ];
 
     let expectations: &[Error] = &[
-        UncheckedError::InvalidArguments("Wrong number of arguments to is-none? (expects 1)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
         UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to is-ok? (expects 1)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
         UncheckedError::TypeError("ResponseType".to_string(), Value::Bool(true)).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to ok (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to some (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to err (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to default-to (expects 2)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
+        UncheckedError::IncorrectArgumentCount(2,3).into(),
         UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
     ];
 

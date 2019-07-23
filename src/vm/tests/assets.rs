@@ -279,10 +279,10 @@ fn test_simple_naming_system() {
 
     let (result, asset_map) = execute_transaction(
         &mut conn, p2.clone(), "names", "preorder",
-                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();
+        &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();
 
-        assert!(is_err_code(&result, 1));
-
+    assert!(is_err_code(&result, 1));
+    
     let (result, asset_map) = execute_transaction(
         &mut conn, p1.clone(), "names", "preorder",
         &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();

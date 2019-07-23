@@ -87,16 +87,14 @@ fn test_expects() {
         "(define (foo) (expects-err! (err 1))) (foo)";
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
-    assert_eq_err(UncheckedError::InvalidArguments(
-        "Wrong number of arguments to expects (expects! input-value thrown-value)".to_string()),
+    assert_eq_err(UncheckedError::IncorrectArgumentCount(2,1),
                   execute(&test1).unwrap_err());
     assert_eq_err(UncheckedError::TypeError("OptionalType|ResponseType".to_string(), Value::Int(1)),
                   execute(&test2).unwrap_err());
     assert_eq_err(UncheckedError::TypeError("ResponseType".to_string(), Value::Int(1)),
                   execute(&test3).unwrap_err());
     assert_eq!(Ok(Some(Value::Int(1))), execute(&test4));
-    assert_eq_err(UncheckedError::InvalidArguments(
-        "Wrong number of arguments to expects (expects-err! input-value thrown-value)".to_string()),
+    assert_eq_err(UncheckedError::IncorrectArgumentCount(2, 1),
                   execute(&test5).unwrap_err());
 }
 
