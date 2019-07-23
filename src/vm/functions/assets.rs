@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
@@ -7,6 +5,14 @@ use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty,
 use vm::representations::{SymbolicExpression};
 use vm::errors::{Error, UncheckedError, InterpreterError, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
 use vm::{eval, LocalContext, Environment};
+
+const E_MINT_ASSET_ALREADY_EXIST:       i128 = 1;
+const E_XFER_ASSET_NOT_OWNED_BY:        i128 = 1;
+const E_XFER_ASSET_SENDER_IS_RECIPIENT: i128 = 2;
+const E_XFER_ASSET_DOES_NOT_EXIST:      i128 = 3;
+const E_XFER_TOKEN_NOT_ENOUGH_BALANCE:  i128 = 1;
+const E_XFER_TOKEN_SENDER_IS_RECIPIENT: i128 = 2;
+const E_XFER_TOKEN_NON_POSITIVE_AMOUNT: i128 = 3;
 
 pub fn special_mint_token(args: &[SymbolicExpression],
                           env: &mut Environment,
@@ -38,7 +44,6 @@ pub fn special_mint_token(args: &[SymbolicExpression],
     }
 }
 
-// Error Codes => 1: asset already exists
 pub fn special_mint_asset(args: &[SymbolicExpression],
                           env: &mut Environment,
                           context: &LocalContext) -> Result<Value> {
@@ -59,7 +64,7 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
     if let Value::Principal(ref to_principal) = to {
         match env.global_context.database.get_asset_owner(&env.contract_context.name, asset_name, &asset) {
             Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => Ok(()),
-            Ok(_owner) => return Ok(Value::error(Value::Int(1))),
+            Ok(_owner) => return Ok(Value::error(Value::Int(E_MINT_ASSET_ALREADY_EXIST))),
             Err(e) => Err(e)
         }?;
 
@@ -71,9 +76,6 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
     }
 }
 
-// Error Codes => 1: from principal is not the current owner of the asset
-//                2: from == to
-//                3: asset does not exist
 pub fn special_transfer_asset(args: &[SymbolicExpression],
                               env: &mut Environment,
                               context: &LocalContext) -> Result<Value> {
@@ -96,18 +98,18 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
             Value::Principal(ref to_principal)) = (from, to) {
 
         if from_principal == to_principal {
-            return Ok(Value::error(Value::Int(2)))
+            return Ok(Value::error(Value::Int(E_XFER_ASSET_SENDER_IS_RECIPIENT)))
         }
 
         let current_owner = match env.global_context.database.get_asset_owner(&env.contract_context.name, asset_name, &asset) {
             Ok(owner) => Ok(owner),
-            Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => return Ok(Value::error(Value::Int(3))),
+            Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => return Ok(Value::error(Value::Int(E_XFER_ASSET_DOES_NOT_EXIST))),
             Err(e) => Err(e)
         }?;
             
 
         if current_owner != *from_principal {
-            return Ok(Value::error(Value::Int(1)))
+            return Ok(Value::error(Value::Int(E_XFER_ASSET_NOT_OWNED_BY)))
         }
 
         env.global_context.database.set_asset_owner(&env.contract_context.name, asset_name, &asset, to_principal)?;
@@ -120,9 +122,6 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
     }
 }
 
-// Error Codes => 1: not enough balance
-//                2: from == to
-//                3: non-positive amount
 pub fn special_transfer_token(args: &[SymbolicExpression],
                               env: &mut Environment,
                               context: &LocalContext) -> Result<Value> {
@@ -139,17 +138,17 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
             Value::Principal(ref from_principal),
             Value::Principal(ref to_principal)) = (amount, from, to) {
         if amount < 0 {
-            return Ok(Value::error(Value::Int(3)))
+            return Ok(Value::error(Value::Int(E_XFER_TOKEN_NON_POSITIVE_AMOUNT)))
         }
 
         if from_principal == to_principal {
-            return Ok(Value::error(Value::Int(2)))
+            return Ok(Value::error(Value::Int(E_XFER_TOKEN_SENDER_IS_RECIPIENT)))
         }
 
         let from_bal = env.global_context.database.get_token_balance(&env.contract_context.name, token_name, from_principal)?;
 
         if from_bal < amount {
-            return Ok(Value::error(Value::Int(1)))
+            return Ok(Value::error(Value::Int(E_XFER_TOKEN_NOT_ENOUGH_BALANCE)))
         }
 
         let final_from_bal = from_bal - amount;

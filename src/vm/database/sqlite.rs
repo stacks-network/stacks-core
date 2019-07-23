@@ -361,7 +361,7 @@ impl <'a> ContractDatabase <'a> {
                      &[contract_name, asset_name, &key_type.serialize()]);
     }
 
-    // Asset functions return error if no such token exists
+    // Asset functions return error if no such token was defined by `define-token`
     pub fn get_token_balance(&mut self, contract_name: &str, token_name: &str, principal: &PrincipalData) -> Result<i128> {
         let descriptor = self.load_token(contract_name, token_name)?;
 
