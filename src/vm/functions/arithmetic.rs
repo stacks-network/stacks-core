@@ -116,29 +116,6 @@ pub fn native_div(args: &[Value]) -> Result<Value> {
     }
 }
 
-// AARON: Note -- this was pulled straight for rustlang's nightly @ 1.34
-//             -- this _should be_ deleted once 1.34 ships.
-fn checked_pow(mut base: i128, mut exp: u32) -> Option<i128> {
-    let mut acc: i128 = 1;
-    
-    while exp > 1 {
-        if (exp & 1) == 1 {
-            acc = acc.checked_mul(base)?;
-        }
-        exp /= 2;
-        base = base.checked_mul(base)?;
-    }
-    
-    // Deal with the final bit of the exponent separately, since
-    // squaring the base afterwards is not necessary and may cause a
-    // needless overflow.
-    if exp == 1 {
-        acc = acc.checked_mul(base)?;
-    }
-    
-    Some(acc)
-}
-
 pub fn native_pow(args: &[Value]) -> Result<Value> {
     if args.len() == 2 {
         let base = type_force_integer(&args[0])?;
@@ -148,13 +125,10 @@ pub fn native_pow(args: &[Value]) -> Result<Value> {
         }
 
         let power = power_i128 as u32;
-        let checked_result = checked_pow(base, power);
 
-        if let Some(result) = checked_result{
-            Ok(Value::Int(result))
-        } else {
-            Err(RuntimeErrorType::Arithmetic("Overflowed in power".to_string()).into())
-        }
+        let result = base.checked_pow(power)
+            .ok_or_else(|| RuntimeErrorType::Arithmetic("Overflowed in power".to_string()))?;
+        Ok(Value::Int(result))
     } else {
         Err(UncheckedError::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()).into())
     }
