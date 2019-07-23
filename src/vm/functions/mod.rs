@@ -353,7 +353,10 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
             if is_reserved(&binding_name) {
                 return Err(UncheckedError::ReservedName(binding_name).into())
             }
-            if inner_context.variables.contains_key(&binding_name) {
+            if env.contract_context.lookup_function(&binding_name).is_some() {
+                return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
+            }
+            if inner_context.lookup_variable(&binding_name).is_some() {
                 return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
             }
             inner_context.variables.insert(binding_name, binding_value);

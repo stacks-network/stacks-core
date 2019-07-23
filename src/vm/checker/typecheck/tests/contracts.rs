@@ -9,13 +9,13 @@ const SIMPLE_TOKENS: &str =
                   (get balance (fetch-entry tokens (tuple (account account))))))
               (default-to 0 balance)))
 
-         (define (token-credit! (account principal) (tokens int))
-            (if (<= tokens 0)
+         (define (token-credit! (account principal) (amount int))
+            (if (<= amount 0)
                 (err 1)
                 (let ((current-amount (get-balance account)))
                   (begin
                     (set-entry! tokens (tuple (account account))
-                                       (tuple (balance (+ tokens current-amount))))
+                                       (tuple (balance (+ amount current-amount))))
                     (ok 0)))))
          (define-public (token-transfer (to principal) (amount int))
           (let ((balance (get-balance tx-sender)))
