@@ -31,7 +31,7 @@ jobs:
             blockstack-core local execute db tokens mint! SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 100000
       - run:
           command: |
-            echo "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | blockstack-core local eval tokens db
+            echo "(my-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | blockstack-core local eval tokens db
   build:
     machine: true
     working_directory: ~/blockstack
