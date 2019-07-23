@@ -821,6 +821,7 @@ one of the following error codes:
 
 `(err 1)` -- `sender` does not have enough balance to transfer
 `(err 2)` -- `sender` and `recipient` are the same principal
+`(err 3)` -- amount to send is non-positive
 ",
     example: "
 (define-token stackaroo)

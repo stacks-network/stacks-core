@@ -31,15 +31,20 @@ pub struct OwnedEnvironment <'a> {
     call_stack: CallStack
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum AssetMapEntry {
+    Token(i128),
+    Asset(Vec<Value>)
+}
+
 /**
  The AssetMap is used to track which assets have been transfered from whom
  during the execution of a transaction.
  */
 #[derive(Debug)]
 pub struct AssetMap {
-    // Q: currently we just track balance transfers, but for NFT,
-    //     tracking the actual identifier transfered is probably more useful.
-    map: HashMap<PrincipalData, HashMap<AssetIdentifier, i128>>
+    token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, i128>>,
+    asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>
 }
 
 /** GlobalContext represents the outermost context for a transaction's
@@ -81,13 +86,14 @@ pub type StackTrace = Vec<FunctionIdentifier>;
 impl AssetMap {
     pub fn new() -> AssetMap {
         AssetMap {
-            map: HashMap::new()
+            token_map: HashMap::new(),
+            asset_map: HashMap::new()
         }
     }
 
     // This will get the next amount for a (principal, asset) entry in the asset table.
     fn get_next_amount(&self, principal: &PrincipalData, asset: &AssetIdentifier, amount: i128) -> Result<i128> {
-        let current_amount = match self.map.get(principal) {
+        let current_amount = match self.token_map.get(principal) {
             Some(principal_map) => *principal_map.get(&asset).unwrap_or(&0),
             None => 0
         };
@@ -96,14 +102,33 @@ impl AssetMap {
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
     }
 
-    pub fn add_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, amount: i128) -> Result<()> {
-        let next_amount = self.get_next_amount(principal, &asset, amount)?;
-
-        if !self.map.contains_key(principal) {
-            self.map.insert(principal.clone(), HashMap::new());
+    pub fn add_asset_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, transfered: Value) {
+        if !self.asset_map.contains_key(principal) {
+            self.asset_map.insert(principal.clone(), HashMap::new());
         }
 
-        let principal_map = self.map.get_mut(principal)
+        let principal_map = self.asset_map.get_mut(principal)
+            .unwrap(); // should always exist, because of checked insert above.
+
+        if principal_map.contains_key(&asset) {
+            principal_map.get_mut(&asset).unwrap().push(transfered); 
+        } else {
+            principal_map.insert(asset, vec![transfered]); 
+        }
+    }
+
+    pub fn add_token_transfer(&mut self, principal: &PrincipalData, asset: AssetIdentifier, amount: i128) -> Result<()> {
+        if amount < 0 {
+            panic!("Should never attempt to log a negative transfer.");
+        }
+
+        let next_amount = self.get_next_amount(principal, &asset, amount)?;
+
+        if !self.token_map.contains_key(principal) {
+            self.token_map.insert(principal.clone(), HashMap::new());
+        }
+
+        let principal_map = self.token_map.get_mut(principal)
             .unwrap(); // should always exist, because of checked insert above.
 
         principal_map.insert(asset, next_amount);
@@ -115,19 +140,38 @@ impl AssetMap {
     //   aborting _all_ changes in the event of an error, leaving self unchanged
     pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
         let mut to_add = Vec::new();
-        for (principal, mut principal_map) in other.map.drain() {
+        for (principal, mut principal_map) in other.token_map.drain() {
             for (asset, amount) in principal_map.drain() {
                 let next_amount = self.get_next_amount(&principal, &asset, amount)?;
                 to_add.push((principal.clone(), asset, next_amount));
             }
         }
 
+        // After this point, this function will not fail.
+        for (principal, mut principal_map) in other.asset_map.drain() {
+            for (asset, mut transfers) in principal_map.drain() {
+                if !self.asset_map.contains_key(&principal) {
+                    self.asset_map.insert(principal.clone(), HashMap::new());
+                }
+
+                let landing_map = self.asset_map.get_mut(&principal)
+                    .unwrap(); // should always exist, because of checked insert above.
+                if landing_map.contains_key(&asset) {
+                    let landing_vec = landing_map.get_mut(&asset).unwrap();
+                    landing_vec.append(&mut transfers);
+                } else {
+                    landing_map.insert(asset, transfers);
+                }
+            }
+        }
+
+
         for (principal, asset, amount) in to_add.drain(..) {
-            if !self.map.contains_key(&principal) {
-                self.map.insert(principal.clone(), HashMap::new());
+            if !self.token_map.contains_key(&principal) {
+                self.token_map.insert(principal.clone(), HashMap::new());
             }
 
-            let principal_map = self.map.get_mut(&principal)
+            let principal_map = self.token_map.get_mut(&principal)
                 .unwrap(); // should always exist, because of checked insert above.
             principal_map.insert(asset, amount);
         }
@@ -135,26 +179,143 @@ impl AssetMap {
         Ok(())
     }
 
-    pub fn to_table(mut self) -> HashMap<PrincipalData, Vec<(AssetIdentifier, i128)>> {
+    pub fn to_table(mut self) -> HashMap<PrincipalData, HashMap<AssetIdentifier, AssetMapEntry>> {
         let mut map = HashMap::new();
-        for (principal, mut principal_map) in self.map.drain() {
-            let mut vec = Vec::new();
+        for (principal, mut principal_map) in self.token_map.drain() {
+            let mut output_map = HashMap::new();
             for (asset, amount) in principal_map.drain() {
-                vec.push((asset, amount));
+                output_map.insert(asset, AssetMapEntry::Token(amount));
             }
-            map.insert(principal, vec);
+            map.insert(principal, output_map);
+        }
+
+        for (principal, mut principal_map) in self.asset_map.drain() {
+            let output_map = if map.contains_key(&principal) {
+                map.get_mut(&principal).unwrap()
+            } else {
+                map.insert(principal.clone(), HashMap::new());
+                map.get_mut(&principal).unwrap()
+            };
+
+            for (asset, transfers) in principal_map.drain() {
+                output_map.insert(asset, AssetMapEntry::Asset(transfers));
+            }
         }
 
         return map
     }
 }
 
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_asset_map_abort() {
+        let p1 = PrincipalData::ContractPrincipal("a".to_string());
+        let p2 = PrincipalData::ContractPrincipal("b".to_string());
+
+        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
+        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
+
+        let mut am1 = AssetMap::new();
+        let mut am2 = AssetMap::new();
+
+        am1.add_token_transfer(&p1, t1.clone(), 1).unwrap();
+        am1.add_token_transfer(&p2, t1.clone(), i128::max_value()).unwrap();
+        am2.add_token_transfer(&p1, t1.clone(), 1).unwrap();
+        am2.add_token_transfer(&p2, t1.clone(), 1).unwrap();
+
+        am1.commit_other(am2).unwrap_err();
+
+        let table = am1.to_table();
+
+        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(i128::max_value()));
+        assert_eq!(table[&p1][&t1], AssetMapEntry::Token(1));
+    }
+
+    #[test]
+    fn test_asset_map_combinations() {
+        let p1 = PrincipalData::ContractPrincipal("a".to_string());
+        let p2 = PrincipalData::ContractPrincipal("b".to_string());
+        let p3 = PrincipalData::ContractPrincipal("c".to_string());
+
+        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
+        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
+        let t3 = AssetIdentifier { contract_name: "c".to_string(), asset_name: "a".to_string() };
+        let t4 = AssetIdentifier { contract_name: "d".to_string(), asset_name: "a".to_string() };
+        let t5 = AssetIdentifier { contract_name: "e".to_string(), asset_name: "a".to_string() };
+
+        let mut am1 = AssetMap::new();
+        let mut am2 = AssetMap::new();
+
+        am1.add_token_transfer(&p1, t1.clone(), 10).unwrap();
+        am2.add_token_transfer(&p1, t1.clone(), 15).unwrap();
+
+        // test merging in a token that _didn't_ have an entry in the parent
+        am2.add_token_transfer(&p1, t4.clone(), 1).unwrap();
+
+        // test merging in a principal that _didn't_ have an entry in the parent
+        am2.add_token_transfer(&p2, t2.clone(), 10).unwrap();
+        am2.add_token_transfer(&p2, t2.clone(), 1).unwrap();
+
+        // test merging in a principal that _didn't_ have an entry in the parent
+        am2.add_asset_transfer(&p3, t3.clone(), Value::Int(10));
+
+        // test merging in an asset that _didn't_ have an entry in the parent
+        am1.add_asset_transfer(&p1, t5.clone(), Value::Int(0));
+        am2.add_asset_transfer(&p1, t3.clone(), Value::Int(1));
+        am2.add_asset_transfer(&p1, t3.clone(), Value::Int(0));
+
+        // test merging in an asset that _does_ have an entry in the parent
+        am1.add_asset_transfer(&p2, t3.clone(), Value::Int(2));
+        am1.add_asset_transfer(&p2, t3.clone(), Value::Int(5));
+        am2.add_asset_transfer(&p2, t3.clone(), Value::Int(3));
+        am2.add_asset_transfer(&p2, t3.clone(), Value::Int(4));
+
+        am1.commit_other(am2).unwrap();
+
+        let table = am1.to_table();
+
+        // 3 Principals
+        assert_eq!(table.len(), 3);
+
+        assert_eq!(table[&p1][&t1], AssetMapEntry::Token(25));
+        assert_eq!(table[&p1][&t4], AssetMapEntry::Token(1));
+
+        assert_eq!(table[&p2][&t2], AssetMapEntry::Token(11));
+
+        assert_eq!(table[&p2][&t3], AssetMapEntry::Asset(
+            vec![Value::Int(2), Value::Int(5), Value::Int(3), Value::Int(4)]));
+
+        assert_eq!(table[&p1][&t3], AssetMapEntry::Asset(
+            vec![Value::Int(1), Value::Int(0)]));
+        assert_eq!(table[&p1][&t5], AssetMapEntry::Asset(
+            vec![Value::Int(0)]));
+
+        assert_eq!(table[&p3][&t3], AssetMapEntry::Asset(
+            vec![Value::Int(10)]));
+    }
+
+}
+
+
 impl fmt::Display for AssetMap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[")?;
-        for (principal, principal_map) in self.map.iter() {
+        for (principal, principal_map) in self.token_map.iter() {
             for (asset, amount) in principal_map.iter() {
                 write!(f, "{} spent {} {}\n", principal, amount, asset)?;
+            }
+        }
+        for (principal, principal_map) in self.asset_map.iter() {
+            for (asset, transfer) in principal_map.iter() {
+                write!(f, "{} transfered [", principal)?;
+                for t in transfer {
+                    write!(f, "{}, ", t)?;
+                }
+                write!(f, "] {}\n", asset)?;
             }
         }
         write!(f, "]")
@@ -361,10 +522,16 @@ impl <'a> GlobalContext <'a> {
         }
     }
 
-    pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: i128) -> Result<()> {
+    pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: Value) {
         let asset_identifier = AssetIdentifier { contract_name: contract_name.to_string(),
                                                  asset_name: asset_name.to_string() };
-        self.asset_map.add_transfer(sender, asset_identifier, transfered)
+        self.asset_map.add_asset_transfer(sender, asset_identifier, transfered)
+    }
+
+    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: i128) -> Result<()> {
+        let asset_identifier = AssetIdentifier { contract_name: contract_name.to_string(),
+                                                 asset_name: asset_name.to_string() };
+        self.asset_map.add_token_transfer(sender, asset_identifier, transfered)
     }
 
     pub fn get_block_height(&self) -> u64 {
@@ -564,3 +731,4 @@ impl CallStack {
         Vec::new()
     }
 }
+

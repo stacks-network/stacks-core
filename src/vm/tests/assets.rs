@@ -1,7 +1,7 @@
 use vm::execute as vm_execute;
 use vm::errors::{Error, UncheckedError, RuntimeErrorType};
-use vm::types::{Value, PrincipalData, ResponseData};
-use vm::contexts::{OwnedEnvironment, GlobalContext, AssetMap};
+use vm::types::{Value, PrincipalData, ResponseData, AssetIdentifier};
+use vm::contexts::{OwnedEnvironment, GlobalContext, AssetMap, AssetMapEntry};
 use vm::database::{ContractDatabaseConnection};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
@@ -147,6 +147,9 @@ fn test_simple_token_system() {
         _ => panic!()
     };
 
+    let token_identifier = AssetIdentifier { contract_name: "tokens".to_string(),
+                                             asset_name: "stackaroos".to_string() };
+
     let contract_principal = PrincipalData::ContractPrincipal("tokens".to_string());
 
     let mut conn = ContractDatabaseConnection::memory().unwrap();
@@ -168,7 +171,8 @@ fn test_simple_token_system() {
     
     assert!(is_committed(&result));
 
-    assert_eq!(asset_map.to_table().get(&p1_principal).unwrap()[0].1, 9000);
+    let asset_map = asset_map.to_table();
+    assert_eq!(asset_map[&p1_principal][&token_identifier], AssetMapEntry::Token(9000));
 
     let (result, asset_map) = execute_transaction(&mut conn,
         p1.clone(), "tokens", "my-token-transfer",
@@ -184,14 +188,12 @@ fn test_simple_token_system() {
     assert!(is_err_code(&result, 2));
     assert_eq!(asset_map.to_table().len(), 0);
 
-    let err = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut conn,
         p1.clone(), "tokens", "my-token-transfer",
-        &symbols_from_values(vec![p1.clone(), Value::Int(-1)])).unwrap_err();
+        &symbols_from_values(vec![p1.clone(), Value::Int(-1)])).unwrap();
 
-    if let Error::Runtime(RuntimeErrorType::TransferNonPositiveAmount, _) = err {
-    } else {
-        panic!("Expected TransferNonPositiveAmount error");
-    }
+    assert!(is_err_code(&result, 3));
+    assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(&mut conn,
         p1.clone(), "tokens", "my-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
@@ -213,19 +215,23 @@ fn test_simple_token_system() {
         p1.clone(), "tokens", "faucet", &vec![]).unwrap();
 
     assert!(is_committed(&result));
-    assert_eq!(asset_map.to_table().get(&contract_principal).unwrap()[0].1, 1);
+
+    let asset_map = asset_map.to_table();
+    assert_eq!(asset_map[&contract_principal][&token_identifier], AssetMapEntry::Token(1));
 
     let (result, asset_map) = execute_transaction(&mut conn,
         p1.clone(), "tokens", "faucet", &vec![]).unwrap();
 
+    let asset_map = asset_map.to_table();
     assert!(is_committed(&result));
-    assert_eq!(asset_map.to_table().get(&contract_principal).unwrap()[0].1, 1);
+    assert_eq!(asset_map[&contract_principal][&token_identifier], AssetMapEntry::Token(1));
 
     let (result, asset_map) = execute_transaction(&mut conn,
         p1.clone(), "tokens", "faucet", &vec![]).unwrap();
 
+    let asset_map = asset_map.to_table();
     assert!(is_committed(&result));
-    assert_eq!(asset_map.to_table().get(&contract_principal).unwrap()[0].1, 1);
+    assert_eq!(asset_map[&contract_principal][&token_identifier], AssetMapEntry::Token(1));
 
     let (result, asset_map) = execute_transaction(&mut conn,
         p1.clone(), "tokens", "my-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
@@ -260,6 +266,12 @@ fn test_simple_naming_system() {
         Value::Principal(ref data) => data.clone(),
         _ => panic!()
     };
+
+    let names_identifier = AssetIdentifier { contract_name: "names".to_string(),
+                                             asset_name: "names".to_string() };
+    let tokens_identifier = AssetIdentifier { contract_name: "tokens".to_string(),
+                                             asset_name: "stackaroos".to_string() };
+
 
     let name_hash_expensive_0 = execute("(hash160 1)");
     let name_hash_expensive_1 = execute("(hash160 2)");
@@ -334,7 +346,9 @@ fn test_simple_naming_system() {
         &mut conn, p1.clone(), "names", "try-bad-transfers-but-ok", &vec![]).unwrap();
 
     assert!(is_committed(&result));
-    assert_eq!(asset_map.to_table().get(&p1_principal).unwrap()[0].1, 1001);
+
+    let asset_map = asset_map.to_table();
+    assert_eq!(asset_map[&p1_principal][&tokens_identifier], AssetMapEntry::Token(1001));
 
     // let's mint some names
 
@@ -381,11 +395,12 @@ fn test_simple_naming_system() {
         &mut conn, p1.clone(), "names", "transfer", 
         &symbols_from_values(vec![Value::Int(5), p2.clone()])).unwrap();
 
+    println!("{}", asset_map);
     let asset_map = asset_map.to_table();
 
     assert!(is_committed(&result));
-    assert_eq!(asset_map.get(&p1_principal).unwrap()[0].1, 1);
-    assert_eq!(asset_map.get(&p1_principal).unwrap()[1].1, 1);
+    assert_eq!(asset_map[&p1_principal][&names_identifier], AssetMapEntry::Asset(vec![Value::Int(5)]));
+    assert_eq!(asset_map[&p1_principal][&tokens_identifier], AssetMapEntry::Token(1));
 
     // try to underpay!
 

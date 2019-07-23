@@ -112,7 +112,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
 
         env.global_context.database.set_asset_owner(&env.contract_context.name, asset_name, &asset, to_principal)?;
 
-        env.global_context.log_asset_transfer(from_principal, &env.contract_context.name, asset_name, 1)?;
+        env.global_context.log_asset_transfer(from_principal, &env.contract_context.name, asset_name, asset);
 
         Ok(Value::okay(Value::Bool(true)))
     } else {
@@ -122,6 +122,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
 
 // Error Codes => 1: not enough balance
 //                2: from == to
+//                3: non-positive amount
 pub fn special_transfer_token(args: &[SymbolicExpression],
                               env: &mut Environment,
                               context: &LocalContext) -> Result<Value> {
@@ -138,7 +139,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
             Value::Principal(ref from_principal),
             Value::Principal(ref to_principal)) = (amount, from, to) {
         if amount < 0 {
-            return Err(RuntimeErrorType::TransferNonPositiveAmount.into())
+            return Ok(Value::error(Value::Int(3)))
         }
 
         if from_principal == to_principal {
@@ -161,7 +162,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
         env.global_context.database.set_token_balance(&env.contract_context.name, token_name, from_principal, final_from_bal)?;
         env.global_context.database.set_token_balance(&env.contract_context.name, token_name, to_principal, final_to_bal)?;
 
-        env.global_context.log_asset_transfer(from_principal, &env.contract_context.name, token_name, amount)?;
+        env.global_context.log_token_transfer(from_principal, &env.contract_context.name, token_name, amount)?;
 
         Ok(Value::okay(Value::Bool(true)))
     } else {
