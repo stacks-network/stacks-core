@@ -173,8 +173,8 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
 
         checker.contract_context.check_name_used(var_name)?;
 
-        if out_context.variable_types.contains_key(var_name) {
-            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.to_string())))
+        if out_context.lookup_variable_type(var_name).is_some() {
+            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.clone())))
         }
 
         checker.type_map.set_type(&binding_exps[0], no_type())?;
@@ -368,6 +368,7 @@ impl TypedNativeFunction {
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
             ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
+            ConsSome => Special(SpecialNativeFunction(&options::check_special_some)),
             ConsOkay => Special(SpecialNativeFunction(&options::check_special_okay)),
             ConsError => Special(SpecialNativeFunction(&options::check_special_error)),
             DefaultTo => Special(SpecialNativeFunction(&options::check_special_default_to)),

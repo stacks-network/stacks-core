@@ -67,6 +67,7 @@ define_enum!(NativeFunctions {
     GetBlockInfo,
     ConsOkay,
     ConsError,
+    ConsSome,
     DefaultTo,
     Expects,
     ExpectsErr,
@@ -118,6 +119,7 @@ impl NativeFunctions {
             "get-block-info" => Some(GetBlockInfo),
             "err" => Some(ConsError),
             "ok" => Some(ConsOkay),
+            "some" => Some(ConsSome),
             "default-to" => Some(DefaultTo),
             "expects!" => Some(Expects),
             "expects-err!" => Some(ExpectsErr),
@@ -171,6 +173,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             ContractCall => CallableType::SpecialFunction("native_contract-call", &database::special_contract_call),
             AsContract => CallableType::SpecialFunction("native_as-contract", &special_as_contract),
             GetBlockInfo => CallableType::SpecialFunction("native_get_block_info", &database::special_get_block_info),
+            ConsSome => CallableType::NativeFunction("native_some", &options::native_some),
             ConsOkay => CallableType::NativeFunction("native_okay", &options::native_okay),
             ConsError => CallableType::NativeFunction("native_error", &options::native_error),
             DefaultTo => CallableType::NativeFunction("native_default_to", &options::native_default_to),
@@ -198,7 +201,7 @@ fn native_eq(args: &[Value]) -> Result<Value> {
         let mut arg_type = TypeSignature::type_of(first);
         for x in args.iter() {
             arg_type = TypeSignature::most_admissive(TypeSignature::type_of(x), arg_type)
-                .map_err(|(a,b)| UncheckedError::TypeError(format!("{}", a), x.clone()))?;
+                .map_err(|(a,b)| UncheckedError::TypeError(format!("{}", b), x.clone()))?;
             if x != first {
                 return Ok(Value::Bool(false))
             }
@@ -331,7 +334,10 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
             if is_reserved(&binding_name) {
                 return Err(UncheckedError::ReservedName(binding_name).into())
             }
-            if inner_context.variables.contains_key(&binding_name) {
+            if env.contract_context.lookup_function(&binding_name).is_some() {
+                return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
+            }
+            if inner_context.lookup_variable(&binding_name).is_some() {
                 return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
             }
             inner_context.variables.insert(binding_name, binding_value);

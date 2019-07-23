@@ -115,6 +115,8 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
             TxSender => TypeSignature::new_atom(AtomTypeIdentifier::PrincipalType),
             BlockHeight => TypeSignature::new_atom(AtomTypeIdentifier::IntType),
             BurnBlockHeight => TypeSignature::new_atom(AtomTypeIdentifier::IntType),
+            NativeNone => TypeSignature::new_atom(AtomTypeIdentifier::OptionalType(
+                Box::new(no_type()))),
         };
         Some(var_type)
     } else {
@@ -249,6 +251,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
         let mut function_context = context.extend()?;
         for (arg_name, arg_type) in args.iter() {
+            self.contract_context.check_name_used(arg_name)?;
+
             function_context.variable_types.insert(arg_name.clone(),
                                                    arg_type.clone());
         }

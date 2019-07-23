@@ -24,6 +24,30 @@ fn test_defines() {
 }
 
 #[test]
+fn test_accept_options() {
+    let defun =
+        "(define (f (b (optional int))) (* 10 (default-to 0 b)))";
+    let tests = [
+        format!("{} {}", defun, "(f none)"),
+        format!("{} {}", defun, "(f (some 1))"),
+        format!("{} {}", defun, "(f (some 'true))") ];
+    let expectations: &[Result<_, Error>] = &[
+        Ok(Some(Value::Int(0))),
+        Ok(Some(Value::Int(10))),
+        Err(UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()),
+    ];
+    
+    for (test, expect) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expect, execute(test));
+    }
+
+    let bad_defun =
+        "(define (f (b (optional int int))) (* 10 (default-to 0 b)))";
+    assert_eq!(Error::Runtime(RuntimeErrorType::InvalidTypeDescription, None),
+               execute(bad_defun).unwrap_err());
+}
+
+#[test]
 fn test_bad_define_names() {
     let test0 =
         "(define tx-sender 1)
@@ -149,6 +173,35 @@ fn test_bad_variables() {
     let expected = UncheckedError::InvalidArguments(
         "List expressions (...) are function applications, and must be supplied with function names to apply.".to_string());
     assert_eq_err(expected, execute(&test4).unwrap_err());
+}
+
+#[test]
+fn test_variable_shadowing() {
+    let test0 =
+        "(let ((cursor 1) (cursor 2)) cursor)";
+    let test1 =
+        r#"
+        (let ((cursor 1))
+            (let ((cursor 2))
+                cursor))
+        "#;
+    let test2 =
+        r#"
+        (define (cursor) 0)
+        (let ((cursor 1))
+            cursor)
+        "#;
+    let test3 =
+        r#"
+        (define (cursor) 0)
+        (define (set-cursor (cursor int))
+            cursor)
+        "#;
+
+    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test0).unwrap_err());
+    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test1).unwrap_err());
+    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test2).unwrap_err());
+    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test3).unwrap_err());
 }
 
 #[test]
