@@ -503,9 +503,10 @@ impl TupleTypeSignature {
 
         let mut type_map = BTreeMap::new();
         for (name, type_info) in type_data {
-            if let Some(_v) = type_map.insert(name, type_info) {
-                return Err(UncheckedError::InvalidArguments("Cannot use named argument twice in tuple construction.".to_string())
-                           .into())
+            if type_map.contains_key(&name) {
+                return Err(UncheckedError::VariableDefinedMultipleTimes(name).into());
+            } else {
+                type_map.insert(name, type_info);
             }
         }
         Ok(TupleTypeSignature { type_map: type_map })
@@ -580,11 +581,12 @@ impl TupleData {
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {
             let type_info = TypeSignature::type_of(&value);
-            if let Some(_v) = type_map.insert(name.to_string(), type_info) {
-                return Err(UncheckedError::InvalidArguments(
-                    "Cannot use named argument twice in tuple construction.".to_string()).into())
+            if type_map.contains_key(&name) {
+                return Err(UncheckedError::VariableDefinedMultipleTimes(name).into());
+            } else {
+                type_map.insert(name.clone(), type_info);
             }
-            data_map.insert(name.to_string(), value);
+            data_map.insert(name, value);
         }
         Ok(TupleData { type_signature: TupleTypeSignature { type_map: type_map },
                        data_map: data_map })
@@ -595,7 +597,7 @@ impl TupleData {
         if let Some(value) = self.data_map.get(name) {
             Ok(value.clone())
         } else {
-            Err(UncheckedError::InvalidArguments(format!("No such field {:?} in tuple", name)).into())
+            Err(UncheckedError::NoSuchTupleField.into())
         }
         
     }

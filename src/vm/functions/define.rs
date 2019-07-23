@@ -44,7 +44,7 @@ fn handle_define_function(signature: &[SymbolicExpression],
         .ok_or(UncheckedError::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))?;
 
     let function_name = function_symbol.match_atom()
-        .ok_or(UncheckedError::InvalidArguments(format!("Invalid function name {:?}", function_symbol)))?;
+        .ok_or(UncheckedError::ExpectedFunctionName)?;
 
     check_legal_define(&function_name, &env.contract_context)?;
 
@@ -66,7 +66,7 @@ fn handle_define_function(signature: &[SymbolicExpression],
 
 fn handle_define_persisted_variable(variable_name: &SymbolicExpression, value_type: &SymbolicExpression, value: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     let variable_str = variable_name.match_atom()
-        .ok_or(UncheckedError::InvalidArguments("Non-name argument to define-data-var".to_string()))?;
+        .ok_or(UncheckedError::ExpectedVariableName)?;
 
     check_legal_define(&variable_str, &env.contract_context)?;
 
@@ -80,7 +80,7 @@ fn handle_define_persisted_variable(variable_name: &SymbolicExpression, value_ty
 
 fn handle_define_nonfungible_asset(asset_name: &SymbolicExpression, key_type: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     let asset_name = asset_name.match_atom()
-        .ok_or(UncheckedError::InvalidArguments("Non-name argument to define-asset".to_string()))?;
+        .ok_or(UncheckedError::ExpectedVariableName)?;
 
     check_legal_define(&asset_name, &env.contract_context)?;
 
@@ -91,7 +91,7 @@ fn handle_define_nonfungible_asset(asset_name: &SymbolicExpression, key_type: &S
 
 fn handle_define_fungible_token(asset_name: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     let asset_name = asset_name.match_atom()
-        .ok_or(UncheckedError::InvalidArguments("Non-name argument to define-token".to_string()))?;
+        .ok_or(UncheckedError::ExpectedVariableName)?;
 
     check_legal_define(&asset_name, &env.contract_context)?;
 
@@ -103,7 +103,7 @@ fn handle_define_map(map_name: &SymbolicExpression,
                      value_type: &SymbolicExpression,
                      env: &Environment) -> Result<DefineResult> {
     let map_str = map_name.match_atom()
-        .ok_or(UncheckedError::InvalidArguments("Non-name argument to define-map".to_string()))?;
+        .ok_or(UncheckedError::ExpectedMapName)?;
 
     check_legal_define(&map_str, &env.contract_context)?;
 

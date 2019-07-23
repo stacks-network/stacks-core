@@ -577,44 +577,28 @@ fn tuples_system() {
 
 #[test]
 fn bad_define_maps() {
-    let test_list_pairs = [
+    let tests = [
         "(define-map lists ((name int)) ((contents int bool)))",
         "(define-map lists ((name int)) (contents bool))",
-        "(define-map lists ((name int)) (contents bool))",
-        "(define-map lists ((name int)) contents)"];
-    let test_define_args = [
-        "(define-map (lists) ((name int)) contents)"];
-    let test_define_num_args = [
-        "(define-map lists ((name int)) contents 5)"];
+        "(define-map lists ((name int)) contents)",
+        "(define-map (lists) ((name int)) contents)",
+        "(define-map lists ((name int)) contents 5)",
+        "(define-map lists ((name int)) ((contents (list 5 0 int))))",
+    ];
+    let mut expected: Vec<Error> = vec![
+        UncheckedError::ExpectedListPairs.into(),
+        UncheckedError::ExpectedListPairs.into(),
+        UncheckedError::ExpectedListPairs.into(),
+        UncheckedError::ExpectedMapName.into(),
+        UncheckedError::IncorrectArgumentCount(3, 4).into(),
+        RuntimeErrorType::InvalidTypeDescription.into()
+    ];
 
-    let test_bad_type = [
-        "(define-map lists ((name int)) ((contents (list 5 0 int))))"];
-    
-    for test in test_list_pairs.iter() {
-        println!("Test: {:?}", test);
-        assert_eq!(Error::Unchecked(UncheckedError::ExpectedListPairs), execute(test).unwrap_err());
+    for (test, expected_err) in tests.iter().zip(expected.drain(..)) {
+        let outcome = execute(test).unwrap_err();
+        assert_eq!(outcome, expected_err);
     }
 
-    for test in test_define_args.iter() {
-        assert!(match execute(test) {
-            Err(Error::Unchecked(UncheckedError::InvalidArguments(_))) => true,
-            _ => false
-        })
-    }
-
-    for test in test_define_num_args.iter() {
-        assert!(match execute(test) {
-            Err(Error::Unchecked(UncheckedError::IncorrectArgumentCount(_,_))) => true,
-            _ => false
-        })
-    }
-
-    for test in test_bad_type.iter() {
-        assert!(match execute(test).unwrap_err() {
-            Error::Runtime(RuntimeErrorType::InvalidTypeDescription, _) => true,
-            _ => false
-        })
-    }
 }
 
 #[test]
@@ -625,15 +609,17 @@ fn bad_tuples() {
                  "(get value (tuple (name 1)))",
                  "(get name five (tuple (name 1)))",
                  "(get 1234 (tuple (name 1)))"];
+    let mut expected = vec![
+        UncheckedError::VariableDefinedMultipleTimes("name".to_string()),
+        UncheckedError::BindingExpectsPair,
+        UncheckedError::BindingExpectsPair,
+        UncheckedError::NoSuchTupleField,
+        UncheckedError::IncorrectArgumentCount(2, 3),
+        UncheckedError::ExpectedTupleKey
+    ];
 
-    for test in tests.iter() {
-        let outcome = execute(test);
-        match outcome {
-            Err(Error::Unchecked(UncheckedError::InvalidArguments(_))) => continue,
-            _ => {
-                println!("Expected InvalidArguments Error, but found {:?}", outcome);
-                assert!(false)
-            }
-        }
+    for (test, expected_err) in tests.iter().zip(expected.drain(..)) {
+        let outcome = execute(test).unwrap_err();
+        assert_eq!(outcome, expected_err.into());
     }
 }

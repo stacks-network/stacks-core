@@ -235,17 +235,17 @@ fn test_arithmetic_errors() {
     let expectations: &[Error] = &[
         UncheckedError::IncorrectArgumentCount(2,1).into(),
         UncheckedError::TypeError("IntType".to_string(), Value::Bool(true)).into(),
-        RuntimeErrorType::Arithmetic("Divide by 0".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Modulus by 0".to_string()).into(),
+        RuntimeErrorType::DivisionByZero.into(),
+        RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
-        RuntimeErrorType::Arithmetic("Underflowed in subtraction".to_string()).into(),
-        UncheckedError::InvalidArguments("(- ...) must be called with at least 1 argument".to_string()).into(),
-        UncheckedError::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string()).into(),
-        UncheckedError::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string()).into(),
-        UncheckedError::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()).into(),
-        UncheckedError::InvalidArguments("(xor ...) must be called with exactly 2 arguments".to_string()).into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        UncheckedError::IncorrectArgumentCount(1,0).into(),
+        UncheckedError::IncorrectArgumentCount(1,0).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()
@@ -324,9 +324,9 @@ fn test_hash_errors() {
     ];
 
     let expectations: &[Error] = &[
-        UncheckedError::InvalidArguments("Wrong number of arguments to sha256 (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to keccak256 (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to hash160 (expects 1)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1, 2).into(),
+        UncheckedError::IncorrectArgumentCount(1, 2).into(),
+        UncheckedError::IncorrectArgumentCount(1, 2).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),

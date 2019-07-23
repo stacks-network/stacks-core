@@ -40,7 +40,10 @@ pub enum UncheckedError {
     ExpectedVariableName,
     ExpectedContractName,
     ExpectedMapName,
+    ExpectedTupleKey,
     ExpectedBlockPropertyName,
+    NoSuchTupleField,
+    BindingExpectsPair,
     ReservedName(String),
     ContractAlreadyExists(String),
     VariableDefinedMultipleTimes(String),
@@ -186,7 +189,7 @@ mod test {
     #[test]
     fn error_formats() {
         let t = "(/ 10 0)";
-        let expected = "Arithmetic(\"Divide by 0\")
+        let expected = "DivisionByZero
  Stack Trace: 
 _native_:native_div
 ";

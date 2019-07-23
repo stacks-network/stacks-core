@@ -102,35 +102,26 @@ pub fn native_div(args: &[Value]) -> Result<Value> {
 }
 
 pub fn native_pow(args: &[Value]) -> Result<Value> {
-    if args.len() == 2 {
-        let base = type_force_integer(&args[0])?;
-        let power_i128 = type_force_integer(&args[1])?;
-        if power_i128 < 0 || power_i128 > (u32::max_value() as i128) {
-            return Err(RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into())
-        }
-
-        let power = power_i128 as u32;
-
-        let result = base.checked_pow(power)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
-        Ok(Value::Int(result))
-    } else {
-        Err(UncheckedError::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()).into())
+    check_argument_count(2, args)?;
+    let base = type_force_integer(&args[0])?;
+    let power_i128 = type_force_integer(&args[1])?;
+    if power_i128 < 0 || power_i128 > (u32::max_value() as i128) {
+        return Err(RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into())
     }
+    
+    let power = power_i128 as u32;
+    
+    let result = base.checked_pow(power)
+        .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+    Ok(Value::Int(result))
 }
 
 
 pub fn native_mod(args: &[Value]) -> Result<Value> {
-    if args.len() == 2 {
-        let numerator = type_force_integer(&args[0])?;
-        let denominator = type_force_integer(&args[1])?;
-        let checked_result = numerator.checked_rem(denominator);
-        if let Some(result) = checked_result{
-            Ok(Value::Int(result))
-        } else {
-            Err(RuntimeErrorType::Arithmetic("Modulus by 0".to_string()).into())
-        }
-    } else {
-        Err(UncheckedError::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string()).into())
-    }
+    check_argument_count(2, args)?;
+    let numerator = type_force_integer(&args[0])?;
+    let denominator = type_force_integer(&args[1])?;
+    let result = numerator.checked_rem(denominator)
+        .ok_or(RuntimeErrorType::DivisionByZero)?;
+    Ok(Value::Int(result))
 }
