@@ -58,7 +58,7 @@ use chainstate::stacks::index::{
 
 use chainstate::stacks::index::bits::{
     get_node_byte_len,
-    write_node_bytes,
+    write_nodetype_bytes,
     read_hash_bytes,
     read_node_hash_bytes,
     read_nodetype,
@@ -79,7 +79,6 @@ use chainstate::stacks::index::node::{
     TrieNodeID,
     TriePtr,
     TriePath,
-    TrieCursor
 };
 
 use chainstate::stacks::index::fork_table::{
@@ -254,40 +253,15 @@ impl TrieRAM {
             ptr += num_written as u64;
             
             // queue each child
-            match node {
-                TrieNodeType::Leaf(_) => {},
-                TrieNodeType::Node4(ref data) => {
-                    for i in 0..4 {
-                        if data.ptrs[i].id != TrieNodeID::Empty && !is_backptr(data.ptrs[i].id) {
-                            let (child, child_hash) = self.read_node(&data.ptrs[i])?;
-                            frontier.push_back((child, child_hash));
-                        }
+            if !node.is_leaf() {
+                let ptrs = node.ptrs();
+                let num_children = ptrs.len();
+                for i in 0..num_children {
+                    if ptrs[i].id != TrieNodeID::Empty && !is_backptr(ptrs[i].id) {
+                        let (child, child_hash) = self.read_node(&ptrs[i])?;
+                        frontier.push_back((child, child_hash));
                     }
-                },
-                TrieNodeType::Node16(ref data) => {
-                    for i in 0..16 {
-                        if data.ptrs[i].id != TrieNodeID::Empty && !is_backptr(data.ptrs[i].id) {
-                            let (child, child_hash) = self.read_node(&data.ptrs[i])?;
-                            frontier.push_back((child, child_hash));
-                        }
-                    }
-                },
-                TrieNodeType::Node48(ref data) => {
-                    for i in 0..48 {
-                        if data.ptrs[i].id != TrieNodeID::Empty && !is_backptr(data.ptrs[i].id) {
-                            let (child, child_hash) = self.read_node(&data.ptrs[i])?;
-                            frontier.push_back((child, child_hash));
-                        }
-                    }
-                },
-                TrieNodeType::Node256(ref data) => {
-                    for i in 0..256 {
-                        if data.ptrs[i].id != TrieNodeID::Empty && !is_backptr(data.ptrs[i].id) {
-                            let (child, child_hash) = self.read_node(&data.ptrs[i])?;
-                            frontier.push_back((child, child_hash));
-                        }
-                    }
-                },
+                }
             }
             
             node_data.push((node, node_hash));
@@ -299,38 +273,14 @@ impl TrieRAM {
         // step 2: update ptrs in all nodes
         let mut i = 0;
         for j in 0..node_data.len() {
-            match node_data[j].0 {
-                TrieNodeType::Leaf(_) => {},
-                TrieNodeType::Node4(ref mut data) => {
-                    for k in 0..4 {
-                        if data.ptrs[k].id != TrieNodeID::Empty && !is_backptr(data.ptrs[k].id) {
-                            data.ptrs[k].ptr = offsets[i];
-                            i += 1;
-                        }
-                    }
-                },
-                TrieNodeType::Node16(ref mut data) => {
-                    for k in 0..16 {
-                        if data.ptrs[k].id != TrieNodeID::Empty && !is_backptr(data.ptrs[k].id) {
-                            data.ptrs[k].ptr = offsets[i];
-                            i += 1;
-                        }
-                    }
-                },
-                TrieNodeType::Node48(ref mut data) => {
-                    for k in 0..48 {
-                        if data.ptrs[k].id != TrieNodeID::Empty && !is_backptr(data.ptrs[k].id) {
-                            data.ptrs[k].ptr = offsets[i];
-                            i += 1;
-                        }
-                    }
-                },
-                TrieNodeType::Node256(ref mut data) => {
-                    for k in 0..256 {
-                        if data.ptrs[k].id != TrieNodeID::Empty && !is_backptr(data.ptrs[k].id) {
-                            data.ptrs[k].ptr = offsets[i];
-                            i += 1;
-                        }
+            let next_node = &mut node_data[j].0;
+            if !next_node.is_leaf() {
+                let mut ptrs = next_node.ptrs_mut();
+                let num_children = ptrs.len();
+                for k in 0..num_children {
+                    if ptrs[k].id != TrieNodeID::Empty && !is_backptr(ptrs[k].id) {
+                        ptrs[k].ptr = offsets[i];
+                        i += 1;
                     }
                 }
             }
@@ -345,14 +295,7 @@ impl TrieRAM {
 
         for i in 0..node_data.len() {
             // dump the node to storage
-            let node_hash = node_data[i].1;
-            let _ = match node_data[i].0 {
-                TrieNodeType::Leaf(ref data) => write_node_bytes(f, data, node_hash),
-                TrieNodeType::Node4(ref data) => write_node_bytes(f, data, node_hash),
-                TrieNodeType::Node16(ref data) => write_node_bytes(f, data, node_hash),
-                TrieNodeType::Node48(ref data) => write_node_bytes(f, data, node_hash),
-                TrieNodeType::Node256(ref data) => write_node_bytes(f, data, node_hash),
-            }?;
+            write_nodetype_bytes(f, &node_data[i].0, node_data[i].1)?;
             
             // next node
             fseek(f, offsets[i] as u64)?;

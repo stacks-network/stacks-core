@@ -506,13 +506,7 @@ mod test {
 
             match self.bufs.get_mut(&self.block_header) {
                 Some(ref mut buf) => {
-                    match node {
-                        TrieNodeType::Leaf(ref data) => write_node_bytes(buf, data, hash),
-                        TrieNodeType::Node4(ref data) => write_node_bytes(buf, data, hash),
-                        TrieNodeType::Node16(ref data) => write_node_bytes(buf, data, hash),
-                        TrieNodeType::Node48(ref data) => write_node_bytes(buf, data, hash),
-                        TrieNodeType::Node256(ref data) => write_node_bytes(buf, data, hash),
-                    }?;
+                    write_nodetype_bytes(buf, &node, hash)?;
                     Ok(())
                 },
                 None => {

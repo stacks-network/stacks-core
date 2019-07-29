@@ -1141,6 +1141,164 @@ pub enum TrieNodeType {
     Leaf(TrieLeaf),
 }
 
+impl TrieNodeType {
+    pub fn is_leaf(&self) -> bool {
+        match self {
+            TrieNodeType::Leaf(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_node4(&self) -> bool {
+        match self {
+            TrieNodeType::Node4(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_node16(&self) -> bool {
+        match self {
+            TrieNodeType::Node16(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_node48(&self) -> bool {
+        match self {
+            TrieNodeType::Node48(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_node256(&self) -> bool {
+        match self {
+            TrieNodeType::Node256(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn id(&self) -> u8 {
+        match self {
+            TrieNodeType::Node4(ref data) => data.id(),
+            TrieNodeType::Node16(ref data) => data.id(),
+            TrieNodeType::Node48(ref data) => data.id(),
+            TrieNodeType::Node256(ref data) => data.id(),
+            TrieNodeType::Leaf(ref data) => data.id(),
+        }
+    }
+
+    pub fn walk(&self, chr: u8) -> Option<TriePtr> {
+        match self {
+            TrieNodeType::Node4(ref data) => data.walk(chr),
+            TrieNodeType::Node16(ref data) => data.walk(chr),
+            TrieNodeType::Node48(ref data) => data.walk(chr),
+            TrieNodeType::Node256(ref data) => data.walk(chr),
+            TrieNodeType::Leaf(ref data) => data.walk(chr)
+        }
+    }
+
+    pub fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
+        match self {
+            TrieNodeType::Node4(ref data) => data.to_bytes(ret),
+            TrieNodeType::Node16(ref data) => data.to_bytes(ret),
+            TrieNodeType::Node48(ref data) => data.to_bytes(ret),
+            TrieNodeType::Node256(ref data) => data.to_bytes(ret),
+            TrieNodeType::Leaf(ref data) => data.to_bytes(ret),
+        }
+    }
+
+    pub fn to_consensus_bytes(&self, ret: &mut Vec<u8>) -> () {
+        match self {
+            TrieNodeType::Node4(ref data) => data.to_consensus_bytes(ret),
+            TrieNodeType::Node16(ref data) => data.to_consensus_bytes(ret),
+            TrieNodeType::Node48(ref data) => data.to_consensus_bytes(ret),
+            TrieNodeType::Node256(ref data) => data.to_consensus_bytes(ret),
+            TrieNodeType::Leaf(ref data) => data.to_consensus_bytes(ret),
+        }
+    }
+
+    pub fn byte_len(&self) -> usize {
+        match self {
+            TrieNodeType::Node4(ref data) => data.byte_len(),
+            TrieNodeType::Node16(ref data) => data.byte_len(),
+            TrieNodeType::Node48(ref data) => data.byte_len(),
+            TrieNodeType::Node256(ref data) => data.byte_len(),
+            TrieNodeType::Leaf(ref data) => data.byte_len()
+        }
+    }
+
+    pub fn insert(&mut self, ptr: &TriePtr) -> bool {
+        match self {
+            TrieNodeType::Node4(ref mut data) => data.insert(ptr),
+            TrieNodeType::Node16(ref mut data) => data.insert(ptr),
+            TrieNodeType::Node48(ref mut data) => data.insert(ptr),
+            TrieNodeType::Node256(ref mut data) => data.insert(ptr),
+            TrieNodeType::Leaf(ref mut data) => data.insert(ptr)
+        }
+    }
+
+    pub fn replace(&mut self, ptr: &TriePtr) -> bool {
+        match self {
+            TrieNodeType::Node4(ref mut data) => data.replace(ptr),
+            TrieNodeType::Node16(ref mut data) => data.replace(ptr),
+            TrieNodeType::Node48(ref mut data) => data.replace(ptr),
+            TrieNodeType::Node256(ref mut data) => data.replace(ptr),
+            TrieNodeType::Leaf(ref mut data) => data.replace(ptr)
+        }
+    }
+
+    pub fn ptrs(&self) -> &[TriePtr] {
+        match self {
+            TrieNodeType::Node4(ref data) => data.ptrs(),
+            TrieNodeType::Node16(ref data) => data.ptrs(),
+            TrieNodeType::Node48(ref data) => data.ptrs(),
+            TrieNodeType::Node256(ref data) => data.ptrs(),
+            TrieNodeType::Leaf(ref data) => data.ptrs()
+        }
+    }
+    
+    pub fn ptrs_mut(&mut self) -> &mut [TriePtr] {
+        match self {
+            TrieNodeType::Node4(ref mut data) => &mut data.ptrs,
+            TrieNodeType::Node16(ref mut data) => &mut data.ptrs,
+            TrieNodeType::Node48(ref mut data) => &mut data.ptrs,
+            TrieNodeType::Node256(ref mut data) => &mut data.ptrs,
+            TrieNodeType::Leaf(_) => panic!("Leaf has no ptrs")
+        }
+    }
+
+    pub fn max_ptrs(&self) -> usize {
+        match self {
+            TrieNodeType::Node4(_) => 4,
+            TrieNodeType::Node16(_) => 16,
+            TrieNodeType::Node48(_) => 48,
+            TrieNodeType::Node256(_) => 256,
+            TrieNodeType::Leaf(_) => 0
+        }
+    }
+
+    pub fn path_bytes(&self) -> &Vec<u8> {
+        match self {
+            TrieNodeType::Node4(ref data) => &data.path,
+            TrieNodeType::Node16(ref data) => &data.path,
+            TrieNodeType::Node48(ref data) => &data.path,
+            TrieNodeType::Node256(ref data) => &data.path,
+            TrieNodeType::Leaf(ref data) => &data.path
+        }
+    }
+
+    pub fn set_path(&mut self, new_path: Vec<u8>) -> () {
+        match self {
+            TrieNodeType::Node4(ref mut data) => data.path = new_path,
+            TrieNodeType::Node16(ref mut data) => data.path = new_path,
+            TrieNodeType::Node48(ref mut data) => data.path = new_path,
+            TrieNodeType::Node256(ref mut data) => data.path = new_path,
+            TrieNodeType::Leaf(ref mut data) => data.path = new_path
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod test {
     #![allow(unused_variables)]

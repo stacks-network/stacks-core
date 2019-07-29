@@ -230,6 +230,18 @@ pub fn get_node_hash<T: TrieNode + std::fmt::Debug>(node: &T, child_hashes: &Vec
     ret
 }
 
+/// Calculate the hash of a TrieNodeType, given its childrens' hashes.
+#[inline]
+pub fn get_nodetype_hash(node: &TrieNodeType, child_hashes: &Vec<TrieHash>) -> TrieHash {
+    match node {
+        TrieNodeType::Leaf(ref data) => get_node_hash(data, child_hashes),
+        TrieNodeType::Node4(ref data) => get_node_hash(data, child_hashes),
+        TrieNodeType::Node16(ref data) => get_node_hash(data, child_hashes),
+        TrieNodeType::Node48(ref data) => get_node_hash(data, child_hashes),
+        TrieNodeType::Node256(ref data) => get_node_hash(data, child_hashes)
+    }
+}
+
 /// Calculate the hash of a TrieNode, given a byte buffer encoding all of its children's hashes.
 pub fn get_node_hash_bytes<T: TrieNode + std::fmt::Debug>(node: &T, child_hash_bytes: &Vec<u8>) -> TrieHash {
     assert_eq!(child_hash_bytes.len() % TRIEHASH_ENCODED_SIZE, 0);
@@ -264,6 +276,18 @@ pub fn get_node_hash_bytes<T: TrieNode + std::fmt::Debug>(node: &T, child_hash_b
     }
     ret
 }
+
+#[inline]
+pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<u8>) -> TrieHash {
+    match node {
+        TrieNodeType::Node4(ref data) => get_node_hash_bytes(data, child_hash_bytes),
+        TrieNodeType::Node16(ref data) => get_node_hash_bytes(data, child_hash_bytes),
+        TrieNodeType::Node48(ref data) => get_node_hash_bytes(data, child_hash_bytes),
+        TrieNodeType::Node256(ref data) => get_node_hash_bytes(data, child_hash_bytes),
+        TrieNodeType::Leaf(ref data) => get_node_hash_bytes(data, child_hash_bytes),
+    }
+}
+
 
 /// Low-level method for reading a TrieHash into a byte buffer.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
@@ -374,19 +398,13 @@ pub fn read_nodetype<F: Read + Write + Seek>(f: &mut F, ptr: &TriePtr) -> Result
 /// calculate how many bytes a node will be when serialized, including its hash. 
 pub fn get_node_byte_len(node: &TrieNodeType) -> usize {
     let hash_len = TRIEHASH_ENCODED_SIZE;
-    let node_byte_len = match node {
-        TrieNodeType::Leaf(ref data) => data.byte_len(),
-        TrieNodeType::Node4(ref data) => data.byte_len(),
-        TrieNodeType::Node16(ref data) => data.byte_len(),
-        TrieNodeType::Node48(ref data) => data.byte_len(),
-        TrieNodeType::Node256(ref data) => data.byte_len()
-    };
+    let node_byte_len = node.byte_len();
     hash_len + node_byte_len
 }
 
 /// write all the bytes for a node, including its hash, to the given Writeable object.
 /// Returns the number of bytes written.
-pub fn write_node_bytes<F: Read + Write + Seek, T: TrieNode + std::fmt::Debug>(f: &mut F, node: &T, hash: TrieHash) -> Result<usize, Error> {
+pub fn write_nodetype_bytes<F: Write + Seek>(f: &mut F, node: &TrieNodeType, hash: TrieHash) -> Result<usize, Error> {
     let mut bytes = Vec::with_capacity(node.byte_len() + TRIEHASH_ENCODED_SIZE);
     
     fast_extend_from_slice(&mut bytes, hash.as_bytes());
@@ -395,8 +413,7 @@ pub fn write_node_bytes<F: Read + Write + Seek, T: TrieNode + std::fmt::Debug>(f
     assert_eq!(bytes.len(), node.byte_len() + TRIEHASH_ENCODED_SIZE);
 
     let ptr = ftell(f)?;
-    trace!("write_node: {:?} {:?} at {}-{}", node, &hash, ptr, ptr + bytes.len() as u64);
+    trace!("write_nodetype: {:?} {:?} at {}-{}", node, &hash, ptr, ptr + bytes.len() as u64);
 
     write_all(f, &bytes[..])
 }
-

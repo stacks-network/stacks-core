@@ -37,7 +37,7 @@ use chainstate::burn::BlockHeaderHash;
 
 use chainstate::stacks::index::bits::{
     get_node_hash,
-    get_node_hash_bytes
+    get_nodetype_hash_bytes
 };
 
 use chainstate::stacks::index::node::{
@@ -98,16 +98,12 @@ where
 {
 
     // helper method for walking a node's backpr
-    fn walk_backptr(s: &mut S, start_node: &TrieNodeType, chr: u8, c: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr, u32), Error> {
-        let ptr_opt = match start_node {
-            TrieNodeType::Node4(ref data) => data.walk(chr),
-            TrieNodeType::Node16(ref data) => data.walk(chr),
-            TrieNodeType::Node48(ref data) => data.walk(chr),
-            TrieNodeType::Node256(ref data) => data.walk(chr),
-            _ => {
-                panic!("Did not get an intermediate node");
-            }
-        };
+    fn walk_backptr(storage: &mut S, start_node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr, u32), Error> {
+        if start_node.is_leaf() {
+            panic!("Did not get an intermediate node");
+        }
+
+        let ptr_opt = start_node.walk(chr);
         match ptr_opt {
             None => {
                 // this node never had a child for this chr
@@ -115,85 +111,70 @@ where
                 Err(Error::BackptrNotFoundError)
             },
             Some(ptr) => {
-                trace!("Walk backptrs for {:?} to {:?} from {:?}", c, &ptr, &start_node);
+                trace!("Walk backptrs for {:?} to {:?} from {:?}", cursor, &ptr, &start_node);
                 
                 // this node had a child for this chr at one point
-                let (node, node_hash, node_ptr) = match start_node {
-                    TrieNodeType::Node4(_) => Trie::walk_backptr(s, &ptr, c)?,
-                    TrieNodeType::Node16(_) => Trie::walk_backptr(s, &ptr, c)?,
-                    TrieNodeType::Node48(_) => Trie::walk_backptr(s, &ptr, c)?,
-                    TrieNodeType::Node256(_) => Trie::walk_backptr(s, &ptr, c)?,
-                    _ => {
-                        unreachable!();
-                    }
-                };
-
+                if start_node.is_leaf() {
+                    unreachable!();
+                }
+                let (node, node_hash, node_ptr) = Trie::walk_backptr(storage, &ptr, cursor)?;
                 Ok((node, node_hash, node_ptr, ptr.back_block))
             }
         }
     }
-   
-    fn node_copy_update(_s: &mut S, node: &mut TrieNodeType, node_dist: u32) -> Result<TrieHash, Error> {
-        fn node_copy_update_ptrs(ptrs: &mut [TriePtr], node_dist: u32) -> () {
-            for i in 0..ptrs.len() {
-                if ptrs[i].id() == TrieNodeID::Empty {
-                    continue;
-                }
-                else if is_backptr(ptrs[i].id()) {
-                    // increase depth
-                    ptrs[i].back_block += node_dist;
-                }
-                else {
-                    // make backptr
-                    ptrs[i].back_block = node_dist;
-                    ptrs[i].id = set_backptr(ptrs[i].id());
-                }
+
+    fn node_copy_update_ptrs(_storage: &mut S, ptrs: &mut [TriePtr], node_dist: u32) -> () {
+        for i in 0..ptrs.len() {
+            if ptrs[i].id() == TrieNodeID::Empty {
+                continue;
+            }
+            else if is_backptr(ptrs[i].id()) {
+                // increase depth
+                ptrs[i].back_block += node_dist;
+            }
+            else {
+                // make backptr
+                ptrs[i].back_block = node_dist;
+                ptrs[i].id = set_backptr(ptrs[i].id());
             }
         }
+    }
+   
+    fn node_copy_update(_storage: &mut S, node: &mut TrieNodeType, node_dist: u32) -> Result<TrieHash, Error> {
+        let hash = 
+            if node.is_leaf() {
+                get_nodetype_hash_bytes(&node, &vec![])
+            }
+            else {
+                TrieHash::from_data(&[])
+            };
 
-        let hash = match node {
-            TrieNodeType::Node4(ref mut data) => {
-                node_copy_update_ptrs(&mut data.ptrs, node_dist);
-                TrieHash::from_data(&[])
-            },
-            TrieNodeType::Node16(ref mut data) => {
-                node_copy_update_ptrs(&mut data.ptrs, node_dist);
-                TrieHash::from_data(&[])
-            },
-            TrieNodeType::Node48(ref mut data) => {
-                node_copy_update_ptrs(&mut data.ptrs, node_dist);
-                TrieHash::from_data(&[])
-            },
-            TrieNodeType::Node256(ref mut data) => {
-                node_copy_update_ptrs(&mut data.ptrs, node_dist);
-                TrieHash::from_data(&[])
-            },
-            TrieNodeType::Leaf(ref mut data) => {
-                get_node_hash_bytes(data, &vec![])
-            },
-        };
+        if !node.is_leaf() {
+            MARF::node_copy_update_ptrs(_storage, node.ptrs_mut(), node_dist);
+        }
+        
         Ok(hash)
     }
     
     /// Given a node, and the chr of one of its children, go find the last instance of that child in
     /// the MARF and copy it forward.  Update its ptrs to point to its descendents.
     /// s must point to the block hash in which this node lives, to which the child will be copied.
-    fn node_child_copy(s: &mut S, node: &TrieNodeType, chr: u8, c: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr, BlockHeaderHash), Error> {
-        trace!("Copy to {:?} child {:x} of {:?}", s.tell(), chr, node);
+    fn node_child_copy(storage: &mut S, node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr, BlockHeaderHash), Error> {
+        trace!("Copy to {:?} child {:x} of {:?}", storage.tell(), chr, node);
 
-        let cur_block_hash = s.tell();
-        let (mut child_node, _, child_ptr, child_dist) = MARF::walk_backptr(s, node, chr, c)?;
-        let child_block_hash = s.tell();
+        let cur_block_hash = storage.tell();
+        let (mut child_node, _, child_ptr, child_dist) = MARF::walk_backptr(storage, node, chr, cursor)?;
+        let child_block_hash = storage.tell();
 
         // update child_node with new ptrs and hashes
-        s.open(&cur_block_hash, true)?;
-        let child_hash = MARF::node_copy_update(s, &mut child_node, child_dist)?;
+        storage.open(&cur_block_hash, true)?;
+        let child_hash = MARF::node_copy_update(storage, &mut child_node, child_dist)?;
 
         // store it in this trie
-        s.open(&cur_block_hash, true)?;
-        let child_disk_ptr = fseek_end(s)?;
+        storage.open(&cur_block_hash, true)?;
+        let child_disk_ptr = fseek_end(storage)?;
         let child_ptr = TriePtr::new(child_ptr.id(), chr, child_disk_ptr as u32);
-        s.write_node(&child_node, child_hash.clone())?;
+        storage.write_node(&child_node, child_hash.clone())?;
 
         trace!("Copied child 0x{:02x} to {:?}: ptr={:?} child={:?}", chr, &cur_block_hash, &child_ptr, &child_node);
         Ok((child_node, child_hash, child_ptr, child_block_hash))
@@ -201,18 +182,18 @@ where
 
     /// Copy the root node from the previous Trie to this Trie, updating its ptrs.
     /// s must point to the target Trie
-    fn root_copy(s: &mut S, prev_block_hash: &BlockHeaderHash) -> Result<(), Error> {
-        let cur_block_hash = s.tell();
-        s.open(prev_block_hash, false)?;
+    fn root_copy(storage: &mut S, prev_block_hash: &BlockHeaderHash) -> Result<(), Error> {
+        let cur_block_hash = storage.tell();
+        storage.open(prev_block_hash, false)?;
         
-        let (mut prev_root, _) = Trie::read_root(s)?;
-        let new_root_hash = MARF::node_copy_update(s, &mut prev_root, 1)?;
+        let (mut prev_root, _) = Trie::read_root(storage)?;
+        let new_root_hash = MARF::node_copy_update(storage, &mut prev_root, 1)?;
         
-        s.open(&cur_block_hash, true)?;
-        let root_ptr = s.root_ptr();
-        fseek(s, root_ptr)?;
+        storage.open(&cur_block_hash, true)?;
+        let root_ptr = storage.root_ptr();
+        fseek(storage, root_ptr)?;
 
-        s.write_node(&prev_root, new_root_hash)?;
+        storage.write_node(&prev_root, new_root_hash)?;
         Ok(())
     }
     
@@ -220,19 +201,19 @@ where
     /// If the trie doesn't exist, then extend it from the current Trie and create a root node that
     /// has back pointers to its immediate children in the current trie.
     /// On Ok, s will point to new_bhh and will be open for reading
-    pub fn extend_trie(s: &mut S, new_bhh: &BlockHeaderHash) -> Result<(), Error> {
-        let cur_bhh = s.tell();
-        if s.num_blocks() == 0 {
+    pub fn extend_trie(storage: &mut S, new_bhh: &BlockHeaderHash) -> Result<(), Error> {
+        let cur_bhh = storage.tell();
+        if storage.num_blocks() == 0 {
             // brand new storage
             trace!("Brand new storage -- start with {:?}", new_bhh);
-            s.extend(new_bhh)?;
+            storage.extend(new_bhh)?;
             let node = TrieNode256::new(&vec![]);
             let hash = get_node_hash(&node, &vec![]);
-            s.write_node(&TrieNodeType::Node256(node), hash)
+            storage.write_node(&TrieNodeType::Node256(node), hash)
         }
         else {
             // existing storage
-            match s.open(new_bhh, true) {
+            match storage.open(new_bhh, true) {
                 Ok(_) => {
                     trace!("Switch to Trie {:?}", new_bhh);
                     Ok(())
@@ -242,12 +223,12 @@ where
                         Error::NotFoundError => {
                             // bring root forward
                             trace!("Extend {:?} to {:?}", &cur_bhh, new_bhh);
-                            s.open(&cur_bhh, true)?;
-                            s.extend(new_bhh)?;
-                            MARF::root_copy(s, &cur_bhh)?;
-                            s.open(new_bhh, false)?;
-                            let root_ptr = s.root_ptr();
-                            fseek(s, root_ptr)?;
+                            storage.open(&cur_bhh, true)?;
+                            storage.extend(new_bhh)?;
+                            MARF::root_copy(storage, &cur_bhh)?;
+                            storage.open(new_bhh, false)?;
+                            let root_ptr = storage.root_ptr();
+                            fseek(storage, root_ptr)?;
                             Ok(())
                         },
                         _ => {
@@ -262,18 +243,18 @@ where
     /// Walk down this MARF at the given block hash, doing a copy-on-write for intermediate nodes in this block's Trie from any prior Tries.
     /// s must point to the last filled-in Trie -- i.e. block_hash points to the _new_ Trie that is
     /// being filled in.
-    fn walk_cow(s: &mut S, block_hash: &BlockHeaderHash, k: &TriePath) -> Result<TrieCursor, Error> {
-        MARF::extend_trie(s, block_hash)?;
+    fn walk_cow(storage: &mut S, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<TrieCursor, Error> {
+        MARF::extend_trie(storage, block_hash)?;
 
-        let root_ptr = s.root_ptr();
-        let mut c = TrieCursor::new(k, root_ptr);
+        let root_ptr = storage.root_ptr();
+        let mut cursor = TrieCursor::new(path, root_ptr);
 
         // walk to insertion point 
-        let (mut node, _) = Trie::read_root(s)?;
+        let (mut node, _) = Trie::read_root(storage)?;
         let mut node_ptr = TriePtr::new(0,0,0);
 
-        for _ in 0..(c.path.len()+1) {
-            let next_opt = Trie::walk_from(s, &node, &mut c)?;
+        for _ in 0..(cursor.path.len()+1) {
+            let next_opt = Trie::walk_from(storage, &node, &mut cursor)?;
             match next_opt {
                 Some((next_node_ptr, next_node, _)) => {
                     // keep walking
@@ -282,40 +263,37 @@ where
                     continue;
                 },
                 None => {
-                    if c.div() {
+                    if cursor.div() {
                         // we're done -- path diverged.  No node-copying can help us.
                         trace!("Path diverged -- we're done.");
-                        s.open(block_hash, true)?;
-                        fseek(s, node_ptr.ptr() as u64)?;
-                        return Ok(c);
+                        storage.open(block_hash, true)?;
+                        fseek(storage, node_ptr.ptr() as u64)?;
+                        return Ok(cursor);
                     }
-                    else if c.eop() {
+                    else if cursor.eop() {
                         // we're done
-                        trace!("Out of path in {:?} -- we're done. Seek to {:?}", s.tell(), &node_ptr);
-                        s.open(block_hash, true)?;
-                        fseek(s, node_ptr.ptr() as u64)?;
-                        return Ok(c);
+                        trace!("Out of path in {:?} -- we're done. Seek to {:?}", storage.tell(), &node_ptr);
+                        storage.open(block_hash, true)?;
+                        fseek(storage, node_ptr.ptr() as u64)?;
+                        return Ok(cursor);
                     }
                     else {
                         // we're not done with this path.  Either no node exists, or it exists off
                         // of a prior version of the last-visited node.
-                        let chr = c.chr().unwrap();     // guaranteed to succeed since we walked some path.
-                        match node {
-                            TrieNodeType::Leaf(_) => {
-                                // at an existing leaf with a different path.
-                                // we're done.
-                                trace!("Existing leaf with different path encountered at {:?} at {:?} -- we're done (not found)", &node_ptr, s.tell());
-                                s.open(block_hash, true)?;
-                                fseek_end(s)?;
-                                return Ok(c);
-                            },
-                            _ => {}
-                        };
+                        let chr = cursor.chr().unwrap();     // guaranteed to succeed since we walked some path.
+                        if node.is_leaf() {
+                            // at an existing leaf with a different path.
+                            // we're done.
+                            trace!("Existing leaf with different path encountered at {:?} at {:?} -- we're done (not found)", &node_ptr, storage.tell());
+                            storage.open(block_hash, true)?;
+                            fseek_end(storage)?;
+                            return Ok(cursor);
+                        }
 
                         // at intermediate node whose child is not present in this trie.
                         // bring the child forward and take the step, if possible.
-                        s.open(block_hash, true)?;
-                        let (next_node, _, next_node_ptr, next_node_block_hash) = match MARF::node_child_copy(s, &node, chr, &mut c) {
+                        storage.open(block_hash, true)?;
+                        let (next_node, _, next_node_ptr, next_node_block_hash) = match MARF::node_child_copy(storage, &node, chr, &mut cursor) {
                             Ok(res) => {
                                 res
                             }
@@ -324,10 +302,10 @@ where
                                     Error::BackptrNotFoundError => {
                                         // no prior version of this node has a ptr for this chr.
                                         // we're done -- target node not found.
-                                        trace!("BackptrNotFoundError encountered at {:?} -- we're done (not found)", s.tell());
-                                        s.open(block_hash, true)?;
-                                        fseek_end(s)?;
-                                        return Ok(c);
+                                        trace!("BackptrNotFoundError encountered at {:?} -- we're done (not found)", storage.tell());
+                                        storage.open(block_hash, true)?;
+                                        fseek_end(storage)?;
+                                        return Ok(cursor);
                                     },
                                     _ => {
                                         return Err(e);
@@ -337,12 +315,12 @@ where
                         };
 
                         // finish taking the step
-                        c.walk_backptr_finish(&next_node_ptr, &next_node_block_hash);
+                        cursor.walk_backptr_finish(&next_node_ptr, &next_node_block_hash);
                         
                         node = next_node;
                         node_ptr = next_node_ptr;
                         
-                        s.open(block_hash, true)?;
+                        storage.open(block_hash, true)?;
                     }
                 }
             }
@@ -356,18 +334,18 @@ where
     /// Walk down this MARF at the given block hash, resolving backptrs to previous tries.
     /// Return the cursor and the last node visited.
     /// s will point to the block in which the leaf was found, or the last block visited.
-    fn walk(s: &mut S, block_hash: &BlockHeaderHash, k: &TriePath) -> Result<(TrieCursor, TrieNodeType), Error> {
-        s.open(block_hash, false)?;
+    fn walk(storage: &mut S, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<(TrieCursor, TrieNodeType), Error> {
+        storage.open(block_hash, false)?;
 
-        let root_ptr = s.root_ptr();
-        let mut c = TrieCursor::new(k, root_ptr);
+        let root_ptr = storage.root_ptr();
+        let mut cursor = TrieCursor::new(path, root_ptr);
 
         // walk to insertion point 
-        let (mut node, _) = Trie::read_root(s)?;
+        let (mut node, _) = Trie::read_root(storage)?;
         let mut node_ptr = TriePtr::new(0,0,0);
 
-        for _ in 0..(c.path.len()+1) {
-            let next_opt = Trie::walk_from(s, &node, &mut c)?;
+        for _ in 0..(cursor.path.len()+1) {
+            let next_opt = Trie::walk_from(storage, &node, &mut cursor)?;
             match next_opt {
                 Some((next_node_ptr, next_node, _)) => {
                     // keep walking
@@ -376,7 +354,7 @@ where
                     continue;
                 },
                 None => {
-                    if c.div() {
+                    if cursor.div() {
                         // we're done -- path diverged.  No backptr-walking can help us.
                         trace!("Path diverged -- we're done.");
                         return Err(Error::NotFoundError);
@@ -384,36 +362,35 @@ where
                     else {
                         // we're not done with this path.  Either no node exists, or it exists off
                         // of a prior version of the last-visited node.
-                        let chr = c.chr().unwrap();     // guaranteed to succeed since we walked some path.
-                        let found_leaf = match node {
-                            TrieNodeType::Leaf(_) => {
-                                if !c.eop() {
+                        let chr = cursor.chr().unwrap();     // guaranteed to succeed since we walked some path.
+                        let found_leaf =
+                            if node.is_leaf() {
+                                if !cursor.eop() {
                                     // at an existing leaf with a different path.
                                     // we're done.
-                                    trace!("Existing but different leaf encountered at {:?} at {:?} -- we're done", &node_ptr, s.tell());
+                                    trace!("Existing but different leaf encountered at {:?} at {:?} -- we're done", &node_ptr, storage.tell());
                                     return Err(Error::NotFoundError);
                                 }
                                 else {
                                     // we're done -- we found the leaf
                                     true
                                 }
-                            },
-                            _ => {
-                                false
                             }
-                        };
+                            else {
+                                false
+                            };
 
                         if found_leaf {
-                            return Ok((c, node));
+                            return Ok((cursor, node));
                         }
 
                         // cursor grabbed a copy of node, but not yet a ptr.
                         // at intermediate node whose child is not present in this trie.
                         // try to shunt to the prior node that has the child itself.
-                        let (next_node, _, next_node_ptr, _) = MARF::walk_backptr(s, &node, chr, &mut c)?;
+                        let (next_node, _, next_node_ptr, _) = MARF::walk_backptr(storage, &node, chr, &mut cursor)?;
                        
                         // finish taking the step
-                        c.walk_backptr_finish(&next_node_ptr, &s.tell());
+                        cursor.walk_backptr_finish(&next_node_ptr, &storage.tell());
 
                         // keep going
                         node = next_node;
@@ -427,23 +404,23 @@ where
         return Err(Error::CorruptionError("Trie has a cycle".to_string()));
     }
 
-    pub fn format(s: &mut S, first_block_hash: &BlockHeaderHash) -> Result<(), Error> {
-        Trie::format(s, first_block_hash)
+    pub fn format(storage: &mut S, first_block_hash: &BlockHeaderHash) -> Result<(), Error> {
+        Trie::format(storage, first_block_hash)
     }
 
-    pub fn get_path(s: &mut S, block_hash: &BlockHeaderHash, k: &TriePath) -> Result<Option<TrieLeaf>, Error> {
-        trace!("MARF::get_path({:?}) {:?}", block_hash, k);
+    pub fn get_path(storage: &mut S, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<Option<TrieLeaf>, Error> {
+        trace!("MARF::get_path({:?}) {:?}", block_hash, path);
 
-        s.open(block_hash, false)?;
-        let (c, node) = MARF::walk(s, block_hash, k)?;
+        storage.open(block_hash, false)?;
+        let (cursor, node) = MARF::walk(storage, block_hash, path)?;
 
-        if c.block_hashes.len() + 1 != c.node_ptrs.len() {
-            trace!("c.block_hashes = {:?}", &c.block_hashes);
-            trace!("c.node_ptrs = {:?}", c.node_ptrs);
+        if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
+            trace!("cursor.block_hashes = {:?}", &cursor.block_hashes);
+            trace!("cursor.node_ptrs = {:?}", cursor.node_ptrs);
             assert!(false);
         }
 
-        if c.eop() {
+        if cursor.eop() {
             // out of path and reached the end.
             match node {
                 TrieNodeType::Leaf(data) => {
@@ -458,45 +435,45 @@ where
         }
         else {
             // path didn't match a node 
-            trace!("MARF get: found nothing at {:?}", k);
+            trace!("MARF get: found nothing at {:?}", path);
             return Ok(None);
         }
     }
 
-    fn do_insert_leaf(s: &mut S, block_hash: &BlockHeaderHash, k: &TriePath, v: &TrieLeaf, update_skiplist: bool) -> Result<(), Error> {
-        let mut value = v.clone();
-        let mut c = MARF::walk_cow(s, block_hash, k)?;
+    fn do_insert_leaf(storage: &mut S, block_hash: &BlockHeaderHash, path: &TriePath, leaf_value: &TrieLeaf, update_skiplist: bool) -> Result<(), Error> {
+        let mut value = leaf_value.clone();
+        let mut cursor = MARF::walk_cow(storage, block_hash, path)?;
         
-        if c.block_hashes.len() + 1 != c.node_ptrs.len() {
-            trace!("c.block_hashes = {:?}", &c.block_hashes);
-            trace!("c.node_ptrs = {:?}", c.node_ptrs);
+        if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
+            trace!("c.block_hashes = {:?}", &cursor.block_hashes);
+            trace!("c.node_ptrs = {:?}", cursor.node_ptrs);
             assert!(false);
         }
         
-        Trie::add_value(s, &mut c, &mut value)?;
+        Trie::add_value(storage, &mut cursor, &mut value)?;
 
         if update_skiplist {
-            Trie::update_root_hash(s, &c)?;
+            Trie::update_root_hash(storage, &cursor)?;
         }
         else {
-            Trie::update_root_node_hash(s, &c)?;
+            Trie::update_root_node_hash(storage, &cursor)?;
         }
         Ok(())
     }
 
-    pub fn insert_leaf(s: &mut S, block_hash: &BlockHeaderHash, k: &TriePath, v: &TrieLeaf) -> Result<(), Error> {
-        MARF::do_insert_leaf(s, block_hash, k, v, true)
+    pub fn insert_leaf(storage: &mut S, block_hash: &BlockHeaderHash, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
+        MARF::do_insert_leaf(storage, block_hash, path, value, true)
     }
     
     // like insert_leaf, but don't update the merkle skiplist
-    pub fn insert_leaf_in_batch(s: &mut S, block_hash: &BlockHeaderHash, k: &TriePath, v: &TrieLeaf) -> Result<(), Error> {
-        MARF::do_insert_leaf(s, block_hash, k, v, false)
+    pub fn insert_leaf_in_batch(storage: &mut S, block_hash: &BlockHeaderHash, path: &TriePath, value: &TrieLeaf) -> Result<(), Error> {
+        MARF::do_insert_leaf(storage, block_hash, path, value, false)
     }
 
     /// Instantiate the MARF from a TrieStorage instance
-    pub fn from_storage<T: TrieStorage + Seek>(s: T) -> MARF<T> {
+    pub fn from_storage<T: TrieStorage + Seek>(storage: T) -> MARF<T> {
         MARF {
-            storage: s,
+            storage: storage,
             open_chain_tip: None,
         }
     }
