@@ -30,8 +30,14 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     pub fn check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<()> {
         let mut checker = ReadOnlyChecker::new(analysis_db);
 
-        for exp in contract {
-            checker.check_reads_only_valid(exp)?;
+        for expr in contract {
+            let mut result = checker.check_reads_only_valid(expr);
+            if let Err(ref mut error) = result {
+                if !error.has_expression() {
+                    error.set_expression(expr);
+                }
+            }
+            result?
         }
 
 

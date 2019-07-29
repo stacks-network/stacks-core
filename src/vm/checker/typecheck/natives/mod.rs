@@ -84,7 +84,7 @@ fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 
 fn inner_handle_tuple_get(tuple_type_sig: &TupleTypeSignature, field_to_get: &str) -> TypeResult {
     let return_type = tuple_type_sig.field_type(field_to_get)
-        .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.to_string())))?
+        .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.to_string(), tuple_type_sig.clone())))?
         .clone();
     Ok(return_type)
 }
@@ -257,7 +257,7 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
     let expr2 = &arg_types[2];
 
     TypeSignature::most_admissive(expr1.clone(), expr2.clone())
-        .map_err(|(a,b)| CheckError::new(CheckErrors::DefaultTypesMustMatch(a, b)))
+        .map_err(|(a,b)| CheckError::new(CheckErrors::IfArmsMustMatch(a, b)))
 }
 
 fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
