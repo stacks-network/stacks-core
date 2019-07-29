@@ -150,7 +150,7 @@ pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpre
 }
 
 fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 2 {
+    if args.len() < 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
     }
     
@@ -183,9 +183,12 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
                                             typed_result);
     }
     
-    let body_return_type = checker.type_check(&args[1], &out_context)?;
+    let mut typed_args = checker.type_check_all(&args[1..args.len()], &out_context)?;
     
-    Ok(body_return_type)
+    let last_return = typed_args.pop()
+        .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
+    
+    Ok(last_return)
 }
 
 fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
