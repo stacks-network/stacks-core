@@ -149,30 +149,28 @@ smart contract transaction was signed by a particular
 _principal_. Principals are a specific type in the smart contracting
 language which represent a spending entity (roughly equivalent to a
 Stacks address). The signature itself is not checked by the smart
-contract, but by the VM. A smart contract function can use globally
-defined variables to obtain the current principal:
+contract, but by the VM. A smart contract function can use a globally
+defined variable to obtain the current principal:
 
 ```scheme
-tx-origin
 tx-sender
 ```
 
-The `tx-origin` variable does not change during inter-contract
+The `tx-sender` variable does not change during inter-contract
 calls. This means that if a transaction invokes a function in a given
 smart contract, that function is able to make calls into other smart
 contracts without that variable changing. This enables a wide variety
 of applications, but it comes with some dangers for users of smart
 contracts. However, as mentioned before, the static analysis
 guarantees of our smart contracting language allow clients to know a
-priori which functions a given smart contract will ever call. We plan
-to include first-class support for including post-conditions on
-transactions that ensure balances are not unintentionally modified for
-users. The `tx-sender` variable _does_ change during inter-contract
-calls, and will be either the contract principal that called the current
-function or, if in the initial executing contract, it will be equal
-to the `tx-origin`.
+priori which functions a given smart contract will ever call.
 
-Assets in the smart contracting language and blockchain will be
+Another global variable, `contract-caller`, _does_ change during
+inter-contract calls. In particular, `contract-caller` is the contract
+principal corresponding to the most recent invocation of `contract-call!`.
+In the case of a "top-level" invocation, this variable is equal to `tx-sender`.
+
+Assets in the smart contracting language and blockchain are
 "owned" by objects of the principal type, meaning that any object of
 the principal type may own an asset. For the case of public-key hash
 and multi-signature Stacks addresses, a given principal can operate on
@@ -189,11 +187,11 @@ contracts may use the special function:
 (as-contract (...))
 ```
 
-This function will execute the closure (passed as an argument) with the
-`tx-origin` set to the _contract's_ principal, rather than the current
-sender. It returns the return value of the provided closure. A smart
-contract may use the special variable `contract-principal` to refer to
-its own principal.
+This function will execute the closure (passed as an argument) with
+the `tx-sender` and `contract-caller` set to the _contract's_
+principal, rather than the current sender. It returns the return value
+of the provided closure. A smart contract may use the special variable
+`contract-principal` to refer to its own principal.
 
 For example, a smart contract that implements something like a "token
 faucet" could be implemented as so:
