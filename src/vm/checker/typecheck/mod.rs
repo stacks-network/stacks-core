@@ -174,13 +174,13 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
         for exp in contract {
 
-            let mut result = type_checker.try_type_check_define(exp, &mut local_context);
-            if let Err(ref mut error) = result {
+            let mut result_res = type_checker.try_type_check_define(exp, &mut local_context);
+            if let Err(ref mut error) = result_res {
                 if !error.has_expression() {
                     error.set_expression(exp);
                 }
             }
-            let result = result?;
+            let result = result_res?;
             if result.is_none() {
                 // was _not_ a define statement, so handle like a normal statement.
                 type_checker.type_check(exp, &local_context)?;
