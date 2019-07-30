@@ -11,7 +11,7 @@ pub enum ContractInterfaceFunctionAccess {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ContractInterfaceTupleType {
+pub struct ContractInterfaceTupleEntryType {
     pub name: String,
     #[serde(rename = "type")]
     pub type_f: ContractInterfaceAtomType,
@@ -24,7 +24,7 @@ pub enum ContractInterfaceAtomType {
     bool,
     principal,
     buffer { length: u32 },
-    tuple(Vec<ContractInterfaceTupleType>),
+    tuple(Vec<ContractInterfaceTupleEntryType>),
     optional(Box<ContractInterfaceAtomType>),
     response { ok: Box<ContractInterfaceAtomType>, error: Box<ContractInterfaceAtomType> },
     list { 
@@ -43,9 +43,9 @@ impl ContractInterfaceAtomType {
         )
     }
 
-    pub fn vec_from_tuple_type(tuple_type: &TupleTypeSignature) -> Vec<ContractInterfaceTupleType> {
+    pub fn vec_from_tuple_type(tuple_type: &TupleTypeSignature) -> Vec<ContractInterfaceTupleEntryType> {
         tuple_type.type_map.iter().map(|(name, sig)| 
-            ContractInterfaceTupleType { 
+            ContractInterfaceTupleEntryType { 
                 name: name.to_string(), 
                 type_f: Self::from_type_signature(sig)
             }
@@ -179,8 +179,8 @@ impl ContractInterfaceVariable {
 #[derive(Debug, Serialize)]
 pub struct ContractInterfaceMap {
     pub name: String,
-    pub key: Vec<ContractInterfaceTupleType>,
-    pub value: Vec<ContractInterfaceTupleType>,
+    pub key: Vec<ContractInterfaceTupleEntryType>,
+    pub value: Vec<ContractInterfaceTupleEntryType>,
 }
 
 impl ContractInterfaceMap {
