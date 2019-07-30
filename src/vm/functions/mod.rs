@@ -337,6 +337,21 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     let bindings = args[0].match_list()
         .ok_or(UncheckedError::ExpectedListPairs)?;
 
+    // parse and eval the bindings.
+    let mut binding_results = parse_eval_bindings(bindings, env, context)?;
+    for (binding_name, binding_value) in binding_results.drain(..) {
+        if is_reserved(&binding_name) {
+            return Err(UncheckedError::ReservedName(binding_name).into())
+        }
+        if env.contract_context.lookup_function(&binding_name).is_some() {
+            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
+        }
+        if inner_context.lookup_variable(&binding_name).is_some() {
+            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
+        }
+        inner_context.variables.insert(binding_name, binding_value);
+    }
+
     // evaluate the let-bodies
 
     let mut last_result = None;
