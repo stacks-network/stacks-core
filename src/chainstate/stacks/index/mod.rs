@@ -49,7 +49,10 @@ use util::log;
 /// This method requires that target has enough space to store src, and will panic if not.
 #[inline]
 pub fn fast_extend_from_slice(target: &mut Vec<u8>, src: &[u8]) -> () {
-    assert!(target.capacity() >= target.len() + src.len());
+    if target.capacity() < target.len() + src.len() {
+        error!("target.capacity() ({}) < target.len() ({}) + src.len() ({})", target.capacity(), target.len(), src.len());
+        assert!(target.capacity() >= target.len() + src.len());
+    }
     let target_len = target.len();
     let src_len = src.len();
     let new_len = target_len + src_len;
