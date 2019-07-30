@@ -85,7 +85,7 @@ fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 
 fn inner_handle_tuple_get(tuple_type_sig: &TupleTypeSignature, field_to_get: &str) -> TypeResult {
     let return_type = tuple_type_sig.field_type(field_to_get)
-        .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.to_string())))?
+        .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.to_string(), tuple_type_sig.clone())))?
         .clone();
     Ok(return_type)
 }
@@ -151,7 +151,7 @@ pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpre
 }
 
 fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 2 {
+    if args.len() < 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
     }
     
@@ -184,9 +184,12 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
                                             typed_result);
     }
     
-    let body_return_type = checker.type_check(&args[1], &out_context)?;
+    let mut typed_args = checker.type_check_all(&args[1..args.len()], &out_context)?;
     
-    Ok(body_return_type)
+    let last_return = typed_args.pop()
+        .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
+    
+    Ok(last_return)
 }
 
 fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -258,7 +261,7 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
     let expr2 = &arg_types[2];
 
     TypeSignature::most_admissive(expr1.clone(), expr2.clone())
-        .map_err(|(a,b)| CheckError::new(CheckErrors::DefaultTypesMustMatch(a, b)))
+        .map_err(|(a,b)| CheckError::new(CheckErrors::IfArmsMustMatch(a, b)))
 }
 
 fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {

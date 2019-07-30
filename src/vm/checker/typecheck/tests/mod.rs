@@ -115,7 +115,8 @@ fn test_simple_ifs() {
 #[test]
 fn test_simple_lets() {
     let good = ["(let ((x 1) (y 2) (z 3)) (if (> x 2) (+ 1 x y) (- 1 z)))",
-                "(let ((x 'true) (y (+ 1 2)) (z 3)) (if x (+ 1 z y) (- 1 z)))"];
+                "(let ((x 'true) (y (+ 1 2)) (z 3)) (if x (+ 1 z y) (- 1 z)))",
+                "(let ((x 'true) (y (+ 1 2)) (z 3)) (print x) (if x (+ 1 z y) (- 1 z)))"];
     let bad = ["(let ((1)) (+ 1 2))",
                "(let ((1 2)) (+ 1 2))"];
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {

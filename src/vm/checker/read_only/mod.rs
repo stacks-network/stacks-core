@@ -30,8 +30,14 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     pub fn check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<()> {
         let mut checker = ReadOnlyChecker::new(analysis_db);
 
-        for exp in contract {
-            checker.check_reads_only_valid(exp)?;
+        for expr in contract {
+            let mut result = checker.check_reads_only_valid(expr);
+            if let Err(ref mut error) = result {
+                if !error.has_expression() {
+                    error.set_expression(expr);
+                }
+            }
+            result?
         }
 
 
@@ -175,7 +181,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 Ok(false)
             },
             Let => {
-                if args.len() != 2 {
+                if args.len() < 2 {
                     return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
                 }
     
@@ -193,8 +199,8 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                         return Ok(false)
                     }
                 }
-    
-                self.is_read_only(&args[1])
+
+                self.are_all_read_only(true, &args[1..args.len()])
             },
             Map | Filter => {
                 if args.len() != 2 {

@@ -29,7 +29,7 @@ pub struct SymbolicExpression {
     pub id: u64,
 
     #[cfg(feature = "developer-mode")]
-    pub line_number: u32,
+    pub span: Span,
 }
 
 impl SymbolicExpression {
@@ -37,7 +37,7 @@ impl SymbolicExpression {
     fn cons() -> Self {
         Self {
             id: 0,
-            line_number: 0,
+            span: Span::zero(),
             expr: SymbolicExpressionType::AtomValue(Value::Bool(false))
         }
     }
@@ -50,14 +50,19 @@ impl SymbolicExpression {
     }
 
     #[cfg(feature = "developer-mode")]
-    pub fn set_line_number(&mut self, line_number: u32) {
-        self.line_number = line_number
+    pub fn set_span(&mut self, start_line: u32, start_column: u32, end_line: u32, end_column: u32) {
+        self.span = Span {
+            start_line,
+            start_column,
+            end_line,
+            end_column
+        }
     }
 
     #[cfg(not(feature = "developer-mode"))]
-    pub fn set_line_number(&mut self, _line_number: u32) {
+    pub fn set_span(&mut self, _start_line: u32, _start_column: u32, _end_line: u32, _end_column: u32) {
     }
-
+    
     pub fn atom_value(val: Value) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::AtomValue(val),
@@ -128,5 +133,26 @@ impl fmt::Display for SymbolicExpression {
         };
         
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct Span {
+    pub start_line: u32,
+    pub start_column: u32,
+    pub end_line: u32,
+    pub end_column: u32
+}
+
+impl Span {
+    pub fn zero() -> Span {
+        Span {
+            start_line: 0,
+            start_column: 0,
+            end_line: 0,
+            end_column: 0
+        }
     }
 }

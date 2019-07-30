@@ -132,11 +132,6 @@ impl TypeMap {
             Ok(())
         }
     }
-
-    pub fn get_type(&self, expr: &SymbolicExpression) -> CheckResult<&TypeSignature> {
-        self.map.get(&expr.id)
-            .ok_or(CheckError::new(CheckErrors::TypeNotAnnotatedFailure))
-    }
 }
 
 impl ContractContext {

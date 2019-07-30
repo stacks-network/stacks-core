@@ -324,35 +324,29 @@ fn parse_eval_bindings(bindings: &[SymbolicExpression],
 
 fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     use vm::is_reserved;
-    check_argument_count(2, args)?;
 
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
-    // arg1 => body
-
+    // arg1..n => body
+    if args.len() < 2 {
+        return Err(UncheckedError::IncorrectArgumentCount(2, 1).into())
+    }
     // create a new context.
     let mut inner_context = context.extend()?;
 
     let bindings = args[0].match_list()
         .ok_or(UncheckedError::ExpectedListPairs)?;
 
-    // parse and eval the bindings.
-    let mut binding_results = parse_eval_bindings(bindings, env, context)?;
-    for (binding_name, binding_value) in binding_results.drain(..) {
-        if is_reserved(&binding_name) {
-            return Err(UncheckedError::ReservedName(binding_name).into())
-        }
-        if env.contract_context.lookup_function(&binding_name).is_some() {
-            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
-        }
-        if inner_context.lookup_variable(&binding_name).is_some() {
-            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
-        }
-        inner_context.variables.insert(binding_name, binding_value);
+    // evaluate the let-bodies
+
+    let mut last_result = None;
+    for body in args[1..].iter() {
+        let body_result = eval(&body, env, &inner_context)?;
+        last_result.replace(body_result);
     }
 
-    // evaluate the let-body
-    eval(&args[1], env, &inner_context)
+    // last_result should always be Some(...), because of the arg len check above.
+    Ok(last_result.unwrap())
 }
 
 fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
