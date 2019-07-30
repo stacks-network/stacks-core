@@ -1,4 +1,5 @@
 pub mod typecheck;
+pub mod diagnostic;
 mod errors;
 mod identity_pass;
 mod check_db;
@@ -20,3 +21,6 @@ pub fn type_check(contract_name: &str, contract: &mut [SymbolicExpression],
     }
     Ok(contract_analysis)
 }
+
+#[cfg(test)]
+mod tests;

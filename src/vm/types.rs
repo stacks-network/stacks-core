@@ -547,6 +547,21 @@ impl TupleTypeSignature {
     }
 }
 
+impl fmt::Display for TupleTypeSignature {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut first = true;
+        write!(f, "(tuple ")?;
+        for (field_name, field_type) in self.type_map.iter() {
+            if !first {
+                write!(f, " ")?;
+            }
+            first = false;
+            write!(f, "({} {})", field_name, field_type)?;
+        }
+        write!(f, ")")
+    }
+}
+
 impl TupleData {
     pub fn from_data(mut data: Vec<(String, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();

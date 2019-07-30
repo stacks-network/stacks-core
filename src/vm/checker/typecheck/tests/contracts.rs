@@ -560,7 +560,7 @@ fn test_expects() {
             .expect_err("Expected a type error.");
         eprintln!("unmatched_return_types returned check error: {}", err);
         assert!(match &err.err {
-            &CheckErrors::ReturnTypesMustMatch => true,
+            &CheckErrors::ReturnTypesMustMatch(_, _) => true,
             _ => false
         })
     }
