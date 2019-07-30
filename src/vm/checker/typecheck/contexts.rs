@@ -72,14 +72,23 @@ impl ContractAnalysis {
             maps: Vec::new(),
         };
 
+        let Self { 
+            private_function_types, 
+            public_function_types, 
+            read_only_function_types, 
+            variable_types, 
+            persisted_variable_types, 
+            map_types
+        } = self;
+
         contract_interface.functions.append(
             &mut interface::ContractInterfaceFunction::from_map(
-                &self.private_function_types, 
+                &private_function_types, 
                 interface::ContractInterfaceFunctionAccess::private));
 
         contract_interface.functions.append(
             &mut interface::ContractInterfaceFunction::from_map(
-                &self.public_function_types, 
+                &public_function_types, 
                 interface::ContractInterfaceFunctionAccess::public));
 
         contract_interface.functions.append(
@@ -89,16 +98,16 @@ impl ContractAnalysis {
 
         contract_interface.variables.append(
             &mut interface::ContractInterfaceVariable::from_map(
-                &self.variable_types, 
+                &variable_types, 
                 interface::ContractInterfaceVariableAccess::constant));
 
         contract_interface.variables.append(
             &mut interface::ContractInterfaceVariable::from_map(
-                &self.persisted_variable_types, 
+                &persisted_variable_types, 
                 interface::ContractInterfaceVariableAccess::variable));
 
         contract_interface.maps.append(
-            &mut interface::ContractInterfaceMap::from_map(&self.map_types));
+            &mut interface::ContractInterfaceMap::from_map(&map_types));
 
         contract_interface
     }
