@@ -539,8 +539,8 @@ where
         let mut node_hashes_bytes = Vec::with_capacity(TRIEHASH_ENCODED_SIZE * 256);
         Trie::get_children_hashes_bytes(storage, &node, &mut node_hashes_bytes)?;
 
-        let new_cur_node_hash = get_nodetype_hash_bytes(node, &node_hashes_bytes);
         node.set_path(new_cur_node_path);
+        let new_cur_node_hash = get_nodetype_hash_bytes(node, &node_hashes_bytes);
 
         let mut new_node4 = TrieNode4::new(&shared_path_prefix);
         new_node4.insert(&leaf_ptr);
@@ -781,7 +781,7 @@ where
                         if ptr == root_ptr {
                             let node_hash = get_nodetype_hash_bytes(&node, &hash_buf);
                             let h = Trie::get_trie_root_hash(storage, &get_nodetype_hash_bytes(&node, &hash_buf))?;
-                            if std::env::var("BLOCKSTACK_TRACE") != Ok("1".to_string()) {
+                            if is_trace() {
                                 let hs = Trie::get_trie_root_ancestor_hashes(storage, &node_hash)?;
                                 trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?}", &node, &child_ptr, &cur_hash, &node_hash, &hs[1..].to_vec(), &h);
                             }
