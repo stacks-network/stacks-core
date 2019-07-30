@@ -114,9 +114,6 @@ where
                 trace!("Walk backptrs for {:?} to {:?} from {:?}", cursor, &ptr, &start_node);
                 
                 // this node had a child for this chr at one point
-                if start_node.is_leaf() {
-                    unreachable!();
-                }
                 let (node, node_hash, node_ptr) = Trie::walk_backptr(storage, &ptr, cursor)?;
                 Ok((node, node_hash, node_ptr, ptr.back_block))
             }
@@ -146,12 +143,9 @@ where
                 get_nodetype_hash_bytes(&node, &vec![])
             }
             else {
+                MARF::node_copy_update_ptrs(_storage, node.ptrs_mut(), node_dist);
                 TrieHash::from_data(&[])
             };
-
-        if !node.is_leaf() {
-            MARF::node_copy_update_ptrs(_storage, node.ptrs_mut(), node_dist);
-        }
         
         Ok(hash)
     }
