@@ -380,7 +380,6 @@ impl TrieStorage for TrieRAM {
             Err(Error::NotFoundError)
         }
         else {
-            // buf.extend_from_slice(self.data[ptr.ptr() as usize].1.as_bytes());
             fast_extend_from_slice(buf, self.data[ptr.ptr() as usize].1.as_bytes());
             Ok(())
         }
@@ -852,11 +851,12 @@ impl TrieFileStorage {
                         }
                     })?;
 
-        let root_ptr = TriePtr::new(TrieNodeID::Node256, 0, 32);
-        let mut hash_buf = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
-        read_node_hash_bytes(&mut fd, &root_ptr, &mut hash_buf)?;
+        // NOTE: the trie root hash starts at byte 32
+        let root_hash_ptr = TriePtr::new(TrieNodeID::Node256, 0, BLOCK_HEADER_HASH_ENCODED_SIZE);
+        let mut hash_buf = Vec::with_capacity(BLOCK_HEADER_HASH_ENCODED_SIZE as usize);
+        read_node_hash_bytes(&mut fd, &root_hash_ptr, &mut hash_buf)?;
 
-        // safe because this is TRIEHASH_ENCODED_SIZE bytes long
+        // safe because this is _also_ TRIEHASH_ENCODED_SIZE bytes long
         Ok(trie_hash_from_bytes(&hash_buf))
     }
 
@@ -885,7 +885,9 @@ impl TrieFileStorage {
                         h
                     },
                     Err(e) => {
-                        self.read_tmp_block_root_hash(bhh)?
+                        let h = self.read_tmp_block_root_hash(bhh)?;
+                        trace!("Read {:?} from tmp file for {:?} instead", &h, bhh);
+                        h
                     }
                 };
                 ret.insert(root_hash, bhh.clone());
@@ -1074,7 +1076,7 @@ impl TrieStorage for TrieFileStorage {
         }
         else {
             // first 32 bytes are the block parent hash 
-            32
+            BLOCK_HEADER_HASH_ENCODED_SIZE as u64
         }
     }
 
