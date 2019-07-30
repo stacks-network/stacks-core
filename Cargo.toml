@@ -52,3 +52,6 @@ features = ["serde"]
 version = "=1.0.3"
 features = ["serde"]
 
+
+[dev-dependencies]
+assert-json-diff = "1.0.0"

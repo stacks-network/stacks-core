@@ -5,7 +5,7 @@ use vm::types::{TypeSignature};
 use vm::contexts::MAX_CONTEXT_DEPTH;
 
 use vm::checker::errors::{CheckResult, CheckError, CheckErrors};
-use vm::checker::typecheck::{FunctionType};
+use vm::checker::typecheck::{FunctionType, interface};
 
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
 const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
@@ -68,6 +68,58 @@ impl ContractAnalysis {
     pub fn serialize(&self) -> String {
         serde_json::to_string(self)
             .expect(SERIALIZE_FAIL_MESSAGE)
+    }
+
+    pub fn to_interface(&self) -> interface::ContractInterface {
+
+        let mut contract_interface = interface::ContractInterface::new();
+
+        let Self { 
+            private_function_types, 
+            public_function_types, 
+            read_only_function_types, 
+            variable_types, 
+            persisted_variable_types, 
+            map_types,
+            tokens,
+            assets
+        } = self;
+
+        contract_interface.functions.append(
+            &mut interface::ContractInterfaceFunction::from_map(
+                &private_function_types, 
+                interface::ContractInterfaceFunctionAccess::private));
+
+        contract_interface.functions.append(
+            &mut interface::ContractInterfaceFunction::from_map(
+                &public_function_types, 
+                interface::ContractInterfaceFunctionAccess::public));
+
+        contract_interface.functions.append(
+            &mut interface::ContractInterfaceFunction::from_map(
+                &self.read_only_function_types, 
+                interface::ContractInterfaceFunctionAccess::read_only));
+
+        contract_interface.variables.append(
+            &mut interface::ContractInterfaceVariable::from_map(
+                &variable_types, 
+                interface::ContractInterfaceVariableAccess::constant));
+
+        contract_interface.variables.append(
+            &mut interface::ContractInterfaceVariable::from_map(
+                &persisted_variable_types, 
+                interface::ContractInterfaceVariableAccess::variable));
+
+        contract_interface.maps.append(
+            &mut interface::ContractInterfaceMap::from_map(&map_types));
+
+        contract_interface.tokens.append(
+            &mut interface::ContractInterfaceTokens::from_set(&tokens));
+
+        contract_interface.assets.append(
+            &mut interface::ContractInterfaceAssets::from_map(&assets));
+
+        contract_interface
     }
 
     pub fn add_map_type(&mut self, name: &str, key_type: &TypeSignature, map_type: &TypeSignature) {

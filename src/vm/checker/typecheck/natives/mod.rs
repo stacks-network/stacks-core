@@ -1,7 +1,7 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE};
+use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE, FunctionArg};
 use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
 use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 
@@ -23,15 +23,15 @@ fn arithmetic_type(variadic: bool) -> FunctionType {
         FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::IntType ),
                                TypeSignature::new_atom( AtomTypeIdentifier::IntType ))
     } else {
-        FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::IntType ),
-                                 TypeSignature::new_atom( AtomTypeIdentifier::IntType )],
+        FunctionType::Fixed(vec![FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i1"),
+                                 FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i2")],
                             TypeSignature::new_atom( AtomTypeIdentifier::IntType ))
     }
 }
 
 fn arithmetic_comparison() -> FunctionType {
-    FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::IntType ),
-                             TypeSignature::new_atom( AtomTypeIdentifier::IntType )],
+    FunctionType::Fixed(vec![FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i1"),
+                             FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i2")],
                         TypeSignature::new_atom( AtomTypeIdentifier::BoolType ))    
 }
 
@@ -334,7 +334,7 @@ impl TypedNativeFunction {
                 Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::BoolType ),
                                                                    TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
             Not =>
-                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::BoolType )],
+                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::BoolType ), "value")],
                                                                 TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
             Hash160 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(

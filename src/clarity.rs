@@ -11,6 +11,7 @@ use vm::contexts::OwnedEnvironment;
 use vm::database::{ContractDatabase, ContractDatabaseConnection, ContractDatabaseTransacter};
 use vm::{SymbolicExpression, SymbolicExpressionType};
 use vm::checker::{type_check, AnalysisDatabase, AnalysisDatabaseConnection};
+use vm::checker::typecheck::contexts::ContractAnalysis;
 use vm::types::Value;
 
 use address::c32::c32_address;
@@ -154,7 +155,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             match args.last() {
                 Some(s) if s == "--output_analysis" => {
-                    println!("{}", contract_analysis.serialize());
+                    println!("{}", contract_analysis.to_interface().serialize());
                 },
                 _ => {
                     println!("Checks passed.");
@@ -345,6 +346,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             };
 
             let mut outer_sp = db_conn.begin_save_point_raw();
+            let contract_analysis: ContractAnalysis;
 
             { 
                 let mut analysis_db = AnalysisDatabase::from_savepoint(
@@ -352,12 +354,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                                     "Failed to initialize savepoint for analysis"));
                 let mut ast = friendly_expect(parse(&contract_content), "Failed to parse program.");
 
-                friendly_expect(type_check(contract_name, &mut ast, &mut analysis_db, true),
-                                "Type check error.");
+                contract_analysis = friendly_expect(type_check(contract_name, &mut ast, &mut analysis_db, true),
+                                                    "Type check error.");
 
                 analysis_db.commit();
             }
-            
+
             let mut db = ContractDatabase::from_savepoint(outer_sp);
 
             let result = {
@@ -375,7 +377,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             match result {
                 Ok(_x) => {
                     db.commit();
-                    println!("Contract initialized!");
+                    match args.last() {
+                        Some(s) if s == "--output_analysis" => {
+                            println!("{}", contract_analysis.to_interface().serialize());
+                        },
+                        _ => {
+                            println!("Contract initialized!");
+                        }
+                    }
                 },
                 Err(error) => {
                     eprintln!("Contract initialization error: \n{}", error);

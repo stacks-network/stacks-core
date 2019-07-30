@@ -1,6 +1,6 @@
 use vm::parser::parse;
 use vm::representations::SymbolicExpression;
-use vm::checker::typecheck::{TypeResult, TypeChecker, TypingContext};
+use vm::checker::typecheck::{TypeResult, TypeChecker, TypingContext, FunctionType};
 use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection, identity_pass};
 use vm::checker::errors::CheckErrors;
 use vm::checker::type_check;
@@ -276,6 +276,59 @@ fn test_define() {
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
         assert!(type_check(&":transient:", &mut bad_test, &mut analysis_db, false).is_err());
+    }
+}
+
+#[test]
+fn test_function_arg_names() {
+    use vm::checker::type_check;
+    
+    let functions = vec![
+        "(define (test (x int)) (ok 0))
+         (define-public (test-pub (x int)) (ok 0))
+         (define-read-only (test-ro (x int)) (ok 0))",
+
+        "(define (test (x int) (y bool)) (ok 0))
+         (define-public (test-pub (x int) (y bool)) (ok 0))
+         (define-read-only (test-ro (x int) (y bool)) (ok 0))",
+
+        "(define (test (name-1 int) (name-2 int) (name-3 int)) (ok 0))
+         (define-public (test-pub (name-1 int) (name-2 int) (name-3 int)) (ok 0))
+         (define-read-only (test-ro (name-1 int) (name-2 int) (name-3 int)) (ok 0))",
+
+        "(define (test) (ok 0))
+         (define-public (test-pub) (ok 0))
+         (define-read-only (test-ro) (ok 0))",
+    ];
+
+    let expected_arg_names: Vec<Vec<&str>> = vec![
+        vec!["x"],
+        vec!["x", "y"],
+        vec!["name-1", "name-2", "name-3"],
+        vec![],
+    ];
+
+    let mut analysis_conn = AnalysisDatabaseConnection::memory();
+    let mut analysis_db = analysis_conn.begin_save_point();
+
+    for (func_test, arg_names) in functions.iter().zip(expected_arg_names.iter()) {
+        let mut func_expr = parse(func_test).unwrap();
+        let contract_analysis = type_check(&":transient:", &mut func_expr, &mut analysis_db, false).unwrap();
+
+        let func_type_priv = contract_analysis.get_private_function("test").unwrap();
+        let func_type_pub = contract_analysis.get_public_function_type("test-pub").unwrap();
+        let func_type_ro = contract_analysis.get_read_only_function_type("test-ro").unwrap();
+
+        for func_type in &[func_type_priv, func_type_pub, func_type_ro] {
+            let func_args = match func_type {
+                FunctionType::Fixed(args, _) => args,
+                _ => panic!("Unexpected function type")
+            };
+            
+            for (expected_name, actual_name) in arg_names.iter().zip(func_args.iter().map(|x| &x.name)) {
+                assert_eq!(*expected_name, actual_name);
+            }
+        }
     }
 }
 

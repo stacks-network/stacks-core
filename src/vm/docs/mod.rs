@@ -221,7 +221,7 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions) -
                     format!("{}, ...", in_type)
                 },
                 FunctionType::Fixed(ref in_types, _) => {
-                    let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x)).collect();
+                    let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x.signature)).collect();
                     in_types.join(", ")
                 },
                 FunctionType::UnionArgs(ref in_types, _) => {
