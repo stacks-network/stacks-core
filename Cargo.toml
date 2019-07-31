@@ -57,3 +57,5 @@ features = ["serde"]
 version = "0.8.0"
 features = ["asm"]
 
+[dev-dependencies]
+assert-json-diff = "1.0.0"

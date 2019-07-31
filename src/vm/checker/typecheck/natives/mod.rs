@@ -1,7 +1,7 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE};
+use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE, FunctionArg};
 use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
 use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 
@@ -22,15 +22,15 @@ fn arithmetic_type(variadic: bool) -> FunctionType {
         FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::IntType ),
                                TypeSignature::new_atom( AtomTypeIdentifier::IntType ))
     } else {
-        FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::IntType ),
-                                 TypeSignature::new_atom( AtomTypeIdentifier::IntType )],
+        FunctionType::Fixed(vec![FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i1"),
+                                 FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i2")],
                             TypeSignature::new_atom( AtomTypeIdentifier::IntType ))
     }
 }
 
 fn arithmetic_comparison() -> FunctionType {
-    FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::IntType ),
-                             TypeSignature::new_atom( AtomTypeIdentifier::IntType )],
+    FunctionType::Fixed(vec![FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i1"),
+                             FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i2")],
                         TypeSignature::new_atom( AtomTypeIdentifier::BoolType ))    
 }
 
@@ -84,7 +84,7 @@ fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 
 fn inner_handle_tuple_get(tuple_type_sig: &TupleTypeSignature, field_to_get: &str) -> TypeResult {
     let return_type = tuple_type_sig.field_type(field_to_get)
-        .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.to_string())))?
+        .ok_or(CheckError::new(CheckErrors::NoSuchTupleField(field_to_get.to_string(), tuple_type_sig.clone())))?
         .clone();
     Ok(return_type)
 }
@@ -150,7 +150,7 @@ pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpre
 }
 
 fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 2 {
+    if args.len() < 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
     }
     
@@ -183,9 +183,12 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
                                             typed_result);
     }
     
-    let body_return_type = checker.type_check(&args[1], &out_context)?;
+    let mut typed_args = checker.type_check_all(&args[1..args.len()], &out_context)?;
     
-    Ok(body_return_type)
+    let last_return = typed_args.pop()
+        .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
+    
+    Ok(last_return)
 }
 
 fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -257,7 +260,7 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
     let expr2 = &arg_types[2];
 
     TypeSignature::most_admissive(expr1.clone(), expr2.clone())
-        .map_err(|(a,b)| CheckError::new(CheckErrors::DefaultTypesMustMatch(a, b)))
+        .map_err(|(a,b)| CheckError::new(CheckErrors::IfArmsMustMatch(a, b)))
 }
 
 fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -330,7 +333,7 @@ impl TypedNativeFunction {
                 Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::BoolType ),
                                                                    TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
             Not =>
-                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![TypeSignature::new_atom( AtomTypeIdentifier::BoolType )],
+                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::BoolType ), "value")],
                                                                 TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
             Hash160 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(

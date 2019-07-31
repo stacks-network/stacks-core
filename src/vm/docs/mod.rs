@@ -211,7 +211,7 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions) -
                     format!("{}, ...", in_type)
                 },
                 FunctionType::Fixed(ref in_types, _) => {
-                    let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x)).collect();
+                    let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x.signature)).collect();
                     in_types.join(", ")
                 },
                 FunctionType::UnionArgs(ref in_types, _) => {
@@ -267,13 +267,13 @@ which must return the same type. In the case that the boolean input is `true`, t
 
 const LET_API: SpecialAPI = SpecialAPI { 
     name: "let",
-    input_type: "((name2 AnyType) (name2 AnyType) ...), A",
+    input_type: "((name2 AnyType) (name2 AnyType) ...), AnyType, ... A",
     output_type: "A",
-    signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body)",
+    signature: "(let ((name1 expr1) (name2 expr2) ...) expr-body1 expr-body2 ... expr-body-last)",
     description: "The `let` function accepts a list of `variable name` and `expression` pairs,
 evaluating each expression and _binding_ it to the corresponding variable name. The _context_
-created by this set of bindings is used for evaluating and return the value of `expr-body`.",
-    example: "(let ((a 2) (b (+ 5 6 7))) (+ a b)) ;; Returns 20"
+created by this set of bindings is used for evaluating its body expressions. The let expression returns the value of the last such body expression.",
+    example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20"
 };
 
 const FETCH_VAR_API: SpecialAPI = SpecialAPI { 

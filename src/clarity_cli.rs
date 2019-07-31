@@ -29,7 +29,6 @@ extern crate rand;
 extern crate ini;
 extern crate secp256k1;
 extern crate serde;
-extern crate serde_json;
 extern crate rusqlite;
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
@@ -44,6 +43,11 @@ extern crate hashbrown;
 extern crate libc;
 
 #[macro_use] extern crate serde_derive;
+#[macro_use] extern crate serde_json;
+
+#[cfg(test)]
+#[macro_use]
+extern crate assert_json_diff;
 
 #[macro_use]
 mod util;
