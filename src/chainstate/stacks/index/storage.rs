@@ -40,11 +40,14 @@ use std::path::{
     PathBuf
 };
 
-use std::os::unix::io::AsRawFd;
-
 use std::os;
 
+#[cfg(target_os = "unix")]
+use std::os::unix::io::AsRawFd;
+
+#[cfg(target_os = "unix")]
 use libc;
+
 use regex::Regex;
 
 use chainstate::burn::BlockHeaderHash;
@@ -1157,14 +1160,18 @@ impl TrieFileStorage {
                 trace!("Flush: parent of {:?} is {:?}", bhh, parent_bhh);
                 trie_storage.dump(&mut fd, bhh, &parent_bhh)?;
 
-                let fsync_ret = unsafe {
-                    libc::fsync(fd.as_raw_fd())
-                };
+                #[cfg(target_os = "unix")] {
+                    let fsync_ret = unsafe {
+                        libc::fsync(fd.as_raw_fd())
+                    };
 
-                if fsync_ret != 0 {
-                    let last_errno = std::io::Error::last_os_error().raw_os_error();
-                    panic!("Failed to fsync() on file descriptor for {:?}: error {:?}", &block_path_tmp, last_errno);
+                    if fsync_ret != 0 {
+                        let last_errno = std::io::Error::last_os_error().raw_os_error();
+                        panic!("Failed to fsync() on file descriptor for {:?}: error {:?}", &block_path_tmp, last_errno);
+                    }
                 }
+
+                // TODO: I don't know if there's a way to do the above in Windows
 
                 // atomically put this trie file in place
                 trace!("Rename {:?} to {:?}", &block_path_tmp, &block_path);
