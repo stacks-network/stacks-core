@@ -138,8 +138,6 @@ pub fn write_all<W: Write>(f: &mut W, buf: &[u8]) -> Result<usize, Error> {
 /// Used by TrieFileStorage to buffer the next trie being built.
 pub struct TrieRAM {
     data: Vec<(TrieNodeType, TrieHash)>,
-    offset: u64,
-    num_nodes: u64,
     block_header: BlockHeaderHash,
     readonly: bool,
 
@@ -160,8 +158,6 @@ impl TrieRAM {
     pub fn new(block_header: &BlockHeaderHash, capacity_hint: usize) -> TrieRAM {
         TrieRAM {
             data: Vec::with_capacity(capacity_hint),
-            offset: 0,
-            num_nodes: 0,
             block_header: block_header.clone(),
             readonly: false,
 
@@ -313,8 +309,6 @@ impl TrieRAM {
         }
 
         self.data.clear();
-        self.offset = 0;
-        self.num_nodes = 0;
         Ok(())
     }
 
@@ -330,7 +324,6 @@ impl TrieRAM {
     }
 
     pub fn read_nodetype(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
-        // let disk_ptr = ftell(self)?;
         trace!("TrieRAM: read_nodetype({:?}): at {:?}", &self.block_header, ptr);
 
         self.read_count += 1;
@@ -359,7 +352,6 @@ impl TrieRAM {
             return Err(Error::ReadOnlyError);
         }
 
-        // let disk_ptr = ftell(self)?;
         trace!("TrieRAM: write_nodetype({:?}): at {}: {:?} {:?}", &self.block_header, node_array_ptr, &hash, node);
         
         self.write_count += 1;
@@ -378,7 +370,6 @@ impl TrieRAM {
         }
         else if node_array_ptr == (self.data.len() as u32) {
             self.data.push((node.clone(), hash));
-            self.num_nodes += 1;
             self.total_bytes += get_node_byte_len(node);
             Ok(())
         }
@@ -1080,7 +1071,6 @@ impl TrieFileStorage {
             return Err(Error::ReadOnlyError);
         }
 
-        // let disk_ptr = ftell(self)?;
         trace!("write_nodetype({:?}): at {}: {:?} {:?}", &self.cur_block, disk_ptr, &hash, node);
         
         self.write_count += 1;
