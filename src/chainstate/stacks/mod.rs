@@ -160,6 +160,7 @@ pub struct StacksBlock {
 }
 
 /// Header structure for a microblock
+/// TODO: priority number
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksMicroblockHeader {
     version: u8,

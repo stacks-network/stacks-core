@@ -79,6 +79,7 @@ use chainstate::stacks::index::node::{
     TrieNodeID,
     TriePtr,
     TriePath,
+    TrieNode
 };
 
 use chainstate::stacks::index::fork_table::{
@@ -129,24 +130,6 @@ pub fn write_all<W: Write>(f: &mut W, buf: &[u8]) -> Result<usize, Error> {
     }
     Ok(cnt)
 }
-
-/// A trait that defines all the operations needed to store index data.
-pub trait TrieStorage {
-    fn extend(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error>;
-    fn open(&mut self, bhh: &BlockHeaderHash, readwrite: bool) -> Result<(), Error>;
-    fn tell(&self) -> BlockHeaderHash;
-    fn root_ptr(&self) -> u64;
-    fn block_walk(&mut self, back_block: u32) -> Result<BlockHeaderHash, Error>;
-    fn readwrite(&self) -> bool;
-    fn format(&mut self) -> Result<(), Error>;
-    fn read_node_hash_bytes(&mut self, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error>;
-    fn read_node(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error>;
-    fn write_node(&mut self, node: &TrieNodeType, hash: TrieHash) -> Result<(), Error>;
-    fn flush(&mut self) -> Result<(), Error>;
-    fn num_blocks(&self) -> usize;
-    fn chain_tips(&self) -> Vec<BlockHeaderHash>;
-}
-
 
 /// In-RAM trie storage.
 /// Used by TrieFileStorage to buffer the next trie being built.
@@ -258,7 +241,7 @@ impl TrieRAM {
                 let num_children = ptrs.len();
                 for i in 0..num_children {
                     if ptrs[i].id != TrieNodeID::Empty && !is_backptr(ptrs[i].id) {
-                        let (child, child_hash) = self.read_node(&ptrs[i])?;
+                        let (child, child_hash) = self.read_nodetype(&ptrs[i])?;
                         frontier.push_back((child, child_hash));
                     }
                 }
@@ -307,8 +290,7 @@ impl TrieRAM {
     /// Dump ourself to f
     pub fn dump<F: Read + Write + Seek>(&mut self, f: &mut F, bhh: &BlockHeaderHash, parent_bhh: &BlockHeaderHash) -> Result<u64, Error> {
         if self.block_header == *bhh {
-            let root_ptr = self.root_ptr();
-            let (root, hash) = self.read_node(&TriePtr::new(TrieNodeID::Node256, 0, root_ptr as u32))?;
+            let (root, hash) = self.read_nodetype(&TriePtr::new(TrieNodeID::Node256, 0, 0))?;
             self.dump_traverse(f, &root, &hash, parent_bhh)
         }
         else {
@@ -320,49 +302,8 @@ impl TrieRAM {
     fn size_hint(&self) -> usize {
         self.total_bytes
     }
-}
 
-impl TrieStorage for TrieRAM {
-    fn extend(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
-        if self.block_header == *bhh {
-            return Err(Error::ExistsError);
-        }
-        trace!("Extend to {:?}", bhh);
-        self.block_header = bhh.clone();
-        self.offset = 0;
-        self.num_nodes = 0;
-        self.data.clear();
-        self.readonly = false;
-        Ok(())
-    }
-
-    fn open(&mut self, bhh: &BlockHeaderHash, readwrite: bool) -> Result<(), Error> {
-        if self.block_header != *bhh {
-            trace!("Failed to open {:?}: not the current block", bhh);
-            return Err(Error::NotFoundError);
-        }
-        self.block_header = bhh.clone();
-        self.offset = 0;
-        self.num_nodes = self.data.len() as u64;
-        self.readonly = !readwrite;
-        Ok(())
-    }
-
-    fn tell(&self) -> BlockHeaderHash {
-        self.block_header.clone()
-    }
-    
-    fn block_walk(&mut self, _back_block: u32) -> Result<BlockHeaderHash, Error> {
-        panic!("Not implemented for TrieRAM");
-    }
-
-    fn root_ptr(&self) -> u64 { 0 }
-
-    fn readwrite(&self) -> bool {
-        !self.readonly
-    }
-
-    fn format(&mut self) -> Result<(), Error> {
+    pub fn format(&mut self) -> Result<(), Error> {
         if self.readonly {
             trace!("Read-only!");
             return Err(Error::ReadOnlyError);
@@ -374,7 +315,7 @@ impl TrieStorage for TrieRAM {
         Ok(())
     }
 
-    fn read_node_hash_bytes(&mut self, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
+    pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
         if (ptr.ptr() as u64) >= (self.data.len() as u64) {
             trace!("TrieRAM: Failed to read node bytes: {} >= {}", ptr.ptr(), self.data.len());
             Err(Error::NotFoundError)
@@ -385,9 +326,9 @@ impl TrieStorage for TrieRAM {
         }
     }
 
-    fn read_node(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
-        let disk_ptr = ftell(self)?;
-        trace!("TrieRAM: read_node({:?}): at {}: {:?}", &self.block_header, disk_ptr, ptr);
+    pub fn read_nodetype(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
+        // let disk_ptr = ftell(self)?;
+        trace!("TrieRAM: read_nodetype({:?}): at {:?}", &self.block_header, ptr);
 
         self.read_count += 1;
         if is_backptr(ptr.id()) {
@@ -409,14 +350,14 @@ impl TrieStorage for TrieRAM {
         }
     }
 
-    fn write_node(&mut self, node: &TrieNodeType, hash: TrieHash) -> Result<(), Error> {
+    pub fn write_nodetype(&mut self, node_array_ptr: u32, node: &TrieNodeType, hash: TrieHash) -> Result<(), Error> {
         if self.readonly {
             trace!("Read-only!");
             return Err(Error::ReadOnlyError);
         }
 
-        let disk_ptr = ftell(self)?;
-        trace!("TrieRAM: write_node({:?}): at {}: {:?} {:?}", &self.block_header, disk_ptr, &hash, node);
+        // let disk_ptr = ftell(self)?;
+        trace!("TrieRAM: write_nodetype({:?}): at {}: {:?} {:?}", &self.block_header, node_array_ptr, &hash, node);
         
         self.write_count += 1;
         match node {
@@ -428,14 +369,12 @@ impl TrieStorage for TrieRAM {
             }
         }
 
-        if self.offset < (self.data.len() as u64) {
-            self.data[self.offset as usize] = (node.clone(), hash);
-            self.offset += 1;
+        if node_array_ptr < (self.data.len() as u32) {
+            self.data[node_array_ptr as usize] = (node.clone(), hash);
             Ok(())
         }
-        else if self.offset == (self.data.len() as u64) {
+        else if node_array_ptr == (self.data.len() as u32) {
             self.data.push((node.clone(), hash));
-            self.offset += 1;
             self.num_nodes += 1;
             self.total_bytes += get_node_byte_len(node);
             Ok(())
@@ -446,68 +385,16 @@ impl TrieStorage for TrieRAM {
         }
     }
 
-    fn flush(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn num_blocks(&self) -> usize {
-        1
-    }
-
-    fn chain_tips(&self) -> Vec<BlockHeaderHash> {
-        vec![self.block_header.clone()]
+    /// Get the next ptr value for a node to store.
+    pub fn last_ptr(&mut self) -> Result<u32, Error> {
+        Ok(self.data.len() as u32)
     }
 }
 
-impl Seek for TrieRAM {
-    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        match pos {
-            SeekFrom::Start(ref loc) => {
-                let prev = self.offset;
-                self.offset = *loc;
-                Ok(prev)
-            },
-            SeekFrom::End(ref loc) => {
-                let prev = self.num_nodes;
-                let abs_loc = (*loc).abs() as u64;
-                if abs_loc > self.num_nodes {
-                    // can't seek behind 0
-                    return Err(io::Error::new(io::ErrorKind::InvalidInput, Error::BadSeekValue));
-                }
-
-                let new_offset = (self.num_nodes as i128) + (*loc as i128);
-                if new_offset > ((1 as i128) << 64) - 1 {
-                    // overflow 
-                    return Err(io::Error::new(io::ErrorKind::InvalidInput, Error::BadSeekValue));
-                }
-
-                self.offset = new_offset as u64;
-                Ok(prev)
-            },
-            SeekFrom::Current(ref loc) => {
-                let prev = self.offset;
-                let abs_loc = (*loc).abs() as u64;
-                if abs_loc > self.num_nodes {
-                    // can't seek behind 0
-                    return Err(io::Error::new(io::ErrorKind::InvalidInput, Error::BadSeekValue));
-                }
-
-                let new_offset = (self.offset as i128) + (*loc as i128);
-                if new_offset > ((1 as i128) << 64) - 1 {
-                    // overflow 
-                    return Err(io::Error::new(io::ErrorKind::InvalidInput, Error::BadSeekValue));
-                }
-
-                self.offset = new_offset as u64;
-                Ok(prev)
-            }
-        }
-    }
-}
 
 // disk-backed Trie.
 // Keeps the last-extended Trie in-RAM and flushes it to disk on either a call to flush() or a call
-// to extend() with a different block header hash.
+// to extend_to_block() with a different block header hash.
 pub struct TrieFileStorage {
     pub dir_path: String,
     readonly: bool,
@@ -587,6 +474,21 @@ impl TrieFileStorage {
         Ok(ret)
     }
 
+    /// Set up a new Trie forest on disk.  If there is data there already, obliterate it first.
+    #[cfg(test)]
+    pub fn new_overwrite(dir_path: &String) -> Result<TrieFileStorage, Error> {
+        match fs::metadata(dir_path) {
+            Ok(_) => {
+                fs::remove_dir_all(dir_path).unwrap();
+            },
+            Err(e) => {
+            }
+        };
+        TrieFileStorage::new(dir_path)
+    }
+
+    /// Get the block hash of the "parent of the root".  This does not correspond to a real block,
+    /// but instead is a sentinel value that is all 1's
     pub fn block_sentinel() -> BlockHeaderHash {
         BlockHeaderHash([255u8; BLOCK_HEADER_HASH_ENCODED_SIZE as usize])
     }
@@ -896,7 +798,7 @@ impl TrieFileStorage {
 
         let (last_extended_opt, last_extended_trie_opt) = match (self.last_extended.take(), self.last_extended_trie.take()) {
             (Some(bhh), Some(mut trie_ram)) => {
-                let ptr = TriePtr::new(set_backptr(TrieNodeID::Node256), 0, trie_ram.root_ptr() as u32);
+                let ptr = TriePtr::new(set_backptr(TrieNodeID::Node256), 0, 0);
 
                 let mut root_hash_bytes = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
                 trie_ram.read_node_hash_bytes(&ptr, &mut root_hash_bytes)?;
@@ -917,10 +819,9 @@ impl TrieFileStorage {
 
         Ok(ret)
     }
-}
 
-impl TrieStorage for TrieFileStorage {
-    fn extend(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+    /// Extend the forest of Tries to include a new block.
+    pub fn extend_to_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
         if self.fork_table.size() > 0 {
             if !self.fork_table.contains(&self.cur_block) {
                 return Err(Error::CorruptionError(format!("Current block {:?} not in fork table", &self.cur_block)));
@@ -993,7 +894,7 @@ impl TrieStorage for TrieFileStorage {
         }
 
         // extend the fork table
-        self.fork_table.extend(&self.cur_block, bhh)?;
+        self.fork_table.extend_to_block(&self.cur_block, bhh)?;
        
         // update internal structures
         self.cur_block = bhh.clone();
@@ -1007,7 +908,7 @@ impl TrieStorage for TrieFileStorage {
         Ok(())
     }
 
-    fn open(&mut self, bhh: &BlockHeaderHash, readwrite: bool) -> Result<(), Error> {
+    pub fn open_block(&mut self, bhh: &BlockHeaderHash, readwrite: bool) -> Result<(), Error> {
         let block_fork_ptr = self.fork_table.get_fork_ptr(bhh)?;
 
         if Some(*bhh) == self.last_extended {
@@ -1043,11 +944,11 @@ impl TrieStorage for TrieFileStorage {
         Ok(())
     }
     
-    fn tell(&self) -> BlockHeaderHash {
+    pub fn get_cur_block(&self) -> BlockHeaderHash {
         self.cur_block.clone()
     }
     
-    fn block_walk(&mut self, back_block: u32) -> Result<BlockHeaderHash, Error> {
+    pub fn block_walk(&mut self, back_block: u32) -> Result<BlockHeaderHash, Error> {
         trace!("block_walk from {:?} back {}", &self.cur_block, back_block);
 
         let prev_block = match self.cur_block_fork_ptr {
@@ -1070,21 +971,21 @@ impl TrieStorage for TrieFileStorage {
         Ok(prev_block)
     }
     
-    fn root_ptr(&self) -> u64 {
+    pub fn root_ptr(&self) -> u32 {
         if Some(self.cur_block) == self.last_extended {
             0
         }
         else {
             // first 32 bytes are the block parent hash 
-            BLOCK_HEADER_HASH_ENCODED_SIZE as u64
+            BLOCK_HEADER_HASH_ENCODED_SIZE as u32
         }
     }
 
-    fn readwrite(&self) -> bool {
+    pub fn readwrite(&self) -> bool {
         !self.readonly
     }
 
-    fn format(&mut self) -> Result<(), Error> {
+    pub fn format(&mut self) -> Result<(), Error> {
         if self.readonly {
             trace!("Read-only!");
             return Err(Error::ReadOnlyError);
@@ -1112,7 +1013,7 @@ impl TrieStorage for TrieFileStorage {
         Ok(())
     }
 
-    fn read_node_hash_bytes(&mut self, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
+    pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
         if Some(self.cur_block) == self.last_extended {
             // special case 
             assert!(self.last_extended_trie.is_some());
@@ -1135,8 +1036,8 @@ impl TrieStorage for TrieFileStorage {
     }
 
     // NOTE: ptr will not be treated as a backptr
-    fn read_node(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
-        trace!("read_node({:?}): {:?}", &self.cur_block, ptr);
+    pub fn read_nodetype(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
+        trace!("read_nodetype({:?}): {:?}", &self.cur_block, ptr);
 
         self.read_count += 1;
         if is_backptr(ptr.id()) {
@@ -1155,7 +1056,7 @@ impl TrieStorage for TrieFileStorage {
             // special case
             assert!(self.last_extended_trie.is_some());
             return match self.last_extended_trie {
-                Some(ref mut trie_storage) => trie_storage.read_node(&clear_ptr),
+                Some(ref mut trie_storage) => trie_storage.read_nodetype(&clear_ptr),
                 None => unreachable!()
             };
         }
@@ -1170,14 +1071,14 @@ impl TrieStorage for TrieFileStorage {
         }
     }
     
-    fn write_node(&mut self, node: &TrieNodeType, hash: TrieHash) -> Result<(), Error> {
+    pub fn write_nodetype(&mut self, disk_ptr: u32, node: &TrieNodeType, hash: TrieHash) -> Result<(), Error> {
         if self.readonly {
             trace!("Read-only!");
             return Err(Error::ReadOnlyError);
         }
 
-        let disk_ptr = ftell(self)?;
-        trace!("write_node({:?}): at {}: {:?} {:?}", &self.cur_block, disk_ptr, &hash, node);
+        // let disk_ptr = ftell(self)?;
+        trace!("write_nodetype({:?}): at {}: {:?} {:?}", &self.cur_block, disk_ptr, &hash, node);
         
         self.write_count += 1;
         match node {
@@ -1193,15 +1094,26 @@ impl TrieStorage for TrieFileStorage {
             // special case
             assert!(self.last_extended_trie.is_some());
             return match self.last_extended_trie {
-                Some(ref mut trie_storage) => trie_storage.write_node(node, hash),
+                Some(ref mut trie_storage) => trie_storage.write_nodetype(disk_ptr, node, hash),
                 None => unreachable!()
             };
         }
         
         panic!("Tried to write to another Trie besides the currently-bufferred one.  This should never happen -- only flush() can write to disk!");
     }
+
+    pub fn write_node<T: TrieNode + std::fmt::Debug>(&mut self, ptr: u32, node: &T, hash: TrieHash) -> Result<(), Error> {
+        match node.id() {
+            TrieNodeID::Node4 => self.write_nodetype(ptr, &node.try_as_node4().unwrap(), hash),
+            TrieNodeID::Node16 => self.write_nodetype(ptr, &node.try_as_node16().unwrap(), hash),
+            TrieNodeID::Node48 => self.write_nodetype(ptr, &node.try_as_node48().unwrap(), hash),
+            TrieNodeID::Node256 => self.write_nodetype(ptr, &node.try_as_node256().unwrap(), hash),
+            TrieNodeID::Leaf => self.write_nodetype(ptr, &node.try_as_leaf().unwrap(), hash),
+            _ => panic!("Unknown node type {}", node.id())
+        }
+    }
     
-    fn flush(&mut self) -> Result<(), Error> {
+    pub fn flush(&mut self) -> Result<(), Error> {
         // save the currently-bufferred Trie to disk, and atomically put it into place.
         // Idempotent.
         // Panics on I/O error.
@@ -1276,29 +1188,29 @@ impl TrieStorage for TrieFileStorage {
         Ok(())
     }
 
-    fn num_blocks(&self) -> usize {
+    pub fn last_ptr(&mut self) -> Result<u32, Error> {
+        if self.readonly {
+            error!("TrieFileStorage is opened in read-only mode");
+            return Err(Error::ReadOnlyError);
+        }
+
+        if self.last_extended_trie.is_some() {
+            match self.last_extended_trie {
+                Some(ref mut trie_storage) => trie_storage.last_ptr(),
+                _ => unreachable!()
+            }
+        }
+        else {
+            panic!("Cannot allocate new ptrs in a Trie that is not in RAM");
+        }
+    }
+
+    pub fn num_blocks(&self) -> usize {
         self.fork_table.size()
     }
     
-    fn chain_tips(&self) -> Vec<BlockHeaderHash> {
+    pub fn chain_tips(&self) -> Vec<BlockHeaderHash> {
         self.fork_table.chain_tips()
-    }
-}
-
-impl Seek for TrieFileStorage {
-    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        if Some(self.cur_block) == self.last_extended {
-            assert!(self.last_extended_trie.is_some());
-            return match self.last_extended_trie {
-                Some(ref mut trie_storage) => trie_storage.seek(pos),
-                None => unreachable!()
-            };
-        }
-
-        match self.cur_block_fd {
-            Some(ref mut f) => f.seek(pos),
-            None => Err(io::Error::new(io::ErrorKind::Other, Error::BadSeekValue))
-        }
     }
 }
 

@@ -258,7 +258,7 @@ mod test {
     };
 
     /// Print out a trie to stderr
-    pub fn dump_trie<S: TrieStorage + Seek>(s: &mut S) -> () {
+    pub fn dump_trie(s: &mut TrieFileStorage) -> () {
         test_debug!("\n----- BEGIN TRIE ------");
         
         fn space(cnt: usize) -> String {
@@ -270,8 +270,6 @@ mod test {
         }
 
         let root_ptr = s.root_ptr();
-        fseek(s, root_ptr).unwrap();
-
         let mut frontier : Vec<(TrieNodeType, usize)> = vec![];
         let (root, _) = Trie::read_root(s).unwrap();
         frontier.push((root, 0));
@@ -305,7 +303,7 @@ mod test {
                     continue;
                 }
                 if !is_backptr(ptr.id()) {
-                    let (child_node, _) = Trie::read_node(s, ptr).unwrap();
+                    let (child_node, _) = s.read_nodetype(ptr).unwrap();
                     frontier.push((child_node, depth + path_len + 1));
                 }
             }
@@ -314,243 +312,12 @@ mod test {
         test_debug!("----- END TRIE ------\n");
     }
 
-    // ram-disk trie (for testing encoding/decoding and cursor walking)
-    // NOTE: does not support forks
-    pub struct TrieIOBuffer {
-        bufs: HashMap<BlockHeaderHash, Cursor<Vec<u8>>>,
-        buf_order: Vec<BlockHeaderHash>,
-        block_header: BlockHeaderHash,
-        readonly: bool,
-        
-        read_count: u64,
-        read_backptr_count: u64,
-        read_node_count: u64,
-        read_leaf_count: u64,
-
-        write_count: u64,
-        write_node_count: u64,
-        write_leaf_count: u64,
-    }
-
-    impl TrieIOBuffer {
-        pub fn new(buf: Cursor<Vec<u8>>) -> TrieIOBuffer {
-            let mut ret = TrieIOBuffer {
-                bufs: HashMap::new(),
-                buf_order: vec![],
-                block_header: BlockHeaderHash([0u8; 32]),
-                readonly: false,
-                
-                read_count: 0,
-                read_backptr_count: 0,
-                read_node_count: 0,
-                read_leaf_count: 0,
-
-                write_count: 0,
-                write_node_count: 0,
-                write_leaf_count: 0
-            };
-            ret.bufs.insert(ret.block_header.clone(), buf);
-            ret
-        }
-
-        #[allow(dead_code)]
-        pub fn stats(&mut self) -> (u64, u64) {
-            let r = self.read_count;
-            let w = self.write_count;
-            self.read_count = 0;
-            self.write_count = 0;
-            (r, w)
-        }
-        
-        #[allow(dead_code)]
-        pub fn node_stats(&mut self) -> (u64, u64, u64) {
-            let nr = self.read_node_count;
-            let br = self.read_backptr_count;
-            let nw = self.write_node_count;
-
-            self.read_node_count = 0;
-            self.read_backptr_count = 0;
-            self.write_node_count = 0;
-
-            (nr, br, nw)
-        }
-
-        #[allow(dead_code)]
-        pub fn leaf_stats(&mut self) -> (u64, u64) {
-            let lr = self.read_leaf_count;
-            let lw = self.write_leaf_count;
-
-            self.read_leaf_count = 0;
-            self.write_leaf_count = 0;
-
-            (lr, lw)
-        }
-    }
-
-    impl TrieStorage for TrieIOBuffer {
-        fn extend(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
-            if self.bufs.contains_key(bhh) {
-                return Err(Error::ExistsError);
-            }
-            test_debug!("Extend to {:?}", bhh);
-            self.bufs.insert((*bhh).clone(), Cursor::new(vec![]));
-            self.buf_order.push(self.block_header.clone());
-            self.block_header = bhh.clone();
-            self.readonly = false;
-            Ok(())
-        }
-
-        fn open(&mut self, bhh: &BlockHeaderHash, readwrite: bool) -> Result<(), Error> {
-            if !self.bufs.contains_key(bhh) {
-                test_debug!("Block not found: {:?}", bhh);
-                return Err(Error::NotFoundError);
-            }
-            self.block_header = bhh.clone();
-            self.readonly = !readwrite;
-            Ok(())
-        }
-        
-        fn tell(&self) -> BlockHeaderHash {
-            self.block_header.clone()
-        }
-
-        fn block_walk(&mut self, back_block: u32) -> Result<BlockHeaderHash, Error> {
-            if back_block == 0 {
-                return Ok(self.block_header.clone());
-            }
-            if (back_block as usize) < self.buf_order.len() {
-                return Ok(self.buf_order[self.buf_order.len() - 1 - (back_block as usize)].clone());
-            }
-            return Err(Error::NotFoundError);
-        }
-        
-        fn root_ptr(&self) -> u64 { 0 }
-
-        fn readwrite(&self) -> bool {
-            !self.readonly
-        }
-
-        fn format(&mut self) -> Result<(), Error> {
-            if self.readonly {
-                test_debug!("Read-only!");
-                return Err(Error::ReadOnlyError);
-            }
-
-            self.bufs.clear();
-            Ok(())
-        }
-
-        fn read_node_hash_bytes(&mut self, ptr: &TriePtr, hash_buf: &mut Vec<u8>) -> Result<(), Error> {
-            match self.bufs.get_mut(&self.block_header) {
-                Some(ref mut buf) => {
-                    read_node_hash_bytes(buf, ptr, hash_buf)
-                }
-                None => {
-                    test_debug!("Node hash not found: {:?}", ptr);
-                    Err(Error::NotFoundError)
-                }
-            }
-        }
-
-        fn read_node(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
-            test_debug!("read_node({:?}): {:?}", &self.block_header, ptr);
-            
-            self.read_count += 1;
-            if is_backptr(ptr.id()) {
-                self.read_backptr_count += 1;
-            }
-            else if ptr.id() == TrieNodeID::Leaf {
-                self.read_leaf_count += 1;
-            }
-            else {
-                self.read_node_count += 1;
-            }
-
-            let clear_ptr = TriePtr::new(clear_backptr(ptr.id()), ptr.chr(), ptr.ptr());
-
-            match self.bufs.get_mut(&self.block_header) {
-                Some(ref mut buf) => {
-                    read_nodetype(buf, &clear_ptr)
-                },
-                None => {
-                    test_debug!("Node not found: {:?}", &clear_ptr);
-                    Err(Error::NotFoundError)
-                }
-            }
-        }
-        
-        fn write_node(&mut self, node: &TrieNodeType, hash: TrieHash) -> Result<(), Error> {
-            if self.readonly {
-                test_debug!("Read-only!");
-                return Err(Error::ReadOnlyError);
-            }
-
-            let disk_ptr = ftell(self)?;
-            test_debug!("write_node({:?}): at {}: {:?} {:?}", &self.block_header, disk_ptr, &hash, node);
-            
-            self.write_count += 1;
-            match node {
-                TrieNodeType::Leaf(ref data) => {
-                    self.write_leaf_count += 1;
-                },
-                TrieNodeType::Node4(ref data) => {
-                    self.write_node_count += 1;
-                }
-                TrieNodeType::Node16(ref data) => {
-                    self.write_node_count += 1;
-                }
-                TrieNodeType::Node48(ref data) => {
-                    self.write_node_count += 1;
-                }
-                TrieNodeType::Node256(ref data) => {
-                    self.write_node_count += 1;
-                },
-            }
-
-            match self.bufs.get_mut(&self.block_header) {
-                Some(ref mut buf) => {
-                    write_nodetype_bytes(buf, &node, hash)?;
-                    Ok(())
-                },
-                None => {
-                    test_debug!("Block data does not exist for {:?}", &self.block_header);
-                    Err(Error::NotFoundError)
-                }
-            }
-        }
-        
-        fn flush(&mut self) -> Result<(), Error> {
-            Ok(())
-        }
-
-        fn num_blocks(&self) -> usize {
-            self.bufs.len()
-        }
-
-        fn chain_tips(&self) -> Vec<BlockHeaderHash> {
-            panic!("Getting chain-tips is not supported on TrieIOBuffer test harnass");
-        }
-    }
-
-    impl Seek for TrieIOBuffer {
-        fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-            match self.bufs.get_mut(&self.block_header) {
-                Some(ref mut buf) => {
-                    buf.seek(pos)
-                },
-                None => {
-                    Err(io::Error::new(io::ErrorKind::Other, Error::NotFoundError))
-                }
-            }
-        }
-    }
-
-    pub fn merkle_test<S: TrieStorage + Seek>(s: &mut S, path: &Vec<u8>, value: &Vec<u8>) -> () {
+    pub fn merkle_test(s: &mut TrieFileStorage, path: &Vec<u8>, value: &Vec<u8>) -> () {
         let (_, root_hash) = Trie::read_root(s).unwrap();
         let triepath = TriePath::from_bytes(&path[..]).unwrap();
 
         let block_header = BlockHeaderHash([0u8; 32]);
-        s.open(&block_header, false).unwrap();
+        s.open_block(&block_header, false).unwrap();
 
         let proof = TrieMerkleProof::from_path(s, &triepath, &TrieLeaf::new(&vec![], value), &block_header).unwrap();
         let empty_root_to_block = HashMap::new();
@@ -562,7 +329,7 @@ mod test {
         test_debug!("MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?", header, path, value);
         test_debug!("---------");
 
-        s.open(header, false).unwrap();
+        s.open_block(header, false).unwrap();
         let (_, root_hash) = Trie::read_root(s).unwrap();
         let triepath = TriePath::from_bytes(&path[..]).unwrap();
         let proof = TrieMerkleProof::from_path(s, &triepath, &TrieLeaf::new(&vec![], value), header).unwrap();
@@ -582,7 +349,7 @@ mod test {
         test_debug!("MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?", header, key, value);
         test_debug!("---------");
 
-        s.open(header, false).unwrap();
+        s.open_block(header, false).unwrap();
         let (_, root_hash) = Trie::read_root(s).unwrap();
         let proof = TrieMerkleProof::from_entry(s, key, value, &header).unwrap();
 
@@ -596,17 +363,15 @@ mod test {
         assert!(proof.verify(&root_hash, &root_to_block));
     }
     
-    pub fn make_node_path<S: TrieStorage + Seek>(s: &mut S, node_id: u8, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
+    pub fn make_node_path(s: &mut TrieFileStorage, node_id: u8, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         // make a fully-fleshed-out path of node's to a leaf 
         let root_ptr = s.root_ptr();
-        fseek(s, root_ptr).unwrap();
-        
         let root = TrieNode256::new(&path_segments[0].0);
         let root_hash = TrieHash::from_data(&[0u8; 32]);        // don't care about this in this test
-        Trie::write_node(s, &root, root_hash.clone()).unwrap();
+        s.write_node(root_ptr, &root, root_hash.clone()).unwrap();
 
         let mut parent = TrieNodeType::Node256(root);
-        let mut parent_ptr = 0;
+        let mut parent_ptr = root_ptr;
 
         let mut nodes = vec![];
         let mut node_ptrs = vec![];
@@ -616,7 +381,8 @@ mod test {
         for i in 0..path_segments.len() - 1 {
             let path_segment = &path_segments[i+1].0;
             let chr = path_segments[i].1;
-            let node_ptr = ftell(s).unwrap();
+            // let node_ptr = ftell(s).unwrap();
+            let node_ptr = s.last_ptr().unwrap();
 
             let node = match node_id {
                 TrieNodeID::Node4 => TrieNodeType::Node4(TrieNode4::new(path_segment)),
@@ -626,13 +392,9 @@ mod test {
                 _ => panic!("invalid node ID")
             };
 
-            Trie::write_nodetype(s, &node, TrieHash::from_data(&[(seg_id+1) as u8; 32])).unwrap();
+            s.write_nodetype(node_ptr, &node, TrieHash::from_data(&[(seg_id+1) as u8; 32])).unwrap();
             
-            let sav = ftell(s).unwrap();
-
             // update parent 
-            fseek(s, parent_ptr).unwrap();
-
             match parent {
                 TrieNodeType::Node256(ref mut data) => assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32))),
                 TrieNodeType::Node48(ref mut data) => assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32))),
@@ -641,9 +403,7 @@ mod test {
                 TrieNodeType::Leaf(_) => panic!("can't insert into leaf"),
             };
 
-            Trie::write_nodetype(s, &parent, TrieHash::from_data(&[seg_id as u8; 32])).unwrap();
-            
-            fseek(s, sav).unwrap();
+            s.write_nodetype(parent_ptr, &parent, TrieHash::from_data(&[seg_id as u8; 32])).unwrap();
             
             nodes.push(parent.clone());
             node_ptrs.push(TriePtr::new(node_id, chr, node_ptr as u32));
@@ -658,13 +418,11 @@ mod test {
         // add a leaf at the end 
         let child = TrieLeaf::new(&path_segments[path_segments.len()-1].0, &leaf_data);
         let child_chr = path_segments[path_segments.len()-1].1;
-        let child_ptr = ftell(s).unwrap();
-        Trie::write_node(s, &child, TrieHash::from_data(&[(seg_id+1) as u8; 32])).unwrap();
+        // let child_ptr = ftell(s).unwrap();
+        let child_ptr = s.last_ptr().unwrap();
+        s.write_node(child_ptr, &child, TrieHash::from_data(&[(seg_id+1) as u8; 32])).unwrap();
 
         // update parent
-        let sav = ftell(s).unwrap();
-        fseek(s, parent_ptr).unwrap();
-
         match parent {
             TrieNodeType::Node256(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32))),
             TrieNodeType::Node48(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32))),
@@ -673,20 +431,16 @@ mod test {
             TrieNodeType::Leaf(_) => panic!("can't insert into leaf"),
         };
 
-        Trie::write_nodetype(s, &parent, TrieHash::from_data(&[(seg_id) as u8; 32])).unwrap();
-
-        fseek(s, sav).unwrap();
+        s.write_nodetype(parent_ptr, &parent, TrieHash::from_data(&[(seg_id) as u8; 32])).unwrap();
 
         nodes.push(parent.clone());
         node_ptrs.push(TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32));
         hashes.push(TrieHash::from_data(&[(seg_id+1) as u8; 32]));
 
-        let root_ptr = s.root_ptr();
-        fseek(s, root_ptr).unwrap();
         (nodes, node_ptrs, hashes)
     }
     
-    pub fn make_node4_path<S: TrieStorage + Seek>(s: &mut S, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
+    pub fn make_node4_path(s: &mut TrieFileStorage, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         make_node_path(s, TrieNodeID::Node4, path_segments, leaf_data)
     }    
 }

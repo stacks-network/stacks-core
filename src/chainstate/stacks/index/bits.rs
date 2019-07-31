@@ -55,7 +55,7 @@ use chainstate::stacks::index::storage::{
     write_all,
     fseek,
     ftell,
-    TrieStorage
+    TrieFileStorage,
 };
 
 use chainstate::stacks::index::node::{
@@ -289,9 +289,9 @@ pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<u8>) 
 }
 
 
-/// Low-level method for reading a TrieHash into a byte buffer.
+/// Low-level method for reading a TrieHash into a byte buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
-pub fn read_hash_bytes<F: Read + Write + Seek>(f: &mut F, buf: &mut Vec<u8>) -> Result<(), Error> {
+pub fn read_hash_bytes<F: Read + Seek>(f: &mut F, buf: &mut Vec<u8>) -> Result<(), Error> {
     let mut hashbytes = [0u8; 32];
     f.read(&mut hashbytes)
         .map_err(Error::IOError)?;
@@ -300,15 +300,15 @@ pub fn read_hash_bytes<F: Read + Write + Seek>(f: &mut F, buf: &mut Vec<u8>) -> 
     Ok(())
 }
 
-/// Read a node's hash bytes into a buffer.
+/// Low-level method for reading a node's hash bytes into a buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
-pub fn read_node_hash_bytes<F: Read + Write + Seek>(f: &mut F, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
+pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
     fseek(f, ptr.ptr() as u64)?;
     read_hash_bytes(f, buf)
 }
 
-/// Read the root hash from a TrieStorage implementation.
-pub fn read_root_hash<S: TrieStorage + Seek>(s: &mut S) -> Result<TrieHash, Error> {
+/// Read the root hash from a TrieFileStorage instance
+pub fn read_root_hash(s: &mut TrieFileStorage) -> Result<TrieHash, Error> {
     let ptr = TriePtr::new(TrieNodeID::Node256, 0, s.root_ptr() as u32);
     let mut hash_bytes = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
     s.read_node_hash_bytes(&ptr, &mut hash_bytes)?;

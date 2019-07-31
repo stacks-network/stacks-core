@@ -301,13 +301,13 @@ pub struct TrieCursor {
 }
 
 impl TrieCursor {
-    pub fn new(path: &TriePath, root_ptr: u64) -> TrieCursor {
+    pub fn new(path: &TriePath, root_ptr: u32) -> TrieCursor {
         TrieCursor {
             path: path.clone(),
             index: 0,
             node_path_index: 0,
             nodes: vec![],
-            node_ptrs: vec![TriePtr::new(TrieNodeID::Node256, 0, root_ptr as u32)],
+            node_ptrs: vec![TriePtr::new(TrieNodeID::Node256, 0, root_ptr)],
             block_hashes: vec![],
             diverged: false
         }
@@ -1772,15 +1772,14 @@ mod test {
         for i in 0..3 {
             assert!(node4.insert(&TriePtr::new(TrieNodeID::Node16, (i+1) as u8, (i+2) as u32)));
         }
-        
-        let f = Cursor::new(vec![]);
-        let mut cursor = TrieIOBuffer::new(f);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node4".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
+
         let hash = TrieHash::from_data(&[0u8; 32]);
-        let wres = Trie::write_nodetype(&mut cursor, &TrieNodeType::Node4(node4.clone()), hash.clone());
+        let wres = trie_io.write_nodetype(0, &TrieNodeType::Node4(node4.clone()), hash.clone());
         assert!(wres.is_ok());
 
-        fseek(&mut cursor, 0).unwrap();
-        let rres = Trie::read_node(&mut cursor, &TriePtr::new(TrieNodeID::Node4, 0, 0));
+        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node4, 0, 0));
         
         assert!(rres.is_ok());
         assert_eq!(rres.unwrap(), (TrieNodeType::Node4(node4.clone()), hash));
@@ -1792,14 +1791,15 @@ mod test {
         for i in 0..16 {
             assert!(node16.insert(&TriePtr::new(TrieNodeID::Node48, (i+1) as u8, (i+2) as u32)));
         }
-        let f = Cursor::new(vec![]);
-        let mut cursor = TrieIOBuffer::new(f);
+        
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node16".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
+
         let hash = TrieHash::from_data(&[0u8; 32]);
-        let wres = Trie::write_nodetype(&mut cursor, &TrieNodeType::Node16(node16.clone()), hash.clone());
+        let wres = trie_io.write_nodetype(0, &TrieNodeType::Node16(node16.clone()), hash.clone());
         assert!(wres.is_ok());
 
-        fseek(&mut cursor, 0).unwrap();
-        let rres = Trie::read_node(&mut cursor, &TriePtr::new(TrieNodeID::Node16, 0, 0));
+        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node16, 0, 0));
         
         assert!(rres.is_ok());
         assert_eq!(rres.unwrap(), (TrieNodeType::Node16(node16.clone()), hash));
@@ -1812,14 +1812,15 @@ mod test {
         for i in 0..48 {
             assert!(node48.insert(&TriePtr::new(TrieNodeID::Node256, (i+1) as u8, (i+2) as u32)));
         }
-        let f = Cursor::new(vec![]);
-        let mut cursor = TrieIOBuffer::new(f);
-        let hash = TrieHash::from_data(&[0u8; 32]);
-        let wres = Trie::write_nodetype(&mut cursor, &TrieNodeType::Node48(node48.clone()), hash.clone());
-        assert!(wres.is_ok());
+        
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node48".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
-        fseek(&mut cursor, 0).unwrap();
-        let rres = Trie::read_node(&mut cursor, &TriePtr::new(TrieNodeID::Node48, 0, 0));
+        let hash = TrieHash::from_data(&[0u8; 32]);
+        let wres = trie_io.write_nodetype(0, &TrieNodeType::Node48(node48.clone()), hash.clone());
+        assert!(wres.is_ok());
+        
+        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node48, 0, 0));
         
         assert!(rres.is_ok());
         assert_eq!(rres.unwrap(), (TrieNodeType::Node48(node48.clone()), hash));
@@ -1831,15 +1832,16 @@ mod test {
         for i in 0..256 {
             assert!(node256.insert(&TriePtr::new(TrieNodeID::Node256, (i+1) as u8, (i+2) as u32)));
         }
-        let f = Cursor::new(vec![]);
-        let mut cursor = TrieIOBuffer::new(f);
+        
         let hash = TrieHash::from_data(&[0u8; 32]);
-        let wres = Trie::write_nodetype(&mut cursor, &TrieNodeType::Node256(node256.clone()), hash.clone());
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node256".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
+
+        let wres = trie_io.write_nodetype(0, &TrieNodeType::Node256(node256.clone()), hash.clone());
         assert!(wres.is_ok());
 
-        fseek(&mut cursor, 0).unwrap();
-        let root_ptr = cursor.root_ptr();
-        let rres = Trie::read_node(&mut cursor, &TriePtr::new(TrieNodeID::Node256, 0, root_ptr as u32));
+        let root_ptr = trie_io.root_ptr();
+        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node256, 0, root_ptr as u32));
         
         assert!(rres.is_ok());
         assert_eq!(rres.unwrap(), (TrieNodeType::Node256(node256.clone()), hash));
@@ -1852,14 +1854,14 @@ mod test {
             &vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39]
         );
 
-        let f = Cursor::new(vec![]);
-        let mut cursor = TrieIOBuffer::new(f);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_leaf".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
+
         let hash = TrieHash::from_data(&[0u8; 32]);
-        let wres = Trie::write_nodetype(&mut cursor, &TrieNodeType::Leaf(leaf.clone()), hash.clone());
+        let wres = trie_io.write_nodetype(0, &TrieNodeType::Leaf(leaf.clone()), hash.clone());
         assert!(wres.is_ok());
 
-        fseek(&mut cursor, 0).unwrap();
-        let rres = Trie::read_node(&mut cursor, &TriePtr::new(TrieNodeID::Leaf, 0, 0));
+        let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Leaf, 0, 0));
         
         assert!(rres.is_ok());
         assert_eq!(rres.unwrap(), (TrieNodeType::Leaf(leaf.clone()), hash));
@@ -1867,8 +1869,9 @@ mod test {
 
     #[test]
     fn read_write_node4_hashes() {
-        let f = Cursor::new(vec![]);
-        let mut cursor = TrieIOBuffer::new(f);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node4_hashes".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
+
         let mut node4 = TrieNode4::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
         let hash = TrieHash::from_data(&[0u8; 32]);
 
@@ -1879,28 +1882,28 @@ mod test {
 
             child_hashes.push(child_hash.clone());
 
-            let ptr = ftell(&mut cursor).unwrap();
-            Trie::write_node(&mut cursor, &child, child_hash).unwrap();
-            assert!(node4.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr as u32)));
+            let ptr = trie_io.last_ptr().unwrap();
+            trie_io.write_node(ptr, &child, child_hash).unwrap();
+            assert!(node4.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr)));
         }
 
         // no final child
         child_hashes.push(TrieHash::from_data(&[]));
         
-        let node4_ptr = ftell(&mut cursor).unwrap();
+        let node4_ptr = trie_io.last_ptr().unwrap();
         let node4_hash = get_node_hash(&node4, &child_hashes);
-        Trie::write_node(&mut cursor, &node4, node4_hash).unwrap();
-
-        fseek(&mut cursor, node4_ptr).unwrap();
-        let read_child_hashes = Trie::get_children_hashes(&mut cursor, &TrieNodeType::Node4(node4)).unwrap();
+        trie_io.write_node(node4_ptr, &node4, node4_hash).unwrap();
+        
+        let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node4(node4)).unwrap();
 
         assert_eq!(read_child_hashes, child_hashes);
     }
 
     #[test]
     fn read_write_node16_hashes() {
-        let f = Cursor::new(vec![]);
-        let mut cursor = TrieIOBuffer::new(f);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node16_hashes".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
+
         let mut node16 = TrieNode16::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
         let hash = TrieHash::from_data(&[0u8; 32]);
 
@@ -1911,28 +1914,28 @@ mod test {
 
             child_hashes.push(child_hash.clone());
 
-            let ptr = ftell(&mut cursor).unwrap();
-            Trie::write_node(&mut cursor, &child, child_hash).unwrap();
-            assert!(node16.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr as u32)));
+            let ptr = trie_io.last_ptr().unwrap();
+            trie_io.write_node(ptr, &child, child_hash).unwrap();
+            assert!(node16.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr)));
         }
 
         // no final child
         child_hashes.push(TrieHash::from_data(&[]));
         
-        let node16_ptr = ftell(&mut cursor).unwrap();
+        let node16_ptr = trie_io.last_ptr().unwrap();
         let node16_hash = get_node_hash(&node16, &child_hashes);
-        Trie::write_node(&mut cursor, &node16, node16_hash).unwrap();
+        trie_io.write_node(node16_ptr, &node16, node16_hash).unwrap();
 
-        fseek(&mut cursor, node16_ptr).unwrap();
-        let read_child_hashes = Trie::get_children_hashes(&mut cursor, &TrieNodeType::Node16(node16)).unwrap();
+        let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node16(node16)).unwrap();
 
         assert_eq!(read_child_hashes, child_hashes);
     }
 
     #[test]
     fn read_write_node48_hashes() {
-        let f = Cursor::new(vec![]);
-        let mut cursor = TrieIOBuffer::new(f);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node48_hashes".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
+
         let mut node48 = TrieNode48::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
         let hash = TrieHash::from_data(&[0u8; 32]);
 
@@ -1943,28 +1946,27 @@ mod test {
 
             child_hashes.push(child_hash.clone());
 
-            let ptr = ftell(&mut cursor).unwrap();
-            Trie::write_node(&mut cursor, &child, child_hash).unwrap();
-            assert!(node48.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr as u32)));
+            let ptr = trie_io.last_ptr().unwrap();
+            trie_io.write_node(ptr, &child, child_hash).unwrap();
+            assert!(node48.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr)));
         }
 
         // no final child
         child_hashes.push(TrieHash::from_data(&[]));
         
-        let node48_ptr = ftell(&mut cursor).unwrap();
+        let node48_ptr = trie_io.last_ptr().unwrap();
         let node48_hash = get_node_hash(&node48, &child_hashes);
-        Trie::write_node(&mut cursor, &node48, node48_hash).unwrap();
+        trie_io.write_node(node48_ptr, &node48, node48_hash).unwrap();
 
-        fseek(&mut cursor, node48_ptr).unwrap();
-        let read_child_hashes = Trie::get_children_hashes(&mut cursor, &TrieNodeType::Node48(node48)).unwrap();
+        let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node48(node48)).unwrap();
 
         assert_eq!(read_child_hashes, child_hashes);
     }
 
     #[test]
     fn read_write_node256_hashes() {
-        let f = Cursor::new(vec![]);
-        let mut cursor = TrieIOBuffer::new(f);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_read_write_node256_hashes".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let mut node256 = TrieNode256::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]);
         let hash = TrieHash::from_data(&[0u8; 32]);
@@ -1976,28 +1978,27 @@ mod test {
 
             child_hashes.push(child_hash.clone());
 
-            let ptr = ftell(&mut cursor).unwrap();
-            Trie::write_node(&mut cursor, &child, child_hash).unwrap();
-            assert!(node256.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr as u32)));
+            let ptr = trie_io.last_ptr().unwrap();
+            trie_io.write_node(ptr, &child, child_hash).unwrap();
+            assert!(node256.insert(&TriePtr::new(TrieNodeID::Leaf, i as u8, ptr)));
         }
 
         // no final child
         child_hashes.push(TrieHash::from_data(&[]));
         
-        let node256_ptr = ftell(&mut cursor).unwrap();
+        let node256_ptr = trie_io.last_ptr().unwrap();
         let node256_hash = get_node_hash(&node256, &child_hashes);
-        Trie::write_node(&mut cursor, &node256, node256_hash).unwrap();
+        trie_io.write_node(node256_ptr, &node256, node256_hash).unwrap();
 
-        fseek(&mut cursor, node256_ptr).unwrap();
-        let read_child_hashes = Trie::get_children_hashes(&mut cursor, &TrieNodeType::Node256(node256)).unwrap();
+        let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node256(node256)).unwrap();
 
         assert_eq!(read_child_hashes, child_hashes);
     }
  
     #[test]
     fn trie_cursor_walk_full() {
-        let cursor = Cursor::new(vec![]);
-        let mut f = TrieIOBuffer::new(cursor);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_full".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
             (vec![], 0),
@@ -2035,7 +2036,7 @@ mod test {
         ];
         let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+        let (nodes, node_ptrs, hashes) = make_node4_path(&mut trie_io, &path_segments, [31u8; 40].to_vec());
 
         assert_eq!(nodes.len(), 32);
         assert_eq!(node_ptrs.len(), 32);
@@ -2045,12 +2046,11 @@ mod test {
         assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
 
         // walk down the trie
-        fseek(&mut f, 0).unwrap();
-        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), f.root_ptr());
+        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_ptr());
         let mut walk_point = nodes[0].clone();
 
         for i in 0..31 {
-            let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+            let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
             assert!(res.is_ok());
             
             let fields_opt = res.unwrap();
@@ -2072,7 +2072,7 @@ mod test {
         }
 
         // walk to the leaf
-        let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+        let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
         assert!(res.is_ok());
         
         let fields_opt = res.unwrap();
@@ -2092,13 +2092,13 @@ mod test {
         assert!(c.eop());
         assert!(c.eonp(&c.node().unwrap()));
 
-        dump_trie(&mut f);
+        dump_trie(&mut trie_io);
     }
     
     #[test]
     fn trie_cursor_walk_1() {
-        let cursor = Cursor::new(vec![]);
-        let mut f = TrieIOBuffer::new(cursor);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_1".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
             (vec![0], 1),
@@ -2120,7 +2120,7 @@ mod test {
         ];
         let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+        let (nodes, node_ptrs, hashes) = make_node4_path(&mut trie_io, &path_segments, [31u8; 40].to_vec());
 
         assert_eq!(nodes.len(), 16);
         assert_eq!(node_ptrs.len(), 16);
@@ -2130,12 +2130,11 @@ mod test {
         assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
 
         // walk down the trie
-        fseek(&mut f, 0).unwrap();
-        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), f.root_ptr());
+        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_ptr());
         let mut walk_point = nodes[0].clone();
 
         for i in 0..15 {
-            let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+            let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
             assert!(res.is_ok());
             
             let fields_opt = res.unwrap();
@@ -2157,7 +2156,7 @@ mod test {
         }
 
         // walk to the leaf
-        let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+        let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
         assert!(res.is_ok());
         
         let fields_opt = res.unwrap();
@@ -2177,13 +2176,13 @@ mod test {
         assert!(c.eop());
         assert!(c.eonp(&c.node().unwrap()));
 
-        dump_trie(&mut f);
+        dump_trie(&mut trie_io);
     }
 
     #[test]
     fn trie_cursor_walk_2() {
-        let cursor = Cursor::new(vec![]);
-        let mut f = TrieIOBuffer::new(cursor);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_2".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
             (vec![0,1], 2),
@@ -2200,7 +2199,7 @@ mod test {
         ];
         let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+        let (nodes, node_ptrs, hashes) = make_node4_path(&mut trie_io, &path_segments, [31u8; 40].to_vec());
 
         assert_eq!(nodes.len(), 11);
         assert_eq!(node_ptrs.len(), 11);
@@ -2210,12 +2209,11 @@ mod test {
         assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
 
         // walk down the trie
-        fseek(&mut f, 0).unwrap();
-        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), f.root_ptr());
+        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_ptr());
         let mut walk_point = nodes[0].clone();
 
         for i in 0..10 {
-            let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+            let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
             assert!(res.is_ok());
             
             let fields_opt = res.unwrap();
@@ -2237,7 +2235,7 @@ mod test {
         }
 
         // walk to the leaf
-        let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+        let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
         assert!(res.is_ok());
         
         let fields_opt = res.unwrap();
@@ -2257,13 +2255,13 @@ mod test {
         assert!(c.eop());
         assert!(c.eonp(&c.node().unwrap()));
 
-        dump_trie(&mut f);
+        dump_trie(&mut trie_io);
     }
 
     #[test]
     fn trie_cursor_walk_3() {
-        let cursor = Cursor::new(vec![]);
-        let mut f = TrieIOBuffer::new(cursor);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_3".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
             (vec![0,1,2], 3),
@@ -2277,7 +2275,7 @@ mod test {
         ];
         let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+        let (nodes, node_ptrs, hashes) = make_node4_path(&mut trie_io, &path_segments, [31u8; 40].to_vec());
 
         assert_eq!(nodes.len(), 8);
         assert_eq!(node_ptrs.len(), 8);
@@ -2287,12 +2285,11 @@ mod test {
         assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
 
         // walk down the trie
-        fseek(&mut f, 0).unwrap();
-        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), f.root_ptr());
+        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_ptr());
         let mut walk_point = nodes[0].clone();
 
         for i in 0..7 {
-            let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+            let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
             assert!(res.is_ok());
             
             let fields_opt = res.unwrap();
@@ -2314,7 +2311,7 @@ mod test {
         }
 
         // walk to the leaf
-        let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+        let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
         assert!(res.is_ok());
         
         let fields_opt = res.unwrap();
@@ -2334,13 +2331,13 @@ mod test {
         assert!(c.eop());
         assert!(c.eonp(&c.node().unwrap()));
 
-        dump_trie(&mut f);
+        dump_trie(&mut trie_io);
     }
 
     #[test]
     fn trie_cursor_walk_4() {
-        let cursor = Cursor::new(vec![]);
-        let mut f = TrieIOBuffer::new(cursor);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_4".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
             (vec![0,1,2,3], 4),
@@ -2353,7 +2350,7 @@ mod test {
         ];
         let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+        let (nodes, node_ptrs, hashes) = make_node4_path(&mut trie_io, &path_segments, [31u8; 40].to_vec());
 
         assert_eq!(nodes.len(), 7);
         assert_eq!(node_ptrs.len(), 7);
@@ -2363,12 +2360,11 @@ mod test {
         assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
 
         // walk down the trie
-        fseek(&mut f, 0).unwrap();
-        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), f.root_ptr());
+        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_ptr());
         let mut walk_point = nodes[0].clone();
 
         for i in 0..6 {
-            let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+            let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
             assert!(res.is_ok());
             
             let fields_opt = res.unwrap();
@@ -2390,7 +2386,7 @@ mod test {
         }
 
         // walk to the leaf
-        let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+        let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
         assert!(res.is_ok());
         
         let fields_opt = res.unwrap();
@@ -2410,13 +2406,13 @@ mod test {
         assert!(c.eop());
         assert!(c.eonp(&c.node().unwrap()));
 
-        dump_trie(&mut f);
+        dump_trie(&mut trie_io);
     }
 
     #[test]
     fn trie_cursor_walk_5() {
-        let cursor = Cursor::new(vec![]);
-        let mut f = TrieIOBuffer::new(cursor);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_5".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
             (vec![0,1,2,3,4], 5),
@@ -2428,7 +2424,7 @@ mod test {
         ];
         let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+        let (nodes, node_ptrs, hashes) = make_node4_path(&mut trie_io, &path_segments, [31u8; 40].to_vec());
 
         assert_eq!(nodes.len(), 6);
         assert_eq!(node_ptrs.len(), 6);
@@ -2438,12 +2434,11 @@ mod test {
         assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
 
         // walk down the trie
-        fseek(&mut f, 0).unwrap();
-        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), f.root_ptr());
+        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_ptr());
         let mut walk_point = nodes[0].clone();
 
         for i in 0..5 {
-            let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+            let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
             assert!(res.is_ok());
             
             let fields_opt = res.unwrap();
@@ -2465,7 +2460,7 @@ mod test {
         }
 
         // walk to the leaf
-        let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+        let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
         assert!(res.is_ok());
         
         let fields_opt = res.unwrap();
@@ -2485,13 +2480,13 @@ mod test {
         assert!(c.eop());
         assert!(c.eonp(&c.node().unwrap()));
 
-        dump_trie(&mut f);
+        dump_trie(&mut trie_io);
     }
     
     #[test]
     fn trie_cursor_walk_6() {
-        let cursor = Cursor::new(vec![]);
-        let mut f = TrieIOBuffer::new(cursor);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_6".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
             (vec![0,1,2,3,4,5], 6),
@@ -2502,7 +2497,7 @@ mod test {
         ];
         let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+        let (nodes, node_ptrs, hashes) = make_node4_path(&mut trie_io, &path_segments, [31u8; 40].to_vec());
 
         assert_eq!(nodes.len(), 5);
         assert_eq!(node_ptrs.len(), 5);
@@ -2512,12 +2507,11 @@ mod test {
         assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
 
         // walk down the trie
-        fseek(&mut f, 0).unwrap();
-        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), f.root_ptr());
+        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_ptr());
         let mut walk_point = nodes[0].clone();
 
         for i in 0..4 {
-            let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+            let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
             assert!(res.is_ok());
             
             let fields_opt = res.unwrap();
@@ -2539,7 +2533,7 @@ mod test {
         }
 
         // walk to the leaf
-        let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+        let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
         assert!(res.is_ok());
         
         let fields_opt = res.unwrap();
@@ -2559,13 +2553,13 @@ mod test {
         assert!(c.eop());
         assert!(c.eonp(&c.node().unwrap()));
         
-        dump_trie(&mut f);
+        dump_trie(&mut trie_io);
     }
 
     #[test]
     fn trie_cursor_walk_10() {
-        let cursor = Cursor::new(vec![]);
-        let mut f = TrieIOBuffer::new(cursor);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_10".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
             (vec![0,1,2,3,4,5,6,7,8,9], 10),
@@ -2574,7 +2568,7 @@ mod test {
         ];
         let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+        let (nodes, node_ptrs, hashes) = make_node4_path(&mut trie_io, &path_segments, [31u8; 40].to_vec());
 
         assert_eq!(nodes.len(), 3);
         assert_eq!(node_ptrs.len(), 3);
@@ -2584,12 +2578,11 @@ mod test {
         assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
 
         // walk down the trie
-        fseek(&mut f, 0).unwrap();
-        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), f.root_ptr());
+        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_ptr());
         let mut walk_point = nodes[0].clone();
 
         for i in 0..2 {
-            let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+            let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
             assert!(res.is_ok());
             
             let fields_opt = res.unwrap();
@@ -2611,7 +2604,7 @@ mod test {
         }
 
         // walk to the leaf
-        let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+        let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
         assert!(res.is_ok());
         
         let fields_opt = res.unwrap();
@@ -2631,13 +2624,13 @@ mod test {
         assert!(c.eop());
         assert!(c.eonp(&c.node().unwrap()));
         
-        dump_trie(&mut f);
+        dump_trie(&mut trie_io);
     }
    
     #[test]
     fn trie_cursor_walk_20() {
-        let cursor = Cursor::new(vec![]);
-        let mut f = TrieIOBuffer::new(cursor);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_20".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
             (vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19], 20),
@@ -2645,7 +2638,7 @@ mod test {
         ];
         let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+        let (nodes, node_ptrs, hashes) = make_node4_path(&mut trie_io, &path_segments, [31u8; 40].to_vec());
 
         assert_eq!(nodes.len(), 2);
         assert_eq!(node_ptrs.len(), 2);
@@ -2655,12 +2648,11 @@ mod test {
         assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
 
         // walk down the trie
-        fseek(&mut f, 0).unwrap();
-        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), f.root_ptr());
+        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_ptr());
         let mut walk_point = nodes[0].clone();
 
         for i in 0..1 {
-            let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+            let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
             assert!(res.is_ok());
             
             let fields_opt = res.unwrap();
@@ -2682,7 +2674,7 @@ mod test {
         }
 
         // walk to the leaf
-        let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+        let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
         assert!(res.is_ok());
         
         let fields_opt = res.unwrap();
@@ -2702,20 +2694,20 @@ mod test {
         assert!(c.eop());
         assert!(c.eonp(&c.node().unwrap()));
         
-        dump_trie(&mut f);
+        dump_trie(&mut trie_io);
     }
 
     #[test]
     fn trie_cursor_walk_32() {
-        let cursor = Cursor::new(vec![]);
-        let mut f = TrieIOBuffer::new(cursor);
+        let mut trie_io = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_trie_cursor_walk_32".to_string()).unwrap();
+        trie_io.extend_to_block(&BlockHeaderHash([0u8; 32])).unwrap();
 
         let path_segments = vec![
             (vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30], 31),
         ];
         let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
+        let (nodes, node_ptrs, hashes) = make_node4_path(&mut trie_io, &path_segments, [31u8; 40].to_vec());
 
         assert_eq!(nodes.len(), 1);
         assert_eq!(node_ptrs.len(), 1);
@@ -2725,12 +2717,11 @@ mod test {
         assert_eq!(node_ptrs[node_ptrs.len()-1].id, TrieNodeID::Leaf);
 
         // walk down the trie
-        fseek(&mut f, 0).unwrap();
-        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), f.root_ptr());
+        let mut c = TrieCursor::new(&TriePath::from_bytes(&path).unwrap(), trie_io.root_ptr());
         let walk_point = nodes[0].clone();
 
         // walk to the leaf
-        let res = Trie::walk_from(&mut f, &walk_point, &mut c);
+        let res = Trie::walk_from(&mut trie_io, &walk_point, &mut c);
         assert!(res.is_ok());
         
         let fields_opt = res.unwrap();
@@ -2750,7 +2741,7 @@ mod test {
         assert!(c.eop());
         assert!(c.eonp(&c.node().unwrap()));
         
-        dump_trie(&mut f);
+        dump_trie(&mut trie_io);
     }    
 }
 

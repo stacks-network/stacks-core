@@ -47,7 +47,6 @@ use chainstate::stacks::index::node::{
 use chainstate::stacks::index::storage::{
     read_all,
     write_all,
-    fseek,
 }; 
 
 use chainstate::stacks::index::{
@@ -122,7 +121,7 @@ impl TrieForkTable {
                     sorted_children.sort();
 
                     for child in sorted_children.iter() {
-                        fork_table.extend(&next_hash, child)?;
+                        fork_table.extend_to_block(&next_hash, child)?;
                         fork_queue.push_back(child.clone());
                     }
                 },
@@ -136,7 +135,7 @@ impl TrieForkTable {
     /// Extend this fork table by starting a new fork, or growing an existing fork.
     /// cur_block is the ancestor of the new fork, and next_block is the first block in the new
     /// fork.  cur_block must already be known in the fork table.
-    pub fn extend(&mut self, cur_block: &BlockHeaderHash, next_block: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn extend_to_block(&mut self, cur_block: &BlockHeaderHash, next_block: &BlockHeaderHash) -> Result<(), Error> {
         if !self.fork_ids.contains_key(cur_block) {
             if self.fork_ids.len() == 0 && self.fork_table.len() == 0 {
                 // first block ever! add cur_block as the parent of next_block as the first fork column
@@ -392,7 +391,7 @@ mod test {
             assert_eq!(f.fork_table.walk_back(&BlockHeaderHash([4u8; 32]), i).unwrap(), BlockHeaderHash([(4 - i) as u8; 32]));
         }
 
-        assert_eq!(f.tell(), BlockHeaderHash([4u8; 32]));
+        assert_eq!(f.get_cur_block(), BlockHeaderHash([4u8; 32]));
         assert_eq!(f.fork_table.fork_table.len(), 1);
 
         let mut sorted_chain_tips = f.fork_table.fork_table[0].clone();
@@ -460,7 +459,7 @@ mod test {
 
             // make a sibling 1-block fork
             if i > 0 {
-                f.open(&parent_hash, true).unwrap();
+                f.open_block(&parent_hash, true).unwrap();
                 MARF::extend_trie(&mut f, &fork_bhh).unwrap();
                 f.flush().unwrap();
             
@@ -481,7 +480,7 @@ mod test {
                 expected_chain_tips.push(fork_bhh);
             }
 
-            f.open(&bhh, true).unwrap();
+            f.open_block(&bhh, true).unwrap();
 
             if i > 0 {
                 expected_forks[i] = main_fork.clone();
@@ -493,7 +492,7 @@ mod test {
         
         expected_forks[0] = main_fork.clone();
 
-        expected_chain_tips.push(f.tell());
+        expected_chain_tips.push(f.get_cur_block());
 
         trace!("fork table:\n{:#?}", &f.fork_table);
 
@@ -591,7 +590,7 @@ mod test {
 
         // build 5 additional 3-block forks off of it
         for i in 0..5 {
-            f.open(&BlockHeaderHash([4u8; 32]), false).unwrap();
+            f.open_block(&BlockHeaderHash([4u8; 32]), false).unwrap();
 
             for j in 0..3 {
                 let bhh = BlockHeaderHash([(3*(i+5) + j) as u8; 32]);
@@ -711,7 +710,7 @@ mod test {
 
                     test_debug!("Branch from {:?} to {:?}", parent_hash, child_hash);
                     
-                    f.open(&parent_hash, true).unwrap();
+                    f.open_block(&parent_hash, true).unwrap();
                     MARF::extend_trie(&mut f, child_hash).unwrap();
                     f.flush().unwrap();
             
