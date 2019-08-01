@@ -206,7 +206,8 @@ Clarity VM, they are much cheaper to execute compared to a type-1 transaction.
 A key use-case of smart contracts is to allow programmatic control over the
 assets in one or more accounts.  However, where there is programmatic control,
 there are bound to be bugs.  In the world of smart contract programming, bugs
-can have severe consequences to the user's well-being -- in particular, bugs can 
+are indistinguishable from outright scams, and both can have severe
+consequences to the user's well-being.  In particular, bugs can 
 destroy a user's assets and cause them to lose a lot of money.
 Transaction post-conditions are a feature meant to limit the damage a bug can
 do in terms of destroying a user's assets.
@@ -214,8 +215,8 @@ do in terms of destroying a user's assets.
 Post-conditions are intended to be used to force a transaction to abort if the
 transaction would materialize changes to the originating account that are not
 to the user's liking.  For example, a user may append a post-condition saying that
-upon successful execution, their STX balance should be greater than or equal to
-1 STX.  If this were not the case, then the transaction would abort
+upon successful execution, their STX balance should have decreased by no more
+than 1 STX.  If this were not the case, then the transaction would abort
 and the user would only be billed for the transaction fee of processing it.
 As another example, a user purchasing a BNS name may append a post-condition saying that upon
 successful execution, the BNS name should be in their account asset map.  If it
@@ -234,11 +235,14 @@ blockchain.  Each post-condition is a triple, containing:
 
 The Stacks blockchain supports the following two types of comparators:
 
-* Integer comparisons -- that is, `==`, `!=`, `>`, `>=`, `<`, `<=`.  These are
-  only applicable to fungible assets, and operate on integer literals.
-* Boolean comparisons -- that is, '==' and `!=`.  These are only
-  applicable to non-fungible assets, and operate on boolean literals.
-A `true` value means "the asset is present in this account."
+* **Fungible asset changes** -- that is, a question of _how much_ the account's
+  fungible asset balance increased or decreased as a result of the transaction's
+  execution.  The contract can assert that the quantity of tokens increased,
+  decreased, or stayed the same.  In addition, the contract can assert that the
+  change was greater than, equal to, or less than a given amount.
+* **Non-fungible asset state** -- that is, a question of _whether or not_ the
+  account owns a particular non-fungible asset when the transaction finishes
+  executing.
 
 Post-conditions are meant to be added by the user (or by the user's wallet
 software) at the moment they sign and broadcast their transactions.  Because the
@@ -265,9 +269,9 @@ comparators, and literals.  This conjunction would be nested within an `(if
 abort.
 
 However, because we consider post-conditions to be such a vital safety feature,
-post-conditions are _encoded_ in the transaction _outside of_ the Clarity code
+post-conditions are encoded in the transaction _outside of_ the Clarity code
 body.  In particular, they are encoded in a compressed format that losslessly
-decompresses to the above Clarity codes snippit.  Thus, post-conditions do not
+decompresses to the above Clarity code snippit.  Thus, post-conditions do not
 pose a violation of the Stacks design principle of showing all code "as-is" in the
 blockchain wire format.
 
@@ -276,7 +280,8 @@ treating post-conditions as a first-class transaction component, the protocol gu
 that they will be applied regardless of the contained Clarity code.  While the
 Clarity code can have its own statements that implement _de-facto_
 post-conditions, the act of placing post-conditions on the originating account's
-assets outside the code body guarantees that they will always be run.
+assets outside the code body guarantees that they will always be run, and will
+always be unambiguous to anyone inspecting the transaction.
 Second, by treating them as a separate field, we make it much easier for wallet developers to encode
 them -- namely, the wallet does not need to consider or even access the
 Clarity code body to process post-conditions.  Third, encoding post-conditions
@@ -289,7 +294,7 @@ Post-conditions are not free, since validating, evaluating, and storing them
 carries non-zero computational cost that scales linearly in the number of
 post-conditions.  In addition, as mentioned, post-conditions only apply
 to the originating account's assets.  If the user wants post-conditions
-on other accounts, they would need to be expressed in the Clarity code body.
+on other accounts or on non-asset state, they would need to be expressed in the Clarity code body.
 Post-conditions are _not_ meant to be (or become) a domain-specific language for
 encoding arbitrary post-conditions on arbitrary accounts -- they are _solely_
 meant to help preserve the safety of the _originating account_'s assets.
@@ -299,7 +304,7 @@ between the need for complex abort logic and the need for cheap but effective sm
 bug mitigation.  Any transaction's Clarity code body can already implement complex
 sanity checks to trigger an abort if certain conditions are met.  But, we expect
 that most users will send type-2 transactions to move assets to/from their
-(originating) accounts, so most such sanity checks would only apply to their
+(originating) accounts and perform atomic swaps, so most such sanity checks would only apply to their
 accounts in the first place.  By making this common case as easy as possible to
 encode in transactions and as cheap as possible to evaluate (cheaper than
 expressing directly in Clarity), the protocol encourages people to use it to protect
@@ -614,37 +619,54 @@ regardless of the final output of the transaction.
 
 The post conditions are encoded as a length prefix, and a concatenation of:
 
-* asset name (as a length-prefixed byte string)
-* comparator (as 1 byte)
-* value (as either 1 byte or 8 bytes)
+* asset name (as a length-prefixed string of ASCII-characters)
+* comparator code (as 1 byte)
+* value (absent for non-fungible assets; 8 bytes for fungible assets)
 
-Comparators are encoded as the following values:
+Comparators on changes to fungible asset balances are encoded according to the following rules:
 
-* `0x01`: integer ==
-* `0x02`: integer !=
-* `0x03`: integer >
-* `0x04`: integer >=
-* `0x05`: integer <
-* `0x06`: integer <=
-* `0x07`: boolean ==
-* `0x08`: boolean !=
+* Bit `0x80` is set if the asset is expected to decrease, and cleared if the asset is expected to increase.
+* Bit `0x01` is set if the amount of change can be _equal to_ the given literal.
+* Bit `0x02` is set if the amount of change can be _greater than_ the given literal.
+* Bit `0x04` is set if the amount of change can be _less than_ the given literal.
+
+These bits can be bitwise-OR'ed together to produce the following meanings:
+
+* `0x00`: "fungible asset balance did not change"
+* `0x01`: "fungible asset balance increased by an amount _equal to_ the given amount"
+* `0x02`: "fungible asset balance increased by an amount _greater than_ the given amount"
+* `0x03`: "fungible asset balance increased by an amount _greater than or equal to_ the given amount"
+* `0x04`: "fungible asset balance increased by an amount _less than_ the given amount"
+* `0x05`: "fungible asset balance increased by an amount _less than or equal to_ the given amount"
+* `0x81`: "fungible asset balance decreased by an amount _equal to_ the given amount"
+* `0x82`: "fungible asset balance decreased by an amount _greater than_ the given amount"
+* `0x83`: "fungible asset balance decreased by an amount _greater than or equal to_ the given amount"
+* `0x84`: "fungible asset balance decreased by an amount _less than_ the given amount"
+* `0x85`: "fungible asset balance decreased by an amount _less than or equal to_ the given amount"
+
+Comparators on the states of non-fungible assets are encoded according to the
+following rules:
+
+* `0x00`: "non-fungible asset is absent from this account"
+* `0x01`: "non-fungible asset is present from this account"
 
 If the comparator operates on a fungible token (including STX), then the value
-will be encoded as 8 bytes.  Otherwise, it will be encoded as `0x00` or `0x01`
-for `true` and `false`, respectively.
+will be encoded as 8 bytes.  Otherwise, no value will be necessary.
 
 #### Transaction Code Body
 
 This is a length-prefixed byte array that contains the Clarity code to execute,
 encoded as ASCII.  Transactions with 0-byte code bodies are invalid, as are
-transactions with non-ASCII characters.
+transactions whose code bodies contain un-printable ASCII characters.
 
 ### Transaction Smart Contract Name
 
 If this is a type-1 transaction, then the smart contract it instantiates must be
-given a name.  This name must be an ASCII-encoded string, and must be unique
-among the set of names given to smart contracts created by this standard
-account.
+given a name.  This name must be a byte string of printable ASCII characters,
+and must be unique among the set of names given to smart contracts created
+by this standard account.  Moreover, it must not have the ASCII character `.` in
+its name, as this is used as a delimiter for addressing functions, data
+variables, and data maps in contracts.
 
 ### Blocks
 
@@ -671,11 +693,8 @@ microblcoks.  Each anchored block contains the following information:
      block that precedes this block in the fork to which this block is to be appended.
    * A **transaction Merkle root**, the root hash of a binary Merkle tree
      calculated over the sequence of transactions in this block.
-   * A **state Merkle root**, the root hash of a Merkle tree of a sequence of
-     MARF root hashes.  The Stacks peer tracks several MARF indexes (described below),
-     and it commits to a digest of the digests of their states.  This hash is
-     calculated over the state materialized from the parent stream of microblock 
-     transactions, as well as all anchored transactions in this block.
+   * A **state Merkle root**, the root hash of a MARF index over the state of
+     the blockchain.
    * A **microblock public key**, the public key whose private
      key will be used to sign microblocks during the peer's tenure.
 * A sequence of _zero or more_ transactions, all of which have the "batched" bit
@@ -874,7 +893,7 @@ the Stacks peer tracks the following sets of key/value pairs:
 * the mapping between fully-qualified data map keys and their values
 
 The first set of key/value pairs is the **account state**.  The Stacks peer
-calculates a MARF index over all accounts in each fork as they are created.
+calculates an index over all accounts in each fork as they are created.
 
 The second set of key/value pairs is the **smart contract state**.  It maps the
 _fully-qualified name_ of the smart contract to a bundle of metadata,
@@ -903,13 +922,31 @@ typed netstring.
 The fourth set of key/value pairs is the **smart contract data map state**.
 This maps the set of _fully-qualified data map keys_ to their values.  The
 fully-qualified name for a data map key is composed of the c32check-encoded
-contract account address of the contract that declared it, and
-the typed netstring encoding of the fully-qualified key.
+contract account address of the contract that declared it, the name of the data
+map, and the typed netstring encoding of the fully-qualified key.
 The values are also encoded as typed netstrings.
+
+All sets of key/value pairs are stored in the same MARF index.  Keys are
+prefixed with the type of state they represent in order to avoid key collisions
+with otherwise-identically-named objects.
+
+When a key/value pair is inserted into the MARF, the hash of its key is
+calculated using the MARF's cryptographic hash function in order to determine
+where to insert the leaf.  The hash of the value is inserted as the leaf node,
+and the (hash, leaf) pair is inserted into the peer's data store.  This ensures
+that the peer can query any key/value pair on any fork it knows about in
+constant-time complexity.
+
+The text below describes the canonical encoding of key/value pairs that will be
+inserted into the MARF.
 
 #### Calculating a Fully-Qualified Object Name
 
-C32check-encoded addresses act as "namespaces" for keys in the state.  In all
+All objects' fully-qualified names start with the type of object they are,
+followed by an ASCII period `.`.  This can be the ASCII string "account",
+"smart-contract", "data-variable", or "data-map".
+
+Within an object type, a c32check-encoded addresses act as "namespaces" for keys in the state.  In all
 sets of key/value pairs, an ASCII period `.` is used to denote the separation between
 the c32check-encoded address and the following name.  Note that the c32 alphabet
 does _not_ include the ASCII period.
@@ -918,7 +955,9 @@ does _not_ include the ASCII period.
 
 A typed netstring is a variation of a
 [netstring](https://en.wikipedia.org/wiki/Netstring), which is a recursively-defined
-self-describing ASCII encoding for data.  While many typed variations of
+self-describing printable-ASCII encoding for type-carrying byte strings.
+Typed netstrings were chosen because each sequence of typed byte strings
+encodes to exactly one typed netstring.  While many typed variations of
 netstrings exist, the particular encoding used in Stacks is described here.
 
 Each type is encoded by a 1-byte alphabetical ASCII character as a prefix to the
@@ -945,35 +984,39 @@ length of its encoded items.
 
 For example:
 
-* The integer `123` encodes to `i3:123,`
-* The buffer `0xdeadbeaf` encodes to `s8:deadbeaf,`
-* The value `true` encodes to `b1:1,`.  `false` encodes to `b1:0,`
+* The integer `123` encodes to `"i3:123,"`
+* The buffer `0xdeadbeaf` encodes to `"s8:deadbeaf,"`
+* The value `true` encodes to `"b1:1,"`.  `false` encodes to `"b1:0,"`
 * The principal `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q` encodes to
-  `p41:SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q,`
-* The tuple `(word "hello")` encodes to `t23:n4:word,s10:68656c6c6f,,`
-* The list `(1 2 34 567)` encodes to `l23:i1:1,i1:2,i2:34,i4:567,,`
-* The option `(some 3)` encodes to `o6:si1:3,,`
-* The option `(none)` for integers encodes to `o5:ni0:,,`
-* The result `(ok 'true)` encodes to `r6:ob1:1,,`
-* The result `(err 123)` encodes to `r8:ei3:123,,`
+  `"p41:SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q,"`
+* The tuple `(word "hello")` encodes to `"t23:n4:word,s10:68656c6c6f,,"`
+* The list `(1 2 34 567)` encodes to `"l23:i1:1,i1:2,i2:34,i4:567,,"`
+* The option `(some 3)` encodes to `"o6:si1:3,,"`
+* The option `(none)` for integers encodes to `"o5:ni0:,,"`
+* The result `(ok 'true)` encodes to `"r6:ob1:1,,"`
+* The result `(err 123)` encodes to `"r8:ei3:123,,"`
 
 #### Calculating the State of an Account
 
 An account's canonical encoding as a key/value pair in the account state
 is as follows:
 
-* Key: The c32check-encoded address.
+* Key: The string "account", a period, and a c32check-encoded address.
 * Value: A typed netstring constructed as the concatenation of the
   encoded-nonce, and a sequence of asset/quantity pairs encoded as a list of tuples.
 The sequence of asset/quantity pairs is determined by the order in the chain
 history into which their mapping was materialized.
+
+Example:  `"account.SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q"` refers to standard
+account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
 
 #### Calculating the State of a Smart Contract
 
 A smart contract's canonical encoding as a key/value pair in the smart contract
 state is as follows:
 
-* Key: The c32check-encoded address of the standard account that created it,
+* Key: The string "smart-contract", followed by a `.`, followed by the
+  c32check-encoded address of the standard account that created it,
   followed by a `.`, followed by the ASCII-encoded name of the contract.
 * Value:  A typed netstring constructed as the concatenation of the following
   data:
@@ -987,22 +1030,33 @@ state is as follows:
    * a list of non-fungible asset names this contract declares, in order by
      their source-level declaration
 
+Example: `"smart-contract.SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q.my-contract"` refers
+to a smart contract created by standard account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`
+called `my-contract`.
+
 #### Calculating the State of Data Variables
 
 The set of data variables in the data variable state are encoded as follows:
 
-* Key: The c32check-encoded contract account address of the contract that
-  defines the variable, followed by a `.`, followed by the ASCII-encoded name of
-the variable.
+* Key: The string "data-variable", followed by a `.`, followed by the
+  c32check-encoded standard account address that created the the contract that
+  defines the variable, followed by a `.`, followed by the name of the contract,
+  followed by a `.`, followed by the ASCII-encoded name of the variable.
 * Value:  A typed netstring that encodes its Clarity value
+
+Example: `"data-variable.SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q.my-contract.my-var"` 
+refers to a data variable called `my-var`, which was declared in a smart contract called `my-contract`,
+which was in turn created by the standard account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
 
 #### Calculating the State of Data Maps
 
 The set of data maps in the data map state are encoded as follows:
 
-* Key:  The c32check-encoded contract account address of the contract that
-  defines the data map, followed by a `.`, followed by the typed netstring that
-encodes the key.  Per Clarity, this is always a tuple.
+* Key:  The string "data-map", followed by a `.`, followed by the
+  c32check-encoded standard account address that created the contract that
+  defines the data map, followed by a `.`, followed by the name of the data map,
+  followed by a `.`, followed by typed netstring that
+  encodes the key.  Per Clarity, this is always a tuple.
 * Value:  A typed netstring that encodes the Clarity value of this key in the
   data map.
 
@@ -1010,30 +1064,30 @@ If a data map key/value pair is deleted, the value will be set to the empty
 netstring `0:,`.  This acts as a "tombstone" for the key -- it lets the Stacks
 peer commit to the deletion of the mapping from the data map.
 
+Example: `"data-map.SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q.my-contract.my-data-map.t23:n4:word,s10:68656c6c6f,,"`
+refers to the key typle `(word "hello")` in a data map called `my-data-map`,
+which was declared in a smart contract called `my-contract` created by
+standard account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
+
 ### Cryptographic Commitment
 
 The various key/value sets that make up the materialized view of the fork are
-each indexed by a dedicated MARF.  This ensures that there can be no confusion
-between various types of state, regardless of how they are encoded
--- for example, an account can only come from the set of account key/value pairs.
-
-The digest posted within the anchored block is the root of a Merkle tree
-calculated over the MARF root hashes.  To finish validating an anchored block,
+each indexed within the same MARF.  To finish validating an anchored block,
 the Stacks peer will:
 
-* Insert an account key/value pair into the account state's MARF whenever an
+* Insert an account key/value pair into the MARF whenever an
   account is materialized or updated (note that this will overwrite the previous
 version of this account's state in the MARF).
-* Insert a smart contract key/value pair into the smart contract state's MARF
+* Insert a smart contract key/value pair into the MARF
   whenever a smart contract is instantiated.
-* Insert a data variable key/value pair into the data variable state's MARF
+* Insert a data variable key/value pair into the MARF
   whenever a data variable is assigned a value (overwriting the previous value
 commitment).
-* Insert a data map key/value pair into the data map state's MARF whenever the
+* Insert a data map key/value pair into the MARF whenever the
   mapping is inserted, updated, or deleted.  
 
-Once all transactions have been processed, the Merkle root of the MARF root
-hashes is calculated and compared to the state Merkle root hash in the anchored
+Once all transactions have been processed, the root hash of the MARF
+is compared to the state Merkle root hash in the anchored
 block.  If they are equal, then the block is accepted and all changes in both
 its transactions and its parent microblock stream are materialized.  If not,
 then the block and its parent microblock stream are rejected and the previous
