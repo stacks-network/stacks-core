@@ -663,7 +663,7 @@ identifiers are _unique_ identifiers.
 Like other kinds of definition statements, `define-asset` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).
 
-Assets defined using `define-asset` may be used in `asset-transfer!`, `mint-asset!`, and `get-owner` functions",
+Assets defined using `define-asset` may be used in `asset-transfer!`, `mint-asset!`, and `get-asset-owner` functions",
     example: "
 (define-asset names (buff 50))
 "
@@ -821,30 +821,30 @@ Otherwise, on successfuly mint, it returns `(ok 'true)`.
 };
 
 const GET_OWNER: SpecialAPI = SpecialAPI {
-    name: "get-owner",
+    name: "get-asset-owner",
     input_type: "AssetName, A",
     output_type: "(optional principal)",
-    signature: "(get-owner asset-class asset-identifier)",
-    description: "`get-owner` returns the owner of an asset, identified by `asset-identifier`, or `none` if the asset does not exist.
+    signature: "(get-asset-owner asset-class asset-identifier)",
+    description: "`get-asset-owner` returns the owner of an asset, identified by `asset-identifier`, or `none` if the asset does not exist.
 The asset type must have been defined using `define-asset`, and the supplied `asset-identifier` must be of the same type specified in
 that definition.",
     example: "
 (define-asset stackaroo (buff 40))
-(get-owner stackaroo \"Roo\")
+(get-asset-owner stackaroo \"Roo\")
 "
 };
 
 
 const GET_BALANCE: SpecialAPI = SpecialAPI {
-    name: "get-balance",
+    name: "get-token-balance",
     input_type: "TokenName, principal",
     output_type: "int",
-    signature: "(get-balance token-name principal)",
-    description: "`get-balance` returns `token-name` balance of the principal `principal`.
+    signature: "(get-token-balance token-name principal)",
+    description: "`get-token-balance` returns `token-name` balance of the principal `principal`.
 The token type must have been defined using `define-token`.",
     example: "
 (define-token stackaroos)
-(get-balance stackaroos tx-sender)
+(get-token-balance stackaroos tx-sender)
 "
 };
 

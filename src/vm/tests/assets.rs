@@ -16,8 +16,8 @@ fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
 }
 
 const FIRST_CLASS_TOKENS: &str = "(define-token stackaroos)
-         (define-read-only (my-get-balance (account principal))
-            (get-balance stackaroos account))
+         (define-read-only (my-get-token-balance (account principal))
+            (get-token-balance stackaroos account))
          (define-public (my-token-transfer (to principal) (amount int))
             (transfer-token! stackaroos amount tx-sender to))
          (define-public (faucet)
@@ -87,7 +87,7 @@ const ASSET_NAMES: &str =
                    (expects! (fetch-entry preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
-                   (get-owner names name)))
+                   (get-asset-owner names name)))
              (if (and
                   (is-none? name-entry)
                   ;; preorder must have paid enough
@@ -196,7 +196,7 @@ fn test_simple_token_system() {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(&mut conn,
-        p1.clone(), "tokens", "my-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
+        p1.clone(), "tokens", "my-get-token-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
 
     assert_eq!(
         result,
@@ -204,7 +204,7 @@ fn test_simple_token_system() {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(&mut conn,
-        p1.clone(), "tokens", "my-get-balance", &symbols_from_values(vec![p2.clone()])).unwrap();
+        p1.clone(), "tokens", "my-get-token-balance", &symbols_from_values(vec![p2.clone()])).unwrap();
 
     assert_eq!(
         result,
@@ -234,7 +234,7 @@ fn test_simple_token_system() {
     assert_eq!(asset_map[&contract_principal][&token_identifier], AssetMapEntry::Token(1));
 
     let (result, asset_map) = execute_transaction(&mut conn,
-        p1.clone(), "tokens", "my-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
+        p1.clone(), "tokens", "my-get-token-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
 
     assert_eq!(
         result,
@@ -331,7 +331,7 @@ fn test_simple_naming_system() {
         let mut env = owned_env.get_exec_environment(None);
         assert_eq!(
             env.eval_read_only("names",
-                               "(get-owner names 1)").unwrap(),
+                               "(get-asset-owner names 1)").unwrap(),
             Value::some(p2.clone()));
     }
 
