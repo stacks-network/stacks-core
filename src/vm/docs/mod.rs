@@ -635,6 +635,40 @@ The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 3
 "
 };
 
+const DEFINE_TOKEN_API: SpecialAPI = SpecialAPI {
+    name: "define-token",
+    input_type: "TokenName",
+    output_type: "Not Applicable",
+    signature: "(define-token token-name)",
+    description: "`define-token` is used to define a new fungible token class for use in the current contract.
+
+Like other kinds of definition statements, `define-token` may only be used at the top level of a smart contract
+definition (i.e., you cannot put a define statement in the middle of a function body).
+
+Tokens defined using `define-token` may be used in `token-transfer!`, `mint-token!`, and `get-token-balance` functions",
+    example: "
+(define-token stacks)
+"
+};
+
+const DEFINE_ASSET_API: SpecialAPI = SpecialAPI {
+    name: "define-asset",
+    input_type: "AssetName, TypeSignature",
+    output_type: "Not Applicable",
+    signature: "(define-asset asset-name asset-identifier-type)",
+    description: "`define-asset` is used to define a new asset class (i.e., non-fungible token) for use in the current contract.
+Individual assets are identified by their asset identifier, which must be of the type `asset-identifier-type`. Asset
+identifiers are _unique_ identifiers.
+
+Like other kinds of definition statements, `define-asset` may only be used at the top level of a smart contract
+definition (i.e., you cannot put a define statement in the middle of a function body).
+
+Assets defined using `define-asset` may be used in `asset-transfer!`, `mint-asset!`, and `get-owner` functions",
+    example: "
+(define-asset names (buff 50))
+"
+};
+
 const DEFINE_PUBLIC_API: SpecialAPI = SpecialAPI {
     name: "define-public",
     input_type: "MethodSignature, MethodBody",
@@ -854,7 +888,7 @@ one of the following error codes:
 `(err 3)` -- asset identified by asset-identifier does not exist
 ",
     example: "
-(define-token stackaroo (buff 40))
+(define-asset stackaroo (buff 40))
 (mint-asset! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
 (transfer-asset! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
 (transfer-asset! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
@@ -946,6 +980,8 @@ pub fn make_json_api_reference() -> String {
     let mut functions: Vec<_> = NativeFunctions::ALL.iter()
         .map(|x| make_api_reference(x))
         .collect();
+    functions.push(make_for_special(&DEFINE_ASSET_API));
+    functions.push(make_for_special(&DEFINE_TOKEN_API));
     functions.push(make_for_special(&DEFINE_MAP_API));
     functions.push(make_for_special(&DEFINE_DATA_VAR_API));
     functions.push(make_for_special(&DEFINE_PUBLIC_API));
