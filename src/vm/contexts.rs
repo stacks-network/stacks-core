@@ -179,6 +179,7 @@ impl AssetMap {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn to_table(mut self) -> HashMap<PrincipalData, HashMap<AssetIdentifier, AssetMapEntry>> {
         let mut map = HashMap::new();
         for (principal, mut principal_map) in self.token_map.drain() {

@@ -382,6 +382,9 @@ impl <'a> ContractDatabase <'a> {
     }
 
     pub fn set_token_balance(&mut self, contract_name: &str, token_name: &str, principal: &PrincipalData, balance: i128) -> Result<()> {
+        if balance < 0 {
+            panic!("ERROR: Clarity VM attempted to set negative token balance.");
+        }
         let descriptor = self.load_token(contract_name, token_name)?;
 
         let params: [&ToSql; 4] = [&(DataType::TOKEN as u8),

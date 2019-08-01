@@ -192,6 +192,16 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok(type_checker.contract_context.to_contract_analysis())
     }
 
+    pub fn type_check_expects(&mut self, expr: &SymbolicExpression, context: &TypingContext, expected_type: &TypeSignature) -> TypeResult {
+        let actual_type = self.type_check(expr, context)?;
+        if !expected_type.admits_type(&actual_type) {
+            let mut err: CheckError = CheckErrors::TypeError(expected_type.clone(), actual_type).into();
+            err.set_expression(expr);
+            Err(err)
+        } else {
+            Ok(actual_type)
+        }
+    }
 
     // Type checks an expression, recursively type checking its subexpressions
     pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
