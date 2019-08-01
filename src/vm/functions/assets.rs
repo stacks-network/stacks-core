@@ -7,6 +7,7 @@ use vm::errors::{Error, UncheckedError, InterpreterError, RuntimeErrorType, Inte
 use vm::{eval, LocalContext, Environment};
 
 const E_MINT_ASSET_ALREADY_EXIST:       i128 = 1;
+const E_MINT_TOKEN_NON_POSITIVE_AMOUNT: i128 = 1;
 const E_XFER_ASSET_NOT_OWNED_BY:        i128 = 1;
 const E_XFER_ASSET_SENDER_IS_RECIPIENT: i128 = 2;
 const E_XFER_ASSET_DOES_NOT_EXIST:      i128 = 3;
@@ -27,8 +28,8 @@ pub fn special_mint_token(args: &[SymbolicExpression],
 
     if let (Value::Int(amount),
             Value::Principal(ref to_principal)) = (amount, to) {
-        if amount < 0 {
-            return Err(RuntimeErrorType::TransferNonPositiveAmount.into())
+        if amount <= 0 {
+            return Ok(Value::error(Value::Int(E_MINT_TOKEN_NON_POSITIVE_AMOUNT)));
         }
 
         let to_bal = env.global_context.database.get_token_balance(&env.contract_context.name, token_name, to_principal)?;
@@ -137,7 +138,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
     if let (Value::Int(amount),
             Value::Principal(ref from_principal),
             Value::Principal(ref to_principal)) = (amount, from, to) {
-        if amount < 0 {
+        if amount <= 0 {
             return Ok(Value::error(Value::Int(E_XFER_TOKEN_NON_POSITIVE_AMOUNT)))
         }
 

@@ -27,11 +27,11 @@ pub fn check_special_get_balance(checker: &mut TypeChecker, args: &[SymbolicExpr
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom()
-        .ok_or(CheckErrors::BadAssetName)?;
+        .ok_or(CheckErrors::BadTokenName)?;
     checker.type_map.set_type(&args[0], no_type())?;
 
     if !checker.contract_context.token_exists(asset_name) {
-        return Err(CheckErrors::NoSuchAsset(asset_name.clone()).into());
+        return Err(CheckErrors::NoSuchToken(asset_name.clone()).into());
     }
 
     let supplied_owner_type = checker.type_check(&args[1], context)?;
@@ -75,7 +75,7 @@ pub fn check_special_mint_token(checker: &mut TypeChecker, args: &[SymbolicExpre
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom()
-        .ok_or(CheckErrors::BadAssetName)?;
+        .ok_or(CheckErrors::BadTokenName)?;
     checker.type_map.set_type(&args[0], no_type())?;
 
     let supplied_amount = checker.type_check(&args[1], context)?;
@@ -85,7 +85,7 @@ pub fn check_special_mint_token(checker: &mut TypeChecker, args: &[SymbolicExpre
     let expected_owner_type: TypeSignature = AtomTypeIdentifier::PrincipalType.into();
 
     if !checker.contract_context.token_exists(asset_name) {
-        return Err(CheckErrors::NoSuchAsset(asset_name.clone()).into());
+        return Err(CheckErrors::NoSuchToken(asset_name.clone()).into());
     }
 
     if !expected_amount.admits_type(&supplied_amount) {
@@ -135,7 +135,7 @@ pub fn check_special_transfer_token(checker: &mut TypeChecker, args: &[SymbolicE
     check_argument_count(4, args)?;
 
     let asset_name = args[0].match_atom()
-        .ok_or(CheckErrors::BadAssetName)?;
+        .ok_or(CheckErrors::BadTokenName)?;
     checker.type_map.set_type(&args[0], no_type())?;
 
 
@@ -147,7 +147,7 @@ pub fn check_special_transfer_token(checker: &mut TypeChecker, args: &[SymbolicE
     let expected_owner_type: TypeSignature = AtomTypeIdentifier::PrincipalType.into();
 
     if !checker.contract_context.token_exists(asset_name) {
-        return Err(CheckErrors::NoSuchAsset(asset_name.clone()).into());
+        return Err(CheckErrors::NoSuchToken(asset_name.clone()).into());
     }
 
     if !expected_amount.admits_type(&supplied_amount) {

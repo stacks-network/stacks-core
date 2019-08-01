@@ -119,8 +119,8 @@ fn test_bad_asset_usage() {
     ];
 
     let expected = [
-        CheckErrors::NoSuchAsset("stackoos".to_string()),
-        CheckErrors::BadAssetName,
+        CheckErrors::NoSuchToken("stackoos".to_string()),
+        CheckErrors::BadTokenName,
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::BadAssetName,
@@ -137,8 +137,8 @@ fn test_bad_asset_usage() {
                                AtomTypeIdentifier::BufferType(15).into()),
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
-        CheckErrors::NoSuchAsset("stackoos".to_string()),
-        CheckErrors::BadAssetName,
+        CheckErrors::NoSuchToken("stackoos".to_string()),
+        CheckErrors::BadTokenName,
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::TypeError(AtomTypeIdentifier::IntType.into(),
@@ -151,8 +151,8 @@ fn test_bad_asset_usage() {
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
                                AtomTypeIdentifier::IntType.into()),
-        CheckErrors::NoSuchAsset("stackoos".to_string()),
-        CheckErrors::BadAssetName,
+        CheckErrors::NoSuchToken("stackoos".to_string()),
+        CheckErrors::BadTokenName,
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::TypeError(AtomTypeIdentifier::IntType.into(),

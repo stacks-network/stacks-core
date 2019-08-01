@@ -754,7 +754,11 @@ const MINT_TOKEN: SpecialAPI = SpecialAPI {
     signature: "(mint-token! token-name amount recipient)",
     description: "`mint-token!` is used to increase the token balance for the `recipient` principal for a token
 type defined using `define-token`. The increased token balance is _not_ transfered from another principal, but
-rather minted.",
+rather minted.
+
+If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
+returns `(ok 'true)`.
+",
     example: "
 (define-token stackaroo)
 (mint-token! stackaroo 100 tx-sender)
@@ -773,10 +777,12 @@ that definition.
 If an asset identified by `asset-identifier` _already exists_, this function will return an error with the following error code:
 
 `(err 1)`
+
+Otherwise, on successfuly mint, it returns `(ok 'true)`.
 ",
     example: "
 (define-asset stackaroo (buff 40))
-(mint-token! stackaroo \"Roo\" tx-sender)
+(mint-asset! stackaroo \"Roo\" tx-sender)
 "
 };
 
