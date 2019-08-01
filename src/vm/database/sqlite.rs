@@ -14,10 +14,12 @@ const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in Smart Contract VM.";
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
 
-const DATA_MAP_TYPE: u8 = 0;
-const VARIABLE_TYPE: u8 = 1;
-const TOKEN_TYPE: u8    = 2;
-const ASSET_TYPE: u8    = 3;
+enum DataType {
+    DATA_MAP = 0,
+    VARIABLE = 1,
+    TOKEN    = 2,
+    ASSET    = 3
+}
 
 const DUMMY_KEY: &str = "";
 
@@ -290,7 +292,7 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(format!("{:?}", variable_descriptor.value_type), value).into())
         }
 
-        let params: [&ToSql; 4] = [&VARIABLE_TYPE,
+        let params: [&ToSql; 4] = [&(DataType::VARIABLE as u8),
                                    &variable_descriptor.variable_identifier,
                                    &value.serialize(),
                                    &DUMMY_KEY];
@@ -305,7 +307,7 @@ impl <'a> ContractDatabase <'a> {
     pub fn lookup_variable(&self, contract_name: &str, variable_name: &str) -> Result<Option<Value>>  {
         let variable_descriptor = self.load_variable(contract_name, variable_name)?;
 
-        let params: [&ToSql; 2] = [&VARIABLE_TYPE, &variable_descriptor.variable_identifier];
+        let params: [&ToSql; 2] = [&(DataType::VARIABLE as u8), &variable_descriptor.variable_identifier];
 
         let sql_result: Option<Option<String>> = 
             self.query_row(
@@ -365,7 +367,7 @@ impl <'a> ContractDatabase <'a> {
     pub fn get_token_balance(&mut self, contract_name: &str, token_name: &str, principal: &PrincipalData) -> Result<i128> {
         let descriptor = self.load_token(contract_name, token_name)?;
 
-        let params: [&ToSql; 3] = [&TOKEN_TYPE,
+        let params: [&ToSql; 3] = [&(DataType::TOKEN as u8),
                                    &descriptor.token_identifier,
                                    &principal.serialize()];
         let sql_result: Option<i128> = 
@@ -382,7 +384,7 @@ impl <'a> ContractDatabase <'a> {
     pub fn set_token_balance(&mut self, contract_name: &str, token_name: &str, principal: &PrincipalData, balance: i128) -> Result<()> {
         let descriptor = self.load_token(contract_name, token_name)?;
 
-        let params: [&ToSql; 4] = [&TOKEN_TYPE,
+        let params: [&ToSql; 4] = [&(DataType::TOKEN as u8),
                                    &descriptor.token_identifier,
                                    &principal.serialize(),
                                    &balance];
@@ -405,7 +407,7 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(descriptor.key_type.to_string(), (*asset).clone()).into())
         }
 
-        let params: [&ToSql; 4] = [&ASSET_TYPE,
+        let params: [&ToSql; 4] = [&(DataType::ASSET as u8),
                                    &descriptor.asset_identifier,
                                    &asset.serialize(),
                                    &principal.serialize()];
@@ -422,7 +424,7 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(descriptor.key_type.to_string(), (*asset).clone()).into())
         }
 
-        let params: [&ToSql; 3] = [&ASSET_TYPE,
+        let params: [&ToSql; 3] = [&(DataType::ASSET as u8),
                                    &descriptor.asset_identifier,
                                    &asset.serialize()];
         let sql_result: Option<Option<String>> = 
@@ -459,7 +461,7 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), (*key).clone()).into())
         }
 
-        let params: [&ToSql; 3] = [&DATA_MAP_TYPE,
+        let params: [&ToSql; 3] = [&(DataType::DATA_MAP as u8),
                                    &map_descriptor.map_identifier,
                                    &key.serialize()];
 
@@ -502,7 +504,7 @@ impl <'a> ContractDatabase <'a> {
             return Ok(Value::Bool(false))
         }
 
-        let params: [&ToSql; 4] = [&DATA_MAP_TYPE,
+        let params: [&ToSql; 4] = [&(DataType::DATA_MAP as u8),
                                    &map_descriptor.map_identifier,
                                    &key.serialize(),
                                    &Some(value.serialize())];
@@ -526,7 +528,7 @@ impl <'a> ContractDatabase <'a> {
         }
 
         let none: Option<String> = None;
-        let params: [&ToSql; 4] = [&DATA_MAP_TYPE,
+        let params: [&ToSql; 4] = [&(DataType::DATA_MAP as u8),
                                    &map_descriptor.map_identifier,
                                    &key.serialize(),
                                    &none];
