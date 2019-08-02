@@ -21,6 +21,7 @@
 #[macro_use] pub mod macros;
 #[macro_use] pub mod db;
 pub mod hash;
+pub mod netstring;
 pub mod pair;
 pub mod secp256k1;
 pub mod uint;
