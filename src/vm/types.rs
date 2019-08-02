@@ -579,6 +579,10 @@ impl TupleData {
 
     }
 
+    pub fn get_all(&self) -> BTreeMap<String, Value> {
+        self.data_map.clone()
+    }
+
     pub fn get(&self, name: &str) -> Result<Value> {
         if let Some(value) = self.data_map.get(name) {
             Ok(value.clone())
