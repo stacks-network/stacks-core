@@ -269,6 +269,7 @@ impl TrieRAM {
         }
 
         // step 3: write out each node (now that they have the write ptrs)
+        frontier.clear();
         frontier.push_back((root.clone(), hash.clone()));
 
         // write parent block ptr
