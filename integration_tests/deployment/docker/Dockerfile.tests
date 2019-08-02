@@ -9,9 +9,11 @@ RUN apt-get -y update && \
     software-properties-common
 
 # We need bitcoind
-RUN add-apt-repository ppa:bitcoin/bitcoin
-RUN apt-get -y update
-RUN apt-get install -y bitcoind
+RUN wget https://bitcoincore.org/bin/bitcoin-core-0.17.1/bitcoin-0.17.1-x86_64-linux-gnu.tar.gz
+RUN tar xvfz bitcoin-0.17.1-x86_64-linux-gnu.tar.gz
+RUN cp bitcoin-0.17.1/bin/bitcoind /usr/local/bin/
+RUN cp bitcoin-0.17.1/bin/bitcoin-cli /usr/local/bin/
+RUN rm -rf bitcoin-0.17.1*
 
 # Add standard username and password
 RUN mkdir ~/.bitcoin
@@ -24,9 +26,9 @@ RUN apt-get update && apt-get install -y nodejs
 # Install node apps
 
 # Blockstack.js
-ADD https://api.github.com/repos/blockstack/blockstack.js/git/refs/heads/master blockstackjs-version.json
-RUN cd /src/ && git clone https://github.com/blockstack/blockstack.js.git
-RUN cd /src/blockstack.js && npm i && npm run build && npm i . -g
+# ADD https://api.github.com/repos/blockstack/blockstack.js/git/refs/heads/master blockstackjs-version.json
+# RUN cd /src/ && git clone https://github.com/blockstack/blockstack.js.git
+# RUN cd /src/blockstack.js && npm i && npm run build && npm i . -g
 
 # Transaction broadcaster
 ADD https://api.github.com/repos/blockstack/transaction-broadcaster/git/refs/heads/master broadcaster-version.json
@@ -35,7 +37,7 @@ RUN cd /src/transaction-broadcaster && npm i && npm run build && npm i . -g
 
 # CLI
 ADD https://api.github.com/repos/blockstack/cli-blockstack/git/refs/heads/master cli-version.json
-RUN cd /src/ && git clone https://github.com/blockstack/cli-blockstack.git
+RUN cd /src/ && git clone --single-branch --branch feature/package-updates https://github.com/blockstack/cli-blockstack.git
 RUN cd /src/cli-blockstack && npm i && npm ln blockstack && npm run build && npm i . -g
 
 # Gaia hub
