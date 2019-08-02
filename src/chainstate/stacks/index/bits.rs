@@ -51,8 +51,6 @@ use chainstate::stacks::index::node::{
 };
 
 use chainstate::stacks::index::storage::{
-    read_all,
-    write_all,
     fseek,
     ftell,
     TrieFileStorage,
@@ -88,22 +86,17 @@ pub fn path_to_bytes(p: &Vec<u8>, buf: &mut Vec<u8>) -> () {
 /// Returns Error::CorruptionError if the path doens't decode.
 pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
     let mut lenbuf = [0u8; 1];
-    let l_lenbuf = read_all(r, &mut lenbuf)?;
-
-    if l_lenbuf != 1 {
-        return Err(Error::CorruptionError("Could not read node path length".to_string()));
-    }
+    r.read_exact(&mut lenbuf)
+        .map_err(|e| Error::IOError(e))?;
+    
     if lenbuf[0] as usize > TRIEPATH_MAX_LEN {
         trace!("Path length is {} (expected <= {})", lenbuf[0], TRIEPATH_MAX_LEN);
         return Err(Error::CorruptionError(format!("Node path is longer than {} bytes (got {})", TRIEPATH_MAX_LEN, lenbuf[0])));
     }
 
     let mut retbuf = vec![0; lenbuf[0] as usize];
-    let l_retbuf = read_all(r, &mut retbuf)?;
-
-    if l_retbuf != (lenbuf[0] as usize) {
-        return Err(Error::CorruptionError(format!("Could not read full node path: only got {} out of {} bytes", l_retbuf, lenbuf[0])));
-    }
+    r.read_exact(&mut retbuf)
+        .map_err(|e| Error::IEOrror(e))?;
     
     Ok(retbuf)
 }
@@ -180,12 +173,9 @@ pub fn ptrs_from_bytes<R: Read>(node_id: u8, r: &mut R, ptrs_buf: &mut [TriePtr]
     }
 
     let mut idbuf = [0u8; 1];
-    let l_idbuf = read_all(r, &mut idbuf)?;
-
-    if l_idbuf != 1 {
-        trace!("Bad l_idbuf: {}", l_idbuf);
-        return Err(Error::CorruptionError("Failed to read node ID".to_string()));
-    }
+    r.read_exact(&mut idbuf)
+        .map_err(|e| Error::IOError(e))?;
+    
     let nid = idbuf[0];
 
     if clear_backptr(nid) != clear_backptr(node_id) {
@@ -195,12 +185,8 @@ pub fn ptrs_from_bytes<R: Read>(node_id: u8, r: &mut R, ptrs_buf: &mut [TriePtr]
 
     let num_ptrs = node_id_to_ptr_count(node_id);
     let mut bytes = vec![0u8; num_ptrs * TRIEPTR_SIZE];
-    let l_bytes = read_all(r, &mut bytes)?;
-
-    if l_bytes != num_ptrs * TRIEPTR_SIZE {
-        trace!("Bad l_bytes: {} != {}", l_bytes, num_ptrs * TRIEPTR_SIZE);
-        return Err(Error::CorruptionError(format!("Failed to read node: got {} out of {} bytes", l_bytes, num_ptrs * TRIEPTR_SIZE)));
-    }
+    r.read_exact(&mut bytes)
+        .map_err(|e| Error::IOError(e))?;
     
     // not a for-loop because "for i in 0..num_ptrs" is noticeably slow
     let mut i = 0;
@@ -415,5 +401,6 @@ pub fn write_nodetype_bytes<F: Write + Seek>(f: &mut F, node: &TrieNodeType, has
     let ptr = ftell(f)?;
     trace!("write_nodetype: {:?} {:?} at {}-{}", node, &hash, ptr, ptr + bytes.len() as u64);
 
-    write_all(f, &bytes[..])
+    f.write_all(&bytes[..])
+        .map_err(|e| Error::IOError(e))?;
 }
