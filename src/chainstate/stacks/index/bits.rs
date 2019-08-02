@@ -293,7 +293,7 @@ pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<u8>) 
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
 pub fn read_hash_bytes<F: Read + Seek>(f: &mut F, buf: &mut Vec<u8>) -> Result<(), Error> {
     let mut hashbytes = [0u8; 32];
-    f.read(&mut hashbytes)
+    f.read_exact(&mut hashbytes)
         .map_err(Error::IOError)?;
     
     fast_extend_from_slice(buf, &hashbytes);
