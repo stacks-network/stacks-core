@@ -4,6 +4,7 @@ mod errors;
 mod identity_pass;
 mod check_db;
 mod read_only;
+mod top_level_expressions_sorter;
 
 use vm::checker::typecheck::contexts::ContractAnalysis;
 use vm::representations::{SymbolicExpression};
@@ -14,6 +15,7 @@ pub use self::check_db::{AnalysisDatabase, AnalysisDatabaseConnection};
 pub fn type_check(contract_name: &str, contract: &mut [SymbolicExpression],
                   analysis_db: &mut AnalysisDatabase, insert_contract: bool) -> CheckResult<ContractAnalysis> {
     identity_pass::identity_pass(contract)?;
+    top_level_expressions_sorter::TopLevelExpressionSorter::check_contract(contract, analysis_db)?;
     read_only::ReadOnlyChecker::check_contract(contract, analysis_db)?;
     let contract_analysis = typecheck::TypeChecker::type_check_contract(contract, analysis_db)?;
     if insert_contract {
