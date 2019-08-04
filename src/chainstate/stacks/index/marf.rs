@@ -573,7 +573,7 @@ impl MARF {
         }
 
         // new chain tip must not exist
-        if !self.storage.open_block(next_chain_tip, true).is_ok() {
+        if self.storage.open_block(next_chain_tip, true).is_ok() {
             return Err(Error::ExistsError);
         }
 
@@ -2123,7 +2123,7 @@ mod test {
             }
             fork_headers.push(next_fork_row);
         }
-        
+       
         m.begin(&TrieFileStorage::block_sentinel(), &BlockHeaderHash([0u8; 32])).unwrap();
         m.commit().unwrap();
 
