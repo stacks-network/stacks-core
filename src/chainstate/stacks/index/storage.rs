@@ -109,31 +109,6 @@ pub fn fseek_end<F: Seek>(f: &mut F) -> Result<u64, Error> {
         .map_err(Error::IOError)
 }
 
-pub fn read_all<R: Read>(f: &mut R, buf: &mut [u8]) -> Result<usize, Error> {
-    let mut cnt = 0;
-    while cnt < buf.len() {
-        let nr = f.read(&mut buf[cnt..])
-            .map_err(Error::IOError)?;
-
-        if nr == 0 {
-            break;
-        }
-
-        cnt += nr;
-    }
-    Ok(cnt)
-}
-
-pub fn write_all<W: Write>(f: &mut W, buf: &[u8]) -> Result<usize, Error> {
-    let mut cnt = 0;
-    while cnt < buf.len() {
-        let nw = f.write(&buf[cnt..buf.len()])
-            .map_err(Error::IOError)?;
-        cnt += nw;
-    }
-    Ok(cnt)
-}
-
 /// In-RAM trie storage.
 /// Used by TrieFileStorage to buffer the next trie being built.
 pub struct TrieRAM {
@@ -269,12 +244,10 @@ impl TrieRAM {
         }
 
         // step 3: write out each node (now that they have the write ptrs)
-        frontier.clear();
-        frontier.push_back((root.clone(), hash.clone()));
-
         // write parent block ptr
         fseek(f, 0)?;
-        write_all(f, parent_hash.as_bytes())?;
+        f.write_all(parent_hash.as_bytes())
+            .map_err(|e| Error::IOError(e))?;
 
         for i in 0..node_data.len() {
             // dump the node to storage
@@ -732,6 +705,7 @@ impl TrieFileStorage {
         TrieForkTable::new(root_hash, &parent_children)
     }
 
+    /// Read the Trie root node's hash from the block file in the given path.
     #[cfg(test)]
     fn read_block_root_hash_by_path(&self, path: &PathBuf) -> Result<TrieHash, Error> {
         let mut fd = fs::OpenOptions::new()
@@ -769,11 +743,21 @@ impl TrieFileStorage {
         self.read_block_root_hash_by_path(&path)
     }
 
+    /// Generate a mapping between Trie root hashes and the blocks that contain them
     #[cfg(test)]
     pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, BlockHeaderHash>, Error> {
+        let last_extended_opt = self.last_extended.clone();
+
         let mut ret = HashMap::new();
         for fork_column in self.fork_table.fork_table.iter() {
             for bhh in fork_column.iter() {
+                if let Some(ref last_extended) = last_extended_opt {
+                    if *last_extended == *bhh {
+                        // this hasn't been dumped yet
+                        continue;
+                    }
+                }
+
                 if *bhh == TrieFileStorage::block_sentinel() {
                     continue;
                 }
@@ -884,7 +868,8 @@ impl TrieFileStorage {
                                 }
                             })?;
 
-                write_all(&mut fd, self.cur_block.as_bytes())?;
+                fd.write_all(self.cur_block.as_bytes())
+                    .map_err(|e| Error::IOError(e))?;
             }
         }
 
@@ -974,6 +959,10 @@ impl TrieFileStorage {
             // first 32 bytes are the block parent hash 
             BLOCK_HEADER_HASH_ENCODED_SIZE as u32
         }
+    }
+
+    pub fn root_trieptr(&self) -> TriePtr {
+        TriePtr::new(TrieNodeID::Node256, 0, self.root_ptr())
     }
 
     pub fn readwrite(&self) -> bool {
