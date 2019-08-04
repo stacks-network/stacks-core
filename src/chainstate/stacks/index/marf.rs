@@ -53,6 +53,7 @@ use chainstate::stacks::index::node::{
     TriePtr,
     TRIEPTR_SIZE,
     TrieCursor,
+    CursorError,
     TriePath,
     is_backptr,
     set_backptr,
@@ -227,77 +228,74 @@ impl MARF {
     fn walk_cow(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<TrieCursor, Error> {
         MARF::extend_trie(storage, block_hash)?;
 
-        let root_ptr = storage.root_ptr();
-        let mut cursor = TrieCursor::new(path, root_ptr);
+        let mut cursor = TrieCursor::new(path, storage.root_trieptr());
 
         // walk to insertion point 
         let (mut node, _) = Trie::read_root(storage)?;
         let mut node_ptr = TriePtr::new(0,0,0);
 
         for _ in 0..(cursor.path.len()+1) {
-            let next_opt = Trie::walk_from(storage, &node, &mut cursor)?;
-            match next_opt {
-                Some((next_node_ptr, next_node, _)) => {
-                    // keep walking
-                    node = next_node;
-                    node_ptr = next_node_ptr;
-                    continue;
-                },
-                None => {
-                    if cursor.div() {
-                        // we're done -- path diverged.  No node-copying can help us.
-                        trace!("Path diverged -- we're done.");
-                        storage.open_block(block_hash, true)?;
-                        return Ok(cursor);
-                    }
-                    else if cursor.eop() {
-                        // we're done
-                        trace!("Out of path in {:?} -- we're done. Seek to {:?}", storage.get_cur_block(), &node_ptr);
-                        storage.open_block(block_hash, true)?;
-                        return Ok(cursor);
-                    }
-                    else {
-                        // we're not done with this path.  Either no node exists, or it exists off
-                        // of a prior version of the last-visited node.
-                        let chr = cursor.chr().unwrap();     // guaranteed to succeed since we walked some path.
-                        if node.is_leaf() {
-                            // at an existing leaf with a different path.
-                            // we're done.
-                            trace!("Existing leaf with different path encountered at {:?} at {:?} -- we're done (not found)", &node_ptr, storage.get_cur_block());
+            match Trie::walk_from(storage, &node, &mut cursor) {
+                Ok(node_info_opt) => {
+                    match node_info_opt {
+                        Some((next_node_ptr, next_node, _)) => {
+                            // end of node path.
+                            // keep walking.
+                            node = next_node;
+                            node_ptr = next_node_ptr;
+                            continue;
+                        },
+                        None => {
+                            // end of path.  Should have found leaf.
+                            if !node.is_leaf() || clear_backptr(node_ptr.id()) != TrieNodeID::Leaf {
+                                error!("Out-of-path but encountered a non-leaf");
+                                return Err(Error::CorruptionError("Non-leaf encountered at end of path".to_string()));
+                            }
+
+                            trace!("Out of path in {:?} -- we're done. Node at {:?}", storage.get_cur_block(), &node_ptr);
                             storage.open_block(block_hash, true)?;
                             return Ok(cursor);
                         }
+                    }
+                },
+                Err(e) => {
+                    match e {
+                        Error::CursorError(cursor_error) => {
+                            match cursor_error {
+                                CursorError::PathDiverged => {
+                                    // we're done -- path diverged.  Will need to copy-on-write
+                                    // some nodes over.
+                                    trace!("Path diverged -- we're done.");
+                                    storage.open_block(block_hash, true)?;
+                                    return Ok(cursor);
+                                },
+                                CursorError::ChrNotFound => {
+                                    // end-of-node-path but no such child -- not even a backptr.
+                                    trace!("ChrNotFound encountered at {:?} -- we're done (node not found)", storage.get_cur_block());
+                                    storage.open_block(block_hash, true)?;
+                                    return Ok(cursor);
+                                },
+                                CursorError::BackptrEncountered(ptr) => {
+                                    // at intermediate node whose child is not present in this trie.
+                                    // bring the child forward and take the step, if possible.
+                                    storage.open_block(block_hash, true)?;
+                                    let (next_node, _, next_node_ptr, next_node_block_hash) = MARF::node_child_copy(storage, &node, ptr.chr(), &mut cursor)?;
 
-                        // at intermediate node whose child is not present in this trie.
-                        // bring the child forward and take the step, if possible.
-                        storage.open_block(block_hash, true)?;
-                        let (next_node, _, next_node_ptr, next_node_block_hash) = match MARF::node_child_copy(storage, &node, chr, &mut cursor) {
-                            Ok(res) => {
-                                res
-                            }
-                            Err(e) => {
-                                match e {
-                                    Error::BackptrNotFoundError => {
-                                        // no prior version of this node has a ptr for this chr.
-                                        // we're done -- target node not found.
-                                        trace!("BackptrNotFoundError encountered at {:?} -- we're done (not found)", storage.get_cur_block());
-                                        storage.open_block(block_hash, true)?;
-                                        return Ok(cursor);
-                                    },
-                                    _ => {
-                                        return Err(e);
-                                    }
+                                    // finish taking the step
+                                    cursor.repair_backptr_finish(&next_node_ptr, &next_node_block_hash);
+                                    
+                                    // keep walking
+                                    node = next_node;
+                                    node_ptr = next_node_ptr;
+                                    
+                                    storage.open_block(block_hash, true)?;
                                 }
                             }
-                        };
-
-                        // finish taking the step
-                        cursor.walk_backptr_finish(&next_node_ptr, &next_node_block_hash);
-                        
-                        node = next_node;
-                        node_ptr = next_node_ptr;
-                        
-                        storage.open_block(block_hash, true)?;
+                        },
+                        _ => {
+                            // some other error (e.g. I/O error)
+                            return Err(e);
+                        }
                     }
                 }
             }
@@ -314,69 +312,72 @@ impl MARF {
     fn walk(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<(TrieCursor, TrieNodeType), Error> {
         storage.open_block(block_hash, false)?;
 
-        let root_ptr = storage.root_ptr();
-        let mut cursor = TrieCursor::new(path, root_ptr);
+        let mut cursor = TrieCursor::new(path, storage.root_trieptr());
 
         // walk to insertion point 
         let (mut node, _) = Trie::read_root(storage)?;
         let mut node_ptr = TriePtr::new(0,0,0);
 
         for _ in 0..(cursor.path.len()+1) {
-            let next_opt = Trie::walk_from(storage, &node, &mut cursor)?;
-            match next_opt {
-                Some((next_node_ptr, next_node, _)) => {
-                    // keep walking
-                    node = next_node;
-                    node_ptr = next_node_ptr;
-                    continue;
-                },
-                None => {
-                    if cursor.div() {
-                        // we're done -- path diverged.  No backptr-walking can help us.
-                        trace!("Path diverged -- we're done.");
-                        return Err(Error::NotFoundError);
-                    }
-                    else {
-                        // we're not done with this path.  Either no node exists, or it exists off
-                        // of a prior version of the last-visited node.
-                        let chr = cursor.chr().unwrap();     // guaranteed to succeed since we walked some path.
-                        let found_leaf =
-                            if node.is_leaf() {
-                                if !cursor.eop() {
-                                    // at an existing leaf with a different path.
-                                    // we're done.
-                                    trace!("Existing but different leaf encountered at {:?} at {:?} -- we're done", &node_ptr, storage.get_cur_block());
-                                    return Err(Error::NotFoundError);
-                                }
-                                else {
-                                    // we're done -- we found the leaf
-                                    true
-                                }
+            match Trie::walk_from(storage, &node, &mut cursor) {
+                Ok(node_info_opt) => {
+                    match node_info_opt {
+                        Some((next_node_ptr, next_node, _)) => {
+                            // end-of-node-path, and found a child.
+                            // keep walking
+                            node = next_node;
+                            node_ptr = next_node_ptr;
+                            continue;
+                        },
+                        None => {
+                            // end of path.  Must be at a leaf.
+                            if clear_backptr(cursor.ptr().id()) != TrieNodeID::Leaf {
+                                return Err(Error::CorruptionError("Non-leaf encountered at end of path".to_string()));
                             }
-                            else {
-                                false
-                            };
 
-                        if found_leaf {
                             return Ok((cursor, node));
                         }
+                    }
+                },
+                Err(e) => {
+                    match e {
+                        Error::CursorError(cursor_error) => {
+                            match cursor_error {
+                                CursorError::PathDiverged => {
+                                    // we're done -- path diverged.  No backptr-walking can help us.
+                                    trace!("Path diverged -- we're done.");
+                                    return Err(Error::NotFoundError);
+                                },
+                                CursorError::ChrNotFound => {
+                                    // we're done -- end-of-node-path, but no child node.
+                                    // Not even a backptr.
+                                    trace!("ChrNotFound encountered -- node does not exist");
+                                    return Err(Error::NotFoundError);
+                                },
+                                CursorError::BackptrEncountered(ptr) => {
+                                    // at intermediate node whose child is not present in this trie.
+                                    // try to shunt to the prior node that has the child itself.
+                                    let (next_node, _, next_node_ptr, _) = MARF::walk_backptr(storage, &node, ptr.chr(), &mut cursor)?;
+                                   
+                                    // finish taking the step
+                                    cursor.repair_backptr_finish(&next_node_ptr, &storage.get_cur_block());
 
-                        // cursor grabbed a copy of node, but not yet a ptr.
-                        // at intermediate node whose child is not present in this trie.
-                        // try to shunt to the prior node that has the child itself.
-                        let (next_node, _, next_node_ptr, _) = MARF::walk_backptr(storage, &node, chr, &mut cursor)?;
-                       
-                        // finish taking the step
-                        cursor.walk_backptr_finish(&next_node_ptr, &storage.get_cur_block());
-
-                        // keep going
-                        node = next_node;
-                        node_ptr = next_node_ptr;
+                                    // keep going
+                                    node = next_node;
+                                    node_ptr = next_node_ptr;
+                                    continue;
+                                }
+                            }
+                        },
+                        _ => {
+                            // some other error (e.g. I/O error)
+                            return Err(e);
+                        }
                     }
                 }
             }
         }
-        
+
         trace!("Trie has a cycle");
         return Err(Error::CorruptionError("Trie has a cycle".to_string()));
     }
@@ -402,23 +403,18 @@ impl MARF {
             assert!(false);
         }
 
-        if cursor.eop() {
-            // out of path and reached the end.
-            match node {
-                TrieNodeType::Leaf(data) => {
-                    // found!
-                    return Ok(Some(data));
-                },
-                _ => {
-                    // Trie invariant violation -- a full path reached a non-leaf
-                    return Err(Error::CorruptionError("Path reached a non-leaf".to_string()));
-                }
+        assert!(cursor.eop());
+
+        // out of path and reached the end.
+        match node {
+            TrieNodeType::Leaf(data) => {
+                // found!
+                return Ok(Some(data));
+            },
+            _ => {
+                // Trie invariant violation -- a full path reached a non-leaf
+                return Err(Error::CorruptionError("Path reached a non-leaf".to_string()));
             }
-        }
-        else {
-            // path didn't match a node 
-            trace!("MARF get: found nothing at {:?}", path);
-            return Ok(None);
         }
     }
 
@@ -577,11 +573,8 @@ impl MARF {
         }
 
         // new chain tip must not exist
-        match self.storage.open_block(next_chain_tip, true) {
-            Err(_) => {},
-            Ok(_) => {
-                return Err(Error::ExistsError);
-            }
+        if !self.storage.open_block(next_chain_tip, true).is_ok() {
+            return Err(Error::ExistsError);
         }
 
         // current chain tip must exist
