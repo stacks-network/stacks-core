@@ -61,6 +61,7 @@ use chainstate::stacks::index::node::{
     TrieNodeID,
     TriePtr,
     TrieCursor,
+    CursorError,
 };
 
 use chainstate::stacks::index::storage::{
@@ -93,7 +94,7 @@ impl Trie {
         let res = storage.read_nodetype(&ptr);
         match res {
             Err(Error::CorruptionError(_)) => {
-                let non_backptr_ptr = TriePtr::new(TrieNodeID::Node256, 0, storage.root_ptr());
+                let non_backptr_ptr = storage.root_trieptr();
                 storage.read_nodetype(&non_backptr_ptr)
             },
             Err(e) => Err(e),
@@ -107,16 +108,23 @@ impl Trie {
     /// NOTE: This only works if we're walking a Trie, not a MARF.  Returns Ok(None) if a
     /// back-pointer is found.
     pub fn walk_from(storage: &mut TrieFileStorage, node: &TrieNodeType, cursor: &mut TrieCursor) -> Result<Option<(TriePtr, TrieNodeType, TrieHash)>, Error> {
-        let ptr_opt = cursor.walk(node, &storage.get_cur_block());
-        match ptr_opt {
-            None => {
-                // not found, or found a back-pointer
-                Ok(None)
+        match cursor.walk(node, &storage.get_cur_block()) {
+            Ok(ptr_opt) => {
+                match ptr_opt {
+                    None => {
+                        // end of path
+                        Ok(None)
+                    },
+                    Some(ptr) => {
+                        // end of node path
+                        trace!("Walked to {:?}", &ptr);
+                        let (node, hash) = storage.read_nodetype(&ptr)?;
+                        Ok(Some((ptr, node, hash)))
+                    }
+                }
             },
-            Some(ptr) => {
-                trace!("Walked to {:?}", &ptr);
-                let (node, hash) = storage.read_nodetype(&ptr)?;
-                Ok(Some((ptr, node, hash)))
+            Err(e) => {
+                Err(Error::CursorError(e))
             }
         }
     }
@@ -149,7 +157,7 @@ impl Trie {
             let backptr = ptr.from_backptr();
             let (node, node_hash) = storage.read_nodetype(&backptr)?;
 
-            cursor.walk_backptr_step_backptr(&node, &backptr, &storage.get_cur_block());
+            cursor.repair_backptr_step_backptr(&node, &backptr, &storage.get_cur_block());
             Ok((node, node_hash, backptr))
         }
     }
@@ -219,16 +227,18 @@ impl Trie {
 
     /// Given an existing leaf, replace it with the new leaf.
     /// c must point to the node to replace.
-    fn replace_leaf(storage: &mut TrieFileStorage, cursor: &TrieCursor, value: &mut TrieLeaf) -> Result<TriePtr, Error> {
+    fn replace_leaf(storage: &mut TrieFileStorage, cursor: &mut TrieCursor, value: &mut TrieLeaf) -> Result<TriePtr, Error> {
         let (cur_leaf, _) = storage.read_nodetype(&cursor.ptr())?;
         if !cur_leaf.is_leaf() {
             return Err(Error::CorruptionError(format!("Not a leaf: {:?}", &cursor.ptr())));
         }
 
         value.path = cur_leaf.path_bytes().clone();
+
         let leaf_hash = get_node_hash(value, &vec![]);
         
-        storage.write_node(cursor.ptr().ptr(), value, leaf_hash)?;
+        let leaf_ptr = cursor.ptr();
+        storage.write_node(leaf_ptr.ptr(), value, leaf_hash)?;
 
         trace!("replace_leaf: wrote {:?} at {:?}", &value, &cursor.ptr());
         Ok(cursor.ptr())
@@ -237,20 +247,18 @@ impl Trie {
     /// Append a leaf to the trie, and return the TriePtr to it.
     /// Do lazy expansion -- have the leaf store the trailing path to it.
     /// Return the TriePtr to the newly-written leaf
-    fn append_leaf(storage: &mut TrieFileStorage, cursor: &TrieCursor, value: &mut TrieLeaf) -> Result<TriePtr, Error> {
+    fn append_leaf(storage: &mut TrieFileStorage, cursor: &mut TrieCursor, value: &mut TrieLeaf) -> Result<TriePtr, Error> {
         assert!(cursor.chr().is_some());
 
         let ptr = storage.last_ptr()?;
         let chr = cursor.chr().unwrap();
-        let leaf_path = &cursor.path.as_bytes()[cursor.index..];
 
-        value.path = leaf_path.to_vec();
+        value.path = cursor.path.as_bytes()[cursor.index..].to_vec();
 
         let leaf_hash = get_node_hash(value, &vec![]);
-
-        storage.write_node(ptr, value, leaf_hash)?;
-       
         let leaf_ptr = TriePtr::new(TrieNodeID::Leaf, chr, ptr);
+        storage.write_node(ptr, value, leaf_hash)?;
+
         trace!("append_leaf: append {:?} at {:?}", value, &leaf_ptr);
         Ok(leaf_ptr)
     }
@@ -318,17 +326,19 @@ impl Trie {
         assert!(node4.insert(&cur_leaf_new_ptr));
         assert!(node4.insert(&new_leaf_ptr));
 
-        let node4_hash = get_nodetype_hash(&node4, &vec![cur_leaf_hash, new_leaf_hash, TrieHash::from_data(&[]), TrieHash::from_data(&[])]);
+        // NOTE: per cursor.repair_retarget(), the update_root_hash() method will calculate this node's
+        // hash, so there's no need to do it here.
+        let node4_hash = TrieHash::from_empty_data();
 
         // append the node4 to the end of the trie
         let node4_disk_ptr = storage.last_ptr()?;
         let ret = TriePtr::new(TrieNodeID::Node4, node4_chr, node4_disk_ptr);
-        storage.write_nodetype(node4_disk_ptr, &node4, node4_hash.clone())?;
+        storage.write_nodetype(node4_disk_ptr, &node4, node4_hash)?;
 
         // update cursor to point to this node4 as the last-node-visited, and set the newly-created
         // ptr as the last ptr traversed (so the cursor still points to this leaf, but accurately
         // reflects the path taken to it).
-        cursor.retarget(&node4.clone(), &ret, &storage.get_cur_block());
+        cursor.repair_retarget(&node4.clone(), &ret, &storage.get_cur_block());
 
         trace!("Promoted {:?} to {:?}, {:?}, {:?}, new ptr = {:?}", sav_cur_leaf_data, cur_leaf_data, &node4, new_leaf_data, &ret);
         Ok(ret)
@@ -365,7 +375,7 @@ impl Trie {
     ///                         \
     ///                          [99]leaf[path=887766]=123456
     ///
-    fn try_attach_leaf(storage: &mut TrieFileStorage, cursor: &TrieCursor, leaf: &mut TrieLeaf, node: &mut TrieNodeType) -> Result<Option<TriePtr>, Error> {
+    fn try_attach_leaf(storage: &mut TrieFileStorage, cursor: &mut TrieCursor, leaf: &mut TrieLeaf, node: &mut TrieNodeType) -> Result<Option<TriePtr>, Error> {
         // can only do this if we're at the end of the node's path
         if !cursor.eonp(node) {
             // nope
@@ -443,7 +453,7 @@ impl Trie {
 
         // update the cursor so its path of nodes and ptrs accurately reflects that we would have
         // visited this leaf on its path.
-        cursor.retarget(&new_node, &ret, &storage.get_cur_block());
+        cursor.repair_retarget(&new_node, &ret, &storage.get_cur_block());
         Ok(ret)
     }
 
@@ -506,7 +516,9 @@ impl Trie {
         new_node4.insert(&leaf_ptr);
         new_node4.insert(&new_cur_node_ptr);
 
-        let new_node_hash = get_node_hash(&new_node4, &vec![leaf_hash, new_cur_node_hash, TrieHash::from_data(&[]), TrieHash::from_data(&[])]);
+        // NOTE: per cursor.repair_retarget(), the update_root_hash() method will re-calculate the hash
+        // for this node, so there's no need to do so here.
+        let new_node_hash = TrieHash::from_empty_data();
         let (new_node_id, new_node) = 
             if cursor.node_ptrs.len() == 1 {
                 // we just split the compressed path in the root node,
@@ -520,13 +532,13 @@ impl Trie {
             };        
 
         // store node4 where node-X used to be
-        storage.write_nodetype(cur_node_cur_ptr.ptr(), &new_node, new_node_hash.clone())?;
+        storage.write_nodetype(cur_node_cur_ptr.ptr(), &new_node, new_node_hash)?;
 
         // store node-X at the end
-        storage.write_nodetype(new_cur_node_disk_ptr, node, new_cur_node_hash.clone())?;
+        storage.write_nodetype(new_cur_node_disk_ptr, node, new_cur_node_hash)?;
 
         let ret = TriePtr::new(new_node_id, cur_node_cur_ptr.chr(), cur_node_cur_ptr.ptr());
-        cursor.retarget(&new_node.clone(), &ret, &storage.get_cur_block());
+        cursor.repair_retarget(&new_node.clone(), &ret, &storage.get_cur_block());
 
         trace!("splice_leaf: node-X' at {:?}", &ret);
         Ok(ret)
@@ -598,7 +610,7 @@ impl Trie {
 
             storage.open_block(&prev_block_header, false)?;
             
-            let root_ptr = TriePtr::new(TrieNodeID::Node256, 0, storage.root_ptr() as u32);
+            let root_ptr = storage.root_trieptr();
             storage.read_node_hash_bytes(&root_ptr, hash_buf)?;
 
             trace!("Include root hash {:?} from block {:?} in ancestor #{}", &to_hex(&hash_buf[hash_buf.len() - TRIEHASH_ENCODED_SIZE..hash_buf.len()]), prev_block_header, 1u32 << depth);
@@ -668,9 +680,7 @@ impl Trie {
             trace!("Fix up root node so it mixes in its ancestor hashes");
             let (node, cur_hash) = storage.read_nodetype(&child_ptr)?;
             if node.is_node256() {
-                let root_disk_ptr = storage.root_ptr();
-                let root_ptr = TriePtr::new(TrieNodeID::Node256, 0, root_disk_ptr as u32);
-                if child_ptr != root_ptr {
+                if child_ptr != storage.root_trieptr() {
                     return Err(Error::CorruptionError("Only ptr is not the root".to_string()));
                 }
                 
@@ -731,8 +741,7 @@ impl Trie {
                     storage.write_nodetype(ptr.ptr(), &node, h)?;
                 }
                 else {
-                    let root_disk_ptr = storage.root_ptr();
-                    let root_ptr = TriePtr::new(TrieNodeID::Node256, 0, root_disk_ptr as u32);
+                    let root_ptr = storage.root_trieptr();
                     let node_hash = 
                         if ptr == root_ptr {
                             let node_hash = get_nodetype_hash_bytes(&node, &hash_buf);
@@ -757,8 +766,7 @@ impl Trie {
             }
         }
         // must be at the root
-        let root_disk_ptr = storage.root_ptr();
-        assert_eq!(child_ptr, TriePtr::new(TrieNodeID::Node256, 0, root_disk_ptr as u32));
+        assert_eq!(child_ptr, storage.root_trieptr());
         Ok(())
     }
     
@@ -789,6 +797,44 @@ mod test {
     use chainstate::stacks::index::proofs::*;
     use chainstate::stacks::index::storage::*;
     use chainstate::stacks::index::trie::*;
+
+    fn walk_to_insertion_point(f: &mut TrieFileStorage, cursor: &mut TrieCursor) -> (TriePtr, TrieNodeType, TrieHash) {
+        let (mut node, root_hash) = Trie::read_root(f).unwrap();
+        let mut node_hash = TrieHash::from_empty_data();
+        let mut node_ptr = f.root_trieptr();
+
+        for _ in 0..cursor.path.len() {
+            match Trie::walk_from(f, &node, cursor) {
+                Ok(node_data_opt) => {
+                    match node_data_opt {
+                        Some((next_nodeptr, next_node, next_node_hash)) => {
+                            node = next_node;
+                            node_ptr = next_nodeptr;
+                            node_hash = next_node_hash;
+                            continue;
+                        }
+                        None => {
+                            panic!("No insertion point found -- reached leaf");
+                        }
+                    }
+                }
+                Err(e) => {
+                    match e {
+                        Error::CursorError(_) => {
+                            // don't care about backptrs in this suite of tests
+                            return (node_ptr, node, node_hash);
+                        },
+                        _ => {
+                            panic!("Encountered error: {:?}", e);
+                        }
+                    }
+                }
+            }
+        }
+
+        panic!("Encountered a loop in the trie");
+    }
+
 
     #[test]
     fn trie_cursor_try_attach_leaf() {
@@ -841,47 +887,35 @@ mod test {
                 let mut path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
                 path[i] = 32;
 
-                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-                let (mut node, root_hash) = Trie::read_root(&mut f).unwrap();
-                for _ in 0..c.path.len() {
-                    let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                    match next_opt {
-                        Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                            // keep walking
-                            node = next_node;
-                            continue;
-                        },
-                        None => {
-                            // end of path -- cursor points to the insertion point.
-                            // all nodes have space, 
-                            f.open_block(&block_header, true).unwrap();
-                            let ptr_opt_res = Trie::try_attach_leaf(&mut f, &c, &mut TrieLeaf::new(&vec![], &[i as u8; 40].to_vec()), &mut node);
-                            assert!(ptr_opt_res.is_ok());
+                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                            let ptr_opt = ptr_opt_res.unwrap();
-                            assert!(ptr_opt.is_some());
+                // end of path -- cursor points to the insertion point.
+                // all nodes have space, 
+                f.open_block(&block_header, true).unwrap();
+                let ptr_opt_res = Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[i as u8; 40].to_vec()), &mut node);
+                assert!(ptr_opt_res.is_ok());
 
-                            let ptr = ptr_opt.unwrap();
-                            ptrs.push(ptr.clone());
-                        
-                            let update_res = Trie::update_root_hash(&mut f, &c);
-                            assert!(update_res.is_ok());
+                let ptr_opt = ptr_opt_res.unwrap();
+                assert!(ptr_opt.is_some());
 
-                            // we must be able to query it now 
-                            let leaf_opt_res = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
-                            assert!(leaf_opt_res.is_ok());
-                            
-                            let leaf_opt = leaf_opt_res.unwrap();
-                            assert!(leaf_opt.is_some());
+                let ptr = ptr_opt.unwrap();
+                ptrs.push(ptr.clone());
+            
+                let update_res = Trie::update_root_hash(&mut f, &c);
+                assert!(update_res.is_ok());
 
-                            let leaf = leaf_opt.unwrap();
-                            assert_eq!(leaf, TrieLeaf::new(&path[i+1..].to_vec(), &[i as u8; 40].to_vec()));
+                // we must be able to query it now 
+                let leaf_opt_res = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
+                assert!(leaf_opt_res.is_ok());
+                
+                let leaf_opt = leaf_opt_res.unwrap();
+                assert!(leaf_opt.is_some());
 
-                            merkle_test(&mut f, &path, &[i as u8; 40].to_vec());
-                            break;
-                        }
-                    }
-                }
+                let leaf = leaf_opt.unwrap();
+                assert_eq!(leaf, TrieLeaf::new(&path[i+1..].to_vec(), &[i as u8; 40].to_vec()));
+
+                merkle_test(&mut f, &path, &[i as u8; 40].to_vec());
             }
 
             // look up each leaf we inserted
@@ -933,31 +967,16 @@ mod test {
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         MARF::format(&mut f, &block_header).unwrap();
 
-        let (mut node, root_hash) = Trie::read_root(&mut f).unwrap();
+        let (node, root_hash) = Trie::read_root(&mut f).unwrap();
 
         // add a single leaf
-        let mut c = TrieCursor::new(&TriePath::from_bytes(&[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]).unwrap(), f.root_ptr());
+        let mut c = TrieCursor::new(&TriePath::from_bytes(&[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]).unwrap(), f.root_trieptr());
+        
+        let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-        for i in 0..c.path.len() {
-            let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-            match next_opt {
-                Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                    // keep walking
-                    node = next_node;
-                    continue;
-                },
-                None => {
-                    // end of path -- cursor points to the insertion point
-                    f.open_block(&block_header, true).unwrap();
-                    Trie::try_attach_leaf(&mut f, &c, &mut TrieLeaf::new(&vec![], &[128; 40].to_vec()), &mut node).unwrap().unwrap();
-                    Trie::update_root_hash(&mut f, &c).unwrap();
-
-                    // should have taken one step
-                    assert_eq!(i, 0);
-                    break;
-                }
-            }
-        }
+        f.open_block(&block_header, true).unwrap();
+        Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128; 40].to_vec()), &mut node).unwrap().unwrap();
+        Trie::update_root_hash(&mut f, &c).unwrap();
 
         assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]).unwrap()).unwrap().unwrap(), 
                    TrieLeaf::new(&vec![1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31], &[128; 40].to_vec()));
@@ -967,52 +986,37 @@ mod test {
         let mut ptrs = vec![];
 
         // add more leaves -- unzip this path completely
-        for j in 1..32 {
+        for i in 1..32 {
             // add a leaf that would go after the prior leaf
             let mut path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
-            path[j] = 32;
+            path[i] = 32;
 
-            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-            let (mut node, root_hash) = Trie::read_root(&mut f).unwrap();
-            let mut node_ptr = TriePtr::new(0,0,0);
+            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+        
+            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+            // end of path -- cursor points to the insertion point
+            let mut leaf_data = match node {
+                TrieNodeType::Leaf(ref data) => data.clone(),
+                _ => panic!("not a leaf")
+            };
 
-            for i in 0..c.path.len() {
-                let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                match next_opt {
-                    Some((next_node_ptr, next_node, _next_node_hash)) => {
-                        // keep walking
-                        node = next_node;
-                        node_ptr = next_node_ptr;
-                        continue;
-                    },
-                    None => {
-                        // end of path -- cursor points to the insertion point
-                        let mut leaf_data = match node {
-                            TrieNodeType::Leaf(ref data) => data.clone(),
-                            _ => panic!("not a leaf")
-                        };
+            f.open_block(&block_header, true).unwrap();
+            let ptr = Trie::promote_leaf_to_node4(&mut f, &mut c, &mut leaf_data, &mut TrieLeaf::new(&vec![], &[(i + 128) as u8; 40].to_vec())).unwrap();
+            ptrs.push(ptr);
 
-                        f.open_block(&block_header, true).unwrap();
-                        let ptr = Trie::promote_leaf_to_node4(&mut f, &mut c, &mut leaf_data, &mut TrieLeaf::new(&vec![], &[(i + 128) as u8; 40].to_vec())).unwrap();
-                        ptrs.push(ptr);
+            Trie::update_root_hash(&mut f, &c).unwrap();
 
-                        Trie::update_root_hash(&mut f, &c).unwrap();
+            // make sure we can query it again 
+            let leaf_opt_res = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
+            assert!(leaf_opt_res.is_ok());
+            
+            let leaf_opt = leaf_opt_res.unwrap();
+            assert!(leaf_opt.is_some());
 
-                        // make sure we can query it again 
-                        let leaf_opt_res = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap());
-                        assert!(leaf_opt_res.is_ok());
-                        
-                        let leaf_opt = leaf_opt_res.unwrap();
-                        assert!(leaf_opt.is_some());
-
-                        let leaf = leaf_opt.unwrap();
-                        assert_eq!(leaf, TrieLeaf::new(&path[i+1..].to_vec(), &[(i + 128) as u8; 40].to_vec()));
-                        
-                        merkle_test(&mut f, &path, &[(i + 128) as u8; 40].to_vec());
-                        break;
-                    }
-                }
-            }
+            let leaf = leaf_opt.unwrap();
+            assert_eq!(leaf, TrieLeaf::new(&path[i+1..].to_vec(), &[(i + 128) as u8; 40].to_vec()));
+            
+            merkle_test(&mut f, &path, &[(i + 128) as u8; 40].to_vec());
         }
 
         // look up each leaf we inserted
@@ -1101,26 +1105,12 @@ mod test {
                 let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
                 path[k] = j + 32;
 
-                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-                let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                for i in 0..c.path.len() {
-                    let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                    match next_opt {
-                        Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                            // keep walking
-                            node = next_node;
-                            continue;
-                        },
-                        None => {
-                            // end of path -- cursor points to the insertion point
-                            f.open_block(&block_header, true).unwrap();
-                            Trie::try_attach_leaf(&mut f, &c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
-                            Trie::update_root_hash(&mut f, &c).unwrap();
-                            break;
-                        }
-                    }
-                }
+                f.open_block(&block_header, true).unwrap();
+                Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
+                Trie::update_root_hash(&mut f, &c).unwrap();
 
                 // should have inserted
                 assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
@@ -1141,28 +1131,15 @@ mod test {
             let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             path[k] = 128;
 
-            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-            let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-            for i in 0..c.path.len() {
-                let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                match next_opt {
-                    Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                        // keep walking
-                        node = next_node;
-                        continue;
-                    },
-                    None => {
-                        // end of path -- cursor points to the insertion point
-                        f.open_block(&block_header, true).unwrap();
-                        let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
-                        ptrs.push(new_ptr);
+            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                        Trie::update_root_hash(&mut f, &c).unwrap();
-                        break;
-                    }
-                }
-            }
+            f.open_block(&block_header, true).unwrap();
+            let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
+            ptrs.push(new_ptr);
+
+            Trie::update_root_hash(&mut f, &c).unwrap();
 
             // should have inserted
             assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
@@ -1238,27 +1215,14 @@ mod test {
                 let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
                 path[k] = j + 32;
 
-                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-                let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-                for i in 0..c.path.len() {
-                    let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                    match next_opt {
-                        Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                            // keep walking
-                            node = next_node;
-                            continue;
-                        },
-                        None => {
-                            // end of path -- cursor points to the insertion point
-                            f.open_block(&block_header, true).unwrap();
-                            test_debug!("\n\nk = {}, j = {}, i = {}\n\n", k, j, i);
-                            Trie::try_attach_leaf(&mut f, &c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
-                            Trie::update_root_hash(&mut f, &c).unwrap();
-                            break;
-                        }
-                    }
-                }
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                f.open_block(&block_header, true).unwrap();
+                Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
+
+                Trie::update_root_hash(&mut f, &c).unwrap();
 
                 // should have inserted
                 assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
@@ -1279,28 +1243,15 @@ mod test {
             let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             path[k] = 128;
 
-            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-            let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-            for i in 0..c.path.len() {
-                let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                match next_opt {
-                    Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                        // keep walking
-                        node = next_node;
-                        continue;
-                    },
-                    None => {
-                        // end of path -- cursor points to the insertion point
-                        f.open_block(&block_header, true).unwrap();
-                        let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
-                        ptrs.push(new_ptr);
+            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                        Trie::update_root_hash(&mut f, &c).unwrap();
-                        break;
-                    }
-                }
-            }
+            f.open_block(&block_header, true).unwrap();
+            let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
+            ptrs.push(new_ptr);
+
+            Trie::update_root_hash(&mut f, &c).unwrap();
 
             // should have inserted
             assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
@@ -1328,26 +1279,14 @@ mod test {
                 let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
                 path[k] = j + 40;
 
-                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-                let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-                for i in 0..c.path.len() {
-                    let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                    match next_opt {
-                        Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                            // keep walking
-                            node = next_node;
-                            continue;
-                        },
-                        None => {
-                            // end of path -- cursor points to the insertion point
-                            f.open_block(&block_header, true).unwrap();
-                            Trie::try_attach_leaf(&mut f, &c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
-                            Trie::update_root_hash(&mut f, &c).unwrap();
-                            break;
-                        }
-                    }
-                }
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                f.open_block(&block_header, true).unwrap();
+                Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
+
+                Trie::update_root_hash(&mut f, &c).unwrap();
 
                 // should have inserted
                 assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
@@ -1368,31 +1307,17 @@ mod test {
             let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             path[k] = 129;
 
-            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-            let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-            test_debug!("Start insert at {:?}", &c);
-            for i in 0..c.path.len() {
-                let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                match next_opt {
-                    Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                        // keep walking
-                        node = next_node;
-                        continue;
-                    },
-                    None => {
-                        // end of path -- cursor points to the insertion point
-                        test_debug!("Insert leaf pattern={} at {:?}", 192 + k, &c);
-                        f.open_block(&block_header, true).unwrap();
-                        let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
-                        ptrs.push(new_ptr);
+            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                        Trie::update_root_hash(&mut f, &c).unwrap();
-                        break;
-                    }
-                }
-            }
+            f.open_block(&block_header, true).unwrap();
 
+            let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
+            ptrs.push(new_ptr);
+
+            Trie::update_root_hash(&mut f, &c).unwrap();
+            
             // should have inserted
             assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                        TrieLeaf::new(&path[k+1..].to_vec(), &[192 + k as u8; 40].to_vec()));
@@ -1467,27 +1392,15 @@ mod test {
                 let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
                 path[k] = j + 32;
 
-                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-                let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-                for i in 0..c.path.len() {
-                    let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                    match next_opt {
-                        Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                            // keep walking
-                            node = next_node;
-                            continue;
-                        },
-                        None => {
-                            // end of path -- cursor points to the insertion point
-                            f.open_block(&block_header, true).unwrap();
-                            Trie::try_attach_leaf(&mut f, &c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
-                            Trie::update_root_hash(&mut f, &c).unwrap();
-                            break;
-                        }
-                    }
-                }
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
+                f.open_block(&block_header, true).unwrap();
+                Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
+
+                Trie::update_root_hash(&mut f, &c).unwrap();
+                
                 // should have inserted
                 assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                            TrieLeaf::new(&path[k+1..].to_vec(), &[128 + j as u8; 40].to_vec()));
@@ -1507,28 +1420,15 @@ mod test {
             let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             path[k] = 128;
 
-            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-            let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-            for i in 0..c.path.len() {
-                let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                match next_opt {
-                    Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                        // keep walking
-                        node = next_node;
-                        continue;
-                    },
-                    None => {
-                        // end of path -- cursor points to the insertion point
-                        f.open_block(&block_header, true).unwrap();
-                        let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
-                        ptrs.push(new_ptr);
+            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                        Trie::update_root_hash(&mut f, &c).unwrap();
-                        break;
-                    }
-                }
-            }
+            f.open_block(&block_header, true).unwrap();
+            let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
+            ptrs.push(new_ptr);
+
+            Trie::update_root_hash(&mut f, &c).unwrap();
 
             // should have inserted
             assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
@@ -1556,27 +1456,14 @@ mod test {
                 let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
                 path[k] = j + 40;
 
-                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-                let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-                for i in 0..c.path.len() {
-                    let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                    match next_opt {
-                        Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                            // keep walking
-                            node = next_node;
-                            continue;
-                        },
-                        None => {
-                            // end of path -- cursor points to the insertion point
-                            f.open_block(&block_header, true).unwrap();
-                            Trie::try_attach_leaf(&mut f, &c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
-                            Trie::update_root_hash(&mut f, &c).unwrap();
-                            break;
-                        }
-                    }
-                }
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
+                f.open_block(&block_header, true).unwrap();
+                Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
+                Trie::update_root_hash(&mut f, &c).unwrap();
+                
                 // should have inserted
                 assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                            TrieLeaf::new(&path[k+1..].to_vec(), &[128 + j as u8; 40].to_vec()));
@@ -1596,30 +1483,15 @@ mod test {
             let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             path[k] = 129;
 
-            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-            let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-            test_debug!("Start insert at {:?}", &c);
-            for i in 0..c.path.len() {
-                let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                match next_opt {
-                    Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                        // keep walking
-                        node = next_node;
-                        continue;
-                    },
-                    None => {
-                        // end of path -- cursor points to the insertion point
-                        test_debug!("Insert leaf pattern={} at {:?}", 192 + k, &c);
-                        f.open_block(&block_header, true).unwrap();
-                        let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
-                        ptrs.push(new_ptr);
+            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                        Trie::update_root_hash(&mut f, &c).unwrap();
-                        break;
-                    }
-                }
-            }
+            f.open_block(&block_header, true).unwrap();
+            let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
+            ptrs.push(new_ptr);
+
+            Trie::update_root_hash(&mut f, &c).unwrap();
 
             // should have inserted
             assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
@@ -1647,26 +1519,14 @@ mod test {
                 let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
                 path[k] = j + 90;
 
-                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-                let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
-                for i in 0..c.path.len() {
-                    let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                    match next_opt {
-                        Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                            // keep walking
-                            node = next_node;
-                            continue;
-                        },
-                        None => {
-                            // end of path -- cursor points to the insertion point
-                            f.open_block(&block_header, true).unwrap();
-                            Trie::try_attach_leaf(&mut f, &c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
-                            Trie::update_root_hash(&mut f, &c).unwrap();
-                            break;
-                        }
-                    }
-                }
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
+
+                f.open_block(&block_header, true).unwrap();
+                Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
+
+                Trie::update_root_hash(&mut f, &c).unwrap();
 
                 // should have inserted
                 assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
@@ -1687,30 +1547,15 @@ mod test {
             let mut path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             path[k] = 130;
 
-            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-            let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+            let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
+            
+            let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-            test_debug!("Start insert at {:?}", &c);
-            for i in 0..c.path.len() {
-                let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                match next_opt {
-                    Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                        // keep walking
-                        node = next_node;
-                        continue;
-                    },
-                    None => {
-                        // end of path -- cursor points to the insertion point
-                        test_debug!("Insert leaf pattern={} at {:?}", 192 + k, &c);
-                        f.open_block(&block_header, true).unwrap();
-                        let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
-                        ptrs.push(new_ptr);
+            f.open_block(&block_header, true).unwrap();
+            let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
+            ptrs.push(new_ptr);
 
-                        Trie::update_root_hash(&mut f, &c).unwrap();
-                        break;
-                    }
-                }
-            }
+            Trie::update_root_hash(&mut f, &c).unwrap();
 
             // should have inserted
             assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
@@ -1761,31 +1606,18 @@ mod test {
                 let mut path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
                 path[5*k + 2] = 32;
 
-                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-                let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
                 test_debug!("Start splice-insert at {:?}", &c);
-                for i in 0..c.path.len() {
-                    let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                    match next_opt {
-                        Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                            // keep walking
-                            node = next_node;
-                            continue;
-                        },
-                        None => {
-                            // end of path -- cursor points to the insertion point
-                            test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
-                            f.open_block(&block_header, true).unwrap();
-                            let new_ptr = Trie::splice_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
-                            ptrs.push(new_ptr);
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                            Trie::update_root_hash(&mut f, &c).unwrap();
-                            break;
-                        }
-                    }
-                }
+                test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
+                f.open_block(&block_header, true).unwrap();
+                let new_ptr = Trie::splice_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
+                ptrs.push(new_ptr);
 
+                Trie::update_root_hash(&mut f, &c).unwrap();
+                
                 // should have inserted
                 assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
                            TrieLeaf::new(&path[5*k+3..].to_vec(), &[192 + k as u8; 40].to_vec()));
@@ -1827,30 +1659,17 @@ mod test {
                 let mut path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
                 path[3*k + 1] = 32;
 
-                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_ptr());
-                let (mut node, hash) = Trie::read_root(&mut f).unwrap();
+                let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
 
                 test_debug!("Start splice-insert at {:?}", &c);
-                for i in 0..c.path.len() {
-                    let next_opt = Trie::walk_from(&mut f, &node, &mut c).unwrap();
-                    match next_opt {
-                        Some((_next_node_ptr, next_node, _next_node_hash)) => {
-                            // keep walking
-                            node = next_node;
-                            continue;
-                        },
-                        None => {
-                            // end of path -- cursor points to the insertion point
-                            test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
-                            f.open_block(&block_header, true).unwrap();
-                            let new_ptr = Trie::splice_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
-                            ptrs.push(new_ptr);
+                let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                            Trie::update_root_hash(&mut f, &c).unwrap();
-                            break;
-                        }
-                    }
-                }
+                test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
+                f.open_block(&block_header, true).unwrap();
+                let new_ptr = Trie::splice_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
+                ptrs.push(new_ptr);
+
+                Trie::update_root_hash(&mut f, &c).unwrap();
 
                 // should have inserted
                 assert_eq!(MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap(),
