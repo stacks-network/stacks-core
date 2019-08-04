@@ -26,6 +26,8 @@ use std::io::{
     Read,
     Write,
     Seek,
+    SeekFrom,
+    ErrorKind
 };
 
 use sha2::Sha512Trunc256 as TrieHasher;
@@ -87,7 +89,15 @@ pub fn path_to_bytes(p: &Vec<u8>, buf: &mut Vec<u8>) -> () {
 pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
     let mut lenbuf = [0u8; 1];
     r.read_exact(&mut lenbuf)
-        .map_err(|e| Error::IOError(e))?;
+        .map_err(|e| {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                Error::CorruptionError("Failed to read len buf".to_string())
+            }
+            else {
+                eprintln!("failed: {:?}", &e);
+                Error::IOError(e)
+            }
+        })?;
     
     if lenbuf[0] as usize > TRIEPATH_MAX_LEN {
         trace!("Path length is {} (expected <= {})", lenbuf[0], TRIEPATH_MAX_LEN);
@@ -96,7 +106,15 @@ pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
 
     let mut retbuf = vec![0; lenbuf[0] as usize];
     r.read_exact(&mut retbuf)
-        .map_err(|e| Error::IEOrror(e))?;
+        .map_err(|e| {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                Error::CorruptionError(format!("Failed to read {} bytes of path", lenbuf[0]))
+            }
+            else {
+                eprintln!("failed: {:?}", &e);
+                Error::IOError(e)
+            }
+        })?;
     
     Ok(retbuf)
 }
@@ -174,7 +192,15 @@ pub fn ptrs_from_bytes<R: Read>(node_id: u8, r: &mut R, ptrs_buf: &mut [TriePtr]
 
     let mut idbuf = [0u8; 1];
     r.read_exact(&mut idbuf)
-        .map_err(|e| Error::IOError(e))?;
+        .map_err(|e| {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                Error::CorruptionError("Failed to read ptrs buf length".to_string())
+            }
+            else {
+                eprintln!("failed: {:?}", &e);
+                Error::IOError(e)
+            }
+        })?;
     
     let nid = idbuf[0];
 
@@ -186,7 +212,15 @@ pub fn ptrs_from_bytes<R: Read>(node_id: u8, r: &mut R, ptrs_buf: &mut [TriePtr]
     let num_ptrs = node_id_to_ptr_count(node_id);
     let mut bytes = vec![0u8; num_ptrs * TRIEPTR_SIZE];
     r.read_exact(&mut bytes)
-        .map_err(|e| Error::IOError(e))?;
+        .map_err(|e| {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                Error::CorruptionError(format!("Failed to read {} bytes of ptrs", num_ptrs * TRIEPTR_SIZE))
+            }
+            else {
+                eprintln!("failed: {:?}", &e);
+                Error::IOError(e)
+            }
+        })?;
     
     // not a for-loop because "for i in 0..num_ptrs" is noticeably slow
     let mut i = 0;
@@ -280,7 +314,15 @@ pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<u8>) 
 pub fn read_hash_bytes<F: Read + Seek>(f: &mut F, buf: &mut Vec<u8>) -> Result<(), Error> {
     let mut hashbytes = [0u8; 32];
     f.read_exact(&mut hashbytes)
-        .map_err(Error::IOError)?;
+        .map_err(|e| {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                Error::CorruptionError(format!("Failed to read hash in full from {}", f.seek(SeekFrom::Current(0)).unwrap()))
+            }
+            else {
+                eprintln!("failed: {:?}", &e);
+                Error::IOError(e)
+            }
+        })?;
     
     fast_extend_from_slice(buf, &hashbytes);
     Ok(())
@@ -295,7 +337,7 @@ pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr, buf: &mut 
 
 /// Read the root hash from a TrieFileStorage instance
 pub fn read_root_hash(s: &mut TrieFileStorage) -> Result<TrieHash, Error> {
-    let ptr = TriePtr::new(TrieNodeID::Node256, 0, s.root_ptr() as u32);
+    let ptr = s.root_trieptr();
     let mut hash_bytes = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
     s.read_node_hash_bytes(&ptr, &mut hash_bytes)?;
 
@@ -403,4 +445,6 @@ pub fn write_nodetype_bytes<F: Write + Seek>(f: &mut F, node: &TrieNodeType, has
 
     f.write_all(&bytes[..])
         .map_err(|e| Error::IOError(e))?;
+
+    Ok(bytes.len())
 }
