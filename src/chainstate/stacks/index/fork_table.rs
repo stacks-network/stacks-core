@@ -44,11 +44,6 @@ use chainstate::stacks::index::node::{
     TrieLeaf
 };
 
-use chainstate::stacks::index::storage::{
-    read_all,
-    write_all,
-}; 
-
 use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
