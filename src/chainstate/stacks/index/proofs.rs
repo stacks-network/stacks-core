@@ -68,6 +68,7 @@ use chainstate::stacks::index::node::{
     TrieNode256,
     TrieLeaf,
     TrieCursor,
+    CursorError,
     TrieNodeID,
     TriePtr,
     TriePath
@@ -244,6 +245,20 @@ impl TrieMerkleProof {
         Ok(proof_node)
     }
 
+    /// Make the initial shunt proof in a MARF merkle proof, for a node that isn't a backptr.
+    /// This is a one-item list of a TrieMerkleProofType::Shunt proof entry.
+    /// The storage handle must be opened to the block we care about.
+    fn make_initial_shunt_proof(storage: &mut TrieFileStorage) -> Result<Vec<TrieMerkleProofType>, Error> {
+        let mut backptr_ancestor_hash_buf = Vec::with_capacity(TRIEHASH_ENCODED_SIZE * 256);
+        Trie::get_trie_ancestor_hashes_bytes(storage, &mut backptr_ancestor_hash_buf)?;
+        
+        let backptr_ancestor_hashes = hash_buf_to_trie_hashes(&backptr_ancestor_hash_buf);
+        trace!("First shunt proof node: (0, {:?})", &backptr_ancestor_hashes);
+
+        let backptr_proof = TrieMerkleProofType::Shunt((0, backptr_ancestor_hashes));
+        Ok(vec![backptr_proof])
+    }
+
     /// Given a node's (non-backptr) ptr, and the node's backptr, make a shunt proof that links
     /// them.  That is, make a proof that the current trie's root node hash and ptr are only reachable from the
     /// corresponding non-backptr root in this trie's ${ptr.back_block()}th ancestor back.
@@ -260,9 +275,10 @@ impl TrieMerkleProof {
     ///
     /// All intermediate shunt proofs will contain all ancestor hashes for each node in-between the
     /// backptr and the non-backptr node.  The intermediate root hashes will be calculated by the verifier.
-    fn make_shunt_proof(storage: &mut TrieFileStorage, backptr: &TriePtr) -> Result<Vec<TrieMerkleProofType>, Error> {
+    fn make_backptr_shunt_proof(storage: &mut TrieFileStorage, backptr: &TriePtr) -> Result<Vec<TrieMerkleProofType>, Error> {
         // the proof is built "backwards" -- starting from the current block all the way back to backptr.
-        // Note that it is okay if backptr is not an actual backptr
+        assert!(is_backptr(backptr.id()));
+
         let mut proof = vec![];
         
         let mut back_block = backptr.back_block();
@@ -320,7 +336,7 @@ impl TrieMerkleProof {
             // need the target node's root trie ptr, unless this is the first proof (in which case
             // it's a junction proof)
             if proof.len() > 0 {
-                let root_ptr = TriePtr::new(TrieNodeID::Node256, 0, storage.root_ptr() as u32);
+                let root_ptr = storage.root_trieptr();
                 let (root_node, _) = storage.read_nodetype(&root_ptr)?;
 
                 let root_hash = 
@@ -354,20 +370,6 @@ impl TrieMerkleProof {
         }
 
         storage.open_block(&block_header, false)?;
-
-        if proof.len() == 0 {
-            // first entry in the shunt proof -- all ancestors of backptr, but not the non-backptr trie root
-            let mut backptr_ancestor_hash_buf = Vec::with_capacity(TRIEHASH_ENCODED_SIZE * 256);
-            Trie::get_trie_ancestor_hashes_bytes(storage, &mut backptr_ancestor_hash_buf)?;
-            
-            let backptr_ancestor_hashes = hash_buf_to_trie_hashes(&backptr_ancestor_hash_buf);
-            trace!("First shunt proof node: (0, {:?})", &backptr_ancestor_hashes);
-
-            let backptr_proof = TrieMerkleProofType::Shunt((0, backptr_ancestor_hashes));
-            
-            proof.push(backptr_proof);
-        }
-
         proof.reverse();
 
         // put the proof in the right order. we're done!
@@ -528,7 +530,7 @@ impl TrieMerkleProof {
         trace!("make_segment_proof: ptrs = {:?}", &ptrs);
 
         assert!(ptrs.len() > 0);
-        assert_eq!(ptrs[0], TriePtr::new(TrieNodeID::Node256, 0, storage.root_ptr() as u32));
+        assert_eq!(ptrs[0], storage.root_trieptr());
         for i in 1..ptrs.len() {
             assert!(!is_backptr(ptrs[i].id()));
         }
@@ -985,55 +987,46 @@ impl TrieMerkleProof {
     fn walk_to_leaf_or_backptr(storage: &mut TrieFileStorage, path: &TriePath) -> Result<(TrieCursor, TrieNodeType, TriePtr), Error> {
         trace!("Walk path {:?} from {:?} to the first backptr", path, &storage.get_cur_block());
         
-        let mut node_ptr = TriePtr::new(TrieNodeID::Node256, 0, storage.root_ptr() as u32);
+        let mut node_ptr = storage.root_trieptr();
         let (mut node, _) = Trie::read_root(storage)?;
-        let mut cursor = TrieCursor::new(path, storage.root_ptr());
+        let mut cursor = TrieCursor::new(path, storage.root_trieptr());
 
         for _ in 0..(cursor.path.len()+1) {
-            let next_opt = Trie::walk_from(storage, &node, &mut cursor)?;
-            match next_opt {
-                Some((next_node_ptr, next_node, _)) => {
-                    // keep walking
-                    node = next_node;
-                    node_ptr = next_node_ptr;
-                    continue;
-                },
-                None => {
-                    if cursor.div() {
-                        // we're done -- path diverged.  No backptr-walking can help us.
-                        trace!("Path diverged -- we're done.");
-                        return Err(Error::NotFoundError);
-                    }
-                    else {
-                        // we're not done with this path.  Either no node exists, or it exists off
-                        // of a prior version of the last-visited node.
-                        let chr = cursor.chr().unwrap();     // guaranteed to succeed since we walked some path.
-                        if node.is_leaf() {
-                            // we're out of path
-                            if !cursor.eop() {
-                                // at an existing leaf with a different path.
-                                // we're done.
-                                trace!("Existing but different leaf encountered at {:?} at {:?} -- we're done", &node_ptr, storage.get_cur_block());
-                                return Err(Error::NotFoundError);
-                            }
-                            else {
-                                // we're done -- we found the leaf
-                                trace!("Found leaf {:?}", &node);
-                                return Ok((cursor, node, node_ptr));
-                            }
+            match Trie::walk_from(storage, &node, &mut cursor) {
+                Ok(node_info_opt) => {
+                    match node_info_opt {
+                        Some((next_node_ptr, next_node, _)) => {
+                            // end-of-node-path.
+                            // keep walking.
+                            node = next_node;
+                            node_ptr = next_node_ptr;
+                            continue;
+                        },
+                        None => {
+                            // end of path.
+                            trace!("Found leaf {:?}", &node);
+                            return Ok((cursor, node, node_ptr));
                         }
-                        else {
-                            let ptr_opt = node.walk(chr);
-                            match ptr_opt {
-                                None => {
-                                    // not found
-                                    trace!("Failed to walk to '{}' from {:?}", chr, &node);
-                                    return Err(Error::NotFoundError)
+                    }
+                },
+                Err(e) => {
+                    match e {
+                        Error::CursorError(cursor_error) => {
+                            match cursor_error {
+                                CursorError::PathDiverged => {
+                                    // we're done -- path diverged.  No backptr-walking can help us.
+                                    trace!("Path diverged -- we're done.");
+                                    return Err(Error::NotFoundError);
                                 },
-                                Some(ptr) => {
+                                CursorError::ChrNotFound => {
+                                    // node isn't present
+                                    trace!("Failed to walk from {:?}", &node);
+                                    return Err(Error::NotFoundError);
+                                },
+                                CursorError::BackptrEncountered(ptr) => {
                                     // expect backptr
                                     if !is_backptr(ptr.id()) {
-                                        return Err(Error::CorruptionError(format!("Failed to walk 0x{:02x} -- got non-backptr", chr)))
+                                        return Err(Error::CorruptionError(format!("Failed to walk 0x{:02x} -- got non-backptr", ptr.chr())))
                                     }
 
                                     // we're done -- we found a backptr
@@ -1041,12 +1034,16 @@ impl TrieMerkleProof {
                                     return Ok((cursor, node, ptr));
                                 }
                             }
+                        },
+                        _ => {
+                            // some other error (e.g. I/O error)
+                            return Err(e);
                         }
                     }
                 }
             }
         }
-        
+
         trace!("Trie has a cycle");
         return Err(Error::CorruptionError("Trie has a cycle".to_string()));
     }
@@ -1073,8 +1070,17 @@ impl TrieMerkleProof {
 
             // make a shunt proof to this segment proof's root
             trace!("Make shunt proof {:?} back to the block containing {:?} (cursor ptrs = {:?})", &storage.get_cur_block(), &backptr, &cursor.node_ptrs);
-            let shunt_proof = TrieMerkleProof::make_shunt_proof(storage, &backptr)?;
-            shunt_proofs.push(shunt_proof);
+
+            if is_backptr(backptr.id()) {
+                // make the shunt proof connecting this block to the next block we'll visit.
+                let shunt_proof = TrieMerkleProof::make_backptr_shunt_proof(storage, &backptr)?;
+                shunt_proofs.push(shunt_proof);
+            }
+            else {
+                // make the shunt proof for the block that contains the non-backptr of this leaf.
+                let first_shunt_proof = TrieMerkleProof::make_initial_shunt_proof(storage)?;
+                shunt_proofs.push(first_shunt_proof);
+            }
 
             if cursor.ptr().id() == TrieNodeID::Leaf {
                 match reached_node {
