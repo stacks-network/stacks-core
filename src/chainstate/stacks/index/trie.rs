@@ -326,9 +326,7 @@ impl Trie {
         assert!(node4.insert(&cur_leaf_new_ptr));
         assert!(node4.insert(&new_leaf_ptr));
 
-        // NOTE: per cursor.repair_retarget(), the update_root_hash() method will calculate this node's
-        // hash, so there's no need to do it here.
-        let node4_hash = TrieHash::from_empty_data();
+        let node4_hash = get_nodetype_hash(&node4, &vec![cur_leaf_hash, new_leaf_hash, TrieHash::from_data(&[]), TrieHash::from_data(&[])]);
 
         // append the node4 to the end of the trie
         let node4_disk_ptr = storage.last_ptr()?;
@@ -516,9 +514,7 @@ impl Trie {
         new_node4.insert(&leaf_ptr);
         new_node4.insert(&new_cur_node_ptr);
 
-        // NOTE: per cursor.repair_retarget(), the update_root_hash() method will re-calculate the hash
-        // for this node, so there's no need to do so here.
-        let new_node_hash = TrieHash::from_empty_data();
+        let new_node_hash = get_node_hash(&new_node4, &vec![leaf_hash, new_cur_node_hash, TrieHash::from_data(&[]), TrieHash::from_data(&[])]);
         let (new_node_id, new_node) = 
             if cursor.node_ptrs.len() == 1 {
                 // we just split the compressed path in the root node,
