@@ -3,7 +3,7 @@ use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 
 use super::AnalysisDatabase;
-pub use super::errors::{CheckResult, CheckError, CheckErrors};
+use super::errors::{CheckResult};
 
 #[cfg(test)]
 mod tests;
@@ -15,16 +15,12 @@ struct Graph <'a> {
 
 impl <'a>Graph <'a> {
     fn new() -> Graph <'a> {
-        Graph {
-            top_level_expressions: Vec::new(),
-            adjacency_list: Vec::new()
-        }
+        Graph { top_level_expressions: Vec::new(), adjacency_list: Vec::new() }
     }
 
     fn push_top_level_expression(&mut self, expr: &'a SymbolicExpression) -> CheckResult<()> {
         self.top_level_expressions.push(expr);
-        let empty_list = vec![];
-        self.adjacency_list.push(empty_list);
+        self.adjacency_list.push(vec![]);
         Ok(())
     }
 
@@ -36,44 +32,37 @@ impl <'a>Graph <'a> {
 }
 
 struct GraphWalker {
-    seen: HashSet<usize>
+    seen: HashSet<usize>,
+    tainted: HashSet<usize>,
 }
 
 impl GraphWalker  {
 
-    fn get_desired_eval_order(graph: &Graph) -> CheckResult<Vec<usize>> {
+    fn get_required_eval_order(graph: &Graph) -> CheckResult<Vec<usize>> {
         let mut walker =  GraphWalker {
-            seen: HashSet::new()
+            seen: HashSet::new(),
+            tainted: HashSet::new(),
         };
-        let mut desired_state = Vec::<usize>::new();
+        let mut required_eval_order = Vec::<usize>::new();
 
         for expr_index in 0..graph.top_level_expressions.len() {
-            let res = walker.ordered_dependencies_recursion(expr_index, graph, &mut desired_state);
-            if res.is_err() {
-                continue;
-            }
+            walker.ordered_dependencies_recursion(expr_index, graph, &mut required_eval_order);
         }
-
-        Ok(desired_state)
+        Ok(required_eval_order)
     }
 
-    fn ordered_dependencies_recursion(&mut self, tle_index: usize, graph: &Graph, branch: &mut Vec<usize>) -> CheckResult<usize> {
+    fn ordered_dependencies_recursion(&mut self, tle_index: usize, graph: &Graph, branch: &mut Vec<usize>) {
         if self.seen.contains(&tle_index) {
-            return Err(CheckError::new(CheckErrors::NotImplemented))
+            return
         }
-        self.seen.insert(tle_index);
 
+        self.seen.insert(tle_index);
         if let Some(list) = graph.adjacency_list.get(tle_index) {
             for neighbor in list.iter() {
-                let res = self.ordered_dependencies_recursion(neighbor.clone(), graph, branch);
-                if res.is_err() {
-                    continue;
-                }
+                self.ordered_dependencies_recursion(neighbor.clone(), graph, branch);
             }
         }
-
         branch.push(tle_index);
-        Ok(tle_index)
     }
 }
 
@@ -113,7 +102,7 @@ impl <'a, 'b> TopLevelExpressionSorter <'a, 'b> {
                 checker.register_dependencies(expr, index)?;
             }
 
-            let indexes = GraphWalker::get_desired_eval_order(&checker.graph)?;
+            let indexes = GraphWalker::get_required_eval_order(&checker.graph)?;
             permuted_tle_indexes = indexes.clone();
         }
 
@@ -129,9 +118,7 @@ impl <'a, 'b> TopLevelExpressionSorter <'a, 'b> {
 
     fn register_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<bool> {
         match expr.expr {
-            AtomValue(_) => {
-                Ok(true)
-            },
+            AtomValue(_) => Ok(true),
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions.get(&name.clone()) {
                     if dep.atom_index != expr.id {
@@ -159,17 +146,14 @@ impl <'a, 'b> TopLevelExpressionSorter <'a, 'b> {
                         match definition_type.as_str() {
                             "define-map" | "define-data-var" | "define" | "define-public" | "define-read-only" => {
                                 if function_args.len() > 1 {
-                                    if let Some(list) = function_args[0].match_list() {
-                                        if let Some(tle_name) = list[0].match_atom() {
-                                            let tle = TopLevelSymbolicExpression {exp, index, atom_index: list[0].id };
-                                            tle_map.insert(tle_name.clone(), tle);
-                                        }   
-                                    } else {
-                                        if let Some(tle_name) = function_args[0].match_atom() {
-                                            let tle = TopLevelSymbolicExpression {exp, index, atom_index: function_args[0].id};
-                                            tle_map.insert(tle_name.clone(), tle);
-                                        }   
-                                    }
+                                    let define_expr = match function_args[0].match_list() {
+                                        Some(list) => &list[0],
+                                        _ => &function_args[0]
+                                    };
+                                    if let Some(tle_name) = define_expr.match_atom() {
+                                        let tle = TopLevelSymbolicExpression {exp, index, atom_index: define_expr.id };
+                                        tle_map.insert(tle_name.clone(), tle);
+                                    }   
                                 }
                             }
                             _ => {}
