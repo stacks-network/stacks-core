@@ -34,9 +34,10 @@ applied the block's transactions to the peer's state correctly.
 The MARF represents blockchain state as an authenticated directory.  State is
 represented as key/value pairs.  The MARF structure gives a peer the ability to
 prove to a light client that a particular key has a particular value, given the
-MARF's cryptographic hash.  The proof has _O(log n)_ space for _n_ keys, and
-takes _O(log n)_ time complexity to produce and verify.  The MARF proof allows a
-light client to determine:
+MARF's cryptographic hash.  The proof has _O(log B)_ space for _B_ blocks, and
+takes _O(log B)_ time complexity to produce and verify.  In addition, it offers
+_O(1)_ expected time and space complexity for inserts and queries.
+The MARF proof allows a light client to determine:
 
 * What the value of a particular key is,
 * How much cumulative energy has been spent to produce the key/value pair,
