@@ -116,6 +116,8 @@ fn test_bad_asset_usage() {
                        "(ft-transfer! stackaroos 2 100 tx-sender)",
                        "(ft-transfer! stackaroos 'true tx-sender tx-sender)",
                        "(ft-transfer! stackaroos 2 tx-sender 100)",
+                       "(define-fungible-token stackaroos 'true)",
+                       "(define-non-fungible-token stackaroos integer)",
     ];
 
     let expected = [
@@ -159,6 +161,9 @@ fn test_bad_asset_usage() {
                                AtomTypeIdentifier::BoolType.into()),
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
+        CheckErrors::TypeError(AtomTypeIdentifier::IntType.into(),
+                               AtomTypeIdentifier::BoolType.into()),
+        CheckErrors::DefineAssetBadSignature.into(),
     ];
 
     let mut analysis_conn = AnalysisDatabaseConnection::memory();

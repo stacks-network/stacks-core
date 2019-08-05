@@ -250,6 +250,9 @@ fn test_simple_token_system() {
 
 #[test]
 fn total_supply() {
+    let bad_0 = "(define-fungible-token stackaroos (- 5))";
+    let bad_1 = "(define-fungible-token stackaroos 'true)";
+
     let contract = "(define-fungible-token stackaroos 5)
          (define-read-only (get-balance (account principal))
             (ft-get-balance stackaroos account))
@@ -269,6 +272,24 @@ fn total_supply() {
     };
 
     let mut conn = ContractDatabaseConnection::memory().unwrap();
+
+    {
+        let owned_env = OwnedEnvironment::new(&mut conn);
+        let err = owned_env.initialize_contract("tokens", bad_0).unwrap_err();
+        assert!( match err {
+            Error::Runtime(RuntimeErrorType::NonPositiveTokenSupply, _) => true,
+            _ => false
+        });
+    }
+
+    {
+        let owned_env = OwnedEnvironment::new(&mut conn);
+        let err = owned_env.initialize_contract("tokens", bad_1).unwrap_err();
+        assert!( match err {
+            Error::Unchecked(UncheckedError::TypeError(_, _)) => true,
+            _ => false
+        });
+    }
 
     {
         let owned_env = OwnedEnvironment::new(&mut conn);
