@@ -589,7 +589,7 @@ listed here.  If a miner is willing to accept
 the asset as payment, then the paying account is debited the fee and the
 transaction is processed.
 
-(UNDER CONSIDERATIN) If the paying account is a contract account, and the transaction fee is either
+(UNDER CONSIDERATION) If the paying account is a contract account, and the transaction fee is either
 not in STX or has a transaction fee that is higher than the contract's
 advertized fee, then the transaction is considered invalid and is dropped from
 consideration.
@@ -706,7 +706,7 @@ Each microblock contains the following information:
    * A **version number** to describe how to validate the block.
    * A **sequence number** as a hint to describe how to order a set of
      microblocks.
-   * A **parent microblock hash**, which is the hash of the previous microblock
+   * A **parent microblock hash**, which is the hash of the previous signed microblock
      in this stream.
    * A **transaction Merkle root**, the root hash of a binary Merkle tree
      calculated over this block's sequence of transactions.
@@ -966,15 +966,17 @@ netstring length.  The following characters are used for Clarity types:
 * `i` for integer, which will be encoded as an ASCII string of numbers
 * `s` for buffer, which will be encoded as a lower-case hexadecimal string
 * `b` for boolean, which encodes to `1` for "true" or `0` for "false" 
-* `p` for principal, which will be encoded as a upper-case c32check string
+* `p` for standard principal, which will be encoded as an upper-case c32check string
+* `c` for contract principal, which will be encoded as an upper-case c32check string
 * `n` for a Clarity item name.  All Clarity items are encoded in ASCII already,
   so converting them to a hex string is unnecessary.  In particular, this encoding is used for
 tuple names and asset names.
 * `t` for tuple.  Each item name is encoded as `n${len(name)}:${name},` followed
   by its encoded value.  The name and value are in turn encoded as `t${total-len}:n${len(name)}:${name},${value_type}${len(value)}:${value},,`
 * `o` for option.
-   * `some x` is encoded as `o${len(x) + 4}:s${x_type}${encode(x)},`.
-   * `none` is encoded as `o5:n${x_type}0:,,`
+   * `some x` is encoded as `o${len(x) + 4}:${x_type}${encode(x)},`.
+   * `none` is encoded as `o4:v0:,,`
+* `v` is a void type, used for `none` options.
 * `r` for result.
    * `ok x` is encoded as `r${len(x) + 3}:o${x_type}${encode(x)},`
    * `err x` is encoded as `r${len(x) + 3}:e${x_type}${encode(x)},`
@@ -990,9 +992,9 @@ For example:
 * The principal `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q` encodes to
   `"p41:SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q,"`
 * The tuple `(word "hello")` encodes to `"t23:n4:word,s10:68656c6c6f,,"`
-* The list `(1 2 34 567)` encodes to `"l23:i1:1,i1:2,i2:34,i4:567,,"`
-* The option `(some 3)` encodes to `"o6:si1:3,,"`
-* The option `(none)` for integers encodes to `"o5:ni0:,,"`
+* The list `(list 1 2 34 567)` encodes to `"l23:i1:1,i1:2,i2:34,i3:567,,"`
+* The option `(some 3)` encodes to `"o5:i1:3,,"`
+* The option `none` for integers encodes to `"o4:v0:,,"`
 * The result `(ok 'true)` encodes to `"r6:ob1:1,,"`
 * The result `(err 123)` encodes to `"r8:ei3:123,,"`
 
