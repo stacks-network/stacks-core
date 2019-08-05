@@ -765,6 +765,10 @@ This endpoint is used to get the price of a namespace, while explicitly
 indicating the cryptocurrency units.  This is because going forward, namespaces
 are not necessarily priced in Bitcoin.
 
+The `amount` given will be in the smallest possible units of the currency.  For
+`BTC`, the `amount` will be in satoshis.  For `STACKS`, the `amount` will be in
+micro-Stacks.
+
 + Public Endpoint
 + Parameters
   + tld: id (string) - namespace to query price for
@@ -810,6 +814,10 @@ are not necessarily priced in Bitcoin.
 
 This endpoint is used to get the price of a name, denoted in a specific
 cryptocurrency (not necessarily Bitcoin).
+
+The `amount` given will be in the smallest possible units of the currency.  For
+`BTC`, the `amount` will be in satoshis.  For `STACKS`, the `amount` will be in
+micro-Stacks (1/1,000,000th of a Stack).
 
 + Public Endpoint
 + Parameters
