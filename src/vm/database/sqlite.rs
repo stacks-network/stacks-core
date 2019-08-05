@@ -225,6 +225,17 @@ impl <'a> ContractDatabase <'a> {
             .expect(SQL_FAIL_MESSAGE)
     }
 
+    fn key_value_insert(&mut self, data_type: DataType, data_store_identifier: &ToSql, key: &ToSql, value: &ToSql) -> usize {
+        let params: [&ToSql; 4] = [&(data_type as u8),
+                                   data_store_identifier,
+                                   key,
+                                   value];
+
+        self.execute(
+            "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
+            &params)
+    }
+
     fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> Option<T>
     where
         P: IntoIterator,
@@ -305,14 +316,8 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(format!("{:?}", variable_descriptor.value_type), value).into())
         }
 
-        let params: [&ToSql; 4] = [&(DataType::VARIABLE as u8),
-                                   &variable_descriptor.variable_identifier,
-                                   &value.serialize(),
-                                   &DUMMY_KEY];
-
-        self.execute(
-            "INSERT INTO data_table (data_type, data_store_identifier, value, key) VALUES (?, ?, ?, ?)",
-            &params);
+        self.key_value_insert(DataType::VARIABLE, &variable_descriptor.variable_identifier,
+                              &DUMMY_KEY, &value.serialize());
 
         return Ok(Value::Bool(true))
     }
@@ -370,14 +375,8 @@ impl <'a> ContractDatabase <'a> {
             let descriptor = self.load_token(contract_name, token_name)
                 .expect("ERROR: VM failed to initialize token correctly.");
 
-            let params: [&ToSql; 4] = [&(DataType::TOKEN_SUPPLY as u8),
-                                       &descriptor.token_identifier,
-                                       &DUMMY_KEY,
-                                       &(0 as i128)];
-
-            self.execute(
-                "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
-                &params);
+            self.key_value_insert(DataType::TOKEN_SUPPLY, &descriptor.token_identifier,
+                                  &DUMMY_KEY, &(0 as i128));
         }
     }
 
@@ -403,13 +402,8 @@ impl <'a> ContractDatabase <'a> {
             if new_supply > total_supply {
                 Err(RuntimeErrorType::SupplyOverflow(new_supply, total_supply).into())
             } else {
-                let params: [&ToSql; 4] = [&(DataType::TOKEN_SUPPLY as u8),
-                                           &descriptor.token_identifier,
-                                           &DUMMY_KEY,
-                                           &new_supply];
-                self.execute(
-                    "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
-                    &params);
+                self.key_value_insert(DataType::TOKEN_SUPPLY, &descriptor.token_identifier,
+                                      &DUMMY_KEY, &new_supply);
                 Ok(())
             }
         } else {
@@ -421,14 +415,8 @@ impl <'a> ContractDatabase <'a> {
     pub fn get_token_balance(&mut self, contract_name: &str, token_name: &str, principal: &PrincipalData) -> Result<i128> {
         let descriptor = self.load_token(contract_name, token_name)?;
 
-        let params: [&ToSql; 3] = [&(DataType::TOKEN as u8),
-                                   &descriptor.token_identifier,
-                                   &principal.serialize()];
-        let sql_result: Option<i128> = 
-            self.query_row(
-                "SELECT value FROM data_table WHERE data_type = ? AND data_store_identifier = ? AND key = ? ORDER BY data_identifier DESC LIMIT 1",
-                &params,
-                |row| row.get(0));
+        let sql_result: Option<i128> =
+            self.key_value_lookup(DataType::TOKEN, &descriptor.token_identifier, &principal.serialize());
         match sql_result {
             None => Ok(0),
             Some(balance) => Ok(balance)
@@ -441,13 +429,8 @@ impl <'a> ContractDatabase <'a> {
         }
         let descriptor = self.load_token(contract_name, token_name)?;
 
-        let params: [&ToSql; 4] = [&(DataType::TOKEN as u8),
-                                   &descriptor.token_identifier,
-                                   &principal.serialize(),
-                                   &balance];
-        self.execute(
-            "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
-            &params);
+        self.key_value_insert(DataType::TOKEN, &descriptor.token_identifier,
+                              &principal.serialize(), &balance);
 
         Ok(())
     }
@@ -464,13 +447,8 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(descriptor.key_type.to_string(), (*asset).clone()).into())
         }
 
-        let params: [&ToSql; 4] = [&(DataType::ASSET as u8),
-                                   &descriptor.asset_identifier,
-                                   &asset.serialize(),
-                                   &principal.serialize()];
-        self.execute(
-            "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
-            &params);
+        self.key_value_insert(DataType::ASSET, &descriptor.asset_identifier,
+                              &asset.serialize(), &principal.serialize());
 
         Ok(())
     }
@@ -481,16 +459,9 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(descriptor.key_type.to_string(), (*asset).clone()).into())
         }
 
-        let params: [&ToSql; 3] = [&(DataType::ASSET as u8),
-                                   &descriptor.asset_identifier,
-                                   &asset.serialize()];
         let sql_result: Option<Option<String>> = 
-            self.query_row(
-                "SELECT value FROM data_table WHERE data_type = ? AND data_store_identifier = ? AND key = ? ORDER BY data_identifier DESC LIMIT 1",
-                &params,
-                |row| {
-                    row.get(0)
-                });
+            self.key_value_lookup(DataType::ASSET, &descriptor.asset_identifier, &asset.serialize());
+
         let deserialized = match sql_result {
             None => None,
             Some(sql_result) => {
@@ -518,17 +489,8 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), (*key).clone()).into())
         }
 
-        let params: [&ToSql; 3] = [&(DataType::DATA_MAP as u8),
-                                   &map_descriptor.map_identifier,
-                                   &key.serialize()];
-
         let sql_result: Option<Option<String>> = 
-            self.query_row(
-                "SELECT value FROM data_table WHERE data_type = ? AND data_store_identifier = ? AND key = ? ORDER BY data_identifier DESC LIMIT 1",
-                &params,
-                |row| {
-                    row.get(0)
-                });
+            self.key_value_lookup(DataType::DATA_MAP, &map_descriptor.map_identifier, &key.serialize());
         match sql_result {
             None => Ok(None),
             Some(sql_result) => {
@@ -561,14 +523,8 @@ impl <'a> ContractDatabase <'a> {
             return Ok(Value::Bool(false))
         }
 
-        let params: [&ToSql; 4] = [&(DataType::DATA_MAP as u8),
-                                   &map_descriptor.map_identifier,
-                                   &key.serialize(),
-                                   &Some(value.serialize())];
-
-        self.execute(
-            "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
-            &params);
+        self.key_value_insert(DataType::DATA_MAP, &map_descriptor.map_identifier,
+                              &key.serialize(), &Some(value.serialize()));
 
         return Ok(Value::Bool(true))
     }
@@ -585,14 +541,8 @@ impl <'a> ContractDatabase <'a> {
         }
 
         let none: Option<String> = None;
-        let params: [&ToSql; 4] = [&(DataType::DATA_MAP as u8),
-                                   &map_descriptor.map_identifier,
-                                   &key.serialize(),
-                                   &none];
-
-        self.execute(
-            "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
-            &params);
+        self.key_value_insert(DataType::DATA_MAP, &map_descriptor.map_identifier,
+                              &key.serialize(), &none);
 
         return Ok(Value::Bool(exists))
     }
