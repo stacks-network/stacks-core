@@ -143,11 +143,11 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                             "Illegal operation: attempted to define-read-only a non-function.".to_string()))?;
                     handle_define_function(&function_signature, &args[1], env, DefineType::ReadOnly)
                 },
-                "define-asset" => {
+                "define-non-fungible-token" => {
                     check_argument_count(2, args)?;
                     handle_define_nonfungible_asset(&args[0], &args[1], env)
                 },
-                "define-token" => {
+                "define-fungible-token" => {
                     check_argument_count(1, args)?;
                     handle_define_fungible_token(&args[0], env)
                 },

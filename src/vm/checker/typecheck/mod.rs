@@ -496,12 +496,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                             self.contract_context.add_persisted_variable_type(v_name, v_type)?;
                             Ok(Some(()))
                         },
-                        "define-token" => {
+                        "define-fungible-token" => {
                             let token_name = self.type_check_define_token(function_args, context)?;
                             self.contract_context.add_token(token_name)?;
                             Ok(Some(()))
                         },
-                        "define-asset" => {
+                        "define-non-fungible-token" => {
                             let (asset_name, asset_type) = self.type_check_define_asset(function_args, context)?;
                             self.contract_context.add_asset(asset_name, asset_type)?;
                             Ok(Some(()))

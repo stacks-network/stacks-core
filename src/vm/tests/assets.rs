@@ -15,28 +15,28 @@ fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
     vec.drain(..).map(|value| SymbolicExpression::atom_value(value)).collect()
 }
 
-const FIRST_CLASS_TOKENS: &str = "(define-token stackaroos)
-         (define-read-only (my-get-token-balance (account principal))
-            (get-token-balance stackaroos account))
+const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
+         (define-read-only (my-ft-get-balance (account principal))
+            (ft-get-balance stackaroos account))
          (define-public (my-token-transfer (to principal) (amount int))
-            (transfer-token! stackaroos amount tx-sender to))
+            (ft-transfer! stackaroos amount tx-sender to))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (transfer-token! stackaroos 1 tx-sender original-sender))))
+             (as-contract (ft-transfer! stackaroos 1 tx-sender original-sender))))
          (define-public (mint-after (block-to-release int))
            (if (>= block-height block-to-release)
                (faucet)
                (err \"must be in the future\")))
-         (begin (mint-token! stackaroos 10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-                (mint-token! stackaroos 200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
-                (mint-token! stackaroos 4   'CTtokens))";
+         (begin (ft-mint! stackaroos 10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+                (ft-mint! stackaroos 200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
+                (ft-mint! stackaroos 4   'CTtokens))";
 
 const ASSET_NAMES: &str =
         "(define burn-address 'SP000000000000000000002Q6VF78)
          (define (price-function (name int))
            (if (< name 100000) 1000 100))
          
-         (define-asset names int)
+         (define-non-fungible-token names int)
          (define-map preorder-map
            ((name-hash (buff 20)))
            ((buyer principal) (paid int)))
@@ -57,7 +57,7 @@ const ASSET_NAMES: &str =
                    (err 1) (err 3)))))
 
          (define-public (force-mint (name int))
-           (mint-asset! names name tx-sender))
+           (nft-mint! names name tx-sender))
          (define-public (try-bad-transfers)
            (begin
              (contract-call! tokens my-token-transfer burn-address 50000)
@@ -71,7 +71,7 @@ const ASSET_NAMES: &str =
              (contract-call! tokens my-token-transfer burn-address 1)
              (ok 0)))
          (define-public (transfer (name int) (recipient principal))
-           (let ((transfer-name-result (transfer-asset! names name tx-sender recipient))
+           (let ((transfer-name-result (nft-transfer! names name tx-sender recipient))
                  (token-to-contract-result (contract-call! tokens my-token-transfer 'CTnames 1))
                  (contract-to-burn-result (as-contract (contract-call! tokens my-token-transfer burn-address 1))))
              (begin (expects! transfer-name-result transfer-name-result)
@@ -87,7 +87,7 @@ const ASSET_NAMES: &str =
                    (expects! (fetch-entry preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
-                   (get-asset-owner names name)))
+                   (nft-get-owner names name)))
              (if (and
                   (is-none? name-entry)
                   ;; preorder must have paid enough
@@ -97,7 +97,7 @@ const ASSET_NAMES: &str =
                   (eq? tx-sender
                        (get buyer preorder-entry)))
                   (if (and
-                    (is-ok? (mint-asset! names name recipient-principal))
+                    (is-ok? (nft-mint! names name recipient-principal))
                     (delete-entry! preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
                     (ok 0)
@@ -196,7 +196,7 @@ fn test_simple_token_system() {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(&mut conn,
-        p1.clone(), "tokens", "my-get-token-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
+        p1.clone(), "tokens", "my-ft-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
 
     assert_eq!(
         result,
@@ -204,7 +204,7 @@ fn test_simple_token_system() {
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(&mut conn,
-        p1.clone(), "tokens", "my-get-token-balance", &symbols_from_values(vec![p2.clone()])).unwrap();
+        p1.clone(), "tokens", "my-ft-get-balance", &symbols_from_values(vec![p2.clone()])).unwrap();
 
     assert_eq!(
         result,
@@ -234,7 +234,7 @@ fn test_simple_token_system() {
     assert_eq!(asset_map[&contract_principal][&token_identifier], AssetMapEntry::Token(1));
 
     let (result, asset_map) = execute_transaction(&mut conn,
-        p1.clone(), "tokens", "my-get-token-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
+        p1.clone(), "tokens", "my-ft-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
 
     assert_eq!(
         result,
@@ -331,7 +331,7 @@ fn test_simple_naming_system() {
         let mut env = owned_env.get_exec_environment(None);
         assert_eq!(
             env.eval_read_only("names",
-                               "(get-asset-owner names 1)").unwrap(),
+                               "(nft-get-owner names 1)").unwrap(),
             Value::some(p2.clone()));
     }
 

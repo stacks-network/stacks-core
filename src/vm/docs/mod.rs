@@ -636,36 +636,36 @@ The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 3
 };
 
 const DEFINE_TOKEN_API: SpecialAPI = SpecialAPI {
-    name: "define-token",
+    name: "define-fungible-token",
     input_type: "TokenName",
     output_type: "Not Applicable",
-    signature: "(define-token token-name)",
-    description: "`define-token` is used to define a new fungible token class for use in the current contract.
+    signature: "(define-fungible-token token-name)",
+    description: "`define-fungible-token` is used to define a new fungible token class for use in the current contract.
 
-Like other kinds of definition statements, `define-token` may only be used at the top level of a smart contract
+Like other kinds of definition statements, `define-fungible-token` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).
 
-Tokens defined using `define-token` may be used in `token-transfer!`, `mint-token!`, and `get-token-balance` functions",
+Tokens defined using `define-fungible-token` may be used in `ft-transfer!`, `ft-mint!`, and `ft-get-balance` functions",
     example: "
-(define-token stacks)
+(define-fungible-token stacks)
 "
 };
 
 const DEFINE_ASSET_API: SpecialAPI = SpecialAPI {
-    name: "define-asset",
+    name: "define-non-fungible-token",
     input_type: "AssetName, TypeSignature",
     output_type: "Not Applicable",
-    signature: "(define-asset asset-name asset-identifier-type)",
-    description: "`define-asset` is used to define a new asset class (i.e., non-fungible token) for use in the current contract.
+    signature: "(define-non-fungible-token asset-name asset-identifier-type)",
+    description: "`define-non-fungible-token` is used to define a new non-fungible token class for use in the current contract.
 Individual assets are identified by their asset identifier, which must be of the type `asset-identifier-type`. Asset
 identifiers are _unique_ identifiers.
 
-Like other kinds of definition statements, `define-asset` may only be used at the top level of a smart contract
+Like other kinds of definition statements, `define-non-fungible-token` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).
 
-Assets defined using `define-asset` may be used in `asset-transfer!`, `mint-asset!`, and `get-asset-owner` functions",
+Assets defined using `define-non-fungible-token` may be used in `nft-transfer!`, `nft-mint!`, and `nft-get-owner` functions",
     example: "
-(define-asset names (buff 50))
+(define-non-fungible-token names (buff 50))
 "
 };
 
@@ -782,30 +782,30 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 };
 
 const MINT_TOKEN: SpecialAPI = SpecialAPI {
-    name: "mint-token!",
+    name: "ft-mint!",
     input_type: "TokenName, int, principal",
     output_type: "(response bool int)",
-    signature: "(mint-token! token-name amount recipient)",
-    description: "`mint-token!` is used to increase the token balance for the `recipient` principal for a token
-type defined using `define-token`. The increased token balance is _not_ transfered from another principal, but
+    signature: "(ft-mint! token-name amount recipient)",
+    description: "`ft-mint!` is used to increase the token balance for the `recipient` principal for a token
+type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
 rather minted.
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
 returns `(ok 'true)`.
 ",
     example: "
-(define-token stackaroo)
-(mint-token! stackaroo 100 tx-sender)
+(define-fungible-token stackaroo)
+(ft-mint! stackaroo 100 tx-sender)
 "
 };
 
 const MINT_ASSET: SpecialAPI = SpecialAPI {
-    name: "mint-asset!",
+    name: "nft-mint!",
     input_type: "AssetName, A, principal",
     output_type: "(response bool int)",
-    signature: "(mint-asset! asset-class asset-identifier recipient)",
-    description: "`mint-asset!` is used to instantiate an asset and set that asset's owner to the `recipient` principal.
-The asset must have been defined using `define-asset`, and the supplied `asset-identifier` must be of the same type specified in
+    signature: "(nft-mint! asset-class asset-identifier recipient)",
+    description: "`nft-mint!` is used to instantiate an asset and set that asset's owner to the `recipient` principal.
+The asset must have been defined using `define-non-fungible-token`, and the supplied `asset-identifier` must be of the same type specified in
 that definition.
 
 If an asset identified by `asset-identifier` _already exists_, this function will return an error with the following error code:
@@ -815,46 +815,46 @@ If an asset identified by `asset-identifier` _already exists_, this function wil
 Otherwise, on successfuly mint, it returns `(ok 'true)`.
 ",
     example: "
-(define-asset stackaroo (buff 40))
-(mint-asset! stackaroo \"Roo\" tx-sender)
+(define-non-fungible-token stackaroo (buff 40))
+(nft-mint! stackaroo \"Roo\" tx-sender)
 "
 };
 
 const GET_OWNER: SpecialAPI = SpecialAPI {
-    name: "get-asset-owner",
+    name: "nft-get-owner",
     input_type: "AssetName, A",
     output_type: "(optional principal)",
-    signature: "(get-asset-owner asset-class asset-identifier)",
-    description: "`get-asset-owner` returns the owner of an asset, identified by `asset-identifier`, or `none` if the asset does not exist.
-The asset type must have been defined using `define-asset`, and the supplied `asset-identifier` must be of the same type specified in
+    signature: "(nft-get-owner asset-class asset-identifier)",
+    description: "`nft-get-owner` returns the owner of an asset, identified by `asset-identifier`, or `none` if the asset does not exist.
+The asset type must have been defined using `define-non-fungible-token`, and the supplied `asset-identifier` must be of the same type specified in
 that definition.",
     example: "
-(define-asset stackaroo (buff 40))
-(get-asset-owner stackaroo \"Roo\")
+(define-non-fungible-token stackaroo (buff 40))
+(nft-get-owner stackaroo \"Roo\")
 "
 };
 
 
 const GET_BALANCE: SpecialAPI = SpecialAPI {
-    name: "get-token-balance",
+    name: "ft-get-balance",
     input_type: "TokenName, principal",
     output_type: "int",
-    signature: "(get-token-balance token-name principal)",
-    description: "`get-token-balance` returns `token-name` balance of the principal `principal`.
-The token type must have been defined using `define-token`.",
+    signature: "(ft-get-balance token-name principal)",
+    description: "`ft-get-balance` returns `token-name` balance of the principal `principal`.
+The token type must have been defined using `define-fungible-token`.",
     example: "
-(define-token stackaroos)
-(get-token-balance stackaroos tx-sender)
+(define-fungible-token stackaroos)
+(ft-get-balance stackaroos tx-sender)
 "
 };
 
 const TOKEN_TRANSFER: SpecialAPI = SpecialAPI {
-    name: "transfer-token!",
+    name: "ft-transfer!",
     input_type: "TokenName, int, principal, principal",
     output_type: "(response bool int)",
-    signature: "(transfer-token! token-name amount sender recipient)",
-    description: "`transfer-token!` is used to increase the token balance for the `recipient` principal for a token
-type defined using `define-token` by debiting the `sender` principal.
+    signature: "(ft-transfer! token-name amount sender recipient)",
+    description: "`ft-transfer!` is used to increase the token balance for the `recipient` principal for a token
+type defined using `define-fungible-token` by debiting the `sender` principal.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
 one of the following error codes:
@@ -864,20 +864,20 @@ one of the following error codes:
 `(err 3)` -- amount to send is non-positive
 ",
     example: "
-(define-token stackaroo)
-(mint-token! stackaroo 100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(transfer-token! stackaroo 50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
-(transfer-token! stackaroo 60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
+(define-fungible-token stackaroo)
+(ft-mint! stackaroo 100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(ft-transfer! stackaroo 50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
+(ft-transfer! stackaroo 60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
 "
 };
 
 const ASSET_TRANSFER: SpecialAPI = SpecialAPI {
-    name: "transfer-asset!",
+    name: "nft-transfer!",
     input_type: "AssetName, A, principal, principal",
     output_type: "(response bool int)",
-    signature: "(transfer-asset! asset-class asset-identifier sender recipient)",
-    description: "`transfer-asset!` is used to change the owner of an asset identified by `asset-identifier`
-from `sender` to `recipient`. The `asset-class` must have been defined by `define-asset` and `asset-identifier`
+    signature: "(nft-transfer! asset-class asset-identifier sender recipient)",
+    description: "`nft-transfer!` is used to change the owner of an asset identified by `asset-identifier`
+from `sender` to `recipient`. The `asset-class` must have been defined by `define-non-fungible-token` and `asset-identifier`
 must be of the type specified in that definition.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
@@ -888,11 +888,11 @@ one of the following error codes:
 `(err 3)` -- asset identified by asset-identifier does not exist
 ",
     example: "
-(define-asset stackaroo (buff 40))
-(mint-asset! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-(transfer-asset! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
-(transfer-asset! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
-(transfer-asset! stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 3)
+(define-non-fungible-token stackaroo (buff 40))
+(nft-mint! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+(nft-transfer! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (ok true)
+(nft-transfer! stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 1)
+(nft-transfer! stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; returns (err 3)
 "
 };
 

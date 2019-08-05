@@ -3,30 +3,30 @@ use vm::parser::parse;
 use vm::checker::errors::CheckErrors;
 use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection};
 
-const FIRST_CLASS_TOKENS: &str = "(define-token stackaroos)
-         (define-asset stacka-nfts (buff 10))
-         (get-asset-owner stacka-nfts \"1234567890\" )
-         (define-read-only (my-get-token-balance (account principal))
-            (get-token-balance stackaroos account))
+const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
+         (define-non-fungible-token stacka-nfts (buff 10))
+         (nft-get-owner stacka-nfts \"1234567890\" )
+         (define-read-only (my-ft-get-balance (account principal))
+            (ft-get-balance stackaroos account))
          (define-public (my-token-transfer (to principal) (amount int))
-            (transfer-token! stackaroos amount tx-sender to))
+            (ft-transfer! stackaroos amount tx-sender to))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (transfer-token! stackaroos 1 tx-sender original-sender))))
+             (as-contract (ft-transfer! stackaroos 1 tx-sender original-sender))))
          (define-public (mint-after (block-to-release int))
            (if (>= block-height block-to-release)
                (faucet)
                (err 8)))
-         (begin (mint-token! stackaroos 10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-                (mint-token! stackaroos 200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
-                (mint-token! stackaroos 4   'CTtokens))";
+         (begin (ft-mint! stackaroos 10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
+                (ft-mint! stackaroos 200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
+                (ft-mint! stackaroos 4   'CTtokens))";
 
 const ASSET_NAMES: &str =
         "(define burn-address 'SP000000000000000000002Q6VF78)
          (define (price-function (name int))
            (if (< name 100000) 1000 100))
          
-         (define-asset names int)
+         (define-non-fungible-token names int)
          (define-map preorder-map
            ((name-hash (buff 20)))
            ((buyer principal) (paid int)))
@@ -55,7 +55,7 @@ const ASSET_NAMES: &str =
                    (expects! (fetch-entry preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
-                   (get-asset-owner names name)))
+                   (nft-get-owner names name)))
              (if (and
                   (is-none? name-entry)
                   ;; preorder must have paid enough
@@ -65,7 +65,7 @@ const ASSET_NAMES: &str =
                   (eq? tx-sender
                        (get buyer preorder-entry)))
                   (if (and
-                    (is-ok? (mint-asset! names name recipient-principal))
+                    (is-ok? (nft-mint! names name recipient-principal))
                     (delete-entry! preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
                     (ok 0)
@@ -90,32 +90,32 @@ fn test_names_tokens_contracts() {
 fn test_bad_asset_usage() {
     use vm::checker::type_check;
 
-    let bad_scripts = ["(get-token-balance stackoos tx-sender)",
-                       "(get-token-balance 1234 tx-sender)",
-                       "(get-token-balance stackaroos 100)",
-                       "(get-asset-owner 1234 \"abc\")",
-                       "(get-asset-owner stackoos \"abc\")",
-                       "(get-asset-owner stacka-nfts 1234 )",
-                       "(get-asset-owner stacka-nfts \"123456789012345\" )",
-                       "(mint-asset! 1234 \"abc\" tx-sender)",
-                       "(mint-asset! stackoos \"abc\" tx-sender)",
-                       "(mint-asset! stacka-nfts 1234 tx-sender)",
-                       "(mint-asset! stacka-nfts \"123456789012345\" tx-sender)",
-                       "(mint-asset! stacka-nfts \"abc\" 2)",
-                       "(mint-token! stackoos 1 tx-sender)",
-                       "(mint-token! 1234 1 tx-sender)",
-                       "(mint-token! stackaroos 2 100)",
-                       "(mint-token! stackaroos 'true tx-sender)",
-                       "(transfer-asset! 1234 \"a\" tx-sender tx-sender)",
-                       "(transfer-asset! stackoos    \"a\" tx-sender tx-sender)",
-                       "(transfer-asset! stacka-nfts \"a\" 2 tx-sender)",
-                       "(transfer-asset! stacka-nfts \"a\" tx-sender 2)",
-                       "(transfer-asset! stacka-nfts 2 tx-sender tx-sender)",
-                       "(transfer-token! stackoos 1 tx-sender tx-sender)",
-                       "(transfer-token! 1234 1 tx-sender tx-sender)",
-                       "(transfer-token! stackaroos 2 100 tx-sender)",
-                       "(transfer-token! stackaroos 'true tx-sender tx-sender)",
-                       "(transfer-token! stackaroos 2 tx-sender 100)",
+    let bad_scripts = ["(ft-get-balance stackoos tx-sender)",
+                       "(ft-get-balance 1234 tx-sender)",
+                       "(ft-get-balance stackaroos 100)",
+                       "(nft-get-owner 1234 \"abc\")",
+                       "(nft-get-owner stackoos \"abc\")",
+                       "(nft-get-owner stacka-nfts 1234 )",
+                       "(nft-get-owner stacka-nfts \"123456789012345\" )",
+                       "(nft-mint! 1234 \"abc\" tx-sender)",
+                       "(nft-mint! stackoos \"abc\" tx-sender)",
+                       "(nft-mint! stacka-nfts 1234 tx-sender)",
+                       "(nft-mint! stacka-nfts \"123456789012345\" tx-sender)",
+                       "(nft-mint! stacka-nfts \"abc\" 2)",
+                       "(ft-mint! stackoos 1 tx-sender)",
+                       "(ft-mint! 1234 1 tx-sender)",
+                       "(ft-mint! stackaroos 2 100)",
+                       "(ft-mint! stackaroos 'true tx-sender)",
+                       "(nft-transfer! 1234 \"a\" tx-sender tx-sender)",
+                       "(nft-transfer! stackoos    \"a\" tx-sender tx-sender)",
+                       "(nft-transfer! stacka-nfts \"a\" 2 tx-sender)",
+                       "(nft-transfer! stacka-nfts \"a\" tx-sender 2)",
+                       "(nft-transfer! stacka-nfts 2 tx-sender tx-sender)",
+                       "(ft-transfer! stackoos 1 tx-sender tx-sender)",
+                       "(ft-transfer! 1234 1 tx-sender tx-sender)",
+                       "(ft-transfer! stackaroos 2 100 tx-sender)",
+                       "(ft-transfer! stackaroos 'true tx-sender tx-sender)",
+                       "(ft-transfer! stackaroos 2 tx-sender 100)",
     ];
 
     let expected = [

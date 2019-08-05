@@ -133,12 +133,12 @@ impl NativeFunctions {
             "is-ok?" => Some(IsOkay),
             "is-none?" => Some(IsNone),
             "filter" => Some(Filter),
-            "get-token-balance" => Some(GetTokenBalance),
-            "get-asset-owner" => Some(GetAssetOwner),
-            "transfer-token!" => Some(TransferToken),
-            "transfer-asset!" => Some(TransferAsset),
-            "mint-asset!" => Some(MintAsset),
-            "mint-token!" => Some(MintToken),
+            "ft-get-balance" => Some(GetTokenBalance),
+            "nft-get-owner" => Some(GetAssetOwner),
+            "ft-transfer!" => Some(TransferToken),
+            "nft-transfer!" => Some(TransferAsset),
+            "nft-mint!" => Some(MintAsset),
+            "ft-mint!" => Some(MintToken),
             _ => None
         }
     }
