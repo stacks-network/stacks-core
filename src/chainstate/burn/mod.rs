@@ -50,13 +50,13 @@ use core::SYSTEM_FORK_SET_VERSION;
 use util::log;
 use util::uint::Uint256;
 
-pub struct ConsensusHash([u8; 20]);
+pub struct ConsensusHash(pub [u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);
 impl_byte_array_newtype!(ConsensusHash, u8, 20);
 pub const CONSENSUS_HASH_ENCODED_SIZE : u32 = 20;
 
-pub struct BlockHeaderHash([u8; 32]);
+pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
 impl_byte_array_newtype!(BlockHeaderHash, u8, 32);

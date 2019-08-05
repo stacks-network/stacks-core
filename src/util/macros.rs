@@ -17,6 +17,8 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use std::cell::RefCell;
+
 // is this machine big-endian?
 pub fn is_big_endian() -> bool {
     u32::from_be(0x1Au32) == 0x1Au32
@@ -295,6 +297,27 @@ macro_rules! test_debug {
         {
             use std::env;
             if env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
+                debug!($($arg)*);
+            }
+        }
+    )
+}
+
+// enables/disables trace!() at compile-time
+pub const TRACE_ENABLED : bool = true;
+
+pub fn is_trace() -> bool {
+    use std::env;
+    TRACE_ENABLED && env::var("BLOCKSTACK_TRACE") == Ok("1".to_string()) 
+}
+
+
+#[allow(unused_macros)]
+macro_rules! trace {
+    ($($arg:tt)*) => (
+        #[cfg(test)]
+        {
+            if ::util::macros::is_trace() {
                 debug!($($arg)*);
             }
         }

@@ -20,6 +20,7 @@
 pub mod address;
 pub mod auth;
 pub mod block;
+pub mod index;
 pub mod transaction;
 
 use std::fmt;
@@ -159,6 +160,7 @@ pub struct StacksBlock {
 }
 
 /// Header structure for a microblock
+/// TODO: priority number
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksMicroblockHeader {
     version: u8,
