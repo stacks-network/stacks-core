@@ -249,6 +249,59 @@ fn test_simple_token_system() {
 }
 
 #[test]
+fn total_supply() {
+    let contract = "(define-fungible-token stackaroos 5)
+         (define-read-only (get-balance (account principal))
+            (ft-get-balance stackaroos account))
+         (define-public (transfer (to principal) (amount int))
+            (ft-transfer! stackaroos amount tx-sender to))
+         (define-public (faucet)
+            (ft-mint! stackaroos 2 tx-sender))
+         (define-public (gated-faucet (x bool))
+            (begin (faucet)
+                   (if x (ok 1) (err 0))))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    let p1_principal = match p1 {
+        Value::Principal(ref data) => data.clone(),
+        _ => panic!()
+    };
+
+    let mut conn = ContractDatabaseConnection::memory().unwrap();
+
+    {
+        let owned_env = OwnedEnvironment::new(&mut conn);
+        owned_env.initialize_contract("tokens", contract).unwrap();
+    }
+
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "gated-faucet",
+        &symbols_from_values(vec![Value::Bool(true)])).unwrap();
+    assert!(is_committed(&result));
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "gated-faucet",
+        &symbols_from_values(vec![Value::Bool(false)])).unwrap();
+    assert!(!is_committed(&result));
+
+    let (result, asset_map) = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "gated-faucet",
+        &symbols_from_values(vec![Value::Bool(true)])).unwrap();
+    assert!(is_committed(&result));
+
+    let err = execute_transaction(&mut conn,
+        p1.clone(), "tokens", "gated-faucet",
+        &symbols_from_values(vec![Value::Bool(false)])).unwrap_err();
+    println!("{}", err);
+    assert!( match err {
+        Error::Runtime(RuntimeErrorType::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
+        _ => false
+    });
+}
+
+#[test]
 fn test_simple_naming_system() {
     let tokens_contract = FIRST_CLASS_TOKENS;
 

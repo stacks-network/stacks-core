@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
-use rusqlite::types::ToSql;
+use rusqlite::types::{ToSql, FromSql};
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
@@ -18,7 +18,8 @@ enum DataType {
     DATA_MAP = 0,
     VARIABLE = 1,
     TOKEN    = 2,
-    ASSET    = 3
+    ASSET    = 3,
+    TOKEN_SUPPLY = 4,
 }
 
 const DUMMY_KEY: &str = "";
@@ -32,7 +33,8 @@ pub struct ContractDatabase <'a> {
 }
 
 pub struct SqliteToken {
-    token_identifier: i64
+    token_identifier: i64,
+    total_supply: Option<i128>
 }
 
 pub struct SqliteAsset {
@@ -84,6 +86,7 @@ impl ContractDatabaseConnection {
                       (token_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
                        contract_name TEXT NOT NULL,
                        token_name TEXT NOT NULL,
+                       total_supply TEXT,
                        UNIQUE(contract_name, token_name))",
                             NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS data_table
@@ -232,6 +235,16 @@ impl <'a> ContractDatabase <'a> {
             .expect(SQL_FAIL_MESSAGE)
     }
 
+    fn key_value_lookup<T>(&self, data_type: DataType, data_store_identifier: &ToSql, key: &ToSql) -> Option<T>
+        where T: FromSql {
+        let params: [&ToSql; 3] = [&(data_type as u8),
+                                   data_store_identifier,
+                                   key];
+        self.query_row(
+            "SELECT value FROM data_table WHERE data_type = ? AND data_store_identifier = ? AND key = ? ORDER BY data_identifier DESC LIMIT 1",
+            &params,
+            |row| row.get(0))
+    }
 
     fn load_map(&self, contract_name: &str, map_name: &str) -> Result<SqliteDataMap> {
         let (map_identifier, key_type, value_type): (_, String, String) =
@@ -307,15 +320,8 @@ impl <'a> ContractDatabase <'a> {
     pub fn lookup_variable(&self, contract_name: &str, variable_name: &str) -> Result<Option<Value>>  {
         let variable_descriptor = self.load_variable(contract_name, variable_name)?;
 
-        let params: [&ToSql; 2] = [&(DataType::VARIABLE as u8), &variable_descriptor.variable_identifier];
-
-        let sql_result: Option<Option<String>> = 
-            self.query_row(
-                "SELECT value FROM data_table WHERE data_type = ? AND data_store_identifier = ? ORDER BY data_identifier DESC LIMIT 1",
-                &params,
-                |row| {
-                    row.get(0)
-                });
+        let sql_result: Option<Option<String>> =
+            self.key_value_lookup(DataType::VARIABLE, &variable_descriptor.variable_identifier, &DUMMY_KEY);
         match sql_result {
             None => Ok(None),
             Some(sql_result) => {
@@ -328,15 +334,16 @@ impl <'a> ContractDatabase <'a> {
     }
 
     fn load_token(&self, contract_name: &str, token_name: &str) -> Result<SqliteToken> {
-        let identifier =
+        let (identifier, total_supply) =
             self.query_row(
-                "SELECT token_identifier FROM tokens_table WHERE contract_name = ? AND token_name = ?",
+                "SELECT token_identifier, total_supply FROM tokens_table WHERE contract_name = ? AND token_name = ?",
                 &[contract_name, token_name],
-                |row| row.get(0))
+                |row| (row.get(0), row.get(1)))
             .ok_or(UncheckedError::UndefinedAssetType(token_name.to_string()))?;
 
         Ok(SqliteToken {
-            token_identifier: identifier })
+            token_identifier: identifier,
+            total_supply })
     }
 
     fn load_asset(&self, contract_name: &str, asset_name: &str) -> Result<SqliteAsset> {
@@ -352,15 +359,62 @@ impl <'a> ContractDatabase <'a> {
             key_type: TypeSignature::deserialize(&key_type) })
     }
 
-    pub fn create_token(&mut self, contract_name: &str, token_name: &str) {
-        self.execute("INSERT INTO tokens_table (contract_name, token_name) VALUES (?, ?)",
-                     &[contract_name, token_name]);
+    pub fn create_token(&mut self, contract_name: &str, token_name: &str, total_supply: &Option<i128>) {
+        let contract_name_owned = contract_name.to_string();
+        let contract_name_owned = token_name.to_string();
+        
+        let params: [&ToSql; 3] = [&contract_name, &token_name, total_supply];
+        self.execute("INSERT INTO tokens_table (contract_name, token_name, total_supply) VALUES (?, ?, ?)",
+                     &params);
+        if total_supply.is_some() {
+            let descriptor = self.load_token(contract_name, token_name)
+                .expect("ERROR: VM failed to initialize token correctly.");
+
+            let params: [&ToSql; 4] = [&(DataType::TOKEN_SUPPLY as u8),
+                                       &descriptor.token_identifier,
+                                       &DUMMY_KEY,
+                                       &(0 as i128)];
+
+            self.execute(
+                "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
+                &params);
+        }
     }
 
     pub fn create_asset(&mut self, contract_name: &str, asset_name: &str, key_type: &TypeSignature) {
-
         self.execute("INSERT INTO assets_table (contract_name, asset_name, key_type) VALUES (?, ?, ?)",
                      &[contract_name, asset_name, &key_type.serialize()]);
+    }
+
+    pub fn checked_increase_token_supply(&mut self, contract_name: &str, token_name: &str, amount: i128) -> Result<()> {
+        if amount < 0 {
+            panic!("ERROR: Clarity VM attempted to increase token supply by negative balance.");
+        }
+        let descriptor = self.load_token(contract_name, token_name)?;
+
+        if let Some(total_supply) = descriptor.total_supply {
+            let current_supply_opt: Option<i128> =
+                self.key_value_lookup(DataType::TOKEN_SUPPLY, &descriptor.token_identifier, &DUMMY_KEY);
+            let current_supply = current_supply_opt
+                .expect("ERROR: Clarity VM failed to track token supply.");
+            let new_supply = current_supply.checked_add(amount)
+                .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+
+            if new_supply > total_supply {
+                Err(RuntimeErrorType::SupplyOverflow(new_supply, total_supply).into())
+            } else {
+                let params: [&ToSql; 4] = [&(DataType::TOKEN_SUPPLY as u8),
+                                           &descriptor.token_identifier,
+                                           &DUMMY_KEY,
+                                           &new_supply];
+                self.execute(
+                    "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
+                    &params);
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
     }
 
     // Asset functions return error if no such token was defined by `define-token`

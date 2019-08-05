@@ -72,6 +72,7 @@ pub enum RuntimeErrorType {
     Arithmetic(String),
     ArithmeticOverflow,
     ArithmeticUnderflow,
+    SupplyOverflow(i128, i128),
     DivisionByZero,
     ParseError(String),
     MaxStackDepthReached,
@@ -86,7 +87,8 @@ pub enum RuntimeErrorType {
     TransferNonPositiveAmount,
     NoSuchAsset,
     NotImplemented,
-    NoSenderInContext
+    NoSenderInContext,
+    NonPositiveTokenSupply
 }
 
 #[derive(Debug, PartialEq)]

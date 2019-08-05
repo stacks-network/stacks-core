@@ -28,6 +28,9 @@ pub fn special_mint_token(args: &[SymbolicExpression],
             return Ok(Value::error(Value::Int(MintTokenErrorCodes::NON_POSITIVE_AMOUNT as i128)));
         }
 
+        env.global_context.database.checked_increase_token_supply(
+            &env.contract_context.name, token_name, amount)?;
+
         let to_bal = env.global_context.database.get_token_balance(&env.contract_context.name, token_name, to_principal)?;
 
         let final_to_bal = to_bal.checked_add(amount)

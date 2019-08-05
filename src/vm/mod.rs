@@ -176,8 +176,8 @@ fn eval_all (expressions: &[SymbolicExpression],
             DefineResult::Map(name, key_type, value_type) => {
                 global_context.database.create_map(&contract_context.name, &name, key_type, value_type);
             },
-            DefineResult::FungibleToken(name) => {
-                global_context.database.create_token(&contract_context.name, &name);
+            DefineResult::FungibleToken(name, total_supply) => {
+                global_context.database.create_token(&contract_context.name, &name, &total_supply);
             },
             DefineResult::NonFungibleAsset(name, asset_type) => {
                 global_context.database.create_asset(&contract_context.name, &name, &asset_type);

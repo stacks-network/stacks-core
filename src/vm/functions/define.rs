@@ -2,7 +2,7 @@ use vm::types::{Value, TypeSignature, TupleTypeSignature, parse_name_type_pairs}
 use vm::callables::{DefinedFunction, DefineType};
 use vm::representations::SymbolicExpression;
 use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List};
-use vm::errors::{UncheckedError, InterpreterResult as Result, check_argument_count};
+use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, check_argument_count};
 use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::eval;
 
@@ -11,7 +11,7 @@ pub enum DefineResult {
     Function(String, DefinedFunction),
     Map(String, TupleTypeSignature, TupleTypeSignature),
     PersistedVariable(String, TypeSignature, Value),
-    FungibleToken(String),
+    FungibleToken(String, Option<i128>),
     NonFungibleAsset(String, TypeSignature),
     NoDefine
 }
@@ -89,13 +89,27 @@ fn handle_define_nonfungible_asset(asset_name: &SymbolicExpression, key_type: &S
     Ok(DefineResult::NonFungibleAsset(asset_name.clone(), key_type_signature))
 }
 
-fn handle_define_fungible_token(asset_name: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
+fn handle_define_fungible_token(asset_name: &SymbolicExpression, total_supply: Option<&SymbolicExpression>, env: &mut Environment) -> Result<DefineResult> {
     let asset_name = asset_name.match_atom()
         .ok_or(UncheckedError::ExpectedVariableName)?;
 
     check_legal_define(&asset_name, &env.contract_context)?;
 
-    Ok(DefineResult::FungibleToken(asset_name.clone()))
+    if let Some(total_supply_expr) = total_supply {
+        let context = LocalContext::new();
+        let total_supply_value = eval(total_supply_expr, env, &context)?;
+        if let Value::Int(total_supply_int) = total_supply_value {
+            if total_supply_int <= 0 {
+                Err(RuntimeErrorType::NonPositiveTokenSupply.into())
+            } else {
+                Ok(DefineResult::FungibleToken(asset_name.clone(), Some(total_supply_int)))
+            }
+        } else {
+            Err(UncheckedError::TypeError("int".to_string(), total_supply_value).into())
+        }
+    } else {
+        Ok(DefineResult::FungibleToken(asset_name.clone(), None))
+    }
 }
 
 fn handle_define_map(map_name: &SymbolicExpression,
@@ -148,8 +162,13 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
                     handle_define_nonfungible_asset(&args[0], &args[1], env)
                 },
                 "define-fungible-token" => {
-                    check_argument_count(1, args)?;
-                    handle_define_fungible_token(&args[0], env)
+                    if args.len() == 1 {
+                        handle_define_fungible_token(&args[0], None, env)
+                    } else if args.len() == 2 {
+                        handle_define_fungible_token(&args[0], Some(&args[1]), env)
+                    } else {
+                        Err(UncheckedError::IncorrectArgumentCount(1, args.len()).into())
+                    }
                 },
                 "define-public" => {
                     check_argument_count(2, args)?;

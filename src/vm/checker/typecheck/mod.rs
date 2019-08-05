@@ -420,7 +420,13 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     fn type_check_define_token(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<String> {
-        check_argument_count(1, args)?;
+        if args.len() != 1 && args.len() != 2 {
+            return Err(CheckErrors::IncorrectArgumentCount(2, args.len()).into())
+        }
+
+        if args.len() == 2 {
+            self.type_check_expects(&args[1], context, &AtomTypeIdentifier::IntType.into())?;
+        }
 
         let token_name = args[0].match_atom()
             .ok_or(CheckErrors::DefineTokenBadSignature)?

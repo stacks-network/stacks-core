@@ -637,10 +637,14 @@ The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 3
 
 const DEFINE_TOKEN_API: SpecialAPI = SpecialAPI {
     name: "define-fungible-token",
-    input_type: "TokenName",
+    input_type: "TokenName, <int>",
     output_type: "Not Applicable",
-    signature: "(define-fungible-token token-name)",
+    signature: "(define-fungible-token token-name <total-supply>)",
     description: "`define-fungible-token` is used to define a new fungible token class for use in the current contract.
+
+The second argument, if supplied, defines the total supply of the fungible token. This ensures that all calls to the `ft-mint!`
+function will never be able to create more than `total-supply` tokens. If any such call were to increase the total supply
+of tokens passed that amount, that invocation of `ft-mint!` will result in a runtime error and abort.
 
 Like other kinds of definition statements, `define-fungible-token` may only be used at the top level of a smart contract
 definition (i.e., you cannot put a define statement in the middle of a function body).
