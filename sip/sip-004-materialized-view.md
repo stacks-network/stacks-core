@@ -544,7 +544,7 @@ index (if there is only one block in a fork row, then it is obviously the chain 
 Clearly, these are `g`, `j`, and `m`.
 
 To see how this works, consider finding the block that is four blocks prior to
-`m`.  To do so, the Stacks peer consults the ancestor table and sees that `m` is
+`m`.  To do so, the Stacks peer consults the ancestor table and sees that `m` 
 has fork ID 2 whose block list is `[k, l, m]`.  The block list has only three
 items, so the problem becomes instead finding the block that is one block back
 from `k`'s parent.  From the ancestor table, `k`'s parent is from the fork row
