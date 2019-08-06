@@ -551,12 +551,12 @@ impl Trie {
         if cursor.eop() {
             match node {
                 TrieNodeType::Leaf(_) => {
-                    return Trie::replace_leaf(storage, cursor, value);
-                },
-                _ => {}
-            };
-
-            Trie::insert_leaf(storage, cursor, value, &mut node)
+                    Trie::replace_leaf(storage, cursor, value)
+                }
+                _ => {
+                    Trie::insert_leaf(storage, cursor, value, &mut node)
+                }
+            }
         }
         else {
             // didn't reach the end of the path, so we're on an intermediate node
@@ -675,36 +675,35 @@ impl Trie {
             // we need to "fix" the root node so it mixes in its ancestor hashes.
             trace!("Fix up root node so it mixes in its ancestor hashes");
             let (node, cur_hash) = storage.read_nodetype(&child_ptr)?;
-            if node.is_node256() {
-                if child_ptr != storage.root_trieptr() {
-                    return Err(Error::CorruptionError("Only ptr is not the root".to_string()));
-                }
-                
-                let mut hash_buf = Vec::with_capacity(TRIEHASH_ENCODED_SIZE * 256);
-                Trie::get_children_hashes_bytes(storage, &node, &mut hash_buf)?;
-
-                let h = 
-                    if update_skiplist {
-                        trace!("Update root skiplist");
-                        Trie::get_trie_root_hash(storage, &get_nodetype_hash_bytes(&node, &hash_buf))?
-                    }
-                    else {
-                        trace!("Not updating root skiplist");
-                        get_nodetype_hash_bytes(&node, &hash_buf)
-                    };
-
-                // for debug purposes
-                if is_trace() {
-                    let node_hash = get_nodetype_hash_bytes(&node, &hash_buf);
-                    let hs = Trie::get_trie_root_ancestor_hashes(storage, &node_hash)?;
-                    trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?} (fixed root)", &node, &child_ptr, &cur_hash, &node_hash, &hs[1..].to_vec(), &h);
-                }
-
-                storage.write_nodetype(child_ptr.ptr(), &node, h)?;
-            }
-            else {
+            if !node.is_node256() {
                 return Err(Error::CorruptionError("Only ptr was not a node256".to_string()));
             }
+
+            if child_ptr != storage.root_trieptr() {
+                return Err(Error::CorruptionError("Only ptr is not the root".to_string()));
+            }
+            
+            let mut hash_buf = Vec::with_capacity(TRIEHASH_ENCODED_SIZE * 256);
+            Trie::get_children_hashes_bytes(storage, &node, &mut hash_buf)?;
+
+            let h = 
+                if update_skiplist {
+                    trace!("Update root skiplist");
+                    Trie::get_trie_root_hash(storage, &get_nodetype_hash_bytes(&node, &hash_buf))?
+                }
+                else {
+                    trace!("Not updating root skiplist");
+                    get_nodetype_hash_bytes(&node, &hash_buf)
+                };
+
+            // for debug purposes
+            if is_trace() {
+                let node_hash = get_nodetype_hash_bytes(&node, &hash_buf);
+                let hs = Trie::get_trie_root_ancestor_hashes(storage, &node_hash)?;
+                trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?} (fixed root)", &node, &child_ptr, &cur_hash, &node_hash, &hs[1..].to_vec(), &h);
+            }
+
+            storage.write_nodetype(child_ptr.ptr(), &node, h)?;
         }
         else {
             while ptrs.len() > 0 {
