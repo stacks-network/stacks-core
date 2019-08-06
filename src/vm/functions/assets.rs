@@ -31,12 +31,12 @@ pub fn special_mint_token(args: &[SymbolicExpression],
         env.global_context.database.checked_increase_token_supply(
             &env.contract_context.name, token_name, amount)?;
 
-        let to_bal = env.global_context.database.get_token_balance(&env.contract_context.name, token_name, to_principal)?;
+        let to_bal = env.global_context.database.get_ft_balance(&env.contract_context.name, token_name, to_principal)?;
 
         let final_to_bal = to_bal.checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
 
-        env.global_context.database.set_token_balance(&env.contract_context.name, token_name, to_principal, final_to_bal)?;
+        env.global_context.database.set_ft_balance(&env.contract_context.name, token_name, to_principal, final_to_bal)?;
 
         Ok(Value::okay(Value::Bool(true)))
     } else {
@@ -55,20 +55,20 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
     let asset =  eval(&args[1], env, context)?;
     let to    =  eval(&args[2], env, context)?;
 
-    let expected_asset_type = env.global_context.database.get_asset_key_type(&env.contract_context.name, asset_name)?;
+    let expected_asset_type = env.global_context.database.get_nft_key_type(&env.contract_context.name, asset_name)?;
 
     if !expected_asset_type.admits(&asset) {
         return Err(UncheckedError::TypeError(expected_asset_type.to_string(), asset).into())
     }
 
     if let Value::Principal(ref to_principal) = to {
-        match env.global_context.database.get_asset_owner(&env.contract_context.name, asset_name, &asset) {
+        match env.global_context.database.get_nft_owner(&env.contract_context.name, asset_name, &asset) {
             Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => Ok(()),
             Ok(_owner) => return Ok(Value::error(Value::Int(MintAssetErrorCodes::ALREADY_EXIST as i128))),
             Err(e) => Err(e)
         }?;
 
-        env.global_context.database.set_asset_owner(&env.contract_context.name, asset_name, &asset, to_principal)?;
+        env.global_context.database.set_nft_owner(&env.contract_context.name, asset_name, &asset, to_principal)?;
 
         Ok(Value::okay(Value::Bool(true)))
     } else {
@@ -88,7 +88,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
     let from  =  eval(&args[2], env, context)?;
     let to    =  eval(&args[3], env, context)?;
 
-    let expected_asset_type = env.global_context.database.get_asset_key_type(&env.contract_context.name, asset_name)?;
+    let expected_asset_type = env.global_context.database.get_nft_key_type(&env.contract_context.name, asset_name)?;
 
     if !expected_asset_type.admits(&asset) {
         return Err(UncheckedError::TypeError(expected_asset_type.to_string(), asset).into())
@@ -101,7 +101,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
             return Ok(Value::error(Value::Int(TransferAssetErrorCodes::SENDER_IS_RECIPIENT as i128)))
         }
 
-        let current_owner = match env.global_context.database.get_asset_owner(&env.contract_context.name, asset_name, &asset) {
+        let current_owner = match env.global_context.database.get_nft_owner(&env.contract_context.name, asset_name, &asset) {
             Ok(owner) => Ok(owner),
             Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => {
                 return Ok(Value::error(Value::Int(TransferAssetErrorCodes::DOES_NOT_EXIST as i128)))
@@ -114,7 +114,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
             return Ok(Value::error(Value::Int(TransferAssetErrorCodes::NOT_OWNED_BY as i128)))
         }
 
-        env.global_context.database.set_asset_owner(&env.contract_context.name, asset_name, &asset, to_principal)?;
+        env.global_context.database.set_nft_owner(&env.contract_context.name, asset_name, &asset, to_principal)?;
 
         env.global_context.log_asset_transfer(from_principal, &env.contract_context.name, asset_name, asset);
 
@@ -147,7 +147,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
             return Ok(Value::error(Value::Int(TransferTokenErrorCodes::SENDER_IS_RECIPIENT as i128)))
         }
 
-        let from_bal = env.global_context.database.get_token_balance(&env.contract_context.name, token_name, from_principal)?;
+        let from_bal = env.global_context.database.get_ft_balance(&env.contract_context.name, token_name, from_principal)?;
 
         if from_bal < amount {
             return Ok(Value::error(Value::Int(TransferTokenErrorCodes::NOT_ENOUGH_BALANCE as i128)))
@@ -155,13 +155,13 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
 
         let final_from_bal = from_bal - amount;
 
-        let to_bal = env.global_context.database.get_token_balance(&env.contract_context.name, token_name, to_principal)?;
+        let to_bal = env.global_context.database.get_ft_balance(&env.contract_context.name, token_name, to_principal)?;
 
         let final_to_bal = to_bal.checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
 
-        env.global_context.database.set_token_balance(&env.contract_context.name, token_name, from_principal, final_from_bal)?;
-        env.global_context.database.set_token_balance(&env.contract_context.name, token_name, to_principal, final_to_bal)?;
+        env.global_context.database.set_ft_balance(&env.contract_context.name, token_name, from_principal, final_from_bal)?;
+        env.global_context.database.set_ft_balance(&env.contract_context.name, token_name, to_principal, final_to_bal)?;
 
         env.global_context.log_token_transfer(from_principal, &env.contract_context.name, token_name, amount)?;
 
@@ -182,7 +182,7 @@ pub fn special_get_balance(args: &[SymbolicExpression],
     let owner = eval(&args[1], env, context)?;
 
     if let Value::Principal(ref principal) = owner {
-        let balance = env.global_context.database.get_token_balance(&env.contract_context.name, token_name, principal)?;
+        let balance = env.global_context.database.get_ft_balance(&env.contract_context.name, token_name, principal)?;
         Ok(Value::Int(balance))
     } else {
         Err(UncheckedError::TypeError(AtomTypeIdentifier::PrincipalType.to_string(), owner).into())
@@ -199,13 +199,13 @@ pub fn special_get_owner(args: &[SymbolicExpression],
         .ok_or(UncheckedError::InvalidArgumentExpectedName)?;
 
     let asset = eval(&args[1], env, context)?;
-    let expected_asset_type = env.global_context.database.get_asset_key_type(&env.contract_context.name, asset_name)?;
+    let expected_asset_type = env.global_context.database.get_nft_key_type(&env.contract_context.name, asset_name)?;
 
     if !expected_asset_type.admits(&asset) {
         return Err(UncheckedError::TypeError(expected_asset_type.to_string(), asset).into())
     }
 
-    match env.global_context.database.get_asset_owner(&env.contract_context.name, asset_name, &asset) {
+    match env.global_context.database.get_nft_owner(&env.contract_context.name, asset_name, &asset) {
         Ok(owner) => Ok(Value::some(Value::Principal(owner))),
         Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => Ok(Value::none()),
         Err(e) => Err(e)

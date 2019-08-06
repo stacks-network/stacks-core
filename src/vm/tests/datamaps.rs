@@ -194,8 +194,7 @@ fn test_fetch_contract_entry() {
             (let ((t (tuple (key 42))))
             (expects! (get value (fetch-contract-entry kv-store-contract kv-store t)) 0)))"#;
 
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
+    let mut owned_env = OwnedEnvironment::memory();
 
     let mut env = owned_env.get_exec_environment(None);
     let r = env.initialize_contract("kv-store-contract", kv_store_contract_src).unwrap();

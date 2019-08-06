@@ -8,7 +8,7 @@ use util::log;
 
 use vm::parser::parse;
 use vm::contexts::OwnedEnvironment;
-use vm::database::{ContractDatabase, ContractDatabaseConnection, ContractDatabaseTransacter};
+use vm::database::{ContractDatabase, ContractDatabaseConnection, ContractDatabaseTransacter, memory_db};
 use vm::{SymbolicExpression, SymbolicExpressionType};
 use vm::checker::{type_check, AnalysisDatabase, AnalysisDatabaseConnection};
 use vm::checker::typecheck::contexts::ContractAnalysis;
@@ -174,7 +174,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut outer_sp = db_conn.begin_save_point_raw();                    
             let mut db = ContractDatabase::from_savepoint(outer_sp);
 
-            let mut vm_env = OwnedEnvironment::new(&mut db);
+            let mut vm_env = OwnedEnvironment::new(memory_db());
             let mut exec_env = vm_env.get_exec_environment(None);
 
             let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
@@ -246,7 +246,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut db = ContractDatabase::from_savepoint(outer_sp);
             let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
 
-            let mut vm_env = OwnedEnvironment::new(&mut db);
+            let mut vm_env = OwnedEnvironment::new(memory_db());
 
             let mut ast = friendly_expect(parse(&content), "Failed to parse program.");
             let mut analysis_db = analysis_db_conn.begin_save_point();
@@ -303,7 +303,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             };
 
-            let mut vm_env = OwnedEnvironment::new(&mut db);
+            let mut vm_env = OwnedEnvironment::new(memory_db());
             let contract_name = &args[1];
             
             let result = vm_env.get_exec_environment(None)
@@ -363,7 +363,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut db = ContractDatabase::from_savepoint(outer_sp);
 
             let result = {
-                let mut vm_env = OwnedEnvironment::new(&mut db);
+                let mut vm_env = OwnedEnvironment::new(memory_db());
                 let result = {
                     let mut env = vm_env.get_exec_environment(None);                        
                     env.initialize_contract(&contract_name, &contract_content)
@@ -407,7 +407,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             };
 
-            let mut vm_env = OwnedEnvironment::new(&mut db);
+            let mut vm_env = OwnedEnvironment::new(memory_db());
             let contract_name = &args[2];
             let tx_name = &args[3];
             

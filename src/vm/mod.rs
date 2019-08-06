@@ -26,7 +26,7 @@ use vm::contexts::{ContractContext, LocalContext, Environment, CallStack};
 use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result};
-use vm::database::{ContractDatabaseConnection};
+use vm::database::{ContractDatabaseConnection, memory_db};
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 
@@ -152,13 +152,17 @@ fn eval_all (expressions: &[SymbolicExpression],
 
     for exp in expressions {
         let try_define = {
-            let mut global_context = GlobalContext::begin_from(&mut global_context.database);
+            global_context.begin();
             let define_result = {
                 let mut call_stack = CallStack::new();
                 let mut env = Environment::new(
-                    &mut global_context, contract_context, &mut call_stack, None, None);
+                    global_context, contract_context, &mut call_stack, None, None);
                 functions::define::evaluate_define(exp, &mut env)
-            }?;
+            }
+            .or_else(|e| {
+                global_context.roll_back();
+                Err(e)
+            })?;
             global_context.commit()?;
             define_result
         };
@@ -177,20 +181,36 @@ fn eval_all (expressions: &[SymbolicExpression],
                 global_context.database.create_map(&contract_context.name, &name, key_type, value_type);
             },
             DefineResult::FungibleToken(name, total_supply) => {
-                global_context.database.create_token(&contract_context.name, &name, &total_supply);
+                global_context.database.create_fungible_token(&contract_context.name, &name, &total_supply);
             },
             DefineResult::NonFungibleAsset(name, asset_type) => {
-                global_context.database.create_asset(&contract_context.name, &name, &asset_type);
+                global_context.database.create_non_fungible_token(&contract_context.name, &name, &asset_type);
             },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
-                let mut global_context = GlobalContext::begin_from(&mut global_context.database);
+                global_context.begin();
                 {
                     let mut call_stack = CallStack::new();
                     let mut env = Environment::new(
-                        &mut global_context, contract_context, &mut call_stack, None, None);
-                    last_executed = Some(eval(exp, &mut env, &context)?);
+                        global_context, contract_context, &mut call_stack, None, None);
+
+                    let result = eval(exp, &mut env, &context);
+
+                     match result {
+                        Ok(value) => {
+                            last_executed = Some(value);
+                            Ok(())
+                        },
+                        Err(e) => {
+                            Err(e)
+                        }
+                    }
                 }
+                .or_else(|e| {
+                    global_context.roll_back();
+                    Err(e)
+                })?;
+
                 global_context.commit()?;
             }
         }
@@ -204,8 +224,8 @@ fn eval_all (expressions: &[SymbolicExpression],
  */
 pub fn execute(program: &str) -> Result<Option<Value>> {
     let mut contract_context = ContractContext::new(":transient:".to_string());
-    let mut conn = ContractDatabaseConnection::memory()?;
-    let mut global_context = GlobalContext::begin_from(&mut conn);
+    let conn = memory_db();
+    let mut global_context = GlobalContext::new(conn);
     let result = {
         let parsed = parser::parse(program)?;
         eval_all(&parsed, &mut contract_context, &mut global_context)
@@ -217,7 +237,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
-    use vm::database::ContractDatabaseConnection;
+    use vm::database::memory_db;
     use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression, CallStack};
     use vm::types::{TypeSignature, AtomTypeIdentifier};
     use vm::callables::{DefinedFunction, DefineType};
@@ -246,9 +266,7 @@ mod test {
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(":transient:".to_string());
-
-        let mut conn = ContractDatabaseConnection::memory().unwrap();
-        let mut global_context = GlobalContext::begin_from(&mut conn);
+        let mut global_context = GlobalContext::new(memory_db());
 
         contract_context.variables.insert("a".to_string(), Value::Int(59));
         contract_context.functions.insert("do_work".to_string(), user_function);

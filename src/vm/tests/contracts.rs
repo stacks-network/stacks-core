@@ -67,9 +67,6 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
 
 #[test]
 fn test_get_block_info_eval(){
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
-    let env = owned_env.get_exec_environment(None);
 
     let contracts = [
         "(define (test-func) (get-block-info time 1))",
@@ -82,7 +79,7 @@ fn test_get_block_info_eval(){
     ];
 
     let expected = [
-        Ok(Value::Int(env.global_context.get_block_time(1) as i128)),
+        Ok(Value::Int(0)),
         Err(true),
         Err(true),
         Err(true),
@@ -92,22 +89,21 @@ fn test_get_block_info_eval(){
     ];
 
     for i in 0..contracts.len() {
-        let mut nested_context = GlobalContext::begin_from(&mut env.global_context.database);
-        let contract = Contract::initialize("test-contract", contracts[i],
-                                            &mut nested_context).unwrap();
-        {
-            nested_context.database.insert_contract("test-contract", contract);
+        let mut owned_env = OwnedEnvironment::memory();
+        owned_env.initialize_contract("test-contract", contracts[i]).unwrap();
+
+        let mut env = owned_env.get_exec_environment(None);
+
+        let eval_result = env.eval_read_only("test-contract", "(test-func)");
+        match &expected[i] {
+            Ok(val) => {
+                match (val, &eval_result.unwrap()) {
+                    (Value::Int(_), Value::Int(_)) => {},
+                    (x, y) => assert_eq!(x, y)
+                }
+            },
+            Err(_) => assert!(eval_result.is_err()),
         }
-        {
-            let mut owned_env = OwnedEnvironment::new(&mut nested_context.database);
-            let mut env = owned_env.get_exec_environment(None);
-            let eval_result = env.eval_read_only("test-contract", "(test-func)");
-            match &expected[i] {
-                Ok(val) => assert_eq!(val, &eval_result.unwrap()),
-                Err(_) => assert!(eval_result.is_err()),
-            }
-        }
-        nested_context.database.roll_back();
     }
 }
 
@@ -135,8 +131,7 @@ fn test_simple_token_system() {
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
+    let mut owned_env = OwnedEnvironment::memory();
 
     {
         let mut env = owned_env.get_exec_environment(None);
@@ -270,8 +265,7 @@ fn test_simple_naming_system() {
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
+    let mut owned_env = OwnedEnvironment::memory();
 
     {
         let mut env = owned_env.get_exec_environment(None);
@@ -349,8 +343,7 @@ fn test_simple_contract_call() {
             (contract-call! factorial-contract compute 8008))
         ";
 
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
+    let mut owned_env = OwnedEnvironment::memory();
 
     {
         let mut env = owned_env.get_exec_environment(None);
@@ -415,8 +408,7 @@ fn test_aborts() {
     (err 1)))
 ";
 
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
+    let mut owned_env = OwnedEnvironment::memory();
 
     let mut env = owned_env.get_exec_environment(None);
 
@@ -468,8 +460,7 @@ fn test_aborts() {
 
 #[test]
 fn test_factorial_contract() {
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
+    let mut owned_env = OwnedEnvironment::memory();
 
     let mut env = owned_env.get_exec_environment(None);
 

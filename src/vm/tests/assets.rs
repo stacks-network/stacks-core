@@ -124,10 +124,9 @@ fn is_err_code(v: &Value, e: i128) -> bool {
     }
 }
 
-fn execute_transaction(conn: &mut ContractDatabaseConnection, sender: Value, contract: &str,
+fn execute_transaction(env: &mut OwnedEnvironment, sender: Value, contract: &str,
                        tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap), Error> {
-    let owned_env = OwnedEnvironment::new(conn);
-    owned_env.execute_transaction(sender, contract, tx, args)
+    env.execute_transaction(sender, contract, tx, args)
 }
 
 #[test]
@@ -152,20 +151,19 @@ fn test_simple_token_system() {
 
     let contract_principal = PrincipalData::ContractPrincipal("tokens".to_string());
 
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
+    let mut owned_env = OwnedEnvironment::memory();
+    owned_env.initialize_contract("tokens", tokens_contract).unwrap();
 
-    {
-        let owned_env = OwnedEnvironment::new(&mut conn);
-        owned_env.initialize_contract("tokens", tokens_contract).unwrap();
-    }
+    // force us back to the top-level...
+    owned_env.commit();
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p2.clone(), "tokens", "my-token-transfer",
+        &mut owned_env, p2.clone(), "tokens", "my-token-transfer",
         &symbols_from_values(vec![p1.clone(), Value::Int(210)])).unwrap();
     assert!(!is_committed(&result));
     assert_eq!(asset_map.to_table().len(), 0);
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "my-token-transfer",
         &symbols_from_values(vec![p2.clone(), Value::Int(9000)])).unwrap();
     
@@ -174,28 +172,28 @@ fn test_simple_token_system() {
     let asset_map = asset_map.to_table();
     assert_eq!(asset_map[&p1_principal][&token_identifier], AssetMapEntry::Token(9000));
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "my-token-transfer",
         &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap();
 
     assert!(is_err_code(&result, 1));
     assert_eq!(asset_map.to_table().len(), 0);
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "my-token-transfer",
         &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap();
 
     assert!(is_err_code(&result, 2));
     assert_eq!(asset_map.to_table().len(), 0);
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "my-token-transfer",
         &symbols_from_values(vec![p1.clone(), Value::Int(-1)])).unwrap();
 
     assert!(is_err_code(&result, 3));
     assert_eq!(asset_map.to_table().len(), 0);
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "my-ft-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
 
     assert_eq!(
@@ -203,7 +201,7 @@ fn test_simple_token_system() {
         Value::Int(1000));
     assert_eq!(asset_map.to_table().len(), 0);
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "my-ft-get-balance", &symbols_from_values(vec![p2.clone()])).unwrap();
 
     assert_eq!(
@@ -211,7 +209,7 @@ fn test_simple_token_system() {
         Value::Int(9200));
     assert_eq!(asset_map.to_table().len(), 0);
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "faucet", &vec![]).unwrap();
 
     assert!(is_committed(&result));
@@ -219,28 +217,28 @@ fn test_simple_token_system() {
     let asset_map = asset_map.to_table();
     assert_eq!(asset_map[&contract_principal][&token_identifier], AssetMapEntry::Token(1));
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "faucet", &vec![]).unwrap();
 
     let asset_map = asset_map.to_table();
     assert!(is_committed(&result));
     assert_eq!(asset_map[&contract_principal][&token_identifier], AssetMapEntry::Token(1));
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "faucet", &vec![]).unwrap();
 
     let asset_map = asset_map.to_table();
     assert!(is_committed(&result));
     assert_eq!(asset_map[&contract_principal][&token_identifier], AssetMapEntry::Token(1));
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "my-ft-get-balance", &symbols_from_values(vec![p1.clone()])).unwrap();
 
     assert_eq!(
         result,
         Value::Int(1003));
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap();
 
     assert!(!is_committed(&result));
@@ -271,48 +269,40 @@ fn total_supply() {
         _ => panic!()
     };
 
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
+    let mut owned_env = OwnedEnvironment::memory();
 
-    {
-        let owned_env = OwnedEnvironment::new(&mut conn);
-        let err = owned_env.initialize_contract("tokens", bad_0).unwrap_err();
-        assert!( match err {
-            Error::Runtime(RuntimeErrorType::NonPositiveTokenSupply, _) => true,
-            _ => false
-        });
-    }
+    let err = owned_env.initialize_contract("tokens", bad_0).unwrap_err();
+    assert!( match err {
+        Error::Runtime(RuntimeErrorType::NonPositiveTokenSupply, _) => true,
+        _ => false
+    });
 
-    {
-        let owned_env = OwnedEnvironment::new(&mut conn);
-        let err = owned_env.initialize_contract("tokens", bad_1).unwrap_err();
-        assert!( match err {
-            Error::Unchecked(UncheckedError::TypeError(_, _)) => true,
-            _ => false
-        });
-    }
+    let err = owned_env.initialize_contract("tokens", bad_1).unwrap_err();
+    assert!( match err {
+        Error::Unchecked(UncheckedError::TypeError(_, _)) => true,
+        _ => false
+    });
 
-    {
-        let owned_env = OwnedEnvironment::new(&mut conn);
-        owned_env.initialize_contract("tokens", contract).unwrap();
-    }
+    owned_env.initialize_contract("tokens", contract).unwrap();
 
+    owned_env.commit();
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "gated-faucet",
         &symbols_from_values(vec![Value::Bool(true)])).unwrap();
     assert!(is_committed(&result));
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "gated-faucet",
         &symbols_from_values(vec![Value::Bool(false)])).unwrap();
     assert!(!is_committed(&result));
 
-    let (result, asset_map) = execute_transaction(&mut conn,
+    let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "gated-faucet",
         &symbols_from_values(vec![Value::Bool(true)])).unwrap();
     assert!(is_committed(&result));
 
-    let err = execute_transaction(&mut conn,
+    let err = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "gated-faucet",
         &symbols_from_values(vec![Value::Bool(false)])).unwrap_err();
     println!("{}", err);
@@ -351,32 +341,26 @@ fn test_simple_naming_system() {
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
+    let mut owned_env = OwnedEnvironment::memory();
+    owned_env.initialize_contract("tokens", tokens_contract).unwrap();
+    owned_env.initialize_contract("names", names_contract).unwrap();
 
-    {
-        let owned_env = OwnedEnvironment::new(&mut conn);
-        owned_env.initialize_contract("tokens", tokens_contract).unwrap();
-    }
-
-    {
-        let owned_env = OwnedEnvironment::new(&mut conn);
-        owned_env.initialize_contract("names", names_contract).unwrap();
-    }
+    owned_env.commit();
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p2.clone(), "names", "preorder",
+        &mut owned_env, p2.clone(), "names", "preorder",
         &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();
 
     assert!(is_err_code(&result, 1));
     
     let (result, asset_map) = execute_transaction(
-        &mut conn, p1.clone(), "names", "preorder",
+        &mut owned_env, p1.clone(), "names", "preorder",
         &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();
     
     assert!(is_committed(&result));
     
     let (result, asset_map) = execute_transaction(
-        &mut conn, p1.clone(), "names", "preorder",
+        &mut owned_env, p1.clone(), "names", "preorder",
         &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap();
 
     assert!(is_err_code(&result, 2));
@@ -386,7 +370,7 @@ fn test_simple_naming_system() {
 
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p2.clone(), "names", "register",
+        &mut owned_env, p2.clone(), "names", "register",
         &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap();
 
     assert!(is_err_code(&result, 4));
@@ -394,14 +378,13 @@ fn test_simple_naming_system() {
     // should work!
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p1.clone(), "names", "register",
+        &mut owned_env, p1.clone(), "names", "register",
         &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap();
             
     assert!(is_committed(&result));
     
 
     {
-        let mut owned_env = OwnedEnvironment::new(&mut conn);
         let mut env = owned_env.get_exec_environment(None);
         assert_eq!(
             env.eval_read_only("names",
@@ -412,12 +395,12 @@ fn test_simple_naming_system() {
     // let's try some token-transfers
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p1.clone(), "names", "try-bad-transfers", &vec![]).unwrap();
+        &mut owned_env, p1.clone(), "names", "try-bad-transfers", &vec![]).unwrap();
     assert!(is_err_code(&result, 0));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p1.clone(), "names", "try-bad-transfers-but-ok", &vec![]).unwrap();
+        &mut owned_env, p1.clone(), "names", "try-bad-transfers-but-ok", &vec![]).unwrap();
 
     assert!(is_committed(&result));
 
@@ -427,7 +410,7 @@ fn test_simple_naming_system() {
     // let's mint some names
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p1.clone(), "names", "force-mint", 
+        &mut owned_env, p1.clone(), "names", "force-mint", 
         &symbols_from_values(vec![Value::Int(1)])).unwrap();
 
     assert!(is_err_code(&result, 1));
@@ -435,7 +418,7 @@ fn test_simple_naming_system() {
 
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p1.clone(), "names", "force-mint", 
+        &mut owned_env, p1.clone(), "names", "force-mint", 
         &symbols_from_values(vec![Value::Int(5)])).unwrap();
 
     assert!(is_committed(&result));
@@ -445,28 +428,28 @@ fn test_simple_naming_system() {
 
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p1.clone(), "names", "transfer", 
+        &mut owned_env, p1.clone(), "names", "transfer", 
         &symbols_from_values(vec![Value::Int(7), p2.clone()])).unwrap();
 
     assert!(is_err_code(&result, 3));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p1.clone(), "names", "transfer", 
+        &mut owned_env, p1.clone(), "names", "transfer", 
         &symbols_from_values(vec![Value::Int(1), p2.clone()])).unwrap();
 
     assert!(is_err_code(&result, 1));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p2.clone(), "names", "transfer", 
+        &mut owned_env, p2.clone(), "names", "transfer", 
         &symbols_from_values(vec![Value::Int(1), p2.clone()])).unwrap();
 
     assert!(is_err_code(&result, 2));
     assert_eq!(asset_map.to_table().len(), 0);
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p1.clone(), "names", "transfer", 
+        &mut owned_env, p1.clone(), "names", "transfer", 
         &symbols_from_values(vec![Value::Int(5), p2.clone()])).unwrap();
 
     println!("{}", asset_map);
@@ -479,13 +462,13 @@ fn test_simple_naming_system() {
     // try to underpay!
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p2.clone(), "names", "preorder",
+        &mut owned_env, p2.clone(), "names", "preorder",
         &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap();
 
     assert!(is_committed(&result));
     
     let (result, asset_map) = execute_transaction(
-        &mut conn, p2.clone(), "names", "register",
+        &mut owned_env, p2.clone(), "names", "register",
         &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap();
 
     assert!(is_err_code(&result, 4));
@@ -493,21 +476,21 @@ fn test_simple_naming_system() {
     // register a cheap name!
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p2.clone(), "names", "preorder",
+        &mut owned_env, p2.clone(), "names", "preorder",
         &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::Int(100)])).unwrap();
 
     assert!(is_committed(&result));
 
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p2.clone(), "names", "register",
+        &mut owned_env, p2.clone(), "names", "register",
         &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap();
 
     assert!(is_committed(&result));
     
 
     let (result, asset_map) = execute_transaction(
-        &mut conn, p2.clone(), "names", "register",
+        &mut owned_env, p2.clone(), "names", "register",
         &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap();
 
     // preorder must exist!

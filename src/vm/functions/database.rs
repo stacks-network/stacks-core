@@ -43,11 +43,7 @@ pub fn special_fetch_variable(args: &[SymbolicExpression],
     let var_name = args[0].match_atom()
         .ok_or(UncheckedError::ExpectedVariableName)?;
 
-    let data = env.global_context.database.lookup_variable(&env.contract_context.name, var_name)?;
-    match data {
-        Some(data) => Ok(data),
-        None => Err(InterpreterError::UninitializedPersistedVariable.into())
-    }
+    env.global_context.database.lookup_variable(&env.contract_context.name, var_name)
 }
 
 pub fn special_set_variable(args: &[SymbolicExpression],
@@ -80,11 +76,7 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
         Explicit => eval(&args[1], env, &context)?
     };
 
-    let value = env.global_context.database.fetch_entry(&env.contract_context.name, map_name, &key)?;
-    match value {
-        Some(data) => Ok(Value::some(data)),
-        None => Ok(Value::none())
-    }
+    env.global_context.database.fetch_entry(&env.contract_context.name, map_name, &key)
 }
 
 
@@ -103,11 +95,7 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
         Explicit => eval(&args[2], env, &context)?
     };
 
-    let value = env.global_context.database.fetch_entry(contract_name, map_name, &key)?;
-    match value {
-        Some(data) => Ok(Value::some(data)),
-        None => Ok(Value::none())
-    }
+    env.global_context.database.fetch_entry(contract_name, map_name, &key)
 }
 
 pub fn special_set_entry(args: &[SymbolicExpression],

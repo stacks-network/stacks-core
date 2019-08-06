@@ -1,5 +1,5 @@
 use vm::{eval, execute as vm_execute};
-use vm::database::ContractDatabaseConnection;
+use vm::database::memory_db;
 use vm::errors::{UncheckedError, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
@@ -31,10 +31,9 @@ fn test_simple_let() {
 
     if let Ok(parsed_program) = parse(&program) {
         let context = LocalContext::new();
-        let mut conn = ContractDatabaseConnection::memory().unwrap();
-        let mut env = OwnedEnvironment::new(&mut conn);
+        let mut env = OwnedEnvironment::memory();
 
-        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env.get_exec_environment(None), &context));        
+        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env.get_exec_environment(None), &context));
     } else {
         assert!(false, "Failed to parse program.");
     }
@@ -147,8 +146,7 @@ fn test_simple_if_functions() {
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(":transient:".to_string());
-        let mut conn = ContractDatabaseConnection::memory().unwrap();
-        let mut global_context = GlobalContext::begin_from(&mut conn);
+        let mut global_context = GlobalContext::new(memory_db());
 
         contract_context.functions.insert("with_else".to_string(), user_function1);
         contract_context.functions.insert("without_else".to_string(), user_function2);
