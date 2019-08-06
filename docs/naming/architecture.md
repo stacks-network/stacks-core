@@ -46,7 +46,7 @@ Figure 1: BNS architecture overview.  Clients talk to the BNS API module to
 resolve names, and generate and send blockchain transactions to register and
 modify names.   The API module talks to the indexer module and gives clients
 a stable, Web-accessible interface for resolving names.  The indexer module reads
-the blochchain via a blockchain peer, over the blockchain's peer network.
+the blockchain via a blockchain peer, over the blockchain's peer network.
 
 Blockstack Core currently implements the API module and indexer module as separate
 daemons (`blockstack api` and `blockstack-core`, respectively).  However, this

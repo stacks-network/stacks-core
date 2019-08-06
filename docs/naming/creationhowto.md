@@ -52,6 +52,6 @@ do this, then the namespace they created disappears (along with all the names
 they imported).
 
 Developers wanting to create their own namespaces should read the [namespace
-creation]({{ site.baseurl }}/core/naming/namepsaces.html) document.  It is highly recommended that
+creation]({{ site.baseurl }}/core/naming/namespaces.html) document.  It is highly recommended that
 developers individula support to create your own namespace, given the large amount of
 cryptocurrency at stake.

@@ -2,7 +2,7 @@
 layout: core
 permalink: /:collection/:path.html
 ---
-# Blockstack API 
+# Blockstack API
 {:.no_toc}
 * TOC
 {:toc}
@@ -34,7 +34,7 @@ $ ./build_docs.sh public_api
 ### Search Subsystem
 
 If you want to enable the search subsystem in your installation, you can
-follow the instructions [here](search.md).
+follow the instructions [here](search.html).
 
 ### Nginx Deployment
 

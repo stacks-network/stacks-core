@@ -382,7 +382,7 @@ Op: `;`
 
 Description:  This transaction registers a name and some name state into a
 namespace that has been revealed, but not been launched.  Only the namespace
-creator can import names.  See the [namespace creation section]({{ site.baseurl }}/core/naming/namespace.html) for details.
+creator can import names.  See the [namespace creation section]({{ site.baseurl }}/core/naming/namespaces.html) for details.
 
 Example: [c698ac4b4a61c90b2c93dababde867dea359f971e2efcf415c37c9a4d9c4f312](https://www.blocktrail.com/BTC/tx/c698ac4b4a61c90b2c93dababde867dea359f971e2efcf415c37c9a4d9c4f312)
 

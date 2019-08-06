@@ -1724,7 +1724,7 @@ Fetch a list of names from the namespace.
                 },
             }
 
-# Group Account Operations
+## Group Account Operations
 
 The set of methods in this section correspond to querying the states of
 Blockstack token accounts.  Each token account is represented by an account
@@ -2073,7 +2073,7 @@ If the account does not exist, then an empty list will be returned.
 # Group Resolver Endpoints
 
 ## Lookup User [GET /v1/users/{username}]
-Lookup and resolve a user's profile. Defaults to the `id` namespace.
+Look up and resolve a user's profile. Defaults to the `id` namespace.
 Note that [blockstack.js](https://github.com/blockstack/blockstack.js) does
 *not* rely on this endpoint.
 
