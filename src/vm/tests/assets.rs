@@ -2,7 +2,6 @@ use vm::execute as vm_execute;
 use vm::errors::{Error, UncheckedError, RuntimeErrorType};
 use vm::types::{Value, PrincipalData, ResponseData, AssetIdentifier};
 use vm::contexts::{OwnedEnvironment, GlobalContext, AssetMap, AssetMapEntry};
-use vm::database::{ContractDatabaseConnection};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
@@ -155,7 +154,7 @@ fn test_simple_token_system() {
     owned_env.initialize_contract("tokens", tokens_contract).unwrap();
 
     // force us back to the top-level...
-    owned_env.commit();
+    owned_env.commit().unwrap();
 
     let (result, asset_map) = execute_transaction(
         &mut owned_env, p2.clone(), "tokens", "my-token-transfer",
@@ -285,7 +284,7 @@ fn total_supply() {
 
     owned_env.initialize_contract("tokens", contract).unwrap();
 
-    owned_env.commit();
+    owned_env.commit().unwrap();
 
     let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "gated-faucet",
@@ -345,7 +344,7 @@ fn test_simple_naming_system() {
     owned_env.initialize_contract("tokens", tokens_contract).unwrap();
     owned_env.initialize_contract("names", names_contract).unwrap();
 
-    owned_env.commit();
+    owned_env.commit().unwrap();
 
     let (result, asset_map) = execute_transaction(
         &mut owned_env, p2.clone(), "names", "preorder",

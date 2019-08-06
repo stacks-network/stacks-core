@@ -6,9 +6,11 @@ use std::env;
 use std::process;
 use util::log;
 
+use rusqlite::Connection;
+
 use vm::parser::parse;
 use vm::contexts::OwnedEnvironment;
-use vm::database::{ContractDatabase, ContractDatabaseConnection, ContractDatabaseTransacter, memory_db};
+use vm::database::{ClarityDatabase, SqliteStore, SqliteConnection, memory_db};
 use vm::{SymbolicExpression, SymbolicExpressionType};
 use vm::checker::{type_check, AnalysisDatabase, AnalysisDatabaseConnection};
 use vm::checker::typecheck::contexts::ContractAnalysis;
@@ -66,8 +68,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 process::exit(1);
             }
             AnalysisDatabaseConnection::initialize(&args[1]);
-            match ContractDatabaseConnection::initialize(&args[1]) {
-                Ok(_) => println!("Database created."),
+            match SqliteConnection::initialize(&args[1]) {
+                Ok(x) => {
+                    let mut db = ClarityDatabase::new(Box::new(x));
+                    db.initialize();
+                    println!("Database created.");
+                }
                 Err(error) => {
                     eprintln!("Initialization error: \n{}", error);
                     process::exit(1);
@@ -90,7 +96,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let block_time: u64 = friendly_expect(args[1].parse(), "Failed to parse block time");
 
-            let mut db = match ContractDatabaseConnection::open(&args[2]) {
+            let db = match SqliteConnection::open(&args[2]) {
                 Ok(db) => db,
                 Err(error) => {
                     eprintln!("Could not open vm-state: \n{}", error);
@@ -98,9 +104,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             };
 
-            let mut sp = db.begin_save_point();
-            sp.sim_mine_block_with_time(block_time);
-            sp.commit();
+            let mut db = ClarityDatabase::new(Box::new(db));
+            db.begin();
+            db.sim_mine_block_with_time(block_time);
+            db.commit();
             println!("Simulated block mine!");
         },
         "get_block_height" => {
@@ -109,7 +116,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 process::exit(1);
             }
 
-            let mut db = match ContractDatabaseConnection::open(&args[1]) {
+            let db = match SqliteConnection::open(&args[1]) {
                 Ok(db) => db,
                 Err(error) => {
                     eprintln!("Could not open vm-state: \n{}", error);
@@ -117,17 +124,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             };
 
-            let mut sp = db.begin_save_point();
-            let mut blockheight = sp.get_simmed_block_height();
-            match blockheight {
-                Ok(x) => {
-                    println!("Simulated block height: \n{}", x);
-                },
-                Err(error) => {
-                    eprintln!("Program execution error: \n{}", error);
-                    process::exit(1);
-                }
-            }
+            let mut db = ClarityDatabase::new(Box::new(db));
+            db.begin();
+            let blockheight = db.get_simmed_block_height();
+            println!("Simulated block height: \n{}", blockheight);
+            db.roll_back();
         },
         "check" => {
             if args.len() < 2 {
@@ -163,18 +164,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
         },
         "repl" => {
-            let mut db_conn = match ContractDatabaseConnection::memory() {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    process::exit(1);
-                }
-            };
-
-            let mut outer_sp = db_conn.begin_save_point_raw();                    
-            let mut db = ContractDatabase::from_savepoint(outer_sp);
-
-            let mut vm_env = OwnedEnvironment::new(memory_db());
+            let mut vm_env = OwnedEnvironment::memory();
             let mut exec_env = vm_env.get_exec_environment(None);
 
             let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
@@ -234,19 +224,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 buffer
             };
 
-            let mut db_conn = match ContractDatabaseConnection::memory() {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    process::exit(1);
-                }
-            };
-
-            let mut outer_sp = db_conn.begin_save_point_raw();                    
-            let mut db = ContractDatabase::from_savepoint(outer_sp);
             let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
 
-            let mut vm_env = OwnedEnvironment::new(memory_db());
+            let mut vm_env = OwnedEnvironment::memory();
 
             let mut ast = friendly_expect(parse(&content), "Failed to parse program.");
             let mut analysis_db = analysis_db_conn.begin_save_point();
@@ -283,13 +263,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             };
             
-            let mut db = match ContractDatabaseConnection::open(vm_filename) {
+            let db = match SqliteConnection::open(vm_filename) {
                 Ok(db) => db,
                 Err(error) => {
                     eprintln!("Could not open vm-state: \n{}", error);
                     process::exit(1);
                 }
             };
+
+            let mut db = ClarityDatabase::new(Box::new(db));
 
             let content: String = {
                 if args.len() == 3 {
@@ -303,7 +285,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             };
 
-            let mut vm_env = OwnedEnvironment::new(memory_db());
+            let mut vm_env = OwnedEnvironment::memory();
             let contract_name = &args[1];
             
             let result = vm_env.get_exec_environment(None)
@@ -337,7 +319,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             //     to think about whether or not there's a more ergonomic way to do this.
 
 
-            let mut db_conn = match ContractDatabaseConnection::open(vm_filename) {
+            let mut db_conn = match SqliteConnection::open(vm_filename) {
                 Ok(db) => db,
                 Err(error) => {
                     eprintln!("Could not open vm-state: \n{}", error);
@@ -360,10 +342,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 analysis_db.commit();
             }
 
-            let mut db = ContractDatabase::from_savepoint(outer_sp);
-
             let result = {
-                let mut vm_env = OwnedEnvironment::new(memory_db());
+                let sql_data_store = SqliteStore::new(&outer_sp);
+                let db = ClarityDatabase::new(Box::new(sql_data_store));
+                let mut vm_env = OwnedEnvironment::new(db);
                 let result = {
                     let mut env = vm_env.get_exec_environment(None);                        
                     env.initialize_contract(&contract_name, &contract_content)
@@ -376,7 +358,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             match result {
                 Ok(_x) => {
-                    db.commit();
+                    friendly_expect(outer_sp.commit(), "Failed to commit results to database");
                     match args.last() {
                         Some(s) if s == "--output_analysis" => {
                             println!("{}", contract_analysis.to_interface().serialize());
@@ -399,15 +381,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
             let vm_filename = &args[1];
 
-            let mut db = match ContractDatabaseConnection::open(vm_filename) {
-                Ok(db) => db,
+            let db = match SqliteConnection::open(vm_filename) {
+                Ok(db) => ClarityDatabase::new(Box::new(db)),
                 Err(error) => {
                     eprintln!("Could not open vm-state: \n{}", error);
                     process::exit(1);
                 }
             };
 
-            let mut vm_env = OwnedEnvironment::new(memory_db());
+            let mut vm_env = OwnedEnvironment::new(db);
             let contract_name = &args[2];
             let tx_name = &args[3];
             
@@ -442,6 +424,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     SymbolicExpression::atom_value(argument_value.clone())
                 })
                 .collect();
+
+            // close the initial transaction, so we can open a new one for `execute_transaction`
+            friendly_expect(vm_env.commit(), "Failed to commit environment.");
 
             let result = vm_env.execute_transaction(sender, &contract_name, &tx_name, &arguments);
 

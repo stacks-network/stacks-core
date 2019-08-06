@@ -26,7 +26,7 @@ use vm::contexts::{ContractContext, LocalContext, Environment, CallStack};
 use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result};
-use vm::database::{ContractDatabaseConnection, memory_db};
+use vm::database::{memory_db};
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 

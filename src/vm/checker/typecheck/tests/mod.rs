@@ -5,7 +5,6 @@ use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection, identity_pass};
 use vm::checker::errors::CheckErrors;
 use vm::checker::type_check;
 use vm::contexts::{OwnedEnvironment};
-use vm::database::{ContractDatabaseConnection};
 use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier};
 
 mod assets;

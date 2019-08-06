@@ -5,7 +5,7 @@ pub mod key_value_wrapper;
 use std::collections::HashMap;
 pub use self::key_value_wrapper::{KeyType, KeyValueStorage, ClarityDatabase};
 
-pub use self::sqlite::{ContractDatabaseTransacter, ContractDatabaseConnection, ContractDatabase};
+pub use self::sqlite::{SqliteStore, SqliteConnection};
 
 impl KeyValueStorage for HashMap<KeyType, String> {
     fn put(&mut self, key: &KeyType, value: &str) {
@@ -20,7 +20,9 @@ impl KeyValueStorage for HashMap<KeyType, String> {
 }
 
 
-pub fn memory_db() -> ClarityDatabase {
+pub fn memory_db<'a>() -> ClarityDatabase<'a> {
     let store: HashMap<KeyType, String> = HashMap::new();
-    ClarityDatabase::new(Box::new(store))
+    let mut db = ClarityDatabase::new(Box::new(store));
+    db.initialize();
+    db
 }

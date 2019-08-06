@@ -12,7 +12,11 @@ use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
 
 use util::hash::Sha256Sum;
-use vm::database::structures::*;
+use vm::database::structures::{
+    FungibleTokenMetadata, NonFungibleTokenMetadata, ContractMetadata,
+    DataMapMetadata, DataVariableMetadata, ClaritySerializable, SimmedBlock,
+    ClarityDeserializable,
+};
 
 pub type KeyType = [u8; 32];
 
@@ -41,14 +45,19 @@ pub struct RollbackContext {
     edits: Vec<(KeyType, String)>
 }
 
-pub struct RollbackWrapper {
-    store: Box<KeyValueStorage>,
+pub struct RollbackWrapper <'a> {
+    store: Box<KeyValueStorage + 'a>,
     lookup_map: HashMap<KeyType, VecDeque<String>>,
     stack: VecDeque<RollbackContext>
 }
 
-impl RollbackWrapper {
-    pub fn new(store: Box<KeyValueStorage>) -> RollbackWrapper {
+
+pub struct ClarityDatabase<'a> {
+    store: RollbackWrapper<'a>
+}
+
+impl <'a> RollbackWrapper <'a> {
+    pub fn new(store: Box<KeyValueStorage + 'a>) -> RollbackWrapper {
         RollbackWrapper {
             store: store,
             lookup_map: HashMap::new(),
@@ -114,7 +123,7 @@ impl RollbackWrapper {
 
 }
 
-impl KeyValueStorage for RollbackWrapper {
+impl <'a> KeyValueStorage for RollbackWrapper <'a> {
     fn put(&mut self, key: &KeyType, value: &str) {
         let current = self.stack.back_mut()
             .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
@@ -156,17 +165,15 @@ impl KeyValueStorage for RollbackWrapper {
     }
 }
 
-pub struct ClarityDatabase {
-    store: RollbackWrapper
-}
-
-impl ClarityDatabase {
-    pub fn new(store: Box<KeyValueStorage>) -> ClarityDatabase {
-        let mut cons = ClarityDatabase {
+impl <'a> ClarityDatabase <'a> {
+    pub fn new(store: Box<KeyValueStorage + 'a>) -> ClarityDatabase<'a> {
+        ClarityDatabase {
             store: RollbackWrapper::new(store)
-        };
+        }
+    }
 
-        cons.begin();
+    pub fn initialize(&mut self) {
+        self.begin();
 
         use std::time::{SystemTime, UNIX_EPOCH};
         let time_now = SystemTime::now()
@@ -174,15 +181,13 @@ impl ClarityDatabase {
             .expect("Time went backwards")
             .as_secs();
 
-        cons.set_simmed_block_height(0);
+        self.set_simmed_block_height(0);
         for i in 0..20 {
             let block_time = u64::try_from(time_now - ((20 - i) * SIMMED_BLOCK_TIME)).unwrap();
-            cons.sim_mine_block_with_time(block_time);
+            self.sim_mine_block_with_time(block_time);
         }
 
-        cons.commit();
-
-        cons
+        self.commit();
     }
 
     pub fn begin(&mut self) {
@@ -233,7 +238,7 @@ impl ClarityDatabase {
 
 // Simulating blocks
 
-impl ClarityDatabase {
+impl <'a> ClarityDatabase <'a> {
     fn get_simmed_block(&self, block_height: u64) -> SimmedBlock {
         let key = ClarityDatabase::make_key_for_trip(
             ":transient:", StoreType::SimmedBlock, &block_height.to_string());
@@ -313,7 +318,7 @@ impl ClarityDatabase {
 }
 
 // Variable Functions...
-impl ClarityDatabase {
+impl <'a> ClarityDatabase <'a> {
     pub fn create_variable(&mut self, contract_name: &str, variable_name: &str, value_type: TypeSignature) {
         let variable_data = DataVariableMetadata { value_type };
 
@@ -370,7 +375,7 @@ impl ClarityDatabase {
 }
 
 // Data Map Functions
-impl ClarityDatabase {
+impl <'a> ClarityDatabase <'a> {
     pub fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {
         let key_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(key_type));
         let value_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type));
@@ -464,7 +469,7 @@ impl ClarityDatabase {
 
 // Asset Functions
 
-impl ClarityDatabase {
+impl <'a> ClarityDatabase <'a> {
     pub fn create_fungible_token(&mut self, contract_name: &str, token_name: &str, total_supply: &Option<i128>) {
         let key = ClarityDatabase::make_key_for_trip(contract_name, StoreType::FungibleTokenMeta, token_name);
         let data = FungibleTokenMetadata { total_supply: total_supply.clone() };

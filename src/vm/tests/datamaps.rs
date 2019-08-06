@@ -1,7 +1,6 @@
 use vm::errors::{Error, UncheckedError, RuntimeErrorType};
 use vm::types::{Value, PrincipalData, TupleData};
 use vm::contexts::{OwnedEnvironment};
-use vm::database::{ContractDatabaseConnection};
 use vm::execute;
 
 fn assert_executes(expected: Result<Value, Error>, input: &str) {

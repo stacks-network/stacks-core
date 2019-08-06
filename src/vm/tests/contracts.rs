@@ -2,7 +2,6 @@ use vm::execute as vm_execute;
 use vm::errors::{Error, UncheckedError};
 use vm::types::{Value, PrincipalData, ResponseData};
 use vm::contexts::{OwnedEnvironment,GlobalContext};
-use vm::database::{ContractDatabaseConnection};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;

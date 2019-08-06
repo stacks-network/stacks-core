@@ -4,7 +4,7 @@ use std::fmt;
 use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, InterpreterResult as Result};
 use vm::types::{Value, AssetIdentifier, PrincipalData};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
-use vm::database::{ContractDatabase, ContractDatabaseTransacter, ClarityDatabase, memory_db};
+use vm::database::{ClarityDatabase, memory_db};
 use vm::{SymbolicExpression};
 use vm::contracts::Contract;
 use vm::{parser, eval};
@@ -17,16 +17,16 @@ pub const MAX_CONTEXT_DEPTH: u16 = 256;
 // TODO:
 //    hide the environment's instance variables.
 //     we don't want many of these changing after instantiation.
-pub struct Environment <'a> {
-    pub global_context: &'a mut GlobalContext,
+pub struct Environment <'a, 'b> {
+    pub global_context: &'a mut GlobalContext<'b>,
     pub contract_context: &'a ContractContext,
     pub call_stack: &'a mut CallStack,
     pub sender: Option<Value>,
     pub caller: Option<Value>
 }
 
-pub struct OwnedEnvironment {
-    context: GlobalContext,
+pub struct OwnedEnvironment <'a> {
+    context: GlobalContext <'a>,
     default_contract: ContractContext,
     call_stack: CallStack
 }
@@ -47,18 +47,15 @@ pub struct AssetMap {
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>
 }
 
-/** GlobalContext represents the outermost context for a transaction's
-      execution. Logically, this context _never_ changes for the execution of
-      transaction. However, due to the use of SavePoints for executing cross-contract
-      calls, the GlobalContext can "nest", such that the inner-most GlobalContext may
-      commit or abort its changes independent of the outer-most GlobalContext. Because
-      of this, it may be easier to think of the GlobalContext as the "Database context".
-      However, the GlobalContext also tracks some other variables which may only be
-      modified during 
+/** GlobalContext represents the outermost context for a single transaction's
+      execution. It tracks an asset changes that occurred during the
+      processing of the transaction, whether or not the current context is read_only,
+      and is responsible for committing/rolling-back transactions as they error or
+      abort.
  */
-pub struct GlobalContext {
+pub struct GlobalContext<'a> {
     asset_maps: VecDeque<AssetMap>,
-    pub database: ClarityDatabase,
+    pub database: ClarityDatabase<'a>,
     read_only: VecDeque<bool>,
 }
 
@@ -206,101 +203,6 @@ impl AssetMap {
     }
 }
 
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_asset_map_abort() {
-        let p1 = PrincipalData::ContractPrincipal("a".to_string());
-        let p2 = PrincipalData::ContractPrincipal("b".to_string());
-
-        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
-        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
-
-        let mut am1 = AssetMap::new();
-        let mut am2 = AssetMap::new();
-
-        am1.add_token_transfer(&p1, t1.clone(), 1).unwrap();
-        am1.add_token_transfer(&p2, t1.clone(), i128::max_value()).unwrap();
-        am2.add_token_transfer(&p1, t1.clone(), 1).unwrap();
-        am2.add_token_transfer(&p2, t1.clone(), 1).unwrap();
-
-        am1.commit_other(am2).unwrap_err();
-
-        let table = am1.to_table();
-
-        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(i128::max_value()));
-        assert_eq!(table[&p1][&t1], AssetMapEntry::Token(1));
-    }
-
-    #[test]
-    fn test_asset_map_combinations() {
-        let p1 = PrincipalData::ContractPrincipal("a".to_string());
-        let p2 = PrincipalData::ContractPrincipal("b".to_string());
-        let p3 = PrincipalData::ContractPrincipal("c".to_string());
-
-        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
-        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
-        let t3 = AssetIdentifier { contract_name: "c".to_string(), asset_name: "a".to_string() };
-        let t4 = AssetIdentifier { contract_name: "d".to_string(), asset_name: "a".to_string() };
-        let t5 = AssetIdentifier { contract_name: "e".to_string(), asset_name: "a".to_string() };
-
-        let mut am1 = AssetMap::new();
-        let mut am2 = AssetMap::new();
-
-        am1.add_token_transfer(&p1, t1.clone(), 10).unwrap();
-        am2.add_token_transfer(&p1, t1.clone(), 15).unwrap();
-
-        // test merging in a token that _didn't_ have an entry in the parent
-        am2.add_token_transfer(&p1, t4.clone(), 1).unwrap();
-
-        // test merging in a principal that _didn't_ have an entry in the parent
-        am2.add_token_transfer(&p2, t2.clone(), 10).unwrap();
-        am2.add_token_transfer(&p2, t2.clone(), 1).unwrap();
-
-        // test merging in a principal that _didn't_ have an entry in the parent
-        am2.add_asset_transfer(&p3, t3.clone(), Value::Int(10));
-
-        // test merging in an asset that _didn't_ have an entry in the parent
-        am1.add_asset_transfer(&p1, t5.clone(), Value::Int(0));
-        am2.add_asset_transfer(&p1, t3.clone(), Value::Int(1));
-        am2.add_asset_transfer(&p1, t3.clone(), Value::Int(0));
-
-        // test merging in an asset that _does_ have an entry in the parent
-        am1.add_asset_transfer(&p2, t3.clone(), Value::Int(2));
-        am1.add_asset_transfer(&p2, t3.clone(), Value::Int(5));
-        am2.add_asset_transfer(&p2, t3.clone(), Value::Int(3));
-        am2.add_asset_transfer(&p2, t3.clone(), Value::Int(4));
-
-        am1.commit_other(am2).unwrap();
-
-        let table = am1.to_table();
-
-        // 3 Principals
-        assert_eq!(table.len(), 3);
-
-        assert_eq!(table[&p1][&t1], AssetMapEntry::Token(25));
-        assert_eq!(table[&p1][&t4], AssetMapEntry::Token(1));
-
-        assert_eq!(table[&p2][&t2], AssetMapEntry::Token(11));
-
-        assert_eq!(table[&p2][&t3], AssetMapEntry::Asset(
-            vec![Value::Int(2), Value::Int(5), Value::Int(3), Value::Int(4)]));
-
-        assert_eq!(table[&p1][&t3], AssetMapEntry::Asset(
-            vec![Value::Int(1), Value::Int(0)]));
-        assert_eq!(table[&p1][&t5], AssetMapEntry::Asset(
-            vec![Value::Int(0)]));
-
-        assert_eq!(table[&p3][&t3], AssetMapEntry::Asset(
-            vec![Value::Int(10)]));
-    }
-
-}
-
-
 impl fmt::Display for AssetMap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[")?;
@@ -323,8 +225,8 @@ impl fmt::Display for AssetMap {
 }
 
 
-impl OwnedEnvironment {
-    pub fn new(database: ClarityDatabase) -> OwnedEnvironment {
+impl <'a> OwnedEnvironment <'a> {
+    pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment <'a> {
         OwnedEnvironment {
             context: GlobalContext::new(database),
             default_contract: ContractContext::new(":transient:".to_string()),
@@ -332,11 +234,11 @@ impl OwnedEnvironment {
         }
     }
 
-    pub fn memory() -> OwnedEnvironment {
+    pub fn memory<'c>() -> OwnedEnvironment<'c> {
         OwnedEnvironment::new(memory_db())
     }
 
-    pub fn get_exec_environment <'b> (&'b mut self, sender: Option<Value>) -> Environment<'b> {
+    pub fn get_exec_environment <'b> (&'b mut self, sender: Option<Value>) -> Environment<'b,'a> {
         Environment::new(&mut self.context,
                          &self.default_contract,
                          &mut self.call_stack,
@@ -370,19 +272,18 @@ impl OwnedEnvironment {
     }
 }
 
-impl <'a> Environment <'a> {
+impl <'a,'b> Environment <'a,'b> {
     // Environments pack a reference to the global context (which is basically the db),
     //   the current contract context, a call stack, and the current sender.
     // Essentially, the point of the Environment struct is to prevent all the eval functions
     //   from including all of these items in their method signatures individually. Because
     //   these different contexts can be mixed and matched (i.e., in a contract-call, you change
-    //    contract context, or initiating a transaction necessitates a new globalcontext),
-    //   a single "invocation" will end up creating multiple environment objects as context changes
-    //    occur.
-    pub fn new(global_context: &'a mut GlobalContext,
+    //   contract context), a single "invocation" will end up creating multiple environment 
+    //   objects as context changes occur.
+    pub fn new(global_context: &'a mut GlobalContext<'b>,
                contract_context: &'a ContractContext,
                call_stack: &'a mut CallStack,
-               sender: Option<Value>, caller: Option<Value>) -> Environment<'a> {
+               sender: Option<Value>, caller: Option<Value>) -> Environment<'a,'b> {
         if let Some(ref sender) = sender {
             if let Value::Principal(_) = sender {
             } else {
@@ -405,12 +306,12 @@ impl <'a> Environment <'a> {
         }
     }
 
-    pub fn nest_as_principal <'c> (&'c mut self, sender: Value) -> Environment<'c> {
+    pub fn nest_as_principal <'c> (&'c mut self, sender: Value) -> Environment<'c,'b> {
         Environment::new(self.global_context, self.contract_context, self.call_stack,
                          Some(sender.clone()), Some(sender))
     }
 
-    pub fn nest_with_caller <'c> (&'c mut self, caller: Value) -> Environment<'c> {
+    pub fn nest_with_caller <'c> (&'c mut self, caller: Value) -> Environment<'c,'b> {
         Environment::new(self.global_context, self.contract_context, self.call_stack,
                          self.sender.clone(), Some(caller))
     }
@@ -518,8 +419,11 @@ impl <'a> Environment <'a> {
     }
 }
 
-impl GlobalContext {
-    
+impl <'a> GlobalContext<'a> {
+
+    // Instantiate a new Global Context
+    //   and begin a transaction. We begin a new transaction to mimic the old behavior 
+    //   of `.begin_from` for instantiating global contexts.
     pub fn new(database: ClarityDatabase) -> GlobalContext {
         let mut out = GlobalContext {
             database: database,
@@ -742,4 +646,98 @@ impl CallStack {
         Vec::new()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_asset_map_abort() {
+        let p1 = PrincipalData::ContractPrincipal("a".to_string());
+        let p2 = PrincipalData::ContractPrincipal("b".to_string());
+
+        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
+        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
+
+        let mut am1 = AssetMap::new();
+        let mut am2 = AssetMap::new();
+
+        am1.add_token_transfer(&p1, t1.clone(), 1).unwrap();
+        am1.add_token_transfer(&p2, t1.clone(), i128::max_value()).unwrap();
+        am2.add_token_transfer(&p1, t1.clone(), 1).unwrap();
+        am2.add_token_transfer(&p2, t1.clone(), 1).unwrap();
+
+        am1.commit_other(am2).unwrap_err();
+
+        let table = am1.to_table();
+
+        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(i128::max_value()));
+        assert_eq!(table[&p1][&t1], AssetMapEntry::Token(1));
+    }
+
+    #[test]
+    fn test_asset_map_combinations() {
+        let p1 = PrincipalData::ContractPrincipal("a".to_string());
+        let p2 = PrincipalData::ContractPrincipal("b".to_string());
+        let p3 = PrincipalData::ContractPrincipal("c".to_string());
+
+        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
+        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
+        let t3 = AssetIdentifier { contract_name: "c".to_string(), asset_name: "a".to_string() };
+        let t4 = AssetIdentifier { contract_name: "d".to_string(), asset_name: "a".to_string() };
+        let t5 = AssetIdentifier { contract_name: "e".to_string(), asset_name: "a".to_string() };
+
+        let mut am1 = AssetMap::new();
+        let mut am2 = AssetMap::new();
+
+        am1.add_token_transfer(&p1, t1.clone(), 10).unwrap();
+        am2.add_token_transfer(&p1, t1.clone(), 15).unwrap();
+
+        // test merging in a token that _didn't_ have an entry in the parent
+        am2.add_token_transfer(&p1, t4.clone(), 1).unwrap();
+
+        // test merging in a principal that _didn't_ have an entry in the parent
+        am2.add_token_transfer(&p2, t2.clone(), 10).unwrap();
+        am2.add_token_transfer(&p2, t2.clone(), 1).unwrap();
+
+        // test merging in a principal that _didn't_ have an entry in the parent
+        am2.add_asset_transfer(&p3, t3.clone(), Value::Int(10));
+
+        // test merging in an asset that _didn't_ have an entry in the parent
+        am1.add_asset_transfer(&p1, t5.clone(), Value::Int(0));
+        am2.add_asset_transfer(&p1, t3.clone(), Value::Int(1));
+        am2.add_asset_transfer(&p1, t3.clone(), Value::Int(0));
+
+        // test merging in an asset that _does_ have an entry in the parent
+        am1.add_asset_transfer(&p2, t3.clone(), Value::Int(2));
+        am1.add_asset_transfer(&p2, t3.clone(), Value::Int(5));
+        am2.add_asset_transfer(&p2, t3.clone(), Value::Int(3));
+        am2.add_asset_transfer(&p2, t3.clone(), Value::Int(4));
+
+        am1.commit_other(am2).unwrap();
+
+        let table = am1.to_table();
+
+        // 3 Principals
+        assert_eq!(table.len(), 3);
+
+        assert_eq!(table[&p1][&t1], AssetMapEntry::Token(25));
+        assert_eq!(table[&p1][&t4], AssetMapEntry::Token(1));
+
+        assert_eq!(table[&p2][&t2], AssetMapEntry::Token(11));
+
+        assert_eq!(table[&p2][&t3], AssetMapEntry::Asset(
+            vec![Value::Int(2), Value::Int(5), Value::Int(3), Value::Int(4)]));
+
+        assert_eq!(table[&p1][&t3], AssetMapEntry::Asset(
+            vec![Value::Int(1), Value::Int(0)]));
+        assert_eq!(table[&p1][&t5], AssetMapEntry::Asset(
+            vec![Value::Int(0)]));
+
+        assert_eq!(table[&p3][&t3], AssetMapEntry::Asset(
+            vec![Value::Int(10)]));
+    }
+
+}
+
 
