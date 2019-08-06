@@ -544,7 +544,7 @@ impl <'a> ContractDatabase <'a> {
         self.key_value_insert(DataType::DATA_MAP, &map_descriptor.map_identifier,
                               &key.serialize(), &none);
 
-        return Ok(Value::Bool(exists))
+        return Ok(Value::Bool(true))
     }
 
 
