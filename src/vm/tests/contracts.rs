@@ -89,6 +89,8 @@ fn test_get_block_info_eval(){
 
     for i in 0..contracts.len() {
         let mut owned_env = OwnedEnvironment::memory();
+        // start an initial transaction.
+        owned_env.begin();
         owned_env.initialize_contract("test-contract", contracts[i]).unwrap();
 
         let mut env = owned_env.get_exec_environment(None);
@@ -131,6 +133,8 @@ fn test_simple_token_system() {
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
     let mut owned_env = OwnedEnvironment::memory();
+    // start an initial transaction.
+    owned_env.begin();
 
     {
         let mut env = owned_env.get_exec_environment(None);
@@ -265,6 +269,8 @@ fn test_simple_naming_system() {
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
     let mut owned_env = OwnedEnvironment::memory();
+    // start an initial transaction.
+    owned_env.begin();
 
     {
         let mut env = owned_env.get_exec_environment(None);
@@ -343,6 +349,8 @@ fn test_simple_contract_call() {
         ";
 
     let mut owned_env = OwnedEnvironment::memory();
+    // start an initial transaction.
+    owned_env.begin();
 
     {
         let mut env = owned_env.get_exec_environment(None);
@@ -408,6 +416,8 @@ fn test_aborts() {
 ";
 
     let mut owned_env = OwnedEnvironment::memory();
+    // start an initial transaction.
+    owned_env.begin();
 
     let mut env = owned_env.get_exec_environment(None);
 
@@ -460,6 +470,8 @@ fn test_aborts() {
 #[test]
 fn test_factorial_contract() {
     let mut owned_env = OwnedEnvironment::memory();
+    // start an initial transaction.
+    owned_env.begin();
 
     let mut env = owned_env.get_exec_environment(None);
 

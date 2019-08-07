@@ -422,18 +422,12 @@ impl <'a,'b> Environment <'a,'b> {
 impl <'a> GlobalContext<'a> {
 
     // Instantiate a new Global Context
-    //   and begin a transaction. We begin a new transaction to mimic the old behavior 
-    //   of `.begin_from` for instantiating global contexts.
     pub fn new(database: ClarityDatabase) -> GlobalContext {
-        let mut out = GlobalContext {
+        GlobalContext {
             database: database,
             read_only: VecDeque::new(),
             asset_maps: VecDeque::new()
-        };
-
-        out.begin();
-
-        out
+        }
     }
 
     pub fn is_top_level(&self) -> bool {
@@ -455,6 +449,18 @@ impl <'a> GlobalContext<'a> {
             .expect("Failed to obtain asset map")
             .add_token_transfer(sender, asset_identifier, transfered)
     }
+
+    pub fn execute <F, T> (&mut self, f: F) -> Result<T> where F: FnOnce(&mut Self) -> Result<T>, {
+        self.begin();
+        let result = f(self)
+            .or_else(|e| {
+                self.roll_back();
+                Err(e)
+            })?;
+        self.commit()?;
+        Ok(result)
+    }
+
 
     pub fn get_block_height(&self) -> u64 {
         self.database.get_simmed_block_height()
@@ -501,7 +507,10 @@ impl <'a> GlobalContext<'a> {
 
         let out_map = match self.asset_maps.back_mut() {
             Some(tail_back) => {
-                tail_back.commit_other(asset_map)?;
+                if let Err(e) = tail_back.commit_other(asset_map) {
+                    self.database.roll_back();
+                    return Err(e);
+                }
                 None
             },
             None => {

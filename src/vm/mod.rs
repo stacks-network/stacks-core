@@ -152,19 +152,12 @@ fn eval_all (expressions: &[SymbolicExpression],
 
     for exp in expressions {
         let try_define = {
-            global_context.begin();
-            let define_result = {
+            global_context.execute(|context| {
                 let mut call_stack = CallStack::new();
                 let mut env = Environment::new(
-                    global_context, contract_context, &mut call_stack, None, None);
+                    context, contract_context, &mut call_stack, None, None);
                 functions::define::evaluate_define(exp, &mut env)
-            }
-            .or_else(|e| {
-                global_context.roll_back();
-                Err(e)
-            })?;
-            global_context.commit()?;
-            define_result
+            })?
         };
         match try_define {
             DefineResult::Variable(name, value) => {
@@ -188,30 +181,15 @@ fn eval_all (expressions: &[SymbolicExpression],
             },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
-                global_context.begin();
-                {
+                global_context.execute(|global_context| {
                     let mut call_stack = CallStack::new();
                     let mut env = Environment::new(
                         global_context, contract_context, &mut call_stack, None, None);
 
-                    let result = eval(exp, &mut env, &context);
-
-                     match result {
-                        Ok(value) => {
-                            last_executed = Some(value);
-                            Ok(())
-                        },
-                        Err(e) => {
-                            Err(e)
-                        }
-                    }
-                }
-                .or_else(|e| {
-                    global_context.roll_back();
-                    Err(e)
+                    let result = eval(exp, &mut env, &context)?;
+                    last_executed = Some(result);
+                    Ok(())
                 })?;
-
-                global_context.commit()?;
             }
         }
     }
@@ -226,12 +204,10 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     let mut contract_context = ContractContext::new(":transient:".to_string());
     let conn = memory_db();
     let mut global_context = GlobalContext::new(conn);
-    let result = {
+    global_context.execute(|g| {
         let parsed = parser::parse(program)?;
-        eval_all(&parsed, &mut contract_context, &mut global_context)
-    }?;
-    global_context.commit()?;
-    Ok(result)
+        eval_all(&parsed, &mut contract_context, g)
+    })
 }
 
 

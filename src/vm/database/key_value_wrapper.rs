@@ -46,8 +46,19 @@ pub struct RollbackContext {
 }
 
 pub struct RollbackWrapper <'a> {
+    // the underlying key-value storage.
     store: Box<KeyValueStorage + 'a>,
+    // lookup_map is a history of edits for a given key.
+    //   in order of least-recent to most-recent at the tail.
+    //   this allows ~ O(1) lookups, and ~ O(1) commits, roll-backs (amortized by # of PUTs).
     lookup_map: HashMap<KeyType, VecDeque<String>>,
+    // stack keeps track of the most recent rollback context, which tells us which
+    //   edits were performed by which context. at the moment, each context's edit history
+    //   is a separate Vec which must be drained into the parent on commits, meaning that
+    //   the amortized cost of committing a value isn't O(1), but actually O(k) where k is
+    //   stack depth.
+    //  TODO: The solution to this is to just have a _single_ edit stack, and merely store indexes
+    //   to indicate a given contexts "start depth".
     stack: VecDeque<RollbackContext>
 }
 

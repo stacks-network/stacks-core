@@ -425,9 +425,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 })
                 .collect();
 
-            // close the initial transaction, so we can open a new one for `execute_transaction`
-            friendly_expect(vm_env.commit(), "Failed to commit environment.");
-
             let result = vm_env.execute_transaction(sender, &contract_name, &tx_name, &arguments);
 
             match result {

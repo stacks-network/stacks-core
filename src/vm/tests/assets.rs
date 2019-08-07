@@ -153,9 +153,6 @@ fn test_simple_token_system() {
     let mut owned_env = OwnedEnvironment::memory();
     owned_env.initialize_contract("tokens", tokens_contract).unwrap();
 
-    // force us back to the top-level...
-    owned_env.commit().unwrap();
-
     let (result, asset_map) = execute_transaction(
         &mut owned_env, p2.clone(), "tokens", "my-token-transfer",
         &symbols_from_values(vec![p1.clone(), Value::Int(210)])).unwrap();
@@ -284,8 +281,6 @@ fn total_supply() {
 
     owned_env.initialize_contract("tokens", contract).unwrap();
 
-    owned_env.commit().unwrap();
-
     let (result, asset_map) = execute_transaction(&mut owned_env,
         p1.clone(), "tokens", "gated-faucet",
         &symbols_from_values(vec![Value::Bool(true)])).unwrap();
@@ -343,8 +338,6 @@ fn test_simple_naming_system() {
     let mut owned_env = OwnedEnvironment::memory();
     owned_env.initialize_contract("tokens", tokens_contract).unwrap();
     owned_env.initialize_contract("names", names_contract).unwrap();
-
-    owned_env.commit().unwrap();
 
     let (result, asset_map) = execute_transaction(
         &mut owned_env, p2.clone(), "names", "preorder",
