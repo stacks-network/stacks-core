@@ -154,7 +154,7 @@ fn test_simple_if_functions() {
         contract_context.functions.insert("without_else".to_string(), user_function2);
 
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None);
+        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None, None);
 
         if let Ok(tests) = evals {
             assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));
@@ -233,19 +233,19 @@ fn test_arithmetic_errors() {
         "(eq? (some 1) (some 'true))"];
 
     let expectations: &[Error] = &[
-        UncheckedError::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
         UncheckedError::TypeError("IntType".to_string(), Value::Bool(true)).into(),
-        RuntimeErrorType::Arithmetic("Divide by 0".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Modulus by 0".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Overflowed in power".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Overflowed in multiplication".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Overflowed in addition".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Underflowed in subtraction".to_string()).into(),
-        UncheckedError::InvalidArguments("(- ...) must be called with at least 1 argument".to_string()).into(),
-        UncheckedError::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string()).into(),
-        UncheckedError::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string()).into(),
-        UncheckedError::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()).into(),
-        UncheckedError::InvalidArguments("(xor ...) must be called with exactly 2 arguments".to_string()).into(),
+        RuntimeErrorType::DivisionByZero.into(),
+        RuntimeErrorType::DivisionByZero.into(),
+        RuntimeErrorType::ArithmeticOverflow.into(),
+        RuntimeErrorType::ArithmeticOverflow.into(),
+        RuntimeErrorType::ArithmeticOverflow.into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        UncheckedError::IncorrectArgumentCount(1,0).into(),
+        UncheckedError::IncorrectArgumentCount(1,0).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()
@@ -271,14 +271,14 @@ fn test_options_errors() {
         ];
 
     let expectations: &[Error] = &[
-        UncheckedError::InvalidArguments("Wrong number of arguments to is-none? (expects 1)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
         UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to is-ok? (expects 1)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
         UncheckedError::TypeError("ResponseType".to_string(), Value::Bool(true)).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to ok (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to some (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to err (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to default-to (expects 2)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
+        UncheckedError::IncorrectArgumentCount(2,3).into(),
         UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
     ];
 
@@ -324,9 +324,9 @@ fn test_hash_errors() {
     ];
 
     let expectations: &[Error] = &[
-        UncheckedError::InvalidArguments("Wrong number of arguments to sha256 (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to keccak256 (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to hash160 (expects 1)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1, 2).into(),
+        UncheckedError::IncorrectArgumentCount(1, 2).into(),
+        UncheckedError::IncorrectArgumentCount(1, 2).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),

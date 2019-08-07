@@ -31,21 +31,21 @@ fn test_simple_read_only_violations() {
             (begin              
               (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
-         (define-read-only (get-balance)
+         (define-read-only (get-token-balance)
             (fetch-entry tokens ((account (update-balance-and-get-tx-sender)))))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define (update-balance-and-get-tx-sender)
             (begin              
               (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10)))
               (tuple (account tx-sender))))
-         (define-read-only (get-balance)
+         (define-read-only (get-token-balance)
             (fetch-entry tokens (update-balance-and-get-tx-sender)))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define (update-balance-and-get-tx-sender)
             (begin              
               (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
-         (define-read-only (get-balance)
+         (define-read-only (get-token-balance)
             (fetch-entry tokens ((account (update-balance-and-get-tx-sender)))))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
@@ -70,7 +70,7 @@ fn test_simple_read_only_violations() {
 fn test_contract_call_read_only_violations() {
     let contract1 = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define-read-only (get-balance)
+         (define-read-only (get-token-balance)
             (get balance (fetch-entry tokens (tuple (account tx-sender))) ))
          (define-public (mint)
             (begin
@@ -82,7 +82,7 @@ fn test_contract_call_read_only_violations() {
             (contract-call! contract1 mint))";
     let ok_caller =
         "(define-read-only (is-reading-only)
-            (eq? 0 (expects! (contract-call! contract1 get-balance) 'false)))";
+            (eq? 0 (expects! (contract-call! contract1 get-token-balance) 'false)))";
 
     let mut contract1 = parse(contract1).unwrap();
     let mut bad_caller = parse(bad_caller).unwrap();

@@ -167,23 +167,19 @@ fn test_construct_bad_list() {
 #[test]
 fn test_eval_func_arg_panic() {
     let test1 = "(fold (lambda (x y) (* x y)) (list 1 2 3 4) 1)";
-    let e: Error = UncheckedError::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string())
-        .into();
+    let e: Error = UncheckedError::ExpectedFunctionName.into();
     assert_eq!(e, execute(test1).unwrap_err());
 
     let test2 = "(map (lambda (x) (* x x)) (list 1 2 3 4))";
-    let e: Error = UncheckedError::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string())
-        .into();
+    let e: Error = UncheckedError::ExpectedFunctionName.into();
     assert_eq!(e, execute(test2).unwrap_err());
 
     let test3 = "(map square (list 1 2 3 4) 2)";
-    let e: Error = UncheckedError::InvalidArguments("Wrong number of arguments (3) to map".to_string())
-        .into();
+    let e: Error = UncheckedError::IncorrectArgumentCount(2, 3).into();
     assert_eq!(e, execute(test3).unwrap_err());
 
     let test4 = "(define (multiply-all (x int) (acc int)) (* x acc))
          (fold multiply-all (list 1 2 3 4))";
-    let e: Error = UncheckedError::InvalidArguments("Wrong number of arguments (2) to fold".to_string())
-        .into();
+    let e: Error = UncheckedError::IncorrectArgumentCount(3, 2).into();
     assert_eq!(e, execute(test4).unwrap_err());
 }

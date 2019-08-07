@@ -27,16 +27,27 @@ pub enum UncheckedError {
     NonPublicFunction(String),
     TypeError(String, Value),
     InvalidArguments(String),
+    IncorrectArgumentCount(usize, usize),
     UndefinedVariable(String),
     UndefinedFunction(String),
     UndefinedContract(String),
     UndefinedMap(String),
+    UndefinedAssetType(String),
     TryEvalToFunction,
     RecursionDetected,
     ExpectedListPairs,
+    ExpectedFunctionName,
+    ExpectedVariableName,
+    ExpectedContractName,
+    ExpectedMapName,
+    ExpectedTupleKey,
+    ExpectedBlockPropertyName,
+    NoSuchTupleField,
+    BindingExpectsPair,
     ReservedName(String),
     ContractAlreadyExists(String),
     VariableDefinedMultipleTimes(String),
+    InvalidArgumentExpectedName,
     ContractMustReturnBoolean,
     WriteFromReadOnlyContext,
 }
@@ -49,6 +60,7 @@ pub enum InterpreterError {
     BadSymbolicRepresentation(String),
     InterpreterError(String),
     UninitializedPersistedVariable,
+    FailedToConstructAssetTable,
     SqliteError(IncomparableError<SqliteError>),
 }
 
@@ -58,6 +70,10 @@ pub enum InterpreterError {
 #[derive(Debug, PartialEq)]
 pub enum RuntimeErrorType {
     Arithmetic(String),
+    ArithmeticOverflow,
+    ArithmeticUnderflow,
+    SupplyOverflow(i128, i128),
+    DivisionByZero,
     ParseError(String),
     MaxStackDepthReached,
     MaxContextDepthReached,
@@ -68,7 +84,11 @@ pub enum RuntimeErrorType {
     ValueTooLarge,
     InvalidTypeDescription,
     BadBlockHeight(String),
+    TransferNonPositiveAmount,
+    NoSuchAsset,
     NotImplemented,
+    NoSenderInContext,
+    NonPositiveTokenSupply
 }
 
 #[derive(Debug, PartialEq)]
@@ -155,6 +175,14 @@ impl Into<Value> for ShortReturnType {
     }
 }
 
+pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), UncheckedError> {
+    if args.len() != expected {
+        Err(UncheckedError::IncorrectArgumentCount(expected, args.len()))
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -163,7 +191,7 @@ mod test {
     #[test]
     fn error_formats() {
         let t = "(/ 10 0)";
-        let expected = "Arithmetic(\"Divide by 0\")
+        let expected = "DivisionByZero
  Stack Trace: 
 _native_:native_div
 ";

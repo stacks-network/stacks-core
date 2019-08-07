@@ -1,11 +1,11 @@
 use std::convert::TryFrom;
 
 use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
-use rusqlite::types::ToSql;
+use rusqlite::types::{ToSql, FromSql};
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
-use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, NONE};
+use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, PrincipalData, NONE};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -14,12 +14,32 @@ const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in Smart Contract VM.";
 const SIMMED_BLOCK_TIME: u64 = 10 * 60; // 10 min
 
+enum DataType {
+    DATA_MAP = 0,
+    VARIABLE = 1,
+    TOKEN    = 2,
+    ASSET    = 3,
+    TOKEN_SUPPLY = 4,
+}
+
+const DUMMY_KEY: &str = "";
+
 pub struct ContractDatabaseConnection {
     conn: Connection
 }
 
 pub struct ContractDatabase <'a> {
     savepoint: Savepoint<'a>
+}
+
+pub struct SqliteToken {
+    token_identifier: i64,
+    total_supply: Option<i128>
+}
+
+pub struct SqliteAsset {
+    asset_identifier: i64,
+    key_type: TypeSignature
 }
 
 pub struct SqliteDataMap {
@@ -55,10 +75,24 @@ impl ContractDatabaseConnection {
                        value_type TEXT NOT NULL,
                        UNIQUE(contract_name, variable_name))",
                             NO_PARAMS);
+        contract_db.execute("CREATE TABLE IF NOT EXISTS assets_table
+                      (asset_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
+                       contract_name TEXT NOT NULL,
+                       asset_name TEXT NOT NULL,
+                       key_type TEXT NOT NULL,
+                       UNIQUE(contract_name, asset_name))",
+                            NO_PARAMS);
+        contract_db.execute("CREATE TABLE IF NOT EXISTS tokens_table
+                      (token_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
+                       contract_name TEXT NOT NULL,
+                       token_name TEXT NOT NULL,
+                       total_supply TEXT,
+                       UNIQUE(contract_name, token_name))",
+                            NO_PARAMS);
         contract_db.execute("CREATE TABLE IF NOT EXISTS data_table
                       (data_identifier INTEGER PRIMARY KEY AUTOINCREMENT,
-                       map_identifier INTEGER NOT NULL,
-                       variable_identifier INTEGER NOT NULL,
+                       data_type INTEGER NOT NULL,
+                       data_store_identifier INTEGER NOT NULL,
                        key TEXT NOT NULL,
                        value TEXT)",
                             NO_PARAMS);
@@ -191,6 +225,17 @@ impl <'a> ContractDatabase <'a> {
             .expect(SQL_FAIL_MESSAGE)
     }
 
+    fn key_value_insert(&mut self, data_type: DataType, data_store_identifier: &ToSql, key: &ToSql, value: &ToSql) -> usize {
+        let params: [&ToSql; 4] = [&(data_type as u8),
+                                   data_store_identifier,
+                                   key,
+                                   value];
+
+        self.execute(
+            "INSERT INTO data_table (data_type, data_store_identifier, key, value) VALUES (?, ?, ?, ?)",
+            &params)
+    }
+
     fn query_row<T, P, F>(&self, sql: &str, params: P, f: F) -> Option<T>
     where
         P: IntoIterator,
@@ -201,6 +246,16 @@ impl <'a> ContractDatabase <'a> {
             .expect(SQL_FAIL_MESSAGE)
     }
 
+    fn key_value_lookup<T>(&self, data_type: DataType, data_store_identifier: &ToSql, key: &ToSql) -> Option<T>
+        where T: FromSql {
+        let params: [&ToSql; 3] = [&(data_type as u8),
+                                   data_store_identifier,
+                                   key];
+        self.query_row(
+            "SELECT value FROM data_table WHERE data_type = ? AND data_store_identifier = ? AND key = ? ORDER BY data_identifier DESC LIMIT 1",
+            &params,
+            |row| row.get(0))
+    }
 
     fn load_map(&self, contract_name: &str, map_name: &str) -> Result<SqliteDataMap> {
         let (map_identifier, key_type, value_type): (_, String, String) =
@@ -261,12 +316,8 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(format!("{:?}", variable_descriptor.value_type), value).into())
         }
 
-        let params: [&ToSql; 2] = [&variable_descriptor.variable_identifier,
-                                   &value.serialize()];
-
-        self.execute(
-            "INSERT INTO data_table (variable_identifier, value, key, map_identifier) VALUES (?, ?, '', 0)",
-            &params);
+        self.key_value_insert(DataType::VARIABLE, &variable_descriptor.variable_identifier,
+                              &DUMMY_KEY, &value.serialize());
 
         return Ok(Value::Bool(true))
     }
@@ -274,15 +325,8 @@ impl <'a> ContractDatabase <'a> {
     pub fn lookup_variable(&self, contract_name: &str, variable_name: &str) -> Result<Option<Value>>  {
         let variable_descriptor = self.load_variable(contract_name, variable_name)?;
 
-        let params: [&ToSql; 1] = [&variable_descriptor.variable_identifier];
-
-        let sql_result: Option<Option<String>> = 
-            self.query_row(
-                "SELECT value FROM data_table WHERE variable_identifier = ? ORDER BY data_identifier DESC LIMIT 1",
-                &params,
-                |row| {
-                    row.get(0)
-                });
+        let sql_result: Option<Option<String>> =
+            self.key_value_lookup(DataType::VARIABLE, &variable_descriptor.variable_identifier, &DUMMY_KEY);
         match sql_result {
             None => Ok(None),
             Some(sql_result) => {
@@ -292,6 +336,143 @@ impl <'a> ContractDatabase <'a> {
                 }
             }
         }
+    }
+
+    fn load_token(&self, contract_name: &str, token_name: &str) -> Result<SqliteToken> {
+        let (identifier, total_supply) =
+            self.query_row(
+                "SELECT token_identifier, total_supply FROM tokens_table WHERE contract_name = ? AND token_name = ?",
+                &[contract_name, token_name],
+                |row| (row.get(0), row.get(1)))
+            .ok_or(UncheckedError::UndefinedAssetType(token_name.to_string()))?;
+
+        Ok(SqliteToken {
+            token_identifier: identifier,
+            total_supply })
+    }
+
+    fn load_asset(&self, contract_name: &str, asset_name: &str) -> Result<SqliteAsset> {
+        let (identifier, key_type) : (_, String) =
+            self.query_row(
+                "SELECT asset_identifier, key_type FROM assets_table WHERE contract_name = ? AND asset_name = ?",
+                &[contract_name, asset_name],
+                |row| (row.get(0), row.get(1)))
+            .ok_or(UncheckedError::UndefinedAssetType(asset_name.to_string()))?;
+
+        Ok(SqliteAsset {
+            asset_identifier: identifier,
+            key_type: TypeSignature::deserialize(&key_type) })
+    }
+
+    pub fn create_token(&mut self, contract_name: &str, token_name: &str, total_supply: &Option<i128>) {
+        let contract_name_owned = contract_name.to_string();
+        let contract_name_owned = token_name.to_string();
+        
+        let params: [&ToSql; 3] = [&contract_name, &token_name, total_supply];
+        self.execute("INSERT INTO tokens_table (contract_name, token_name, total_supply) VALUES (?, ?, ?)",
+                     &params);
+        if total_supply.is_some() {
+            let descriptor = self.load_token(contract_name, token_name)
+                .expect("ERROR: VM failed to initialize token correctly.");
+
+            self.key_value_insert(DataType::TOKEN_SUPPLY, &descriptor.token_identifier,
+                                  &DUMMY_KEY, &(0 as i128));
+        }
+    }
+
+    pub fn create_asset(&mut self, contract_name: &str, asset_name: &str, key_type: &TypeSignature) {
+        self.execute("INSERT INTO assets_table (contract_name, asset_name, key_type) VALUES (?, ?, ?)",
+                     &[contract_name, asset_name, &key_type.serialize()]);
+    }
+
+    pub fn checked_increase_token_supply(&mut self, contract_name: &str, token_name: &str, amount: i128) -> Result<()> {
+        if amount < 0 {
+            panic!("ERROR: Clarity VM attempted to increase token supply by negative balance.");
+        }
+        let descriptor = self.load_token(contract_name, token_name)?;
+
+        if let Some(total_supply) = descriptor.total_supply {
+            let current_supply_opt: Option<i128> =
+                self.key_value_lookup(DataType::TOKEN_SUPPLY, &descriptor.token_identifier, &DUMMY_KEY);
+            let current_supply = current_supply_opt
+                .expect("ERROR: Clarity VM failed to track token supply.");
+            let new_supply = current_supply.checked_add(amount)
+                .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+
+            if new_supply > total_supply {
+                Err(RuntimeErrorType::SupplyOverflow(new_supply, total_supply).into())
+            } else {
+                self.key_value_insert(DataType::TOKEN_SUPPLY, &descriptor.token_identifier,
+                                      &DUMMY_KEY, &new_supply);
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    // Asset functions return error if no such token was defined by `define-token`
+    pub fn get_token_balance(&mut self, contract_name: &str, token_name: &str, principal: &PrincipalData) -> Result<i128> {
+        let descriptor = self.load_token(contract_name, token_name)?;
+
+        let sql_result: Option<i128> =
+            self.key_value_lookup(DataType::TOKEN, &descriptor.token_identifier, &principal.serialize());
+        match sql_result {
+            None => Ok(0),
+            Some(balance) => Ok(balance)
+        }
+    }
+
+    pub fn set_token_balance(&mut self, contract_name: &str, token_name: &str, principal: &PrincipalData, balance: i128) -> Result<()> {
+        if balance < 0 {
+            panic!("ERROR: Clarity VM attempted to set negative token balance.");
+        }
+        let descriptor = self.load_token(contract_name, token_name)?;
+
+        self.key_value_insert(DataType::TOKEN, &descriptor.token_identifier,
+                              &principal.serialize(), &balance);
+
+        Ok(())
+    }
+
+    pub fn get_asset_key_type(&mut self, contract_name: &str, asset_name: &str) -> Result<TypeSignature> {
+        let descriptor = self.load_asset(contract_name, asset_name)?;
+        Ok(descriptor.key_type)
+    }
+
+    // Return errors if no such asset name, or asset is not the correct type.
+    pub fn set_asset_owner(&mut self, contract_name: &str, asset_name: &str, asset: &Value, principal: &PrincipalData) -> Result<()> {
+        let descriptor = self.load_asset(contract_name, asset_name)?;
+        if !descriptor.key_type.admits(asset) {
+            return Err(UncheckedError::TypeError(descriptor.key_type.to_string(), (*asset).clone()).into())
+        }
+
+        self.key_value_insert(DataType::ASSET, &descriptor.asset_identifier,
+                              &asset.serialize(), &principal.serialize());
+
+        Ok(())
+    }
+
+    pub fn get_asset_owner(&mut self, contract_name: &str, asset_name: &str, asset: &Value) -> Result<PrincipalData> {
+        let descriptor = self.load_asset(contract_name, asset_name)?;
+        if !descriptor.key_type.admits(asset) {
+            return Err(UncheckedError::TypeError(descriptor.key_type.to_string(), (*asset).clone()).into())
+        }
+
+        let sql_result: Option<Option<String>> = 
+            self.key_value_lookup(DataType::ASSET, &descriptor.asset_identifier, &asset.serialize());
+
+        let deserialized = match sql_result {
+            None => None,
+            Some(sql_result) => {
+                match sql_result {
+                    None => None,
+                    Some(value_data) => Some(PrincipalData::deserialize(&value_data))
+                }
+            }
+        };
+
+        deserialized.ok_or(RuntimeErrorType::NoSuchAsset.into())
     }
 
     pub fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {
@@ -308,16 +489,8 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), (*key).clone()).into())
         }
 
-        let params: [&ToSql; 2] = [&map_descriptor.map_identifier,
-                                   &key.serialize()];
-
         let sql_result: Option<Option<String>> = 
-            self.query_row(
-                "SELECT value FROM data_table WHERE map_identifier = ? AND key = ? ORDER BY data_identifier DESC LIMIT 1",
-                &params,
-                |row| {
-                    row.get(0)
-                });
+            self.key_value_lookup(DataType::DATA_MAP, &map_descriptor.map_identifier, &key.serialize());
         match sql_result {
             None => Ok(None),
             Some(sql_result) => {
@@ -330,26 +503,14 @@ impl <'a> ContractDatabase <'a> {
     }
 
     pub fn set_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {
-        let map_descriptor = self.load_map(contract_name, map_name)?;
-        if !map_descriptor.key_type.admits(&key) {
-            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), key).into())
-        }
-        if !map_descriptor.value_type.admits(&value) {
-            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.value_type), value).into())
-        }
-
-        let params: [&ToSql; 3] = [&map_descriptor.map_identifier,
-                                   &key.serialize(),
-                                   &Some(value.serialize())];
-
-        self.execute(
-            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
-            &params);
-
-        return Ok(Value::Bool(true))
+        self.inner_set_entry(contract_name, map_name, key, value, false)
     }
 
     pub fn insert_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value) -> Result<Value> {
+        self.inner_set_entry(contract_name, map_name, key, value, true)
+    }
+    
+    fn inner_set_entry(&mut self, contract_name: &str, map_name: &str, key: Value, value: Value, return_if_exists: bool) -> Result<Value> {
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(&key) {
             return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), key).into())
@@ -358,18 +519,12 @@ impl <'a> ContractDatabase <'a> {
             return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.value_type), value).into())
         }
 
-        let exists = self.fetch_entry(contract_name, map_name, &key)?.is_some();
-        if exists {
+        if return_if_exists && self.fetch_entry(contract_name, map_name, &key)?.is_some() {
             return Ok(Value::Bool(false))
         }
 
-        let params: [&ToSql; 3] = [&map_descriptor.map_identifier,
-                                   &key.serialize(),
-                                   &Some(value.serialize())];
-
-        self.execute(
-            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
-            &params);
+        self.key_value_insert(DataType::DATA_MAP, &map_descriptor.map_identifier,
+                              &key.serialize(), &Some(value.serialize()));
 
         return Ok(Value::Bool(true))
     }
@@ -386,13 +541,8 @@ impl <'a> ContractDatabase <'a> {
         }
 
         let none: Option<String> = None;
-        let params: [&ToSql; 3] = [&map_descriptor.map_identifier,
-                                   &key.serialize(),
-                                   &none];
-
-        self.execute(
-            "INSERT INTO data_table (map_identifier, key, value, variable_identifier) VALUES (?, ?, ?, 0)",
-            &params);
+        self.key_value_insert(DataType::DATA_MAP, &map_descriptor.map_identifier,
+                              &key.serialize(), &none);
 
         return Ok(Value::Bool(exists))
     }

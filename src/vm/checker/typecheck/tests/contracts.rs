@@ -7,7 +7,7 @@ use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection};
 
 const SIMPLE_TOKENS: &str =
         "(define-map tokens ((account principal)) ((balance int)))
-         (define-read-only (get-balance (account principal))
+         (define-read-only (my-get-token-balance (account principal))
             (let ((balance
                   (get balance (fetch-entry tokens (tuple (account account))))))
               (default-to 0 balance)))
@@ -15,13 +15,13 @@ const SIMPLE_TOKENS: &str =
          (define (token-credit! (account principal) (amount int))
             (if (<= amount 0)
                 (err 1)
-                (let ((current-amount (get-balance account)))
+                (let ((current-amount (my-get-token-balance account)))
                   (begin
                     (set-entry! tokens (tuple (account account))
                                        (tuple (balance (+ amount current-amount))))
                     (ok 0)))))
          (define-public (token-transfer (to principal) (amount int))
-          (let ((balance (get-balance tx-sender)))
+          (let ((balance (my-get-token-balance tx-sender)))
              (if (or (> amount balance) (<= amount 0))
                  (err 2)
                  (begin
@@ -30,7 +30,6 @@ const SIMPLE_TOKENS: &str =
                    (token-credit! to amount)))))                     
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 300))";
-
 
 const SIMPLE_NAMES: &str =
         "(define burn-address 'SP000000000000000000002Q6VF78)
@@ -338,7 +337,9 @@ fn test_names_tokens_contracts_interface() {
             { "name": "d-var1", "access": "variable", "type": "bool" },
             { "name": "d-var2", "access": "variable", "type": "int128" },
             { "name": "d-var3", "access": "variable", "type": { "buffer": { "length": 5 } } }
-        ]
+        ],
+        "tokens": [],
+        "assets": []
     }"#).unwrap();
 
     assert_json_eq!(test_contract_json, test_contract_json_expected);
@@ -438,7 +439,7 @@ fn test_bad_map_usage() {
     use vm::checker::type_check;
     let bad_fetch = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define (get-balance (account int))
+         (define (my-get-token-balance (account int))
             (let ((balance
                   (get balance (fetch-entry tokens (tuple (account account))))))
               balance))";
@@ -496,40 +497,40 @@ fn test_expects() {
     use vm::checker::type_check;
     let okay = 
         "(define-map tokens ((id int)) ((balance int)))
-         (define (get-balance)
+         (define (my-get-token-balance)
             (let ((balance (expects! 
                               (get balance (fetch-entry tokens (tuple (id 0)))) 
                               0)))
               (+ 0 balance)))
-         (define (get-balance-2)
+         (define (my-get-token-balance-2)
             (let ((balance 
                     (get balance (expects! (fetch-entry tokens (tuple (id 0))) 0)) 
                               ))
               (+ 0 balance)))
-          (define (get-balance-3)
+          (define (my-get-token-balance-3)
              (let ((balance
                      (expects! (get balance (fetch-entry tokens (tuple (id 0))))
                                (err 'false))))
                (ok balance)))
-          (define (get-balance-4)
-             (expects! (get-balance-3) 0))
+          (define (my-get-token-balance-4)
+             (expects! (my-get-token-balance-3) 0))
 
           (define (t-1)
              (err 3))
-          (define (get-balance-5)
+          (define (my-get-token-balance-5)
              (expects-err! (t-1) 0))
 
-          (+ (get-balance) (get-balance-2) (get-balance-5))";
+          (+ (my-get-token-balance) (my-get-token-balance-2) (my-get-token-balance-5))";
 
     let bad_return_types_tests = [
         "(define-map tokens ((id int)) ((balance int)))
-         (define (get-balance)
+         (define (my-get-token-balance)
             (let ((balance (expects! 
                               (get balance (fetch-entry tokens (tuple (id 0)))) 
                               'false)))
               (+ 0 balance)))",
         "(define-map tokens ((id int)) ((balance int)))
-         (define (get-balance)
+         (define (my-get-token-balance)
             (let ((balance (expects! 
                               (get balance (fetch-entry tokens (tuple (id 0)))) 
                               (err 1))))

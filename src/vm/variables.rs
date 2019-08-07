@@ -1,7 +1,7 @@
 use::std::convert::TryFrom;
 use vm::types::Value;
 use vm::contexts::{LocalContext, Environment};
-use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result};
+use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 
 
 macro_rules! define_enum {
@@ -18,7 +18,7 @@ macro_rules! define_enum {
 }
 
 define_enum!(NativeVariables {
-    TxSender, BlockHeight, BurnBlockHeight, NativeNone
+    ContractCaller, TxSender, BlockHeight, BurnBlockHeight, NativeNone
 });
 
 impl NativeVariables {
@@ -26,6 +26,7 @@ impl NativeVariables {
         use vm::variables::NativeVariables::*;
         match name {
             "tx-sender" => Some(TxSender),
+            "contract-caller" => Some(ContractCaller),
             "block-height" => Some(BlockHeight),
             "burn-block-height" => Some(BurnBlockHeight),
             "none" => Some(NativeNone),
@@ -43,9 +44,12 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &Envir
         match variable {
             NativeVariables::TxSender => {
                 let sender = env.sender.clone()
-                    .ok_or(UncheckedError::InvalidArguments(
-                        "No sender in current context. Did you attempt to (contract-call ...) from a non-contract aware environment?"
-                            .to_string()))?;
+                    .ok_or(RuntimeErrorType::NoSenderInContext)?;
+                Ok(Some(sender))
+            },
+            NativeVariables::ContractCaller => {
+                let sender = env.caller.clone()
+                    .ok_or(RuntimeErrorType::NoSenderInContext)?;
                 Ok(Some(sender))
             },
             NativeVariables::BlockHeight => {
