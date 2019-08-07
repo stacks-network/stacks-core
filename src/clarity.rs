@@ -285,7 +285,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             };
 
-            let mut vm_env = OwnedEnvironment::memory();
+            let mut vm_env = OwnedEnvironment::new(db);
             let contract_name = &args[1];
             
             let result = vm_env.get_exec_environment(None)
@@ -346,14 +346,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 let sql_data_store = SqliteStore::new(&outer_sp);
                 let db = ClarityDatabase::new(Box::new(sql_data_store));
                 let mut vm_env = OwnedEnvironment::new(db);
-                let result = {
-                    let mut env = vm_env.get_exec_environment(None);                        
-                    env.initialize_contract(&contract_name, &contract_content)
-                };
-                if result.is_ok() {
-                    friendly_expect(vm_env.commit(), "Failed to calculate asset expenditure table");
-                }
-                result
+                vm_env.initialize_contract(&contract_name, &contract_content)
             };
 
             match result {
