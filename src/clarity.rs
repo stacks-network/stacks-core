@@ -12,7 +12,7 @@ use vm::parser::parse;
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, SqliteStore, SqliteConnection, memory_db};
 use vm::{SymbolicExpression, SymbolicExpressionType};
-use vm::checker::{type_check, AnalysisDatabase, AnalysisDatabaseConnection};
+use vm::checker::{type_check, AnalysisDatabase};
 use vm::checker::typecheck::contexts::ContractAnalysis;
 use vm::types::Value;
 
@@ -67,7 +67,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 eprintln!("Usage: {} {} [vm-state.db]", invoked_by, args[0]);
                 process::exit(1);
             }
-            AnalysisDatabaseConnection::initialize(&args[1]);
             match SqliteConnection::initialize(&args[1]) {
                 Ok(x) => {
                     let mut db = ClarityDatabase::new(Box::new(x));
@@ -139,15 +138,18 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let content: String = friendly_expect(fs::read_to_string(&args[1]),
                                                   &format!("Error reading file: {}", args[1]));
             
-            let mut db_conn = {
+            let mut db_conn =
                 if args.len() >= 3 {
-                    AnalysisDatabaseConnection::open(&args[2])
+                    let vm_filename = &args[2];
+                    friendly_expect(
+                        SqliteConnection::open(vm_filename),
+                        &format!("Could not open vm-state: {}", vm_filename))
                 } else {
-                    AnalysisDatabaseConnection::memory()
-                }
-            };
-            
-            let mut db = db_conn.begin_save_point();
+                    friendly_expect(SqliteConnection::memory(), "Could not open in-memory analysis DB")
+                };
+
+            let mut db = AnalysisDatabase::new(Box::new(db_conn));
+
             let mut ast = friendly_expect(parse(&content), "Failed to parse program");
             let contract_analysis = type_check(&":transient:", &mut ast, &mut db, false).unwrap_or_else(|e| {
                 println!("{}", &e.diagnostic);
@@ -167,7 +169,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut vm_env = OwnedEnvironment::memory();
             let mut exec_env = vm_env.get_exec_environment(None);
 
-            let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
+            let mut analysis_db = AnalysisDatabase::memory();
 
             let mut stdout = io::stdout();
 
@@ -197,7 +199,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     }
                 };
 
-                let mut analysis_db = analysis_db_conn.begin_save_point();
                 match type_check(":transient:", &mut ast, &mut analysis_db, true) {
                     Ok(_) => (),
                     Err(error) => {
@@ -224,12 +225,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 buffer
             };
 
-            let mut analysis_db_conn = AnalysisDatabaseConnection::memory();
+            let mut analysis_db = AnalysisDatabase::memory();
 
             let mut vm_env = OwnedEnvironment::memory();
 
             let mut ast = friendly_expect(parse(&content), "Failed to parse program.");
-            let mut analysis_db = analysis_db_conn.begin_save_point();
             match type_check(":transient:", &mut ast, &mut analysis_db, true) {
                 Ok(_) => {
                     let result = vm_env.get_exec_environment(None).eval_raw(&content);
@@ -331,15 +331,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let contract_analysis: ContractAnalysis;
 
             { 
-                let mut analysis_db = AnalysisDatabase::from_savepoint(
-                    friendly_expect(outer_sp.savepoint(),
-                                    "Failed to initialize savepoint for analysis"));
+                let sql_data_store = SqliteStore::new(&outer_sp);
+                let mut db = AnalysisDatabase::new(Box::new(sql_data_store));
+
                 let mut ast = friendly_expect(parse(&contract_content), "Failed to parse program.");
 
-                contract_analysis = friendly_expect(type_check(contract_name, &mut ast, &mut analysis_db, true),
+                contract_analysis = friendly_expect(type_check(contract_name, &mut ast, &mut db, true),
                                                     "Type check error.");
-
-                analysis_db.commit();
             }
 
             let result = {

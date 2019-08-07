@@ -1,7 +1,7 @@
 use vm::parser::parse;
 use vm::representations::SymbolicExpression;
 use vm::checker::typecheck::{TypeResult, TypeChecker, TypingContext, FunctionType};
-use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection, identity_pass};
+use vm::checker::{AnalysisDatabase, identity_pass};
 use vm::checker::errors::CheckErrors;
 use vm::checker::type_check;
 use vm::contexts::{OwnedEnvironment};
@@ -11,11 +11,12 @@ mod assets;
 mod contracts;
 
 fn type_check_helper(exp: &SymbolicExpression) -> TypeResult {
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let analysis_db = analysis_conn.begin_save_point();
-    let mut type_checker = TypeChecker::new(&analysis_db);
-    let contract_context = TypingContext::new();
-    type_checker.type_check(exp, &contract_context)
+    let mut db = AnalysisDatabase::memory();
+    db.execute(|db| {
+        let mut type_checker = TypeChecker::new(db);
+        let contract_context = TypingContext::new();
+        type_checker.type_check(exp, &contract_context)
+    })
 }
 
 
@@ -208,9 +209,8 @@ fn test_lists_in_defines() {
 ";
 
     let mut c1 = parse(good).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut db = analysis_conn.begin_save_point();
-
+    let mut db = AnalysisDatabase::memory();
+    
     type_check(&":transient1:", &mut c1, &mut db, true).unwrap();
 
 }
@@ -241,8 +241,7 @@ fn test_empty_tuple_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -263,15 +262,13 @@ fn test_define() {
                      (* (foo 1 2) (bar 3 3))",
     ];
 
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
-
+    let mut analysis_db = AnalysisDatabase::memory();
+    
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
         type_check(&":transient:", &mut good_test, &mut analysis_db, false).unwrap();
     }
 
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
         assert!(type_check(&":transient:", &mut bad_test, &mut analysis_db, false).is_err());
@@ -307,8 +304,7 @@ fn test_function_arg_names() {
         vec![],
     ];
 
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     for (func_test, arg_names) in functions.iter().zip(expected_arg_names.iter()) {
         let mut func_expr = parse(func_test).unwrap();
@@ -353,8 +349,7 @@ fn test_factorial() {
         ";
 
     let mut contract = parse(contract).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
 }
@@ -374,8 +369,7 @@ fn test_options() {
          ";
 
     let mut contract = parse(contract).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
 
@@ -392,8 +386,7 @@ fn test_options() {
          ";
 
     let mut contract = parse(contract).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     assert!(
         match type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err().err {
@@ -425,8 +418,7 @@ fn test_set_int_variable() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
 }
@@ -444,8 +436,7 @@ fn test_set_bool_variable() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
 }
@@ -463,8 +454,7 @@ fn test_set_tuple_variable() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
 }
@@ -482,8 +472,7 @@ fn test_set_list_variable() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
 }
@@ -501,8 +490,7 @@ fn test_set_buffer_variable() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
 }
@@ -514,8 +502,7 @@ fn test_missing_value_on_declaration_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -531,8 +518,7 @@ fn test_mismatching_type_on_declaration_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -554,8 +540,7 @@ fn test_mismatching_type_on_update_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -573,8 +558,7 @@ fn test_direct_access_to_persisted_var_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -595,8 +579,7 @@ fn test_data_var_shadowed_by_let_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -615,8 +598,7 @@ fn test_mutating_unknown_data_var_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -633,8 +615,7 @@ fn test_accessing_unknown_data_var_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -651,8 +632,7 @@ fn test_let_shadowed_by_let_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -670,8 +650,7 @@ fn test_let_shadowed_by_nested_let_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -690,8 +669,7 @@ fn test_define_constant_shadowed_by_let_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -709,8 +687,7 @@ fn test_define_constant_shadowed_by_argument_should_fail() {
     "#;
 
     let mut contract = parse(contract_src).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
     assert!(match &res.err {
@@ -741,8 +718,7 @@ fn test_tuple_map() {
         ";
 
     let mut t = parse(t).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     type_check(&":transient:", &mut t, &mut analysis_db, false).unwrap();
 }
@@ -771,8 +747,7 @@ fn test_explicit_tuple_map() {
          ";
 
     let mut contract = parse(contract).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
 }
@@ -800,8 +775,7 @@ fn test_implicit_tuple_map() {
          ";
 
     let mut contract = parse(contract).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
 }
@@ -834,8 +808,7 @@ fn test_bound_tuple_map() {
         ";
 
     let mut contract = parse(contract).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
 
     type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
 }
@@ -856,8 +829,7 @@ fn test_fetch_entry_matching_type_signatures() {
              (define (kv-get (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
     }
 }
@@ -877,8 +849,7 @@ fn test_fetch_entry_mismatching_type_signatures() {
              (define (kv-get (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
@@ -899,8 +870,7 @@ fn test_fetch_entry_unbound_variables() {
              (define (kv-get (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UnboundVariable(_) => true,
@@ -925,8 +895,7 @@ fn test_insert_entry_matching_type_signatures() {
              (define (kv-add (key int) (value int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
     }
 }
@@ -948,8 +917,7 @@ fn test_insert_entry_mismatching_type_signatures() {
              (define (kv-add (key int) (value int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
@@ -971,8 +939,7 @@ fn test_insert_entry_unbound_variables() {
              (define (kv-add (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UnboundVariable(_) => true,
@@ -998,8 +965,7 @@ fn test_delete_entry_matching_type_signatures() {
              (define (kv-del (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
     }
 }
@@ -1019,8 +985,7 @@ fn test_delete_entry_mismatching_type_signatures() {
              (define (kv-del (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
@@ -1042,8 +1007,7 @@ fn test_delete_entry_unbound_variables() {
              (define (kv-del (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UnboundVariable(_) => true,
@@ -1070,8 +1034,7 @@ fn test_set_entry_matching_type_signatures() {
                 (let ((known-value 2))
                 ({})))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
     }
 }
@@ -1095,8 +1058,7 @@ fn test_set_entry_mismatching_type_signatures() {
              (define (kv-set (key int) (value int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
@@ -1119,8 +1081,7 @@ fn test_set_entry_unbound_variables() {
              (define (kv-set (key int) (value int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_conn = AnalysisDatabaseConnection::memory();
-        let mut analysis_db = analysis_conn.begin_save_point();
+        let mut analysis_db = AnalysisDatabase::memory();
         let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UnboundVariable(_) => true,
@@ -1137,8 +1098,8 @@ fn test_fetch_contract_entry_matching_type_signatures() {
             (expects! (get value (fetch-entry kv-store ((key key)))) 0))
         (begin (insert-entry! kv-store ((key 42)) ((value 42))))"#;
 
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
+
     let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
     type_check(&"kv-store-contract", &mut kv_store_contract, &mut analysis_db, true).unwrap();
 
@@ -1166,8 +1127,7 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
             (expects! (get value (fetch-entry kv-store ((key key)))) 0))
         (begin (insert-entry! kv-store ((key 42)) ((value 42))))"#;
 
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
     let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
     type_check(&"kv-store-contract", &mut kv_store_contract, &mut analysis_db, true).unwrap();
     
@@ -1200,8 +1160,7 @@ fn test_fetch_contract_entry_unbound_variables() {
             (expects! (get value (fetch-entry kv-store ((key key)))) 0))
         (begin (insert-entry! kv-store ((key 42)) ((value 42))))"#;
 
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut analysis_db = analysis_conn.begin_save_point();
+    let mut analysis_db = AnalysisDatabase::memory();
     let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
     type_check(&"kv-store-contract", &mut kv_store_contract, &mut analysis_db, true).unwrap();
     

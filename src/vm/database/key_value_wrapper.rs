@@ -213,20 +213,29 @@ impl <'a> ClarityDatabase <'a> {
         self.store.rollback();
     }
 
+    fn put(&mut self, key: &KeyType, value: &ClaritySerializable) {
+        self.store.put(&key, &value.serialize());
+    }
+
+    fn get <T> (&self, key: &KeyType) -> Option<T> where T: ClarityDeserializable<T> {
+        self.store.get(&key)
+            .map(|x| T::deserialize(&x))
+    }
+
     pub fn make_key_for_trip(contract_name: &str, data: StoreType, var_name: &str) -> KeyType {
-        let string = format!("{}::{}::{}", contract_name, data as u8, var_name);
+        let string = format!("vm::{}::{}::{}", contract_name, data as u8, var_name);
         let Sha256Sum(hash_data) = Sha256Sum::from_data(string.as_bytes());
         hash_data
     }
 
     pub fn make_key_for_quad(contract_name: &str, data: StoreType, var_name: &str, key_value: String) -> KeyType {
-        let string = format!("{}::{}::{}::{}", contract_name, data as u8, var_name, key_value);
+        let string = format!("vm::{}::{}::{}::{}", contract_name, data as u8, var_name, key_value);
         let Sha256Sum(hash_data) = Sha256Sum::from_data(string.as_bytes());
         hash_data
     }
 
     pub fn make_contract_key(contract_name: &str) -> KeyType {
-        let string = format!("{}::{}", contract_name, StoreType::Contract as u8);
+        let string = format!("vm::{}::{}", contract_name, StoreType::Contract as u8);
         let Sha256Sum(hash_data) = Sha256Sum::from_data(string.as_bytes());
         hash_data
     }
@@ -338,15 +347,6 @@ impl <'a> ClarityDatabase <'a> {
         assert!(!self.store.has_entry(&key), "Clarity VM attempted to initialize existing variable");
 
         self.put(&key, &variable_data);
-    }
-
-    fn put(&mut self, key: &KeyType, value: &ClaritySerializable) {
-        self.store.put(&key, &value.serialize());
-    }
-
-    fn get <T> (&self, key: &KeyType) -> Option<T> where T: ClarityDeserializable<T> {
-        self.store.get(&key)
-            .map(|x| T::deserialize(&x))
     }
 
     fn load_variable(&self, contract_name: &str, variable_name: &str) -> Result<DataVariableMetadata> {

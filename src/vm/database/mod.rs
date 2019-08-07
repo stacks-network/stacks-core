@@ -3,8 +3,10 @@ mod structures;
 pub mod key_value_wrapper;
 
 use std::collections::HashMap;
-pub use self::key_value_wrapper::{KeyType, KeyValueStorage, ClarityDatabase};
 
+pub use self::key_value_wrapper::{
+    KeyType, KeyValueStorage, ClarityDatabase, RollbackWrapper };
+pub use self::structures::{ClaritySerializable, ClarityDeserializable };
 pub use self::sqlite::{SqliteStore, SqliteConnection};
 
 impl KeyValueStorage for HashMap<KeyType, String> {
@@ -18,7 +20,6 @@ impl KeyValueStorage for HashMap<KeyType, String> {
         self.contains_key(key)
     }
 }
-
 
 pub fn memory_db<'a>() -> ClarityDatabase<'a> {
     let store: HashMap<KeyType, String> = HashMap::new();

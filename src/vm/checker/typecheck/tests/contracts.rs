@@ -3,7 +3,7 @@ use serde_json;
 
 use vm::parser::parse;
 use vm::checker::errors::CheckErrors;
-use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection};
+use vm::checker::{AnalysisDatabase};
 
 const SIMPLE_TOKENS: &str =
         "(define-map tokens ((account principal)) ((balance int)))
@@ -141,8 +141,7 @@ fn test_names_tokens_contracts_interface() {
 
 
     let mut test_contract = parse(INTERFACE_TEST_CONTRACT).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut db = analysis_conn.begin_save_point();
+    let mut db = AnalysisDatabase::memory();
 
     let test_contract_json_str = type_check(&"test_contract", &mut test_contract, &mut db, true).unwrap().to_interface().serialize();
     let test_contract_json = serde_json::from_str(&test_contract_json_str).unwrap();
@@ -353,8 +352,7 @@ fn test_names_tokens_contracts() {
 
     let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(SIMPLE_NAMES).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut db = analysis_conn.begin_save_point();
+    let mut db = AnalysisDatabase::memory();
 
     type_check(&"tokens", &mut tokens_contract, &mut db, true).unwrap();
     type_check(&"names", &mut names_contract, &mut db, true).unwrap();
@@ -379,8 +377,7 @@ fn test_names_tokens_contracts_bad() {
 
     let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(&names_contract).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut db = analysis_conn.begin_save_point();
+    let mut db = AnalysisDatabase::memory();
 
     let result = type_check(&"tokens", &mut tokens_contract, &mut db, true);
     if let Err(ref e) = result { 
@@ -414,8 +411,7 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
 
     let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(&names_contract).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut db = analysis_conn.begin_save_point();
+    let mut db = AnalysisDatabase::memory();
 
     let result = type_check(&"tokens", &mut tokens_contract, &mut db, true);
     if let Err(ref e) = result { 
@@ -476,9 +472,7 @@ fn test_bad_map_usage() {
                  bad_insert_1,
                  bad_insert_2,
                  unhandled_option];
-
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut db = analysis_conn.begin_save_point();
+    let mut db = AnalysisDatabase::memory();
 
     for contract in tests.iter() {
         let mut contract = parse(contract).unwrap();
@@ -549,8 +543,7 @@ fn test_expects() {
          (define (t2) (expects! (t1) 0))
     ";
 
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut db = analysis_conn.begin_save_point();
+    let mut db = AnalysisDatabase::memory();
 
     let mut okay = parse(okay).unwrap();
     let result = type_check(&":transient:", &mut okay, &mut db, false).unwrap();

@@ -1,8 +1,3 @@
-use std::convert::TryFrom;
-
-use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
-use rusqlite::types::{ToSql, FromSql};
-
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
 use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, PrincipalData, NONE};
