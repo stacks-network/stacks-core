@@ -64,7 +64,7 @@ pub struct RollbackWrapper <'a> {
 
 
 pub struct ClarityDatabase<'a> {
-    store: RollbackWrapper<'a>
+    pub store: RollbackWrapper<'a>
 }
 
 impl <'a> RollbackWrapper <'a> {

@@ -2,7 +2,6 @@ use vm::database::{KeyValueStorage, KeyType};
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MARFValue, Error as MarfError};
 use chainstate::stacks::index::storage::{TrieFileStorage};
-use chainstate::stacks::index::node::TriePath;
 use chainstate::burn::BlockHeaderHash;
 use util::hash::{to_hex, Sha256Sum};
 
@@ -35,24 +34,23 @@ pub fn temporary_marf() -> MarfedKV {
 }
 
 impl MarfedKV {
-    #[cfg(test)]
-    pub fn begin_test(&mut self) {
-        self.begin(&TrieFileStorage::block_sentinel(),
-                   &BlockHeaderHash::from_bytes(&[0 as u8; 32]).unwrap())
-    }
     pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
         self.marf.begin(current, next)
             .unwrap();
     }
+    pub fn commit(&mut self) {
+        self.marf.commit()
+            .unwrap()
+    }
 }
 
-impl KeyValueStorage for MarfedKV {
+impl KeyValueStorage for &mut MarfedKV {
     fn put(&mut self, key: &KeyType, value: &str) {
         let value_hash = value_hash(value);
         self.side_store.put(&value_hash, value);
 
         let string = to_hex(key);
-        let marf_value = MARFValue::from_value_hash_bytes(key);
+        let marf_value = MARFValue::from_value_hash_bytes(&value_hash);
 
         self.marf.insert(&string, marf_value)
             .expect("ERROR: Unexpected MARF Failure")

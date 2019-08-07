@@ -8,13 +8,7 @@ use util::hash::hex_bytes;
 use vm::database::marf::temporary_marf;
 use vm::database::ClarityDatabase;
 
-fn execute(s: &str) -> Value {
-    vm_execute(s).unwrap().unwrap()
-}
-
-fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
-    vec.drain(..).map(|value| SymbolicExpression::atom_value(value)).collect()
-}
+use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbols_from_values};
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current int) (index int)))
          (define (init-factorial (id int) (factorial int))
@@ -513,31 +507,6 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
 
 }
 
-fn with_memory_environment<F>(f: F)
-where F: FnOnce(&mut OwnedEnvironment) -> ()
-{
-    let mut owned_env = OwnedEnvironment::memory();
-    // start an initial transaction.
-    owned_env.begin();
-
-    f(&mut owned_env)
-}
-
-fn with_marfed_environment<F>(f: F)
-where F: FnOnce(&mut OwnedEnvironment) -> ()
-{
-    let mut marf_kv = temporary_marf();
-    marf_kv.begin_test();
-    let mut clarity_db = ClarityDatabase::new(Box::new(marf_kv));
-    clarity_db.initialize();
-
-    let mut owned_env = OwnedEnvironment::new(clarity_db);
-    // start an initial transaction.
-    owned_env.begin();
-
-    f(&mut owned_env)
-}
-
 #[test]
 fn test_all() {
     let to_test = [ test_factorial_contract,
@@ -546,7 +515,7 @@ fn test_all() {
                     test_simple_token_system,
                     test_simple_contract_call ];
     for test in to_test.iter() {
-        with_memory_environment(test_factorial_contract);
-        with_marfed_environment(test_factorial_contract);
+        with_memory_environment(test, false);
+        with_marfed_environment(test, false);
     }
 }
