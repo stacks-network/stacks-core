@@ -63,7 +63,7 @@ impl <'a> AnalysisDatabase <'a> {
         self.store.put(&key, &value.serialize());
     }
 
-    fn get <T> (&self, key: &KeyType) -> Option<T> where T: ClarityDeserializable<T> {
+    fn get <T> (&mut self, key: &KeyType) -> Option<T> where T: ClarityDeserializable<T> {
         self.store.get(&key)
             .map(|x| T::deserialize(&x))
     }
@@ -74,7 +74,7 @@ impl <'a> AnalysisDatabase <'a> {
         hash_data
     }
 
-    fn load_contract(&self, contract_name: &str) -> Option<ContractAnalysis> {
+    fn load_contract(&mut self, contract_name: &str) -> Option<ContractAnalysis> {
         let key = AnalysisDatabase::make_key(contract_name);
         self.get(&key)
     }
@@ -88,21 +88,21 @@ impl <'a> AnalysisDatabase <'a> {
         Ok(())
     }
 
-    pub fn get_public_function_type(&self, contract_name: &str, function_name: &str) -> CheckResult<Option<FunctionType>> {
+    pub fn get_public_function_type(&mut self, contract_name: &str, function_name: &str) -> CheckResult<Option<FunctionType>> {
         let contract = self.load_contract(contract_name)
             .ok_or(CheckErrors::NoSuchContract(contract_name.to_string()))?;
         Ok(contract.get_public_function_type(function_name)
            .cloned())
     }
 
-    pub fn get_read_only_function_type(&self, contract_name: &str, function_name: &str) -> CheckResult<Option<FunctionType>> {
+    pub fn get_read_only_function_type(&mut self, contract_name: &str, function_name: &str) -> CheckResult<Option<FunctionType>> {
         let contract = self.load_contract(contract_name)
             .ok_or(CheckErrors::NoSuchContract(contract_name.to_string()))?;
         Ok(contract.get_read_only_function_type(function_name)
            .cloned())
     }
 
-    pub fn get_map_type(&self, contract_name: &str, map_name: &str) -> CheckResult<(TypeSignature, TypeSignature)> {
+    pub fn get_map_type(&mut self, contract_name: &str, map_name: &str) -> CheckResult<(TypeSignature, TypeSignature)> {
         let contract = self.load_contract(contract_name)
             .ok_or(CheckErrors::NoSuchContract(contract_name.to_string()))?;
         let map_type = contract.get_map_type(map_name)

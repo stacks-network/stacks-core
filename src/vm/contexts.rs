@@ -461,27 +461,6 @@ impl <'a> GlobalContext<'a> {
         Ok(result)
     }
 
-
-    pub fn get_block_height(&self) -> u64 {
-        self.database.get_simmed_block_height()
-    }
-
-    pub fn get_block_time(&self, block_height: u64) -> u64 {
-        self.database.get_simmed_block_time(block_height)
-    }
-
-    pub fn get_block_header_hash(&self, block_height: u64) -> BlockHeaderHash {
-        self.database.get_simmed_block_header_hash(block_height)
-    }
-
-    pub fn get_burnchain_block_header_hash(&self, block_height: u64) -> BurnchainHeaderHash {
-        self.database.get_simmed_burnchain_block_header_hash(block_height)
-    }
-
-    pub fn get_block_vrf_seed(&self, block_height: u64) -> VRFSeed {
-        self.database.get_simmed_block_vrf_seed(block_height)
-    }
-
     pub fn is_read_only(&self) -> bool {
         // top level context defaults to writable.
         self.read_only.back().cloned().unwrap_or(false)

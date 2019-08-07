@@ -391,7 +391,7 @@ pub struct TrieFileStorage {
 }
 
 impl TrieFileStorage {
-    pub fn new(dir_path: &String) -> Result<TrieFileStorage, Error> {
+    pub fn new(dir_path: &str) -> Result<TrieFileStorage, Error> {
         match fs::metadata(dir_path) {
             Ok(md) => {
                 if !md.is_dir() {
@@ -408,15 +408,16 @@ impl TrieFileStorage {
             }
         }
 
-        let partially_written_state = TrieFileStorage::scan_tmp_blocks(dir_path)?;
+        let dir_path = dir_path.to_string();
+        let partially_written_state = TrieFileStorage::scan_tmp_blocks(&dir_path)?;
         if partially_written_state.len() > 0 {
             return Err(Error::PartialWriteError);
         }
 
-        let fork_table = TrieFileStorage::read_fork_table(dir_path, &TrieFileStorage::block_sentinel())?;
+        let fork_table = TrieFileStorage::read_fork_table(&dir_path, &TrieFileStorage::block_sentinel())?;
 
         let ret = TrieFileStorage {
-            dir_path: dir_path.clone(),
+            dir_path,
             readonly: false,
 
             last_extended: None,

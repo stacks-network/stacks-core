@@ -195,7 +195,7 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
         _ => return Err(RuntimeErrorType::BadBlockHeight(height_value.to_string()).into())
     };
 
-    let current_block_height = env.global_context.get_block_height();
+    let current_block_height = env.global_context.database.get_simmed_block_height();
     if height_value > current_block_height {
         return Err(RuntimeErrorType::BadBlockHeight(height_value.to_string()).into());
     }
@@ -203,19 +203,19 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
     use self::BlockInfoProperty::*;
     match block_info_prop {
         Time => {
-            let block_time = env.global_context.get_block_time(height_value);
+            let block_time = env.global_context.database.get_simmed_block_time(height_value);
             Ok(Value::Int(block_time as i128))
         },
         VrfSeed => {
-            let vrf_seed = env.global_context.get_block_vrf_seed(height_value);
+            let vrf_seed = env.global_context.database.get_simmed_block_vrf_seed(height_value);
             Ok(Value::Buffer(BuffData { data: vrf_seed.to_bytes().to_vec() }))
         },
         HeaderHash => {
-            let header_hash = env.global_context.get_block_header_hash(height_value);
+            let header_hash = env.global_context.database.get_simmed_block_header_hash(height_value);
             Ok(Value::Buffer(BuffData { data: header_hash.to_bytes().to_vec() }))
         },
         BurnchainHeaderHash => {
-            let burnchain_header_hash = env.global_context.get_burnchain_block_header_hash(height_value);
+            let burnchain_header_hash = env.global_context.database.get_simmed_burnchain_block_header_hash(height_value);
             Ok(Value::Buffer(BuffData { data: burnchain_header_hash.to_bytes().to_vec() }))
         },
     }

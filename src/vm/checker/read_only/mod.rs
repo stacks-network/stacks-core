@@ -15,7 +15,7 @@ pub use super::errors::{CheckResult, CheckError, CheckErrors};
 mod tests;
 
 pub struct ReadOnlyChecker <'a, 'b> {
-    db: &'a AnalysisDatabase<'b>,
+    db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<String, bool>
 }
 
@@ -23,11 +23,11 @@ pub struct ReadOnlyChecker <'a, 'b> {
 impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     
 
-    fn new(db: &'a AnalysisDatabase<'b>) -> ReadOnlyChecker<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>) -> ReadOnlyChecker<'a, 'b> {
         ReadOnlyChecker { db, defined_functions: HashMap::new() }
     }
 
-    pub fn check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<()> {
+    pub fn check_contract(contract: &mut [SymbolicExpression], analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
         let mut checker = ReadOnlyChecker::new(analysis_db);
 
         for expr in contract {
@@ -44,7 +44,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         Ok(())
     }
 
-    fn check_define_function(&self, expr: &[SymbolicExpression]) -> CheckResult<(String, bool)> {
+    fn check_define_function(&mut self, expr: &[SymbolicExpression]) -> CheckResult<(String, bool)> {
         if expr.len() != 3 {
             return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, expr.len() - 1)))
         }
@@ -115,14 +115,14 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         }
     }
 
-    fn are_all_read_only(&self, initial: bool, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn are_all_read_only(&mut self, initial: bool, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
         expressions.iter()
             .fold(Ok(initial),
                   |acc, argument| {
                       Ok(acc? && self.is_read_only(&argument)?) })
     }
 
-    fn is_implicit_tuple_definition_read_only(&self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn is_implicit_tuple_definition_read_only(&mut self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
         for tuple_expr in tuples.iter() {
             let pair = tuple_expr.match_list()
                 .ok_or(CheckError::new(CheckErrors::TupleExpectsPairs))?;
@@ -137,7 +137,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         Ok(true)
     }
 
-    fn try_native_function_check(&self, function: &str, args: &[SymbolicExpression]) -> Option<CheckResult<bool>> {
+    fn try_native_function_check(&mut self, function: &str, args: &[SymbolicExpression]) -> Option<CheckResult<bool>> {
         if let Some(ref function) = NativeFunctions::lookup_by_name(function) {
             Some(self.handle_native_function(function, args))
         } else {
@@ -145,7 +145,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         }
     }
 
-    fn handle_native_function(&self, function: &NativeFunctions, args: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn handle_native_function(&mut self, function: &NativeFunctions, args: &[SymbolicExpression]) -> CheckResult<bool> {
         use vm::functions::NativeFunctions::*;
 
         match function {
@@ -257,7 +257,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         }
     }
 
-    fn is_function_application_read_only(&self, expression: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn is_function_application_read_only(&mut self, expression: &[SymbolicExpression]) -> CheckResult<bool> {
         let (function_name, args) = expression.split_first()
             .ok_or(CheckError::new(CheckErrors::NonFunctionApplication))?;
 
@@ -268,13 +268,14 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             result
         } else {
             let is_function_read_only = self.defined_functions.get(function_name)
-                .ok_or(CheckError::new(CheckErrors::UnknownFunction(function_name.clone())))?;
-            self.are_all_read_only(*is_function_read_only, args)
+                .ok_or(CheckError::new(CheckErrors::UnknownFunction(function_name.clone())))?
+                .clone();
+            self.are_all_read_only(is_function_read_only, args)
         }
     }
 
 
-    fn is_read_only(&self, expr: &SymbolicExpression) -> CheckResult<bool> {
+    fn is_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
         match expr.expr {
             AtomValue(_) => {
                 Ok(true)

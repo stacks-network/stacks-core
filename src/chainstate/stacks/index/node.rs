@@ -128,7 +128,7 @@ impl_byte_array_newtype!(TriePath, u8, 32);
 pub const TRIEPATH_MAX_LEN : usize = 32;
 
 impl TriePath {
-    pub fn from_key(k: &String) -> TriePath {
+    pub fn from_key(k: &str) -> TriePath {
         let h = TrieHash::from_data(k.as_bytes());
         let mut hb = [0u8; TRIEPATH_MAX_LEN];
         hb.copy_from_slice(h.as_bytes());

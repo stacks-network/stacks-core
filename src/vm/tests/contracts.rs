@@ -1,10 +1,12 @@
 use vm::execute as vm_execute;
 use vm::errors::{Error, UncheckedError};
 use vm::types::{Value, PrincipalData, ResponseData};
-use vm::contexts::{OwnedEnvironment,GlobalContext};
+use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
+use vm::database::marf::temporary_marf;
+use vm::database::ClarityDatabase;
 
 fn execute(s: &str) -> Value {
     vm_execute(s).unwrap().unwrap()
@@ -125,16 +127,11 @@ fn is_err_code(v: &Value, e: i128) -> bool {
     }
 }
 
-#[test]
-fn test_simple_token_system() {
+fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     let tokens_contract = SIMPLE_TOKENS;
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
-
-    let mut owned_env = OwnedEnvironment::memory();
-    // start an initial transaction.
-    owned_env.begin();
 
     {
         let mut env = owned_env.get_exec_environment(None);
@@ -202,8 +199,7 @@ fn test_simple_token_system() {
     }
 }
 
-#[test]
-fn test_simple_naming_system() {
+fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let tokens_contract = SIMPLE_TOKENS;
 
     let names_contract =
@@ -267,10 +263,6 @@ fn test_simple_naming_system() {
     let name_hash_expensive_0 = execute("(hash160 1)");
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
-
-    let mut owned_env = OwnedEnvironment::memory();
-    // start an initial transaction.
-    owned_env.begin();
 
     {
         let mut env = owned_env.get_exec_environment(None);
@@ -340,28 +332,20 @@ fn test_simple_naming_system() {
 }
 
 
-#[test]
-fn test_simple_contract_call() {
+fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
     let contract_1 = FACTORIAL_CONTRACT;
     let contract_2 =
         "(define-public (proxy-compute)
             (contract-call! factorial-contract compute 8008))
         ";
 
-    let mut owned_env = OwnedEnvironment::memory();
-    // start an initial transaction.
-    owned_env.begin();
-
-    {
-        let mut env = owned_env.get_exec_environment(None);
-
-        env.initialize_contract("factorial-contract", contract_1).unwrap();
-        env.initialize_contract("proxy-compute", contract_2).unwrap();
-    }
-    
-    let args = symbols_from_values(vec![]);
     let mut env = owned_env.get_exec_environment(Some(Value::Principal(PrincipalData::StandardPrincipal
                                                                        (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]))));
+
+    env.initialize_contract("factorial-contract", contract_1).unwrap();
+    env.initialize_contract("proxy-compute", contract_2).unwrap();
+    
+    let args = symbols_from_values(vec![]);
 
     let expected = [Value::Int(5),
                     Value::Int(20),
@@ -378,8 +362,7 @@ fn test_simple_contract_call() {
     }
 }
 
-#[test]
-fn test_aborts() {
+fn test_aborts(owned_env: &mut OwnedEnvironment) {
     let contract_1 ="
 (define-map data ((id int)) ((value int)))
 
@@ -414,11 +397,6 @@ fn test_aborts() {
     (contract-call! contract-1 modify-data 105 105)
     (err 1)))
 ";
-
-    let mut owned_env = OwnedEnvironment::memory();
-    // start an initial transaction.
-    owned_env.begin();
-
     let mut env = owned_env.get_exec_environment(None);
 
     env.initialize_contract("contract-1", contract_1).unwrap();
@@ -467,12 +445,7 @@ fn test_aborts() {
     
 }
 
-#[test]
-fn test_factorial_contract() {
-    let mut owned_env = OwnedEnvironment::memory();
-    // start an initial transaction.
-    owned_env.begin();
-
+fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
     let mut env = owned_env.get_exec_environment(None);
 
     env.initialize_contract("factorial", FACTORIAL_CONTRACT).unwrap();
@@ -538,4 +511,42 @@ fn test_factorial_contract() {
         }
     }
 
+}
+
+fn with_memory_environment<F>(f: F)
+where F: FnOnce(&mut OwnedEnvironment) -> ()
+{
+    let mut owned_env = OwnedEnvironment::memory();
+    // start an initial transaction.
+    owned_env.begin();
+
+    f(&mut owned_env)
+}
+
+fn with_marfed_environment<F>(f: F)
+where F: FnOnce(&mut OwnedEnvironment) -> ()
+{
+    let mut marf_kv = temporary_marf();
+    marf_kv.begin_test();
+    let mut clarity_db = ClarityDatabase::new(Box::new(marf_kv));
+    clarity_db.initialize();
+
+    let mut owned_env = OwnedEnvironment::new(clarity_db);
+    // start an initial transaction.
+    owned_env.begin();
+
+    f(&mut owned_env)
+}
+
+#[test]
+fn test_all() {
+    let to_test = [ test_factorial_contract,
+                    test_aborts,
+                    test_simple_naming_system,
+                    test_simple_token_system,
+                    test_simple_contract_call ];
+    for test in to_test.iter() {
+        with_memory_environment(test_factorial_contract);
+        with_marfed_environment(test_factorial_contract);
+    }
 }

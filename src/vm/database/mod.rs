@@ -1,3 +1,4 @@
+pub mod marf;
 mod sqlite;
 mod structures;
 pub mod key_value_wrapper;
@@ -13,10 +14,10 @@ impl KeyValueStorage for HashMap<KeyType, String> {
     fn put(&mut self, key: &KeyType, value: &str) {
         self.insert(key.clone(), value.to_string());
     }
-    fn get(&self, key: &KeyType) -> Option<String> {
-        self.get(key).cloned()
+    fn get(&mut self, key: &KeyType) -> Option<String> {
+        (&*self).get(key).cloned()
     }
-    fn has_entry(&self, key: &KeyType) -> bool {
+    fn has_entry(&mut self, key: &KeyType) -> bool {
         self.contains_key(key)
     }
 }

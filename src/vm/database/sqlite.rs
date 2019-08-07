@@ -25,7 +25,7 @@ impl <'a> KeyValueStorage for SqliteStore<'a> {
             .expect(SQL_FAIL_MESSAGE);
     }
 
-    fn get(&self, key: &KeyType) -> Option<String> {
+    fn get(&mut self, key: &KeyType) -> Option<String> {
         let params: [&ToSql; 1] = [&key.to_vec()];
         self.conn.query_row(
             "SELECT value FROM data_table WHERE key = ?",
@@ -35,7 +35,7 @@ impl <'a> KeyValueStorage for SqliteStore<'a> {
             .expect(SQL_FAIL_MESSAGE)
     }
 
-    fn has_entry(&self, key: &KeyType) -> bool {
+    fn has_entry(&mut self, key: &KeyType) -> bool {
         self.get(key).is_some()
     }
 }
@@ -48,7 +48,7 @@ impl KeyValueStorage for SqliteConnection {
             .expect(SQL_FAIL_MESSAGE);
     }
 
-    fn get(&self, key: &KeyType) -> Option<String> {
+    fn get(&mut self, key: &KeyType) -> Option<String> {
         let params: [&ToSql; 1] = [&key.to_vec()];
         self.conn.query_row(
             "SELECT value FROM data_table WHERE key = ?",
@@ -58,7 +58,7 @@ impl KeyValueStorage for SqliteConnection {
             .expect(SQL_FAIL_MESSAGE)
     }
 
-    fn has_entry(&self, key: &KeyType) -> bool {
+    fn has_entry(&mut self, key: &KeyType) -> bool {
         self.get(key).is_some()
     }
 }

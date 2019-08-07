@@ -31,8 +31,8 @@ pub enum StoreType {
 
 pub trait KeyValueStorage {
     fn put(&mut self, key: &KeyType, value: &str);
-    fn get(&self, key: &KeyType) -> Option<String>;
-    fn has_entry(&self, key: &KeyType) -> bool;
+    fn get(&mut self, key: &KeyType) -> Option<String>;
+    fn has_entry(&mut self, key: &KeyType) -> bool;
 }
 
 trait Rollback <'a, 'b> {
@@ -148,7 +148,7 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
         current.edits.push((key.clone(), value.to_string()));
     }
 
-    fn get(&self, key: &KeyType) -> Option<String> {
+    fn get(&mut self, key: &KeyType) -> Option<String> {
         let current = self.stack.back()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
@@ -165,7 +165,7 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
         }
     }
 
-    fn has_entry(&self, key: &KeyType) -> bool {
+    fn has_entry(&mut self, key: &KeyType) -> bool {
         let current = self.stack.back()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
         if self.lookup_map.contains_key(key) {
@@ -217,7 +217,7 @@ impl <'a> ClarityDatabase <'a> {
         self.store.put(&key, &value.serialize());
     }
 
-    fn get <T> (&self, key: &KeyType) -> Option<T> where T: ClarityDeserializable<T> {
+    fn get <T> (&mut self, key: &KeyType) -> Option<T> where T: ClarityDeserializable<T> {
         self.store.get(&key)
             .map(|x| T::deserialize(&x))
     }
@@ -259,33 +259,33 @@ impl <'a> ClarityDatabase <'a> {
 // Simulating blocks
 
 impl <'a> ClarityDatabase <'a> {
-    fn get_simmed_block(&self, block_height: u64) -> SimmedBlock {
+    fn get_simmed_block(&mut self, block_height: u64) -> SimmedBlock {
         let key = ClarityDatabase::make_key_for_trip(
             ":transient:", StoreType::SimmedBlock, &block_height.to_string());
         self.get(&key)
             .expect("Failed to obtain the block for the given block height.")
     }
     
-    pub fn get_simmed_block_height(&self) -> u64 {
+    pub fn get_simmed_block_height(&mut self) -> u64 {
         let key = ClarityDatabase::make_key_for_trip(
             ":transient:", StoreType::SimmedBlockHeight, ":dummy:");
         self.get(&key)
             .expect("Failed to obtain block height.")
     }
 
-    pub fn get_simmed_block_time(&self, block_height: u64) -> u64 {
+    pub fn get_simmed_block_time(&mut self, block_height: u64) -> u64 {
         self.get_simmed_block(block_height)
             .block_time
     }
-    pub fn get_simmed_block_header_hash(&self, block_height: u64) -> BlockHeaderHash {
+    pub fn get_simmed_block_header_hash(&mut self, block_height: u64) -> BlockHeaderHash {
         BlockHeaderHash::from_bytes(&self.get_simmed_block(block_height)
                                     .block_header_hash).unwrap()
     }
-    pub fn get_simmed_burnchain_block_header_hash(&self, block_height: u64) -> BurnchainHeaderHash {
+    pub fn get_simmed_burnchain_block_header_hash(&mut self, block_height: u64) -> BurnchainHeaderHash {
         BurnchainHeaderHash::from_bytes(&self.get_simmed_block(block_height)
                                         .burn_chain_header_hash).unwrap()
     }
-    pub fn get_simmed_block_vrf_seed(&self, block_height: u64) -> VRFSeed {
+    pub fn get_simmed_block_vrf_seed(&mut self, block_height: u64) -> VRFSeed {
         VRFSeed::from_bytes(&self.get_simmed_block(block_height).vrf_seed).unwrap()
     }
 
@@ -349,7 +349,7 @@ impl <'a> ClarityDatabase <'a> {
         self.put(&key, &variable_data);
     }
 
-    fn load_variable(&self, contract_name: &str, variable_name: &str) -> Result<DataVariableMetadata> {
+    fn load_variable(&mut self, contract_name: &str, variable_name: &str) -> Result<DataVariableMetadata> {
         let key = ClarityDatabase::make_key_for_trip(contract_name, StoreType::VariableMeta, variable_name);
 
         let data = self.get(&key)
@@ -371,7 +371,7 @@ impl <'a> ClarityDatabase <'a> {
         return Ok(Value::Bool(true))
     }
 
-    pub fn lookup_variable(&self, contract_name: &str, variable_name: &str) -> Result<Value>  {
+    pub fn lookup_variable(&mut self, contract_name: &str, variable_name: &str) -> Result<Value>  {
         let variable_descriptor = self.load_variable(contract_name, variable_name)?;
 
         let key = ClarityDatabase::make_key_for_trip(contract_name, StoreType::Variable, variable_name);
@@ -400,7 +400,7 @@ impl <'a> ClarityDatabase <'a> {
         self.store.put(&key, &data.serialize());
     }
 
-    fn load_map(&self, contract_name: &str, map_name: &str) -> Result<DataMapMetadata> {
+    fn load_map(&mut self, contract_name: &str, map_name: &str) -> Result<DataMapMetadata> {
         let key = ClarityDatabase::make_key_for_trip(contract_name, StoreType::DataMapMeta, map_name);
 
         let data = self.get(&key)
@@ -409,7 +409,7 @@ impl <'a> ClarityDatabase <'a> {
         Ok(data)
     }
 
-    pub fn fetch_entry(&self, contract_name: &str, map_name: &str, key_value: &Value) -> Result<Value> {
+    pub fn fetch_entry(&mut self, contract_name: &str, map_name: &str, key_value: &Value) -> Result<Value> {
         let map_descriptor = self.load_map(contract_name, map_name)?;
         if !map_descriptor.key_type.admits(key_value) {
             return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), (*key_value).clone()).into())
@@ -433,7 +433,7 @@ impl <'a> ClarityDatabase <'a> {
         self.inner_set_entry(contract_name, map_name, key, value, true)
     }
 
-    fn data_map_entry_exists(&self, key: &[u8; 32]) -> Result<bool> {
+    fn data_map_entry_exists(&mut self, key: &[u8; 32]) -> Result<bool> {
         match self.store.get(&key) {
             None => Ok(false),
             Some(serialized) =>
@@ -495,7 +495,7 @@ impl <'a> ClarityDatabase <'a> {
         self.put(&key, &data);
     }
 
-    fn load_ft(&self, contract_name: &str, token_name: &str) -> Result<FungibleTokenMetadata> {
+    fn load_ft(&mut self, contract_name: &str, token_name: &str) -> Result<FungibleTokenMetadata> {
         let key = ClarityDatabase::make_key_for_trip(contract_name, StoreType::FungibleTokenMeta, token_name);
 
         let data = self.get(&key)
@@ -513,7 +513,7 @@ impl <'a> ClarityDatabase <'a> {
         self.put(&key, &data);
     }
 
-    fn load_nft(&self, contract_name: &str, token_name: &str) -> Result<NonFungibleTokenMetadata> {
+    fn load_nft(&mut self, contract_name: &str, token_name: &str) -> Result<NonFungibleTokenMetadata> {
         let key = ClarityDatabase::make_key_for_trip(contract_name, StoreType::NonFungibleTokenMeta, token_name);
 
         let data = self.get(&key)

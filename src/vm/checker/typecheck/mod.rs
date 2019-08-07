@@ -51,7 +51,7 @@ pub struct TypeChecker <'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
-    db: &'a AnalysisDatabase<'b>
+    db: &'a mut AnalysisDatabase<'b>
 }
 
 impl FunctionType {
@@ -139,9 +139,9 @@ fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> Chec
 }
 
 impl <'a, 'b> TypeChecker <'a, 'b> {
-    fn new(db: &'a AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
         TypeChecker {
-            db: db,
+            db,
             contract_context: ContractContext::new(),
             function_return_tracker: None,
             type_map: TypeMap::new()
@@ -170,7 +170,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 
-    pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<ContractAnalysis> {
+    pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &mut AnalysisDatabase) -> CheckResult<ContractAnalysis> {
         let mut type_checker = TypeChecker::new(analysis_db);
         let mut local_context = TypingContext::new();
 
