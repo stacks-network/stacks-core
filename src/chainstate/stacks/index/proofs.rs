@@ -639,7 +639,7 @@ impl TrieMerkleProof {
         for proof_node in segment_proof {
             match proof_node {
                 TrieMerkleProofType::Leaf((ref chr, ref node)) => {
-                    path_parts.push(vec![*chr]);
+                    // path_parts.push(vec![*chr]);
                     path_parts.push(node.path.clone());
                 },
                 TrieMerkleProofType::Node4((ref chr, ref node, _)) => {
@@ -678,7 +678,7 @@ impl TrieMerkleProof {
     /// * segment proof i+1 must be a prefix of segment proof i
     /// * segment proof 0 must end in a leaf
     /// * all segment proofs must end in a Node256 (a root)
-    fn is_proof_well_formed(proof: &Vec<TrieMerkleProofType>) -> bool {
+    fn is_proof_well_formed(proof: &Vec<TrieMerkleProofType>, expected_path: &TriePath) -> bool {
         if proof.len() == 0 {
             trace!("Proof is empty");
             return false;
@@ -723,6 +723,12 @@ impl TrieMerkleProof {
                         return false;
                     }
                 };
+                
+                // first path bytes must be the expected TriePath
+                if expected_path.as_bytes().to_vec() != path_bytes {
+                    trace!("Invalid proof -- path bytes {:?} differs from the expected path {:?}", &path_bytes, expected_path);
+                    return false;
+                }
             }
             else {
                 // make sure that this segment proof is a prefix of the last
@@ -749,8 +755,6 @@ impl TrieMerkleProof {
                         return false;
                     }
                 }
-
-                path_bytes = new_path_bytes;
             }
 
             // next shunt proof 
@@ -786,19 +790,25 @@ impl TrieMerkleProof {
     /// which block headers.  This can be calculated and verified independently from the blockchain
     /// headers.
     /// NOTE: Trie root hashes are globally unique by design, even if they represent the same contents, so the root_to_block map is bijective with high probability.
-    pub fn verify_proof(proof: &Vec<TrieMerkleProofType>, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>) -> bool {
-        if !TrieMerkleProof::is_proof_well_formed(&proof) {
+    pub fn verify_proof(proof: &Vec<TrieMerkleProofType>, path: &TriePath, value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>) -> bool {
+        if !TrieMerkleProof::is_proof_well_formed(&proof, path) {
             return false;
         }
 
-        let mut node_hash = match proof[0] {
+        let (mut node_hash, node_data) = match proof[0] {
             TrieMerkleProofType::Leaf((_, ref node)) => {
-                get_node_hash(node, &vec![])
+                (get_node_hash(node, &vec![]), node.data.clone())
             },
             _ => {
                 unreachable!()
             }
         };
+
+        // proof must be for this value
+        if node_data != *value {
+            trace!("Invalid proof -- not for value hash {:?}", value.to_value_hash());
+            return false;
+        }
 
         let mut i = 0;
 
@@ -979,8 +989,8 @@ impl TrieMerkleProof {
     }
 
     /// Verify this proof
-    pub fn verify(&self, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>) -> bool {
-        TrieMerkleProof::verify_proof(&self.0, root_hash, root_to_block)
+    pub fn verify(&self, path: &TriePath, marf_value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>) -> bool {
+        TrieMerkleProof::verify_proof(&self.0, &path, &marf_value, root_hash, root_to_block)
     }
 
     /// Walk down the trie pointed to by s until we reach a backptr or a leaf
@@ -1050,7 +1060,7 @@ impl TrieMerkleProof {
 
     /// Make a merkle proof of inclusion from a path.
     /// If the path doesn't resolve, return an error (NotFoundError)
-    pub fn from_path(storage: &mut TrieFileStorage, path: &TriePath, expected_value: &TrieLeaf, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
+    pub fn from_path(storage: &mut TrieFileStorage, path: &TriePath, expected_value: &MARFValue, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
         // accumulate proofs in reverse order -- each proof will be from an earlier and earlier
         // trie, so we'll reverse them in the end so the proof starts with the latest trie.
         let mut segment_proofs = vec![];
@@ -1085,8 +1095,17 @@ impl TrieMerkleProof {
             if cursor.ptr().id() == TrieNodeID::Leaf {
                 match reached_node {
                     TrieNodeType::Leaf(ref data) => {
-                        if data.data.to_vec() != expected_value.data.to_vec() {
+                        if data.data != *expected_value {
                             trace!("Did not find leaf {:?} at {:?} (but got {:?})", expected_value, path, data);
+                            
+                            // if we're testing, then permit the prover to return an invalid proof
+                            // if the test requests it
+                            #[cfg(test)] {
+                                use std::env;
+                                if env::var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID") == Ok("1".to_string()) {
+                                    break;
+                                }
+                            }
                             return Err(Error::NotFoundError);
                         }
                     },
@@ -1126,10 +1145,85 @@ impl TrieMerkleProof {
     /// If the path doesn't resolve, return an error (NotFoundError)
     pub fn from_entry(storage: &mut TrieFileStorage, key: &String, value: &String, root_block_header: &BlockHeaderHash) -> Result<TrieMerkleProof, Error> {
         let marf_value = MARFValue::from_value(value);
-        let marf_leaf = TrieLeaf::from_value(&vec![], marf_value);
         let path = TriePath::from_key(key);
-        TrieMerkleProof::from_path(storage, &path, &marf_leaf, root_block_header)
+        TrieMerkleProof::from_path(storage, &path, &marf_value, root_block_header)
     }
 }
 
+#[cfg(test)]
+mod test {
+    use super::*;
+    use chainstate::stacks::index::test::*;
+    use chainstate::stacks::index::*;
+    use chainstate::stacks::index::marf::*;
 
+    #[test]
+    fn verifier_catches_stale_proof() {
+        use std::env;
+        env::set_var("BLOCKSTACK_TEST_PROOF_ALLOW_INVALID", "1");
+
+        let path = "/tmp/rust_marf_verifier_catches_stale_proof".to_string();
+        match fs::metadata(&path) {
+            Ok(_) => {
+                fs::remove_dir_all(&path).unwrap();
+            },
+            Err(_) => {}
+        };
+
+        let mut m = MARF::from_path(&path).unwrap();
+
+        let sentinel_block = TrieFileStorage::block_sentinel();
+        let block_0 = BlockHeaderHash([0u8; 32]);
+        let block_1 = BlockHeaderHash([1u8; 32]);
+        let block_2 = BlockHeaderHash([2u8; 32]);
+
+        let k1 = "K1".to_string();
+        let old_v = "OLD".to_string();
+        let new_v = "NEW".to_string();
+
+        m.begin(&sentinel_block, &block_0).unwrap();
+        m.commit().unwrap();
+
+        // Block #1
+        m.begin(&block_0, &block_1).unwrap();
+        let r = m.insert(&k1, &old_v);
+        let (_, root_hash_1) = Trie::read_root(m.borrow_storage_backend()).unwrap();
+        m.commit().unwrap();
+
+        // Block #2
+        m.begin(&block_1, &block_2).unwrap();
+        let r = m.insert(&k1, &new_v);
+        let (_, root_hash_2) = Trie::read_root(m.borrow_storage_backend()).unwrap();
+        m.commit().unwrap();
+
+        let old_value = m.get(&block_1, &k1);
+        test_debug!("OLD: {:?}", old_value);
+
+        let new_value = m.get(&block_2, &k1).unwrap().unwrap();
+        test_debug!("NEW: {:?}", new_value);
+        
+        let path = TriePath::from_key(&k1);
+
+        merkle_test_marf_key_value(m.borrow_storage_backend(), &block_2, &k1, &new_v);
+
+        let root_to_block = m.borrow_storage_backend().read_root_to_block_table().unwrap();
+
+        // create a proof from the current block to the old value.
+        // It should succeed
+        let proof_2 = TrieMerkleProof::from_entry(m.borrow_storage_backend(), &k1, &old_v, &block_2).unwrap();
+
+        // the verifier should not allow a proof from k1 to old_v from block_2
+        let triepath_2 = TriePath::from_key(&k1);
+        let marf_value_2 = MARFValue::from_value(&old_v);
+        assert!(!proof_2.verify(&triepath_2, &marf_value_2, &root_hash_2, &root_to_block));
+        
+        // create a proof from the previous block to the old value.
+        // It should succeed
+        let proof_1 = TrieMerkleProof::from_entry(m.borrow_storage_backend(), &k1, &old_v, &block_1).unwrap();
+
+        // the verifier should allow a proof from k1 to old_v from block_1
+        let triepath_1 = TriePath::from_key(&k1);
+        let marf_value_1 = MARFValue::from_value(&old_v);
+        assert!(proof_1.verify(&triepath_1, &marf_value_1, &root_hash_1, &root_to_block));
+    }
+}

@@ -323,9 +323,12 @@ mod test {
         let block_header = BlockHeaderHash([0u8; 32]);
         s.open_block(&block_header, false).unwrap();
 
-        let proof = TrieMerkleProof::from_path(s, &triepath, &TrieLeaf::new(&vec![], value), &block_header).unwrap();
+        let mut marf_value = [0u8; 40];
+        marf_value.copy_from_slice(&value[0..40]);
+
+        let proof = TrieMerkleProof::from_path(s, &triepath, &MARFValue(marf_value.clone()), &block_header).unwrap();
         let empty_root_to_block = HashMap::new();
-        assert!(proof.verify(&root_hash, &empty_root_to_block));
+        assert!(proof.verify(&triepath, &MARFValue(marf_value.clone()), &root_hash, &empty_root_to_block));
     }
     
     pub fn merkle_test_marf(s: &mut TrieFileStorage, header: &BlockHeaderHash, path: &Vec<u8>, value: &Vec<u8>) -> () {
@@ -336,7 +339,11 @@ mod test {
         s.open_block(header, false).unwrap();
         let (_, root_hash) = Trie::read_root(s).unwrap();
         let triepath = TriePath::from_bytes(&path[..]).unwrap();
-        let proof = TrieMerkleProof::from_path(s, &triepath, &TrieLeaf::new(&vec![], value), header).unwrap();
+
+        let mut marf_value = [0u8; 40];
+        marf_value.copy_from_slice(&value[0..40]);
+
+        let proof = TrieMerkleProof::from_path(s, &triepath, &MARFValue(marf_value), header).unwrap();
 
         test_debug!("---------");
         test_debug!("MARF merkle verify: {:?}", &proof);
@@ -345,7 +352,7 @@ mod test {
         test_debug!("---------");
 
         let root_to_block = s.read_root_to_block_table().unwrap();
-        assert!(proof.verify(&root_hash, &root_to_block));
+        assert!(proof.verify(&triepath, &MARFValue(marf_value), &root_hash, &root_to_block));
     }
     
     pub fn merkle_test_marf_key_value(s: &mut TrieFileStorage, header: &BlockHeaderHash, key: &String, value: &String) -> () {
@@ -364,7 +371,9 @@ mod test {
         test_debug!("---------");
 
         let root_to_block = s.read_root_to_block_table().unwrap();
-        assert!(proof.verify(&root_hash, &root_to_block));
+        let triepath = TriePath::from_key(key);
+        let marf_value = MARFValue::from_value(value);
+        assert!(proof.verify(&triepath, &marf_value, &root_hash, &root_to_block));
     }
     
     pub fn make_node_path(s: &mut TrieFileStorage, node_id: u8, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
