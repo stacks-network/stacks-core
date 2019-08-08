@@ -648,7 +648,7 @@ node256                                 | /* back-pointer to N - 10 */
 
 To generate a MARF Merkle proof, the client queries a Stacks peer for a
 particular value hash, and then requests the peer generate a proof that the key
-and value must have been included in the caclculation of the current block's ART
+and value must have been included in the calculation of the current block's ART
 root hash (i.e. the digest of the materialized view of this fork. 
 
 For example, given the key/value pair `aabbccddeeff99887766=98765` and the hash
@@ -707,6 +707,10 @@ hash for which it requested the proof.
 
 In order to fully verify the MARF Merkle proof, the client would verify that:
 
+* The first segment proof's path's bytes are equal to the hash of the key for
+  which the proof was requested.
+* The first segment proof ends in a leaf node, and the leaf node contains the
+  hash of the value for which the proof was requested.
 * Each segment proof is valid -- the root hash could only be calculated from the
   deepest intermediate node in the segment,
 * Each subsequent segment proof was generated from a prefix of the path
