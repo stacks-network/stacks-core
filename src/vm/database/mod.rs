@@ -1,12 +1,14 @@
 pub mod marf;
 mod sqlite;
 mod structures;
-pub mod key_value_wrapper;
+mod clarity_db;
+mod key_value_wrapper;
 
 use std::collections::HashMap;
 
 pub use self::key_value_wrapper::{
-    KeyType, KeyValueStorage, ClarityDatabase, RollbackWrapper };
+    KeyType, KeyValueStorage, RollbackWrapper };
+pub use self::clarity_db::{ClarityDatabase};
 pub use self::structures::{ClaritySerializable, ClarityDeserializable };
 pub use self::sqlite::{SqliteStore, SqliteConnection};
 

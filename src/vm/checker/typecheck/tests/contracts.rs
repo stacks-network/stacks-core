@@ -337,8 +337,8 @@ fn test_names_tokens_contracts_interface() {
             { "name": "d-var2", "access": "variable", "type": "int128" },
             { "name": "d-var3", "access": "variable", "type": { "buffer": { "length": 5 } } }
         ],
-        "tokens": [],
-        "assets": []
+        "fungible_tokens": [],
+        "non_fungible_tokens": []
     }"#).unwrap();
 
     assert_json_eq!(test_contract_json, test_contract_json_expected);

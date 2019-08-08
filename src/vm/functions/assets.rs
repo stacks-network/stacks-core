@@ -63,7 +63,7 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
 
     if let Value::Principal(ref to_principal) = to {
         match env.global_context.database.get_nft_owner(&env.contract_context.name, asset_name, &asset) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => Ok(()),
+            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
             Ok(_owner) => return Ok(Value::error(Value::Int(MintAssetErrorCodes::ALREADY_EXIST as i128))),
             Err(e) => Err(e)
         }?;
@@ -103,7 +103,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
 
         let current_owner = match env.global_context.database.get_nft_owner(&env.contract_context.name, asset_name, &asset) {
             Ok(owner) => Ok(owner),
-            Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => {
+            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
                 return Ok(Value::error(Value::Int(TransferAssetErrorCodes::DOES_NOT_EXIST as i128)))
             },
             Err(e) => Err(e)
@@ -207,7 +207,7 @@ pub fn special_get_owner(args: &[SymbolicExpression],
 
     match env.global_context.database.get_nft_owner(&env.contract_context.name, asset_name, &asset) {
         Ok(owner) => Ok(Value::some(Value::Principal(owner))),
-        Err(Error::Runtime(RuntimeErrorType::NoSuchAsset, _)) => Ok(Value::none()),
+        Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(Value::none()),
         Err(e) => Err(e)
     }
 }

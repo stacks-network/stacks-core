@@ -429,7 +429,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
 
         let token_name = args[0].match_atom()
-            .ok_or(CheckErrors::DefineTokenBadSignature)?
+            .ok_or(CheckErrors::DefineFTBadSignature)?
             .clone();
 
         Ok(token_name)
@@ -439,11 +439,11 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         check_argument_count(2, args)?;
 
         let asset_name = args[0].match_atom()
-            .ok_or(CheckErrors::DefineAssetBadSignature)?
+            .ok_or(CheckErrors::DefineNFTBadSignature)?
             .clone();
 
         let asset_type = TypeSignature::parse_type_repr(&args[1], true)
-            .or_else(|_| Err(CheckErrors::DefineAssetBadSignature))?;
+            .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
 
         Ok((asset_name, asset_type))
     }
@@ -504,12 +504,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                         },
                         "define-fungible-token" => {
                             let token_name = self.type_check_define_token(function_args, context)?;
-                            self.contract_context.add_token(token_name)?;
+                            self.contract_context.add_ft(token_name)?;
                             Ok(Some(()))
                         },
                         "define-non-fungible-token" => {
-                            let (asset_name, asset_type) = self.type_check_define_asset(function_args, context)?;
-                            self.contract_context.add_asset(asset_name, asset_type)?;
+                            let (token_name, token_type) = self.type_check_define_asset(function_args, context)?;
+                            self.contract_context.add_nft(token_name, token_type)?;
                             Ok(Some(()))
                         },
                         _ => {

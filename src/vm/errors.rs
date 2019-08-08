@@ -32,7 +32,7 @@ pub enum UncheckedError {
     UndefinedFunction(String),
     UndefinedContract(String),
     UndefinedMap(String),
-    UndefinedAssetType(String),
+    UndefinedTokenType(String),
     TryEvalToFunction,
     RecursionDetected,
     ExpectedListPairs,
@@ -85,7 +85,7 @@ pub enum RuntimeErrorType {
     InvalidTypeDescription,
     BadBlockHeight(String),
     TransferNonPositiveAmount,
-    NoSuchAsset,
+    NoSuchToken,
     NotImplemented,
     NoSenderInContext,
     NonPositiveTokenSupply
