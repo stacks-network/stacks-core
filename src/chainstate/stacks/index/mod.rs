@@ -135,7 +135,7 @@ impl MARFValue {
     }
 
     /// Construct from a String that encodes a value inserted into the underlying data store
-    pub fn from_value(s: &String) -> MARFValue {
+    pub fn from_value(s: &str) -> MARFValue {
         let mut tmp = [0u8; 32];
        
         let mut hasher = TrieHasher::new();
