@@ -5,6 +5,13 @@ use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 use util::hash::{to_hex, Sha256Sum};
 
+/// The MarfedKV struct is used to wrap a MARF data structure and side-storage
+///   for use as a K/V store for ClarityDB or the AnalysisDB.
+/// The Clarity VM and type checker do not "know" to begin/commit the block they are currently processing:
+///   each instantiation of the VM simply executes one transaction. So the block handling
+///   loop will need to invoke these two methods (begin + commit) outside of the context of the VM.
+///   NOTE: Clarity will panic if you try to execute it from a non-initialized MarfedKV context.
+///   (See: vm::tests::with_marfed_environment()) 
 pub struct MarfedKV {
     marf: MARF,
     // Since the MARF only stores 32 bytes of value,
