@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use vm::database::{KeyValueStorage, ClaritySerializable, ClarityDeserializable, KeyType, RollbackWrapper};
+use vm::database::{KeyValueStorage, ClaritySerializable, ClarityDeserializable, RollbackWrapper};
 use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
 use vm::types::TypeSignature;
 use vm::checker::typecheck::{ContractAnalysis, FunctionType};
@@ -32,7 +32,7 @@ impl <'a> AnalysisDatabase <'a> {
     }
 
     pub fn memory() -> AnalysisDatabase<'a> {
-        let store: HashMap<KeyType, String> = HashMap::new();
+        let store: HashMap<String, String> = HashMap::new();
         Self::new(Box::new(store))
     }
 
@@ -59,19 +59,17 @@ impl <'a> AnalysisDatabase <'a> {
         self.store.rollback();
     }
 
-    fn put(&mut self, key: &KeyType, value: &ClaritySerializable) {
+    fn put(&mut self, key: &str, value: &ClaritySerializable) {
         self.store.put(&key, &value.serialize());
     }
 
-    fn get <T> (&mut self, key: &KeyType) -> Option<T> where T: ClarityDeserializable<T> {
+    fn get <T> (&mut self, key: &str) -> Option<T> where T: ClarityDeserializable<T> {
         self.store.get(&key)
             .map(|x| T::deserialize(&x))
     }
 
-    fn make_key(contract_name: &str) -> KeyType {
-        let string = format!("analysis::{}", contract_name);
-        let Sha256Sum(hash_data) = Sha256Sum::from_data(string.as_bytes());
-        hash_data
+    fn make_key(contract_name: &str) -> String {
+        format!("analysis::{}", contract_name)
     }
 
     fn load_contract(&mut self, contract_name: &str) -> Option<ContractAnalysis> {

@@ -15,7 +15,7 @@ use vm::database::structures::{
     ClarityDeserializable,
 };
 use vm::database::{
-    KeyValueStorage, RollbackWrapper, KeyType
+    KeyValueStorage, RollbackWrapper
 };
 
 
@@ -69,31 +69,25 @@ impl <'a> ClarityDatabase <'a> {
         self.store.rollback();
     }
 
-    fn put(&mut self, key: &KeyType, value: &ClaritySerializable) {
+    fn put(&mut self, key: &str, value: &ClaritySerializable) {
         self.store.put(&key, &value.serialize());
     }
 
-    fn get <T> (&mut self, key: &KeyType) -> Option<T> where T: ClarityDeserializable<T> {
+    fn get <T> (&mut self, key: &str) -> Option<T> where T: ClarityDeserializable<T> {
         self.store.get(&key)
             .map(|x| T::deserialize(&x))
     }
 
-    pub fn make_key_for_trip(contract_name: &str, data: StoreType, var_name: &str) -> KeyType {
-        let string = format!("vm::{}::{}::{}", contract_name, data as u8, var_name);
-        let Sha256Sum(hash_data) = Sha256Sum::from_data(string.as_bytes());
-        hash_data
+    pub fn make_key_for_trip(contract_name: &str, data: StoreType, var_name: &str) -> String {
+        format!("vm::{}::{}::{}", contract_name, data as u8, var_name)
     }
 
-    pub fn make_key_for_quad(contract_name: &str, data: StoreType, var_name: &str, key_value: String) -> KeyType {
-        let string = format!("vm::{}::{}::{}::{}", contract_name, data as u8, var_name, key_value);
-        let Sha256Sum(hash_data) = Sha256Sum::from_data(string.as_bytes());
-        hash_data
+    pub fn make_key_for_quad(contract_name: &str, data: StoreType, var_name: &str, key_value: String) -> String {
+        format!("vm::{}::{}::{}::{}", contract_name, data as u8, var_name, key_value)
     }
 
-    pub fn make_contract_key(contract_name: &str) -> KeyType {
-        let string = format!("vm::{}::{}", contract_name, StoreType::Contract as u8);
-        let Sha256Sum(hash_data) = Sha256Sum::from_data(string.as_bytes());
-        hash_data
+    pub fn make_contract_key(contract_name: &str) -> String {
+        format!("vm::{}::{}", contract_name, StoreType::Contract as u8)
     }
 
     pub fn insert_contract(&mut self, contract_name: &str, contract: Contract) {
@@ -289,7 +283,7 @@ impl <'a> ClarityDatabase <'a> {
         self.inner_set_entry(contract_name, map_name, key, value, true)
     }
 
-    fn data_map_entry_exists(&mut self, key: &[u8; 32]) -> Result<bool> {
+    fn data_map_entry_exists(&mut self, key: &str) -> Result<bool> {
         match self.store.get(&key) {
             None => Ok(false),
             Some(serialized) =>

@@ -1,7 +1,7 @@
 use rusqlite::{Connection, OptionalExtension, NO_PARAMS, Row, Savepoint};
 use rusqlite::types::{ToSql, FromSql};
 
-use vm::database::{KeyType, KeyValueStorage};
+use vm::database::{KeyValueStorage};
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
@@ -18,15 +18,15 @@ pub struct SqliteConnection {
 }
 
 impl <'a> KeyValueStorage for SqliteStore<'a> {
-    fn put(&mut self, key: &KeyType, value: &str) {
-        let params: [&ToSql; 2] = [&key.to_vec(), &value.to_string()];
+    fn put(&mut self, key: &str, value: &str) {
+        let params: [&ToSql; 2] = [&key, &value.to_string()];
         self.conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)",
                           &params)
             .expect(SQL_FAIL_MESSAGE);
     }
 
-    fn get(&mut self, key: &KeyType) -> Option<String> {
-        let params: [&ToSql; 1] = [&key.to_vec()];
+    fn get(&mut self, key: &str) -> Option<String> {
+        let params: [&ToSql; 1] = [&key];
         self.conn.query_row(
             "SELECT value FROM data_table WHERE key = ?",
             &params,
@@ -35,21 +35,21 @@ impl <'a> KeyValueStorage for SqliteStore<'a> {
             .expect(SQL_FAIL_MESSAGE)
     }
 
-    fn has_entry(&mut self, key: &KeyType) -> bool {
+    fn has_entry(&mut self, key: &str) -> bool {
         self.get(key).is_some()
     }
 }
 
 impl KeyValueStorage for SqliteConnection {
-    fn put(&mut self, key: &KeyType, value: &str) {
-        let params: [&ToSql; 2] = [&key.to_vec(), &value.to_string()];
+    fn put(&mut self, key: &str, value: &str) {
+        let params: [&ToSql; 2] = [&key, &value.to_string()];
         self.conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)",
                           &params)
             .expect(SQL_FAIL_MESSAGE);
     }
 
-    fn get(&mut self, key: &KeyType) -> Option<String> {
-        let params: [&ToSql; 1] = [&key.to_vec()];
+    fn get(&mut self, key: &str) -> Option<String> {
+        let params: [&ToSql; 1] = [&key];
         self.conn.query_row(
             "SELECT value FROM data_table WHERE key = ?",
             &params,
@@ -58,7 +58,7 @@ impl KeyValueStorage for SqliteConnection {
             .expect(SQL_FAIL_MESSAGE)
     }
 
-    fn has_entry(&mut self, key: &KeyType) -> bool {
+    fn has_entry(&mut self, key: &str) -> bool {
         self.get(key).is_some()
     }
 }

@@ -1,24 +1,22 @@
 use std::collections::{VecDeque, HashMap};
 
-pub type KeyType = [u8; 32];
-
 // These functions _do not_ return errors, rather, any errors in the underlying storage
 //    will _panic_. The rationale for this is that under no condition should the interpreter
 //    attempt to continue processing in the event of an unexpected storage error.
 pub trait KeyValueStorage {
-    fn put(&mut self, key: &KeyType, value: &str);
-    fn get(&mut self, key: &KeyType) -> Option<String>;
-    fn has_entry(&mut self, key: &KeyType) -> bool;
+    fn put(&mut self, key: &str, value: &str);
+    fn get(&mut self, key: &str) -> Option<String>;
+    fn has_entry(&mut self, key: &str) -> bool;
 }
 
 trait Rollback <'a, 'b> {
-    fn reap_child(&mut self, edits: Vec<(KeyType, String)>,
-                  lookup_map: &'b mut HashMap<KeyType, VecDeque<String>>,
+    fn reap_child(&mut self, edits: Vec<(String, String)>,
+                  lookup_map: &'b mut HashMap<String, VecDeque<String>>,
                   store: &'a mut KeyValueStorage);
 }
 
 pub struct RollbackContext {
-    edits: Vec<(KeyType, String)>
+    edits: Vec<(String, String)>
 }
 
 pub struct RollbackWrapper <'a> {
@@ -27,7 +25,7 @@ pub struct RollbackWrapper <'a> {
     // lookup_map is a history of edits for a given key.
     //   in order of least-recent to most-recent at the tail.
     //   this allows ~ O(1) lookups, and ~ O(1) commits, roll-backs (amortized by # of PUTs).
-    lookup_map: HashMap<KeyType, VecDeque<String>>,
+    lookup_map: HashMap<String, VecDeque<String>>,
     // stack keeps track of the most recent rollback context, which tells us which
     //   edits were performed by which context. at the moment, each context's edit history
     //   is a separate Vec which must be drained into the parent on commits, meaning that
@@ -106,20 +104,20 @@ impl <'a> RollbackWrapper <'a> {
 }
 
 impl <'a> KeyValueStorage for RollbackWrapper <'a> {
-    fn put(&mut self, key: &KeyType, value: &str) {
+    fn put(&mut self, key: &str, value: &str) {
         let current = self.stack.back_mut()
             .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
 
         if !self.lookup_map.contains_key(key) {
-            self.lookup_map.insert(key.clone(), VecDeque::new());
+            self.lookup_map.insert(key.to_string(), VecDeque::new());
         }
         let key_edit_deque = self.lookup_map.get_mut(key).unwrap();
         key_edit_deque.push_back(value.to_string());
 
-        current.edits.push((key.clone(), value.to_string()));
+        current.edits.push((key.to_string(), value.to_string()));
     }
 
-    fn get(&mut self, key: &KeyType) -> Option<String> {
+    fn get(&mut self, key: &str) -> Option<String> {
         let current = self.stack.back()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
@@ -136,7 +134,7 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
         }
     }
 
-    fn has_entry(&mut self, key: &KeyType) -> bool {
+    fn has_entry(&mut self, key: &str) -> bool {
         let current = self.stack.back()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
         if self.lookup_map.contains_key(key) {

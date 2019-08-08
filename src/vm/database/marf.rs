@@ -1,9 +1,8 @@
-use vm::database::{KeyValueStorage, KeyType};
+use vm::database::{KeyValueStorage};
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MARFValue, Error as MarfError};
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
-use util::hash::{to_hex, Sha256Sum};
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.
@@ -19,15 +18,11 @@ pub struct MarfedKV {
     side_store: Box<KeyValueStorage>
 }
 
-fn value_hash(value: &str) -> KeyType {
-    let Sha256Sum(hash_data) = Sha256Sum::from_data(value.as_bytes());
-    hash_data
-}
-
 #[cfg(test)]
 pub fn temporary_marf() -> MarfedKV {
     use std::env;
     use rand::Rng;
+    use util::hash::to_hex;
     use std::collections::HashMap;
 
     let mut path = env::temp_dir();
@@ -52,23 +47,20 @@ impl MarfedKV {
 }
 
 impl KeyValueStorage for &mut MarfedKV {
-    fn put(&mut self, key: &KeyType, value: &str) {
-        let value_hash = value_hash(value);
-        self.side_store.put(&value_hash, value);
+    fn put(&mut self, key: &str, value: &str) {
+        let marf_value = MARFValue::from_value(value);
 
-        let string = to_hex(key);
-        let marf_value = MARFValue::from_value_hash_bytes(&value_hash);
+        self.side_store.put(&marf_value.to_hex(), value);
 
-        self.marf.insert(&string, marf_value)
+        self.marf.insert(key, marf_value)
             .expect("ERROR: Unexpected MARF Failure")
     }
 
-    fn get(&mut self, key: &KeyType) -> Option<String> {
+    fn get(&mut self, key: &str) -> Option<String> {
         let chain_tip = self.marf.get_open_chain_tip()
             .expect("ERROR: Clarity VM attempted to use unopened MARF")
             .clone();
-        let string = to_hex(key);
-        self.marf.get(&chain_tip, &string)
+        self.marf.get(&chain_tip, key)
             .or_else(|e| {
                 match e {
                     MarfError::NotFoundError => Ok(None),
@@ -77,14 +69,14 @@ impl KeyValueStorage for &mut MarfedKV {
             })
             .expect("ERROR: Unexpected MARF Failure on GET")
             .map(|marf_value| {
-                let side_key = marf_value.to_value_hash();
-                self.side_store.get(&side_key.0)
+                let side_key = marf_value.to_hex();
+                self.side_store.get(&side_key)
                     .expect(&format!("ERROR: MARF contained value_hash not found in side storage: {}",
-                                     side_key.to_hex()))
+                                     side_key))
             })
     }
 
-    fn has_entry(&mut self, key: &KeyType) -> bool {
+    fn has_entry(&mut self, key: &str) -> bool {
         self.get(key).is_some()
     }
 }
