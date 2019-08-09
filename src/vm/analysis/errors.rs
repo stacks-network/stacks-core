@@ -1,5 +1,5 @@
 use vm::representations::SymbolicExpression;
-use vm::checker::diagnostic::{Diagnostic, DiagnosableError};
+use vm::analysis::diagnostic::{Diagnostic, DiagnosableError};
 use vm::types::{TypeSignature, TupleTypeSignature};
 use std::error;
 use std::fmt;

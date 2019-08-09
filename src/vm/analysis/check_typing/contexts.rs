@@ -1,30 +1,16 @@
-use std::collections::{HashMap, BTreeMap};
+use std::collections::{HashMap};
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature};
+use vm::types::{TypeSignature, FunctionType};
 
 use vm::contexts::MAX_CONTEXT_DEPTH;
 
-use vm::checker::errors::{CheckResult, CheckError, CheckErrors};
-use vm::checker::typecheck::{FunctionType, interface};
-
-const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
-const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
+use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
+use vm::analysis::types::{ContractAnalysis};
 
 pub struct TypeMap {
     map: HashMap<u64, TypeSignature>
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ContractAnalysis {
-    // matt: is okay to let these new fields end up in the db?
-    // #[serde(skip)]
-    private_function_types: BTreeMap<String, FunctionType>,
-    variable_types: BTreeMap<String, TypeSignature>,
-    public_function_types: BTreeMap<String, FunctionType>,
-    read_only_function_types: BTreeMap<String, FunctionType>,
-    map_types: BTreeMap<String, (TypeSignature, TypeSignature)>,
-    persisted_variable_types: BTreeMap<String, TypeSignature>,
-}
 
 pub struct TypingContext <'a> {
     pub variable_types: HashMap<String, TypeSignature>,
@@ -39,127 +25,6 @@ pub struct ContractContext {
     public_function_types: HashMap<String, FunctionType>,
     read_only_function_types: HashMap<String, FunctionType>,
     persisted_variable_types: HashMap<String, TypeSignature>,
-}
-
-
-impl ContractAnalysis {
-    pub fn new() -> ContractAnalysis {
-        ContractAnalysis {
-            private_function_types: BTreeMap::new(),
-            public_function_types: BTreeMap::new(),
-            read_only_function_types: BTreeMap::new(),
-            variable_types: BTreeMap::new(),
-            map_types: BTreeMap::new(),
-            persisted_variable_types: BTreeMap::new(),
-        }
-    }
-
-    pub fn deserialize(json: &str) -> ContractAnalysis {
-        serde_json::from_str(json)
-            .expect(DESERIALIZE_FAIL_MESSAGE)
-    }
-
-    pub fn serialize(&self) -> String {
-        serde_json::to_string(self)
-            .expect(SERIALIZE_FAIL_MESSAGE)
-    }
-
-    pub fn to_interface(&self) -> interface::ContractInterface {
-
-        let mut contract_interface = interface::ContractInterface {
-            functions: Vec::new(),
-            variables: Vec::new(),
-            maps: Vec::new(),
-        };
-
-        let Self { 
-            private_function_types, 
-            public_function_types, 
-            read_only_function_types, 
-            variable_types, 
-            persisted_variable_types, 
-            map_types
-        } = self;
-
-        contract_interface.functions.append(
-            &mut interface::ContractInterfaceFunction::from_map(
-                &private_function_types, 
-                interface::ContractInterfaceFunctionAccess::private));
-
-        contract_interface.functions.append(
-            &mut interface::ContractInterfaceFunction::from_map(
-                &public_function_types, 
-                interface::ContractInterfaceFunctionAccess::public));
-
-        contract_interface.functions.append(
-            &mut interface::ContractInterfaceFunction::from_map(
-                &self.read_only_function_types, 
-                interface::ContractInterfaceFunctionAccess::read_only));
-
-        contract_interface.variables.append(
-            &mut interface::ContractInterfaceVariable::from_map(
-                &variable_types, 
-                interface::ContractInterfaceVariableAccess::constant));
-
-        contract_interface.variables.append(
-            &mut interface::ContractInterfaceVariable::from_map(
-                &persisted_variable_types, 
-                interface::ContractInterfaceVariableAccess::variable));
-
-        contract_interface.maps.append(
-            &mut interface::ContractInterfaceMap::from_map(&map_types));
-
-        contract_interface
-    }
-
-    pub fn add_map_type(&mut self, name: &str, key_type: &TypeSignature, map_type: &TypeSignature) {
-        self.map_types.insert(name.to_string(), (key_type.clone(),
-                                                 map_type.clone()));
-    }
-    
-    pub fn add_variable_type(&mut self, name: &str, variable_type: &TypeSignature) {
-        self.variable_types.insert(name.to_string(), variable_type.clone());
-    }
-    
-    pub fn add_persisted_variable_type(&mut self, name: &str, persisted_variable_type: &TypeSignature) {
-        self.persisted_variable_types.insert(name.to_string(), persisted_variable_type.clone());
-    }
-
-    pub fn add_read_only_function(&mut self, name: &str, function_type: &FunctionType) {
-        self.read_only_function_types.insert(name.to_string(), function_type.clone());
-    }
-
-    pub fn add_public_function(&mut self, name: &str, function_type: &FunctionType) {
-        self.public_function_types.insert(name.to_string(), function_type.clone());
-    }
-
-    pub fn add_private_function(&mut self, name: &str, function_type: &FunctionType) {
-        self.private_function_types.insert(name.to_string(), function_type.clone());
-    }
-
-    pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {
-        self.public_function_types.get(name)
-    }
-
-    pub fn get_read_only_function_type(&self, name: &str) -> Option<&FunctionType> {
-        self.read_only_function_types.get(name)
-    }
-
-    pub fn get_private_function(&self, name: &str) -> Option<&FunctionType> {
-        self.private_function_types.get(name)
-    }
-
-    pub fn get_map_type(&self, name: &str) -> Option<&(TypeSignature, TypeSignature)> {
-        self.map_types.get(name)
-    }
-
-    pub fn get_variable_type(&self, name: &str) -> Option<&TypeSignature> {
-        self.variable_types.get(name)
-    }
-
-    pub fn get_persisted_variable_type(&self, name: &str) -> Option<&TypeSignature> {
-        self.persisted_variable_types.get(name)
-    }
 }
 
 impl TypeMap {

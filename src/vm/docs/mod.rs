@@ -1,7 +1,8 @@
 use vm::functions::{NativeFunctions};
 use vm::variables::{NativeVariables};
-use vm::checker::typecheck::{FunctionType, TypedNativeFunction};
-use vm::checker::typecheck::natives::SimpleNativeFunction;
+use vm::types::{FunctionType};
+use vm::analysis::check_typing::{TypedNativeFunction};
+use vm::analysis::check_typing::natives::SimpleNativeFunction;
 
 #[derive(Serialize)]
 struct ReferenceAPIs {

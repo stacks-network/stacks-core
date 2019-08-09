@@ -10,8 +10,8 @@ use vm::parser::parse;
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ContractDatabase, ContractDatabaseConnection, ContractDatabaseTransacter};
 use vm::{SymbolicExpression, SymbolicExpressionType};
-use vm::checker::{type_check, AnalysisDatabase, AnalysisDatabaseConnection};
-use vm::checker::typecheck::contexts::ContractAnalysis;
+use vm::analysis::{type_check, AnalysisDatabase, AnalysisDatabaseConnection, build_contract_interface::build_contract_interface};
+use vm::analysis::types::ContractAnalysis;
 use vm::types::Value;
 
 use address::c32::c32_address;
@@ -155,7 +155,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             match args.last() {
                 Some(s) if s == "--output_analysis" => {
-                    println!("{}", contract_analysis.to_interface().serialize());
+                    println!("{}", build_contract_interface(&contract_analysis).serialize());
                 },
                 _ => {
                     println!("Checks passed.");
@@ -377,7 +377,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     db.commit();
                     match args.last() {
                         Some(s) if s == "--output_analysis" => {
-                            println!("{}", contract_analysis.to_interface().serialize());
+                            println!("{}", build_contract_interface(&contract_analysis).serialize());
                         },
                         _ => {
                             println!("Contract initialized!");

@@ -2,9 +2,9 @@ use rusqlite::{Connection, Savepoint, OptionalExtension, NO_PARAMS, Row};
 use rusqlite::types::ToSql;
 
 
-use vm::types::TypeSignature;
-use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
-use vm::checker::typecheck::{ContractAnalysis, FunctionType};
+use vm::types::{TypeSignature, FunctionType};
+use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use vm::analysis::check_typing::{ContractAnalysis};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in contract analysis.";
 

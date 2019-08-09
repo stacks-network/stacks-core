@@ -1,9 +1,9 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE, FunctionArg};
-use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
-use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
+use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE, FunctionArg, FunctionType};
+use super::{TypeChecker, TypingContext, TypeResult, no_type, check_atomic_type, check_function_args}; 
+use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 
 mod lists;
 mod maps;
@@ -287,7 +287,7 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 
     let contract_call_args = checker.type_check_all(&args[2..], context)?;
     
-    contract_call_function_type.check_args(&contract_call_args)?;
+    check_function_args(&contract_call_function_type, &contract_call_args)?;
     
     Ok(contract_call_function_type.return_type())
 }

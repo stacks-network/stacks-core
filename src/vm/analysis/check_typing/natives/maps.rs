@@ -5,7 +5,7 @@ use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
 use super::check_special_tuple_cons;
-use vm::checker::typecheck::{TypeResult, TypingContext, 
+use vm::analysis::check_typing::{TypeResult, TypingContext, 
                              CheckError, CheckErrors, no_type, TypeChecker};
 
 pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {

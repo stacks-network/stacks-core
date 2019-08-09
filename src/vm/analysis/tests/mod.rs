@@ -1,7 +1,7 @@
 use vm::parser::parse;
-use vm::checker::{AnalysisDatabaseConnection};
-use vm::checker::errors::CheckErrors;
-use vm::checker::type_check;
+use vm::analysis::{AnalysisDatabaseConnection};
+use vm::analysis::errors::CheckErrors;
+use vm::analysis::type_check;
 
 #[test]
 fn test_list_types_must_match() {

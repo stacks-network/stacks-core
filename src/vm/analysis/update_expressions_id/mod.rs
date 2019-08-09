@@ -1,5 +1,5 @@
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::checker::errors::{CheckResult, CheckErrors, CheckError};
+use vm::analysis::errors::{CheckResult, CheckErrors, CheckError};
 
 fn inner_relabel(args: &mut [SymbolicExpression], index: u64) -> CheckResult<u64> {
     let mut current = index.checked_add(1)
