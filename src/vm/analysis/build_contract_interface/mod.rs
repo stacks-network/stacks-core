@@ -1,7 +1,54 @@
+use vm::analysis::types::ContractAnalysis;
 use std::collections::BTreeMap;
+use vm::types::{TypeSignature, FunctionArg, AtomTypeIdentifier, TupleTypeSignature, FunctionType};
 
-use vm::types::{TypeSignature, FunctionArg, AtomTypeIdentifier, TupleTypeSignature};
-use vm::checker::typecheck::FunctionType;
+pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
+
+    let mut contract_interface = ContractInterface {
+        functions: Vec::new(),
+        variables: Vec::new(),
+        maps: Vec::new(),
+    };
+
+    let ContractAnalysis { 
+        private_function_types, 
+        public_function_types, 
+        read_only_function_types, 
+        variable_types, 
+        persisted_variable_types, 
+        map_types
+    } = contract_analysis;
+
+    contract_interface.functions.append(
+        &mut ContractInterfaceFunction::from_map(
+            &private_function_types, 
+            ContractInterfaceFunctionAccess::private));
+
+    contract_interface.functions.append(
+        &mut ContractInterfaceFunction::from_map(
+            &public_function_types, 
+            ContractInterfaceFunctionAccess::public));
+
+    contract_interface.functions.append(
+        &mut ContractInterfaceFunction::from_map(
+            &contract_analysis.read_only_function_types, 
+            ContractInterfaceFunctionAccess::read_only));
+
+    contract_interface.variables.append(
+        &mut ContractInterfaceVariable::from_map(
+            &variable_types, 
+            ContractInterfaceVariableAccess::constant));
+
+    contract_interface.variables.append(
+        &mut ContractInterfaceVariable::from_map(
+            &persisted_variable_types, 
+            ContractInterfaceVariableAccess::variable));
+
+    contract_interface.maps.append(
+        &mut ContractInterfaceMap::from_map(&map_types));
+
+    contract_interface
+}
 
 #[derive(Debug, Serialize, Clone)]
 pub enum ContractInterfaceFunctionAccess {
@@ -218,4 +265,3 @@ impl ContractInterface {
         serde_json::to_string(self).expect("Failed to serialize contract interface")
     }
 }
-
