@@ -39,6 +39,8 @@ extern crate dirs;
 extern crate regex;
 extern crate byteorder;
 extern crate mio;
+extern crate hashbrown;
+extern crate libc;
 
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate serde_json;
