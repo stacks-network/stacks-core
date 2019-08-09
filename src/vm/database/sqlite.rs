@@ -17,49 +17,50 @@ pub struct SqliteConnection {
     conn: Connection
 }
 
+fn sqlite_put(conn: &Connection, key: &str, value: &str) {
+    let params: [&ToSql; 2] = [&key, &value.to_string()];
+    conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)",
+                      &params)
+        .expect(SQL_FAIL_MESSAGE);
+}
+fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
+    let params: [&ToSql; 1] = [&key];
+    conn.query_row(
+        "SELECT value FROM data_table WHERE key = ?",
+        &params,
+        |row| row.get(0))
+        .optional()
+        .expect(SQL_FAIL_MESSAGE)
+}
+fn sqlite_has_entry(conn: &Connection, key: &str) -> bool {
+    sqlite_get(conn, key).is_some()
+}
+
 impl <'a> KeyValueStorage for SqliteStore<'a> {
     fn put(&mut self, key: &str, value: &str) {
-        let params: [&ToSql; 2] = [&key, &value.to_string()];
-        self.conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)",
-                          &params)
-            .expect(SQL_FAIL_MESSAGE);
+        sqlite_put(&self.conn, key, value)
     }
 
     fn get(&mut self, key: &str) -> Option<String> {
-        let params: [&ToSql; 1] = [&key];
-        self.conn.query_row(
-            "SELECT value FROM data_table WHERE key = ?",
-            &params,
-            |row| row.get(0))
-            .optional()
-            .expect(SQL_FAIL_MESSAGE)
+        sqlite_get(&self.conn, key)
     }
 
     fn has_entry(&mut self, key: &str) -> bool {
-        self.get(key).is_some()
+        sqlite_has_entry(&self.conn, key)
     }
 }
 
 impl KeyValueStorage for SqliteConnection {
     fn put(&mut self, key: &str, value: &str) {
-        let params: [&ToSql; 2] = [&key, &value.to_string()];
-        self.conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)",
-                          &params)
-            .expect(SQL_FAIL_MESSAGE);
+        sqlite_put(&self.conn, key, value)
     }
 
     fn get(&mut self, key: &str) -> Option<String> {
-        let params: [&ToSql; 1] = [&key];
-        self.conn.query_row(
-            "SELECT value FROM data_table WHERE key = ?",
-            &params,
-            |row| row.get(0))
-            .optional()
-            .expect(SQL_FAIL_MESSAGE)
+        sqlite_get(&self.conn, key)
     }
 
     fn has_entry(&mut self, key: &str) -> bool {
-        self.get(key).is_some()
+        sqlite_has_entry(&self.conn, key)
     }
 }
 

@@ -1,4 +1,7 @@
-use vm::database::{KeyValueStorage};
+use std::path::PathBuf;
+
+use vm::errors::{ InterpreterError, InterpreterResult as Result, IncomparableError };
+use vm::database::{KeyValueStorage, SqliteConnection};
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MARFValue, Error as MarfError};
 use chainstate::stacks::index::storage::{TrieFileStorage};
@@ -35,6 +38,29 @@ pub fn temporary_marf() -> MarfedKV {
     MarfedKV { marf, side_store }
 }
 
+pub fn sqlite_marf(path_str: &str) -> Result<MarfedKV> {
+    let mut path = PathBuf::from(path_str);
+    std::fs::create_dir_all(&path)
+        .map_err(|err| InterpreterError::FailedToCreateDataDirectory)?;
+
+    path.push("marf");
+    let marf_path = path.to_str()
+        .ok_or_else(|| InterpreterError::BadFileName)?
+        .to_string();
+
+    path.pop();
+    path.push("data.sqlite");
+    let data_path = path.to_str()
+        .ok_or_else(|| InterpreterError::BadFileName)?
+        .to_string();
+
+    let side_store = Box::new(SqliteConnection::initialize(&data_path)?);
+    let marf = MARF::from_path(&marf_path)
+        .map_err(|err| InterpreterError::MarfFailure(IncomparableError{ err }))?;
+
+    Ok( MarfedKV { marf, side_store } )
+}
+
 impl MarfedKV {
     pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
         self.marf.begin(current, next)
@@ -43,6 +69,9 @@ impl MarfedKV {
     pub fn commit(&mut self) {
         self.marf.commit()
             .unwrap()
+    }
+    pub fn chain_tips(&mut self) -> Vec<BlockHeaderHash> {
+        self.marf.chain_tips()
     }
 }
 

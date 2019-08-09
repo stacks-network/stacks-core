@@ -20,7 +20,7 @@ pub mod checker;
 #[cfg(test)]
 mod tests;
 
-use vm::types::Value;
+pub use vm::types::Value;
 use vm::callables::CallableType;
 use vm::contexts::{ContractContext, LocalContext, Environment, CallStack};
 use vm::contexts::{GlobalContext};

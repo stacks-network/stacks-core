@@ -2,6 +2,7 @@ use std::fmt;
 use std::error;
 use vm::types::Value;
 use vm::contexts::StackTrace;
+use chainstate::stacks::index::{Error as MarfError};
 
 use serde_json::Error as SerdeJSONErr;
 use rusqlite::Error as SqliteError;
@@ -62,6 +63,9 @@ pub enum InterpreterError {
     UninitializedPersistedVariable,
     FailedToConstructAssetTable,
     SqliteError(IncomparableError<SqliteError>),
+    BadFileName,
+    FailedToCreateDataDirectory,
+    MarfFailure(IncomparableError<MarfError>),
 }
 
 

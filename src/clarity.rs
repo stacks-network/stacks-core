@@ -6,15 +6,18 @@ use std::env;
 use std::process;
 use util::log;
 
-use rusqlite::Connection;
+use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::index::storage::{TrieFileStorage};
+
 
 use vm::parser::parse;
 use vm::contexts::OwnedEnvironment;
-use vm::database::{ClarityDatabase, SqliteStore, SqliteConnection, memory_db};
-use vm::{SymbolicExpression, SymbolicExpressionType};
+use vm::database::{ClarityDatabase, SqliteStore, SqliteConnection, KeyValueStorage,
+                   MarfedKV, memory_db, sqlite_marf};
+use vm::errors::{InterpreterResult};
+use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::checker::{type_check, AnalysisDatabase};
 use vm::checker::typecheck::contexts::ContractAnalysis;
-use vm::types::Value;
 
 use address::c32::c32_address;
 
@@ -37,14 +40,15 @@ where command is one of:
   generate_address   to generate a random Stacks public address for testing purposes.
 
 ", invoked_by);
-    process::exit(1);
+    panic!()
 }
+
 
 #[cfg_attr(tarpaulin, skip)]
 fn friendly_expect<A,B: std::fmt::Display>(input: Result<A,B>, msg: &str) -> A {
     input.unwrap_or_else(|e| {
         eprintln!("{}\nCaused by: {}", msg, e);
-        process::exit(1);
+        panic!();
     })
 }
 
@@ -52,8 +56,30 @@ fn friendly_expect<A,B: std::fmt::Display>(input: Result<A,B>, msg: &str) -> A {
 fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     input.unwrap_or_else(|| {
         eprintln!("{}", msg);
-        process::exit(1);
+        panic!();
     })
+}
+
+fn clarity_db(marf_kv: &mut MarfedKV) -> ClarityDatabase {
+    ClarityDatabase::new(Box::new(marf_kv))
+}
+
+
+// This function is pretty weird! But it helps cut down on
+//   repeating a lot of block initialization for the simulation commands.
+fn in_block<F,R>(mut marf_kv: MarfedKV, f: F) -> R
+where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
+    let from = match marf_kv.chain_tips().pop() {
+        Some(k) => k,
+        None => TrieFileStorage::block_sentinel()
+    };
+    let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+    let to = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
+                                 "Failed to generate random block header.");
+    marf_kv.begin(&from, &to);
+    let (mut marf_return, result) = f(marf_kv);
+    marf_return.commit();
+    result
 }
 
 pub fn invoke_command(invoked_by: &str, args: &[String]) {
@@ -65,19 +91,16 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "initialize" => {
             if args.len() < 2 {
                 eprintln!("Usage: {} {} [vm-state.db]", invoked_by, args[0]);
-                process::exit(1);
+                panic!();
             }
-            match SqliteConnection::initialize(&args[1]) {
-                Ok(x) => {
-                    let mut db = ClarityDatabase::new(Box::new(x));
-                    db.initialize();
-                    println!("Database created.");
-                }
-                Err(error) => {
-                    eprintln!("Initialization error: \n{}", error);
-                    process::exit(1);
-                }
-            }
+
+            let marf_kv = friendly_expect(sqlite_marf(&args[1]), "Failed to open VM database.");
+            in_block(marf_kv, |mut kv| {
+                { let mut db = clarity_db(&mut kv);
+                  db.initialize() };
+                (kv, ())
+            });
+            println!("Database created.");
         },
         "generate_address" => {
             // random 20 bytes
@@ -86,74 +109,33 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let addr = friendly_expect(c32_address(22, &random_bytes), "Failed to generate address");
             println!("{}", addr);
         },
-        "mine_block" => {
-            // TODO: add optional args for specifying timestamps and number of blocks to mine.
-            if args.len() < 3 {
-                eprintln!("Usage: {} {} [block time] [vm-state.db]", invoked_by, args[0]);
-                process::exit(1);
-            }
-
-            let block_time: u64 = friendly_expect(args[1].parse(), "Failed to parse block time");
-
-            let db = match SqliteConnection::open(&args[2]) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    process::exit(1);
-                }
-            };
-
-            let mut db = ClarityDatabase::new(Box::new(db));
-            db.begin();
-            db.sim_mine_block_with_time(block_time);
-            db.commit();
-            println!("Simulated block mine!");
-        },
-        "get_block_height" => {
-            if args.len() < 2 {
-                eprintln!("Usage: {} {} [vm-state.db]", invoked_by, args[0]);
-                process::exit(1);
-            }
-
-            let db = match SqliteConnection::open(&args[1]) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    process::exit(1);
-                }
-            };
-
-            let mut db = ClarityDatabase::new(Box::new(db));
-            db.begin();
-            let blockheight = db.get_simmed_block_height();
-            println!("Simulated block height: \n{}", blockheight);
-            db.roll_back();
-        },
         "check" => {
             if args.len() < 2 {
                 eprintln!("Usage: {} {} [program-file.clar] (vm-state.db)", invoked_by, args[0]);
-                process::exit(1);
+                panic!();
             }
             
             let content: String = friendly_expect(fs::read_to_string(&args[1]),
                                                   &format!("Error reading file: {}", args[1]));
-            
-            let mut db_conn =
-                if args.len() >= 3 {
-                    let vm_filename = &args[2];
-                    friendly_expect(
-                        SqliteConnection::open(vm_filename),
-                        &format!("Could not open vm-state: {}", vm_filename))
-                } else {
-                    friendly_expect(SqliteConnection::memory(), "Could not open in-memory analysis DB")
-                };
-
-            let mut db = AnalysisDatabase::new(Box::new(db_conn));
 
             let mut ast = friendly_expect(parse(&content), "Failed to parse program");
-            let contract_analysis = type_check(&":transient:", &mut ast, &mut db, false).unwrap_or_else(|e| {
+
+            let contract_analysis = {
+                if args.len() >= 3 {
+                    // use a persisted marf
+                    let mut marf = friendly_expect(sqlite_marf(&args[2]), "Failed to open VM database.");
+                    let result = { let mut db = AnalysisDatabase::new(Box::new(&mut marf));
+                                   type_check(&":transient:", &mut ast, &mut db, false) };
+                    marf.commit();
+                    result
+                } else {
+                    let mut memory = friendly_expect(SqliteConnection::memory(), "Could not open in-memory analysis DB");
+                    let mut db = AnalysisDatabase::new(Box::new(memory));
+                    type_check(&":transient:", &mut ast, &mut db, false)
+                }
+            }.unwrap_or_else(|e| {
                 println!("{}", &e.diagnostic);
-                process::exit(1);
+                panic!();
             });
 
             match args.last() {
@@ -186,7 +168,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         Ok(_) => buffer,
                         Err(error) => {
                             eprintln!("Error reading from stdin:\n{}", error);
-                            process::exit(1);
+                            panic!();
                         }
                     }
                 };
@@ -239,39 +221,31 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         },
                         Err(error) => {
                             eprintln!("Program execution error: \n{}", error);
-                            process::exit(1);
+                            panic!();
                         }
                     }
                 },
                 Err(error) => {
                     eprintln!("Type check error.\n{}", error);
-                    process::exit(1);
+                    panic!();
                 }
             }
         },
         "eval" => {
             if args.len() < 3 {
                 eprintln!("Usage: {} {} [context-contract-name] (program.clar) [vm-state.db]", invoked_by, args[0]);
-                process::exit(1);
+                panic!();
             }
 
-            let vm_filename = {
+            let vm_filename = 
                 if args.len() == 3 {
                     &args[2]
                 } else {
                     &args[3]
-                }
-            };
-            
-            let db = match SqliteConnection::open(vm_filename) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    process::exit(1);
-                }
-            };
+                };
 
-            let mut db = ClarityDatabase::new(Box::new(db));
+            let mut marf_kv = friendly_expect(sqlite_marf(vm_filename), "Failed to open VM database.");
+            let mut db = ClarityDatabase::new(Box::new(&mut marf_kv));
 
             let content: String = {
                 if args.len() == 3 {
@@ -297,14 +271,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 },
                 Err(error) => { 
                     eprintln!("Program execution error: \n{}", error);
-                    process::exit(1);
+                    panic!();
                 }
             }
         },
         "launch" => {
             if args.len() < 4 {
                 eprintln!("Usage: {} {} [contract-name] [contract-definition.clar] [vm-state.db]", invoked_by, args[0]);
-                process::exit(1);
+                panic!();
             }
             let vm_filename = &args[3];
 
@@ -312,44 +286,27 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let contract_content: String = friendly_expect(fs::read_to_string(&args[2]),
                                                            &format!("Error reading file: {}", args[2]));
 
-            // typecheck and insert into typecheck tables
-            // Aaron todo: AnalysisDatabase and ContractDatabase now use savepoints
-            //     on the same connection, so they can abort together, _however_,
-            //     this results in some pretty weird function interfaces. I'll need
-            //     to think about whether or not there's a more ergonomic way to do this.
-
-
-            let mut db_conn = match SqliteConnection::open(vm_filename) {
-                Ok(db) => db,
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    process::exit(1);
-                }
-            };
-
-            let mut outer_sp = db_conn.begin_save_point_raw();
-            let contract_analysis: ContractAnalysis;
-
-            { 
-                let sql_data_store = SqliteStore::new(&outer_sp);
-                let mut db = AnalysisDatabase::new(Box::new(sql_data_store));
-
-                let mut ast = friendly_expect(parse(&contract_content), "Failed to parse program.");
-
-                contract_analysis = friendly_expect(type_check(contract_name, &mut ast, &mut db, true),
-                                                    "Type check error.");
-            }
-
-            let result = {
-                let sql_data_store = SqliteStore::new(&outer_sp);
-                let db = ClarityDatabase::new(Box::new(sql_data_store));
-                let mut vm_env = OwnedEnvironment::new(db);
-                vm_env.initialize_contract(&contract_name, &contract_content)
-            };
+            let marf_kv = friendly_expect(sqlite_marf(vm_filename), "Failed to open VM database.");
+            let (contract_analysis, result) = in_block(
+                marf_kv,
+                |mut marf| {
+                    let contract_analysis = { 
+                        let mut db = AnalysisDatabase::new(Box::new(&mut marf));
+                        let mut ast = friendly_expect(parse(&contract_content), "Failed to parse program.");
+                        
+                        friendly_expect(type_check(contract_name, &mut ast, &mut db, true),
+                                        "Type check error.")
+                    };
+                    let result = {
+                        let db = ClarityDatabase::new(Box::new(&mut marf));
+                        let mut vm_env = OwnedEnvironment::new(db);
+                        vm_env.initialize_contract(&contract_name, &contract_content)
+                    };
+                    (marf, (contract_analysis, result))
+                });
 
             match result {
                 Ok(_x) => {
-                    friendly_expect(outer_sp.commit(), "Failed to commit results to database");
                     match args.last() {
                         Some(s) if s == "--output_analysis" => {
                             println!("{}", contract_analysis.to_interface().serialize());
@@ -361,29 +318,20 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 },
                 Err(error) => {
                     eprintln!("Contract initialization error: \n{}", error);
-                    process::exit(1);
+                    panic!();
                 }
             }
         },
         "execute" => {
             if args.len() < 5 {
                 eprintln!("Usage: {} {} [vm-state.db] [contract-name] [public-function-name] [sender-address] [args...]", invoked_by, args[0]);
-                process::exit(1);
+                panic!();
             }
             let vm_filename = &args[1];
+            let marf_kv = friendly_expect(sqlite_marf(vm_filename), "Failed to open VM database.");
 
-            let db = match SqliteConnection::open(vm_filename) {
-                Ok(db) => ClarityDatabase::new(Box::new(db)),
-                Err(error) => {
-                    eprintln!("Could not open vm-state: \n{}", error);
-                    process::exit(1);
-                }
-            };
-
-            let mut vm_env = OwnedEnvironment::new(db);
             let contract_name = &args[2];
-            let tx_name = &args[3];
-            
+            let tx_name = &args[3];            
             let sender_in = &args[4];
 
             let mut sender = 
@@ -397,7 +345,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     Value::Principal(principal_data.clone())
                 } else {
                     eprintln!("Unexpected result parsing sender: {}", sender_in);
-                    process::exit(1);
+                    panic!();
                 }
             };
             let arguments: Vec<_> = args[5..]
@@ -416,7 +364,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 })
                 .collect();
 
-            let result = vm_env.execute_transaction(sender, &contract_name, &tx_name, &arguments);
+            let result = in_block(marf_kv, |mut marf| {
+                let result = {
+                    let db = ClarityDatabase::new(Box::new(&mut marf));
+                    let mut vm_env = OwnedEnvironment::new(db);
+                    vm_env.execute_transaction(sender, &contract_name, &tx_name, &arguments) };
+                (marf, result)
+            });
 
             match result {
                 Ok((x, _)) => {
@@ -432,9 +386,54 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 },
                 Err(error) => {
                     eprintln!("Transaction execution error: \n{}", error);
-                    process::exit(1);
+                    panic!();
                 }
             }
+        },
+        // TODO :: need to rework a bunch of how this simulation works.
+        //         get block info items will need to consult the marf
+        "mine_block" => {
+            // TODO: add optional args for specifying timestamps and number of blocks to mine.
+            if args.len() < 3 {
+                eprintln!("Usage: {} {} [block time] [vm-state.db]", invoked_by, args[0]);
+                panic!();
+            }
+
+            let block_time: u64 = friendly_expect(args[1].parse(), "Failed to parse block time");
+
+            let db = match SqliteConnection::open(&args[2]) {
+                Ok(db) => db,
+                Err(error) => {
+                    eprintln!("Could not open vm-state: \n{}", error);
+                    panic!();
+                }
+            };
+
+            let mut db = ClarityDatabase::new(Box::new(db));
+            db.begin();
+            db.sim_mine_block_with_time(block_time);
+            db.commit();
+            println!("Simulated block mine!");
+        },
+        "get_block_height" => {
+            if args.len() < 2 {
+                eprintln!("Usage: {} {} [vm-state.db]", invoked_by, args[0]);
+                panic!();
+            }
+
+            let db = match SqliteConnection::open(&args[1]) {
+                Ok(db) => db,
+                Err(error) => {
+                    eprintln!("Could not open vm-state: \n{}", error);
+                    panic!();
+                }
+            };
+
+            let mut db = ClarityDatabase::new(Box::new(db));
+            db.begin();
+            let blockheight = db.get_simmed_block_height();
+            println!("Simulated block height: \n{}", blockheight);
+            db.roll_back();
         },
         _ => {
             print_usage(invoked_by)
