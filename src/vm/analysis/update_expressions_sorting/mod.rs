@@ -103,7 +103,7 @@ impl <'a> UpdateExpressionsSorting <'a> {
     }
 
     pub fn run(&mut self) -> CheckResult<()> {
-        lself.identify_top_level_expressions();
+        self.identify_top_level_expressions();
 
         let exprs = self.contract_analysis.expressions[..].to_vec();
         for (index, expr) in exprs.iter().enumerate() {
@@ -137,7 +137,7 @@ impl <'a> UpdateExpressionsSorting <'a> {
         }
     }
 
-    fn identify_top_level_expressions(&mut self) -> HashMap<String, TopLevelExpressionIndex> {
+    fn identify_top_level_expressions(&mut self) {
         let mut tle_map = HashMap::new(); 
         let expressions = &self.contract_analysis.expressions;
         for (index, exp) in expressions.iter().enumerate() {
