@@ -188,7 +188,7 @@ const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
 
 const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: "<= (less than or equal)",
-    signature: "(> i1 i2)",
+    signature: "(<= i1 i2)",
     description: "Compares two integers, returning true if `i1` is less than or equal to `i2` and `false` otherwise.",
     example: "(<= 1 1) ;; Returns 'true
 (<= 5 2) ;; Returns 'false
