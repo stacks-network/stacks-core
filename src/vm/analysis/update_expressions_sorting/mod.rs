@@ -1,6 +1,7 @@
 use std::collections::{HashSet, HashMap};
 use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 
 use super::AnalysisDatabase;
 use super::errors::{CheckResult};
@@ -8,18 +9,26 @@ use super::errors::{CheckResult};
 #[cfg(test)]
 mod tests;
 
-struct Graph <'a> {
-    top_level_expressions: Vec<&'a SymbolicExpression>,
+pub struct TopLevelExpressionIndex {
+    index: usize,
+    atom_index: u64
+}
+
+struct Graph {
+    top_level_expressions: Vec<usize>,
     adjacency_list: Vec<Vec<usize>>
 }
 
-impl <'a>Graph <'a> {
-    fn new() -> Graph <'a> {
-        Graph { top_level_expressions: Vec::new(), adjacency_list: Vec::new() }
+impl Graph {
+    fn new() -> Self {
+        Self { 
+            top_level_expressions: Vec::new(), 
+            adjacency_list: Vec::new() 
+        }
     }
 
-    fn push_top_level_expression(&mut self, expr: &'a SymbolicExpression) -> CheckResult<()> {
-        self.top_level_expressions.push(expr);
+    fn push_top_level_expression(&mut self, expr_index: usize) -> CheckResult<()> {
+        self.top_level_expressions.push(expr_index);
         self.adjacency_list.push(vec![]);
         Ok(())
     }
@@ -66,52 +75,44 @@ impl GraphWalker  {
     }
 }
 
-pub struct TopLevelSymbolicExpression <'a> {
-    exp: &'a SymbolicExpression,
-    index: usize,
-    atom_index: u64
+pub struct UpdateExpressionsSorting <'a> {
+    graph: Graph,
+    top_level_expressions_map: HashMap<String, TopLevelExpressionIndex>,
+    top_level_expressions: Vec<TopLevelExpressionIndex>,
+    contract_analysis: &'a mut ContractAnalysis
 }
 
-pub struct TopLevelExpressionSorter <'a, 'b> {
-    db: &'a AnalysisDatabase<'b>,
-    graph: Graph<'b>,
-    top_level_expressions: HashMap<String, TopLevelSymbolicExpression<'b>>,
+impl <'a> AnalysisPass for UpdateExpressionsSorting <'a> {
+
+    fn run_pass(contract_analysis: &mut ContractAnalysis, _analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
+        let mut command = UpdateExpressionsSorting::new(contract_analysis);
+        command.run()?;
+        Ok(())
+    }
 }
 
-impl <'a, 'b> TopLevelExpressionSorter <'a, 'b> {
+impl <'a> UpdateExpressionsSorting <'a> {
 
-    fn new(db: &'a AnalysisDatabase<'b>) -> TopLevelExpressionSorter<'a, 'b> {
-        TopLevelExpressionSorter { 
-            db, 
-            top_level_expressions: HashMap::new(),
+    fn new(contract_analysis: &'a mut ContractAnalysis) -> Self {
+        Self { 
+            contract_analysis,
+            top_level_expressions_map: HashMap::new(),
+            top_level_expressions: Vec::new(),
             graph: Graph::new()
         }
     }
 
-    pub fn check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<()> {
-        let mut permuted_tle_indexes = vec![];
-        {
-            let mut checker = TopLevelExpressionSorter::new(analysis_db);
-            
-            let tle_map = TopLevelExpressionSorter::identify_top_level_expressions(contract);
-            checker.top_level_expressions = tle_map;
+    pub fn run(&mut self) -> CheckResult<()> {
+        lself.identify_top_level_expressions();
 
-            for index in 0..contract.len() {
-                let expr = &contract[index];
-                checker.graph.push_top_level_expression(expr)?;
-                checker.register_dependencies(expr, index)?;
-            }
-
-            let indexes = GraphWalker::get_required_eval_order(&checker.graph)?;
-            permuted_tle_indexes = indexes.clone();
+        let exprs = self.contract_analysis.expressions[..].to_vec();
+        for (index, expr) in exprs.iter().enumerate() {
+            self.graph.push_top_level_expression(index)?;
+            self.register_dependencies(&expr, index)?;
         }
 
-        let mut permuted_contract = vec![];
-        for index in permuted_tle_indexes.iter() {
-            let expr = contract[*index].clone();
-            permuted_contract.push(expr);
-        }
-        contract.swap_with_slice(permuted_contract.as_mut_slice());
+        let indexes = GraphWalker::get_required_eval_order(&self.graph)?;
+        self.contract_analysis.top_level_expression_sorting = Some(indexes.clone());
 
         Ok(())
     }
@@ -120,7 +121,7 @@ impl <'a, 'b> TopLevelExpressionSorter <'a, 'b> {
         match expr.expr {
             AtomValue(_) => Ok(true),
             Atom(ref name) => {
-                if let Some(dep) = self.top_level_expressions.get(&name.clone()) {
+                if let Some(dep) = self.top_level_expressions_map.get(&name.clone()) {
                     if dep.atom_index != expr.id {
                         self.graph.add_directed_edge(tle_index, dep.index)?;
                     }
@@ -136,12 +137,13 @@ impl <'a, 'b> TopLevelExpressionSorter <'a, 'b> {
         }
     }
 
-    fn identify_top_level_expressions(contract: &'a [SymbolicExpression]) -> HashMap<String, TopLevelSymbolicExpression> {
+    fn identify_top_level_expressions(&mut self) -> HashMap<String, TopLevelExpressionIndex> {
         let mut tle_map = HashMap::new(); 
-        for index in 0..contract.len() {
-            let exp = &contract[index];
+        let expressions = &self.contract_analysis.expressions;
+        for (index, exp) in expressions.iter().enumerate() {
             if let Some(expression) = exp.match_list() {
                 if let Some((function_name, function_args)) = expression.split_first() {
+
                     if let Some(definition_type) = function_name.match_atom() {
                         match definition_type.as_str() {
                             "define-map" | "define-data-var" | "define" | "define-public" | "define-read-only" => {
@@ -151,17 +153,19 @@ impl <'a, 'b> TopLevelExpressionSorter <'a, 'b> {
                                         _ => &function_args[0]
                                     };
                                     if let Some(tle_name) = define_expr.match_atom() {
-                                        let tle = TopLevelSymbolicExpression {exp, index, atom_index: define_expr.id };
+                                        let tle = TopLevelExpressionIndex { index, atom_index: define_expr.id };
                                         tle_map.insert(tle_name.clone(), tle);
                                     }   
                                 }
                             }
-                            _ => {}
+                            _ => {
+
+                            }
                         }
                     } 
                 } 
             }
         }
-        tle_map
+        self.top_level_expressions_map = tle_map;
     }
 }
