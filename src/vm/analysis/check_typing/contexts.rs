@@ -128,8 +128,7 @@ impl ContractContext {
         }
     }
 
-    pub fn to_contract_analysis(&self) -> ContractAnalysis {
-        let mut contract_analysis = ContractAnalysis::new(vec![]);
+    pub fn update_contract_analysis(&self, contract_analysis: &mut ContractAnalysis) {
 
         for (name, function_type) in self.public_function_types.iter() {
             contract_analysis.add_public_function(name, function_type);
@@ -154,8 +153,6 @@ impl ContractContext {
         for (name, persisted_variable_type) in self.persisted_variable_types.iter() {
             contract_analysis.add_persisted_variable_type(name, persisted_variable_type);
         }
-
-        contract_analysis
     }
 }
 

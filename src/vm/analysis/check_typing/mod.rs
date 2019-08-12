@@ -9,7 +9,7 @@ use vm::functions::NativeFunctions;
 use vm::variables::NativeVariables;
 
 use super::AnalysisDatabase;
-pub use super::types::{ContractAnalysis};
+pub use super::types::{ContractAnalysis, AnalysisPass};
 
 use self::contexts::{TypeMap, TypingContext, ContractContext};
 
@@ -37,11 +37,22 @@ Is illegally typed in our language.
 
 */
 
-pub struct TypeChecker <'a, 'b> {
+pub struct CheckTyping <'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
+    contract_analysis: &'a mut ContractAnalysis,
     function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a AnalysisDatabase<'b>
+}
+
+impl <'a, 'b> AnalysisPass for CheckTyping <'a, 'b> {
+
+    fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
+        let mut command = CheckTyping::new(contract_analysis, analysis_db);
+        command.run()?;
+
+        Ok(())
+    }
 }
 
 pub type TypeResult = CheckResult<TypeSignature>;
@@ -120,9 +131,10 @@ fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> Chec
     }
 }
 
-impl <'a, 'b> TypeChecker <'a, 'b> {
-    fn new(db: &'a AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
-        TypeChecker {
+impl <'a, 'b> CheckTyping <'a, 'b> {
+    fn new(contract_analysis: &'a mut ContractAnalysis, db: &'a AnalysisDatabase<'b>) -> CheckTyping<'a, 'b> {
+        CheckTyping {
+            contract_analysis,
             db: db,
             contract_context: ContractContext::new(),
             function_return_tracker: None,
@@ -152,29 +164,28 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 
-    pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<ContractAnalysis> {
-        let mut type_checker = TypeChecker::new(analysis_db);
+    pub fn run(&mut self) -> CheckResult<()> {
         let mut local_context = TypingContext::new();
 
-        for exp in contract {
+        let expressions = self.contract_analysis.expressions[..].to_vec();
+        for exp in expressions {
 
-            let mut result_res = type_checker.try_type_check_define(exp, &mut local_context);
+            let mut result_res = self.try_type_check_define(&exp, &mut local_context);
             if let Err(ref mut error) = result_res {
                 if !error.has_expression() {
-                    error.set_expression(exp);
+                    error.set_expression(&exp);
                 }
             }
             let result = result_res?;
             if result.is_none() {
                 // was _not_ a define statement, so handle like a normal statement.
-                type_checker.type_check(exp, &local_context)?;
+                self.type_check(&exp, &local_context)?;
             }
         }
 
-        Ok(type_checker.contract_context.to_contract_analysis())
+        self.contract_context.update_contract_analysis(self.contract_analysis);
+        Ok(())
     }
-
-
     // Type checks an expression, recursively type checking its subexpressions
     pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
         let mut result = self.inner_type_check(expr, context);

@@ -1,9 +1,10 @@
 use vm::parser::parse;
 use vm::representations::SymbolicExpression;
-use vm::analysis::check_typing::{TypeResult, TypeChecker, TypingContext};
+use vm::analysis::check_typing::{TypeResult, CheckTyping, TypingContext};
 use vm::analysis::{AnalysisDatabase, AnalysisDatabaseConnection, update_expressions_id};
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::type_check;
+use vm::analysis::types::ContractAnalysis;
 use vm::contexts::{OwnedEnvironment};
 use vm::database::{ContractDatabaseConnection};
 use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier, FunctionType};
@@ -13,7 +14,8 @@ mod contracts;
 fn type_check_helper(exp: &SymbolicExpression) -> TypeResult {
     let mut analysis_conn = AnalysisDatabaseConnection::memory();
     let analysis_db = analysis_conn.begin_save_point();
-    let mut type_checker = TypeChecker::new(&analysis_db);
+    let mut contract_analysis = ContractAnalysis::new(vec![]);
+    let mut type_checker = CheckTyping::new(&mut contract_analysis, &analysis_db);
     let contract_context = TypingContext::new();
     type_checker.type_check(exp, &contract_context)
 }
