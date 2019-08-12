@@ -1,30 +1,42 @@
 use std::collections::{BTreeMap};
+use vm::{SymbolicExpression};
 use vm::types::{TypeSignature, FunctionType};
+use vm::analysis::check_db::{AnalysisDatabase};
+use vm::analysis::errors::{CheckResult};
 
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
 const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub trait AnalysisPass {
+    fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()>;
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractAnalysis {
     // matt: is okay to let these new fields end up in the db?
-    // #[serde(skip)]
     pub private_function_types: BTreeMap<String, FunctionType>,
     pub variable_types: BTreeMap<String, TypeSignature>,
     pub public_function_types: BTreeMap<String, FunctionType>,
     pub read_only_function_types: BTreeMap<String, FunctionType>,
     pub map_types: BTreeMap<String, (TypeSignature, TypeSignature)>,
     pub persisted_variable_types: BTreeMap<String, TypeSignature>,
+    #[serde(skip)]
+    pub top_level_expression_sorting: Option<Vec<usize>>,
+    #[serde(skip)]
+    pub expressions: Vec<SymbolicExpression>,
 }
 
 impl ContractAnalysis {
-    pub fn new() -> ContractAnalysis {
+    pub fn new(expressions: Vec<SymbolicExpression>) -> ContractAnalysis {
         ContractAnalysis {
+            expressions: expressions,
             private_function_types: BTreeMap::new(),
             public_function_types: BTreeMap::new(),
             read_only_function_types: BTreeMap::new(),
             variable_types: BTreeMap::new(),
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
+            top_level_expression_sorting: Some(Vec::new()),
         }
     }
 

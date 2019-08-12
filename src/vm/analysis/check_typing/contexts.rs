@@ -129,7 +129,7 @@ impl ContractContext {
     }
 
     pub fn to_contract_analysis(&self) -> ContractAnalysis {
-        let mut contract_analysis = ContractAnalysis::new();
+        let mut contract_analysis = ContractAnalysis::new(vec![]);
 
         for (name, function_type) in self.public_function_types.iter() {
             contract_analysis.add_public_function(name, function_type);

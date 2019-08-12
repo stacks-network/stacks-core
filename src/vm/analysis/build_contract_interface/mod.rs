@@ -11,12 +11,14 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
     };
 
     let ContractAnalysis { 
+        expressions,
         private_function_types, 
         public_function_types, 
         read_only_function_types, 
         variable_types, 
         persisted_variable_types, 
-        map_types
+        map_types,
+        top_level_expression_sorting
     } = contract_analysis;
 
     contract_interface.functions.append(

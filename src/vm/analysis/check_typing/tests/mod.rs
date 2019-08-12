@@ -27,12 +27,12 @@ fn test_get_block_info(){
                "(get-block-info time 'true)",
                "(get-block-info time)"];
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut good_test).unwrap();
+        update_expressions_id::update_expression_id(&mut good_test).unwrap();
         type_check_helper(&good_test[0]).unwrap();
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut bad_test).unwrap();
+        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
         assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
@@ -49,12 +49,12 @@ fn test_simple_arithmetic_checks() {
                "(+ 1 2 3 (eq? 1 2))",
                "(and (or 'true 'false) (+ 1 2 3))"];
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut good_test).unwrap();
+        update_expressions_id::update_expression_id(&mut good_test).unwrap();
         type_check_helper(&good_test[0]).unwrap();
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut bad_test).unwrap();
+        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
         assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
@@ -69,12 +69,12 @@ fn test_simple_hash_checks() {
     let invalid_args = ["(sha256 1 2 3)"];
 
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut good_test).unwrap();
+        update_expressions_id::update_expression_id(&mut good_test).unwrap();
         type_check_helper(&good_test[0]).unwrap();
     }
     
     for mut bad_test in bad_types.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut bad_test).unwrap();
+        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
         assert!(match type_check_helper(&bad_test[0]).unwrap_err().err {
             CheckErrors::UnionTypeError(_, _) => true,
             _ => false
@@ -82,7 +82,7 @@ fn test_simple_hash_checks() {
     }
 
     for mut bad_test in invalid_args.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut bad_test).unwrap();
+        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
         assert!(match type_check_helper(&bad_test[0]).unwrap_err().err {
             CheckErrors::IncorrectArgumentCount(_, _) => true,
             _ => false
@@ -101,12 +101,12 @@ fn test_simple_ifs() {
                "(if)",
                "(if 0 1 0)"];
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut good_test).unwrap();
+        update_expressions_id::update_expression_id(&mut good_test).unwrap();
         type_check_helper(&good_test[0]).unwrap();
     }
 
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut bad_test).unwrap();
+        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
         assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
@@ -119,12 +119,12 @@ fn test_simple_lets() {
     let bad = ["(let ((1)) (+ 1 2))",
                "(let ((1 2)) (+ 1 2))"];
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut good_test).unwrap();
+        update_expressions_id::update_expression_id(&mut good_test).unwrap();
         type_check_helper(&good_test[0]).unwrap();
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut bad_test).unwrap();
+        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
         assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
@@ -145,7 +145,7 @@ fn test_eqs() {
         "(map hash160 (+ 1 2))",];
                    
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut good_test).unwrap();
+        update_expressions_id::update_expression_id(&mut good_test).unwrap();
         let t_out = type_check_helper(&good_test[0]);
         match t_out {
             Err(ref t_out) => eprintln!("{}", t_out),
@@ -155,7 +155,7 @@ fn test_eqs() {
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut bad_test).unwrap();
+        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
         let checked = type_check_helper(&bad_test[0]);
         match checked {
             Err(ref t_out) => eprintln!("{}", t_out),
@@ -188,12 +188,12 @@ fn test_lists() {
         "(map hash160 (+ 1 2))",];
                    
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut good_test).unwrap();
+        update_expressions_id::update_expression_id(&mut good_test).unwrap();
         type_check_helper(&good_test[0]).unwrap();
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut bad_test).unwrap();
+        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
         assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
@@ -223,12 +223,12 @@ fn test_tuples() {
                "(and 'true  (get abc (tuple (abc 1) (def 'true))))"];
     
     for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut good_test).unwrap();
+        update_expressions_id::update_expression_id(&mut good_test).unwrap();
         type_check_helper(&good_test[0]).unwrap();
     }
     
     for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::identity_pass(&mut bad_test).unwrap();
+        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
         assert!(type_check_helper(&bad_test[0]).is_err())
     }
 }
