@@ -22,8 +22,8 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
                 (ft-mint! stackaroos 4   'CTtokens))";
 
 const ASSET_NAMES: &str =
-        "(define burn-address 'SP000000000000000000002Q6VF78)
-         (define (price-function (name int))
+        "(define-constant burn-address 'SP000000000000000000002Q6VF78)
+         (define-private (price-function (name int))
            (if (< name 100000) 1000 100))
          
          (define-non-fungible-token names int)

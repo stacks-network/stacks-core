@@ -6,6 +6,17 @@ use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, 
 use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::eval;
 
+define_named_enum!(DefineFunctions {
+    Constant("define-constant"),
+    PrivateFunction("define-private"),
+    PublicFunction("define-public"),
+    ReadOnlyFunction("define-read-only"),
+    Map("define-map"),
+    PersistedVariable("define-data-var"),
+    FungibleToken("define-fungible-token"),
+    NonFungibleToken("define-non-fungible-token"),
+});
+
 pub enum DefineResult {
     Variable(String, Value),
     Function(String, DefinedFunction),
@@ -139,53 +150,58 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
             .unwrap(); // should never fail, because of len check above.
 
         if let Some(func_name) = func_name.match_atom() {
-            return match func_name.as_str() {
-                "define" => {
-                    check_argument_count(2, args)?;
-                    match args[0].expr {
-                        Atom(ref variable) => handle_define_variable(variable, &args[1], env),
-                        AtomValue(ref _value) => Err(UncheckedError::InvalidArguments(
-                            "Illegal operation: attempted to re-define a value type.".to_string()).into()),
-                        List(ref function_signature) =>
-                            handle_define_function(&function_signature, &args[1], env, DefineType::Private)
+            if let Some(define_type) = DefineFunctions::lookup_by_name(func_name) {
+                return match define_type {
+                    DefineFunctions::Constant => {
+                        check_argument_count(2, args)?;
+                        let variable = args[0].match_atom()
+                            .ok_or(UncheckedError::InvalidArguments(
+                                "Illegal operation: expects a variable name as the first argument.".to_string()))?;
+                        handle_define_variable(variable, &args[1], env)
+                    },
+                    DefineFunctions::PrivateFunction => {
+                        check_argument_count(2, args)?;
+                        let function_signature = args[0].match_list()
+                            .ok_or(UncheckedError::InvalidArguments(
+                                "Illegal operation: expects a function signature as the first argument.".to_string()))?;
+                        handle_define_function(&function_signature, &args[1], env, DefineType::Private)
+                    },
+                    DefineFunctions::ReadOnlyFunction => {
+                        check_argument_count(2, args)?;
+                        let function_signature = args[0].match_list()
+                            .ok_or(UncheckedError::InvalidArguments(
+                                "Illegal operation: expects a function signature as the first argument.".to_string()))?;
+                        handle_define_function(&function_signature, &args[1], env, DefineType::ReadOnly)
+                    },
+                    DefineFunctions::NonFungibleToken => {
+                        check_argument_count(2, args)?;
+                        handle_define_nonfungible_asset(&args[0], &args[1], env)
+                    },
+                    DefineFunctions::FungibleToken => {
+                        if args.len() == 1 {
+                            handle_define_fungible_token(&args[0], None, env)
+                        } else if args.len() == 2 {
+                            handle_define_fungible_token(&args[0], Some(&args[1]), env)
+                        } else {
+                            Err(UncheckedError::IncorrectArgumentCount(1, args.len()).into())
+                        }
+                    },
+                    DefineFunctions::PublicFunction => {
+                        check_argument_count(2, args)?;
+                        let function_signature = args[0].match_list()
+                            .ok_or(UncheckedError::InvalidArguments(
+                                "Illegal operation: expects a function signature as the first argument.".to_string()))?;
+                        handle_define_function(&function_signature, &args[1], env, DefineType::Public)
+                    },
+                    DefineFunctions::Map => {
+                        check_argument_count(3, args)?;
+                        handle_define_map(&args[0], &args[1], &args[2], env)
+                    },
+                    DefineFunctions::PersistedVariable => {
+                        check_argument_count(3, args)?;
+                        handle_define_persisted_variable(&args[0], &args[1], &args[2], env)
                     }
-                },
-                "define-read-only" => {
-                    check_argument_count(2, args)?;
-                    let function_signature = args[0].match_list()
-                        .ok_or(UncheckedError::InvalidArguments(
-                            "Illegal operation: attempted to define-read-only a non-function.".to_string()))?;
-                    handle_define_function(&function_signature, &args[1], env, DefineType::ReadOnly)
-                },
-                "define-non-fungible-token" => {
-                    check_argument_count(2, args)?;
-                    handle_define_nonfungible_asset(&args[0], &args[1], env)
-                },
-                "define-fungible-token" => {
-                    if args.len() == 1 {
-                        handle_define_fungible_token(&args[0], None, env)
-                    } else if args.len() == 2 {
-                        handle_define_fungible_token(&args[0], Some(&args[1]), env)
-                    } else {
-                        Err(UncheckedError::IncorrectArgumentCount(1, args.len()).into())
-                    }
-                },
-                "define-public" => {
-                    check_argument_count(2, args)?;
-                    let function_signature = args[0].match_list()
-                        .ok_or(UncheckedError::InvalidArguments(
-                            "Illegal operation: attempted to define-public a non-function.".to_string()))?;
-                    handle_define_function(&function_signature, &args[1], env, DefineType::Public)
-                },
-                "define-map" => {
-                    check_argument_count(3, args)?;
-                    handle_define_map(&args[0], &args[1], &args[2], env)
                 }
-                "define-data-var" => {
-                    check_argument_count(3, args)?;
-                    handle_define_persisted_variable(&args[0], &args[1], &args[2], env)
-                }
-                _ => Ok(DefineResult::NoDefine)
             }
         }
     }

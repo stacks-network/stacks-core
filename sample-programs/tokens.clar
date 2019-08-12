@@ -1,8 +1,8 @@
 (define-map tokens ((account principal)) ((balance int)))
-(define (get-balance (account principal))
+(define-private (get-balance (account principal))
   (default-to 0 (get balance (fetch-entry tokens (tuple (account account))))))
 
-(define (token-credit! (account principal) (amount int))
+(define-private (token-credit! (account principal) (amount int))
   (if (<= amount 0)
       (err "must move positive balance")
       (let ((current-amount (get-balance account)))

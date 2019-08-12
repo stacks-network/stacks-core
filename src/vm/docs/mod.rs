@@ -1,4 +1,5 @@
 use vm::functions::{NativeFunctions};
+use vm::functions::define::{DefineFunctions};
 use vm::variables::{NativeVariables};
 use vm::checker::typecheck::{FunctionType, TypedNativeFunction};
 use vm::checker::typecheck::natives::SimpleNativeFunction;
@@ -36,6 +37,14 @@ struct SimpleFunctionAPI {
 
 struct SpecialAPI {
     name: &'static str,
+    output_type: &'static str,
+    input_type: &'static str,
+    signature: &'static str,
+    description: &'static str,
+    example: &'static str,
+}
+
+struct DefineAPI {
     output_type: &'static str,
     input_type: &'static str,
     signature: &'static str,
@@ -635,8 +644,7 @@ The `header-hash`, `burnchain-header-hash`, and `vrf-seed` properties return a 3
 "
 };
 
-const DEFINE_TOKEN_API: SpecialAPI = SpecialAPI {
-    name: "define-fungible-token",
+const DEFINE_TOKEN_API: DefineAPI = DefineAPI {
     input_type: "TokenName, <int>",
     output_type: "Not Applicable",
     signature: "(define-fungible-token token-name <total-supply>)",
@@ -655,8 +663,7 @@ Tokens defined using `define-fungible-token` may be used in `ft-transfer!`, `ft-
 "
 };
 
-const DEFINE_ASSET_API: SpecialAPI = SpecialAPI {
-    name: "define-non-fungible-token",
+const DEFINE_ASSET_API: DefineAPI = DefineAPI {
     input_type: "AssetName, TypeSignature",
     output_type: "Not Applicable",
     signature: "(define-non-fungible-token asset-name asset-identifier-type)",
@@ -673,8 +680,7 @@ Assets defined using `define-non-fungible-token` may be used in `nft-transfer!`,
 "
 };
 
-const DEFINE_PUBLIC_API: SpecialAPI = SpecialAPI {
-    name: "define-public",
+const DEFINE_PUBLIC_API: DefineAPI = DefineAPI {
     input_type: "MethodSignature, MethodBody",
     output_type: "Not Applicable",
     signature: "(define-public (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
@@ -695,8 +701,7 @@ contracts via `contract-call!`.",
 "
 };
 
-const DEFINE_PRIVATE_API: SpecialAPI = SpecialAPI {
-    name: "define",
+const DEFINE_PRIVATE_API: DefineAPI = DefineAPI {
     input_type: "MethodSignature, MethodBody",
     output_type: "Not Applicable",
     signature: "(define (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
@@ -717,8 +722,7 @@ Private functions may return any type.",
 "
 };
 
-const DEFINE_READ_ONLY_API: SpecialAPI = SpecialAPI {
-    name: "define-read-only",
+const DEFINE_READ_ONLY_API: DefineAPI = DefineAPI {
     input_type: "MethodSignature, MethodBody",
     output_type: "Not Applicable",
     signature: "(define-read-only (function-name (arg-name-0 arg-type-0) (arg-name-1 arg-type-1) ...) function-body)",
@@ -738,8 +742,7 @@ be invoked by other contracts via `contract-call!`.",
   (* 10 10))"
 };
 
-const DEFINE_MAP_API: SpecialAPI = SpecialAPI {
-    name: "define-map",
+const DEFINE_MAP_API: DefineAPI = DefineAPI {
     input_type: "MapName, KeyTupleDefinition, MapTupleDefinition",
     output_type: "Not Applicable",
     signature: "(define-map map-name ((key-name-0 key-type-0) ...) ((val-name-0 val-type-0) ...))",
@@ -764,8 +767,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 "
 };
 
-const DEFINE_DATA_VAR_API: SpecialAPI = SpecialAPI {
-    name: "define-data-var",
+const DEFINE_DATA_VAR_API: DefineAPI = DefineAPI {
     input_type: "VarName, TypeDefinition, Value",
     output_type: "Not Applicable",
     signature: "(define-data-var var-name type value)",
@@ -900,18 +902,6 @@ one of the following error codes:
 "
 };
 
-fn make_for_special(api: &SpecialAPI) -> FunctionAPI {
-    FunctionAPI {
-        name: api.name.to_string(),
-        input_type: api.input_type.to_string(),
-        output_type: api.output_type.to_string(),
-        signature: api.signature.to_string(),
-        description: api.description.to_string(),
-        example: api.example.to_string()
-    }
-}
-
-
 fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use vm::functions::NativeFunctions::*;
     match function {
@@ -980,17 +970,51 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
     }
 }
 
+fn make_for_special(api: &SpecialAPI) -> FunctionAPI {
+    FunctionAPI {
+        name: api.name.to_string(),
+        input_type: api.input_type.to_string(),
+        output_type: api.output_type.to_string(),
+        signature: api.signature.to_string(),
+        description: api.description.to_string(),
+        example: api.example.to_string()
+    }
+}
+
+fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
+    FunctionAPI {
+        name,
+        input_type: api.input_type.to_string(),
+        output_type: api.output_type.to_string(),
+        signature: api.signature.to_string(),
+        description: api.description.to_string(),
+        example: api.example.to_string()
+    }
+}
+
+fn make_define_reference(define_type: &DefineFunctions) -> FunctionAPI {
+    use vm::functions::define::DefineFunctions::*;
+    let name = define_type.get_name();
+    match define_type {
+        Constant => make_for_define(&DEFINE_PRIVATE_API, name),
+        PrivateFunction => make_for_define(&DEFINE_PRIVATE_API, name),
+        PublicFunction => make_for_define(&DEFINE_PUBLIC_API, name),
+        Map => make_for_define(&DEFINE_MAP_API, name),
+        NonFungibleToken => make_for_define(&DEFINE_ASSET_API, name),
+        FungibleToken => make_for_define(&DEFINE_TOKEN_API, name),
+        ReadOnlyFunction => make_for_define(&DEFINE_READ_ONLY_API, name),
+        PersistedVariable => make_for_define(&DEFINE_DATA_VAR_API, name),
+    }
+}
+
 pub fn make_json_api_reference() -> String {
     let mut functions: Vec<_> = NativeFunctions::ALL.iter()
         .map(|x| make_api_reference(x))
         .collect();
-    functions.push(make_for_special(&DEFINE_ASSET_API));
-    functions.push(make_for_special(&DEFINE_TOKEN_API));
-    functions.push(make_for_special(&DEFINE_MAP_API));
-    functions.push(make_for_special(&DEFINE_DATA_VAR_API));
-    functions.push(make_for_special(&DEFINE_PUBLIC_API));
-    functions.push(make_for_special(&DEFINE_PRIVATE_API));
-    functions.push(make_for_special(&DEFINE_READ_ONLY_API));
+
+    for data_type in DefineFunctions::ALL.iter() {
+        functions.push(make_define_reference(data_type))
+    }
 
     let mut keywords = Vec::new();
     for variable in NativeVariables::ALL.iter() {

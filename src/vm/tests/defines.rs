@@ -10,9 +10,9 @@ fn assert_eq_err(e1: UncheckedError, e2: Error) {
 #[test]
 fn test_defines() {
     let tests =
-        "(define x 10)
-         (define y 15)
-         (define (f (a int) (b int)) (+ x y a b))
+        "(define-constant x 10)
+         (define-constant y 15)
+         (define-private (f (a int) (b int)) (+ x y a b))
          (f 3 1)";
 
     assert_eq!(Ok(Some(Value::Int(29))), execute(&tests));
@@ -26,7 +26,7 @@ fn test_defines() {
 #[test]
 fn test_accept_options() {
     let defun =
-        "(define (f (b (optional int))) (* 10 (default-to 0 b)))";
+        "(define-private (f (b (optional int))) (* 10 (default-to 0 b)))";
     let tests = [
         format!("{} {}", defun, "(f none)"),
         format!("{} {}", defun, "(f (some 1))"),
@@ -42,7 +42,7 @@ fn test_accept_options() {
     }
 
     let bad_defun =
-        "(define (f (b (optional int int))) (* 10 (default-to 0 b)))";
+        "(define-private (f (b (optional int int))) (* 10 (default-to 0 b)))";
     assert_eq!(Error::Runtime(RuntimeErrorType::InvalidTypeDescription, None),
                execute(bad_defun).unwrap_err());
 }
@@ -50,22 +50,22 @@ fn test_accept_options() {
 #[test]
 fn test_bad_define_names() {
     let test0 =
-        "(define tx-sender 1)
+        "(define-constant tx-sender 1)
          (+ tx-sender tx-sender)";
     let test1 =
-        "(define * 1)
+        "(define-constant * 1)
          (+ * *)";
     let test2 =
-        "(define 1 1)
+        "(define-constant 1 1)
          (+ 1 1)";
     let test3 =
-        "(define foo 1)
-         (define foo 2)
+        "(define-constant foo 1)
+         (define-constant foo 2)
          (+ foo foo)";
 
     assert_eq_err(UncheckedError::ReservedName("tx-sender".to_string()), execute(&test0).unwrap_err());
     assert_eq_err(UncheckedError::ReservedName("*".to_string()), execute(&test1).unwrap_err());
-    assert_eq_err(UncheckedError::InvalidArguments("Illegal operation: attempted to re-define a value type.".to_string()),
+    assert_eq_err(UncheckedError::InvalidArguments("Illegal operation: expects a variable name as the first argument.".to_string()),
                    execute(&test2).unwrap_err());
     assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("foo".to_string()),
                    execute(&test3).unwrap_err());
@@ -74,17 +74,17 @@ fn test_bad_define_names() {
 #[test]
 fn test_expects() {
     let test0 =
-        "(define (foo) (expects! (ok 1) 2)) (foo)";
+        "(define-private (foo) (expects! (ok 1) 2)) (foo)";
     let test1 =
-        "(define (foo) (expects! (ok 1))) (foo)";
+        "(define-private (foo) (expects! (ok 1))) (foo)";
     let test2 =
-        "(define (foo) (expects! 1 2)) (foo)";
+        "(define-private (foo) (expects! 1 2)) (foo)";
     let test3 =
-        "(define (foo) (expects-err! 1 2)) (foo)";
+        "(define-private (foo) (expects-err! 1 2)) (foo)";
     let test4 =
-        "(define (foo) (expects-err! (err 1) 2)) (foo)";
+        "(define-private (foo) (expects-err! (err 1) 2)) (foo)";
     let test5 =
-        "(define (foo) (expects-err! (err 1))) (foo)";
+        "(define-private (foo) (expects-err! (err 1))) (foo)";
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
     assert_eq_err(UncheckedError::IncorrectArgumentCount(2,1),
@@ -118,10 +118,10 @@ fn test_define_read_only() {
 #[test]
 fn test_stack_depth() {
     let mut function_defines = Vec::new();
-    function_defines.push("(define (foo-0 (x int)) (+ 1 x))".to_string());
+    function_defines.push("(define-private (foo-0 (x int)) (+ 1 x))".to_string());
     for i in 1..129 {
         function_defines.push(
-            format!("(define (foo-{} (x int)) (foo-{} (+ 1 x)))",
+            format!("(define-private (foo-{} (x int)) (foo-{} (+ 1 x)))",
                     i, i-1));
     }
     function_defines.push(
@@ -142,7 +142,7 @@ fn test_stack_depth() {
 #[test]
 fn test_recursive_panic() {
     let tests =
-        "(define (factorial (a int))
+        "(define-private (factorial (a int))
           (if (eq? a 0)
               1
               (* a (factorial (- a 1)))))
@@ -185,14 +185,14 @@ fn test_variable_shadowing() {
         "#;
     let test2 =
         r#"
-        (define (cursor) 0)
+        (define-private (cursor) 0)
         (let ((cursor 1))
             cursor)
         "#;
     let test3 =
         r#"
-        (define (cursor) 0)
-        (define (set-cursor (cursor int))
+        (define-private (cursor) 0)
+        (define-private (set-cursor (cursor int))
             cursor)
         "#;
 
@@ -204,14 +204,14 @@ fn test_variable_shadowing() {
 
 #[test]
 fn test_define_parse_panic() {
-    let tests = "(define () 1)";
+    let tests = "(define-private () 1)";
     let expected = UncheckedError::InvalidArguments("Must supply atleast a name argument to define a function".to_string());
     assert_eq_err(expected, execute(&tests).unwrap_err());
 }
 
 #[test]
 fn test_define_parse_panic_2() {
-    let tests = "(define (a b (d)) 1)";
+    let tests = "(define-private (a b (d)) 1)";
     assert_eq_err(
         UncheckedError::ExpectedListPairs,
         execute(&tests).unwrap_err());

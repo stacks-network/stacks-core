@@ -11,7 +11,7 @@ use vm::database::ClarityDatabase;
 use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbols_from_values};
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current int) (index int)))
-         (define (init-factorial (id int) (factorial int))
+         (define-private (init-factorial (id int) (factorial int))
            (print (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
            (let ((entry (expects! (fetch-entry factorials (tuple (id id)))
@@ -33,7 +33,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
             (default-to 0 (get balance (fetch-entry tokens (tuple (account account))))))
          (define-read-only (explode (account principal))
              (delete-entry! tokens (tuple (account account))))
-         (define (token-credit! (account principal) (amount int))
+         (define-private (token-credit! (account principal) (amount int))
             (if (<= amount 0)
                 (err \"must be positive\")
                 (let ((current-amount (my-get-token-balance account)))
@@ -64,13 +64,13 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
 fn test_get_block_info_eval(){
 
     let contracts = [
-        "(define (test-func) (get-block-info time 1))",
-        "(define (test-func) (get-block-info time 100000))",
-        "(define (test-func) (get-block-info time (- 1)))",
-        "(define (test-func) (get-block-info time 'true))",
-        "(define (test-func) (get-block-info header-hash 1))",
-        "(define (test-func) (get-block-info burnchain-header-hash 1))",
-        "(define (test-func) (get-block-info vrf-seed 1))",
+        "(define-private (test-func) (get-block-info time 1))",
+        "(define-private (test-func) (get-block-info time 100000))",
+        "(define-private (test-func) (get-block-info time (- 1)))",
+        "(define-private (test-func) (get-block-info time 'true))",
+        "(define-private (test-func) (get-block-info header-hash 1))",
+        "(define-private (test-func) (get-block-info burnchain-header-hash 1))",
+        "(define-private (test-func) (get-block-info vrf-seed 1))",
     ];
 
     let expected = [
@@ -197,8 +197,8 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let tokens_contract = SIMPLE_TOKENS;
 
     let names_contract =
-        "(define burn-address 'SP000000000000000000002Q6VF78)
-         (define (price-function (name int))
+        "(define-constant burn-address 'SP000000000000000000002Q6VF78)
+         (define-private (price-function (name int))
            (if (< name 100000) 1000 100))
          
          (define-map name-map 
@@ -374,7 +374,7 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
          (err 1))))
 
 
-(define (get-data (id int))
+(define-private (get-data (id int))
   (default-to 0
     (get value 
      (fetch-entry data (tuple (id id))))))

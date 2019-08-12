@@ -1,5 +1,5 @@
-(define burn-address 'SP000000000000000000002Q6VF78)
-(define (price-function (name int))
+(define-constant burn-address 'SP000000000000000000002Q6VF78)
+(define-private (price-function (name int))
   (if (< name 100000) 1000 100))
          
 (define-map name-map 

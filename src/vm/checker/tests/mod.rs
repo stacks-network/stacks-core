@@ -152,7 +152,7 @@ fn test_define_variable_bad_signature() {
 
 #[test]
 fn test_return_types_must_match() {
-    let snippet = "(define (mismatched) (begin (expects! (ok 1) 'false) 1))";
+    let snippet = "(define-private (mismatched) (begin (expects! (ok 1) 'false) 1))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("detected two execution paths, returning two different expression types"));
 }
@@ -187,7 +187,7 @@ fn test_get_block_info_expect_property_name() {
 
 #[test]
 fn test_name_already_used() {
-    let snippet = "(define var1 'true) (define var1 1)";
+    let snippet = "(define-constant var1 'true) (define-constant var1 1)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("'var1' conflicts with previous value"));
 }

@@ -6,8 +6,8 @@ use vm::errors::{UncheckedError, RuntimeErrorType, Error};
 #[test]
 fn test_simple_list_admission() {
     let defines =
-        "(define (square (x int)) (* x x))
-         (define (square-list (x (list 4 int))) (map square x))";
+        "(define-private (square (x int)) (* x x))
+         (define-private (square-list (x (list 4 int))) (map square x))";
     let t1 = format!("{} (square-list (list 1 2 3 4))", defines);
     let t2 = format!("{} (square-list (list))", defines);
     let t3 = format!("{} (square-list (list 1 2 3 4 5))", defines);
@@ -34,7 +34,7 @@ fn test_simple_list_admission() {
 #[test]
 fn test_simple_map() {
     let test1 =
-        "(define (square (x int)) (* x x))
+        "(define-private (square (x int)) (* x x))
          (map square (list 1 2 3 4))";
 
     let expected = Value::list_from(vec![
@@ -46,13 +46,13 @@ fn test_simple_map() {
     assert_eq!(expected, execute(test1).unwrap().unwrap());
 
     // let's test lists of lists.
-    let test2 = "(define (multiply (x int) (acc int)) (* x acc))
-                 (define (multiply-all (x (list 10 int))) (fold multiply x 1))
+    let test2 = "(define-private (multiply (x int) (acc int)) (* x acc))
+                 (define-private (multiply-all (x (list 10 int))) (fold multiply x 1))
                  (map multiply-all (list (list 1 1 1) (list 2 2 1) (list 3 3) (list 2 2 2 2)))";
     assert_eq!(expected, execute(test2).unwrap().unwrap());
 
     // let's test empty lists.
-    let test2 = "(define (double (x int)) (* x 2))
+    let test2 = "(define-private (double (x int)) (* x 2))
                  (map double (list))";
     assert_eq!(Value::list_from(vec![]).unwrap(), execute(test2).unwrap().unwrap());
 
@@ -61,7 +61,7 @@ fn test_simple_map() {
 #[test]
 fn test_simple_filter() {
     let test1 =
-"    (define (test (x int)) (eq? 0 (mod x 2)))
+"    (define-private (test (x int)) (eq? 0 (mod x 2)))
     (filter test (list 1 2 3 4 5))";
 
     let bad_tests = [
@@ -86,8 +86,8 @@ fn test_simple_filter() {
 #[test]
 fn test_list_tuple_admission() {
     let test = 
-        "(define (bufferize (x int)) (if (eq? x 1) \"abc\" \"ab\"))
-         (define (tuplize (x int))
+        "(define-private (bufferize (x int)) (if (eq? x 1) \"abc\" \"ab\"))
+         (define-private (tuplize (x int))
            (tuple (value (bufferize x))))
          (map tuplize (list 0 1 0 1 0 1))";
 
@@ -121,7 +121,7 @@ fn test_list_tuple_admission() {
 #[test]
 fn test_simple_folds() {
     let test1 =
-        "(define (multiply-all (x int) (acc int)) (* x acc))
+        "(define-private (multiply-all (x int) (acc int)) (* x acc))
          (fold multiply-all (list 1 2 3 4) 1)";
 
     let expected = Value::Int(24);
@@ -138,7 +138,7 @@ fn test_construct_bad_list() {
             _ => false
         });
 
-    let test2 = "(define (bad-function (x int)) (if (eq? x 1) 'true x))
+    let test2 = "(define-private (bad-function (x int)) (if (eq? x 1) 'true x))
                  (map bad-function (list 0 1 2 3))";
     assert!(
         match execute(test2).unwrap_err() {
@@ -178,7 +178,7 @@ fn test_eval_func_arg_panic() {
     let e: Error = UncheckedError::IncorrectArgumentCount(2, 3).into();
     assert_eq!(e, execute(test3).unwrap_err());
 
-    let test4 = "(define (multiply-all (x int) (acc int)) (* x acc))
+    let test4 = "(define-private (multiply-all (x int) (acc int)) (* x acc))
          (fold multiply-all (list 1 2 3 4))";
     let e: Error = UncheckedError::IncorrectArgumentCount(3, 2).into();
     assert_eq!(e, execute(test4).unwrap_err());

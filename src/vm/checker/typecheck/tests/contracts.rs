@@ -12,7 +12,7 @@ const SIMPLE_TOKENS: &str =
                   (get balance (fetch-entry tokens (tuple (account account))))))
               (default-to 0 balance)))
 
-         (define (token-credit! (account principal) (amount int))
+         (define-private (token-credit! (account principal) (amount int))
             (if (<= amount 0)
                 (err 1)
                 (let ((current-amount (my-get-token-balance account)))
@@ -32,8 +32,8 @@ const SIMPLE_TOKENS: &str =
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 300))";
 
 const SIMPLE_NAMES: &str =
-        "(define burn-address 'SP000000000000000000002Q6VF78)
-         (define (price-function (name int))
+        "(define-constant burn-address 'SP000000000000000000002Q6VF78)
+         (define-private (price-function (name int))
            (if (< name 100000) 1000 100))
          
          (define-map name-map 
@@ -42,7 +42,7 @@ const SIMPLE_NAMES: &str =
            ((name-hash (buff 20)))
            ((buyer principal) (paid int)))
 
-         (define (check-balance)
+         (define-private (check-balance)
            (default-to 0 
              (get balance (fetch-contract-entry
               tokens tokens (tuple (account tx-sender))))))
@@ -98,9 +98,9 @@ fn test_names_tokens_contracts_interface() {
     use vm::checker::type_check;
 
     const INTERFACE_TEST_CONTRACT: &str = "
-        (define var1 'SP000000000000000000002Q6VF78)
-        (define var2 'true)
-        (define var3 45)
+        (define-constant var1 'SP000000000000000000002Q6VF78)
+        (define-constant var2 'true)
+        (define-constant var3 45)
 
         (define-data-var d-var1 bool 'true)
         (define-data-var d-var2 int 2)
@@ -110,24 +110,24 @@ fn test_names_tokens_contracts_interface() {
         (define-map map2 ((k-name-1 bool)) ((v-name-1 (buff 33))) )
         (define-map map3 ((k-name-2 bool)) ((v-name-2 (tuple (n1 int) (n2 bool)))) )
 
-        (define (f00 (a1 int)) 'true)
-        (define (f01 (a1 bool)) 'true)
-        (define (f02 (a1 principal)) 'true)
-        (define (f03 (a1 (buff 54))) 'true)
-        (define (f04 (a1 (tuple (t-name1 bool) (t-name2 int)))) 'true)
-        (define (f05 (a1 (list 7 6 int))) 'true)
+        (define-private (f00 (a1 int)) 'true)
+        (define-private (f01 (a1 bool)) 'true)
+        (define-private (f02 (a1 principal)) 'true)
+        (define-private (f03 (a1 (buff 54))) 'true)
+        (define-private (f04 (a1 (tuple (t-name1 bool) (t-name2 int)))) 'true)
+        (define-private (f05 (a1 (list 7 6 int))) 'true)
 
-        (define (f06) 1)
-        (define (f07) 'true)
-        (define (f08) 'SP000000000000000000002Q6VF78) 
-        (define (f09) 0xdeadbeef)
-        (define (f10) (tuple (tn1 'true) (tn2 0) (tn3 0xff) ))
-        (define (f11) (fetch-entry map1 (tuple (name 0))))
-        (define (f12) (ok 3))
-        (define (f13) (err 6))
-        (define (f14) (if 'true (ok 1) (err 2)))
-        (define (f15) (list 1 2 3))
-        (define (f16) (list (list (list 5)) (list (list 55))))
+        (define-private (f06) 1)
+        (define-private (f07) 'true)
+        (define-private (f08) 'SP000000000000000000002Q6VF78) 
+        (define-private (f09) 0xdeadbeef)
+        (define-private (f10) (tuple (tn1 'true) (tn2 0) (tn3 0xff) ))
+        (define-private (f11) (fetch-entry map1 (tuple (name 0))))
+        (define-private (f12) (ok 3))
+        (define-private (f13) (err 6))
+        (define-private (f14) (if 'true (ok 1) (err 2)))
+        (define-private (f15) (list 1 2 3))
+        (define-private (f16) (list (list (list 5)) (list (list 55))))
 
         (define-public (pub-f01) (ok 1))
         (define-public (pub-f02) (ok 'true))
@@ -399,7 +399,7 @@ fn test_names_tokens_contracts_bad() {
 fn test_names_tokens_contracts_bad_fetch_contract_entry() {
     use vm::checker::type_check;
     let broken_public = "
-         (define (check-balance)
+         (define-private (check-balance)
            (default-to 0 
              (get balance (fetch-contract-entry
               tokens tokens (tuple (accnt tx-sender)))))) ;; should be a non-admissable tuple!
@@ -435,34 +435,34 @@ fn test_bad_map_usage() {
     use vm::checker::type_check;
     let bad_fetch = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define (my-get-token-balance (account int))
+         (define-private (my-get-token-balance (account int))
             (let ((balance
                   (get balance (fetch-entry tokens (tuple (account account))))))
               balance))";
     let bad_delete = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define (del-balance (account principal))
+         (define-private (del-balance (account principal))
             (delete-entry! tokens (tuple (balance account))))";
     let bad_set_1 = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define (set-balance (account principal))
+         (define-private (set-balance (account principal))
             (set-entry! tokens (tuple (account account)) (tuple (balance \"foo\"))))";
     let bad_set_2 = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define (set-balance (account principal))
+         (define-private (set-balance (account principal))
             (set-entry! tokens (tuple (account \"abc\")) (tuple (balance 0))))";
     let bad_insert_1 = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define (set-balance (account principal))
+         (define-private (set-balance (account principal))
             (insert-entry! tokens (tuple (account account)) (tuple (balance \"foo\"))))";
     let bad_insert_2 = 
         "(define-map tokens ((account principal)) ((balance int)))
-         (define (set-balance (account principal))
+         (define-private (set-balance (account principal))
             (insert-entry! tokens (tuple (account \"abc\")) (tuple (balance 0))))";
 
     let unhandled_option =
         "(define-map tokens ((account principal)) ((balance int)))
-         (define (plus-balance (account principal))
+         (define-private (plus-balance (account principal))
            (+ (get balance (fetch-entry tokens (tuple (account account)))) 1))";
 
     let tests = [bad_fetch,
@@ -491,40 +491,40 @@ fn test_expects() {
     use vm::checker::type_check;
     let okay = 
         "(define-map tokens ((id int)) ((balance int)))
-         (define (my-get-token-balance)
+         (define-private (my-get-token-balance)
             (let ((balance (expects! 
                               (get balance (fetch-entry tokens (tuple (id 0)))) 
                               0)))
               (+ 0 balance)))
-         (define (my-get-token-balance-2)
+         (define-private (my-get-token-balance-2)
             (let ((balance 
                     (get balance (expects! (fetch-entry tokens (tuple (id 0))) 0)) 
                               ))
               (+ 0 balance)))
-          (define (my-get-token-balance-3)
+          (define-private (my-get-token-balance-3)
              (let ((balance
                      (expects! (get balance (fetch-entry tokens (tuple (id 0))))
                                (err 'false))))
                (ok balance)))
-          (define (my-get-token-balance-4)
+          (define-private (my-get-token-balance-4)
              (expects! (my-get-token-balance-3) 0))
 
-          (define (t-1)
+          (define-private (t-1)
              (err 3))
-          (define (my-get-token-balance-5)
+          (define-private (my-get-token-balance-5)
              (expects-err! (t-1) 0))
 
           (+ (my-get-token-balance) (my-get-token-balance-2) (my-get-token-balance-5))";
 
     let bad_return_types_tests = [
         "(define-map tokens ((id int)) ((balance int)))
-         (define (my-get-token-balance)
+         (define-private (my-get-token-balance)
             (let ((balance (expects! 
                               (get balance (fetch-entry tokens (tuple (id 0)))) 
                               'false)))
               (+ 0 balance)))",
         "(define-map tokens ((id int)) ((balance int)))
-         (define (my-get-token-balance)
+         (define-private (my-get-token-balance)
             (let ((balance (expects! 
                               (get balance (fetch-entry tokens (tuple (id 0)))) 
                               (err 1))))
@@ -534,13 +534,13 @@ fn test_expects() {
          (default-to 'false (get balance (fetch-entry tokens (tuple (id 0)))))";
 
     let notype_response_type = "
-         (define (t1) (ok 3))
-         (define (t2) (expects-err! (t1) 0))
+         (define-private (t1) (ok 3))
+         (define-private (t2) (expects-err! (t1) 0))
     ";
 
     let notype_response_type_2 = "
-         (define (t1) (err 3))
-         (define (t2) (expects! (t1) 0))
+         (define-private (t1) (err 3))
+         (define-private (t2) (expects! (t1) 0))
     ";
 
     let mut db = AnalysisDatabase::memory();

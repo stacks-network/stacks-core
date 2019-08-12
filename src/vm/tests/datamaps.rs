@@ -11,9 +11,9 @@ fn assert_executes(expected: Result<Value, Error>, input: &str) {
 fn test_simple_tea_shop() {
     let test1 =
         "(define-map proper-tea ((tea-type int)) ((amount int)))
-         (define (stock (tea int) (amount int))
+         (define-private (stock (tea int) (amount int))
            (set-entry! proper-tea (tuple (tea-type tea)) (tuple (amount amount))))
-         (define (consume (tea int))
+         (define-private (consume (tea int))
            (let ((current (expects! 
                             (get amount (fetch-entry proper-tea (tuple (tea-type tea)))) 3)))
               (if (and (>= current 1))
@@ -60,21 +60,21 @@ fn test_simple_tea_shop() {
 fn test_bound_tuple() {
     let test =
         "(define-map kv-store ((key int)) ((value int)))
-         (define (kv-add (key int) (value int))
+         (define-private (kv-add (key int) (value int))
             (begin
                 (let ((my-tuple (tuple (key key))))
                 (insert-entry! kv-store my-tuple (tuple (value value))))
             value))
-         (define (kv-get (key int))
+         (define-private (kv-get (key int))
             (let ((my-tuple (tuple (key key))))
             (expects! (get value (fetch-entry kv-store my-tuple)) 0)))
-         (define (kv-set (key int) (value int))
+         (define-private (kv-set (key int) (value int))
             (begin
                 (let ((my-tuple (tuple (key key))))
                 (set-entry! kv-store my-tuple
                                    (tuple (value value))))
                 value))
-         (define (kv-del (key int))
+         (define-private (kv-del (key int))
             (begin
                 (let ((my-tuple (tuple (key key))))
                 (delete-entry! kv-store my-tuple))
@@ -101,19 +101,19 @@ fn test_bound_tuple() {
 fn test_explicit_syntax_tuple() {
     let test =
         "(define-map kv-store ((key int)) ((value int)))
-         (define (kv-add (key int) (value int))
+         (define-private (kv-add (key int) (value int))
             (begin
                 (insert-entry! kv-store (tuple (key key))
                                     (tuple (value value)))
             value))
-         (define (kv-get (key int))
+         (define-private (kv-get (key int))
             (expects! (get value (fetch-entry kv-store (tuple (key key)))) 0))
-         (define (kv-set (key int) (value int))
+         (define-private (kv-set (key int) (value int))
             (begin
                 (set-entry! kv-store (tuple (key key))
                                    (tuple (value value)))
                 value))
-         (define (kv-del (key int))
+         (define-private (kv-del (key int))
             (begin
                 (delete-entry! kv-store (tuple (key key)))
                 key))
@@ -139,19 +139,19 @@ fn test_explicit_syntax_tuple() {
 fn test_implicit_syntax_tuple() {
     let test =
         "(define-map kv-store ((key int)) ((value int)))
-         (define (kv-add (key int) (value int))
+         (define-private (kv-add (key int) (value int))
             (begin
                 (insert-entry! kv-store ((key key))
                                     ((value value)))
             value))
-         (define (kv-get (key int))
+         (define-private (kv-get (key int))
             (expects! (get value (fetch-entry kv-store ((key key)))) 0))
-         (define (kv-set (key int) (value int))
+         (define-private (kv-set (key int) (value int))
             (begin
                 (set-entry! kv-store ((key key))
                                    ((value value)))
                 value))
-         (define (kv-del (key int))
+         (define-private (kv-del (key int))
             (begin
                 (delete-entry! kv-store ((key key)))
                 key))
@@ -183,13 +183,13 @@ fn test_fetch_contract_entry() {
         (begin (insert-entry! kv-store ((key 42)) ((value 42))))"#;
 
     let proxy_src = r#"
-        (define (fetch-via-conntract-call)
+        (define-private (fetch-via-conntract-call)
             (contract-call! kv-store-contract kv-get 42))
-        (define (fetch-via-fetch-contract-entry-using-explicit-tuple)
+        (define-private (fetch-via-fetch-contract-entry-using-explicit-tuple)
             (expects! (get value (fetch-contract-entry kv-store-contract kv-store (tuple (key 42)))) 0))
-        (define (fetch-via-fetch-contract-entry-using-implicit-tuple)
+        (define-private (fetch-via-fetch-contract-entry-using-implicit-tuple)
             (expects! (get value (fetch-contract-entry kv-store-contract kv-store ((key 42)))) 0))
-        (define (fetch-via-fetch-contract-entry-using-bound-tuple)
+        (define-private (fetch-via-fetch-contract-entry-using-bound-tuple)
             (let ((t (tuple (key 42))))
             (expects! (get value (fetch-contract-entry kv-store-contract kv-store t)) 0)))"#;
 
@@ -211,13 +211,13 @@ fn test_fetch_contract_entry() {
 fn test_set_int_variable() {
         let contract_src = r#"
         (define-data-var cursor int 0)
-        (define (get-cursor)
+        (define-private (get-cursor)
             (fetch-var cursor))
-        (define (set-cursor (value int))
+        (define-private (set-cursor (value int))
             (if (set-var! cursor value)
                 value
                 0))
-        (define (increment-cursor)
+        (define-private (increment-cursor)
             (begin
                 (set-var! cursor (+ 1 (get-cursor)))
                 (get-cursor)))
@@ -240,9 +240,9 @@ fn test_set_int_variable() {
 fn test_set_bool_variable() {
     let contract_src = r#"
         (define-data-var is-ok bool 'true)
-        (define (get-ok)
+        (define-private (get-ok)
             (fetch-var is-ok))
-        (define (set-ok (new-ok bool))
+        (define-private (set-ok (new-ok bool))
             (if (set-var! is-ok new-ok)
                 new-ok
                 (get-ok)))
@@ -262,9 +262,9 @@ fn test_set_bool_variable() {
 fn test_set_tuple_variable() {
     let contract_src = r#"
         (define-data-var keys (tuple (k1 int) (v1 int)) (tuple (k1 1) (v1 1)))
-        (define (get-keys)
+        (define-private (get-keys)
             (fetch-var keys))
-        (define (set-keys (value (tuple (k1 int) (v1 int))))
+        (define-private (set-keys (value (tuple (k1 int) (v1 int))))
             (if (set-var! keys value)
                 value
                 (get-keys)))
@@ -283,9 +283,9 @@ fn test_set_tuple_variable() {
 fn test_set_list_variable() {
     let contract_src = r#"
         (define-data-var ranking (list 3 int) (list 1 2 3))
-        (define (get-ranking)
+        (define-private (get-ranking)
             (fetch-var ranking))
-        (define (set-ranking (new-ranking (list 3 int)))
+        (define-private (set-ranking (new-ranking (list 3 int)))
             (if (set-var! ranking new-ranking)
                 new-ranking
                 (get-ranking)))
@@ -305,9 +305,9 @@ fn test_set_list_variable() {
 fn test_set_buffer_variable() {
     let contract_src = r#"
         (define-data-var name (buff 5) "alice")
-        (define (get-name)
+        (define-private (get-name)
             (fetch-var name))
-        (define (set-name (new-name (buff 5)))
+        (define-private (set-name (new-name (buff 5)))
             (if (set-var! name new-name)
                 new-name
                 (get-name)))
@@ -327,9 +327,9 @@ fn test_set_buffer_variable() {
 fn test_factorial_contract() {
     let test1 =
         "(define-map factorials ((id int)) ((current int) (index int)))
-         (define (init-factorial (id int) (factorial int))
+         (define-private (init-factorial (id int) (factorial int))
            (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial))))
-         (define (compute (id int))
+         (define-private (compute (id int))
            (let ((entry (expects! (fetch-entry factorials (tuple (id id))) 0)))
                     (let ((current (get current entry))
                           (index   (get index entry)))
@@ -376,13 +376,13 @@ fn test_factorial_contract() {
 fn silly_naming_system() {
     let test1 =
         "(define-map silly-names ((name int)) ((owner int)))
-         (define (register (name int) (owner int))
+         (define-private (register (name int) (owner int))
            (if (insert-entry! silly-names (tuple (name name)) (tuple (owner owner)))
                1 0))
-         (define (who-owns? (name int))
+         (define-private (who-owns? (name int))
            (let ((owner (get owner (fetch-entry silly-names (tuple (name name))))))
              (default-to (- 1) owner)))
-         (define (invalidate! (name int) (owner int))
+         (define-private (invalidate! (name int) (owner int))
            (let ((current-owner (who-owns? name)))
                 (if (eq? current-owner owner)
                     (if (delete-entry! silly-names (tuple (name name))) 1 0)
@@ -432,10 +432,10 @@ fn datamap_errors() {
 fn lists_system_2() {
     let test = 
         "(define-map lists ((name int)) ((contents (list 5 1 int))))
-         (define (add-list (name int) (content (list 5 1 int)))
+         (define-private (add-list (name int) (content (list 5 1 int)))
            (insert-entry! lists (tuple (name name))
                                 (tuple (contents content))))
-         (define (get-list (name int))
+         (define-private (get-list (name int))
             (get contents (fetch-entry lists (tuple (name name)))))
          (add-list 0 (list 1 2 3 4 5))
          (add-list 1 (list 1 2 3))
@@ -453,10 +453,10 @@ fn lists_system_2() {
 fn lists_system() {
     let test1 =
         "(define-map lists ((name int)) ((contents (list 5 1 int))))
-         (define (add-list (name int) (content (list 5 1 int)))
+         (define-private (add-list (name int) (content (list 5 1 int)))
            (insert-entry! lists (tuple (name name))
                                 (tuple (contents content))))
-         (define (get-list (name int))
+         (define-private (get-list (name int))
             (default-to (list) (get contents (fetch-entry lists (tuple (name name))))))
          (print (add-list 0 (list 1 2 3 4 5)))
          (print (add-list 1 (list 1 2 3)))
@@ -515,12 +515,12 @@ fn tuples_system() {
                             ((contents (tuple (name (buff 5))
                                               (owner (buff 5))))))
 
-         (define (add-tuple (name int) (content (buff 5)))
+         (define-private (add-tuple (name int) (content (buff 5)))
            (insert-entry! tuples (tuple (name name))
                                  (tuple (contents
                                    (tuple (name content)
                                           (owner content))))))
-         (define (get-tuple (name int))
+         (define-private (get-tuple (name int))
             (default-to \"\" (get name (get contents (fetch-entry tuples (tuple (name name)))))))
 
 
