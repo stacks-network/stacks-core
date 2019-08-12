@@ -4,6 +4,7 @@ use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_nam
 use vm::functions::NativeFunctions;
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
+use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 
 use vm::variables::NativeVariables;
 use std::collections::HashMap;
@@ -14,32 +15,43 @@ pub use super::errors::{CheckResult, CheckError, CheckErrors};
 #[cfg(test)]
 mod tests;
 
-pub struct ReadOnlyChecker <'a, 'b> {
+pub struct CheckReadOnlyDefinitions <'a, 'b> {
     db: &'a AnalysisDatabase<'b>,
-    defined_functions: HashMap<String, bool>
+    defined_functions: HashMap<String, bool>,
+    contract_analysis: &'a mut ContractAnalysis
 }
 
+impl <'a, 'b> AnalysisPass for CheckReadOnlyDefinitions <'a, 'b> {
 
-impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
+    fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
+        let mut command = CheckReadOnlyDefinitions::new(contract_analysis, analysis_db);
+        command.run()?;
+        Ok(())
+    }
+}
+
+impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
     
-
-    fn new(db: &'a AnalysisDatabase<'b>) -> ReadOnlyChecker<'a, 'b> {
-        ReadOnlyChecker { db, defined_functions: HashMap::new() }
+    fn new(contract_analysis: &'a mut ContractAnalysis, db: &'a AnalysisDatabase<'b>) -> CheckReadOnlyDefinitions<'a, 'b> {
+        Self { 
+            db, 
+            contract_analysis,
+            defined_functions: HashMap::new() 
+        }
     }
 
-    pub fn check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<()> {
-        let mut checker = ReadOnlyChecker::new(analysis_db);
+    pub fn run(& mut self) -> CheckResult<()> {
 
-        for expr in contract {
-            let mut result = checker.check_reads_only_valid(expr);
+        let expressions = self.contract_analysis.expressions[..].to_vec();
+        for expr in expressions {
+            let mut result = self.check_reads_only_valid(&expr);
             if let Err(ref mut error) = result {
                 if !error.has_expression() {
-                    error.set_expression(expr);
+                    error.set_expression(&expr);
                 }
             }
             result?
         }
-
 
         Ok(())
     }
