@@ -892,6 +892,16 @@ impl TrieFileStorage {
     pub fn open_block(&mut self, bhh: &BlockHeaderHash, readwrite: bool) -> Result<(), Error> {
         let block_fork_ptr = self.fork_table.get_fork_ptr(bhh)?;
 
+        let sentinel = TrieFileStorage::block_sentinel();
+        if *bhh == sentinel {
+            // just reset to newly opened state
+            self.cur_block_fd = None;
+            self.cur_block = sentinel;
+            self.cur_block_fork_ptr = None;
+            self.readonly = !readwrite;
+            return Ok(());
+        }
+
         if Some(*bhh) == self.last_extended {
             // nothing to do -- we're already ready.
             // just clear out.

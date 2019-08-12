@@ -15,6 +15,7 @@ use chainstate::burn::BlockHeaderHash;
 ///   NOTE: Clarity will panic if you try to execute it from a non-initialized MarfedKV context.
 ///   (See: vm::tests::with_marfed_environment()) 
 pub struct MarfedKV {
+    chain_tip: BlockHeaderHash,
     marf: MARF,
     // Since the MARF only stores 32 bytes of value,
     //   we need another storage
@@ -32,13 +33,20 @@ pub fn temporary_marf() -> MarfedKV {
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     path.push(to_hex(&random_bytes));
 
-    let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"))
+    let mut marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"))
         .unwrap();
     let side_store = Box::new(HashMap::new());
-    MarfedKV { marf, side_store }
+
+    let chain_tip = marf.chain_tips().get(0).cloned()
+        .unwrap_or_else(|| TrieFileStorage::block_sentinel());
+
+    MarfedKV { chain_tip, marf, side_store }
 }
 
-pub fn sqlite_marf(path_str: &str) -> Result<MarfedKV> {
+/// If chain_tip is None, this will try to figure out a reasonable value for a starting
+///   chain_tip. If the MARF already has some chain_tips, then it selects ordinal 0.
+///   Otherwise, it uses the block_sentinel.
+pub fn sqlite_marf(path_str: &str, chain_tip: Option<BlockHeaderHash>) -> Result<MarfedKV> {
     let mut path = PathBuf::from(path_str);
     std::fs::create_dir_all(&path)
         .map_err(|err| InterpreterError::FailedToCreateDataDirectory)?;
@@ -55,16 +63,22 @@ pub fn sqlite_marf(path_str: &str) -> Result<MarfedKV> {
         .to_string();
 
     let side_store = Box::new(SqliteConnection::initialize(&data_path)?);
-    let marf = MARF::from_path(&marf_path)
+    let mut marf = MARF::from_path(&marf_path)
         .map_err(|err| InterpreterError::MarfFailure(IncomparableError{ err }))?;
 
-    Ok( MarfedKV { marf, side_store } )
+    let chain_tip = chain_tip
+        .or_else(|| marf.chain_tips().get(0).cloned())
+        .unwrap_or_else(|| TrieFileStorage::block_sentinel());
+
+
+    Ok( MarfedKV { chain_tip, marf, side_store } )
 }
 
 impl MarfedKV {
     pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
         self.marf.begin(current, next)
             .unwrap();
+        self.chain_tip = next.clone();
     }
     pub fn commit(&mut self) {
         self.marf.commit()
@@ -72,6 +86,9 @@ impl MarfedKV {
     }
     pub fn chain_tips(&mut self) -> Vec<BlockHeaderHash> {
         self.marf.chain_tips()
+    }
+    pub fn get_chain_tip(&self) -> &BlockHeaderHash {
+        &self.chain_tip
     }
 }
 
@@ -86,10 +103,7 @@ impl KeyValueStorage for &mut MarfedKV {
     }
 
     fn get(&mut self, key: &str) -> Option<String> {
-        let chain_tip = self.marf.get_open_chain_tip()
-            .expect("ERROR: Clarity VM attempted to use unopened MARF")
-            .clone();
-        self.marf.get(&chain_tip, key)
+        self.marf.get(&self.chain_tip, key)
             .or_else(|e| {
                 match e {
                     MarfError::NotFoundError => Ok(None),

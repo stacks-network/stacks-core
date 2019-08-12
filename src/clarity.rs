@@ -40,7 +40,7 @@ where command is one of:
   generate_address   to generate a random Stacks public address for testing purposes.
 
 ", invoked_by);
-    panic!()
+    process::exit(1)
 }
 
 
@@ -48,7 +48,7 @@ where command is one of:
 fn friendly_expect<A,B: std::fmt::Display>(input: Result<A,B>, msg: &str) -> A {
     input.unwrap_or_else(|e| {
         eprintln!("{}\nCaused by: {}", msg, e);
-        panic!();
+        process::exit(1);
     })
 }
 
@@ -56,7 +56,7 @@ fn friendly_expect<A,B: std::fmt::Display>(input: Result<A,B>, msg: &str) -> A {
 fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     input.unwrap_or_else(|| {
         eprintln!("{}", msg);
-        panic!();
+        process::exit(1);
     })
 }
 
@@ -69,10 +69,7 @@ fn clarity_db(marf_kv: &mut MarfedKV) -> ClarityDatabase {
 //   repeating a lot of block initialization for the simulation commands.
 fn in_block<F,R>(mut marf_kv: MarfedKV, f: F) -> R
 where F: FnOnce(MarfedKV) -> (MarfedKV, R) {
-    let from = match marf_kv.chain_tips().pop() {
-        Some(k) => k,
-        None => TrieFileStorage::block_sentinel()
-    };
+    let from = marf_kv.get_chain_tip().clone();
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     let to = friendly_expect_opt(BlockHeaderHash::from_bytes(&random_bytes),
                                  "Failed to generate random block header.");
@@ -91,10 +88,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "initialize" => {
             if args.len() < 2 {
                 eprintln!("Usage: {} {} [vm-state.db]", invoked_by, args[0]);
-                panic!();
+                process::exit(1);
             }
 
-            let marf_kv = friendly_expect(sqlite_marf(&args[1]), "Failed to open VM database.");
+            let marf_kv = friendly_expect(sqlite_marf(&args[1], None), "Failed to open VM database.");
             in_block(marf_kv, |mut kv| {
                 { let mut db = clarity_db(&mut kv);
                   db.initialize() };
@@ -112,7 +109,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "check" => {
             if args.len() < 2 {
                 eprintln!("Usage: {} {} [program-file.clar] (vm-state.db)", invoked_by, args[0]);
-                panic!();
+                process::exit(1);
             }
             
             let content: String = friendly_expect(fs::read_to_string(&args[1]),
@@ -123,7 +120,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let contract_analysis = {
                 if args.len() >= 3 {
                     // use a persisted marf
-                    let mut marf = friendly_expect(sqlite_marf(&args[2]), "Failed to open VM database.");
+                    let mut marf = friendly_expect(sqlite_marf(&args[2], None), "Failed to open VM database.");
                     let result = { let mut db = AnalysisDatabase::new(Box::new(&mut marf));
                                    type_check(&":transient:", &mut ast, &mut db, false) };
                     marf.commit();
@@ -135,7 +132,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             }.unwrap_or_else(|e| {
                 println!("{}", &e.diagnostic);
-                panic!();
+                process::exit(1);
             });
 
             match args.last() {
@@ -168,7 +165,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         Ok(_) => buffer,
                         Err(error) => {
                             eprintln!("Error reading from stdin:\n{}", error);
-                            panic!();
+                            process::exit(1);
                         }
                     }
                 };
@@ -221,20 +218,20 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         },
                         Err(error) => {
                             eprintln!("Program execution error: \n{}", error);
-                            panic!();
+                            process::exit(1);
                         }
                     }
                 },
                 Err(error) => {
                     eprintln!("Type check error.\n{}", error);
-                    panic!();
+                    process::exit(1);
                 }
             }
         },
         "eval" => {
             if args.len() < 3 {
                 eprintln!("Usage: {} {} [context-contract-name] (program.clar) [vm-state.db]", invoked_by, args[0]);
-                panic!();
+                process::exit(1);
             }
 
             let vm_filename = 
@@ -244,7 +241,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     &args[3]
                 };
 
-            let mut marf_kv = friendly_expect(sqlite_marf(vm_filename), "Failed to open VM database.");
+            let mut marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
             let mut db = ClarityDatabase::new(Box::new(&mut marf_kv));
 
             let content: String = {
@@ -271,14 +268,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 },
                 Err(error) => { 
                     eprintln!("Program execution error: \n{}", error);
-                    panic!();
+                    process::exit(1);
                 }
             }
         },
         "launch" => {
             if args.len() < 4 {
                 eprintln!("Usage: {} {} [contract-name] [contract-definition.clar] [vm-state.db]", invoked_by, args[0]);
-                panic!();
+                process::exit(1);
             }
             let vm_filename = &args[3];
 
@@ -286,27 +283,32 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let contract_content: String = friendly_expect(fs::read_to_string(&args[2]),
                                                            &format!("Error reading file: {}", args[2]));
 
-            let marf_kv = friendly_expect(sqlite_marf(vm_filename), "Failed to open VM database.");
-            let (contract_analysis, result) = in_block(
+            let mut ast = friendly_expect(parse(&contract_content), "Failed to parse program.");
+            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
+            let result = in_block(
                 marf_kv,
                 |mut marf| {
-                    let contract_analysis = { 
+                    let analysis_result = { 
                         let mut db = AnalysisDatabase::new(Box::new(&mut marf));
-                        let mut ast = friendly_expect(parse(&contract_content), "Failed to parse program.");
                         
-                        friendly_expect(type_check(contract_name, &mut ast, &mut db, true),
-                                        "Type check error.")
+                        type_check(contract_name, &mut ast, &mut db, true)
                     };
-                    let result = {
-                        let db = ClarityDatabase::new(Box::new(&mut marf));
-                        let mut vm_env = OwnedEnvironment::new(db);
-                        vm_env.initialize_contract(&contract_name, &contract_content)
-                    };
-                    (marf, (contract_analysis, result))
+
+                    match analysis_result {
+                        Err(e) => (marf, Err(e)),
+                        Ok(analysis) => {
+                            let result = {
+                                let db = ClarityDatabase::new(Box::new(&mut marf));
+                                let mut vm_env = OwnedEnvironment::new(db);
+                                vm_env.initialize_contract(&contract_name, &contract_content)
+                            };
+                            (marf, Ok((analysis, result)))
+                        }
+                    }
                 });
 
             match result {
-                Ok(_x) => {
+                Ok((contract_analysis, Ok(_x))) => {
                     match args.last() {
                         Some(s) if s == "--output_analysis" => {
                             println!("{}", contract_analysis.to_interface().serialize());
@@ -318,17 +320,21 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 },
                 Err(error) => {
                     eprintln!("Contract initialization error: \n{}", error);
-                    panic!();
+                    process::exit(1);
+                },
+                Ok((_, Err(error))) => {
+                    eprintln!("Contract initialization error: \n{}", error);
+                    process::exit(1);
                 }
             }
         },
         "execute" => {
             if args.len() < 5 {
                 eprintln!("Usage: {} {} [vm-state.db] [contract-name] [public-function-name] [sender-address] [args...]", invoked_by, args[0]);
-                panic!();
+                process::exit(1);
             }
             let vm_filename = &args[1];
-            let marf_kv = friendly_expect(sqlite_marf(vm_filename), "Failed to open VM database.");
+            let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
 
             let contract_name = &args[2];
             let tx_name = &args[3];            
@@ -345,7 +351,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     Value::Principal(principal_data.clone())
                 } else {
                     eprintln!("Unexpected result parsing sender: {}", sender_in);
-                    panic!();
+                    process::exit(1);
                 }
             };
             let arguments: Vec<_> = args[5..]
@@ -386,7 +392,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 },
                 Err(error) => {
                     eprintln!("Transaction execution error: \n{}", error);
-                    panic!();
+                    process::exit(1);
                 }
             }
         },
@@ -396,7 +402,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             // TODO: add optional args for specifying timestamps and number of blocks to mine.
             if args.len() < 3 {
                 eprintln!("Usage: {} {} [block time] [vm-state.db]", invoked_by, args[0]);
-                panic!();
+                process::exit(1);
             }
 
             let block_time: u64 = friendly_expect(args[1].parse(), "Failed to parse block time");
@@ -405,7 +411,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 Ok(db) => db,
                 Err(error) => {
                     eprintln!("Could not open vm-state: \n{}", error);
-                    panic!();
+                    process::exit(1);
                 }
             };
 
@@ -418,14 +424,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "get_block_height" => {
             if args.len() < 2 {
                 eprintln!("Usage: {} {} [vm-state.db]", invoked_by, args[0]);
-                panic!();
+                process::exit(1);
             }
 
             let db = match SqliteConnection::open(&args[1]) {
                 Ok(db) => db,
                 Err(error) => {
                     eprintln!("Could not open vm-state: \n{}", error);
-                    panic!();
+                    process::exit(1);
                 }
             };
 
@@ -451,6 +457,9 @@ mod test {
         invoke_command("test", &["check".to_string(), "sample-programs/tokens.clar".to_string(), db_name.clone()]);
         invoke_command("test", &["launch".to_string(), "tokens".to_string(),
                                  "sample-programs/tokens.clar".to_string(), db_name.clone()]);
+        invoke_command("test", &["check".to_string(), "sample-programs/names.clar".to_string(), db_name.clone()]);
+        invoke_command("test", &["launch".to_string(), "names".to_string(),
+                                 "sample-programs/names.clar".to_string(), db_name.clone()]);
         invoke_command("test", &["execute".to_string(), db_name.clone(), "tokens".to_string(),
                                  "mint!".to_string(), "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
                                  "1000".to_string()]);
