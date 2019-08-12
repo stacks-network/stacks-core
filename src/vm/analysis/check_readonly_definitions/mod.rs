@@ -43,7 +43,10 @@ impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
     pub fn run(& mut self) -> CheckResult<()> {
 
         let expressions = self.contract_analysis.expressions[..].to_vec();
-        for expr in expressions {
+        let indexes = self.contract_analysis.expressions_indexes();
+
+        for index in indexes {
+            let expr = &expressions[index];
             let mut result = self.check_reads_only_valid(&expr);
             if let Err(ref mut error) = result {
                 if !error.has_expression() {

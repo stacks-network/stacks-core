@@ -168,8 +168,11 @@ impl <'a, 'b> CheckTyping <'a, 'b> {
         let mut local_context = TypingContext::new();
 
         let expressions = self.contract_analysis.expressions[..].to_vec();
-        for exp in expressions {
+        let indexes = self.contract_analysis.expressions_indexes();
 
+
+        for index in indexes {
+            let exp = &expressions[index];
             let mut result_res = self.try_type_check_define(&exp, &mut local_context);
             if let Err(ref mut error) = result_res {
                 if !error.has_expression() {

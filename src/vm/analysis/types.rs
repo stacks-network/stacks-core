@@ -98,4 +98,48 @@ impl ContractAnalysis {
         serde_json::to_string(self)
             .expect(SERIALIZE_FAIL_MESSAGE)
     }
+
+    pub fn expressions_indexes(&self) -> Vec<usize> {
+        match self.top_level_expression_sorting {
+            Some(ref indirections) => indirections[..].to_vec(),
+            None => (0..self.expressions.len()).collect()
+        }
+    }
+
+    pub fn expressions_iter(&self) -> ExpressionsIterator {
+        let expressions = &self.expressions[..].to_vec();
+        // let sorting = match self.top_level_expression_sorting {
+        //     Some(ref exprs_ids) => Some(exprs_ids[..].to_vec()),
+        //     None => None
+        // };
+
+        ExpressionsIterator {
+            // expressions,
+            // sorting: sorting,
+            index: 0,
+        }
+    }
 }
+
+// struct ExpressionsIterator <'a> {
+//     expressions: &'a [SymbolicExpression],
+//     sorting: Option<Vec<usize>>,
+//     index: usize,
+// }
+
+// impl <'a> Iterator for ExpressionsIterator <'a> {
+//     type Item = &'a SymbolicExpression;
+
+//     fn next(&mut self) -> Option<&'a SymbolicExpression> {
+//         if self.index >= self.expressions.len() {
+//             return None;
+//         }
+//         let expr_index = match self.sorting {
+//             Some(ref indirections) => indirections[self.index],
+//             None => self.index
+//         };
+//         let result = &self.expressions[expr_index];
+//         self.index += 1;
+//         Some(result)
+//     }
+// }
