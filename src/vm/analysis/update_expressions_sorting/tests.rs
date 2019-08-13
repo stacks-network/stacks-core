@@ -56,6 +56,8 @@ fn test_contract_call_cyclic_graph_call() {
     let mut analysis_conn = AnalysisDatabaseConnection::memory();
     let mut db = analysis_conn.begin_save_point();
 
-    type_check(&"contract", &mut contract, &mut db, true).unwrap();
+    let err = type_check(&"contract", &mut contract, &mut db, true).unwrap_err();
+    let cycle = vec!["b".to_string(), "c".to_string(), "a".to_string()];
+    assert_eq!(err.err, CheckErrors::CyclingDependencies(cycle))
 }
 
