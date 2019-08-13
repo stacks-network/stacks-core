@@ -1,10 +1,10 @@
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashSet, HashMap, VecDeque};
 use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 
 use super::AnalysisDatabase;
-use super::errors::{CheckResult};
+use super::errors::{CheckResult, CheckError, CheckErrors};
 
 #[cfg(test)]
 mod tests;
@@ -15,20 +15,20 @@ pub struct TopLevelExpressionIndex {
 }
 
 struct Graph {
-    top_level_expressions: Vec<usize>,
+    nodes: Vec<usize>,
     adjacency_list: Vec<Vec<usize>>
 }
 
 impl Graph {
     fn new() -> Self {
         Self { 
-            top_level_expressions: Vec::new(), 
+            nodes: Vec::new(), 
             adjacency_list: Vec::new() 
         }
     }
 
     fn push_top_level_expression(&mut self, expr_index: usize) -> CheckResult<()> {
-        self.top_level_expressions.push(expr_index);
+        self.nodes.push(expr_index);
         self.adjacency_list.push(vec![]);
         Ok(())
     }
@@ -38,29 +38,38 @@ impl Graph {
         list.push(dst_expr_index);
         Ok(())
     }
+    
+    fn get_node_descendants(&self, expr_index: usize) -> Vec<usize> {
+        self.adjacency_list[expr_index].clone()
+    }
+
+    fn has_node_descendants(&self, expr_index: usize) -> bool {
+        self.adjacency_list[expr_index].len() == 0
+    }
 }
 
 struct GraphWalker {
     seen: HashSet<usize>,
-    tainted: HashSet<usize>,
 }
 
 impl GraphWalker  {
 
-    fn get_required_eval_order(graph: &Graph) -> CheckResult<Vec<usize>> {
-        let mut walker =  GraphWalker {
-            seen: HashSet::new(),
-            tainted: HashSet::new(),
-        };
-        let mut required_eval_order = Vec::<usize>::new();
+    fn new() -> Self { Self { seen: HashSet::new() } }
 
-        for expr_index in 0..graph.top_level_expressions.len() {
-            walker.ordered_dependencies_recursion(expr_index, graph, &mut required_eval_order);
+    fn get_sorted_dependencies(graph: &Graph) -> CheckResult<Vec<usize>> {
+        let mut walker = GraphWalker::new();
+
+        let mut sorted_indexes = Vec::<usize>::new();
+        for expr_index in 0..graph.nodes.len() {
+            walker.sort_dependencies_recursion(expr_index, graph, &mut sorted_indexes);
         }
-        Ok(required_eval_order)
+
+        walker.detect_cycling_dependencies(&graph, &sorted_indexes)?;
+
+        Ok(sorted_indexes)
     }
 
-    fn ordered_dependencies_recursion(&mut self, tle_index: usize, graph: &Graph, branch: &mut Vec<usize>) {
+    fn sort_dependencies_recursion(&mut self, tle_index: usize, graph: &Graph, branch: &mut Vec<usize>) {
         if self.seen.contains(&tle_index) {
             return
         }
@@ -68,17 +77,42 @@ impl GraphWalker  {
         self.seen.insert(tle_index);
         if let Some(list) = graph.adjacency_list.get(tle_index) {
             for neighbor in list.iter() {
-                self.ordered_dependencies_recursion(neighbor.clone(), graph, branch);
+                self.sort_dependencies_recursion(neighbor.clone(), graph, branch);
             }
         }
         branch.push(tle_index);
+    }
+
+    fn detect_cycling_dependencies(&mut self, graph: &Graph, sorted_indexes: &Vec<usize>) -> CheckResult<()> {
+        let mut tainted: HashSet<usize> = HashSet::new();
+
+        for node in sorted_indexes.iter() {
+            let mut tainted_descendants_count = 0;
+            let descendants = graph.get_node_descendants(*node);
+            for descendant in descendants.iter() {
+                if graph.has_node_descendants(*descendant) == false || tainted.contains(descendant) {
+                    tainted.insert(*descendant);
+                    tainted_descendants_count += 1;
+                }
+            }
+            if tainted_descendants_count == descendants.len() {
+                tainted.insert(*node);
+            }
+        }
+
+        println!("{:?} - {:?}", tainted, sorted_indexes);
+        if tainted.len() == sorted_indexes.len() {
+            return Ok(())
+        }
+
+        // let nodes = sorted_indexes.iter().cloned().collect();
+        return Err(CheckError::new(CheckErrors::CyclingDependencies))
     }
 }
 
 pub struct UpdateExpressionsSorting <'a> {
     graph: Graph,
     top_level_expressions_map: HashMap<String, TopLevelExpressionIndex>,
-    top_level_expressions: Vec<TopLevelExpressionIndex>,
     contract_analysis: &'a mut ContractAnalysis
 }
 
@@ -97,7 +131,6 @@ impl <'a> UpdateExpressionsSorting <'a> {
         Self { 
             contract_analysis,
             top_level_expressions_map: HashMap::new(),
-            top_level_expressions: Vec::new(),
             graph: Graph::new()
         }
     }
@@ -111,8 +144,8 @@ impl <'a> UpdateExpressionsSorting <'a> {
             self.register_dependencies(&expr, index)?;
         }
 
-        let indexes = GraphWalker::get_required_eval_order(&self.graph)?;
-        self.contract_analysis.top_level_expression_sorting = Some(indexes.clone());
+        let indexes = GraphWalker::get_sorted_dependencies(&self.graph)?;
+        self.contract_analysis.top_level_expression_sorting = Some(indexes);
 
         Ok(())
     }

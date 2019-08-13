@@ -47,6 +47,7 @@ pub enum CheckErrors {
     PublicFunctionMustReturnResponse(TypeSignature),
     DefineVariableBadSignature,
     ReturnTypesMustMatch(TypeSignature, TypeSignature),
+    CyclingDependencies,
 
     // contract-call errors
     NoSuchContract(String),
@@ -178,6 +179,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::NonFunctionApplication => format!("expecting expression of type function"),
             CheckErrors::ExpectedListApplication => format!("expecting expression of type list"),
             CheckErrors::BadLetSyntax => format!("invalid syntax of 'let'"),
+            CheckErrors::CyclingDependencies => format!("interdependant functions detected"),
             CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),
             CheckErrors::MaxContextDepthReached => format!("reached depth limit"),
             CheckErrors::UnboundVariable(var_name) => format!("use of unresolved variable '{}'", var_name),
