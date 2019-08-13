@@ -294,19 +294,19 @@ created by this set of bindings is used for evaluating its body expressions. The
 const FETCH_VAR_API: SpecialAPI = SpecialAPI { 
     input_type: "VarName",
     output_type: "A",
-    signature: "(fetch-var var-name)",
-    description: "The `fetch-var` function looks up and returns an entry from a contract's data map.
+    signature: "(var-get var-name)",
+    description: "The `var-get` function looks up and returns an entry from a contract's data map.
 The value is looked up using `var-name`.",
-    example: "(fetch-var cursor) ;; Returns cursor"
+    example: "(var-get cursor) ;; Returns cursor"
 };
 
 const SET_VAR_API: SpecialAPI = SpecialAPI { 
     input_type: "VarName, AnyType",
     output_type: "bool",
-    signature: "(set-var! var-name expr1)",
-    description: "The `set-var!` function sets the value associated with the input variable to the 
+    signature: "(var-set! var-name expr1)",
+    description: "The `var-set!` function sets the value associated with the input variable to the 
 inputted value.",
-    example: "(set-var! cursor (+ cursor 1)) ;; Returns 'true"
+    example: "(var-set! cursor (+ cursor 1)) ;; Returns 'true"
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
@@ -369,65 +369,65 @@ nodes configured for development (as opposed to production mining nodes), this f
 const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
     input_type: "MapName, tuple",
     output_type: "(optional (tuple))",
-    signature: "(fetch-entry map-name key-tuple)",
-    description: "The `fetch-entry` function looks up and returns an entry from a contract's data map.
+    signature: "(map-get map-name key-tuple)",
+    description: "The `map-get` function looks up and returns an entry from a contract's data map.
 The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
 it returns (some value)",
-    example: "(expects! (fetch-entry names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
-(expects! (fetch-entry names-map ((name \"blockstack\"))) (err 1)) ;; Same command, using a shorthand for constructing the tuple
+    example: "(expects! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))
+(expects! (map-get names-map ((name \"blockstack\"))) (err 1)) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
 const SET_ENTRY_API: SpecialAPI = SpecialAPI {
     input_type: "MapName, tuple_A, tuple_B",
     output_type: "bool",
-    signature: "(set-entry! map-name key-tuple value-tuple)",
-    description: "The `set-entry!` function sets the value associated with the input key to the 
+    signature: "(map-set! map-name key-tuple value-tuple)",
+    description: "The `map-set!` function sets the value associated with the input key to the 
 inputted value. This function performs a _blind_ update; whether or not a value is already associated
 with the key, the function overwrites that existing association.",
-    example: "(set-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
-(set-entry! names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+    example: "(map-set! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
+(map-set! names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
 const INSERT_ENTRY_API: SpecialAPI = SpecialAPI {
     input_type: "MapName, tuple_A, tuple_B",
     output_type: "bool",
-    signature: "(insert-entry! map-name key-tuple value-tuple)",
-    description: "The `insert-entry!` function sets the value associated with the input key to the 
+    signature: "(map-insert! map-name key-tuple value-tuple)",
+    description: "The `map-insert!` function sets the value associated with the input key to the 
 inputted value if and only if there is not already a value associated with the key in the map.
 If an insert occurs, the function returns `true`. If a value already existed for
 this key in the data map, the function returns `false`.",
-    example: "(insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
-(insert-entry! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'false
-(insert-entry! names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
+    example: "(map-insert! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'true
+(map-insert! names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Returns 'false
+(map-insert! names-map ((name \"blockstack\")) ((id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
 const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
     input_type: "MapName, tuple",
     output_type: "bool",
-    signature: "(delete-entry! map-name key-tuple)",
-    description: "The `delete-entry!` function removes the value associated with the input key for
+    signature: "(map-delete! map-name key-tuple)",
+    description: "The `map-delete!` function removes the value associated with the input key for
 the given map. If an item exists and is removed, the function returns `true`.
 If a value did not exist for this key in the data map, the function returns `false`.",
-    example: "(delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns 'true
-(delete-entry! names-map (tuple (name \"blockstack\"))) ;; Returns 'false
-(delete-entry! names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
+    example: "(map-delete! names-map (tuple (name \"blockstack\"))) ;; Returns 'true
+(map-delete! names-map (tuple (name \"blockstack\"))) ;; Returns 'false
+(map-delete! names-map ((name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
 };
 
 const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, MapName, tuple",
     output_type: "(optional (tuple))",
-    signature: "(fetch-contract-entry contract-name map-name key-tuple)",
-    description: "The `fetch-contract-entry` function looks up and returns an entry from a
+    signature: "(contract-map-get contract-name map-name key-tuple)",
+    description: "The `contract-map-get` function looks up and returns an entry from a
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
 it returns (some value).",
-    example: "(expects! (fetch-contract-entry names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
-(expects! (fetch-contract-entry names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
+    example: "(expects! (contract-map-get names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
+(expects! (contract-map-get names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -450,8 +450,8 @@ const TUPLE_GET_API: SpecialAPI = SpecialAPI {
 If an `Optional` value is supplied as the inputted tuple, `get` returns an `Optional` type of the specified key in
 the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
     example: "(get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
-(get id (fetch-entry names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
-(get id (fetch-entry names-map (tuple (name \"non-existent\")))) ;; Returns (none)
+(get id (map-get names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
+(get id (map-get names-map (tuple (name \"non-existent\")))) ;; Returns (none)
 "
 };
 
@@ -515,7 +515,7 @@ an option type, and the argument is a `(some ...)` option, `expects!` returns th
 option. If the argument is a response type, and the argument is an `(ok ...)` response, `expects!` returns
  the inner value of the `ok`. If the supplied argument is either an `(err ...)` or a `(none)` value,
 `expects!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
-    example: "(expects! (fetch-entry names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
+    example: "(expects! (map-get names-map (tuple (name \"blockstack\"))) (err 1)) ;; Returns (tuple (id 1337))",
 };
 
 const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {
@@ -536,8 +536,8 @@ const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
     description: "The `default-to` function attempts to 'unpack' the second argument: if the argument is
 a `(some ...)` option, it returns the inner value of the option. If the second argument is a `(none)` value,
 `default-to` it returns the value of `default-value`.",
-    example: "(default-to 0 (get id (fetch-entry names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
-(default-to 0 (get id (fetch-entry names-map (tuple (name \"non-existant\"))))) ;; Returns 0
+    example: "(default-to 0 (get id (map-get names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
+(default-to 0 (get id (map-get names-map (tuple (name \"non-existant\"))))) ;; Returns 0
 ",
 };
 
@@ -586,8 +586,8 @@ const IS_NONE_API: SpecialAPI = SpecialAPI {
     signature: "(is-none? value)",
     description: "`is-none?` tests a supplied option value, returning `true` if the option value is `(none)`,
 and `false` if it is a `(some ...)`.",
-    example: "(is-none? (get id (fetch-entry names-map (tuple (name \"blockstack\"))))) ;; Returns 'false
-(is-none? (get id (fetch-entry names-map (tuple (name \"non-existant\"))))) ;; Returns 'true"
+    example: "(is-none? (get id (map-get names-map (tuple (name \"blockstack\"))))) ;; Returns 'false
+(is-none? (get id (map-get names-map (tuple (name \"non-existant\"))))) ;; Returns 'true"
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
@@ -743,7 +743,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
     example: "
 (define-map squares ((x int)) ((square int)))
 (define (add-entry (x int))
-  (insert-entry! squares ((x 2)) ((square (* x x)))))
+  (map-insert! squares ((x 2)) ((square (* x x)))))
 (add-entry 1)
 (add-entry 2)
 (add-entry 3)
@@ -766,7 +766,7 @@ definition (i.e., you cannot put a define statement in the middle of a function 
     example: "
 (define-data-var size int 0)
 (define (set-size (value int))
-  (set-var! size value))
+  (var-set! size value))
 (set-size 1)
 (set-size 2)
 "

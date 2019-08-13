@@ -365,7 +365,7 @@ fn test_bad_lets() {
         "(let ((tx-sender 1)) (+ tx-sender tx-sender))",
         "(let ((* 1)) (+ * *))",
         "(let ((a 1) (a 2)) (+ a a))",
-        "(let ((a 1) (b 2)) (set-var! cursor a) (set-var! cursor (+ b (fetch-var cursor))) (+ a b))"];
+        "(let ((a 1) (b 2)) (var-set! cursor a) (var-set! cursor (+ b (var-get cursor))) (+ a b))"];
 
     let expectations: &[Error] = &[
         UncheckedError::ReservedName("tx-sender".to_string()).into(),
@@ -381,7 +381,7 @@ fn test_bad_lets() {
 fn test_lets() {
     let tests = [
         "(let ((a 1) (b 2)) (+ a b))",
-        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (set-var! cursor a) (set-var! cursor (+ b (fetch-var cursor))) (fetch-var cursor))"];
+        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set! cursor a) (var-set! cursor (+ b (var-get cursor))) (var-get cursor))"];
 
     let expectations = [
         Value::Int(3),

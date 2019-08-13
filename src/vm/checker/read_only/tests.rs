@@ -8,52 +8,52 @@ fn test_simple_read_only_violations() {
     let bad_contracts = [ 
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
-            (let ((balance (set-entry! tokens (tuple (account tx-sender))
+            (let ((balance (map-set! tokens (tuple (account tx-sender))
                                               (tuple (balance 10)))))
                  (+ 1 2)))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
-            (or (insert-entry! tokens (tuple (account tx-sender))
+            (or (map-insert! tokens (tuple (account tx-sender))
                                              (tuple (balance 10))) 'false))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
-            (tuple (result (delete-entry! tokens (tuple (account tx-sender))))))",
+            (tuple (result (map-delete! tokens (tuple (account tx-sender))))))",
         "(define-map tokens ((account principal)) ((balance int)))
-         (define-private (func1) (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10))))
+         (define-private (func1) (map-set! tokens (tuple (account tx-sender)) (tuple (balance 10))))
          (define-read-only (not-reading-only)
             (map func1 (list 1 2 3)))",
         "(define-map tokens ((account principal)) ((balance int)))
-         (define-private (func1) (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10))))
+         (define-private (func1) (map-set! tokens (tuple (account tx-sender)) (tuple (balance 10))))
          (define-read-only (not-reading-only)
-            (map + (list 1 (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10))) 3)))",
+            (map + (list 1 (map-set! tokens (tuple (account tx-sender)) (tuple (balance 10))) 3)))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (update-balance-and-get-tx-sender)
             (begin              
-              (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10)))
+              (map-set! tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
          (define-read-only (get-token-balance)
-            (fetch-entry tokens ((account (update-balance-and-get-tx-sender)))))",
+            (map-get tokens ((account (update-balance-and-get-tx-sender)))))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (update-balance-and-get-tx-sender)
             (begin              
-              (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10)))
+              (map-set! tokens (tuple (account tx-sender)) (tuple (balance 10)))
               (tuple (account tx-sender))))
          (define-read-only (get-token-balance)
-            (fetch-entry tokens (update-balance-and-get-tx-sender)))",
+            (map-get tokens (update-balance-and-get-tx-sender)))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (update-balance-and-get-tx-sender)
             (begin              
-              (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10)))
+              (map-set! tokens (tuple (account tx-sender)) (tuple (balance 10)))
               tx-sender))
          (define-read-only (get-token-balance)
-            (fetch-entry tokens ((account (update-balance-and-get-tx-sender)))))",
+            (map-get tokens ((account (update-balance-and-get-tx-sender)))))",
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (not-reading-only)
             (let ((x 1))
-              (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10)))
+              (map-set! tokens (tuple (account tx-sender)) (tuple (balance 10)))
               x))",
         "(define-map tokens ((account principal)) ((balance int)))
-         (define-private (func1) (set-entry! tokens (tuple (account tx-sender)) (tuple (balance 10))))
+         (define-private (func1) (map-set! tokens (tuple (account tx-sender)) (tuple (balance 10))))
          (define-read-only (not-reading-only)
             (fold func1 (list 1 2 3) 1))"];
 
@@ -70,10 +70,10 @@ fn test_contract_call_read_only_violations() {
     let contract1 = 
         "(define-map tokens ((account principal)) ((balance int)))
          (define-read-only (get-token-balance)
-            (get balance (fetch-entry tokens (tuple (account tx-sender))) ))
+            (get balance (map-get tokens (tuple (account tx-sender))) ))
          (define-public (mint)
             (begin
-              (set-entry! tokens (tuple (account tx-sender))
+              (map-set! tokens (tuple (account tx-sender))
                                               (tuple (balance 10)))
               (ok 1)))";
     let bad_caller = 

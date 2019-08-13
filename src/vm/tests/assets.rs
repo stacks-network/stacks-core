@@ -40,7 +40,7 @@ const ASSET_NAMES: &str =
                                 burn-address name-price)))
             (if (is-ok? xfer-result)
                (if
-                 (insert-entry! preorder-map
+                 (map-insert! preorder-map
                    (tuple (name-hash name-hash))
                    (tuple (paid name-price)
                           (buyer tx-sender)))
@@ -76,7 +76,7 @@ const ASSET_NAMES: &str =
                         (salt int))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (expects! (fetch-entry preorder-map
+                   (expects! (map-get preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
                    (nft-get-owner names name)))
@@ -90,7 +90,7 @@ const ASSET_NAMES: &str =
                        (get buyer preorder-entry)))
                   (if (and
                     (is-ok? (nft-mint! names name recipient-principal))
-                    (delete-entry! preorder-map
+                    (map-delete! preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
                     (ok 0)
                     (err 3))

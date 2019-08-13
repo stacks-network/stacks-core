@@ -96,7 +96,7 @@ fn test_tuple_expects_pairs() {
 
 #[test]
 fn test_no_such_variable() {
-    let snippet = "(fetch-var unicorn)";
+    let snippet = "(var-get unicorn)";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of unresolved persisted variable 'unicorn'"));
 }
@@ -110,7 +110,7 @@ fn test_bad_map_name() {
 
 #[test]
 fn test_no_such_map() {
-    let snippet = "(fetch-entry unicorn ((key 1)))";
+    let snippet = "(map-get unicorn ((key 1)))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of unresolved map 'unicorn'"));
 }
@@ -159,7 +159,7 @@ fn test_return_types_must_match() {
 
 #[test]
 fn test_no_such_contract() {
-    let snippet = "(fetch-contract-entry unicorn map ((value 0)))";
+    let snippet = "(contract-map-get unicorn map ((value 0)))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of unresolved contract 'unicorn'"));
 }
@@ -257,7 +257,7 @@ fn test_default_types_must_match() {
 
 #[test]
 fn test_write_attempt_in_readonly() {
-    let snippet = "(define-data-var x int 0) (define-read-only (fn) (set-var! x 1))";
+    let snippet = "(define-data-var x int 0) (define-read-only (fn) (var-set! x 1))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("expecting read-only statements, detected a writing operation"));
 }

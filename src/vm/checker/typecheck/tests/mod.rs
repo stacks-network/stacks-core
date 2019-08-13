@@ -331,16 +331,16 @@ fn test_function_arg_names() {
 fn test_factorial() {
     let contract = "(define-map factorials ((id int)) ((current int) (index int)))
          (define-private (init-factorial (id int) (factorial int))
-           (print (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
+           (print (map-insert! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
-           (let ((entry (expects! (fetch-entry factorials (tuple (id id)))
+           (let ((entry (expects! (map-get factorials (tuple (id id)))
                                  (err 'false))))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
                              (ok 'true)
                              (begin
-                               (set-entry! factorials (tuple (id id))
+                               (map-set! factorials (tuple (id id))
                                                       (tuple (current (* current index))
                                                              (index (- index 1))))
                                (ok 'false))))))
@@ -406,14 +406,14 @@ fn test_set_int_variable() {
     let contract_src = r#"
         (define-data-var cursor int 0)
         (define-private (get-cursor)
-            (fetch-var cursor))
+            (var-get cursor))
         (define-private (set-cursor (value int))
-            (if (set-var! cursor value)
+            (if (var-set! cursor value)
                 value
                 0))
         (define-private (increment-cursor)
             (begin
-                (set-var! cursor (+ 1 (get-cursor)))
+                (var-set! cursor (+ 1 (get-cursor)))
                 (get-cursor)))
     "#;
 
@@ -428,9 +428,9 @@ fn test_set_bool_variable() {
     let contract_src = r#"
         (define-data-var is-ok bool 'true)
         (define-private (get-ok)
-            (fetch-var is-ok))
+            (var-get is-ok))
         (define-private (set-cursor (new-ok bool))
-            (if (set-var! is-ok new-ok)
+            (if (var-set! is-ok new-ok)
                 new-ok
                 (get-ok)))
     "#;
@@ -446,9 +446,9 @@ fn test_set_tuple_variable() {
     let contract_src = r#"
         (define-data-var cursor (tuple (k1 int) (v1 int)) (tuple (k1 1) (v1 1)))
         (define-private (get-cursor)
-            (fetch-var cursor))
+            (var-get cursor))
         (define-private (set-cursor (value (tuple (k1 int) (v1 int))))
-            (if (set-var! cursor value)
+            (if (var-set! cursor value)
                 value
                 (get-cursor)))
     "#;
@@ -464,9 +464,9 @@ fn test_set_list_variable() {
     let contract_src = r#"
         (define-data-var ranking (list 3 int) (list 1 2 3))
         (define-private (get-ranking)
-            (fetch-var ranking))
+            (var-get ranking))
         (define-private (set-ranking (new-ranking (list 3 int)))
-            (if (set-var! ranking new-ranking)
+            (if (var-set! ranking new-ranking)
                 new-ranking
                 (get-ranking)))
     "#;
@@ -482,9 +482,9 @@ fn test_set_buffer_variable() {
     let contract_src = r#"
         (define-data-var name (buff 5) "alice")
         (define-private (get-name)
-            (fetch-var name))
+            (var-get name))
         (define-private (set-name (new-name (buff 3)))
-            (if (set-var! name new-name)
+            (if (var-set! name new-name)
                 new-name
                 (get-name)))
     "#;
@@ -532,9 +532,9 @@ fn test_mismatching_type_on_update_should_fail() {
     let contract_src = r#"
         (define-data-var cursor int 0)
         (define-private (get-cursor)
-            (fetch-var cursor))
+            (var-get cursor))
         (define-private (set-cursor (value principal))
-            (if (set-var! cursor value)
+            (if (var-set! cursor value)
                 value
                 0))
     "#;
@@ -573,7 +573,7 @@ fn test_data_var_shadowed_by_let_should_fail() {
         (define-data-var cursor int 0)
         (define-private (set-cursor (value int))
             (let ((cursor 0))
-               (if (set-var! cursor value)
+               (if (var-set! cursor value)
                    value
                     0)))
     "#;
@@ -592,7 +592,7 @@ fn test_data_var_shadowed_by_let_should_fail() {
 fn test_mutating_unknown_data_var_should_fail() {
     let contract_src = r#"
         (define-private (set-cursor (value int))
-            (if (set-var! cursor value)
+            (if (var-set! cursor value)
                 value
                 0))
     "#;
@@ -611,7 +611,7 @@ fn test_mutating_unknown_data_var_should_fail() {
 fn test_accessing_unknown_data_var_should_fail() {
     let contract_src = r#"
         (define-private (get-cursor)
-            (expects! (fetch-var cursor) 0))
+            (expects! (var-get cursor) 0))
     "#;
 
     let mut contract = parse(contract_src).unwrap();
@@ -703,12 +703,12 @@ fn test_tuple_map() {
                                               (owner (buff 5))))))
 
          (define-private (add-tuple (name int) (content (buff 5)))
-           (insert-entry! tuples (tuple (name name))
+           (map-insert! tuples (tuple (name name))
                                  (tuple (contents
                                    (tuple (name content)
                                           (owner content))))))
          (define-private (get-tuple (name int))
-            (get name (get contents (fetch-entry tuples (tuple (name name))))))
+            (get name (get contents (map-get tuples (tuple (name name))))))
 
 
          (add-tuple 0 \"abcde\")
@@ -730,19 +730,19 @@ fn test_explicit_tuple_map() {
         "(define-map kv-store ((key int)) ((value int)))
           (define-private (kv-add (key int) (value int))
              (begin
-                 (insert-entry! kv-store (tuple (key key))
+                 (map-insert! kv-store (tuple (key key))
                                      (tuple (value value)))
              value))
           (define-private (kv-get (key int))
-             (expects! (get value (fetch-entry kv-store (tuple (key key)))) 0))
+             (expects! (get value (map-get kv-store (tuple (key key)))) 0))
           (define-private (kv-set (key int) (value int))
              (begin
-                 (set-entry! kv-store (tuple (key key))
+                 (map-set! kv-store (tuple (key key))
                                     (tuple (value value)))
                  value))
           (define-private (kv-del (key int))
              (begin
-                 (delete-entry! kv-store (tuple (key key)))
+                 (map-delete! kv-store (tuple (key key)))
                  key))
          ";
 
@@ -758,19 +758,19 @@ fn test_implicit_tuple_map() {
          "(define-map kv-store ((key int)) ((value int)))
           (define-private (kv-add (key int) (value int))
              (begin
-                 (insert-entry! kv-store ((key key))
+                 (map-insert! kv-store ((key key))
                                      ((value value)))
              value))
           (define-private (kv-get (key int))
-             (expects! (get value (fetch-entry kv-store ((key key)))) 0))
+             (expects! (get value (map-get kv-store ((key key)))) 0))
           (define-private (kv-set (key int) (value int))
              (begin
-                 (set-entry! kv-store ((key key))
+                 (map-set! kv-store ((key key))
                                     ((value value)))
                  value))
           (define-private (kv-del (key int))
              (begin
-                 (delete-entry! kv-store ((key key)))
+                 (map-delete! kv-store ((key key)))
                  key))
          ";
 
@@ -788,22 +788,22 @@ fn test_bound_tuple_map() {
          (define-private (kv-add (key int) (value int))
             (begin
                 (let ((my-tuple (tuple (key key))))
-                (insert-entry! kv-store (tuple (key key))
+                (map-insert! kv-store (tuple (key key))
                                     (tuple (value value))))
             value))
          (define-private (kv-get (key int))
             (let ((my-tuple (tuple (key key))))
-            (expects! (get value (fetch-entry kv-store my-tuple)) 0)))
+            (expects! (get value (map-get kv-store my-tuple)) 0)))
          (define-private (kv-set (key int) (value int))
             (begin
                 (let ((my-tuple (tuple (key key))))
-                (set-entry! kv-store my-tuple
+                (map-set! kv-store my-tuple
                                    (tuple (value value))))
                 value))
          (define-private (kv-del (key int))
             (begin
                 (let ((my-tuple (tuple (key key))))
-                (delete-entry! kv-store my-tuple))
+                (map-delete! kv-store my-tuple))
                 key))
         ";
 
@@ -816,10 +816,10 @@ fn test_bound_tuple_map() {
 #[test]
 fn test_fetch_entry_matching_type_signatures() {
     let cases = [
-        "fetch-entry kv-store ((key key))",
-        "fetch-entry kv-store ((key 0))",
-        "fetch-entry kv-store (tuple (key 0))",
-        "fetch-entry kv-store (compatible-tuple)",
+        "map-get kv-store ((key key))",
+        "map-get kv-store ((key 0))",
+        "map-get kv-store (tuple (key 0))",
+        "map-get kv-store (compatible-tuple)",
     ];
 
     for case in cases.into_iter() {
@@ -837,9 +837,9 @@ fn test_fetch_entry_matching_type_signatures() {
 #[test]
 fn test_fetch_entry_mismatching_type_signatures() {
     let cases = [
-        "fetch-entry kv-store ((incomptible-key key))",
-        "fetch-entry kv-store ((key 'true))",
-        "fetch-entry kv-store (incompatible-tuple)",
+        "map-get kv-store ((incomptible-key key))",
+        "map-get kv-store ((key 'true))",
+        "map-get kv-store (incompatible-tuple)",
     ];
 
     for case in cases.into_iter() {
@@ -861,7 +861,7 @@ fn test_fetch_entry_mismatching_type_signatures() {
 #[test]
 fn test_fetch_entry_unbound_variables() {
     let cases = [
-        "fetch-entry kv-store ((key unknown-value))",
+        "map-get kv-store ((key unknown-value))",
     ];
 
     for case in cases.into_iter() {
@@ -882,10 +882,10 @@ fn test_fetch_entry_unbound_variables() {
 #[test]
 fn test_insert_entry_matching_type_signatures() {
     let cases = [
-        "insert-entry! kv-store ((key key)) ((value value))",
-        "insert-entry! kv-store ((key 0)) ((value 1))",
-        "insert-entry! kv-store (tuple (key 0)) (tuple (value 1))",
-        "insert-entry! kv-store (compatible-tuple) ((value 1))",
+        "map-insert! kv-store ((key key)) ((value value))",
+        "map-insert! kv-store ((key 0)) ((value 1))",
+        "map-insert! kv-store (tuple (key 0)) (tuple (value 1))",
+        "map-insert! kv-store (compatible-tuple) ((value 1))",
     ];
 
     for case in cases.into_iter() {
@@ -903,11 +903,11 @@ fn test_insert_entry_matching_type_signatures() {
 #[test]
 fn test_insert_entry_mismatching_type_signatures() {
     let cases = [
-        "insert-entry! kv-store ((incomptible-key key)) ((value value))",
-        "insert-entry! kv-store ((key key)) ((incomptible-key value))",
-        "insert-entry! kv-store ((key 'true)) ((value 1))",
-        "insert-entry! kv-store ((key key)) ((value 'true))",
-        "insert-entry! kv-store (incompatible-tuple) ((value 1))",
+        "map-insert! kv-store ((incomptible-key key)) ((value value))",
+        "map-insert! kv-store ((key key)) ((incomptible-key value))",
+        "map-insert! kv-store ((key 'true)) ((value 1))",
+        "map-insert! kv-store ((key key)) ((value 'true))",
+        "map-insert! kv-store (incompatible-tuple) ((value 1))",
     ];
 
     for case in cases.into_iter() {
@@ -929,8 +929,8 @@ fn test_insert_entry_mismatching_type_signatures() {
 #[test]
 fn test_insert_entry_unbound_variables() {
     let cases = [
-        "insert-entry! kv-store ((key unknown-value)) ((value 1))",
-        "insert-entry! kv-store ((key key)) ((value unknown-value))",
+        "map-insert! kv-store ((key unknown-value)) ((value 1))",
+        "map-insert! kv-store ((key key)) ((value unknown-value))",
     ];
 
     for case in cases.into_iter() {
@@ -952,10 +952,10 @@ fn test_insert_entry_unbound_variables() {
 #[test]
 fn test_delete_entry_matching_type_signatures() {
     let cases = [
-        "delete-entry! kv-store ((key key))",
-        "delete-entry! kv-store ((key 1))",
-        "delete-entry! kv-store (tuple (key 1))",
-        "delete-entry! kv-store (compatible-tuple)",
+        "map-delete! kv-store ((key key))",
+        "map-delete! kv-store ((key 1))",
+        "map-delete! kv-store (tuple (key 1))",
+        "map-delete! kv-store (compatible-tuple)",
     ];
 
     for case in cases.into_iter() {
@@ -973,9 +973,9 @@ fn test_delete_entry_matching_type_signatures() {
 #[test]
 fn test_delete_entry_mismatching_type_signatures() {
     let cases = [
-        "delete-entry! kv-store ((incomptible-key key))",
-        "delete-entry! kv-store ((key 'true))",
-        "delete-entry! kv-store (incompatible-tuple)",
+        "map-delete! kv-store ((incomptible-key key))",
+        "map-delete! kv-store ((key 'true))",
+        "map-delete! kv-store (incompatible-tuple)",
     ];
 
     for case in cases.into_iter() {
@@ -998,7 +998,7 @@ fn test_delete_entry_mismatching_type_signatures() {
 #[test]
 fn test_delete_entry_unbound_variables() {    
     let cases = [
-        "delete-entry! kv-store ((key unknown-value))",
+        "map-delete! kv-store ((key unknown-value))",
     ];
 
     for case in cases.into_iter() {
@@ -1019,11 +1019,11 @@ fn test_delete_entry_unbound_variables() {
 #[test]
 fn test_set_entry_matching_type_signatures() {    
     let cases = [
-        "set-entry! kv-store ((key key)) ((value value))",
-        "set-entry! kv-store ((key 0)) ((value 1))",
-        "set-entry! kv-store (tuple (key 0)) (tuple (value 1))",
-        "set-entry! kv-store (tuple (key 0)) (tuple (value known-value))",
-        "set-entry! kv-store (compatible-tuple) ((value 1))",
+        "map-set! kv-store ((key key)) ((value value))",
+        "map-set! kv-store ((key 0)) ((value 1))",
+        "map-set! kv-store (tuple (key 0)) (tuple (value 1))",
+        "map-set! kv-store (tuple (key 0)) (tuple (value known-value))",
+        "map-set! kv-store (compatible-tuple) ((value 1))",
     ];
 
     for case in cases.into_iter() {
@@ -1044,11 +1044,11 @@ fn test_set_entry_matching_type_signatures() {
 #[test]
 fn test_set_entry_mismatching_type_signatures() {    
     let cases = [
-        "set-entry! kv-store ((incomptible-key key)) ((value value))",
-        "set-entry! kv-store ((key key)) ((incomptible-key value))",
-        "set-entry! kv-store ((key 'true)) ((value 1))",
-        "set-entry! kv-store ((key key)) ((value 'true))",
-        "set-entry! kv-store (incompatible-tuple) ((value 1))",
+        "map-set! kv-store ((incomptible-key key)) ((value value))",
+        "map-set! kv-store ((key key)) ((incomptible-key value))",
+        "map-set! kv-store ((key 'true)) ((value 1))",
+        "map-set! kv-store ((key key)) ((value 'true))",
+        "map-set! kv-store (incompatible-tuple) ((value 1))",
     ];
 
     for case in cases.into_iter() {
@@ -1071,8 +1071,8 @@ fn test_set_entry_mismatching_type_signatures() {
 #[test]
 fn test_set_entry_unbound_variables() {    
     let cases = [
-        "set-entry! kv-store ((key unknown-value)) ((value 1))",
-        "set-entry! kv-store ((key key)) ((value unknown-value))",
+        "map-set! kv-store ((key unknown-value)) ((value 1))",
+        "map-set! kv-store ((key key)) ((value unknown-value))",
     ];
 
     for case in cases.into_iter() {
@@ -1095,8 +1095,8 @@ fn test_fetch_contract_entry_matching_type_signatures() {
     let kv_store_contract_src = r#"
         (define-map kv-store ((key int)) ((value int)))
         (define-read-only (kv-get (key int))
-            (expects! (get value (fetch-entry kv-store ((key key)))) 0))
-        (begin (insert-entry! kv-store ((key 42)) ((value 42))))"#;
+            (expects! (get value (map-get kv-store ((key key)))) 0))
+        (begin (map-insert! kv-store ((key 42)) ((value 42))))"#;
 
     let mut analysis_db = AnalysisDatabase::memory();
 
@@ -1104,10 +1104,10 @@ fn test_fetch_contract_entry_matching_type_signatures() {
     type_check(&"kv-store-contract", &mut kv_store_contract, &mut analysis_db, true).unwrap();
 
     let cases = [
-        "fetch-contract-entry kv-store-contract kv-store ((key key))",
-        "fetch-contract-entry kv-store-contract kv-store ((key 0))",
-        "fetch-contract-entry kv-store-contract kv-store (tuple (key 0))",
-        "fetch-contract-entry kv-store-contract kv-store (compatible-tuple)",
+        "contract-map-get kv-store-contract kv-store ((key key))",
+        "contract-map-get kv-store-contract kv-store ((key 0))",
+        "contract-map-get kv-store-contract kv-store (tuple (key 0))",
+        "contract-map-get kv-store-contract kv-store (compatible-tuple)",
     ];
 
     for case in cases.into_iter() {
@@ -1124,17 +1124,17 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
     let kv_store_contract_src = r#"
         (define-map kv-store ((key int)) ((value int)))
         (define-read-only (kv-get (key int))
-            (expects! (get value (fetch-entry kv-store ((key key)))) 0))
-        (begin (insert-entry! kv-store ((key 42)) ((value 42))))"#;
+            (expects! (get value (map-get kv-store ((key key)))) 0))
+        (begin (map-insert! kv-store ((key 42)) ((value 42))))"#;
 
     let mut analysis_db = AnalysisDatabase::memory();
     let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
     type_check(&"kv-store-contract", &mut kv_store_contract, &mut analysis_db, true).unwrap();
     
     let cases = [
-        "fetch-contract-entry kv-store-contract kv-store ((incomptible-key key))",
-        "fetch-contract-entry kv-store-contract kv-store ((key 'true))",
-        "fetch-contract-entry kv-store-contract kv-store (incompatible-tuple)",
+        "contract-map-get kv-store-contract kv-store ((incomptible-key key))",
+        "contract-map-get kv-store-contract kv-store ((key 'true))",
+        "contract-map-get kv-store-contract kv-store (incompatible-tuple)",
     ];
 
     for case in cases.into_iter() {
@@ -1157,15 +1157,15 @@ fn test_fetch_contract_entry_unbound_variables() {
     let kv_store_contract_src = r#"
         (define-map kv-store ((key int)) ((value int)))
         (define-read-only (kv-get (key int))
-            (expects! (get value (fetch-entry kv-store ((key key)))) 0))
-        (begin (insert-entry! kv-store ((key 42)) ((value 42))))"#;
+            (expects! (get value (map-get kv-store ((key key)))) 0))
+        (begin (map-insert! kv-store ((key 42)) ((value 42))))"#;
 
     let mut analysis_db = AnalysisDatabase::memory();
     let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
     type_check(&"kv-store-contract", &mut kv_store_contract, &mut analysis_db, true).unwrap();
     
     let cases = [
-        "fetch-contract-entry kv-store-contract kv-store ((key unknown-value))",
+        "contract-map-get kv-store-contract kv-store ((key unknown-value))",
     ];
 
     for case in cases.into_iter() {
