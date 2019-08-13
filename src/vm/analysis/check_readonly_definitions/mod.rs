@@ -17,40 +17,34 @@ mod tests;
 
 pub struct CheckReadOnlyDefinitions <'a, 'b> {
     db: &'a AnalysisDatabase<'b>,
-    defined_functions: HashMap<String, bool>,
-    contract_analysis: &'a mut ContractAnalysis
+    defined_functions: HashMap<String, bool>
 }
 
 impl <'a, 'b> AnalysisPass for CheckReadOnlyDefinitions <'a, 'b> {
 
     fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
-        let mut command = CheckReadOnlyDefinitions::new(contract_analysis, analysis_db);
-        command.run()?;
+        let mut command = CheckReadOnlyDefinitions::new(analysis_db);
+        command.run(contract_analysis)?;
         Ok(())
     }
 }
 
 impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
     
-    fn new(contract_analysis: &'a mut ContractAnalysis, db: &'a AnalysisDatabase<'b>) -> CheckReadOnlyDefinitions<'a, 'b> {
+    fn new(db: &'a AnalysisDatabase<'b>) -> CheckReadOnlyDefinitions<'a, 'b> {
         Self { 
             db, 
-            contract_analysis,
             defined_functions: HashMap::new() 
         }
     }
 
-    pub fn run(& mut self) -> CheckResult<()> {
+    pub fn run(& mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
 
-        let expressions = self.contract_analysis.expressions[..].to_vec();
-        let indexes = self.contract_analysis.expressions_indexes();
-
-        for index in indexes {
-            let expr = &expressions[index];
-            let mut result = self.check_reads_only_valid(&expr);
+        for exp in contract_analysis.expressions_iter() {
+            let mut result = self.check_reads_only_valid(&exp);
             if let Err(ref mut error) = result {
                 if !error.has_expression() {
-                    error.set_expression(&expr);
+                    error.set_expression(&exp);
                 }
             }
             result?

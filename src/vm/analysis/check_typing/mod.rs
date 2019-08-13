@@ -40,7 +40,6 @@ Is illegally typed in our language.
 pub struct CheckTyping <'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
-    contract_analysis: &'a mut ContractAnalysis,
     function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a AnalysisDatabase<'b>
 }
@@ -48,8 +47,8 @@ pub struct CheckTyping <'a, 'b> {
 impl <'a, 'b> AnalysisPass for CheckTyping <'a, 'b> {
 
     fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
-        let mut command = CheckTyping::new(contract_analysis, analysis_db);
-        command.run()?;
+        let mut command = CheckTyping::new(analysis_db);
+        command.run(contract_analysis)?;
 
         Ok(())
     }
@@ -132,9 +131,8 @@ fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> Chec
 }
 
 impl <'a, 'b> CheckTyping <'a, 'b> {
-    fn new(contract_analysis: &'a mut ContractAnalysis, db: &'a AnalysisDatabase<'b>) -> CheckTyping<'a, 'b> {
+    fn new(db: &'a AnalysisDatabase<'b>) -> CheckTyping<'a, 'b> {
         CheckTyping {
-            contract_analysis,
             db: db,
             contract_context: ContractContext::new(),
             function_return_tracker: None,
@@ -164,15 +162,10 @@ impl <'a, 'b> CheckTyping <'a, 'b> {
         }
     }
 
-    pub fn run(&mut self) -> CheckResult<()> {
+    pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
         let mut local_context = TypingContext::new();
 
-        let expressions = self.contract_analysis.expressions[..].to_vec();
-        let indexes = self.contract_analysis.expressions_indexes();
-
-
-        for index in indexes {
-            let exp = &expressions[index];
+        for exp in contract_analysis.expressions_iter() {
             let mut result_res = self.try_type_check_define(&exp, &mut local_context);
             if let Err(ref mut error) = result_res {
                 if !error.has_expression() {
@@ -186,7 +179,7 @@ impl <'a, 'b> CheckTyping <'a, 'b> {
             }
         }
 
-        self.contract_context.update_contract_analysis(self.contract_analysis);
+        self.contract_context.update_contract_analysis(contract_analysis);
         Ok(())
     }
     // Type checks an expression, recursively type checking its subexpressions

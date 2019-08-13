@@ -14,8 +14,7 @@ mod contracts;
 fn type_check_helper(exp: &SymbolicExpression) -> TypeResult {
     let mut analysis_conn = AnalysisDatabaseConnection::memory();
     let analysis_db = analysis_conn.begin_save_point();
-    let mut contract_analysis = ContractAnalysis::new(vec![]);
-    let mut type_checker = CheckTyping::new(&mut contract_analysis, &analysis_db);
+    let mut type_checker = CheckTyping::new(&analysis_db);
     let contract_context = TypingContext::new();
     type_checker.type_check(exp, &contract_context)
 }
