@@ -1,6 +1,6 @@
 use vm::execute as vm_execute;
 use vm::errors::{Error, UncheckedError};
-use vm::types::{Value, PrincipalData, ResponseData};
+use vm::types::{Value, StandardPrincipalData, ResponseData};
 use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
@@ -59,6 +59,11 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 200)
                 (token-credit! 'CTtokens 4))";
+
+
+fn get_principal() -> Value {
+    StandardPrincipalData(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into()
+}
 
 #[test]
 fn test_get_block_info_eval(){
@@ -325,7 +330,6 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     }
 }
 
-
 fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
     let contract_1 = FACTORIAL_CONTRACT;
     let contract_2 =
@@ -333,8 +337,7 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
             (contract-call! factorial-contract compute 8008))
         ";
 
-    let mut env = owned_env.get_exec_environment(Some(Value::Principal(PrincipalData::StandardPrincipal
-                                                                       (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]))));
+    let mut env = owned_env.get_exec_environment(Some(get_principal()));
 
     env.initialize_contract("factorial-contract", contract_1).unwrap();
     env.initialize_contract("proxy-compute", contract_2).unwrap();
@@ -396,8 +399,7 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
     env.initialize_contract("contract-1", contract_1).unwrap();
     env.initialize_contract("contract-2", contract_2).unwrap();
 
-    env.sender = Some(Value::Principal(PrincipalData::StandardPrincipal
-                                       (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])));
+    env.sender = Some(get_principal());
 
     assert_eq!(
         env.execute_contract("contract-1", "modify-data",
@@ -472,8 +474,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
         Value::Int(120),
     ];
         
-    env.sender = Some(Value::Principal(PrincipalData::StandardPrincipal
-                                       (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])));
+    env.sender = Some(get_principal());
 
     for (arguments, expectation) in arguments_to_test.iter().zip(expected.iter()) {
         env.execute_contract("factorial", &tx_name, arguments).unwrap();
