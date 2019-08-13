@@ -7,6 +7,12 @@ pub trait KeyValueStorage {
     fn put(&mut self, key: &str, value: &str);
     fn get(&mut self, key: &str) -> Option<String>;
     fn has_entry(&mut self, key: &str) -> bool;
+
+    fn put_all(&mut self, mut items: Vec<(String, String)>) {
+        for (key, value) in items.drain(..) {
+            self.put(&key, &value);
+        }
+    }
 }
 
 trait Rollback <'a, 'b> {
@@ -78,20 +84,20 @@ impl <'a> RollbackWrapper <'a> {
 
         if self.stack.len() == 0 {
             // committing to the backing store
-            for (key, value) in last_item.edits.drain(..) {
+            for (key, value) in last_item.edits.iter() {
                 let remove_edit_deque = {
-                    let key_edit_history = self.lookup_map.get_mut(&key)
+                    let key_edit_history = self.lookup_map.get_mut(key)
                         .expect("ERROR: Clarity VM had edit log entry, but not lookup_map entry");
                     let popped_value = key_edit_history.pop_front();
-                    assert_eq!(popped_value.as_ref(), Some(&value));
-                    self.store.put(&key, &value);
+                    assert_eq!(popped_value.as_ref(), Some(value));
                     key_edit_history.len() == 0
                 };
                 if remove_edit_deque {
-                    self.lookup_map.remove(&key);
+                    self.lookup_map.remove(key);
                 }
             }
             assert!(self.lookup_map.len() == 0);
+            self.store.put_all(last_item.edits);
         } else {
             // bubble up to the next item in the stack
             let next_up = self.stack.back_mut().unwrap();

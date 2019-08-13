@@ -122,4 +122,18 @@ impl KeyValueStorage for &mut MarfedKV {
     fn has_entry(&mut self, key: &str) -> bool {
         self.get(key).is_some()
     }
+
+    fn put_all(&mut self, mut items: Vec<(String, String)>) {
+        let mut keys = Vec::new();
+        let mut values = Vec::new();
+        for (key, value) in items.drain(..) {
+            let marf_value = MARFValue::from_value(&value);
+            self.side_store.put(&marf_value.to_hex(), &value);
+            keys.push(key);
+            values.push(marf_value);
+        }
+        self.marf.insert_batch(&keys, values)
+            .expect("ERROR: Unexpected MARF Failure");
+    }
+
 }

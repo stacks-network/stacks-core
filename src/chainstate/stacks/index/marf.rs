@@ -522,7 +522,7 @@ impl MARF {
 
     /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
     /// the trie root hash will only be calculated once (which is an O(log B) operation).
-    pub fn insert_batch(&mut self, keys: &Vec<String>, values: &Vec<String>) -> Result<(), Error> {
+    pub fn insert_batch(&mut self, keys: &Vec<String>, values: Vec<MARFValue>) -> Result<(), Error> {
         assert_eq!(keys.len(), values.len());
 
         match self.open_chain_tip {
@@ -542,8 +542,7 @@ impl MARF {
                     let key = &keys[i];
                     let value = &values[i];
                 
-                    let marf_value = MARFValue::from_value(value);
-                    let marf_leaf = TrieLeaf::from_value(&vec![], marf_value);
+                    let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
                     let path = TriePath::from_key(key);
 
                     MARF::insert_leaf_in_batch(&mut self.storage, block_hash, &path, &marf_leaf)?;
@@ -551,8 +550,7 @@ impl MARF {
                 }
 
                 // last insert updates the root with the skiplist hash
-                let marf_value = MARFValue::from_value(&values[i]);
-                let marf_leaf = TrieLeaf::from_value(&vec![], marf_value);
+                let marf_leaf = TrieLeaf::from_value(&vec![], values[i].clone());
                 let path = TriePath::from_key(&keys[i]);
                 MARF::insert_leaf(&mut self.storage, block_hash, &path, &marf_leaf)?;
 
@@ -1674,7 +1672,10 @@ mod test {
             m.begin(&prev_block_header, &block_header).unwrap();
 
             start_time = get_epoch_time_ms();
-            m.insert_batch(&keys, &values).unwrap();
+
+            let values = values.drain(..).map(|x| MARFValue::from_value(&x)).collect();
+
+            m.insert_batch(&keys, values).unwrap();
             end_time = get_epoch_time_ms();
 
             let flush_start_time = get_epoch_time_ms();
@@ -1775,7 +1776,10 @@ mod test {
             }
 
             m.begin(&prev_block_header, &block_header).unwrap();
-            m.insert_batch(&keys, &values).unwrap();
+
+            let marf_values = values.iter().map(|x| MARFValue::from_value(&x)).collect();
+
+            m.insert_batch(&keys, marf_values).unwrap();
             m.commit().unwrap();
 
             for j in 0..128 {
@@ -2154,7 +2158,9 @@ mod test {
                         values.push(value);
                     }
 
-                    m.insert_batch(&keys, &values).unwrap();
+                    let values = values.drain(..).map(|x| MARFValue::from_value(&x)).collect();
+
+                    m.insert_batch(&keys, values).unwrap();
                     m.commit().unwrap();
                 }
             }
