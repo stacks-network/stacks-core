@@ -5,14 +5,14 @@ pub mod update_expressions_id;
 pub mod update_expressions_sorting;
 pub mod check_typing;
 pub mod check_readonly_definitions;
-pub mod check_db;
+pub mod analysis_db;
 pub mod build_contract_interface;
 
 use self::types::{ContractAnalysis, AnalysisPass};
 use vm::representations::{SymbolicExpression};
 
 pub use self::errors::{CheckResult, CheckError, CheckErrors};
-pub use self::check_db::{AnalysisDatabase, AnalysisDatabaseConnection};
+pub use self::analysis_db::{AnalysisDatabase, AnalysisDatabaseConnection};
 
 use self::update_expressions_id::UpdateExpressionId;
 use self::update_expressions_sorting::UpdateExpressionsSorting;

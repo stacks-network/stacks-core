@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use vm::{SymbolicExpression};
 use vm::types::{TypeSignature, FunctionType};
-use vm::analysis::check_db::{AnalysisDatabase};
+use vm::analysis::analysis_db::{AnalysisDatabase};
 use vm::analysis::errors::{CheckResult};
 
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";

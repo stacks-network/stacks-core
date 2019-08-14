@@ -1,7 +1,7 @@
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 use vm::analysis::errors::{CheckResult, CheckErrors, CheckError};
-use vm::analysis::check_db::{AnalysisDatabase};
+use vm::analysis::analysis_db::{AnalysisDatabase};
 
 fn inner_relabel(args: &mut [SymbolicExpression], index: u64) -> CheckResult<u64> {
     let mut current = index.checked_add(1)
