@@ -99,13 +99,6 @@ impl ContractAnalysis {
             .expect(SERIALIZE_FAIL_MESSAGE)
     }
 
-    pub fn expressions_indexes(&self) -> Vec<usize> {
-        match self.top_level_expression_sorting {
-            Some(ref indirections) => indirections[..].to_vec(),
-            None => (0..self.expressions.len()).collect()
-        }
-    }
-
     pub fn expressions_iter(&self) -> ExpressionsIterator {
         let expressions = &self.expressions[..];
         let sorting = match self.top_level_expression_sorting {
