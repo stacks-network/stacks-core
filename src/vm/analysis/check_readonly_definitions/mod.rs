@@ -161,7 +161,7 @@ impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater |
             Modulo | Power | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
             ConsSome | ConsOkay | ConsError | DefaultTo | Expects | ExpectsErr | IsOkay | IsNone |
-            ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin | FetchVar => {
+            ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin | FetchVar | GetTokenBalance | GetAssetOwner => {
                 self.are_all_read_only(true, args)
             },
             FetchEntry => {                
@@ -186,7 +186,7 @@ impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
                 };
                 res
             },
-            SetEntry | DeleteEntry | InsertEntry | SetVar => {
+            SetEntry | DeleteEntry | InsertEntry | SetVar | MintAsset | MintToken | TransferAsset | TransferToken => {
                 Ok(false)
             },
             Let => {

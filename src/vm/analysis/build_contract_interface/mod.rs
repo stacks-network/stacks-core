@@ -1,5 +1,5 @@
 use vm::analysis::types::ContractAnalysis;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use vm::types::{TypeSignature, FunctionArg, AtomTypeIdentifier, TupleTypeSignature, FunctionType};
 
 pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
@@ -8,6 +8,8 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         functions: Vec::new(),
         variables: Vec::new(),
         maps: Vec::new(),
+        tokens: Vec::new(),
+        assets: Vec::new()
     };
 
     let ContractAnalysis { 
@@ -18,7 +20,9 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         variable_types, 
         persisted_variable_types, 
         map_types,
-        top_level_expression_sorting
+        top_level_expression_sorting,
+        tokens,
+        assets
     } = contract_analysis;
 
     contract_interface.functions.append(
@@ -48,6 +52,12 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
 
     contract_interface.maps.append(
         &mut ContractInterfaceMap::from_map(&map_types));
+
+    contract_interface.tokens.append(
+        &mut ContractInterfaceTokens::from_set(&tokens));
+
+    contract_interface.assets.append(
+        &mut ContractInterfaceAssets::from_map(&assets));
 
     contract_interface
 }
@@ -82,6 +92,18 @@ pub enum ContractInterfaceAtomType {
         length: u32, 
         dimension: u8 
     },
+}
+
+#[derive(Debug, Serialize)]
+pub struct ContractInterfaceTokens {
+    pub name: String
+}
+
+#[derive(Debug, Serialize)]
+pub struct ContractInterfaceAssets {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_f: ContractInterfaceAtomType,
 }
 
 impl ContractInterfaceAtomType {
@@ -213,6 +235,22 @@ pub struct ContractInterfaceVariable {
     pub access: ContractInterfaceVariableAccess,
 }
 
+impl ContractInterfaceTokens {
+    pub fn from_set(tokens: &BTreeSet<String>) -> Vec<ContractInterfaceTokens> {
+        tokens.iter().map(|name| ContractInterfaceTokens { name: name.to_string() }).collect()
+    }
+}
+
+impl ContractInterfaceAssets {
+    pub fn from_map(assets: &BTreeMap<String, TypeSignature>) -> Vec<ContractInterfaceAssets> {
+        assets.iter().map(|(name, type_sig)| 
+                          ContractInterfaceAssets { 
+                              name: name.to_string(),
+                              type_f: ContractInterfaceAtomType::from_type_signature(type_sig)
+                          }).collect()
+    }
+}
+
 impl ContractInterfaceVariable {
     pub fn from_map(map: &BTreeMap<String, TypeSignature>, access: ContractInterfaceVariableAccess) -> Vec<ContractInterfaceVariable> {
         map.iter().map(|(name, type_sig)| {
@@ -260,9 +298,21 @@ pub struct ContractInterface {
     pub functions: Vec<ContractInterfaceFunction>,
     pub variables: Vec<ContractInterfaceVariable>,
     pub maps: Vec<ContractInterfaceMap>,
+    pub tokens: Vec<ContractInterfaceTokens>,
+    pub assets: Vec<ContractInterfaceAssets>,
 }
 
 impl ContractInterface {
+    pub fn new() -> Self {
+        Self {
+            functions: Vec::new(),
+            variables: Vec::new(),
+            maps: Vec::new(),
+            tokens: Vec::new(),
+            assets: Vec::new()
+        }
+    }
+
     pub fn serialize(&self) -> String {
         serde_json::to_string(self).expect("Failed to serialize contract interface")
     }

@@ -9,6 +9,12 @@ use util::hash;
 
 pub const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct AssetIdentifier {
+    pub contract_name: String,
+    pub asset_name: String
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
     pub type_map: BTreeMap<String, TypeSignature>
@@ -176,6 +182,11 @@ impl BlockInfoProperty {
     }
 }
 
+impl fmt::Display for AssetIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}::{}", &self.contract_name, &self.asset_name)
+    }
+}
 
 impl fmt::Display for BlockInfoProperty {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -240,6 +251,18 @@ impl Value {
     pub fn none() -> Value {
         Value::Optional(OptionalData {
             data: None })
+    }
+
+    pub fn okay(data: Value) -> Value {
+        Value::Response(ResponseData { 
+            committed: true,
+            data: Box::new(data) })
+    }
+
+    pub fn error(data: Value) -> Value {
+        Value::Response(ResponseData { 
+            committed: false,
+            data: Box::new(data) })
     }
 
     pub fn static_none() -> &'static Value {
@@ -379,6 +402,17 @@ impl fmt::Display for Value {
     }
 }
 
+impl PrincipalData {
+    pub fn deserialize(json: &str) -> PrincipalData {
+        serde_json::from_str(json)
+            .expect("Failed to deserialize vm.PrincipalData")
+    }
+    pub fn serialize(&self) -> String {
+        serde_json::to_string(self)
+            .expect("Failed to serialize vm.PrincipalData")
+    }
+}
+
 impl fmt::Display for PrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -393,6 +427,12 @@ impl fmt::Display for PrincipalData {
                 write!(f, "'C{}", contract_name)
             }
         }
+    }
+}
+
+impl Into<TypeSignature> for AtomTypeIdentifier {
+    fn into(self) -> TypeSignature {
+        TypeSignature::new_atom(self)
     }
 }
 
@@ -495,9 +535,10 @@ impl TupleTypeSignature {
 
         let mut type_map = BTreeMap::new();
         for (name, type_info) in type_data {
-            if let Some(_v) = type_map.insert(name, type_info) {
-                return Err(UncheckedError::InvalidArguments("Cannot use named argument twice in tuple construction.".to_string())
-                           .into())
+            if type_map.contains_key(&name) {
+                return Err(UncheckedError::VariableDefinedMultipleTimes(name).into());
+            } else {
+                type_map.insert(name, type_info);
             }
         }
         Ok(TupleTypeSignature { type_map: type_map })
@@ -587,11 +628,12 @@ impl TupleData {
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {
             let type_info = TypeSignature::type_of(&value);
-            if let Some(_v) = type_map.insert(name.to_string(), type_info) {
-                return Err(UncheckedError::InvalidArguments(
-                    "Cannot use named argument twice in tuple construction.".to_string()).into())
+            if type_map.contains_key(&name) {
+                return Err(UncheckedError::VariableDefinedMultipleTimes(name).into());
+            } else {
+                type_map.insert(name.clone(), type_info);
             }
-            data_map.insert(name.to_string(), value);
+            data_map.insert(name, value);
         }
         Ok(TupleData { type_signature: TupleTypeSignature { type_map: type_map },
                        data_map: data_map })
@@ -602,7 +644,7 @@ impl TupleData {
         if let Some(value) = self.data_map.get(name) {
             Ok(value.clone())
         } else {
-            Err(UncheckedError::InvalidArguments(format!("No such field {:?} in tuple", name)).into())
+            Err(UncheckedError::NoSuchTupleField.into())
         }
         
     }

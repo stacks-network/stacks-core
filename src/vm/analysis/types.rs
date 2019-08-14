@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap};
+use std::collections::{BTreeMap, BTreeSet};
 use vm::{SymbolicExpression};
 use vm::types::{TypeSignature, FunctionType};
 use vm::analysis::check_db::{AnalysisDatabase};
@@ -20,6 +20,8 @@ pub struct ContractAnalysis {
     pub read_only_function_types: BTreeMap<String, FunctionType>,
     pub map_types: BTreeMap<String, (TypeSignature, TypeSignature)>,
     pub persisted_variable_types: BTreeMap<String, TypeSignature>,
+    pub tokens: BTreeSet<String>,
+    pub assets: BTreeMap<String, TypeSignature>,
     #[serde(skip)]
     pub top_level_expression_sorting: Option<Vec<usize>>,
     #[serde(skip)]
@@ -37,6 +39,8 @@ impl ContractAnalysis {
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
             top_level_expression_sorting: Some(Vec::new()),
+            tokens: BTreeSet::new(),
+            assets: BTreeMap::new()
         }
     }
 

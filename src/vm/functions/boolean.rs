@@ -12,7 +12,7 @@ fn type_force_bool(value: &Value) -> Result<bool> {
 
 pub fn special_or(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if args.len() < 1 {
-        return Err(UncheckedError::InvalidArguments("(or ...) requires at least 1 argument".to_string()).into())
+        return Err(UncheckedError::IncorrectArgumentCount(1, 0).into());
     }
 
     for arg in args.iter() {
@@ -28,7 +28,7 @@ pub fn special_or(args: &[SymbolicExpression], env: &mut Environment, context: &
 
 pub fn special_and(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     if args.len() < 1 {
-        return Err(UncheckedError::InvalidArguments("(and ...) requires at least 1 argument".to_string()).into())
+        return Err(UncheckedError::IncorrectArgumentCount(1, 0).into());
     }
 
     for arg in args.iter() {
@@ -44,7 +44,7 @@ pub fn special_and(args: &[SymbolicExpression], env: &mut Environment, context: 
 
 pub fn native_not(args: &[Value]) -> Result<Value> {
     if args.len() != 1 {
-        return Err(UncheckedError::InvalidArguments("(not ...) requires exactly 1 argument".to_string()).into())
+        return Err(UncheckedError::IncorrectArgumentCount(1, 0).into());
     }
     let value = type_force_bool(&args[0])?;
     Ok(Value::Bool(!value))

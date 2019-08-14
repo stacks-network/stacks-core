@@ -5,6 +5,7 @@ use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfo
 use super::{CheckTyping, TypingContext, TypeResult, no_type, check_atomic_type, check_function_args}; 
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 
+mod assets;
 mod lists;
 mod maps;
 mod options;
@@ -350,6 +351,12 @@ impl TypedNativeFunction {
                     vec![TypeSignature::new_atom(AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32)),
                          TypeSignature::new_atom(AtomTypeIdentifier::IntType),],
                     TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
+            GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
+            GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
+            TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),
+            TransferAsset => Special(SpecialNativeFunction(&assets::check_special_transfer_asset)),
+            MintAsset => Special(SpecialNativeFunction(&assets::check_special_mint_asset)),
+            MintToken => Special(SpecialNativeFunction(&assets::check_special_mint_token)),
             Equals => Special(SpecialNativeFunction(&check_special_equals)),
             If => Special(SpecialNativeFunction(&check_special_if)),
             Let => Special(SpecialNativeFunction(&check_special_let)),

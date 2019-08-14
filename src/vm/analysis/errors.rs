@@ -26,6 +26,14 @@ pub enum CheckErrors {
     TypeAlreadyAnnotatedFailure,
     CheckerImplementationFailure,
 
+    // Assets
+    BadAssetName,
+    BadTokenName,
+    DefineTokenBadSignature,
+    DefineAssetBadSignature,
+    NoSuchAsset(String),
+    NoSuchToken(String),
+
     // tuples
     BadTupleFieldName,
     ExpectedTuple(TypeSignature),
@@ -134,6 +142,20 @@ impl error::Error for CheckError {
     }
 }
 
+impl From<CheckErrors> for CheckError {
+    fn from(err: CheckErrors) -> Self {
+        CheckError::new(err)
+    }
+}
+
+pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), CheckError> {
+    if args.len() != expected {
+        Err(CheckErrors::IncorrectArgumentCount(expected, args.len()).into())
+    } else {
+        Ok(())
+    }
+}
+
 fn formatted_expected_types(expected_types: & Vec<TypeSignature>) -> String {
     let mut expected_types_joined = String::new();
     expected_types_joined = format!("'{}'", expected_types[0]);
@@ -196,6 +218,12 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{}", function_name),
             CheckErrors::UnknownFunction(function_name) => format!("use of unresolved function '{}'", function_name),
             CheckErrors::WriteAttemptedInReadOnly => format!("expecting read-only statements, detected a writing operation"),
+            CheckErrors::BadAssetName => format!("expecting an asset name as an argument"),
+            CheckErrors::BadTokenName => format!("expecting an token name as an argument"),
+            CheckErrors::DefineTokenBadSignature => format!("(define-token ...) expects a token name as an argument"),
+            CheckErrors::DefineAssetBadSignature => format!("(define-asset ...) expects an asset name and an asset identifier type signature as arguments"),
+            CheckErrors::NoSuchAsset(asset_name) => format!("tried to use asset function with a undefined asset ('{}')", asset_name),
+            CheckErrors::NoSuchToken(asset_name) => format!("tried to use token function with a undefined token ('{}')", asset_name),
             CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure | CheckErrors::NotImplemented => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },
