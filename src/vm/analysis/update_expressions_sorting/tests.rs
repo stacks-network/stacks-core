@@ -58,6 +58,9 @@ fn test_contract_call_cyclic_graph_call() {
 
     let err = type_check(&"contract", &mut contract, &mut db, true).unwrap_err();
     let cycle = vec!["b".to_string(), "c".to_string(), "a".to_string()];
-    assert_eq!(err.err, CheckErrors::CyclingDependencies(cycle))
+    assert!(match err.err {
+            CheckErrors::CyclingDependencies(_) => true,
+            _ => false
+    }, "Should have succeed detecting dependencies cycling")
 }
 

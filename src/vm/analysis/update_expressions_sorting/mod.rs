@@ -40,7 +40,7 @@ impl <'a> UpdateExpressionsSorting {
             self.graph.add_node(expr_index)?;
 
             match self.find_expression_definition(expr) {
-                Some((definition_name, atom_index)) => {
+                Some((definition_name, atom_index, _)) => {
                     let tle = TopLevelExpressionIndex { expr_index, atom_index };
                     self.top_level_expressions_map.insert(definition_name, tle);
                 },
@@ -56,12 +56,16 @@ impl <'a> UpdateExpressionsSorting {
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
         
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let function_names = deps.iter().map(|i| {
+            let deps_props: Vec<(String, u64, &SymbolicExpression)> = deps.iter().map(|i| {
                 let exp = &contract_analysis.expressions[*i];
-                self.find_expression_definition(&exp).unwrap().0
+                self.find_expression_definition(&exp).unwrap()
             }).collect();
+            let functions_names = deps_props.iter().map(|i| i.0.clone()).collect();
+            let exprs = deps_props.iter().map(|i| i.2.clone()).collect();
 
-            return Err(CheckError::new(CheckErrors::CyclingDependencies(function_names)))
+            let mut error = CheckError::new(CheckErrors::CyclingDependencies(functions_names));
+            error.set_expressions(exprs);
+            return Err(error)
         }
 
         contract_analysis.top_level_expression_sorting = Some(sorted_indexes);
@@ -88,7 +92,7 @@ impl <'a> UpdateExpressionsSorting {
         }
     }
 
-    fn find_expression_definition(&mut self, exp: &SymbolicExpression) -> Option<(String, u64)> {
+    fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(String, u64, &'b SymbolicExpression)> {
         if let Some(expression) = exp.match_list() {
             if let Some((function_name, function_args)) = expression.split_first() {
                 if let Some(definition_type) = function_name.match_atom() {
@@ -100,7 +104,7 @@ impl <'a> UpdateExpressionsSorting {
                                     _ => &function_args[0]
                                 };
                                 if let Some(tle_name) = define_expr.match_atom() {
-                                    return Some((tle_name.clone(), define_expr.id));
+                                    return Some((tle_name.clone(), define_expr.id, define_expr));
                                 }   
                             }
                         }

@@ -22,15 +22,15 @@ pub trait DiagnosableError {
 pub struct Diagnostic {
     pub level: Level,
     pub message: String,
-    pub span: Option<Span>,
+    pub spans: Vec<Span>,
     pub suggestion: Option<String>,
 }
 
 impl Diagnostic {
 
-    pub fn err(error: &DiagnosableError, span: Option<Span>) -> Diagnostic {
+    pub fn err(error: &DiagnosableError) -> Diagnostic {
         Diagnostic {
-            span,
+            spans: vec![],
             level: Level::Error,
             message: error.message(),
             suggestion: error.suggestion(),
@@ -41,8 +41,11 @@ impl Diagnostic {
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.level)?;
-        if let Some(span) = &self.span {
-            write!(f, " (line {}, column {})", span.start_line, span.start_column)?;
+        if self.spans.len() == 1 {
+            write!(f, " (line {}, column {})", self.spans[0].start_line, self.spans[0].start_column)?;
+        } else if self.spans.len() > 1 {
+            let lines: Vec<String> = self.spans.iter().map(|s| format!("line: {}", s.start_line)).collect();
+            write!(f, " ({})", lines.join(", "))?;
         }
         write!(f, ": {}.", &self.message)?;
         if let Some(suggestion) = &self.suggestion {

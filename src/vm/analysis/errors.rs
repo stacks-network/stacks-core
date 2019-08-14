@@ -83,27 +83,32 @@ pub enum CheckErrors {
 #[derive(Debug, PartialEq)]
 pub struct CheckError {
     pub err: CheckErrors,
-    pub expression: Option<SymbolicExpression>,
+    pub expressions: Option<Vec<SymbolicExpression>>,
     pub diagnostic: Diagnostic,
 }
 
 impl CheckError {
     pub fn new(err: CheckErrors) -> CheckError {
-        let diagnostic = Diagnostic::err(&err, None);
+        let diagnostic = Diagnostic::err(&err);
         CheckError {
-            err: err,
-            expression: None,
-            diagnostic: diagnostic
+            err,
+            expressions: None,
+            diagnostic
         }
     }
 
     pub fn has_expression(&self) -> bool {
-        self.expression.is_some()
+        self.expressions.is_some()
     }
 
     pub fn set_expression(&mut self, expr: &SymbolicExpression) {
-        self.diagnostic.span = Some(expr.span.clone());
-        self.expression.replace(expr.clone());
+        self.diagnostic.spans = vec![expr.span.clone()];
+        self.expressions.replace(vec![expr.clone()]);
+    }
+
+    pub fn set_expressions(&mut self, exprs: Vec<SymbolicExpression>) {
+        self.diagnostic.spans = exprs.iter().map(|e| e.span.clone()).collect();
+        self.expressions.replace(exprs.clone().to_vec());
     }
 }
 
@@ -113,8 +118,8 @@ impl fmt::Display for CheckError {
             _ =>  write!(f, "{:?}", self.err)
         }?;
 
-        if let Some(ref e) = self.expression {
-            write!(f, "\nNear:\n{}", e)?;
+        if let Some(ref e) = self.expressions {
+            write!(f, "\nNear:\n{:?}", e)?;
         }
 
         Ok(())
