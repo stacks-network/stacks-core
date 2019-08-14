@@ -23,6 +23,15 @@ use address::c32::c32_address;
 
 use serde::Serialize;
 
+#[cfg(test)]
+macro_rules! panic_test {
+    () => { panic!() }
+}
+#[cfg(not(test))]
+macro_rules! panic_test {
+    () => { process::exit(1) }
+}
+
 #[cfg_attr(tarpaulin, skip)]
 fn print_usage(invoked_by: &str) {
     eprintln!("Usage: {} [command]
@@ -40,15 +49,14 @@ where command is one of:
   generate_address   to generate a random Stacks public address for testing purposes.
 
 ", invoked_by);
-    process::exit(1)
+    panic_test!()
 }
-
 
 #[cfg_attr(tarpaulin, skip)]
 fn friendly_expect<A,B: std::fmt::Display>(input: Result<A,B>, msg: &str) -> A {
     input.unwrap_or_else(|e| {
         eprintln!("{}\nCaused by: {}", msg, e);
-        process::exit(1);
+        panic_test!();
     })
 }
 
@@ -56,7 +64,7 @@ fn friendly_expect<A,B: std::fmt::Display>(input: Result<A,B>, msg: &str) -> A {
 fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     input.unwrap_or_else(|| {
         eprintln!("{}", msg);
-        process::exit(1);
+        panic_test!();
     })
 }
 
@@ -88,7 +96,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "initialize" => {
             if args.len() < 2 {
                 eprintln!("Usage: {} {} [vm-state.db]", invoked_by, args[0]);
-                process::exit(1);
+                panic_test!();
             }
 
             let marf_kv = friendly_expect(sqlite_marf(&args[1], None), "Failed to open VM database.");
@@ -109,7 +117,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "check" => {
             if args.len() < 2 {
                 eprintln!("Usage: {} {} [program-file.clar] (vm-state.db)", invoked_by, args[0]);
-                process::exit(1);
+                panic_test!();
             }
             
             let content: String = friendly_expect(fs::read_to_string(&args[1]),
@@ -132,7 +140,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 }
             }.unwrap_or_else(|e| {
                 println!("{}", &e.diagnostic);
-                process::exit(1);
+                panic_test!();
             });
 
             match args.last() {
@@ -165,7 +173,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         Ok(_) => buffer,
                         Err(error) => {
                             eprintln!("Error reading from stdin:\n{}", error);
-                            process::exit(1);
+                            panic_test!();
                         }
                     }
                 };
@@ -218,20 +226,20 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         },
                         Err(error) => {
                             eprintln!("Program execution error: \n{}", error);
-                            process::exit(1);
+                            panic_test!();
                         }
                     }
                 },
                 Err(error) => {
                     eprintln!("Type check error.\n{}", error);
-                    process::exit(1);
+                    panic_test!();
                 }
             }
         },
         "eval" => {
             if args.len() < 3 {
                 eprintln!("Usage: {} {} [context-contract-name] (program.clar) [vm-state.db]", invoked_by, args[0]);
-                process::exit(1);
+                panic_test!();
             }
 
             let vm_filename = 
@@ -268,14 +276,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 },
                 Err(error) => { 
                     eprintln!("Program execution error: \n{}", error);
-                    process::exit(1);
+                    panic_test!();
                 }
             }
         },
         "launch" => {
             if args.len() < 4 {
                 eprintln!("Usage: {} {} [contract-name] [contract-definition.clar] [vm-state.db]", invoked_by, args[0]);
-                process::exit(1);
+                panic_test!();
             }
             let vm_filename = &args[3];
 
@@ -320,18 +328,18 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 },
                 Err(error) => {
                     eprintln!("Contract initialization error: \n{}", error);
-                    process::exit(1);
+                    panic_test!();
                 },
                 Ok((_, Err(error))) => {
                     eprintln!("Contract initialization error: \n{}", error);
-                    process::exit(1);
+                    panic_test!();
                 }
             }
         },
         "execute" => {
             if args.len() < 5 {
                 eprintln!("Usage: {} {} [vm-state.db] [contract-name] [public-function-name] [sender-address] [args...]", invoked_by, args[0]);
-                process::exit(1);
+                panic_test!();
             }
             let vm_filename = &args[1];
             let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
@@ -351,7 +359,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     Value::Principal(principal_data.clone())
                 } else {
                     eprintln!("Unexpected result parsing sender: {}", sender_in);
-                    process::exit(1);
+                    panic_test!();
                 }
             };
             let arguments: Vec<_> = args[5..]
@@ -392,7 +400,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 },
                 Err(error) => {
                     eprintln!("Transaction execution error: \n{}", error);
-                    process::exit(1);
+                    panic_test!();
                 }
             }
         },
@@ -402,7 +410,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             // TODO: add optional args for specifying timestamps and number of blocks to mine.
             if args.len() < 3 {
                 eprintln!("Usage: {} {} [block time] [vm-state.db]", invoked_by, args[0]);
-                process::exit(1);
+                panic_test!();
             }
 
             let block_time: u64 = friendly_expect(args[1].parse(), "Failed to parse block time");
@@ -411,7 +419,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 Ok(db) => db,
                 Err(error) => {
                     eprintln!("Could not open vm-state: \n{}", error);
-                    process::exit(1);
+                    panic_test!();
                 }
             };
 
@@ -424,14 +432,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         "get_block_height" => {
             if args.len() < 2 {
                 eprintln!("Usage: {} {} [vm-state.db]", invoked_by, args[0]);
-                process::exit(1);
+                panic_test!();
             }
 
             let db = match SqliteConnection::open(&args[1]) {
                 Ok(db) => db,
                 Err(error) => {
                     eprintln!("Could not open vm-state: \n{}", error);
-                    process::exit(1);
+                    panic_test!();
                 }
             };
 

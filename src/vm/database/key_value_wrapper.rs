@@ -97,7 +97,9 @@ impl <'a> RollbackWrapper <'a> {
                 }
             }
             assert!(self.lookup_map.len() == 0);
-            self.store.put_all(last_item.edits);
+            if last_item.edits.len() > 0 {
+                self.store.put_all(last_item.edits);
+            }
         } else {
             // bubble up to the next item in the stack
             let next_up = self.stack.back_mut().unwrap();
