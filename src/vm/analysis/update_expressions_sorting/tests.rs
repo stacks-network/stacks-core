@@ -1,7 +1,25 @@
-use vm::analysis::{CheckErrors, mem_type_check};
+use vm::analysis::{CheckErrors, mem_type_check as run_analysis_helper};
+use vm::parser::parse;
+use vm::analysis::{CheckResult, AnalysisDatabase};
+use vm::analysis::types::{ContractAnalysis, AnalysisPass};
+use vm::analysis::update_expressions_id::UpdateExpressionId;
+use vm::analysis::update_expressions_sorting::UpdateExpressionsSorting;
+
+fn run_scoped_analysis_helper(contract: &str) -> CheckResult<ContractAnalysis> {
+    let mut db = AnalysisDatabase::memory();
+    let expressions = parse(contract).unwrap();
+
+    db.execute(|db| {
+        let mut contract_analysis = ContractAnalysis::new(expressions.to_vec());
+        UpdateExpressionId::run_pass(&mut contract_analysis, db)?;
+        UpdateExpressionsSorting::run_pass(&mut contract_analysis, db)?;
+        Ok(contract_analysis)
+    })
+}
+
 
 #[test]
-fn test_contract_call_define_ordering() {
+fn should_succeed_sorting_contract_case_1() {
     let contract = r#"
         (define-private (wrapped-kv-del (key int))
             (kv-del key))
@@ -11,12 +29,11 @@ fn test_contract_call_define_ordering() {
                 key))
         (define-map kv-store ((key int)) ((value int)))
     "#;
-
-    mem_type_check(contract).unwrap();
+    run_scoped_analysis_helper(contract).unwrap();
 }
 
 #[test]
-fn test_contract_call_define_ordering_2() {
+fn should_succeed_sorting_contract_case_2() {
     let contract = r#"
         (define-private (a (x int)) (b x))
         (define-private (b (x int)) (+ x c))
@@ -28,22 +45,179 @@ fn test_contract_call_define_ordering_2() {
         (define-private (h (x int)) (a x))
         (+ (a 1) (b 1) c (d 1) e (f 1) g (h 1))
     "#;
-
-    mem_type_check(contract).unwrap();
+    run_scoped_analysis_helper(contract).unwrap();
 }
 
+
 #[test]
-fn test_contract_call_cyclic_graph_call() {
+fn should_raise_dependency_cycle_case_1() {
     let contract = r#"
         (define-private (a (x int)) (b x))
         (define-private (b (x int)) (c x))
         (define-private (c (x int)) (a x))
     "#;
 
-    let err = mem_type_check(contract).unwrap_err();
-    let cycle = vec!["b".to_string(), "c".to_string(), "a".to_string()];
-    assert!(match err.err {
-            CheckErrors::CyclingDependencies(_) => true,
-            _ => false
-    }, "Should have succeed detecting dependencies cycling")
+    let err = run_scoped_analysis_helper(contract).unwrap_err();
+    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false });
+}
+
+#[test]
+fn should_not_raise_dependency_cycle_case_let() {
+    let contract = r#"
+        (define-private (foo (x int)) (begin (bar 1) 1))
+        (define-private (bar (x int)) (let ((foo 1)) (+ 1 x))) 
+    "#;
+
+    run_scoped_analysis_helper(contract).unwrap();
+    run_analysis_helper(contract).unwrap();
+}
+
+#[test]
+fn should_raise_dependency_cycle_case_let() {
+    let contract = r#"
+        (define-private (foo (x int)) (begin (bar 1) 1))
+        (define-private (bar (x int)) (let ((baz (foo 1))) (+ 1 x))) 
+    "#;
+
+    let err = run_scoped_analysis_helper(contract).unwrap_err();
+    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+}
+
+#[test]
+fn should_not_raise_dependency_cycle_case_get() {
+    let contract = r#"
+        (define-private (foo (x int)) (begin (bar 1) 1))
+        (define-private (bar (x int)) (get foo (tuple (foo 1) (bar 2))))
+    "#;
+
+    run_scoped_analysis_helper(contract).unwrap();
+    run_analysis_helper(contract).unwrap();
+}
+
+#[test]
+fn should_raise_dependency_cycle_case_get() {
+    let contract = r#"
+        (define-private (foo (x int)) (begin (bar 1) 1))
+        (define-private (bar (x int)) (let ((res (foo 1))) (+ 1 x))) 
+    "#;
+
+    let err = run_scoped_analysis_helper(contract).unwrap_err();
+    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+}
+
+#[test]
+fn should_not_raise_dependency_cycle_case_fetch_entry() {
+    let contract = r#"
+        (define-private (foo (x int)) (begin (bar 1) 1))
+        (define-private (bar (x int)) (map-get kv-store ((foo 1)))) 
+        (define-map kv-store ((foo int)) ((bar int)))
+    "#;
+
+    run_scoped_analysis_helper(contract).unwrap();
+    run_analysis_helper(contract).unwrap();
+}
+
+#[test]
+fn should_raise_dependency_cycle_case_fetch_entry() {
+    let contract = r#"
+        (define-private (foo (x int)) (+ (bar x) x))
+        (define-private (bar (x int)) (map-get kv-store ((foo (foo 1))))) 
+        (define-map kv-store ((foo int)) ((bar int)))
+    "#;
+
+    let err = run_scoped_analysis_helper(contract).unwrap_err();
+    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+}
+
+#[test]
+fn should_not_raise_dependency_cycle_case_delete_entry() {
+    let contract = r#"
+        (define-private (foo (x int)) (begin (bar 1) 1))
+        (define-private (bar (x int)) (map-delete! kv-store (tuple (foo 1)))) 
+        (define-map kv-store ((foo int)) ((bar int)))
+    "#;
+
+    run_scoped_analysis_helper(contract).unwrap();
+    run_analysis_helper(contract).unwrap();
+}
+
+#[test]
+fn should_raise_dependency_cycle_case_delete_entry() {
+    let contract = r#"
+        (define-private (foo (x int)) (+ (bar x) x))
+        (define-private (bar (x int)) (map-delete! kv-store (tuple (foo (foo 1))))) 
+        (define-map kv-store ((foo int)) ((bar int)))
+    "#;
+
+    let err = run_scoped_analysis_helper(contract).unwrap_err();
+    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+}
+
+#[test]
+fn should_not_raise_dependency_cycle_case_set_entry() {
+    let contract = r#"
+        (define-private (foo (x int)) (begin (bar 1) 1))
+        (define-private (bar (x int)) (map-set! kv-store ((foo 1)) ((bar 3)))) 
+        (define-map kv-store ((foo int)) ((bar int)))
+    "#;
+
+    run_scoped_analysis_helper(contract).unwrap();
+    run_analysis_helper(contract).unwrap();
+}
+
+#[test]
+fn should_raise_dependency_cycle_case_set_entry() {
+    let contract = r#"
+        (define-private (foo (x int)) (+ (bar x) x))
+        (define-private (bar (x int)) (map-set! kv-store ((foo 1)) ((bar (foo 1))))) 
+        (define-map kv-store ((foo int)) ((bar int)))
+    "#;
+
+    let err = run_scoped_analysis_helper(contract).unwrap_err();
+    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+}
+
+#[test]
+fn should_not_raise_dependency_cycle_case_insert_entry() {
+    let contract = r#"
+        (define-private (foo (x int)) (begin (bar 1) 1))
+        (define-private (bar (x int)) (map-insert! kv-store ((foo 1)) ((bar 3)))) 
+        (define-map kv-store ((foo int)) ((bar int)))
+    "#;
+
+    run_scoped_analysis_helper(contract).unwrap();
+    run_analysis_helper(contract).unwrap();
+}
+
+#[test]
+fn should_raise_dependency_cycle_case_insert_entry() {
+    let contract = r#"
+        (define-private (foo (x int)) (+ (bar x) x))
+        (define-private (bar (x int)) (map-insert! kv-store ((foo (foo 1))) ((bar 3))))
+        (define-map kv-store ((foo int)) ((bar int)))
+    "#;
+
+    let err = run_scoped_analysis_helper(contract).unwrap_err();
+    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+}
+
+#[test]
+fn should_not_raise_dependency_cycle_case_fetch_contract_entry() {
+    let contract = r#"
+        (define-private (foo (x int)) (begin (bar 1) 1))
+        (define-private (bar (x int)) (contract-map-get c1 kv-store ((foo 1)))) 
+    "#;
+
+    run_scoped_analysis_helper(contract).unwrap();
+}
+
+#[test]
+fn should_raise_dependency_cycle_case_fetch_contract_entry() {
+    let contract = r#"
+        (define-private (foo (x int)) (+ (bar x) x))
+        (define-private (bar (x int)) (map-get kv-store ((foo (foo 1))))) 
+    "#;
+
+    let err = run_scoped_analysis_helper(contract).unwrap_err();
+    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
 }

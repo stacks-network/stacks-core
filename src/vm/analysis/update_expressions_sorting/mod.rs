@@ -2,6 +2,7 @@ use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 
@@ -50,7 +51,7 @@ impl <'a> UpdateExpressionsSorting {
         }
 
         for (expr_index, expr) in exprs.iter().enumerate() {
-            self.register_dependencies(&expr, expr_index)?;
+            self.probe_for_dependencies(&expr, expr_index)?;
         }
 
         let mut walker = GraphWalker::new();
@@ -73,25 +74,125 @@ impl <'a> UpdateExpressionsSorting {
         Ok(())
     }
 
-    fn register_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<bool> {
+    fn probe_for_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
         match expr.expr {
-            AtomValue(_) => Ok(true),
+            AtomValue(_) => Ok(()),
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
                         self.graph.add_directed_edge(tle_index, dep.expr_index);
                     }
                 }
-                Ok(true)
+                Ok(())
             },
             List(ref exprs) => {
-                for expr in exprs.into_iter() {
-                    self.register_dependencies(expr, tle_index)?;
+                // Avoid looking for dependencies in tuples 
+                if let Some((function_name, function_args)) = exprs.split_first() {
+                    if let Some(function_name) = function_name.match_atom() {
+                        if let Some(define_function) = DefineFunctions::lookup_by_name(function_name) {
+                            match define_function {
+                                DefineFunctions::NonFungibleToken | DefineFunctions::FungibleToken |
+                                DefineFunctions::PrivateFunction | DefineFunctions::Constant |
+                                DefineFunctions::PublicFunction | DefineFunctions::PersistedVariable |
+                                DefineFunctions::ReadOnlyFunction => {
+                                    // Args: [(define-name-and-types), ...]: ignore 1st arg
+                                    if function_args.len() > 1 {
+                                        for expr in function_args[1..function_args.len()].into_iter() {
+                                            self.probe_for_dependencies(expr, tle_index)?;
+                                        }
+                                    }
+                                    return Ok(());
+                                },
+                                DefineFunctions::Map => {
+                                    // Args: [name, tuple-key, tuple-value]: handle tuple-key and tuple-value as tuples
+                                    if function_args.len() == 3 {
+                                        self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
+                                        self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
+                                    }
+                                    return Ok(());
+                                }
+                            }
+                        } else if let Some(native_function) = NativeFunctions::lookup_by_name(function_name) {
+                            match native_function {
+                                NativeFunctions::FetchEntry | NativeFunctions::DeleteEntry => {
+                                    // Args: [map-name, tuple-predicate]: handle tuple-predicate as tuple
+                                    if function_args.len() == 2 {
+                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
+                                        self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
+                                    }
+                                    return Ok(());
+                                }, 
+                                NativeFunctions::SetEntry | NativeFunctions::InsertEntry => {
+                                    // Args: [map-name, tuple-keys, tuple-values]: handle tuple-keys and tuple-values as tuples
+                                    if function_args.len() == 3 {
+                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
+                                        self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
+                                        self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
+                                    }
+                                    return Ok(());
+                                }, 
+                                NativeFunctions::FetchContractEntry => {
+                                    // Args: [contract-name, map-name, tuple-predicate]: ignore contract-name, map-name, handle tuple-predicate as tuple
+                                    if function_args.len() == 3 {
+                                        self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
+                                    }
+                                    return Ok(());
+                                }, 
+                                NativeFunctions::Let => {
+                                    // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
+                                    if function_args.len() > 1 {
+                                        self.probe_for_dependencies_in_tuple(&function_args[0], tle_index)?;
+                                        for expr in function_args[1..function_args.len()].into_iter() {
+                                            self.probe_for_dependencies(expr, tle_index)?;
+                                        }
+                                    }
+                                    return Ok(());
+                                }
+                                NativeFunctions::TupleGet => {
+                                    // Args: [key-name, expr]: ignore key-name
+                                    if function_args.len() == 2 {
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
+                                    }
+                                    return Ok(());
+                                }, 
+                                NativeFunctions::TupleCons => {
+                                    // Args: [(key-name A), (key-name-2 B), ...]: handle as a tuple
+                                    self.probe_for_dependencies_in_tuple_list(function_args, tle_index)?;
+                                    return Ok(());
+                                },
+                                _ => {}
+                            }
+                        }
+                    }
                 }
-                Ok(true)
+                for expr in exprs.into_iter() {
+                    self.probe_for_dependencies(expr, tle_index)?;
+                }
+                Ok(())
             }
         }
     }
+
+    fn probe_for_dependencies_in_tuple_list(&mut self, tuples: &[SymbolicExpression], tle_index: usize) -> CheckResult<()> {
+        for index in 0..tuples.len() {
+            self.probe_for_dependencies_in_tuple(&tuples[index], tle_index)?;
+        } 
+        Ok(())
+    }
+
+    fn probe_for_dependencies_in_tuple(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
+        if let Some(tuple) = expr.match_list() {
+            for pair in tuple.into_iter() {
+                if let Some(pair) = pair.match_list() {
+                    if pair.len() == 2 {
+                        self.probe_for_dependencies(&pair[1], tle_index)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
 
     fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(String, u64, &'b SymbolicExpression)> {
         if let Some(expression) = exp.match_list() {
@@ -105,7 +206,7 @@ impl <'a> UpdateExpressionsSorting {
                             };
                             if let Some(tle_name) = defined_name.match_atom() {
                                 return Some((tle_name.clone(), defined_name.id, defined_name));
-                            }
+                            }   
                         }
                     }
                 } 
@@ -157,7 +258,7 @@ impl GraphWalker {
 
     fn new() -> Self { Self { seen: HashSet::new() } }
 
-    /// Traverse the graph
+    /// Depth-first search producing a post-order sort
     fn get_sorted_dependencies(&mut self, graph: &Graph) -> CheckResult<Vec<usize>> {
         let mut sorted_indexes = Vec::<usize>::new();
         for expr_index in 0..graph.nodes_count() {
