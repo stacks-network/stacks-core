@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, InterpreterResult as Result};
@@ -54,9 +54,9 @@ pub struct AssetMap {
       abort.
  */
 pub struct GlobalContext<'a> {
-    asset_maps: VecDeque<AssetMap>,
+    asset_maps: Vec<AssetMap>,
     pub database: ClarityDatabase<'a>,
-    read_only: VecDeque<bool>,
+    read_only: Vec<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -425,8 +425,8 @@ impl <'a> GlobalContext<'a> {
     pub fn new(database: ClarityDatabase) -> GlobalContext {
         GlobalContext {
             database: database,
-            read_only: VecDeque::new(),
-            asset_maps: VecDeque::new()
+            read_only: Vec::new(),
+            asset_maps: Vec::new()
         }
     }
 
@@ -437,7 +437,7 @@ impl <'a> GlobalContext<'a> {
     pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: Value) {
         let asset_identifier = AssetIdentifier { contract_name: contract_name.to_string(),
                                                  asset_name: asset_name.to_string() };
-        self.asset_maps.back_mut()
+        self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
@@ -445,7 +445,7 @@ impl <'a> GlobalContext<'a> {
     pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: i128) -> Result<()> {
         let asset_identifier = AssetIdentifier { contract_name: contract_name.to_string(),
                                                  asset_name: asset_name.to_string() };
-        self.asset_maps.back_mut()
+        self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_token_transfer(sender, asset_identifier, transfered)
     }
@@ -463,28 +463,28 @@ impl <'a> GlobalContext<'a> {
 
     pub fn is_read_only(&self) -> bool {
         // top level context defaults to writable.
-        self.read_only.back().cloned().unwrap_or(false)
+        self.read_only.last().cloned().unwrap_or(false)
     }
 
     pub fn begin(&mut self) {
-        self.asset_maps.push_back(AssetMap::new());
+        self.asset_maps.push(AssetMap::new());
         self.database.begin();
         let read_only = self.is_read_only();
-        self.read_only.push_back(read_only);
+        self.read_only.push(read_only);
     }
 
     pub fn begin_read_only(&mut self) {
-        self.asset_maps.push_back(AssetMap::new());
+        self.asset_maps.push(AssetMap::new());
         self.database.begin();
-        self.read_only.push_back(true);
+        self.read_only.push(true);
     }
 
     pub fn commit(&mut self) -> Result<Option<AssetMap>> {
-        self.read_only.pop_back();
-        let asset_map = self.asset_maps.pop_back()
+        self.read_only.pop();
+        let asset_map = self.asset_maps.pop()
             .expect("ERROR: Committed non-nested context.");
 
-        let out_map = match self.asset_maps.back_mut() {
+        let out_map = match self.asset_maps.last_mut() {
             Some(tail_back) => {
                 if let Err(e) = tail_back.commit_other(asset_map) {
                     self.database.roll_back();
@@ -502,9 +502,9 @@ impl <'a> GlobalContext<'a> {
     }
 
     pub fn roll_back(&mut self) {
-        let popped = self.asset_maps.pop_back();
+        let popped = self.asset_maps.pop();
         assert!(popped.is_some());
-        let popped = self.read_only.pop_back();
+        let popped = self.read_only.pop();
         assert!(popped.is_some());
 
         self.database.roll_back();
