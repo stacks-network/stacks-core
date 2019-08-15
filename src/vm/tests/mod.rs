@@ -11,7 +11,7 @@ use vm::database::ClarityDatabase;
 use chainstate::stacks::index::storage::{TrieFileStorage};
 use chainstate::burn::BlockHeaderHash;
 
-
+mod forking;
 mod assets;
 mod lists;
 mod defines;
@@ -65,4 +65,25 @@ pub fn execute(s: &str) -> Value {
 
 pub fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
     vec.drain(..).map(|value| SymbolicExpression::atom_value(value)).collect()
+}
+
+
+fn is_committed(v: &Value) -> bool {
+    eprintln!("is_committed?: {}", v);
+
+    match v {
+        Value::Response(ref data) => data.committed,
+        _ => false
+    }
+}
+
+fn is_err_code(v: &Value, e: i128) -> bool {
+    eprintln!("is_err_code?: {}", v);
+    match v {
+        Value::Response(ref data) => {
+            !data.committed &&
+                *data.data == Value::Int(e)
+        },
+        _ => false
+    }
 }

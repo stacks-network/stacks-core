@@ -5,7 +5,8 @@ use vm::contexts::{OwnedEnvironment, GlobalContext, AssetMap, AssetMapEntry};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
-use vm::tests::{with_memory_environment, with_marfed_environment, symbols_from_values, execute};
+use vm::tests::{with_memory_environment, with_marfed_environment, symbols_from_values,
+                execute, is_err_code, is_committed};
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))
@@ -95,26 +96,6 @@ const ASSET_NAMES: &str =
                     (ok 0)
                     (err 3))
                   (err 4))))";
-
-fn is_committed(v: &Value) -> bool {
-    eprintln!("is_committed?: {}", v);
-
-    match v {
-        Value::Response(ref data) => data.committed,
-        _ => false
-    }
-}
-
-fn is_err_code(v: &Value, e: i128) -> bool {
-    eprintln!("is_err_code?: {}", v);
-    match v {
-        Value::Response(ref data) => {
-            !data.committed &&
-                *data.data == Value::Int(e)
-        },
-        _ => false
-    }
-}
 
 fn execute_transaction(env: &mut OwnedEnvironment, sender: Value, contract: &str,
                        tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap), Error> {
