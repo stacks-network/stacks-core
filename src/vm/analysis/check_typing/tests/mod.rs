@@ -3,21 +3,24 @@ use vm::representations::SymbolicExpression;
 use vm::analysis::check_typing::{TypeResult, CheckTyping, TypingContext};
 use vm::analysis::{AnalysisDatabase, update_expressions_id};
 use vm::analysis::errors::CheckErrors;
+use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
 use vm::analysis::types::ContractAnalysis;
 use vm::contexts::{OwnedEnvironment};
-use vm::database::{ContractDatabaseConnection};
 use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier, FunctionType};
 
 mod assets;
 mod contracts;
 
-fn type_check_helper(exp: &SymbolicExpression) -> TypeResult {
+fn type_check_helper(exp: &str) -> TypeResult {
     let mut db = AnalysisDatabase::memory();
+    let mut exp = parse(exp).unwrap();
+    update_expressions_id::update_expression_id(&mut exp).unwrap();
     db.execute(|db| {
-        let mut type_checker = CheckTyping::new(&analysis_db);
+        let mut type_checker = CheckTyping::new(db);
+        
         let contract_context = TypingContext::new();
-        type_checker.type_check(exp, &contract_context)
+        type_checker.type_check(&exp[0], &contract_context)
     })
 }
 
@@ -29,14 +32,12 @@ fn test_get_block_info(){
     let bad = ["(get-block-info none 1)",
                "(get-block-info time 'true)",
                "(get-block-info time)"];
-    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut good_test).unwrap();
-        type_check_helper(&good_test[0]).unwrap();
+    for good_test in good.iter() {
+        type_check_helper(&good_test).unwrap();
     }
     
-    for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
-        assert!(type_check_helper(&bad_test[0]).is_err())
+    for bad_test in bad.iter() {
+        type_check_helper(&bad_test).unwrap_err();
     }
 }
 
@@ -51,14 +52,12 @@ fn test_simple_arithmetic_checks() {
                "(+ x y z)", // unbound variables.
                "(+ 1 2 3 (eq? 1 2))",
                "(and (or 'true 'false) (+ 1 2 3))"];
-    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut good_test).unwrap();
-        type_check_helper(&good_test[0]).unwrap();
+    for good_test in good.iter() {
+        type_check_helper(&good_test).unwrap();
     }
     
-    for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
-        assert!(type_check_helper(&bad_test[0]).is_err())
+    for bad_test in bad.iter() {
+        type_check_helper(&bad_test).unwrap_err();
     }
 }
 
@@ -70,23 +69,19 @@ fn test_simple_hash_checks() {
                      "(sha256 'false)",
                      "(keccak256 (list 1 2 3))"];
     let invalid_args = ["(sha256 1 2 3)"];
-
-    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut good_test).unwrap();
-        type_check_helper(&good_test[0]).unwrap();
+    for good_test in good.iter() {
+        type_check_helper(&good_test).unwrap();
     }
     
-    for mut bad_test in bad_types.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
-        assert!(match type_check_helper(&bad_test[0]).unwrap_err().err {
+    for bad_test in bad_types.iter() {
+        assert!(match type_check_helper(&bad_test).unwrap_err().err {
             CheckErrors::UnionTypeError(_, _) => true,
             _ => false
         })
     }
-
-    for mut bad_test in invalid_args.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
-        assert!(match type_check_helper(&bad_test[0]).unwrap_err().err {
+    
+    for bad_test in invalid_args.iter() {
+        assert!(match type_check_helper(&bad_test).unwrap_err().err {
             CheckErrors::IncorrectArgumentCount(_, _) => true,
             _ => false
         })
@@ -103,14 +98,12 @@ fn test_simple_ifs() {
                "(if 'true \"a\" 'false)",
                "(if)",
                "(if 0 1 0)"];
-    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut good_test).unwrap();
-        type_check_helper(&good_test[0]).unwrap();
+    for good_test in good.iter() {
+        type_check_helper(&good_test).unwrap();
     }
-
-    for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
-        assert!(type_check_helper(&bad_test[0]).is_err())
+    
+    for bad_test in bad.iter() {
+        type_check_helper(&bad_test).unwrap_err();
     }
 }
 
@@ -121,14 +114,12 @@ fn test_simple_lets() {
                 "(let ((x 'true) (y (+ 1 2)) (z 3)) (print x) (if x (+ 1 z y) (- 1 z)))"];
     let bad = ["(let ((1)) (+ 1 2))",
                "(let ((1 2)) (+ 1 2))"];
-    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut good_test).unwrap();
-        type_check_helper(&good_test[0]).unwrap();
+    for good_test in good.iter() {
+        type_check_helper(&good_test).unwrap();
     }
     
-    for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
-        assert!(type_check_helper(&bad_test[0]).is_err())
+    for bad_test in bad.iter() {
+        type_check_helper(&bad_test).unwrap_err();
     }
 }
 
@@ -146,25 +137,13 @@ fn test_eqs() {
         "(map mod (list 1 2 3 4 5))",
         "(map - (list 'true 'false 'true 'false))",
         "(map hash160 (+ 1 2))",];
-                   
-    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut good_test).unwrap();
-        let t_out = type_check_helper(&good_test[0]);
-        match t_out {
-            Err(ref t_out) => eprintln!("{}", t_out),
-            _ => {}
-        }
-        t_out.unwrap();
+
+    for good_test in good.iter() {
+        type_check_helper(&good_test).unwrap();
     }
     
-    for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
-        let checked = type_check_helper(&bad_test[0]);
-        match checked {
-            Err(ref t_out) => eprintln!("{}", t_out),
-            _ => {}
-        }
-        assert!(checked.is_err())
+    for bad_test in bad.iter() {
+        type_check_helper(&bad_test).unwrap_err();
     }
 }
 
@@ -189,32 +168,22 @@ fn test_lists() {
         "(map mod (list 1 2 3 4 5))",
         "(map - (list 'true 'false 'true 'false))",
         "(map hash160 (+ 1 2))",];
-                   
-    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut good_test).unwrap();
-        type_check_helper(&good_test[0]).unwrap();
+
+    for good_test in good.iter() {
+        type_check_helper(&good_test).unwrap();
     }
     
-    for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
-        assert!(type_check_helper(&bad_test[0]).is_err())
+    for bad_test in bad.iter() {
+        type_check_helper(&bad_test).unwrap_err();
     }
 }
 
 #[test]
 fn test_lists_in_defines() {
-    use vm::analysis::type_check;
-
     let good = "
     (define-private (test (x int)) (eq? 0 (mod x 2)))
-    (filter test (list 1 2 3 4 5))
-";
-
-    let mut c1 = parse(good).unwrap();
-    let mut db = AnalysisDatabase::memory();
-    
-    type_check(&":transient1:", &mut c1, &mut db, true).unwrap();
-
+    (filter test (list 1 2 3 4 5))";
+    mem_type_check(good).unwrap();
 }
 
 #[test]
@@ -223,15 +192,12 @@ fn test_tuples() {
                 "(and 'true (get def (tuple (abc 1) (def 'true))))"];
     let bad = ["(+ 1 2      (get def (tuple (abc 1) (def 'true))))",
                "(and 'true  (get abc (tuple (abc 1) (def 'true))))"];
-    
-    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut good_test).unwrap();
-        type_check_helper(&good_test[0]).unwrap();
+    for good_test in good.iter() {
+        type_check_helper(&good_test).unwrap();
     }
     
-    for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        update_expressions_id::update_expression_id(&mut bad_test).unwrap();
-        assert!(type_check_helper(&bad_test[0]).is_err())
+    for bad_test in bad.iter() {
+        type_check_helper(&bad_test).unwrap_err();
     }
 }
 
@@ -242,10 +208,7 @@ fn test_empty_tuple_should_fail() {
             value)
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::BadSyntaxBinding => true,
         _ => false
@@ -264,16 +227,12 @@ fn test_define() {
                      (* (foo 1 2) (bar 3 3))",
     ];
 
-    let mut analysis_db = AnalysisDatabase::memory();
-    
-    for mut good_test in good.iter().map(|x| parse(x).unwrap()) {
-        type_check(&":transient:", &mut good_test, &mut analysis_db, false).unwrap();
+    for good_test in good.iter() {
+        mem_type_check(good_test).unwrap();
     }
 
-    let mut analysis_db = AnalysisDatabase::memory();
-    
-    for mut bad_test in bad.iter().map(|x| parse(x).unwrap()) {
-        assert!(type_check(&":transient:", &mut bad_test, &mut analysis_db, false).is_err());
+    for bad_test in bad.iter() {
+        mem_type_check(bad_test).unwrap_err();
     }
 }
 
@@ -306,11 +265,8 @@ fn test_function_arg_names() {
         vec![],
     ];
 
-    let mut analysis_db = AnalysisDatabase::memory();
-
     for (func_test, arg_names) in functions.iter().zip(expected_arg_names.iter()) {
-        let mut func_expr = parse(func_test).unwrap();
-        let contract_analysis = type_check(&":transient:", &mut func_expr, &mut analysis_db, false).unwrap();
+        let contract_analysis = mem_type_check(func_test).unwrap();
 
         let func_type_priv = contract_analysis.get_private_function("test").unwrap();
         let func_type_pub = contract_analysis.get_public_function_type("test-pub").unwrap();
@@ -350,10 +306,7 @@ fn test_factorial() {
                (init-factorial 8008 5))
         ";
 
-    let mut contract = parse(contract).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+    mem_type_check(contract).unwrap();
 }
 
 #[test]
@@ -370,10 +323,7 @@ fn test_options() {
             (foo (bar 0)))
          ";
 
-    let mut contract = parse(contract).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+    mem_type_check(contract).unwrap();
 
     let contract = "
          (define-private (foo (id (optional bool)))
@@ -387,11 +337,8 @@ fn test_options() {
          (+ (foo (bar 1)) 1)
          ";
 
-    let mut contract = parse(contract).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
     assert!(
-        match type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err().err {
+        match mem_type_check(contract).unwrap_err().err {
             CheckErrors::TypeError(t1, t2) => {
                 t1 == TypeSignature::Atom(AtomTypeIdentifier::OptionalType(
                     Box::new(TypeSignature::Atom(AtomTypeIdentifier::BoolType)))) &&
@@ -419,10 +366,7 @@ fn test_set_int_variable() {
                 (get-cursor)))
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+    mem_type_check(contract_src).unwrap();
 }
 
 #[test]
@@ -437,10 +381,7 @@ fn test_set_bool_variable() {
                 (get-ok)))
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+    mem_type_check(contract_src).unwrap();
 }
 
 #[test]
@@ -455,10 +396,7 @@ fn test_set_tuple_variable() {
                 (get-cursor)))
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+    mem_type_check(contract_src).unwrap();
 }
 
 #[test]
@@ -473,10 +411,7 @@ fn test_set_list_variable() {
                 (get-ranking)))
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+    mem_type_check(contract_src).unwrap();
 }
 
 #[test]
@@ -491,10 +426,7 @@ fn test_set_buffer_variable() {
                 (get-name)))
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+    mem_type_check(contract_src).unwrap();
 }
 
 #[test]
@@ -503,10 +435,7 @@ fn test_missing_value_on_declaration_should_fail() {
         (define-data-var cursor int)
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::IncorrectArgumentCount(_, _) => true,
         _ => false
@@ -519,10 +448,7 @@ fn test_mismatching_type_on_declaration_should_fail() {
         (define-data-var cursor int 'true)
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::TypeError(_, _) => true,
         _ => false
@@ -541,10 +467,7 @@ fn test_mismatching_type_on_update_should_fail() {
                 0))
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::TypeError(_, _) => true,
         _ => false
@@ -559,10 +482,7 @@ fn test_direct_access_to_persisted_var_should_fail() {
             cursor)
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::UnboundVariable(_) => true,
         _ => false
@@ -580,10 +500,7 @@ fn test_data_var_shadowed_by_let_should_fail() {
                     0)))
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NameAlreadyUsed(_) => true,
         _ => false
@@ -599,10 +516,7 @@ fn test_mutating_unknown_data_var_should_fail() {
                 0))
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NoSuchVariable(_) => true,
         _ => false
@@ -616,10 +530,7 @@ fn test_accessing_unknown_data_var_should_fail() {
             (expects! (var-get cursor) 0))
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NoSuchVariable(_) => true,
         _ => false
@@ -633,10 +544,7 @@ fn test_let_shadowed_by_let_should_fail() {
             cursor)
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NameAlreadyUsed(_) => true,
         _ => false
@@ -651,10 +559,7 @@ fn test_let_shadowed_by_nested_let_should_fail() {
                 cursor))
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NameAlreadyUsed(_) => true,
         _ => false
@@ -670,10 +575,7 @@ fn test_define_constant_shadowed_by_let_should_fail() {
                cursor))
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NameAlreadyUsed(_) => true,
         _ => false
@@ -688,10 +590,7 @@ fn test_define_constant_shadowed_by_argument_should_fail() {
             cursor)
     "#;
 
-    let mut contract = parse(contract_src).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+    let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
         &CheckErrors::NameAlreadyUsed(_) => true,
         _ => false
@@ -718,11 +617,7 @@ fn test_tuple_map() {
          (list      (get-tuple 0)
                     (get-tuple 1))
         ";
-
-    let mut t = parse(t).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    type_check(&":transient:", &mut t, &mut analysis_db, false).unwrap();
+    mem_type_check(t).unwrap();
 }
 
 
@@ -748,10 +643,7 @@ fn test_explicit_tuple_map() {
                  key))
          ";
 
-    let mut contract = parse(contract).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+    mem_type_check(contract).unwrap();
 }
 
 #[test]
@@ -776,10 +668,7 @@ fn test_implicit_tuple_map() {
                  key))
          ";
 
-    let mut contract = parse(contract).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+    mem_type_check(contract).unwrap();
 }
 
 
@@ -809,10 +698,7 @@ fn test_bound_tuple_map() {
                 key))
         ";
 
-    let mut contract = parse(contract).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-
-    type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+    mem_type_check(contract).unwrap();
 }
 
 #[test]
@@ -830,9 +716,8 @@ fn test_fetch_entry_matching_type_signatures() {
              (define-private (compatible-tuple) (tuple (key 1)))
              (define-private (kv-get (key int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+
+        mem_type_check(&contract_src).unwrap();
     }
 }
 
@@ -850,9 +735,7 @@ fn test_fetch_entry_mismatching_type_signatures() {
              (define-private (incompatible-tuple) (tuple (k 1)))
              (define-private (kv-get (key int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        let res = mem_type_check(&contract_src).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
             _ => false
@@ -871,9 +754,7 @@ fn test_fetch_entry_unbound_variables() {
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (kv-get (key int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        let res = mem_type_check(&contract_src).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UnboundVariable(_) => true,
             _ => false
@@ -896,9 +777,7 @@ fn test_insert_entry_matching_type_signatures() {
              (define-private (compatible-tuple) (tuple (key 1)))
              (define-private (kv-add (key int) (value int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+        mem_type_check(&contract_src).unwrap();
     }
 }
 
@@ -918,9 +797,7 @@ fn test_insert_entry_mismatching_type_signatures() {
              (define-private (incompatible-tuple) (tuple (k 1)))
              (define-private (kv-add (key int) (value int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        let res = mem_type_check(&contract_src).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
             _ => false
@@ -940,9 +817,7 @@ fn test_insert_entry_unbound_variables() {
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (kv-add (key int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        let res = mem_type_check(&contract_src).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UnboundVariable(_) => true,
             _ => false
@@ -966,9 +841,7 @@ fn test_delete_entry_matching_type_signatures() {
              (define-private (compatible-tuple) (tuple (key 1)))
              (define-private (kv-del (key int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+        mem_type_check(&contract_src).unwrap();
     }
 }
 
@@ -986,9 +859,7 @@ fn test_delete_entry_mismatching_type_signatures() {
              (define-private (incompatible-tuple) (tuple (k 1)))
              (define-private (kv-del (key int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        let res = mem_type_check(&contract_src).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
             _ => false
@@ -1008,9 +879,7 @@ fn test_delete_entry_unbound_variables() {
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (kv-del (key int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        let res = mem_type_check(&contract_src).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UnboundVariable(_) => true,
             _ => false
@@ -1035,9 +904,7 @@ fn test_set_entry_matching_type_signatures() {
              (define-private (kv-set (key int) (value int))
                 (let ((known-value 2))
                 ({})))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+        mem_type_check(&contract_src).unwrap();
     }
 }
 
@@ -1059,9 +926,7 @@ fn test_set_entry_mismatching_type_signatures() {
              (define-private (incompatible-tuple) (tuple (k 1)))
              (define-private (kv-set (key int) (value int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        let res = mem_type_check(&&contract_src).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
             _ => false
@@ -1082,9 +947,7 @@ fn test_set_entry_unbound_variables() {
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (kv-set (key int) (value int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
-        let mut analysis_db = AnalysisDatabase::memory();
-        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        let res = mem_type_check(&&contract_src).unwrap_err();
         assert!(match &res.err {
             &CheckErrors::UnboundVariable(_) => true,
             _ => false
@@ -1103,7 +966,9 @@ fn test_fetch_contract_entry_matching_type_signatures() {
     let mut analysis_db = AnalysisDatabase::memory();
 
     let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
-    type_check(&"kv-store-contract", &mut kv_store_contract, &mut analysis_db, true).unwrap();
+    analysis_db.execute(|db| {
+        type_check(&"kv-store-contract", &mut kv_store_contract, db, true)
+    }).unwrap();
 
     let cases = [
         "contract-map-get kv-store-contract kv-store ((key key))",
@@ -1117,7 +982,9 @@ fn test_fetch_contract_entry_matching_type_signatures() {
             (define-private (compatible-tuple) (tuple (key 1)))
             (define-private (kv-get (key int)) ({}))"#, case);
         let mut contract = parse(&contract_src).unwrap();
-        type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap();
+        analysis_db.execute(|db| {
+            type_check(&":transient:", &mut contract, db, false)
+        }).unwrap();
     }
 }
 
@@ -1131,7 +998,9 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
 
     let mut analysis_db = AnalysisDatabase::memory();
     let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
-    type_check(&"kv-store-contract", &mut kv_store_contract, &mut analysis_db, true).unwrap();
+    analysis_db.execute(|db| {
+        type_check(&"kv-store-contract", &mut kv_store_contract, db, true)
+    }).unwrap();
     
     let cases = [
         "contract-map-get kv-store-contract kv-store ((incomptible-key key))",
@@ -1146,7 +1015,11 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
              (define-private (kv-get (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        let res = 
+            analysis_db.execute(|db| {
+                type_check(&":transient:", &mut contract, db, false)
+            }).unwrap_err();
+
         assert!(match &res.err {
             &CheckErrors::TypeError(_, _) => true,
             _ => false
@@ -1164,7 +1037,9 @@ fn test_fetch_contract_entry_unbound_variables() {
 
     let mut analysis_db = AnalysisDatabase::memory();
     let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
-    type_check(&"kv-store-contract", &mut kv_store_contract, &mut analysis_db, true).unwrap();
+    analysis_db.execute(|db| {
+        type_check(&"kv-store-contract", &mut kv_store_contract, db, true)
+    }).unwrap();
     
     let cases = [
         "contract-map-get kv-store-contract kv-store ((key unknown-value))",
@@ -1176,7 +1051,11 @@ fn test_fetch_contract_entry_unbound_variables() {
              (define-private (kv-get (key int))
                 ({}))", case);
         let mut contract = parse(&contract_src).unwrap();
-        let res = type_check(&":transient:", &mut contract, &mut analysis_db, false).unwrap_err();
+        let res = 
+            analysis_db.execute(|db| {
+                type_check(&":transient:", &mut contract, db, false)
+            }).unwrap_err();
+
         assert!(match &res.err {
             &CheckErrors::UnboundVariable(_) => true,
             _ => false

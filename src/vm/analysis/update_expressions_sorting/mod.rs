@@ -2,6 +2,7 @@ use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+use vm::functions::define::DefineFunctions;
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 
 use super::AnalysisDatabase;
@@ -96,19 +97,16 @@ impl <'a> UpdateExpressionsSorting {
         if let Some(expression) = exp.match_list() {
             if let Some((function_name, function_args)) = expression.split_first() {
                 if let Some(definition_type) = function_name.match_atom() {
-                    match definition_type.as_str() {
-                        "define-map" | "define-data-var" | "define" | "define-public" | "define-read-only" => {
-                            if function_args.len() > 1 {
-                                let define_expr = match function_args[0].match_list() {
-                                    Some(list) => &list[0],
-                                    _ => &function_args[0]
-                                };
-                                if let Some(tle_name) = define_expr.match_atom() {
-                                    return Some((tle_name.clone(), define_expr.id, define_expr));
-                                }   
+                    if DefineFunctions::lookup_by_name(definition_type).is_some() {
+                        if function_args.len() > 1 {
+                            let defined_name = match function_args[0].match_list() {
+                                Some(list) => &list[0],
+                                _ => &function_args[0]
+                            };
+                            if let Some(tle_name) = defined_name.match_atom() {
+                                return Some((tle_name.clone(), defined_name.id, defined_name));
                             }
                         }
-                        _ => {}
                     }
                 } 
             } 

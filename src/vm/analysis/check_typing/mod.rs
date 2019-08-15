@@ -132,7 +132,7 @@ fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> Chec
 }
 
 impl <'a, 'b> CheckTyping <'a, 'b> {
-    fn new(db: &'a AnalysisDatabase<'b>) -> CheckTyping<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>) -> CheckTyping<'a, 'b> {
         Self {
             db,
             contract_context: ContractContext::new(),

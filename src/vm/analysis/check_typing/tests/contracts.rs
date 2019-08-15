@@ -4,6 +4,8 @@ use serde_json;
 use vm::parser::parse;
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{AnalysisDatabase, build_contract_interface::build_contract_interface};
+use vm::analysis::mem_type_check;
+use vm::analysis::type_check;
 
 const SIMPLE_TOKENS: &str =
         "(define-map tokens ((account principal)) ((balance int)))
@@ -95,8 +97,6 @@ const SIMPLE_NAMES: &str =
 
 #[test]
 fn test_names_tokens_contracts_interface() {
-    use vm::analysis::type_check;
-
     const INTERFACE_TEST_CONTRACT: &str = "
         (define-constant var1 'SP000000000000000000002Q6VF78)
         (define-constant var2 'true)
@@ -140,10 +140,7 @@ fn test_names_tokens_contracts_interface() {
     ";
 
 
-    let mut test_contract = parse(INTERFACE_TEST_CONTRACT).unwrap();
-    let mut db = AnalysisDatabase::memory();
-
-    let contract_analysis = type_check(&"test_contract", &mut test_contract, &mut db, true).unwrap();
+    let contract_analysis = mem_type_check(INTERFACE_TEST_CONTRACT).unwrap();
     let test_contract_json_str = build_contract_interface(&contract_analysis).serialize();
     let test_contract_json = serde_json::from_str(&test_contract_json_str).unwrap();
 
@@ -349,19 +346,18 @@ fn test_names_tokens_contracts_interface() {
 
 #[test]
 fn test_names_tokens_contracts() {
-    use vm::analysis::type_check;
-
     let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(SIMPLE_NAMES).unwrap();
     let mut db = AnalysisDatabase::memory();
 
-    type_check(&"tokens", &mut tokens_contract, &mut db, true).unwrap();
-    type_check(&"names", &mut names_contract, &mut db, true).unwrap();
+    db.execute(|db| {
+        type_check(&"tokens", &mut tokens_contract, db, true)?;
+        type_check(&"names", &mut names_contract, db, true)
+    }).unwrap();
 }
 
 #[test]
 fn test_names_tokens_contracts_bad() {
-    use vm::analysis::type_check;
     let broken_public = "
          (define-public (broken-cross-contract (name-hash (buff 20)) (name-price int))
            (if (is-ok? (contract-call! tokens token-transfer
@@ -379,14 +375,9 @@ fn test_names_tokens_contracts_bad() {
     let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(&names_contract).unwrap();
     let mut db = AnalysisDatabase::memory();
+    db.execute(|db| type_check(&"tokens", &mut tokens_contract, db, true)).unwrap();
 
-    let result = type_check(&"tokens", &mut tokens_contract, &mut db, true);
-    if let Err(ref e) = result { 
-        println!("{}", e);
-    }
-    result.unwrap();
-
-    let err = type_check(&"names", &mut names_contract, &mut db, true).expect_err("Expected type error.");
+    let err = db.execute(|db| type_check(&"names", &mut names_contract, db, true)).unwrap_err();
     assert!(match &err.err {
             &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
                 eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
@@ -398,7 +389,6 @@ fn test_names_tokens_contracts_bad() {
 
 #[test]
 fn test_names_tokens_contracts_bad_fetch_contract_entry() {
-    use vm::analysis::type_check;
     let broken_public = "
          (define-private (check-balance)
            (default-to 0 
@@ -413,14 +403,9 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
     let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(&names_contract).unwrap();
     let mut db = AnalysisDatabase::memory();
+    db.execute(|db| type_check(&"tokens", &mut tokens_contract, db, true)).unwrap();
 
-    let result = type_check(&"tokens", &mut tokens_contract, &mut db, true);
-    if let Err(ref e) = result { 
-        println!("{}", e);
-    }
-    result.unwrap();
-
-    let err = type_check(&"names", &mut names_contract, &mut db, true).expect_err("Expected type error.");
+    let err = db.execute(|db| type_check(&"names", &mut names_contract, db, true)).unwrap_err();
     assert!(match &err.err {
             &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
                 eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
@@ -433,7 +418,6 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
 
 #[test]
 fn test_bad_map_usage() {
-    use vm::analysis::type_check;
     let bad_fetch = 
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (my-get-token-balance (account int))
@@ -473,11 +457,9 @@ fn test_bad_map_usage() {
                  bad_insert_1,
                  bad_insert_2,
                  unhandled_option];
-    let mut db = AnalysisDatabase::memory();
 
     for contract in tests.iter() {
-        let mut contract = parse(contract).unwrap();
-        let result = type_check(&":transient:", &mut contract, &mut db, false);
+        let result = mem_type_check(contract);
         let err = result.expect_err("Expected a type error");
         assert!(match &err.err {
             &CheckErrors::TypeError(_,_) => true,
@@ -544,15 +526,10 @@ fn test_expects() {
          (define-private (t2) (expects! (t1) 0))
     ";
 
-    let mut db = AnalysisDatabase::memory();
-
-    let mut okay = parse(okay).unwrap();
-    let result = type_check(&":transient:", &mut okay, &mut db, false).unwrap();
-
+    mem_type_check(okay).unwrap();
+    
     for unmatched_return_types in bad_return_types_tests.iter() {
-        let mut unmatched_return_types = parse(unmatched_return_types).unwrap();
-        let err = type_check(&":transient:", &mut unmatched_return_types, &mut db, false)
-            .expect_err("Expected a type error.");
+        let err = mem_type_check(unmatched_return_types).unwrap_err();
         eprintln!("unmatched_return_types returned check error: {}", err);
         assert!(match &err.err {
             &CheckErrors::ReturnTypesMustMatch(_, _) => true,
@@ -560,27 +537,21 @@ fn test_expects() {
         })
     }
 
-    let mut bad_default_type = parse(bad_default_type).unwrap();
-    let err = type_check(&":transient:", &mut bad_default_type, &mut db, false)
-        .expect_err("Expected a type error.");
+    let err = mem_type_check(bad_default_type).unwrap_err();
     eprintln!("bad_default_types returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::DefaultTypesMustMatch(_, _) => true,
         _ => false
     });
 
-    let mut notype_response_type = parse(notype_response_type).unwrap();
-    let err = type_check(&":transient:", &mut notype_response_type, &mut db, false)
-        .expect_err("Expected a type error.");
+    let err = mem_type_check(notype_response_type).unwrap_err();
     eprintln!("notype_response_type returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::CouldNotDetermineResponseErrType => true,
         _ => false
     });
 
-    let mut notype_response_type = parse(notype_response_type_2).unwrap();
-    let err = type_check(&":transient:", &mut notype_response_type, &mut db, false)
-        .expect_err("Expected a type error.");
+    let err = mem_type_check(notype_response_type_2).unwrap_err();
     eprintln!("notype_response_type_2 returned check error: {}", err);
     assert!(match &err.err {
         &CheckErrors::CouldNotDetermineResponseOkType => true,

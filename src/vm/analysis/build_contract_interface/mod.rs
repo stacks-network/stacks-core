@@ -3,9 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use vm::types::{TypeSignature, FunctionArg, AtomTypeIdentifier, TupleTypeSignature, FunctionType};
 
 pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
-    let mut contract_interface = interface::ContractInterface::new();
+    let mut contract_interface = ContractInterface::new();
 
-    let Self { 
+    let ContractAnalysis { 
         private_function_types, 
         public_function_types, 
         read_only_function_types, 
@@ -13,7 +13,9 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         persisted_variable_types, 
         map_types,
         fungible_tokens,
-        non_fungible_tokens
+        non_fungible_tokens,
+        top_level_expression_sorting: _,
+        expressions: _,
     } = contract_analysis;
 
     contract_interface.functions.append(
@@ -45,10 +47,10 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         &mut ContractInterfaceMap::from_map(&map_types));
 
     contract_interface.non_fungible_tokens.append(
-        &mut interface::ContractInterfaceNonFungibleTokens::from_map(&non_fungible_tokens));
+        &mut ContractInterfaceNonFungibleTokens::from_map(&non_fungible_tokens));
 
     contract_interface.fungible_tokens.append(
-        &mut interface::ContractInterfaceFungibleTokens::from_set(&fungible_tokens));
+        &mut ContractInterfaceFungibleTokens::from_set(&fungible_tokens));
 
     contract_interface
 }

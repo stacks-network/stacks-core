@@ -17,7 +17,7 @@ pub use super::errors::{CheckResult, CheckError, CheckErrors};
 mod tests;
 
 pub struct CheckReadOnlyDefinitions <'a, 'b> {
-    db: &'a AnalysisDatabase<'b>,
+    db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<String, bool>
 }
 
@@ -32,7 +32,7 @@ impl <'a, 'b> AnalysisPass for CheckReadOnlyDefinitions <'a, 'b> {
 
 impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
     
-    fn new(db: &'a AnalysisDatabase<'b>) -> CheckReadOnlyDefinitions<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>) -> CheckReadOnlyDefinitions<'a, 'b> {
         Self { 
             db, 
             defined_functions: HashMap::new() 

@@ -39,8 +39,8 @@ impl ContractAnalysis {
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
             top_level_expression_sorting: Some(Vec::new()),
-            tokens: BTreeSet::new(),
-            assets: BTreeMap::new()
+            fungible_tokens: BTreeSet::new(),
+            non_fungible_tokens: BTreeMap::new()
         }
     }
 
