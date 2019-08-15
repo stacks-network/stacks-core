@@ -37,7 +37,7 @@ impl <'a> UpdateExpressionsSorting {
 
         let exprs = contract_analysis.expressions[..].to_vec();
         for (expr_index, expr) in exprs.iter().enumerate() {
-            self.graph.add_node(expr_index)?;
+            self.graph.add_node(expr_index);
 
             match self.find_expression_definition(expr) {
                 Some((definition_name, atom_index, _)) => {
@@ -76,9 +76,9 @@ impl <'a> UpdateExpressionsSorting {
         match expr.expr {
             AtomValue(_) => Ok(true),
             Atom(ref name) => {
-                if let Some(dep) = self.top_level_expressions_map.get(&name.clone()) {
+                if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index)?;
+                        self.graph.add_directed_edge(tle_index, dep.expr_index);
                     }
                 }
                 Ok(true)
@@ -123,28 +123,21 @@ pub struct TopLevelExpressionIndex {
 }
 
 struct Graph {
-    nodes: Vec<usize>,
     adjacency_list: Vec<Vec<usize>>
 }
 
 impl Graph {
     fn new() -> Self {
-        Self { 
-            nodes: Vec::new(), 
-            adjacency_list: Vec::new() 
-        }
+        Self { adjacency_list: Vec::new() }
     }
 
-    fn add_node(&mut self, expr_index: usize) -> CheckResult<()> {
-        self.nodes.push(expr_index);
+    fn add_node(&mut self, expr_index: usize) {
         self.adjacency_list.push(vec![]);
-        Ok(())
     }
 
-    fn add_directed_edge(&mut self, src_expr_index: usize, dst_expr_index: usize) -> CheckResult<()> {
+    fn add_directed_edge(&mut self, src_expr_index: usize, dst_expr_index: usize) {
         let list = self.adjacency_list.get_mut(src_expr_index).unwrap();
         list.push(dst_expr_index);
-        Ok(())
     }
     
     fn get_node_descendants(&self, expr_index: usize) -> Vec<usize> {
@@ -154,19 +147,22 @@ impl Graph {
     fn has_node_descendants(&self, expr_index: usize) -> bool {
         self.adjacency_list[expr_index].len() > 0
     }
+
+    fn nodes_count(&self) -> usize { self.adjacency_list.len() }
 }
 
 struct GraphWalker {
     seen: HashSet<usize>,
 }
 
-impl GraphWalker  {
+impl GraphWalker {
 
     fn new() -> Self { Self { seen: HashSet::new() } }
 
+    /// Traverse the graph
     fn get_sorted_dependencies(&mut self, graph: &Graph) -> CheckResult<Vec<usize>> {
         let mut sorted_indexes = Vec::<usize>::new();
-        for expr_index in 0..graph.nodes.len() {
+        for expr_index in 0..graph.nodes_count() {
             self.sort_dependencies_recursion(expr_index, graph, &mut sorted_indexes);
         }
 
