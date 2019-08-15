@@ -78,7 +78,8 @@ impl MarfedKV {
     pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
         self.marf.begin(current, next)
             .unwrap();
-        self.chain_tip = next.clone();
+        self.chain_tip = self.marf.get_open_chain_tip()
+            .unwrap().clone();
     }
     pub fn commit(&mut self) {
         self.marf.commit()
