@@ -68,17 +68,18 @@ impl <'a> AnalysisDatabase <'a> {
             .map(|x| T::deserialize(&x))
     }
 
-    fn make_key(contract_name: &str) -> String {
+    // Creates the key used to store the given contract in the underlying Key-Value store.
+    fn make_storage_key(contract_name: &str) -> String {
         format!("analysis::{}", contract_name)
     }
 
     fn load_contract(&mut self, contract_name: &str) -> Option<ContractAnalysis> {
-        let key = AnalysisDatabase::make_key(contract_name);
+        let key = AnalysisDatabase::make_storage_key(contract_name);
         self.get(&key)
     }
 
     pub fn insert_contract(&mut self, contract_name: &str, contract: &ContractAnalysis) -> CheckResult<()> {
-        let key = AnalysisDatabase::make_key(contract_name);
+        let key = AnalysisDatabase::make_storage_key(contract_name);
         if self.store.has_entry(&key) {
             return Err(CheckError::new(CheckErrors::ContractAlreadyExists(contract_name.to_string())))
         }

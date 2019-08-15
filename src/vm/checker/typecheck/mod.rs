@@ -420,7 +420,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok((var_name, expected_type))
     }
 
-    fn type_check_define_token(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<String> {
+    fn type_check_define_ft(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<String> {
         if args.len() != 1 && args.len() != 2 {
             return Err(CheckErrors::IncorrectArgumentCount(2, args.len()).into())
         }
@@ -436,7 +436,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok(token_name)
     }
 
-    fn type_check_define_asset(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
+    fn type_check_define_nft(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
         check_argument_count(2, args)?;
 
         let asset_name = args[0].match_atom()
@@ -501,12 +501,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                                 Ok(Some(()))
                             },
                             FungibleToken => {
-                                let token_name = self.type_check_define_token(function_args, context)?;
+                                let token_name = self.type_check_define_ft(function_args, context)?;
                                 self.contract_context.add_ft(token_name)?;
                                 Ok(Some(()))
                             },
                             NonFungibleToken => {
-                                let (token_name, token_type) = self.type_check_define_asset(function_args, context)?;
+                                let (token_name, token_type) = self.type_check_define_nft(function_args, context)?;
                                 self.contract_context.add_nft(token_name, token_type)?;
                                 Ok(Some(()))
                             }
