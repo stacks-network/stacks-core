@@ -251,7 +251,7 @@ impl GraphWalker {
 
     fn new() -> Self { Self { seen: HashSet::new() } }
 
-    /// Traverse the graph
+    /// Depth-first search producing a post-order sort
     fn get_sorted_dependencies(&mut self, graph: &Graph) -> CheckResult<Vec<usize>> {
         let mut sorted_indexes = Vec::<usize>::new();
         for expr_index in 0..graph.nodes_count() {
