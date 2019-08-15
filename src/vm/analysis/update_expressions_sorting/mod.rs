@@ -49,7 +49,7 @@ impl <'a> UpdateExpressionsSorting {
         }
 
         for (expr_index, expr) in exprs.iter().enumerate() {
-            self.register_dependencies(&expr, expr_index)?;
+            self.probe_for_dependencies(&expr, expr_index)?;
         }
 
         let mut walker = GraphWalker::new();
@@ -72,32 +72,124 @@ impl <'a> UpdateExpressionsSorting {
         Ok(())
     }
 
-    fn register_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<bool> {
+    fn probe_for_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
         match expr.expr {
-            AtomValue(_) => Ok(true),
+            AtomValue(_) => Ok(()),
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
                         self.graph.add_directed_edge(tle_index, dep.expr_index);
                     }
                 }
-                Ok(true)
+                Ok(())
             },
             List(ref exprs) => {
-                for expr in exprs.into_iter() {
-                    self.register_dependencies(expr, tle_index)?;
+                // Avoid looking for dependencies in tuples 
+                if let Some((function_name, function_args)) = exprs.split_first() {
+                    if let Some(function_name) = function_name.match_atom() {
+                        match function_name.as_str() {
+                            "define-non-fungible-token" | "define-fungible-token" | "define" | "define-public" | "define-read-only" | "define-data-var" => {
+                                // Args: [(define-name-and-types), ...]: ignore 1st arg
+                                if function_args.len() > 1 {
+                                    for expr in function_args[1..function_args.len()].into_iter() {
+                                        self.probe_for_dependencies(expr, tle_index)?;
+                                    }
+                                }
+                                return Ok(());
+                            }
+                            "define-map" => {
+                                // Args: [name, tuple-key, tuple-value]: handle tuple-key and tuple-value as tuples
+                                if function_args.len() == 3 {
+                                    self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
+                                    self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
+                                }
+                                return Ok(());
+                            }
+                            "fetch-entry" | "delete-entry!" => {
+                                // Args: [map-name, tuple-predicate]: handle tuple-predicate as tuple
+                                if function_args.len() == 2 {
+                                    self.probe_for_dependencies(&function_args[0], tle_index)?;
+                                    self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
+                                }
+                                return Ok(());
+                            }, 
+                            "set-entry!" | "insert-entry!" => {
+                                // Args: [map-name, tuple-keys, tuple-values]: handle tuple-keys and tuple-values as tuples
+                                if function_args.len() == 3 {
+                                    self.probe_for_dependencies(&function_args[0], tle_index)?;
+                                    self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
+                                    self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
+                                }
+                                return Ok(());
+                            }, 
+                            "fetch-contract-entry" => {
+                                // Args: [contract-name, map-name, tuple-predicate]: ignore contract-name, map-name, handle tuple-predicate as tuple
+                                if function_args.len() == 3 {
+                                    self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
+                                }
+                                return Ok(());
+                            }, 
+                            "let" => {
+                                // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
+                                if function_args.len() > 1 {
+                                    self.probe_for_dependencies_in_tuple(&function_args[0], tle_index)?;
+                                    for expr in function_args[1..function_args.len()].into_iter() {
+                                        self.probe_for_dependencies(expr, tle_index)?;
+                                    }
+                                }
+                                return Ok(());
+                            }
+                            "get" => {
+                                // Args: [key-name, expr]: ignore key-name
+                                if function_args.len() == 2 {
+                                    self.probe_for_dependencies(&function_args[1], tle_index)?;
+                                }
+                                return Ok(());
+                            }, 
+                            "tuple" => {
+                                // Args: [(key-name A), (key-name-2 B), ...]: handle as a tuple
+                                self.probe_for_dependencies_in_tuple_list(function_args, tle_index)?;
+                                return Ok(());
+                            }
+                            _ => {}
+                        }
+                    }
                 }
-                Ok(true)
+                for expr in exprs.into_iter() {
+                    self.probe_for_dependencies(expr, tle_index)?;
+                }
+                Ok(())
             }
         }
     }
+
+    fn probe_for_dependencies_in_tuple_list(&mut self, tuples: &[SymbolicExpression], tle_index: usize) -> CheckResult<()> {
+        for index in 0..tuples.len() {
+            self.probe_for_dependencies_in_tuple(&tuples[index], tle_index)?;
+        } 
+        Ok(())
+    }
+
+    fn probe_for_dependencies_in_tuple(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
+        if let Some(tuple) = expr.match_list() {
+            for pair in tuple.into_iter() {
+                if let Some(pair) = pair.match_list() {
+                    if pair.len() == 2 {
+                        self.probe_for_dependencies(&pair[1], tle_index)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
 
     fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(String, u64, &'b SymbolicExpression)> {
         if let Some(expression) = exp.match_list() {
             if let Some((function_name, function_args)) = expression.split_first() {
                 if let Some(definition_type) = function_name.match_atom() {
                     match definition_type.as_str() {
-                        "define-map" | "define-data-var" | "define" | "define-public" | "define-read-only" => {
+                        "define-map" | "define-data-var" | "define" | "define-public" | "define-read-only" | "define-non-fungible-token" | "define-fungible-token" => {
                             if function_args.len() > 1 {
                                 let define_expr = match function_args[0].match_list() {
                                     Some(list) => &list[0],
