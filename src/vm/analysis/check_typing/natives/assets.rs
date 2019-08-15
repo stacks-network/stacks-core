@@ -1,9 +1,9 @@
 use vm::representations::{SymbolicExpression};
 use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE};
-use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
-use vm::checker::errors::{CheckError, CheckErrors, CheckResult, check_argument_count};
+use super::{CheckTyping, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
+use vm::analysis::errors::{CheckError, CheckErrors, CheckResult, check_argument_count};
 
-pub fn check_special_get_owner(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_get_owner(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom()
@@ -23,7 +23,7 @@ pub fn check_special_get_owner(checker: &mut TypeChecker, args: &[SymbolicExpres
     }
 }
 
-pub fn check_special_get_balance(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_get_balance(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom()
@@ -40,7 +40,7 @@ pub fn check_special_get_balance(checker: &mut TypeChecker, args: &[SymbolicExpr
     Ok(AtomTypeIdentifier::IntType.into())
 }
 
-pub fn check_special_mint_asset(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_mint_asset(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom()
@@ -60,7 +60,7 @@ pub fn check_special_mint_asset(checker: &mut TypeChecker, args: &[SymbolicExpre
                   AtomTypeIdentifier::IntType.into()))).into())
 }
 
-pub fn check_special_mint_token(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_mint_token(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom()
@@ -83,7 +83,7 @@ pub fn check_special_mint_token(checker: &mut TypeChecker, args: &[SymbolicExpre
                   AtomTypeIdentifier::IntType.into()))).into())
 }
 
-pub fn check_special_transfer_asset(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_transfer_asset(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(4, args)?;
 
     let token_name = args[0].match_atom()
@@ -104,7 +104,7 @@ pub fn check_special_transfer_asset(checker: &mut TypeChecker, args: &[SymbolicE
                   AtomTypeIdentifier::IntType.into()))).into())
 }
 
-pub fn check_special_transfer_token(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_transfer_token(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(4, args)?;
 
     let token_name = args[0].match_atom()

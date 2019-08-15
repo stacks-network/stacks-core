@@ -15,7 +15,7 @@ mod variables;
 mod callables;
 
 pub mod docs;
-pub mod checker;
+pub mod analysis;
 
 #[cfg(test)]
 mod tests;

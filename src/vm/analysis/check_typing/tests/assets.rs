@@ -1,7 +1,7 @@
 use vm::types::AtomTypeIdentifier;
 use vm::parser::parse;
-use vm::checker::errors::CheckErrors;
-use vm::checker::{AnalysisDatabase};
+use vm::analysis::errors::CheckErrors;
+use vm::analysis::{AnalysisDatabase};
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-non-fungible-token stacka-nfts (buff 10))
@@ -74,7 +74,7 @@ const ASSET_NAMES: &str =
 
 #[test]
 fn test_names_tokens_contracts() {
-    use vm::checker::type_check;
+    use vm::analysis::type_check;
 
     let mut tokens_contract = parse(FIRST_CLASS_TOKENS).unwrap();
     let mut names_contract = parse(ASSET_NAMES).unwrap();
@@ -87,7 +87,7 @@ fn test_names_tokens_contracts() {
 
 #[test]
 fn test_bad_asset_usage() {
-    use vm::checker::type_check;
+    use vm::analysis::type_check;
 
     let bad_scripts = ["(ft-get-balance stackoos tx-sender)",
                        "(ft-get-balance 1234 tx-sender)",

@@ -1,12 +1,12 @@
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{AtomTypeIdentifier, TypeSignature};
+use vm::types::{AtomTypeIdentifier, TypeSignature, FunctionType};
 
-use vm::checker::typecheck::{TypeResult, TypingContext, CheckResult, FunctionType,
-                             CheckError, CheckErrors, no_type, TypeChecker};
+use vm::analysis::check_typing::{TypeResult, TypingContext, CheckResult,
+                             CheckError, CheckErrors, no_type, CheckTyping, check_function_args};
 use super::{TypedNativeFunction, SimpleNativeFunction};
 
-fn get_simple_native_or_user_define(function_name: &str, checker: &TypeChecker) -> CheckResult<FunctionType> {
+fn get_simple_native_or_user_define(function_name: &str, checker: &CheckTyping) -> CheckResult<FunctionType> {
     if let Some(ref native_function) = NativeFunctions::lookup_by_name(function_name) {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) = TypedNativeFunction::type_native_function(native_function) {
             Ok(function_type)
@@ -19,7 +19,7 @@ fn get_simple_native_or_user_define(function_name: &str, checker: &TypeChecker) 
     }
 }
 
-pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_map(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
     }
@@ -40,7 +40,7 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
     let argument_items_type = argument_type.get_list_item_type()
         .ok_or(CheckError::new(CheckErrors::ExpectedListApplication))?;
     
-    function_type.check_args(&[argument_items_type])?;
+    check_function_args(&function_type, &[argument_items_type])?;
     
     let mapped_type = function_type.return_type();
     
@@ -48,7 +48,7 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
         .map_err(|_| CheckError::new(CheckErrors::ConstructedListTooLarge))
 }
 
-pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_filter(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
     }
@@ -69,7 +69,7 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
     let argument_items_type = argument_type.get_list_item_type()
         .ok_or(CheckError::new(CheckErrors::ExpectedListApplication))?;
     
-    function_type.check_args(&[argument_items_type])?;
+    check_function_args(&function_type, &[argument_items_type])?;
     
     let filter_type = function_type.return_type();
 
@@ -81,7 +81,7 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
     Ok(argument_type)
 }
 
-pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_fold(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 3 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
     }
@@ -107,9 +107,9 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     //           B = list items type
     
     // f must accept the initial value and the list items type
-    function_type.check_args(&[initial_value_type.clone(), list_items_type.clone()])?;
+    check_function_args(&function_type, &[initial_value_type.clone(), list_items_type.clone()])?;
     // f must _also_ accepts its own return type!
-    function_type.check_args(&[return_type.clone(), list_items_type.clone()])?;
+    check_function_args(&function_type, &[return_type.clone(), list_items_type.clone()])?;
     // TODO: those clones _should_ be removed.
     
     Ok(return_type)

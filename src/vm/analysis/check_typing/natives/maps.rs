@@ -5,10 +5,10 @@ use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
 use super::check_special_tuple_cons;
-use vm::checker::typecheck::{TypeResult, TypingContext, 
-                             CheckError, CheckErrors, no_type, TypeChecker};
+use vm::analysis::check_typing::{TypeResult, TypingContext, 
+                             CheckError, CheckErrors, no_type, CheckTyping};
 
-pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_fetch_entry(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
 
     if args.len() < 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
@@ -36,7 +36,7 @@ pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpr
     }
 }
 
-pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_fetch_contract_entry(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 3 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
     }
@@ -66,7 +66,7 @@ pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[Sym
     }
 }
 
-pub fn check_special_delete_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_delete_entry(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
     }
@@ -91,7 +91,7 @@ pub fn check_special_delete_entry(checker: &mut TypeChecker, args: &[SymbolicExp
     }
 }
 
-pub fn check_special_set_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_set_entry(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 3 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
     }
@@ -123,7 +123,7 @@ pub fn check_special_set_entry(checker: &mut TypeChecker, args: &[SymbolicExpres
     }
 }
 
-pub fn check_special_insert_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_insert_entry(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 3 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
     }

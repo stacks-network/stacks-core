@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
+use vm::types::{TypeSignature, FunctionType};
 use vm::database::{KeyValueStorage, ClaritySerializable, ClarityDeserializable, RollbackWrapper};
-use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
-use vm::types::TypeSignature;
-use vm::checker::typecheck::{ContractAnalysis, FunctionType};
-use util::hash::Sha256Sum;
+use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use vm::analysis::check_typing::{ContractAnalysis};
 
 pub struct AnalysisDatabase <'a> {
     store: RollbackWrapper <'a>

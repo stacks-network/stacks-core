@@ -1,21 +1,21 @@
 pub mod contexts;
 //mod maps;
 pub mod natives;
-pub mod interface;
 
 use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, FunctionArg, parse_name_type_pairs};
+use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, FunctionArg, FunctionType, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::variables::NativeVariables;
 
 use super::AnalysisDatabase;
+pub use super::types::{ContractAnalysis, AnalysisPass};
+
 use self::contexts::{TypeMap, TypingContext, ContractContext};
 
 pub use self::natives::{TypedNativeFunction, SimpleNativeFunction};
 
-pub use self::contexts::ContractAnalysis;
 pub use super::errors::{CheckResult, CheckError, CheckErrors, check_argument_count};
 
 
@@ -38,76 +38,68 @@ Is illegally typed in our language.
 
 */
 
-
-pub type TypeResult = CheckResult<TypeSignature>;
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FunctionType {
-    Variadic(TypeSignature, TypeSignature),
-    Fixed(Vec<FunctionArg>, TypeSignature),
-    // Functions where the single input is a union type, e.g., Buffer or Int
-    UnionArgs(Vec<TypeSignature>, TypeSignature),
-}
-
-pub struct TypeChecker <'a, 'b> {
+pub struct CheckTyping <'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a mut AnalysisDatabase<'b>
 }
 
-impl FunctionType {
-    pub fn check_args(&self, args: &[TypeSignature]) -> CheckResult<()> {
-        match self {
-            FunctionType::Variadic(expected_type, _) => {
-                if args.len() < 1 {
-                    return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
-                }
-                for found_type in args.iter() {
-                    if !expected_type.admits_type(found_type) {
-                        return Err(CheckError::new(CheckErrors::TypeError(
-                            expected_type.clone(), found_type.clone())))
-                    }                    
-                }
-                Ok(())
-            },
-            FunctionType::Fixed(arg_types, _) => {
-                if arg_types.len() != args.len() {
-                    return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(
-                        arg_types.len(), args.len())))
-                }
-                for (expected_type, found_type) in arg_types.iter().map(|x| &x.signature).zip(args) {
-                    if !expected_type.admits_type(found_type) {
-                        return Err(CheckError::new(CheckErrors::TypeError(
-                            expected_type.clone(), found_type.clone())))
-                    }
-                }
-                Ok(())
-            },
-            FunctionType::UnionArgs(arg_types, _) => {
-                if args.len() != 1 {
-                    return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(
-                        1, args.len())))
-                }
-                let found_type = &args[0];
-                for expected_type in arg_types.iter() {
-                    if expected_type.admits_type(found_type) {
-                        return  Ok(())
-                    }
-                }
-                Err(CheckError::new(CheckErrors::UnionTypeError(
-                    arg_types.clone(), found_type.clone())))
-            }
-        }
-    }
+impl <'a, 'b> AnalysisPass for CheckTyping <'a, 'b> {
+    fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
+        let mut command = CheckTyping::new(analysis_db);
+        command.run(contract_analysis)?;
 
-    pub fn return_type(&self) -> TypeSignature {
-        match self {
-            FunctionType::Variadic(_, return_type) => return_type.clone(),
-            FunctionType::Fixed(_, return_type) => return_type.clone(),
-            FunctionType::UnionArgs(_, return_type) => return_type.clone()
+        Ok(())
+    }
+}
+
+pub type TypeResult = CheckResult<TypeSignature>;
+
+pub fn check_function_args(function_type: &FunctionType, args: &[TypeSignature]) -> CheckResult<()> {
+    match function_type {
+        FunctionType::Variadic(expected_type, _) => {
+            if args.len() < 1 {
+                return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
+            }
+            for found_type in args.iter() {
+                if !expected_type.admits_type(found_type) {
+                    return Err(CheckError::new(CheckErrors::TypeError(
+                        expected_type.clone(), found_type.clone())))
+                }                    
+            }
+            Ok(())
+        },
+        FunctionType::Fixed(arg_types, _) => {
+            if arg_types.len() != args.len() {
+                return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(
+                    arg_types.len(), args.len())))
+            }
+            for (expected_type, found_type) in arg_types.iter().map(|x| &x.signature).zip(args) {
+                if !expected_type.admits_type(found_type) {
+                    return Err(CheckError::new(CheckErrors::TypeError(
+                        expected_type.clone(), found_type.clone())))
+                }
+            }
+            Ok(())
+        },
+        FunctionType::UnionArgs(arg_types, _) => {
+            if args.len() != 1 {
+                return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(
+                    1, args.len())))
+            }
+            let found_type = &args[0];
+            for expected_type in arg_types.iter() {
+                if expected_type.admits_type(found_type) {
+                    return  Ok(())
+                }
+            }
+            Err(CheckError::new(CheckErrors::UnionTypeError(
+                arg_types.clone(), found_type.clone())))
         }
     }
 }
+
 
 fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
     if let Some(variable) = NativeVariables::lookup_by_name(variable_name) {
@@ -126,7 +118,7 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
     }
 }
 
-fn no_type() -> TypeSignature {
+pub fn no_type() -> TypeSignature {
     TypeSignature::new_atom(AtomTypeIdentifier::NoType)
 }
 
@@ -139,9 +131,9 @@ fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> Chec
     }
 }
 
-impl <'a, 'b> TypeChecker <'a, 'b> {
-    fn new(db: &'a mut AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
-        TypeChecker {
+impl <'a, 'b> CheckTyping <'a, 'b> {
+    fn new(db: &'a AnalysisDatabase<'b>) -> CheckTyping<'a, 'b> {
+        Self {
             db,
             contract_context: ContractContext::new(),
             function_return_tracker: None,
@@ -171,26 +163,25 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 
-    pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &mut AnalysisDatabase) -> CheckResult<ContractAnalysis> {
-        let mut type_checker = TypeChecker::new(analysis_db);
+    pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
         let mut local_context = TypingContext::new();
 
-        for exp in contract {
-
-            let mut result_res = type_checker.try_type_check_define(exp, &mut local_context);
+        for exp in contract_analysis.expressions_iter() {
+            let mut result_res = self.try_type_check_define(&exp, &mut local_context);
             if let Err(ref mut error) = result_res {
                 if !error.has_expression() {
-                    error.set_expression(exp);
+                    error.set_expression(&exp);
                 }
             }
             let result = result_res?;
             if result.is_none() {
                 // was _not_ a define statement, so handle like a normal statement.
-                type_checker.type_check(exp, &local_context)?;
+                self.type_check(&exp, &local_context)?;
             }
         }
 
-        Ok(type_checker.contract_context.to_contract_analysis())
+        self.contract_context.update_contract_analysis(contract_analysis);
+        Ok(())
     }
 
     pub fn type_check_expects(&mut self, expr: &SymbolicExpression, context: &TypingContext, expected_type: &TypeSignature) -> TypeResult {
@@ -203,7 +194,6 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Ok(actual_type)
         }
     }
-
     // Type checks an expression, recursively type checking its subexpressions
     pub fn type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
         let mut result = self.inner_type_check(expr, context);
@@ -229,7 +219,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     fn type_check_function_type(&mut self, func_type: &FunctionType,
                                 args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
         let typed_args = self.type_check_all(args, context)?;
-        func_type.check_args(&typed_args)?;
+        check_function_args(func_type, &typed_args)?;
         Ok(func_type.return_type().clone())
     }
 

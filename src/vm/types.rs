@@ -41,6 +41,14 @@ pub struct ListTypeData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FunctionType {
+    Variadic(TypeSignature, TypeSignature),
+    Fixed(Vec<FunctionArg>, TypeSignature),
+    // Functions where the single input is a union type, e.g., Buffer or Int
+    UnionArgs(Vec<TypeSignature>, TypeSignature),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TypeSignature {
     Atom(AtomTypeIdentifier),
     List(AtomTypeIdentifier, ListTypeData),
@@ -111,6 +119,17 @@ pub enum BlockInfoProperty {
     VrfSeed,
     HeaderHash,
     BurnchainHeaderHash,
+}
+
+impl FunctionType {
+
+    pub fn return_type(&self) -> TypeSignature {
+        match self {
+            FunctionType::Variadic(_, return_type) => return_type.clone(),
+            FunctionType::Fixed(_, return_type) => return_type.clone(),
+            FunctionType::UnionArgs(_, return_type) => return_type.clone()
+        }
+    }
 }
 
 impl OptionalData {

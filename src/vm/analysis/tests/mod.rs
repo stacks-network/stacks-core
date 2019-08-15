@@ -1,7 +1,8 @@
 use vm::parser::parse;
-use vm::checker::{AnalysisDatabase};
-use vm::checker::errors::{CheckErrors, CheckResult};
-use vm::checker::{ContractAnalysis, type_check};
+use vm::analysis::{AnalysisDatabase};
+use vm::analysis::errors::CheckErrors;
+use vm::analysis::{ContractAnalysis, type_check};
+
 
 #[cfg(test)]
 pub fn mem_type_check(snippet: &str) -> CheckResult<ContractAnalysis> {

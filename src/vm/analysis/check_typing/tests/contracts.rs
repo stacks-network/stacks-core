@@ -2,8 +2,8 @@ use assert_json_diff;
 use serde_json;
 
 use vm::parser::parse;
-use vm::checker::errors::CheckErrors;
-use vm::checker::{AnalysisDatabase};
+use vm::analysis::errors::CheckErrors;
+use vm::analysis::{AnalysisDatabase, build_contract_interface::build_contract_interface};
 
 const SIMPLE_TOKENS: &str =
         "(define-map tokens ((account principal)) ((balance int)))
@@ -95,7 +95,7 @@ const SIMPLE_NAMES: &str =
 
 #[test]
 fn test_names_tokens_contracts_interface() {
-    use vm::checker::type_check;
+    use vm::analysis::type_check;
 
     const INTERFACE_TEST_CONTRACT: &str = "
         (define-constant var1 'SP000000000000000000002Q6VF78)
@@ -143,7 +143,8 @@ fn test_names_tokens_contracts_interface() {
     let mut test_contract = parse(INTERFACE_TEST_CONTRACT).unwrap();
     let mut db = AnalysisDatabase::memory();
 
-    let test_contract_json_str = type_check(&"test_contract", &mut test_contract, &mut db, true).unwrap().to_interface().serialize();
+    let contract_analysis = type_check(&"test_contract", &mut test_contract, &mut db, true).unwrap();
+    let test_contract_json_str = build_contract_interface(&contract_analysis).serialize();
     let test_contract_json = serde_json::from_str(&test_contract_json_str).unwrap();
 
     let test_contract_json_expected = serde_json::from_str(r#"{
@@ -348,7 +349,7 @@ fn test_names_tokens_contracts_interface() {
 
 #[test]
 fn test_names_tokens_contracts() {
-    use vm::checker::type_check;
+    use vm::analysis::type_check;
 
     let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(SIMPLE_NAMES).unwrap();
@@ -360,7 +361,7 @@ fn test_names_tokens_contracts() {
 
 #[test]
 fn test_names_tokens_contracts_bad() {
-    use vm::checker::type_check;
+    use vm::analysis::type_check;
     let broken_public = "
          (define-public (broken-cross-contract (name-hash (buff 20)) (name-price int))
            (if (is-ok? (contract-call! tokens token-transfer
@@ -397,7 +398,7 @@ fn test_names_tokens_contracts_bad() {
 
 #[test]
 fn test_names_tokens_contracts_bad_fetch_contract_entry() {
-    use vm::checker::type_check;
+    use vm::analysis::type_check;
     let broken_public = "
          (define-private (check-balance)
            (default-to 0 
@@ -432,7 +433,7 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
 
 #[test]
 fn test_bad_map_usage() {
-    use vm::checker::type_check;
+    use vm::analysis::type_check;
     let bad_fetch = 
         "(define-map tokens ((account principal)) ((balance int)))
          (define-private (my-get-token-balance (account int))
@@ -488,7 +489,7 @@ fn test_bad_map_usage() {
 
 #[test]
 fn test_expects() {
-    use vm::checker::type_check;
+    use vm::analysis::type_check;
     let okay = 
         "(define-map tokens ((id int)) ((balance int)))
          (define-private (my-get-token-balance)

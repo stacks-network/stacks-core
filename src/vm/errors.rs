@@ -21,7 +21,7 @@ pub enum Error {
 }
 
 /// UncheckedErrors are errors that *should* be caught by the
-///   typechecker and other check passes. Test executions may
+///   CheckTyping and other check passes. Test executions may
 ///   trigger these errors.
 #[derive(Debug, PartialEq)]
 pub enum UncheckedError {

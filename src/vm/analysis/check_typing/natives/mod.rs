@@ -1,9 +1,9 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE, FunctionArg};
-use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
-use vm::checker::errors::{CheckError, CheckErrors, CheckResult};
+use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE, FunctionArg, FunctionType};
+use super::{CheckTyping, TypingContext, TypeResult, no_type, check_atomic_type, check_function_args}; 
+use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 
 mod assets;
 mod lists;
@@ -15,7 +15,7 @@ pub enum TypedNativeFunction {
     Simple(SimpleNativeFunction)
 }
 
-pub struct SpecialNativeFunction(&'static Fn(&mut TypeChecker, &[SymbolicExpression], &TypingContext) -> TypeResult);
+pub struct SpecialNativeFunction(&'static Fn(&mut CheckTyping, &[SymbolicExpression], &TypingContext) -> TypeResult);
 pub struct SimpleNativeFunction(pub FunctionType);
 
 fn arithmetic_type(variadic: bool) -> FunctionType {
@@ -35,7 +35,7 @@ fn arithmetic_comparison() -> FunctionType {
                         TypeSignature::new_atom( AtomTypeIdentifier::BoolType ))    
 }
 
-fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_special_list_cons(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     let typed_args = checker.type_check_all(args, context)?;
     TypeSignature::parent_list_type(&typed_args)
         .map_err(|x| {
@@ -54,7 +54,7 @@ fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression
         })
 }
 
-fn check_special_print(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_special_print(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 1 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
     }
@@ -62,7 +62,7 @@ fn check_special_print(checker: &mut TypeChecker, args: &[SymbolicExpression], c
     checker.type_check(&args[0], context)
 }
 
-fn check_special_as_contract(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_special_as_contract(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 1 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
     }
@@ -70,7 +70,7 @@ fn check_special_as_contract(checker: &mut TypeChecker, args: &[SymbolicExpressi
     checker.type_check(&args[0], context)
 }
 
-fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_special_begin(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 1 {
         return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
     }
@@ -90,7 +90,7 @@ fn inner_handle_tuple_get(tuple_type_sig: &TupleTypeSignature, field_to_get: &st
     Ok(return_type)
 }
 
-fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_special_get(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
     }
@@ -122,7 +122,7 @@ fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     }
 }
 
-pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_tuple_cons(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 1 {
         return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
     }
@@ -150,7 +150,7 @@ pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpre
         AtomTypeIdentifier::TupleType(tuple_signature)))
 }
 
-fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_special_let(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
     }
@@ -192,7 +192,7 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
     Ok(last_return)
 }
 
-fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_special_fetch_var(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 1 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))
     }
@@ -208,7 +208,7 @@ fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression
     Ok(value_type.clone())
 }
 
-fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_special_set_var(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
     }
@@ -230,7 +230,7 @@ fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression],
     }
 }
 
-fn check_special_equals(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_special_equals(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 1 {
         return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
     }
@@ -247,7 +247,7 @@ fn check_special_equals(checker: &mut TypeChecker, args: &[SymbolicExpression], 
     Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
 }
 
-fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_special_if(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 3 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
     }
@@ -264,7 +264,7 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
         .map_err(|(a,b)| CheckError::new(CheckErrors::IfArmsMustMatch(a, b)))
 }
 
-fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_contract_call(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
     }
@@ -288,12 +288,12 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 
     let contract_call_args = checker.type_check_all(&args[2..], context)?;
     
-    contract_call_function_type.check_args(&contract_call_args)?;
+    check_function_args(&contract_call_function_type, &contract_call_args)?;
     
     Ok(contract_call_function_type.return_type())
 }
 
-fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+fn check_get_block_info(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() < 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
     }
@@ -312,7 +312,7 @@ fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], 
 }
 
 impl TypedNativeFunction {
-    pub fn type_check_appliction(&self, checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    pub fn type_check_appliction(&self, checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
         use self::TypedNativeFunction::{Special, Simple};
         match self {
             Special(SpecialNativeFunction(check)) => check(checker, args, context),

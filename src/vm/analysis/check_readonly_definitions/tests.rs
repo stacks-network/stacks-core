@@ -1,5 +1,5 @@
 use vm::parser::parse;
-use vm::checker::{type_check, CheckError, CheckErrors, AnalysisDatabase};
+use vm::analysis::{type_check, CheckError, CheckErrors, AnalysisDatabase};
 
 #[test]
 fn test_simple_read_only_violations() {
