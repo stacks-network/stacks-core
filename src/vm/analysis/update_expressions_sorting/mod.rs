@@ -65,7 +65,7 @@ impl <'a> UpdateExpressionsSorting {
             let functions_names = deps_props.iter().map(|i| i.0.clone()).collect();
             let exprs = deps_props.iter().map(|i| i.2.clone()).collect();
 
-            let mut error = CheckError::new(CheckErrors::CyclingDependencies(functions_names));
+            let mut error = CheckError::new(CheckErrors::CircularReference(functions_names));
             error.set_expressions(exprs);
             return Err(error)
         }
@@ -289,7 +289,7 @@ impl GraphWalker {
             let mut tainted_descendants_count = 0;
             let descendants = graph.get_node_descendants(*node);
             for descendant in descendants.iter() {
-                if graph.has_node_descendants(*descendant) == false || tainted.contains(descendant) {
+                if !graph.has_node_descendants(*descendant) || tainted.contains(descendant) {
                     tainted.insert(*descendant);
                     tainted_descendants_count += 1;
                 }

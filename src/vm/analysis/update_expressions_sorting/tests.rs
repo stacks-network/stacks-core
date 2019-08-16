@@ -58,7 +58,7 @@ fn should_raise_dependency_cycle_case_1() {
     "#;
 
     let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false });
+    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false });
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn should_raise_dependency_cycle_case_let() {
     "#;
 
     let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn should_raise_dependency_cycle_case_get() {
     "#;
 
     let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn should_raise_dependency_cycle_case_fetch_entry() {
     "#;
 
     let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn should_raise_dependency_cycle_case_delete_entry() {
     "#;
 
     let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -174,7 +174,7 @@ fn should_raise_dependency_cycle_case_set_entry() {
     "#;
 
     let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -198,7 +198,7 @@ fn should_raise_dependency_cycle_case_insert_entry() {
     "#;
 
     let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
 }
 
 #[test]
@@ -219,5 +219,5 @@ fn should_raise_dependency_cycle_case_fetch_contract_entry() {
     "#;
 
     let err = run_scoped_analysis_helper(contract).unwrap_err();
-    assert!(match err.err { CheckErrors::CyclingDependencies(_) => true, _ => false})
+    assert!(match err.err { CheckErrors::CircularReference(_) => true, _ => false})
 }
