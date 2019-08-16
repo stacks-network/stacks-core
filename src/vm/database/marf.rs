@@ -79,7 +79,7 @@ impl MarfedKV {
         self.marf.begin(current, next)
             .expect("ERROR: Failed to begin new MARF block");
         self.chain_tip = self.marf.get_open_chain_tip()
-            .expect("ERROR: Failed to get open MARF");
+            .expect("ERROR: Failed to get open MARF")
             .clone();
     }
     pub fn commit(&mut self) {
