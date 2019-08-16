@@ -75,7 +75,9 @@ pub enum CheckErrors {
     BadSyntaxBinding,
     MaxContextDepthReached,
     UnboundVariable(String),
-    VariadicNeedsOneArgument,
+    
+    // argument counts
+    RequiresAtLeastArguments(usize, usize),
     IncorrectArgumentCount(usize, usize),
     IfArmsMustMatch(TypeSignature, TypeSignature),
     DefaultTypesMustMatch(TypeSignature, TypeSignature),
@@ -155,6 +157,14 @@ pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), CheckE
     }
 }
 
+pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), CheckError> {
+    if args.len() < expected {
+        Err(CheckErrors::RequiresAtLeastArguments(expected, args.len()).into())
+    } else {
+        Ok(())
+    }
+}
+
 fn formatted_expected_types(expected_types: & Vec<TypeSignature>) -> String {
     let mut expected_types_joined = String::new();
     expected_types_joined = format!("'{}'", expected_types[0]);
@@ -209,7 +219,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::BadSyntaxBinding => format!("invalid syntax binding"),
             CheckErrors::MaxContextDepthReached => format!("reached depth limit"),
             CheckErrors::UnboundVariable(var_name) => format!("use of unresolved variable '{}'", var_name),
-            CheckErrors::VariadicNeedsOneArgument => format!("expecting at least 1 argument"),
+            CheckErrors::RequiresAtLeastArguments(expected, found) => format!("expecting >= {} argument, got {}", expected, found),
             CheckErrors::IncorrectArgumentCount(expected_count, found_count) => format!("expecting {} arguments, got {}", expected_count, found_count),
             CheckErrors::IfArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'if' must match (got '{}' and '{}')", type_1, type_2),
             CheckErrors::DefaultTypesMustMatch(type_1, type_2) => format!("expression types passed in 'default-to' must match (got '{}' and '{}')", type_1, type_2),
