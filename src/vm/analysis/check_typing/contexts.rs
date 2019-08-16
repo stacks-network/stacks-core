@@ -153,30 +153,40 @@ impl ContractContext {
         }
     }
 
-    pub fn update_contract_analysis(&self, contract_analysis: &mut ContractAnalysis) {
+    /// This function consumes the ContractContext, and puts the relevant information
+    ///  into the provided ContractAnalysis
+    pub fn into_contract_analysis(mut self, contract_analysis: &mut ContractAnalysis) {
 
-        for (name, function_type) in self.public_function_types.iter() {
+        for (name, function_type) in self.public_function_types.drain() {
             contract_analysis.add_public_function(name, function_type);
         }
 
-        for (name, function_type) in self.read_only_function_types.iter() {
+        for (name, function_type) in self.read_only_function_types.drain() {
             contract_analysis.add_read_only_function(name, function_type);
         }
 
-        for (name, (key_type, map_type)) in self.map_types.iter() {
+        for (name, (key_type, map_type)) in self.map_types.drain() {
             contract_analysis.add_map_type(name, key_type, map_type);
         }
 
-        for (name, function_type) in self.private_function_types.iter() {
+        for (name, function_type) in self.private_function_types.drain() {
             contract_analysis.add_private_function(name, function_type);
         }
 
-        for (name, variable_type) in self.variable_types.iter() {
+        for (name, variable_type) in self.variable_types.drain() {
             contract_analysis.add_variable_type(name, variable_type);
         }
 
-        for (name, persisted_variable_type) in self.persisted_variable_types.iter() {
+        for (name, persisted_variable_type) in self.persisted_variable_types.drain() {
             contract_analysis.add_persisted_variable_type(name, persisted_variable_type);
+        }
+
+        for name in self.fungible_tokens.drain() {
+            contract_analysis.add_fungible_token(name);
+        }
+
+        for (name, nft_type) in self.non_fungible_tokens.drain() {
+            contract_analysis.add_non_fungible_token(name, nft_type);
         }
     }
 }

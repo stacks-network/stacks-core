@@ -49,7 +49,7 @@ impl <'a, 'b> AnalysisPass for CheckTyping <'a, 'b> {
     fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
         let mut command = CheckTyping::new(analysis_db);
         command.run(contract_analysis)?;
-
+        command.into_contract_analysis(contract_analysis);
         Ok(())
     }
 }
@@ -141,6 +141,10 @@ impl <'a, 'b> CheckTyping <'a, 'b> {
         }
     }
 
+    fn into_contract_analysis(self, contract_analysis: &mut ContractAnalysis) {
+        self.contract_context.into_contract_analysis(contract_analysis);
+    }
+
     pub fn track_return_type(&mut self, return_type: TypeSignature) -> CheckResult<()> {
         match self.function_return_tracker {
             Some(ref mut tracker) => {
@@ -180,7 +184,6 @@ impl <'a, 'b> CheckTyping <'a, 'b> {
             }
         }
 
-        self.contract_context.update_contract_analysis(contract_analysis);
         Ok(())
     }
 
