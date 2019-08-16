@@ -77,13 +77,14 @@ pub fn sqlite_marf(path_str: &str, chain_tip: Option<BlockHeaderHash>) -> Result
 impl MarfedKV {
     pub fn begin(&mut self, current: &BlockHeaderHash, next: &BlockHeaderHash) {
         self.marf.begin(current, next)
-            .unwrap();
+            .expect("ERROR: Failed to begin new MARF block");
         self.chain_tip = self.marf.get_open_chain_tip()
-            .unwrap().clone();
+            .expect("ERROR: Failed to get open MARF")
+            .clone();
     }
     pub fn commit(&mut self) {
         self.marf.commit()
-            .unwrap()
+            .expect("ERROR: Failed to commit MARF block");
     }
     pub fn chain_tips(&mut self) -> Vec<BlockHeaderHash> {
         self.marf.chain_tips()
