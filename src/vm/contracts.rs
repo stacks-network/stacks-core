@@ -13,7 +13,7 @@ pub struct Contract {
 // AARON: this is an increasingly useless wrapper around a ContractContext struct.
 //          will probably be removed soon.
 impl Contract {
-    pub fn initialize <'b> (name: &str, contract: &str, global_context: &mut GlobalContext<'b>) -> Result<Contract> {
+    pub fn initialize (name: &str, contract: &str, global_context: &mut GlobalContext) -> Result<Contract> {
         let parsed: Vec<_> = parser::parse(contract)?;
         let mut contract_context = ContractContext::new(name.to_string());
 

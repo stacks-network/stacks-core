@@ -7,6 +7,7 @@ use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, FunctionArg, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
+use vm::functions::define::DefineFunctions;
 use vm::variables::NativeVariables;
 
 use super::AnalysisDatabase;
@@ -51,7 +52,7 @@ pub struct TypeChecker <'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
-    db: &'a AnalysisDatabase<'b>
+    db: &'a mut AnalysisDatabase<'b>
 }
 
 impl FunctionType {
@@ -139,9 +140,9 @@ fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> Chec
 }
 
 impl <'a, 'b> TypeChecker <'a, 'b> {
-    fn new(db: &'a AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
         TypeChecker {
-            db: db,
+            db,
             contract_context: ContractContext::new(),
             function_return_tracker: None,
             type_map: TypeMap::new()
@@ -170,7 +171,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 
-    pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &AnalysisDatabase) -> CheckResult<ContractAnalysis> {
+    pub fn type_check_contract(contract: &mut [SymbolicExpression], analysis_db: &mut AnalysisDatabase) -> CheckResult<ContractAnalysis> {
         let mut type_checker = TypeChecker::new(analysis_db);
         let mut local_context = TypingContext::new();
 
@@ -419,7 +420,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok((var_name, expected_type))
     }
 
-    fn type_check_define_token(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<String> {
+    fn type_check_define_ft(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<String> {
         if args.len() != 1 && args.len() != 2 {
             return Err(CheckErrors::IncorrectArgumentCount(2, args.len()).into())
         }
@@ -429,91 +430,86 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
 
         let token_name = args[0].match_atom()
-            .ok_or(CheckErrors::DefineTokenBadSignature)?
+            .ok_or(CheckErrors::DefineFTBadSignature)?
             .clone();
 
         Ok(token_name)
     }
 
-    fn type_check_define_asset(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
+    fn type_check_define_nft(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
         check_argument_count(2, args)?;
 
         let asset_name = args[0].match_atom()
-            .ok_or(CheckErrors::DefineAssetBadSignature)?
+            .ok_or(CheckErrors::DefineNFTBadSignature)?
             .clone();
 
         let asset_type = TypeSignature::parse_type_repr(&args[1], true)
-            .or_else(|_| Err(CheckErrors::DefineAssetBadSignature))?;
+            .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
 
         Ok((asset_name, asset_type))
     }
 
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
     fn try_type_check_define(&mut self, expr: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
+        use vm::functions::define::DefineFunctions::*;
         if let Some(ref expression) = expr.match_list() {
             if let Some((function_name, function_args)) = expression.split_first() {
                 if let Some(function_name) = function_name.match_atom() {
-                    return match function_name.as_str() {
-                        "define" => {
-                            if function_args.len() < 1 {
-                                return Err(CheckError::new(CheckErrors::DefineFunctionBadSignature))
-                            } else {
-                                if function_args[0].match_list().is_some() {
-                                    let (f_name, f_type) = self.type_check_define_function(expression,
-                                                                                           context)?;
-                                    self.contract_context.add_private_function_type(f_name, f_type)?;
+                    if let Some(define_type) = DefineFunctions::lookup_by_name(function_name) {
+                        return match define_type {
+                            Constant => {
+                                let (v_name, v_type) = self.type_check_define_variable(function_args,
+                                                                                       context)?;
+                                self.contract_context.add_variable_type(v_name, v_type)?;
+                                Ok(Some(()))
+                            },
+                            PrivateFunction => {
+                                let (f_name, f_type) = self.type_check_define_function(expression,
+                                                                                       context)?;
+                                self.contract_context.add_private_function_type(f_name, f_type)?;
+                                Ok(Some(()))
+                            },
+                            PublicFunction => {
+                                let (f_name, f_type) = self.type_check_define_function(expression,
+                                                                                       context)?;
+                                let return_type = f_type.return_type();
+                                let return_type = return_type.match_atomic()
+                                    .ok_or(CheckError::new(CheckErrors::PublicFunctionMustReturnResponse(f_type.return_type())))?;
+                                if let AtomTypeIdentifier::ResponseType(_) = return_type {
+                                    self.contract_context.add_public_function_type(f_name, f_type)?;
                                     Ok(Some(()))
                                 } else {
-                                    let (v_name, v_type) = self.type_check_define_variable(function_args,
-                                                                                           context)?;
-                                    self.contract_context.add_variable_type(v_name, v_type)?;
-                                    Ok(Some(()))
+                                    Err(CheckError::new(CheckErrors::PublicFunctionMustReturnResponse(f_type.return_type())))
                                 }
-                            }
-                        },
-                        "define-public" => {
-                            let (f_name, f_type) = self.type_check_define_function(expression,
-                                                                                   context)?;
-                            let return_type = f_type.return_type();
-                            let return_type = return_type.match_atomic()
-                                .ok_or(CheckError::new(CheckErrors::PublicFunctionMustReturnResponse(f_type.return_type())))?;
-                            if let AtomTypeIdentifier::ResponseType(_) = return_type {
-                                self.contract_context.add_public_function_type(f_name, f_type)?;
+                            },
+                            ReadOnlyFunction => {
+                                let (f_name, f_type) = self.type_check_define_function(expression,
+                                                                                       context)?;
+                                self.contract_context.add_read_only_function_type(f_name, f_type)?;
                                 Ok(Some(()))
-                            } else {
-                                Err(CheckError::new(CheckErrors::PublicFunctionMustReturnResponse(f_type.return_type())))
+                            },
+                            Map => {
+                                let (f_name, f_type) = self.type_check_define_map(expression,
+                                                                                  context)?;
+                                self.contract_context.add_map_type(f_name, f_type)?;
+                                Ok(Some(()))
+                            },
+                            PersistedVariable => {
+                                let (v_name, v_type) = self.type_check_define_persisted_variable(function_args,
+                                                                                                 context)?;
+                                self.contract_context.add_persisted_variable_type(v_name, v_type)?;
+                                Ok(Some(()))
+                            },
+                            FungibleToken => {
+                                let token_name = self.type_check_define_ft(function_args, context)?;
+                                self.contract_context.add_ft(token_name)?;
+                                Ok(Some(()))
+                            },
+                            NonFungibleToken => {
+                                let (token_name, token_type) = self.type_check_define_nft(function_args, context)?;
+                                self.contract_context.add_nft(token_name, token_type)?;
+                                Ok(Some(()))
                             }
-                        },
-                        "define-read-only" => {
-                            let (f_name, f_type) = self.type_check_define_function(expression,
-                                                                                   context)?;
-                            self.contract_context.add_read_only_function_type(f_name, f_type)?;
-                            Ok(Some(()))
-                        },
-                        "define-map" => {
-                            let (f_name, f_type) = self.type_check_define_map(expression,
-                                                                              context)?;
-                            self.contract_context.add_map_type(f_name, f_type)?;
-                            Ok(Some(()))
-                        },
-                        "define-data-var" => {
-                            let (v_name, v_type) = self.type_check_define_persisted_variable(function_args,
-                                                                                             context)?;
-                            self.contract_context.add_persisted_variable_type(v_name, v_type)?;
-                            Ok(Some(()))
-                        },
-                        "define-fungible-token" => {
-                            let token_name = self.type_check_define_token(function_args, context)?;
-                            self.contract_context.add_token(token_name)?;
-                            Ok(Some(()))
-                        },
-                        "define-non-fungible-token" => {
-                            let (asset_name, asset_type) = self.type_check_define_asset(function_args, context)?;
-                            self.contract_context.add_asset(asset_name, asset_type)?;
-                            Ok(Some(()))
-                        },
-                        _ => {
-                            Ok(None)
                         }
                     }
                 }

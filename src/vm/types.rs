@@ -70,10 +70,16 @@ pub struct ListData {
     type_signature: TypeSignature
 }
 
+// a standard principal is a version byte + hash160 (20 bytes)
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum PrincipalData {
-    StandardPrincipal(u8, [u8; 20]),  // a standard principal is a version byte + hash160 (20 bytes)
-    ContractPrincipal(String)
+    StandardPrincipal(StandardPrincipalData),
+    ContractPrincipal(String),
+    QualifiedContractPrincipal { sender: StandardPrincipalData,
+                                 name: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -384,6 +390,30 @@ impl fmt::Display for Value {
 }
 
 impl PrincipalData {
+    pub fn parse_qualified_contract_principal(literal: &str) -> Result<PrincipalData> {
+        let split: Vec<_> = literal.splitn(2, ".").collect();
+        if split.len() != 2 {
+            return Err(RuntimeErrorType::ParseError(
+                "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
+        }
+        let sender = Self::parse_standard_principal(split[0])?;
+        let name = split[1].to_string();
+        
+        Ok(PrincipalData::QualifiedContractPrincipal { sender, name })
+    }
+
+    pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
+        let (version, data) = c32::c32_address_decode(&literal)
+            .map_err(|x| { RuntimeErrorType::ParseError(format!("Invalid principal literal: {}", x)) })?;
+        if data.len() != 20 {
+            return Err(RuntimeErrorType::ParseError(
+                "Invalid principal literal: Expected 20 data bytes.".to_string()).into());
+        }
+        let mut fixed_data = [0; 20];
+        fixed_data.copy_from_slice(&data[..20]);
+        Ok(StandardPrincipalData(version, fixed_data))
+    }
+
     pub fn deserialize(json: &str) -> PrincipalData {
         serde_json::from_str(json)
             .expect("Failed to deserialize vm.PrincipalData")
@@ -397,15 +427,18 @@ impl PrincipalData {
 impl fmt::Display for PrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PrincipalData::StandardPrincipal(version, vec_bytes) => {
-                let c32_str = match c32::c32_address(*version, &vec_bytes[..]) {
-                    Ok(val) => val,
-                    Err(_) => "INVALID_C32_ADDR".to_string()
-                };
+            PrincipalData::StandardPrincipal(sender) => {
+                let c32_str = c32::c32_address(sender.0, &sender.1[..])
+                    .unwrap_or_else(|_| "INVALID_C32_ADD".to_string());
                 write!(f, "'{}", c32_str)                
             },
             PrincipalData::ContractPrincipal(contract_name) => {
-                write!(f, "'C{}", contract_name)
+                write!(f, "'CT{}", contract_name)
+            },
+            PrincipalData::QualifiedContractPrincipal { sender, name } => {
+                let c32_str = c32::c32_address(sender.0, &sender.1[..])
+                    .unwrap_or_else(|_| "INVALID_C32_ADD".to_string());
+                write!(f, "'CT{}.{}", c32_str, name)
             }
         }
     }
@@ -414,6 +447,24 @@ impl fmt::Display for PrincipalData {
 impl Into<TypeSignature> for AtomTypeIdentifier {
     fn into(self) -> TypeSignature {
         TypeSignature::new_atom(self)
+    }
+}
+
+impl Into<Value> for PrincipalData {
+    fn into(self) -> Value {
+        Value::Principal(self)
+    }
+}
+
+impl Into<Value> for StandardPrincipalData {
+    fn into(self) -> Value {
+        Value::Principal(PrincipalData::StandardPrincipal(self))
+    }
+}
+
+impl Into<PrincipalData> for StandardPrincipalData {
+    fn into(self) -> PrincipalData {
+        PrincipalData::StandardPrincipal(self)
     }
 }
 
@@ -1034,7 +1085,7 @@ impl TypeSignature {
             "int" => Ok(AtomTypeIdentifier::IntType),
             "bool" => Ok(AtomTypeIdentifier::BoolType),
             "principal" => Ok(AtomTypeIdentifier::PrincipalType),
-            _ => Err(RuntimeErrorType::ParseError(format!("Unknown type name: '{:?}'", typename)).into())
+            _ => Err(RuntimeErrorType::ParseError(format!("Unknown type name: '{}'", typename)).into())
         }
     }
 

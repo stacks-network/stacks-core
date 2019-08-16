@@ -1,7 +1,7 @@
 use vm::types::AtomTypeIdentifier;
 use vm::parser::parse;
 use vm::checker::errors::CheckErrors;
-use vm::checker::{AnalysisDatabase, AnalysisDatabaseConnection};
+use vm::checker::{AnalysisDatabase};
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-non-fungible-token stacka-nfts (buff 10))
@@ -22,8 +22,8 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
                 (ft-mint! stackaroos 4   'CTtokens))";
 
 const ASSET_NAMES: &str =
-        "(define burn-address 'SP000000000000000000002Q6VF78)
-         (define (price-function (name int))
+        "(define-constant burn-address 'SP000000000000000000002Q6VF78)
+         (define-private (price-function (name int))
            (if (< name 100000) 1000 100))
          
          (define-non-fungible-token names int)
@@ -38,7 +38,7 @@ const ASSET_NAMES: &str =
                                 burn-address name-price)))
             (if (is-ok? xfer-result)
                (if
-                 (insert-entry! preorder-map
+                 (map-insert! preorder-map
                    (tuple (name-hash name-hash))
                    (tuple (paid name-price)
                           (buyer tx-sender)))
@@ -52,7 +52,7 @@ const ASSET_NAMES: &str =
                         (salt int))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (expects! (fetch-entry preorder-map
+                   (expects! (map-get preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
                    (nft-get-owner names name)))
@@ -66,7 +66,7 @@ const ASSET_NAMES: &str =
                        (get buyer preorder-entry)))
                   (if (and
                     (is-ok? (nft-mint! names name recipient-principal))
-                    (delete-entry! preorder-map
+                    (map-delete! preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
                     (ok 0)
                     (err 3))
@@ -78,8 +78,7 @@ fn test_names_tokens_contracts() {
 
     let mut tokens_contract = parse(FIRST_CLASS_TOKENS).unwrap();
     let mut names_contract = parse(ASSET_NAMES).unwrap();
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut db = analysis_conn.begin_save_point();
+    let mut db = AnalysisDatabase::memory();
 
     type_check(&"tokens", &mut tokens_contract, &mut db, true).unwrap();
     type_check(&"names", &mut names_contract, &mut db, true).unwrap();
@@ -121,39 +120,39 @@ fn test_bad_asset_usage() {
     ];
 
     let expected = [
-        CheckErrors::NoSuchToken("stackoos".to_string()),
+        CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
-        CheckErrors::BadAssetName,
-        CheckErrors::NoSuchAsset("stackoos".to_string()),
+        CheckErrors::BadTokenName,
+        CheckErrors::NoSuchNFT("stackoos".to_string()),
         CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
                                AtomTypeIdentifier::BufferType(15).into()),
-        CheckErrors::BadAssetName,
-        CheckErrors::NoSuchAsset("stackoos".to_string()),
+        CheckErrors::BadTokenName,
+        CheckErrors::NoSuchNFT("stackoos".to_string()),
         CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
                                AtomTypeIdentifier::BufferType(15).into()),
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
-        CheckErrors::NoSuchToken("stackoos".to_string()),
+        CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::TypeError(AtomTypeIdentifier::IntType.into(),
                                AtomTypeIdentifier::BoolType.into()),
-        CheckErrors::BadAssetName,
-        CheckErrors::NoSuchAsset("stackoos".to_string()),
+        CheckErrors::BadTokenName,
+        CheckErrors::NoSuchNFT("stackoos".to_string()),
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
                                AtomTypeIdentifier::IntType.into()),
-        CheckErrors::NoSuchToken("stackoos".to_string()),
+        CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
@@ -163,11 +162,10 @@ fn test_bad_asset_usage() {
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::TypeError(AtomTypeIdentifier::IntType.into(),
                                AtomTypeIdentifier::BoolType.into()),
-        CheckErrors::DefineAssetBadSignature.into(),
+        CheckErrors::DefineNFTBadSignature.into(),
     ];
 
-    let mut analysis_conn = AnalysisDatabaseConnection::memory();
-    let mut db = analysis_conn.begin_save_point();
+    let mut db = AnalysisDatabase::memory();
     for (script, expected_err) in bad_scripts.iter().zip(expected.iter()) {
         let tokens_contract = format!("{}\n{}", FIRST_CLASS_TOKENS, script);
         let mut tokens_contract = parse(&tokens_contract).unwrap();

@@ -39,7 +39,7 @@ pub fn is_reserved_name(name: &str) -> bool {
     NativeVariables::lookup_by_name(name).is_some()
 }
 
-pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &Environment) -> Result<Option<Value>> {
+pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &mut Environment) -> Result<Option<Value>> {
     if let Some(variable) = NativeVariables::lookup_by_name(name) {
         match variable {
             NativeVariables::TxSender => {
@@ -53,7 +53,7 @@ pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &Envir
                 Ok(Some(sender))
             },
             NativeVariables::BlockHeight => {
-                let block_height = env.global_context.get_block_height();
+                let block_height = env.global_context.database.get_simmed_block_height();
                 Ok(Some(Value::Int(block_height as i128)))
             },
             NativeVariables::BurnBlockHeight => {

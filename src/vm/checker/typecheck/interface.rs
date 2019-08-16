@@ -36,12 +36,12 @@ pub enum ContractInterfaceAtomType {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ContractInterfaceTokens {
+pub struct ContractInterfaceFungibleTokens {
     pub name: String
 }
 
 #[derive(Debug, Serialize)]
-pub struct ContractInterfaceAssets {
+pub struct ContractInterfaceNonFungibleTokens {
     pub name: String,
     #[serde(rename = "type")]
     pub type_f: ContractInterfaceAtomType,
@@ -176,16 +176,16 @@ pub struct ContractInterfaceVariable {
     pub access: ContractInterfaceVariableAccess,
 }
 
-impl ContractInterfaceTokens {
-    pub fn from_set(tokens: &BTreeSet<String>) -> Vec<ContractInterfaceTokens> {
-        tokens.iter().map(|name| ContractInterfaceTokens { name: name.to_string() }).collect()
+impl ContractInterfaceFungibleTokens {
+    pub fn from_set(tokens: &BTreeSet<String>) -> Vec<Self> {
+        tokens.iter().map(|name| Self { name: name.to_string() }).collect()
     }
 }
 
-impl ContractInterfaceAssets {
-    pub fn from_map(assets: &BTreeMap<String, TypeSignature>) -> Vec<ContractInterfaceAssets> {
+impl ContractInterfaceNonFungibleTokens {
+    pub fn from_map(assets: &BTreeMap<String, TypeSignature>) -> Vec<Self> {
         assets.iter().map(|(name, type_sig)| 
-                          ContractInterfaceAssets { 
+                          Self { 
                               name: name.to_string(),
                               type_f: ContractInterfaceAtomType::from_type_signature(type_sig)
                           }).collect()
@@ -239,8 +239,8 @@ pub struct ContractInterface {
     pub functions: Vec<ContractInterfaceFunction>,
     pub variables: Vec<ContractInterfaceVariable>,
     pub maps: Vec<ContractInterfaceMap>,
-    pub tokens: Vec<ContractInterfaceTokens>,
-    pub assets: Vec<ContractInterfaceAssets>,
+    pub fungible_tokens: Vec<ContractInterfaceFungibleTokens>,
+    pub non_fungible_tokens: Vec<ContractInterfaceNonFungibleTokens>,
 }
 
 impl ContractInterface {
@@ -249,8 +249,8 @@ impl ContractInterface {
             functions: Vec::new(),
             variables: Vec::new(),
             maps: Vec::new(),
-            tokens: Vec::new(),
-            assets: Vec::new()
+            fungible_tokens: Vec::new(),
+            non_fungible_tokens: Vec::new()
         }
     }
 

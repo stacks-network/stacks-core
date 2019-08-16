@@ -21,7 +21,8 @@ enum TokenType {
     StringLiteral, HexStringLiteral,
     IntLiteral, QuoteLiteral,
     Variable, PrincipalLiteral,
-    ContractPrincipalLiteral
+    ContractPrincipalLiteral,
+    QualifiedContractPrincipalLiteral
 }
 
 struct LexMatcher {
@@ -70,9 +71,10 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
-        LexMatcher::new("(?P<value>[[:digit:]]+)", TokenType::IntLiteral),
+        LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
-        LexMatcher::new("'CT(?P<value>[[:alpha:]]{5,40})", TokenType::ContractPrincipalLiteral),
+        LexMatcher::new("'CT(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}.([[:alpha:]]|[-]){5,40})", TokenType::QualifiedContractPrincipalLiteral),
+        LexMatcher::new("'CT(?P<value>([[:alpha:]]|[-]){5,40})", TokenType::ContractPrincipalLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
     ];
@@ -162,21 +164,20 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
                     },
                     TokenType::ContractPrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        Ok(LexItem::LiteralValue(str_value.len(), Value::Principal(
-                            PrincipalData::ContractPrincipal(str_value))))
+                        Ok(LexItem::LiteralValue(str_value.len(),
+                            PrincipalData::ContractPrincipal(str_value).into()))
+                    },
+                    TokenType::QualifiedContractPrincipalLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        Ok(LexItem::LiteralValue(
+                            str_value.len(),
+                            PrincipalData::parse_qualified_contract_principal(&str_value)?.into()))
                     },
                     TokenType::PrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        let (version, data) = c32_address_decode(&str_value)
-                            .map_err(|x| { RuntimeErrorType::ParseError(format!("Invalid principal literal: {}", x)) })?;
-                        if data.len() != 20 {
-                            Err(RuntimeErrorType::ParseError("Invalid principal literal: Expected 20 data bytes.".to_string()))
-                        } else {
-                            let mut fixed_data = [0; 20];
-                            fixed_data.copy_from_slice(&data[..20]);
-                            Ok(LexItem::LiteralValue(str_value.len(), Value::Principal(
-                                PrincipalData::StandardPrincipal(version, fixed_data))))
-                        }
+                        Ok(LexItem::LiteralValue(
+                            str_value.len(),
+                            PrincipalData::parse_standard_principal(&str_value)?.into()))
                     },
                     TokenType::HexStringLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -346,6 +347,42 @@ r#"z (let ((x 1) (y 2))
 
         let parsed = parser::parse(&input);
         assert_eq!(Ok(program), parsed, "Should match expected symbolic expression");
+
+        let input = "        -1234
+        (- 12 34)";
+        let program = vec![ make_atom_value(Value::Int(-1234), 1, 9, 1, 13),
+                            make_list(2, 9, 2, 17, Box::new([
+                                make_atom("-", 2, 10,  2, 10),
+                                make_atom_value(Value::Int(12), 2, 12, 2, 13),
+                                make_atom_value(Value::Int(34), 2, 15, 2, 16)])) ];
+
+        let parsed = parser::parse(&input);
+        assert_eq!(Ok(program), parsed, "Should match expected symbolic expression");
+        
+    }
+
+    #[test]
+    fn test_parse_contract_principals() {
+        use vm::types::PrincipalData;
+        let input = "'CTSZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract-a
+                     'CTcontract-b";
+        let parsed = parser::parse(&input).unwrap();
+
+        let x1 = &parsed[0];
+        let x2 = &parsed[1];
+        assert!( match x1.match_atom_value() {
+            Some(Value::Principal(PrincipalData::QualifiedContractPrincipal {sender, name})) => {
+                format!("{}", PrincipalData::StandardPrincipal(sender.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                    name == "contract-a"
+            },
+            _ => false
+        });
+        assert!( match x2.match_atom_value() {
+            Some(Value::Principal(PrincipalData::ContractPrincipal(name))) => {
+                name == "contract-b"
+            },
+            _ => false
+        });
     }
 
     #[test]
@@ -357,6 +394,7 @@ r#"z (let ((x 1) (y 2))
         let middle_hash = "(let ((x 1) (y#not 2)) x)";
         let unicode = "(let ((x🎶 1)) (eq x🎶 1))";
         let split_tokens = "(let ((023ab13 1)))";
+        let name_with_dot = "(let ((ab.de 1)))";
 
         assert!(match parser::parse(&split_tokens).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
@@ -386,6 +424,11 @@ r#"z (let ((x 1) (y 2))
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse a unicode variable name");
+
+        assert!(match parser::parse(&name_with_dot).unwrap_err() {
+            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
+            _ => false
+        }, "Should have failed to parse a variable name with a dot.");
 
     }
 

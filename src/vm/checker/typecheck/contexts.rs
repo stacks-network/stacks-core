@@ -24,8 +24,8 @@ pub struct ContractAnalysis {
     read_only_function_types: BTreeMap<String, FunctionType>,
     map_types: BTreeMap<String, (TypeSignature, TypeSignature)>,
     persisted_variable_types: BTreeMap<String, TypeSignature>,
-    tokens: BTreeSet<String>,
-    assets: BTreeMap<String, TypeSignature>,
+    fungible_tokens: BTreeSet<String>,
+    non_fungible_tokens: BTreeMap<String, TypeSignature>,
 }
 
 pub struct TypingContext <'a> {
@@ -41,8 +41,8 @@ pub struct ContractContext {
     public_function_types: HashMap<String, FunctionType>,
     read_only_function_types: HashMap<String, FunctionType>,
     persisted_variable_types: HashMap<String, TypeSignature>,
-    tokens: HashSet<String>,
-    assets: HashMap<String, TypeSignature>
+    fungible_tokens: HashSet<String>,
+    non_fungible_tokens: HashMap<String, TypeSignature>
 }
 
 
@@ -55,8 +55,8 @@ impl ContractAnalysis {
             variable_types: BTreeMap::new(),
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
-            tokens: BTreeSet::new(),
-            assets: BTreeMap::new()
+            fungible_tokens: BTreeSet::new(),
+            non_fungible_tokens: BTreeMap::new()
         }
     }
 
@@ -81,8 +81,8 @@ impl ContractAnalysis {
             variable_types, 
             persisted_variable_types, 
             map_types,
-            tokens,
-            assets
+            fungible_tokens,
+            non_fungible_tokens
         } = self;
 
         contract_interface.functions.append(
@@ -113,11 +113,11 @@ impl ContractAnalysis {
         contract_interface.maps.append(
             &mut interface::ContractInterfaceMap::from_map(&map_types));
 
-        contract_interface.tokens.append(
-            &mut interface::ContractInterfaceTokens::from_set(&tokens));
+        contract_interface.non_fungible_tokens.append(
+            &mut interface::ContractInterfaceNonFungibleTokens::from_map(&non_fungible_tokens));
 
-        contract_interface.assets.append(
-            &mut interface::ContractInterfaceAssets::from_map(&assets));
+        contract_interface.fungible_tokens.append(
+            &mut interface::ContractInterfaceFungibleTokens::from_set(&fungible_tokens));
 
         contract_interface
     }
@@ -195,8 +195,8 @@ impl ContractContext {
             read_only_function_types: HashMap::new(),
             map_types: HashMap::new(),
             persisted_variable_types: HashMap::new(),
-            tokens: HashSet::new(),
-            assets: HashMap::new(),
+            fungible_tokens: HashSet::new(),
+            non_fungible_tokens: HashMap::new(),
         }
     }
 
@@ -205,8 +205,8 @@ impl ContractContext {
             self.persisted_variable_types.contains_key(name) ||
             self.private_function_types.contains_key(name) ||
             self.public_function_types.contains_key(name) ||
-            self.tokens.contains(name) ||
-            self.assets.contains_key(name) ||
+            self.fungible_tokens.contains(name) ||
+            self.non_fungible_tokens.contains_key(name) ||
             self.map_types.contains_key(name) {
                 Err(CheckError::new(CheckErrors::NameAlreadyUsed(name.to_string())))
             } else {
@@ -219,12 +219,12 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn token_exists(&self, name: &str) -> bool {
-        self.tokens.contains(name)
+    pub fn ft_exists(&self, name: &str) -> bool {
+        self.fungible_tokens.contains(name)
     }
 
-    pub fn get_asset_type(&self, name: &str) -> Option<&TypeSignature> {
-        self.assets.get(name)
+    pub fn get_nft_type(&self, name: &str) -> Option<&TypeSignature> {
+        self.non_fungible_tokens.get(name)
     }
 
     pub fn add_public_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
@@ -263,15 +263,15 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn add_token(&mut self, token_name: String) -> CheckResult<()> {
+    pub fn add_ft(&mut self, token_name: String) -> CheckResult<()> {
         self.check_name_used(&token_name)?;
-        self.tokens.insert(token_name);
+        self.fungible_tokens.insert(token_name);
         Ok(())
     }
 
-    pub fn add_asset(&mut self, asset_name: String, asset_type: TypeSignature) -> CheckResult<()> {
-        self.check_name_used(&asset_name)?;
-        self.assets.insert(asset_name, asset_type);
+    pub fn add_nft(&mut self, token_name: String, token_type: TypeSignature) -> CheckResult<()> {
+        self.check_name_used(&token_name)?;
+        self.non_fungible_tokens.insert(token_name, token_type);
         Ok(())
     }
 
