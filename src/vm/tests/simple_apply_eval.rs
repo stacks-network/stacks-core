@@ -1,5 +1,5 @@
 use vm::{eval, execute as vm_execute};
-use vm::database::ContractDatabaseConnection;
+use vm::database::memory_db;
 use vm::errors::{UncheckedError, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
@@ -31,10 +31,9 @@ fn test_simple_let() {
 
     if let Ok(parsed_program) = parse(&program) {
         let context = LocalContext::new();
-        let mut conn = ContractDatabaseConnection::memory().unwrap();
-        let mut env = OwnedEnvironment::new(&mut conn);
+        let mut env = OwnedEnvironment::memory();
 
-        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env.get_exec_environment(None), &context));        
+        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env.get_exec_environment(None), &context));
     } else {
         assert!(false, "Failed to parse program.");
     }
@@ -147,8 +146,7 @@ fn test_simple_if_functions() {
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(":transient:".to_string());
-        let mut conn = ContractDatabaseConnection::memory().unwrap();
-        let mut global_context = GlobalContext::begin_from(&mut conn);
+        let mut global_context = GlobalContext::new(memory_db());
 
         contract_context.functions.insert("with_else".to_string(), user_function1);
         contract_context.functions.insert("without_else".to_string(), user_function2);
@@ -367,7 +365,7 @@ fn test_bad_lets() {
         "(let ((tx-sender 1)) (+ tx-sender tx-sender))",
         "(let ((* 1)) (+ * *))",
         "(let ((a 1) (a 2)) (+ a a))",
-        "(let ((a 1) (b 2)) (set-var! cursor a) (set-var! cursor (+ b (fetch-var cursor))) (+ a b))"];
+        "(let ((a 1) (b 2)) (var-set! cursor a) (var-set! cursor (+ b (var-get cursor))) (+ a b))"];
 
     let expectations: &[Error] = &[
         UncheckedError::ReservedName("tx-sender".to_string()).into(),
@@ -383,7 +381,7 @@ fn test_bad_lets() {
 fn test_lets() {
     let tests = [
         "(let ((a 1) (b 2)) (+ a b))",
-        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (set-var! cursor a) (set-var! cursor (+ b (fetch-var cursor))) (fetch-var cursor))"];
+        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set! cursor a) (var-set! cursor (+ b (var-get cursor))) (var-get cursor))"];
 
     let expectations = [
         Value::Int(3),

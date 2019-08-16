@@ -2,6 +2,8 @@ use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+use vm::functions::NativeFunctions;
+use vm::functions::define::DefineFunctions;
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 
 use super::AnalysisDatabase;
@@ -87,71 +89,79 @@ impl <'a> UpdateExpressionsSorting {
                 // Avoid looking for dependencies in tuples 
                 if let Some((function_name, function_args)) = exprs.split_first() {
                     if let Some(function_name) = function_name.match_atom() {
-                        match function_name.as_str() {
-                            "define-non-fungible-token" | "define-fungible-token" | "define" | "define-public" | "define-read-only" | "define-data-var" => {
-                                // Args: [(define-name-and-types), ...]: ignore 1st arg
-                                if function_args.len() > 1 {
-                                    for expr in function_args[1..function_args.len()].into_iter() {
-                                        self.probe_for_dependencies(expr, tle_index)?;
+                        if let Some(define_function) = DefineFunctions::lookup_by_name(function_name) {
+                            match define_function {
+                                DefineFunctions::NonFungibleToken | DefineFunctions::FungibleToken |
+                                DefineFunctions::PrivateFunction | DefineFunctions::Constant |
+                                DefineFunctions::PublicFunction | DefineFunctions::PersistedVariable |
+                                DefineFunctions::ReadOnlyFunction => {
+                                    // Args: [(define-name-and-types), ...]: ignore 1st arg
+                                    if function_args.len() > 1 {
+                                        for expr in function_args[1..function_args.len()].into_iter() {
+                                            self.probe_for_dependencies(expr, tle_index)?;
+                                        }
                                     }
-                                }
-                                return Ok(());
-                            }
-                            "define-map" => {
-                                // Args: [name, tuple-key, tuple-value]: handle tuple-key and tuple-value as tuples
-                                if function_args.len() == 3 {
-                                    self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
-                                    self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
-                                }
-                                return Ok(());
-                            }
-                            "fetch-entry" | "delete-entry!" => {
-                                // Args: [map-name, tuple-predicate]: handle tuple-predicate as tuple
-                                if function_args.len() == 2 {
-                                    self.probe_for_dependencies(&function_args[0], tle_index)?;
-                                    self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
-                                }
-                                return Ok(());
-                            }, 
-                            "set-entry!" | "insert-entry!" => {
-                                // Args: [map-name, tuple-keys, tuple-values]: handle tuple-keys and tuple-values as tuples
-                                if function_args.len() == 3 {
-                                    self.probe_for_dependencies(&function_args[0], tle_index)?;
-                                    self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
-                                    self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
-                                }
-                                return Ok(());
-                            }, 
-                            "fetch-contract-entry" => {
-                                // Args: [contract-name, map-name, tuple-predicate]: ignore contract-name, map-name, handle tuple-predicate as tuple
-                                if function_args.len() == 3 {
-                                    self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
-                                }
-                                return Ok(());
-                            }, 
-                            "let" => {
-                                // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
-                                if function_args.len() > 1 {
-                                    self.probe_for_dependencies_in_tuple(&function_args[0], tle_index)?;
-                                    for expr in function_args[1..function_args.len()].into_iter() {
-                                        self.probe_for_dependencies(expr, tle_index)?;
+                                    return Ok(());
+                                },
+                                DefineFunctions::Map => {
+                                    // Args: [name, tuple-key, tuple-value]: handle tuple-key and tuple-value as tuples
+                                    if function_args.len() == 3 {
+                                        self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
+                                        self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
                                     }
+                                    return Ok(());
                                 }
-                                return Ok(());
                             }
-                            "get" => {
-                                // Args: [key-name, expr]: ignore key-name
-                                if function_args.len() == 2 {
-                                    self.probe_for_dependencies(&function_args[1], tle_index)?;
+                        } else if let Some(native_function) = NativeFunctions::lookup_by_name(function_name) {
+                            match native_function {
+                                NativeFunctions::FetchEntry | NativeFunctions::DeleteEntry => {
+                                    // Args: [map-name, tuple-predicate]: handle tuple-predicate as tuple
+                                    if function_args.len() == 2 {
+                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
+                                        self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
+                                    }
+                                    return Ok(());
+                                }, 
+                                NativeFunctions::SetEntry | NativeFunctions::InsertEntry => {
+                                    // Args: [map-name, tuple-keys, tuple-values]: handle tuple-keys and tuple-values as tuples
+                                    if function_args.len() == 3 {
+                                        self.probe_for_dependencies(&function_args[0], tle_index)?;
+                                        self.probe_for_dependencies_in_tuple(&function_args[1], tle_index)?;
+                                        self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
+                                    }
+                                    return Ok(());
+                                }, 
+                                NativeFunctions::FetchContractEntry => {
+                                    // Args: [contract-name, map-name, tuple-predicate]: ignore contract-name, map-name, handle tuple-predicate as tuple
+                                    if function_args.len() == 3 {
+                                        self.probe_for_dependencies_in_tuple(&function_args[2], tle_index)?;
+                                    }
+                                    return Ok(());
+                                }, 
+                                NativeFunctions::Let => {
+                                    // Args: [((name-1 value-1) (name-2 value-2)), ...]: handle 1st arg as a tuple
+                                    if function_args.len() > 1 {
+                                        self.probe_for_dependencies_in_tuple(&function_args[0], tle_index)?;
+                                        for expr in function_args[1..function_args.len()].into_iter() {
+                                            self.probe_for_dependencies(expr, tle_index)?;
+                                        }
+                                    }
+                                    return Ok(());
                                 }
-                                return Ok(());
-                            }, 
-                            "tuple" => {
-                                // Args: [(key-name A), (key-name-2 B), ...]: handle as a tuple
-                                self.probe_for_dependencies_in_tuple_list(function_args, tle_index)?;
-                                return Ok(());
+                                NativeFunctions::TupleGet => {
+                                    // Args: [key-name, expr]: ignore key-name
+                                    if function_args.len() == 2 {
+                                        self.probe_for_dependencies(&function_args[1], tle_index)?;
+                                    }
+                                    return Ok(());
+                                }, 
+                                NativeFunctions::TupleCons => {
+                                    // Args: [(key-name A), (key-name-2 B), ...]: handle as a tuple
+                                    self.probe_for_dependencies_in_tuple_list(function_args, tle_index)?;
+                                    return Ok(());
+                                },
+                                _ => {}
                             }
-                            _ => {}
                         }
                     }
                 }
@@ -188,19 +198,16 @@ impl <'a> UpdateExpressionsSorting {
         if let Some(expression) = exp.match_list() {
             if let Some((function_name, function_args)) = expression.split_first() {
                 if let Some(definition_type) = function_name.match_atom() {
-                    match definition_type.as_str() {
-                        "define-map" | "define-data-var" | "define" | "define-public" | "define-read-only" | "define-non-fungible-token" | "define-fungible-token" => {
-                            if function_args.len() > 1 {
-                                let define_expr = match function_args[0].match_list() {
-                                    Some(list) => &list[0],
-                                    _ => &function_args[0]
-                                };
-                                if let Some(tle_name) = define_expr.match_atom() {
-                                    return Some((tle_name.clone(), define_expr.id, define_expr));
-                                }   
-                            }
+                    if DefineFunctions::lookup_by_name(definition_type).is_some() {
+                        if function_args.len() > 1 {
+                            let defined_name = match function_args[0].match_list() {
+                                Some(list) => &list[0],
+                                _ => &function_args[0]
+                            };
+                            if let Some(tle_name) = defined_name.match_atom() {
+                                return Some((tle_name.clone(), defined_name.id, defined_name));
+                            }   
                         }
-                        _ => {}
                     }
                 } 
             } 

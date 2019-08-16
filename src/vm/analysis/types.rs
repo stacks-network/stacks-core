@@ -20,8 +20,8 @@ pub struct ContractAnalysis {
     pub read_only_function_types: BTreeMap<String, FunctionType>,
     pub map_types: BTreeMap<String, (TypeSignature, TypeSignature)>,
     pub persisted_variable_types: BTreeMap<String, TypeSignature>,
-    pub tokens: BTreeSet<String>,
-    pub assets: BTreeMap<String, TypeSignature>,
+    pub fungible_tokens: BTreeSet<String>,
+    pub non_fungible_tokens: BTreeMap<String, TypeSignature>,
     #[serde(skip)]
     pub top_level_expression_sorting: Option<Vec<usize>>,
     #[serde(skip)]
@@ -39,34 +39,41 @@ impl ContractAnalysis {
             map_types: BTreeMap::new(),
             persisted_variable_types: BTreeMap::new(),
             top_level_expression_sorting: Some(Vec::new()),
-            tokens: BTreeSet::new(),
-            assets: BTreeMap::new()
+            fungible_tokens: BTreeSet::new(),
+            non_fungible_tokens: BTreeMap::new()
         }
     }
 
-    pub fn add_map_type(&mut self, name: &str, key_type: &TypeSignature, map_type: &TypeSignature) {
-        self.map_types.insert(name.to_string(), (key_type.clone(),
-                                                 map_type.clone()));
+    pub fn add_map_type(&mut self, name: String, key_type: TypeSignature, map_type: TypeSignature) {
+        self.map_types.insert(name, (key_type, map_type));
     }
     
-    pub fn add_variable_type(&mut self, name: &str, variable_type: &TypeSignature) {
-        self.variable_types.insert(name.to_string(), variable_type.clone());
+    pub fn add_variable_type(&mut self, name: String, variable_type: TypeSignature) {
+        self.variable_types.insert(name, variable_type);
     }
     
-    pub fn add_persisted_variable_type(&mut self, name: &str, persisted_variable_type: &TypeSignature) {
-        self.persisted_variable_types.insert(name.to_string(), persisted_variable_type.clone());
+    pub fn add_persisted_variable_type(&mut self, name: String, persisted_variable_type: TypeSignature) {
+        self.persisted_variable_types.insert(name, persisted_variable_type);
     }
 
-    pub fn add_read_only_function(&mut self, name: &str, function_type: &FunctionType) {
-        self.read_only_function_types.insert(name.to_string(), function_type.clone());
+    pub fn add_read_only_function(&mut self, name: String, function_type: FunctionType) {
+        self.read_only_function_types.insert(name, function_type);
     }
 
-    pub fn add_public_function(&mut self, name: &str, function_type: &FunctionType) {
-        self.public_function_types.insert(name.to_string(), function_type.clone());
+    pub fn add_public_function(&mut self, name: String, function_type: FunctionType) {
+        self.public_function_types.insert(name, function_type);
     }
 
-    pub fn add_private_function(&mut self, name: &str, function_type: &FunctionType) {
-        self.private_function_types.insert(name.to_string(), function_type.clone());
+    pub fn add_private_function(&mut self, name: String, function_type: FunctionType) {
+        self.private_function_types.insert(name, function_type);
+    }
+
+    pub fn add_non_fungible_token(&mut self, name: String, nft_type: TypeSignature) {
+        self.non_fungible_tokens.insert(name, nft_type);
+    }
+
+    pub fn add_fungible_token(&mut self, name: String) {
+        self.fungible_tokens.insert(name);
     }
 
     pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {

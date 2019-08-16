@@ -11,7 +11,6 @@ pub struct TypeMap {
     map: HashMap<u64, TypeSignature>
 }
 
-
 pub struct TypingContext <'a> {
     pub variable_types: HashMap<String, TypeSignature>,
     pub parent: Option<&'a TypingContext<'a>>,
@@ -25,8 +24,8 @@ pub struct ContractContext {
     public_function_types: HashMap<String, FunctionType>,
     read_only_function_types: HashMap<String, FunctionType>,
     persisted_variable_types: HashMap<String, TypeSignature>,
-    tokens: HashSet<String>,
-    assets: HashMap<String, TypeSignature>
+    fungible_tokens: HashSet<String>,
+    non_fungible_tokens: HashMap<String, TypeSignature>
 }
 
 impl TypeMap {
@@ -52,8 +51,8 @@ impl ContractContext {
             read_only_function_types: HashMap::new(),
             map_types: HashMap::new(),
             persisted_variable_types: HashMap::new(),
-            tokens: HashSet::new(),
-            assets: HashMap::new(),
+            fungible_tokens: HashSet::new(),
+            non_fungible_tokens: HashMap::new(),
         }
     }
 
@@ -62,8 +61,8 @@ impl ContractContext {
             self.persisted_variable_types.contains_key(name) ||
             self.private_function_types.contains_key(name) ||
             self.public_function_types.contains_key(name) ||
-            self.tokens.contains(name) ||
-            self.assets.contains_key(name) ||
+            self.fungible_tokens.contains(name) ||
+            self.non_fungible_tokens.contains_key(name) ||
             self.map_types.contains_key(name) {
                 Err(CheckError::new(CheckErrors::NameAlreadyUsed(name.to_string())))
             } else {
@@ -76,12 +75,12 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn token_exists(&self, name: &str) -> bool {
-        self.tokens.contains(name)
+    pub fn ft_exists(&self, name: &str) -> bool {
+        self.fungible_tokens.contains(name)
     }
 
-    pub fn get_asset_type(&self, name: &str) -> Option<&TypeSignature> {
-        self.assets.get(name)
+    pub fn get_nft_type(&self, name: &str) -> Option<&TypeSignature> {
+        self.non_fungible_tokens.get(name)
     }
 
     pub fn add_public_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
@@ -120,15 +119,15 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn add_token(&mut self, token_name: String) -> CheckResult<()> {
+    pub fn add_ft(&mut self, token_name: String) -> CheckResult<()> {
         self.check_name_used(&token_name)?;
-        self.tokens.insert(token_name);
+        self.fungible_tokens.insert(token_name);
         Ok(())
     }
 
-    pub fn add_asset(&mut self, asset_name: String, asset_type: TypeSignature) -> CheckResult<()> {
-        self.check_name_used(&asset_name)?;
-        self.assets.insert(asset_name, asset_type);
+    pub fn add_nft(&mut self, token_name: String, token_type: TypeSignature) -> CheckResult<()> {
+        self.check_name_used(&token_name)?;
+        self.non_fungible_tokens.insert(token_name, token_type);
         Ok(())
     }
 
@@ -154,30 +153,40 @@ impl ContractContext {
         }
     }
 
-    pub fn update_contract_analysis(&self, contract_analysis: &mut ContractAnalysis) {
+    /// This function consumes the ContractContext, and puts the relevant information
+    ///  into the provided ContractAnalysis
+    pub fn into_contract_analysis(mut self, contract_analysis: &mut ContractAnalysis) {
 
-        for (name, function_type) in self.public_function_types.iter() {
+        for (name, function_type) in self.public_function_types.drain() {
             contract_analysis.add_public_function(name, function_type);
         }
 
-        for (name, function_type) in self.read_only_function_types.iter() {
+        for (name, function_type) in self.read_only_function_types.drain() {
             contract_analysis.add_read_only_function(name, function_type);
         }
 
-        for (name, (key_type, map_type)) in self.map_types.iter() {
+        for (name, (key_type, map_type)) in self.map_types.drain() {
             contract_analysis.add_map_type(name, key_type, map_type);
         }
 
-        for (name, function_type) in self.private_function_types.iter() {
+        for (name, function_type) in self.private_function_types.drain() {
             contract_analysis.add_private_function(name, function_type);
         }
 
-        for (name, variable_type) in self.variable_types.iter() {
+        for (name, variable_type) in self.variable_types.drain() {
             contract_analysis.add_variable_type(name, variable_type);
         }
 
-        for (name, persisted_variable_type) in self.persisted_variable_types.iter() {
+        for (name, persisted_variable_type) in self.persisted_variable_types.drain() {
             contract_analysis.add_persisted_variable_type(name, persisted_variable_type);
+        }
+
+        for name in self.fungible_tokens.drain() {
+            contract_analysis.add_fungible_token(name);
+        }
+
+        for (name, nft_type) in self.non_fungible_tokens.drain() {
+            contract_analysis.add_non_fungible_token(name, nft_type);
         }
     }
 }

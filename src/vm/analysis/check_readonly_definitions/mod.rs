@@ -2,6 +2,7 @@ use vm::representations::{SymbolicExpression};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
+use vm::functions::define::DefineFunctions;
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
@@ -16,7 +17,7 @@ pub use super::errors::{CheckResult, CheckError, CheckErrors};
 mod tests;
 
 pub struct CheckReadOnlyDefinitions <'a, 'b> {
-    db: &'a AnalysisDatabase<'b>,
+    db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<String, bool>
 }
 
@@ -31,7 +32,7 @@ impl <'a, 'b> AnalysisPass for CheckReadOnlyDefinitions <'a, 'b> {
 
 impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
     
-    fn new(db: &'a AnalysisDatabase<'b>) -> CheckReadOnlyDefinitions<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>) -> CheckReadOnlyDefinitions<'a, 'b> {
         Self { 
             db, 
             defined_functions: HashMap::new() 
@@ -53,7 +54,7 @@ impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
         Ok(())
     }
 
-    fn check_define_function(&self, expr: &[SymbolicExpression]) -> CheckResult<(String, bool)> {
+    fn check_define_function(&mut self, expr: &[SymbolicExpression]) -> CheckResult<(String, bool)> {
         if expr.len() != 3 {
             return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, expr.len() - 1)))
         }
@@ -71,67 +72,52 @@ impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
     }
 
     fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
+        use vm::functions::define::DefineFunctions::*;
         if let Some(ref expression) = expr.match_list() {
             if let Some((function_name, function_args)) = expression.split_first() {
                 if let Some(function_name) = function_name.match_atom() {
-                    match function_name.as_str() {
-                        "define" => {
-                            if function_args.len() < 1 {
-                                return Err(CheckError::new(CheckErrors::DefineFunctionBadSignature))
-                            } else {
-                                if function_args[0].match_list().is_some() {
-                                    let (f_name, is_read_only) = self.check_define_function(expression)?;
-                                    self.defined_functions.insert(f_name, is_read_only);
-                                    Ok(())
-                                } else {
-                                    // this is trying to define a variable -- doesn't need to be checked.
-                                    Ok(())
-                                }
-                            }
-                        },
-                        "define-public" => {
-                            let (f_name, is_read_only) = self.check_define_function(expression)?;
-                            self.defined_functions.insert(f_name, is_read_only);
-                            Ok(())
-                        },
-                        "define-read-only" => {
-                            let (f_name, is_read_only) = self.check_define_function(expression)?;
-                            if !is_read_only {
-                                Err(CheckError::new(CheckErrors::WriteAttemptedInReadOnly))
-                            } else {
+                    if let Some(define_type) = DefineFunctions::lookup_by_name(function_name) {
+                        return match define_type {
+                            Constant | Map | PersistedVariable | FungibleToken | NonFungibleToken => {
+                                // None of these define types ever need to be checked for their
+                                //  read-onliness, since they're never invoked outside of contract initialization.
+                                Ok(())
+                            },
+                            PrivateFunction => {
+                                let (f_name, is_read_only) = self.check_define_function(expression)?;
                                 self.defined_functions.insert(f_name, is_read_only);
                                 Ok(())
-                            }
-                        },
-                        "define-map" => {
-                            Ok(()) // define-map never needs to be checked.
-                        },
-                        "define-data-var" => {
-                            Ok(()) // define-data-var never needs to be checked.
-                        },
-                        _ => {
-                            Ok(())
+                            },
+                            PublicFunction => {
+                                let (f_name, is_read_only) = self.check_define_function(expression)?;
+                                self.defined_functions.insert(f_name, is_read_only);
+                                Ok(())
+                            },
+                            ReadOnlyFunction => {
+                                let (f_name, is_read_only) = self.check_define_function(expression)?;
+                                if !is_read_only {
+                                    Err(CheckError::new(CheckErrors::WriteAttemptedInReadOnly))
+                                } else {
+                                    self.defined_functions.insert(f_name, is_read_only);
+                                    Ok(())
+                                }
+                            },
                         }
                     }
-                } else {
-                    Ok(()) // not a define
                 }
-            } else {
-                Ok(()) // not a define
             }
-        } else {
-            Ok(()) // not a define.
         }
+        Ok(())
     }
 
-    fn are_all_read_only(&self, initial: bool, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn are_all_read_only(&mut self, initial: bool, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
         expressions.iter()
             .fold(Ok(initial),
                   |acc, argument| {
                       Ok(acc? && self.is_read_only(&argument)?) })
     }
 
-    fn is_implicit_tuple_definition_read_only(&self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn is_implicit_tuple_definition_read_only(&mut self, tuples: &[SymbolicExpression]) -> CheckResult<bool> {
         for tuple_expr in tuples.iter() {
             let pair = tuple_expr.match_list()
                 .ok_or(CheckError::new(CheckErrors::TupleExpectsPairs))?;
@@ -146,7 +132,7 @@ impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
         Ok(true)
     }
 
-    fn try_native_function_check(&self, function: &str, args: &[SymbolicExpression]) -> Option<CheckResult<bool>> {
+    fn try_native_function_check(&mut self, function: &str, args: &[SymbolicExpression]) -> Option<CheckResult<bool>> {
         if let Some(ref function) = NativeFunctions::lookup_by_name(function) {
             Some(self.handle_native_function(function, args))
         } else {
@@ -154,7 +140,7 @@ impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
         }
     }
 
-    fn handle_native_function(&self, function: &NativeFunctions, args: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn handle_native_function(&mut self, function: &NativeFunctions, args: &[SymbolicExpression]) -> CheckResult<bool> {
         use vm::functions::NativeFunctions::*;
 
         match function {
@@ -266,7 +252,7 @@ impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
         }
     }
 
-    fn is_function_application_read_only(&self, expression: &[SymbolicExpression]) -> CheckResult<bool> {
+    fn is_function_application_read_only(&mut self, expression: &[SymbolicExpression]) -> CheckResult<bool> {
         let (function_name, args) = expression.split_first()
             .ok_or(CheckError::new(CheckErrors::NonFunctionApplication))?;
 
@@ -277,13 +263,14 @@ impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
             result
         } else {
             let is_function_read_only = self.defined_functions.get(function_name)
-                .ok_or(CheckError::new(CheckErrors::UnknownFunction(function_name.clone())))?;
-            self.are_all_read_only(*is_function_read_only, args)
+                .ok_or(CheckError::new(CheckErrors::UnknownFunction(function_name.clone())))?
+                .clone();
+            self.are_all_read_only(is_function_read_only, args)
         }
     }
 
 
-    fn is_read_only(&self, expr: &SymbolicExpression) -> CheckResult<bool> {
+    fn is_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
         match expr.expr {
             AtomValue(_) => {
                 Ok(true)

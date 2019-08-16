@@ -79,7 +79,6 @@ use chainstate::stacks::index::Error as Error;
 
 use util::log;
 
-
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
 pub struct MARF {
     storage: TrieFileStorage,
@@ -459,7 +458,7 @@ impl MARF {
     /// Instantiate the MARF using a TrieFileStorage instance, from the given path on disk.
     /// This will have the side-effect of instantiating a new fork table from the tries encoded on
     /// disk. Performant code should call this method sparingly.
-    pub fn from_path(path: &String) -> Result<MARF, Error> {
+    pub fn from_path(path: &str) -> Result<MARF, Error> {
         let mut file_storage = TrieFileStorage::new(path)?;
         match fs::metadata(path) {
             Ok(_) => {},
@@ -476,11 +475,12 @@ impl MARF {
     }
 
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
-    pub fn get(&mut self, block_hash: &BlockHeaderHash, key: &String) -> Result<Option<MARFValue>, Error> {
+    pub fn get(&mut self, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
         let cur_block_hash = self.storage.get_cur_block();
         let cur_block_rw = self.storage.readwrite();
 
         let path = TriePath::from_key(key);
+
         let leaf_opt_res = MARF::get_path(&mut self.storage, block_hash, &path)?;
 
         // restore
@@ -499,7 +499,7 @@ impl MARF {
     /// Insert the given (key, value) pair into the MARF.  Inserting the same key twice silently
     /// overwrites the existing key.  Succeeds if there are no storage errors.
     /// Must be called after a call to .begin() (will fail otherwise)
-    pub fn insert(&mut self, key: &String, value: &String) -> Result<(), Error> {
+    pub fn insert(&mut self, key: &str, value: MARFValue) -> Result<(), Error> {
         match self.open_chain_tip {
             None => {
                 Err(Error::WriteNotBegunError)
@@ -508,9 +508,9 @@ impl MARF {
                 let cur_block_hash = self.storage.get_cur_block();
                 let cur_block_rw = self.storage.readwrite();
 
-                let marf_value = MARFValue::from_value(value);
-                let marf_leaf = TrieLeaf::from_value(&vec![], marf_value);
+                let marf_leaf = TrieLeaf::from_value(&vec![], value);
                 let path = TriePath::from_key(key);
+
                 MARF::insert_leaf(&mut self.storage, block_hash, &path, &marf_leaf)?;
                 
                 // restore
@@ -522,7 +522,7 @@ impl MARF {
 
     /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
     /// the trie root hash will only be calculated once (which is an O(log B) operation).
-    pub fn insert_batch(&mut self, keys: &Vec<String>, values: &Vec<String>) -> Result<(), Error> {
+    pub fn insert_batch(&mut self, keys: &Vec<String>, values: Vec<MARFValue>) -> Result<(), Error> {
         assert_eq!(keys.len(), values.len());
 
         match self.open_chain_tip {
@@ -542,8 +542,7 @@ impl MARF {
                     let key = &keys[i];
                     let value = &values[i];
                 
-                    let marf_value = MARFValue::from_value(value);
-                    let marf_leaf = TrieLeaf::from_value(&vec![], marf_value);
+                    let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
                     let path = TriePath::from_key(key);
 
                     MARF::insert_leaf_in_batch(&mut self.storage, block_hash, &path, &marf_leaf)?;
@@ -551,8 +550,7 @@ impl MARF {
                 }
 
                 // last insert updates the root with the skiplist hash
-                let marf_value = MARFValue::from_value(&values[i]);
-                let marf_leaf = TrieLeaf::from_value(&vec![], marf_value);
+                let marf_leaf = TrieLeaf::from_value(&vec![], values[i].clone());
                 let path = TriePath::from_key(&keys[i]);
                 MARF::insert_leaf(&mut self.storage, block_hash, &path, &marf_leaf)?;
 
@@ -596,6 +594,11 @@ impl MARF {
             None => {}
         };
         Ok(())
+    }
+
+    /// Get open chain tip
+    pub fn get_open_chain_tip(&self) -> Option<&BlockHeaderHash> {
+        self.open_chain_tip.as_ref()
     }
 
     /// Get all known chain tips
@@ -1669,7 +1672,10 @@ mod test {
             m.begin(&prev_block_header, &block_header).unwrap();
 
             start_time = get_epoch_time_ms();
-            m.insert_batch(&keys, &values).unwrap();
+
+            let values = values.drain(..).map(|x| MARFValue::from_value(&x)).collect();
+
+            m.insert_batch(&keys, values).unwrap();
             end_time = get_epoch_time_ms();
 
             let flush_start_time = get_epoch_time_ms();
@@ -1770,7 +1776,10 @@ mod test {
             }
 
             m.begin(&prev_block_header, &block_header).unwrap();
-            m.insert_batch(&keys, &values).unwrap();
+
+            let marf_values = values.iter().map(|x| MARFValue::from_value(&x)).collect();
+
+            m.insert_batch(&keys, marf_values).unwrap();
             m.commit().unwrap();
 
             for j in 0..128 {
@@ -2149,7 +2158,9 @@ mod test {
                         values.push(value);
                     }
 
-                    m.insert_batch(&keys, &values).unwrap();
+                    let values = values.drain(..).map(|x| MARFValue::from_value(&x)).collect();
+
+                    m.insert_batch(&keys, values).unwrap();
                     m.commit().unwrap();
                 }
             }
