@@ -239,16 +239,6 @@ impl Hash for TupleData {
 pub const NONE: Value = Value::Optional(OptionalData { data: None });
 
 impl Value {
-    pub fn deserialize(json: &str) -> Value {
-        serde_json::from_str(json)
-            .expect("Failed to deserialize vm.Value")
-    }
-
-    pub fn serialize(&self) -> String {
-        serde_json::to_string(self)
-            .expect("Failed to serialize vm.Value")
-    }
-
     pub fn some(data: Value) -> Value {
         Value::Optional(OptionalData {
             data: Some(Box::new(data)) })
