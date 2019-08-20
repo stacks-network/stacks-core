@@ -348,6 +348,10 @@ pub struct Preamble {
     /// hash calculated for the stable_block_height above.
     pub stable_burn_consensus_hash: ConsensusHash,
 
+    /// This is a pointer to additional data that follows the payload.
+    /// This is a reserved field; for now, it should all be 0's.
+    pub additional_data: u32,
+
     /// This is a signature over the entire message (preamble and payload).
     /// When generating this value, the signature bytes below must all be 0's.
     pub signature: MessageSignature;
