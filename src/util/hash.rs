@@ -27,6 +27,7 @@ use util::HexError;
 
 use ripemd160::Ripemd160;
 use sha2::Sha256;
+use sha2::Sha512Trunc256;
 use sha3::Keccak256;
 
 use util::uint::Uint256;
@@ -65,6 +66,13 @@ impl_array_newtype!(DoubleSha256, u8, 32);
 impl_array_hexstring_fmt!(DoubleSha256);
 impl_byte_array_newtype!(DoubleSha256, u8, 32);
 pub const DOUBLE_SHA256_ENCODED_SIZE : u32 = 32;
+
+#[derive(Serialize, Deserialize)]
+pub struct Sha512_256(pub [u8; 32]);
+impl_array_newtype!(Sha512_256, u8, 32);
+impl_array_hexstring_fmt!(Sha512_256);
+impl_byte_array_newtype!(Sha512_256, u8, 32);
+pub const SHA512_256_ENCODED_SIZE : u32 = 32;
 
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
@@ -167,6 +175,28 @@ impl MerkleHashFunc for DoubleSha256 {
     }
 }
 
+impl MerkleHashFunc for Sha512_256 {
+    fn empty() -> Sha512_256 {
+        Sha512_256([0u8; 32])
+    }
+
+    fn from_tagged_data(tag: u8, data: &[u8]) -> Sha512_256 {
+        use sha2::Digest;
+        let mut tmp = [0u8; 32];
+
+        let mut sha2 = Sha512Trunc256::new();
+        sha2.input(&[tag]);
+        sha2.input(data);
+        tmp.copy_from_slice(sha2.result().as_slice());
+
+        Sha512_256(tmp)
+    }
+
+    fn bits(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 impl Keccak256Hash {
     pub fn from_data(data: &[u8]) -> Keccak256Hash {
         use sha3::Digest;
@@ -246,6 +276,20 @@ impl DoubleSha256 {
         ret
     }
 }
+
+impl Sha512_256 {
+    pub fn from_data(data: &[u8]) -> Sha512_256 {
+        use sha2::Digest;
+        let mut tmp = [0u8; 32];
+       
+        let mut hasher = Sha512Trunc256::new();
+        hasher.input(data);
+        tmp.copy_from_slice(hasher.result().as_slice());
+
+        Sha512_256(tmp)
+    }
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MerkleTree<H: MerkleHashFunc> {
