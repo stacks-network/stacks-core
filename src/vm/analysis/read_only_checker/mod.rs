@@ -16,23 +16,23 @@ pub use super::errors::{CheckResult, CheckError, CheckErrors};
 #[cfg(test)]
 mod tests;
 
-pub struct CheckReadOnlyDefinitions <'a, 'b> {
+pub struct ReadOnlyChecker <'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
     defined_functions: HashMap<String, bool>
 }
 
-impl <'a, 'b> AnalysisPass for CheckReadOnlyDefinitions <'a, 'b> {
+impl <'a, 'b> AnalysisPass for ReadOnlyChecker <'a, 'b> {
 
     fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
-        let mut command = CheckReadOnlyDefinitions::new(analysis_db);
+        let mut command = ReadOnlyChecker::new(analysis_db);
         command.run(contract_analysis)?;
         Ok(())
     }
 }
 
-impl <'a, 'b> CheckReadOnlyDefinitions <'a, 'b> {
+impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     
-    fn new(db: &'a mut AnalysisDatabase<'b>) -> CheckReadOnlyDefinitions<'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>) -> ReadOnlyChecker<'a, 'b> {
         Self { 
             db, 
             defined_functions: HashMap::new() 
