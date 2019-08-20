@@ -30,9 +30,9 @@ pub fn update_expression_id(exprs: &mut [SymbolicExpression]) -> CheckResult<()>
     Ok(())
 }
 
-pub struct UpdateExpressionId;
+pub struct ExpressionIdentifier;
 
-impl AnalysisPass for UpdateExpressionId {
+impl AnalysisPass for ExpressionIdentifier {
 
     fn run_pass(contract_analysis: &mut ContractAnalysis, _analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
         update_expression_id(& mut contract_analysis.expressions)?;

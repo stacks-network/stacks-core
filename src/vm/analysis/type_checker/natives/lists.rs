@@ -2,11 +2,11 @@ use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
 use vm::types::{AtomTypeIdentifier, TypeSignature, FunctionType};
 
-use vm::analysis::check_typing::{TypeResult, TypingContext, CheckResult,
-                                 check_argument_count, CheckErrors, no_type, CheckTyping, check_function_args};
+use vm::analysis::type_checker::{TypeResult, TypingContext, CheckResult,
+                                 check_argument_count, CheckErrors, no_type, TypeChecker, check_function_args};
 use super::{TypedNativeFunction, SimpleNativeFunction};
 
-fn get_simple_native_or_user_define(function_name: &str, checker: &CheckTyping) -> CheckResult<FunctionType> {
+fn get_simple_native_or_user_define(function_name: &str, checker: &TypeChecker) -> CheckResult<FunctionType> {
     if let Some(ref native_function) = NativeFunctions::lookup_by_name(function_name) {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) = TypedNativeFunction::type_native_function(native_function) {
             Ok(function_type)
@@ -19,7 +19,7 @@ fn get_simple_native_or_user_define(function_name: &str, checker: &CheckTyping) 
     }
 }
 
-pub fn check_special_map(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
     
     let function_name = args[0].match_atom()
@@ -46,7 +46,7 @@ pub fn check_special_map(checker: &mut CheckTyping, args: &[SymbolicExpression],
         .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }
 
-pub fn check_special_filter(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
     
     let function_name = args[0].match_atom()
@@ -76,7 +76,7 @@ pub fn check_special_filter(checker: &mut CheckTyping, args: &[SymbolicExpressio
     Ok(argument_type)
 }
 
-pub fn check_special_fold(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(3, args)?;
     
     let function_name = args[0].match_atom()

@@ -5,11 +5,11 @@ use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
 use super::check_special_tuple_cons;
-use vm::analysis::check_typing::{TypeResult, TypingContext, 
+use vm::analysis::type_checker::{TypeResult, TypingContext, 
                                  check_arguments_at_least,
-                                 CheckError, CheckErrors, no_type, CheckTyping};
+                                 CheckError, CheckErrors, no_type, TypeChecker};
 
-pub fn check_special_fetch_entry(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
 
     check_arguments_at_least(2, args)?;
 
@@ -35,7 +35,7 @@ pub fn check_special_fetch_entry(checker: &mut CheckTyping, args: &[SymbolicExpr
     }
 }
 
-pub fn check_special_fetch_contract_entry(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(3, args)?;
     
     let contract_name = args[0].match_atom()
@@ -63,7 +63,7 @@ pub fn check_special_fetch_contract_entry(checker: &mut CheckTyping, args: &[Sym
     }
 }
 
-pub fn check_special_delete_entry(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_delete_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(2, args)?;
 
     let map_name = args[0].match_atom()
@@ -86,7 +86,7 @@ pub fn check_special_delete_entry(checker: &mut CheckTyping, args: &[SymbolicExp
     }
 }
 
-pub fn check_special_set_entry(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_set_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(3, args)?;
     
     let map_name = args[0].match_atom()
@@ -116,7 +116,7 @@ pub fn check_special_set_entry(checker: &mut CheckTyping, args: &[SymbolicExpres
     }
 }
 
-pub fn check_special_insert_entry(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_insert_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(3, args)?;
     
     let map_name = args[0].match_atom()

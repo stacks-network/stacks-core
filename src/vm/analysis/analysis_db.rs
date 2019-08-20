@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use vm::types::{TypeSignature, FunctionType};
 use vm::database::{KeyValueStorage, ClaritySerializable, ClarityDeserializable, RollbackWrapper};
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
-use vm::analysis::check_typing::{ContractAnalysis};
+use vm::analysis::type_checker::{ContractAnalysis};
 
 pub struct AnalysisDatabase <'a> {
     store: RollbackWrapper <'a>
