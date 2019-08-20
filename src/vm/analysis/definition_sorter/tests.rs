@@ -3,7 +3,7 @@ use vm::parser::parse;
 use vm::analysis::{CheckResult, AnalysisDatabase};
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 use vm::analysis::expression_identifier::ExpressionIdentifier;
-use vm::analysis::update_expressions_sorting::UpdateExpressionsSorting;
+use vm::analysis::definition_sorter::DefinitionSorter;
 
 fn run_scoped_analysis_helper(contract: &str) -> CheckResult<ContractAnalysis> {
     let mut db = AnalysisDatabase::memory();
@@ -12,7 +12,7 @@ fn run_scoped_analysis_helper(contract: &str) -> CheckResult<ContractAnalysis> {
     db.execute(|db| {
         let mut contract_analysis = ContractAnalysis::new(expressions.to_vec());
         ExpressionIdentifier::run_pass(&mut contract_analysis, db)?;
-        UpdateExpressionsSorting::run_pass(&mut contract_analysis, db)?;
+        DefinitionSorter::run_pass(&mut contract_analysis, db)?;
         Ok(contract_analysis)
     })
 }

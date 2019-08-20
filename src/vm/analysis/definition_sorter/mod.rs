@@ -12,21 +12,21 @@ use super::errors::{CheckResult, CheckError, CheckErrors};
 #[cfg(test)]
 mod tests;
 
-pub struct UpdateExpressionsSorting {
+pub struct DefinitionSorter {
     graph: Graph,
     top_level_expressions_map: HashMap<String, TopLevelExpressionIndex>   
 }
 
-impl AnalysisPass for UpdateExpressionsSorting {
+impl AnalysisPass for DefinitionSorter {
 
     fn run_pass(contract_analysis: &mut ContractAnalysis, _analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
-        let mut command = UpdateExpressionsSorting::new();
+        let mut command = DefinitionSorter::new();
         command.run(contract_analysis)?;
         Ok(())
     }
 }
 
-impl <'a> UpdateExpressionsSorting {
+impl <'a> DefinitionSorter {
 
     fn new() -> Self {
         Self { 
