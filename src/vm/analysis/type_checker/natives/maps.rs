@@ -117,7 +117,7 @@ pub fn check_special_set_entry(checker: &mut TypeChecker, args: &[SymbolicExpres
     if !expected_key_type.admits_type(&key_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
     } else if !expected_value_type.admits_type(&value_type) {
-        return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
+        return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))
     } else {
         return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
     }
@@ -149,7 +149,7 @@ pub fn check_special_insert_entry(checker: &mut TypeChecker, args: &[SymbolicExp
     if !expected_key_type.admits_type(&key_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
     } else if !expected_value_type.admits_type(&value_type) {
-        return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
+        return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))
     } else {
         return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
     }
