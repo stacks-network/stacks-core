@@ -35,8 +35,10 @@ use chainstate::burn::ConsensusHash;
 use util::hash::Hash160;
 use util::db::Error as db_error;
 
+use util::secp256k1::MessageSignature;
+
 #[derive(Serialize, Deserialize)]
-pub struct Txid([u8; 32]);
+pub struct Txid(pub [u8; 32]);
 impl_array_newtype!(Txid, u8, 32);
 impl_array_hexstring_fmt!(Txid);
 impl_byte_array_newtype!(Txid, u8, 32);
@@ -88,12 +90,12 @@ pub enum ConsensusHashLifetime {
 
 pub trait PublicKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
-    fn verify(&self, data_hash: &[u8], sig: &[u8]) -> Result<bool, &'static str>;
+    fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str>;
 }
 
 pub trait PrivateKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
-    fn sign(&self, data_hash: &[u8]) -> Result<Vec<u8>, &'static str>;
+    fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str>;
 }
 
 pub trait Address : Clone + fmt::Debug {
