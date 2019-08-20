@@ -16,8 +16,9 @@ use vm::database::{ClarityDatabase, SqliteStore, SqliteConnection, KeyValueStora
                    MarfedKV, memory_db, sqlite_marf};
 use vm::errors::{InterpreterResult};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
-use vm::checker::{type_check, AnalysisDatabase};
-use vm::checker::typecheck::contexts::ContractAnalysis;
+use vm::analysis::{AnalysisDatabase, run_analysis};
+use vm::analysis::build_contract_interface::build_contract_interface;
+use vm::analysis::types::ContractAnalysis;
 
 use address::c32::c32_address;
 
@@ -130,13 +131,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     // use a persisted marf
                     let mut marf = friendly_expect(sqlite_marf(&args[2], None), "Failed to open VM database.");
                     let result = { let mut db = AnalysisDatabase::new(Box::new(&mut marf));
-                                   type_check(&":transient:", &mut ast, &mut db, false) };
+                                   run_analysis(&":transient:", &mut ast, &mut db, false) };
                     marf.commit();
                     result
                 } else {
                     let mut memory = friendly_expect(SqliteConnection::memory(), "Could not open in-memory analysis DB");
                     let mut db = AnalysisDatabase::new(Box::new(memory));
-                    type_check(&":transient:", &mut ast, &mut db, false)
+                    run_analysis(&":transient:", &mut ast, &mut db, false)
                 }
             }.unwrap_or_else(|e| {
                 println!("{}", &e.diagnostic);
@@ -145,7 +146,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             match args.last() {
                 Some(s) if s == "--output_analysis" => {
-                    println!("{}", contract_analysis.to_interface().serialize());
+                    println!("{}", build_contract_interface(&contract_analysis).serialize());
                 },
                 _ => {
                     println!("Checks passed.");
@@ -186,7 +187,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     }
                 };
 
-                match type_check(":transient:", &mut ast, &mut analysis_db, true) {
+                match run_analysis(":transient:", &mut ast, &mut analysis_db, true) {
                     Ok(_) => (),
                     Err(error) => {
                         println!("Type check error:\n{}", error);
@@ -217,7 +218,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let mut vm_env = OwnedEnvironment::memory();
 
             let mut ast = friendly_expect(parse(&content), "Failed to parse program.");
-            match type_check(":transient:", &mut ast, &mut analysis_db, true) {
+            match run_analysis(":transient:", &mut ast, &mut analysis_db, true) {
                 Ok(_) => {
                     let result = vm_env.get_exec_environment(None).eval_raw(&content);
                     match result {
@@ -299,7 +300,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     let analysis_result = { 
                         let mut db = AnalysisDatabase::new(Box::new(&mut marf));
                         
-                        type_check(contract_name, &mut ast, &mut db, true)
+                        run_analysis(contract_name, &mut ast, &mut db, true)
                     };
 
                     match analysis_result {
@@ -319,7 +320,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 Ok((contract_analysis, Ok(_x))) => {
                     match args.last() {
                         Some(s) if s == "--output_analysis" => {
-                            println!("{}", contract_analysis.to_interface().serialize());
+                            println!("{}", build_contract_interface(&contract_analysis).serialize());
                         },
                         _ => {
                             println!("Contract initialized!");

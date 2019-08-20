@@ -1,5 +1,5 @@
 use vm::parser::parse;
-use vm::checker::{type_check, CheckError, CheckErrors, AnalysisDatabase};
+use vm::analysis::{type_check, mem_type_check, CheckError, CheckErrors, AnalysisDatabase};
 
 #[test]
 fn test_simple_read_only_violations() {
@@ -58,9 +58,7 @@ fn test_simple_read_only_violations() {
             (fold func1 (list 1 2 3) 1))"];
 
     for contract in bad_contracts.iter() {
-        let mut ast = parse(contract).unwrap();
-        let mut db = AnalysisDatabase::memory();
-        let err = type_check(&":transient:", &mut ast, &mut db, true).unwrap_err();
+        let err = mem_type_check(contract).unwrap_err();
         assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly)
     }
 }
@@ -88,11 +86,11 @@ fn test_contract_call_read_only_violations() {
     let mut ok_caller = parse(ok_caller).unwrap();
 
     let mut db = AnalysisDatabase::memory();
-    
-    type_check(&"contract1", &mut contract1, &mut db, true).unwrap();
-    let err = type_check(&"bad_caller", &mut bad_caller, &mut db, true).unwrap_err();
+    db.execute(|db| type_check(&"contract1", &mut contract1, db, true)).unwrap();
+
+    let err = db.execute(|db| type_check(&"bad_caller", &mut bad_caller, db, true)).unwrap_err();
     assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
 
-    type_check(&"ok_caller", &mut ok_caller, &mut db, true).unwrap();
+    db.execute(|db| type_check(&"ok_caller", &mut ok_caller, db, true)).unwrap();
 
 }

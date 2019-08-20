@@ -1,14 +1,7 @@
 use vm::parser::parse;
-use vm::checker::{AnalysisDatabase};
-use vm::checker::errors::{CheckErrors, CheckResult};
-use vm::checker::{ContractAnalysis, type_check};
-
-#[cfg(test)]
-pub fn mem_type_check(snippet: &str) -> CheckResult<ContractAnalysis> {
-    let mut contract = parse(snippet).unwrap();
-    let mut analysis_db = AnalysisDatabase::memory();
-    type_check(&":transient:", &mut contract, &mut analysis_db, false)
-}
+use vm::analysis::{AnalysisDatabase, mem_type_check};
+use vm::analysis::errors::CheckErrors;
+use vm::analysis::{ContractAnalysis, type_check};
 
 #[test]
 fn test_list_types_must_match() {

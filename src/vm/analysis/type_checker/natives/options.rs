@@ -1,7 +1,7 @@
 use vm::representations::{SymbolicExpression};
 use vm::types::{AtomTypeIdentifier, TypeSignature};
 
-use vm::checker::typecheck::{TypeResult, TypingContext, 
+use vm::analysis::type_checker::{TypeResult, TypingContext, 
                              CheckError, CheckErrors, no_type, TypeChecker};
 
 

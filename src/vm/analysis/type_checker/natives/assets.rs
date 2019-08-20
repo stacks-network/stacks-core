@@ -1,7 +1,7 @@
 use vm::representations::{SymbolicExpression};
 use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE};
 use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
-use vm::checker::errors::{CheckError, CheckErrors, CheckResult, check_argument_count};
+use vm::analysis::errors::{CheckError, CheckErrors, CheckResult, check_argument_count};
 
 pub fn check_special_get_owner(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;

@@ -5,6 +5,7 @@ use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
+use vm::analysis::types::{ContractAnalysis, AnalysisPass};
 
 use vm::variables::NativeVariables;
 use std::collections::HashMap;
@@ -20,27 +21,35 @@ pub struct ReadOnlyChecker <'a, 'b> {
     defined_functions: HashMap<String, bool>
 }
 
+impl <'a, 'b> AnalysisPass for ReadOnlyChecker <'a, 'b> {
+
+    fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
+        let mut command = ReadOnlyChecker::new(analysis_db);
+        command.run(contract_analysis)?;
+        Ok(())
+    }
+}
 
 impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     
-
     fn new(db: &'a mut AnalysisDatabase<'b>) -> ReadOnlyChecker<'a, 'b> {
-        ReadOnlyChecker { db, defined_functions: HashMap::new() }
+        Self { 
+            db, 
+            defined_functions: HashMap::new() 
+        }
     }
 
-    pub fn check_contract(contract: &mut [SymbolicExpression], analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
-        let mut checker = ReadOnlyChecker::new(analysis_db);
+    pub fn run(& mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
 
-        for expr in contract {
-            let mut result = checker.check_reads_only_valid(expr);
+        for exp in contract_analysis.expressions_iter() {
+            let mut result = self.check_reads_only_valid(&exp);
             if let Err(ref mut error) = result {
                 if !error.has_expression() {
-                    error.set_expression(expr);
+                    error.set_expression(&exp);
                 }
             }
             result?
         }
-
 
         Ok(())
     }
