@@ -53,13 +53,15 @@ extern crate assert_json_diff;
 mod util;
 
 #[macro_use]
+mod net;
+
+#[macro_use]
 mod chainstate;
 
 mod address;
 mod burnchains;
 mod core;
 mod deps;
-mod net;
 mod vm;
 
 mod clarity;
