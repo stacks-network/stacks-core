@@ -138,73 +138,72 @@ fn handle_define_map(map_name: &SymbolicExpression,
     Ok(DefineResult::Map(map_str.clone(), key_type_signature, value_type_signature))
 }
 
+impl DefineFunctions {
+    /// Try to parse a Top-Level Expression (e.g., (define-private (foo) 1)) as
+    /// a define-statement, returns None if the supplied expression is not a define.
+    pub fn try_parse(expression: &SymbolicExpression) -> Option<(DefineFunctions, &[SymbolicExpression])> {
+        let expression = expression.match_list()?;
+        let (function_name, function_args) = expression.split_first()?;
+        let function_name = function_name.match_atom()?;
+        let define_type = DefineFunctions::lookup_by_name(function_name)?;
+        Some((define_type, function_args))
+    }
+}
+
 pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
-    
-    if let List(ref elements) = expression.expr {
-
-        if elements.len() < 1 {
-            return Ok(DefineResult::NoDefine)
-        }
-
-        let (func_name, args) = elements.split_first()
-            .unwrap(); // should never fail, because of len check above.
-
-        if let Some(func_name) = func_name.match_atom() {
-            if let Some(define_type) = DefineFunctions::lookup_by_name(func_name) {
-                return match define_type {
-                    DefineFunctions::Constant => {
-                        check_argument_count(2, args)?;
-                        let variable = args[0].match_atom()
-                            .ok_or(UncheckedError::InvalidArguments(
-                                "Illegal operation: expects a variable name as the first argument.".to_string()))?;
-                        handle_define_variable(variable, &args[1], env)
-                    },
-                    DefineFunctions::PrivateFunction => {
-                        check_argument_count(2, args)?;
-                        let function_signature = args[0].match_list()
-                            .ok_or(UncheckedError::InvalidArguments(
-                                "Illegal operation: expects a function signature as the first argument.".to_string()))?;
-                        handle_define_function(&function_signature, &args[1], env, DefineType::Private)
-                    },
-                    DefineFunctions::ReadOnlyFunction => {
-                        check_argument_count(2, args)?;
-                        let function_signature = args[0].match_list()
-                            .ok_or(UncheckedError::InvalidArguments(
-                                "Illegal operation: expects a function signature as the first argument.".to_string()))?;
-                        handle_define_function(&function_signature, &args[1], env, DefineType::ReadOnly)
-                    },
-                    DefineFunctions::NonFungibleToken => {
-                        check_argument_count(2, args)?;
-                        handle_define_nonfungible_asset(&args[0], &args[1], env)
-                    },
-                    DefineFunctions::FungibleToken => {
-                        if args.len() == 1 {
-                            handle_define_fungible_token(&args[0], None, env)
+    if let Some((define_type, args)) = DefineFunctions::try_parse(expression) {
+        match define_type {
+            DefineFunctions::Constant => {
+                check_argument_count(2, args)?;
+                let variable = args[0].match_atom()
+                    .ok_or(UncheckedError::InvalidArguments(
+                        "Illegal operation: expects a variable name as the first argument.".to_string()))?;
+                handle_define_variable(variable, &args[1], env)
+            },
+            DefineFunctions::PrivateFunction => {
+                check_argument_count(2, args)?;
+                let function_signature = args[0].match_list()
+                    .ok_or(UncheckedError::InvalidArguments(
+                        "Illegal operation: expects a function signature as the first argument.".to_string()))?;
+                handle_define_function(&function_signature, &args[1], env, DefineType::Private)
+            },
+            DefineFunctions::ReadOnlyFunction => {
+                check_argument_count(2, args)?;
+                let function_signature = args[0].match_list()
+                    .ok_or(UncheckedError::InvalidArguments(
+                        "Illegal operation: expects a function signature as the first argument.".to_string()))?;
+                handle_define_function(&function_signature, &args[1], env, DefineType::ReadOnly)
+            },
+            DefineFunctions::NonFungibleToken => {
+                check_argument_count(2, args)?;
+                handle_define_nonfungible_asset(&args[0], &args[1], env)
+            },
+            DefineFunctions::FungibleToken => {
+                if args.len() == 1 {
+                    handle_define_fungible_token(&args[0], None, env)
                         } else if args.len() == 2 {
-                            handle_define_fungible_token(&args[0], Some(&args[1]), env)
+                    handle_define_fungible_token(&args[0], Some(&args[1]), env)
                         } else {
-                            Err(UncheckedError::IncorrectArgumentCount(1, args.len()).into())
-                        }
-                    },
-                    DefineFunctions::PublicFunction => {
-                        check_argument_count(2, args)?;
-                        let function_signature = args[0].match_list()
-                            .ok_or(UncheckedError::InvalidArguments(
-                                "Illegal operation: expects a function signature as the first argument.".to_string()))?;
-                        handle_define_function(&function_signature, &args[1], env, DefineType::Public)
-                    },
-                    DefineFunctions::Map => {
-                        check_argument_count(3, args)?;
-                        handle_define_map(&args[0], &args[1], &args[2], env)
-                    },
-                    DefineFunctions::PersistedVariable => {
-                        check_argument_count(3, args)?;
-                        handle_define_persisted_variable(&args[0], &args[1], &args[2], env)
-                    }
+                    Err(UncheckedError::IncorrectArgumentCount(1, args.len()).into())
                 }
+            },
+            DefineFunctions::PublicFunction => {
+                check_argument_count(2, args)?;
+                let function_signature = args[0].match_list()
+                    .ok_or(UncheckedError::InvalidArguments(
+                        "Illegal operation: expects a function signature as the first argument.".to_string()))?;
+                handle_define_function(&function_signature, &args[1], env, DefineType::Public)
+            },
+            DefineFunctions::Map => {
+                check_argument_count(3, args)?;
+                handle_define_map(&args[0], &args[1], &args[2], env)
+            },
+            DefineFunctions::PersistedVariable => {
+                check_argument_count(3, args)?;
+                handle_define_persisted_variable(&args[0], &args[1], &args[2], env)
             }
         }
+    } else {
+        Ok(DefineResult::NoDefine)
     }
-
-    Ok(DefineResult::NoDefine)
 }

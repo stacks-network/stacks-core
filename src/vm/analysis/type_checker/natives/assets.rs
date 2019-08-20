@@ -1,6 +1,6 @@
 use vm::representations::{SymbolicExpression};
 use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE};
-use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type, check_atomic_type}; 
+use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type}; 
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult, check_argument_count};
 
 pub fn check_special_get_owner(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -10,17 +10,14 @@ pub fn check_special_get_owner(checker: &mut TypeChecker, args: &[SymbolicExpres
         .ok_or(CheckErrors::BadTokenName)?;
     checker.type_map.set_type(&args[0], no_type())?;
 
-    let supplied_asset_type = checker.type_check(&args[1], context)?;
-
     let expected_asset_type = checker.contract_context.get_nft_type(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.clone()))?;
+        .cloned()
+        .ok_or_else(|| CheckErrors::NoSuchNFT(asset_name.clone()))?;
 
-    if !expected_asset_type.admits_type(&supplied_asset_type) {
-        Err(CheckErrors::TypeError(expected_asset_type.clone(), supplied_asset_type).into())
-    } else {
-        Ok(AtomTypeIdentifier::OptionalType(
-            Box::new(AtomTypeIdentifier::PrincipalType.into())).into())
-    }
+    checker.type_check_expects(&args[1], context, &expected_asset_type)?;
+
+    Ok(AtomTypeIdentifier::OptionalType(
+        Box::new(AtomTypeIdentifier::PrincipalType.into())).into())
 }
 
 pub fn check_special_get_balance(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {

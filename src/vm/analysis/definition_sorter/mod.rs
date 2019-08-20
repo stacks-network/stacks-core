@@ -195,24 +195,13 @@ impl <'a> DefinitionSorter {
 
 
     fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(String, u64, &'b SymbolicExpression)> {
-        if let Some(expression) = exp.match_list() {
-            if let Some((function_name, function_args)) = expression.split_first() {
-                if let Some(definition_type) = function_name.match_atom() {
-                    if DefineFunctions::lookup_by_name(definition_type).is_some() {
-                        if function_args.len() > 1 {
-                            let defined_name = match function_args[0].match_list() {
-                                Some(list) => &list[0],
-                                _ => &function_args[0]
-                            };
-                            if let Some(tle_name) = defined_name.match_atom() {
-                                return Some((tle_name.clone(), defined_name.id, defined_name));
-                            }   
-                        }
-                    }
-                } 
-            } 
-        }
-        None
+        let (_define_type, args) = DefineFunctions::try_parse(exp)?;
+        let defined_name = match args.get(0)?.match_list() {
+            Some(list) => list.get(0)?,
+            _ => &args[0]
+        };
+        let tle_name = defined_name.match_atom()?;
+        Some((tle_name.clone(), defined_name.id, defined_name))
     }
 }
 
