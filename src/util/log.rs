@@ -51,7 +51,7 @@ pub fn get_loglevel() -> u8 {
 
 macro_rules! debug {
     ($($arg:tt)*) => ({
-        if log::get_loglevel() <= log::LOG_DEBUG {
+        if ::util::log::get_loglevel() <= ::util::log::LOG_DEBUG {
             use std::time::SystemTime;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
@@ -64,7 +64,7 @@ macro_rules! debug {
 
 macro_rules! info {
     ($($arg:tt)*) => ({
-        if log::get_loglevel() <= log::LOG_INFO {
+        if ::util::log::get_loglevel() <= ::util::log::LOG_INFO {
             use std::time::SystemTime;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
@@ -77,7 +77,7 @@ macro_rules! info {
 
 macro_rules! warn {
     ($($arg:tt)*) => ({
-        if log::get_loglevel() <= log::LOG_WARN {
+        if ::util::log::get_loglevel() <= ::util::log::LOG_WARN {
             use std::time::SystemTime;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
@@ -90,7 +90,7 @@ macro_rules! warn {
 
 macro_rules! error {
     ($($arg:tt)*) => ({
-        if log::get_loglevel() <= log::LOG_ERROR {
+        if ::util::log::get_loglevel() <= ::util::log::LOG_ERROR {
             use std::time::SystemTime;
             let (ts_sec, ts_msec) = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(n) => (n.as_secs(), n.subsec_nanos() / 1_000_000),
