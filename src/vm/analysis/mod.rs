@@ -1,7 +1,7 @@
 pub mod diagnostic;
 pub mod types;
 pub mod errors;
-pub mod update_expressions_id;
+pub mod expression_identifier;
 pub mod update_expressions_sorting;
 pub mod check_typing;
 pub mod check_readonly_definitions;
@@ -14,7 +14,7 @@ use vm::representations::{SymbolicExpression};
 pub use self::errors::{CheckResult, CheckError, CheckErrors};
 pub use self::analysis_db::{AnalysisDatabase};
 
-use self::update_expressions_id::UpdateExpressionId;
+use self::expression_identifier::ExpressionIdentifier;
 use self::update_expressions_sorting::UpdateExpressionsSorting;
 use self::check_readonly_definitions::CheckReadOnlyDefinitions;
 use self::check_typing::CheckTyping;
@@ -43,7 +43,7 @@ pub fn run_analysis(contract_name: &str,
 
     analysis_db.execute(|db| {
         let mut contract_analysis = ContractAnalysis::new(expressions.to_vec());
-        UpdateExpressionId::run_pass(&mut contract_analysis, db)?;
+        ExpressionIdentifier::run_pass(&mut contract_analysis, db)?;
         UpdateExpressionsSorting::run_pass(&mut contract_analysis, db)?;
         CheckReadOnlyDefinitions::run_pass(&mut contract_analysis, db)?;
         CheckTyping::run_pass(&mut contract_analysis, db)?;
