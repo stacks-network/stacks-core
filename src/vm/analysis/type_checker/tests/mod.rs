@@ -1,6 +1,6 @@
 use vm::parser::parse;
 use vm::representations::SymbolicExpression;
-use vm::analysis::check_typing::{TypeResult, CheckTyping, TypingContext};
+use vm::analysis::type_checker::{TypeResult, TypeChecker, TypingContext};
 use vm::analysis::{AnalysisDatabase, expression_identifier};
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::mem_type_check;
@@ -17,7 +17,7 @@ fn type_check_helper(exp: &str) -> TypeResult {
     let mut exp = parse(exp).unwrap();
     expression_identifier::update_expression_id(&mut exp).unwrap();
     db.execute(|db| {
-        let mut type_checker = CheckTyping::new(db);
+        let mut type_checker = TypeChecker::new(db);
         
         let contract_context = TypingContext::new();
         type_checker.type_check(&exp[0], &contract_context)

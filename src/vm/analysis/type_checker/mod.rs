@@ -38,16 +38,16 @@ Is illegally typed in our language.
 
 */
 
-pub struct CheckTyping <'a, 'b> {
+pub struct TypeChecker <'a, 'b> {
     pub type_map: TypeMap,
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a mut AnalysisDatabase<'b>
 }
 
-impl <'a, 'b> AnalysisPass for CheckTyping <'a, 'b> {
+impl <'a, 'b> AnalysisPass for TypeChecker <'a, 'b> {
     fn run_pass(contract_analysis: &mut ContractAnalysis, analysis_db: &mut AnalysisDatabase) -> CheckResult<()> {
-        let mut command = CheckTyping::new(analysis_db);
+        let mut command = TypeChecker::new(analysis_db);
         command.run(contract_analysis)?;
         command.into_contract_analysis(contract_analysis);
         Ok(())
@@ -131,8 +131,8 @@ fn check_atomic_type(atom: AtomTypeIdentifier, to_check: &TypeSignature) -> Chec
     }
 }
 
-impl <'a, 'b> CheckTyping <'a, 'b> {
-    fn new(db: &'a mut AnalysisDatabase<'b>) -> CheckTyping<'a, 'b> {
+impl <'a, 'b> TypeChecker <'a, 'b> {
+    fn new(db: &'a mut AnalysisDatabase<'b>) -> TypeChecker<'a, 'b> {
         Self {
             db,
             contract_context: ContractContext::new(),

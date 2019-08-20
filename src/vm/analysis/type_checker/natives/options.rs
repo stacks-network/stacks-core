@@ -1,11 +1,11 @@
 use vm::representations::{SymbolicExpression};
 use vm::types::{AtomTypeIdentifier, TypeSignature};
 
-use vm::analysis::check_typing::{TypeResult, TypingContext, 
-                             CheckError, CheckErrors, no_type, CheckTyping};
+use vm::analysis::type_checker::{TypeResult, TypingContext, 
+                             CheckError, CheckErrors, no_type, TypeChecker};
 
 
-pub fn check_special_okay(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_okay(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 1 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
     }
@@ -16,7 +16,7 @@ pub fn check_special_okay(checker: &mut CheckTyping, args: &[SymbolicExpression]
     Ok(resp_type)
 }
 
-pub fn check_special_some(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_some(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 1 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
     }
@@ -27,7 +27,7 @@ pub fn check_special_some(checker: &mut CheckTyping, args: &[SymbolicExpression]
     Ok(resp_type)
 }
 
-pub fn check_special_error(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_error(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 1 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
     }
@@ -38,7 +38,7 @@ pub fn check_special_error(checker: &mut CheckTyping, args: &[SymbolicExpression
     Ok(resp_type)
 }
 
-pub fn check_special_is_okay(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_is_okay(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 1 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))
     }
@@ -52,7 +52,7 @@ pub fn check_special_is_okay(checker: &mut CheckTyping, args: &[SymbolicExpressi
     }
 }
 
-pub fn check_special_is_none(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_is_none(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 1 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))
     }
@@ -66,7 +66,7 @@ pub fn check_special_is_none(checker: &mut CheckTyping, args: &[SymbolicExpressi
     }
 }
 
-pub fn check_special_default_to(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_default_to(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))        
     }
@@ -83,7 +83,7 @@ pub fn check_special_default_to(checker: &mut CheckTyping, args: &[SymbolicExpre
     }
 }
 
-pub fn check_special_expects(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_expects(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))        
     }
@@ -107,7 +107,7 @@ pub fn check_special_expects(checker: &mut CheckTyping, args: &[SymbolicExpressi
     }
 }
 
-pub fn check_special_expects_err(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_expects_err(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     if args.len() != 2 {
         return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))        
     }

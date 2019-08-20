@@ -3,7 +3,7 @@ pub mod types;
 pub mod errors;
 pub mod expression_identifier;
 pub mod definition_sorter;
-pub mod check_typing;
+pub mod type_checker;
 pub mod read_only_checker;
 pub mod analysis_db;
 pub mod build_contract_interface;
@@ -17,7 +17,7 @@ pub use self::analysis_db::{AnalysisDatabase};
 use self::expression_identifier::ExpressionIdentifier;
 use self::definition_sorter::DefinitionSorter;
 use self::read_only_checker::ReadOnlyChecker;
-use self::check_typing::CheckTyping;
+use self::type_checker::TypeChecker;
 
 #[cfg(test)]
 pub fn mem_type_check(snippet: &str) -> CheckResult<ContractAnalysis> {
@@ -46,7 +46,7 @@ pub fn run_analysis(contract_name: &str,
         ExpressionIdentifier::run_pass(&mut contract_analysis, db)?;
         DefinitionSorter::run_pass(&mut contract_analysis, db)?;
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
-        CheckTyping::run_pass(&mut contract_analysis, db)?;
+        TypeChecker::run_pass(&mut contract_analysis, db)?;
         if save_contract {
             db.insert_contract(contract_name, &contract_analysis)?;
         }
