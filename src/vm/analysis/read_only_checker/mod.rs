@@ -54,12 +54,12 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         Ok(())
     }
 
-    fn check_define_function(&mut self, expr: &[SymbolicExpression]) -> CheckResult<(String, bool)> {
-        check_argument_count(2, &expr[1..])?;
+    fn check_define_function(&mut self, args: &[SymbolicExpression]) -> CheckResult<(String, bool)> {
+        check_argument_count(2, args)?;
 
-        let signature = expr[1].match_list()
+        let signature = args[0].match_list()
             .ok_or(CheckErrors::DefineFunctionBadSignature)?;
-        let body = &expr[2];
+        let body = &args[1];
 
         let (function_name, _) = signature.split_first()
             .ok_or(CheckErrors::DefineFunctionBadSignature)?;
@@ -71,41 +71,36 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
 
     fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
         use vm::functions::define::DefineFunctions::*;
-        if let Some(ref expression) = expr.match_list() {
-            if let Some((function_name, function_args)) = expression.split_first() {
-                if let Some(function_name) = function_name.match_atom() {
-                    if let Some(define_type) = DefineFunctions::lookup_by_name(function_name) {
-                        return match define_type {
-                            Constant | Map | PersistedVariable | FungibleToken | NonFungibleToken => {
-                                // None of these define types ever need to be checked for their
-                                //  read-onliness, since they're never invoked outside of contract initialization.
-                                Ok(())
-                            },
-                            PrivateFunction => {
-                                let (f_name, is_read_only) = self.check_define_function(expression)?;
-                                self.defined_functions.insert(f_name, is_read_only);
-                                Ok(())
-                            },
-                            PublicFunction => {
-                                let (f_name, is_read_only) = self.check_define_function(expression)?;
-                                self.defined_functions.insert(f_name, is_read_only);
-                                Ok(())
-                            },
-                            ReadOnlyFunction => {
-                                let (f_name, is_read_only) = self.check_define_function(expression)?;
-                                if !is_read_only {
-                                    Err(CheckErrors::WriteAttemptedInReadOnly.into())
-                                } else {
-                                    self.defined_functions.insert(f_name, is_read_only);
-                                    Ok(())
-                                }
-                            },
-                        }
+        if let Some((define_type, args)) = DefineFunctions::try_parse(expr) {
+            match define_type {
+                Constant | Map | PersistedVariable | FungibleToken | NonFungibleToken => {
+                    // None of these define types ever need to be checked for their
+                    //  read-onliness, since they're never invoked outside of contract initialization.
+                    Ok(())
+                },
+                PrivateFunction => {
+                    let (f_name, is_read_only) = self.check_define_function(args)?;
+                    self.defined_functions.insert(f_name, is_read_only);
+                    Ok(())
+                },
+                PublicFunction => {
+                    let (f_name, is_read_only) = self.check_define_function(args)?;
+                    self.defined_functions.insert(f_name, is_read_only);
+                    Ok(())
+                },
+                ReadOnlyFunction => {
+                    let (f_name, is_read_only) = self.check_define_function(args)?;
+                    if !is_read_only {
+                        Err(CheckErrors::WriteAttemptedInReadOnly.into())
+                    } else {
+                        self.defined_functions.insert(f_name, is_read_only);
+                        Ok(())
                     }
-                }
+                },
             }
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     fn are_all_read_only(&mut self, initial: bool, expressions: &[SymbolicExpression]) -> CheckResult<bool> {
