@@ -31,7 +31,6 @@ use chainstate::stacks::StacksBlock;
 use chainstate::stacks::StacksMicroblock;
 use chainstate::stacks::StacksTransaction;
 
-use util::hash::Sha256Sum;
 use util::hash::DoubleSha256;
 use util::hash::Hash160;
 use util::hash::MerkleHashFunc;
@@ -43,8 +42,11 @@ use net::db::LocalPeer;
 
 use core::PEER_VERSION;
 
-use sha2::Sha256;
+use sha2::Sha512Trunc256;
 use sha2::Digest;
+
+use util::secp256k1::MessageSignature;
+use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
 use util::log;
 
@@ -54,36 +56,6 @@ use rand::Rng;
 // macro for determining how big an inv bitvec can be, given its bitlen 
 macro_rules! BITVEC_LEN {
     ($bitvec:expr) => ((($bitvec) / 8 + if ($bitvec) % 8 > 0 { 1 } else { 0 }) as u32)
-}
-
-impl MessageSignature {
-    pub fn empty() -> MessageSignature {
-        MessageSignature([0u8; 80])
-    }
-
-    // encode a generic vector of octets as a length-prefixed list of bytes
-    pub fn from_sig(sig: &Vec<u8>) -> Option<MessageSignature> {
-        if sig.len() >= 79 {
-            return None;
-        }
-        let mut buf = [0u8; 80];
-        buf[0] = sig.len() as u8;
-        for i in 0..sig.len() {
-            buf[i+1] = sig[i];
-        }
-        Some(MessageSignature(buf))
-    }
-
-    pub fn to_sig(&self) -> Option<Vec<u8>> {
-        let buflen = self.0[0];
-        if buflen > 79 {
-            // corrupt
-            return None;
-        }
-        let mut ret = vec![];
-        ret.extend_from_slice(&self.0[1..((buflen+1) as usize)]);
-        Some(ret)
-    }
 }
 
 // serialize helper 
@@ -344,7 +316,7 @@ impl Preamble {
             burn_consensus_hash: consensus_hash.clone(),
             burn_stable_block_height: stable_block_height,
             burn_stable_consensus_hash: stable_consensus_hash.clone(),
-            additional_data: DoubleSha256::empty(),
+            additional_data: 0,
             signature: MessageSignature::empty(),
             payload_len: payload_len,
         }
@@ -357,7 +329,7 @@ impl Preamble {
         PK: PrivateKey
     {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha256::new();
+        let mut sha2 = Sha512Trunc256::new();
 
         // serialize the premable with a blank signature
         let old_signature = self.signature.clone();
@@ -370,11 +342,8 @@ impl Preamble {
         
         digest_bits.copy_from_slice(sha2.result().as_slice());
 
-        let sig_bits = privkey.sign(&digest_bits)
+        let sig = privkey.sign(&digest_bits)
             .map_err(|se| net_error::SigningError(se.to_string()))?;
-
-        let sig = MessageSignature::from_sig(&sig_bits)
-            .ok_or(net_error::SigningError("Failed to serialize signature".to_string()))?;
 
         self.signature = sig;
         Ok(())
@@ -387,7 +356,7 @@ impl Preamble {
         PUBK: PublicKey
     {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha256::new();
+        let mut sha2 = Sha512Trunc256::new();
 
         // serialize the preamble with a blank signature 
         let sig_bits = self.signature.clone();
@@ -399,10 +368,8 @@ impl Preamble {
         sha2.input(message_bits);
 
         digest_bits.copy_from_slice(sha2.result().as_slice());
-        let sig = self.signature.to_sig()
-            .ok_or(net_error::DeserializeError)?;
-
-        let res = pubkey.verify(&digest_bits, &sig)
+        
+        let res = pubkey.verify(&digest_bits, &self.signature)
             .map_err(|_ve| net_error::VerifyingError("Failed to verify signature".to_string()))?;
 
         if res {
@@ -439,7 +406,7 @@ impl StacksMessageCodec for Preamble {
         let burn_consensus_hash : ConsensusHash         = read_next(buf, &mut index, max_size)?;
         let burn_stable_block_height: u64               = read_next(buf, &mut index, max_size)?;
         let burn_stable_consensus_hash : ConsensusHash  = read_next(buf, &mut index, max_size)?;
-        let additional_data : DoubleSha256              = read_next(buf, &mut index, max_size)?;
+        let additional_data : u32                       = read_next(buf, &mut index, max_size)?;
         let signature : MessageSignature                = read_next(buf, &mut index, max_size)?;
         let payload_len : u32                           = read_next(buf, &mut index, max_size)?;
 
@@ -1116,7 +1083,7 @@ impl StacksMessage {
 }
 
 #[cfg(test)]
-mod test {
+pub mod test {
     use super::*;
 
     use util::hash::hex_bytes;
@@ -1472,7 +1439,7 @@ mod test {
         assert_eq!(index, 0);
     }
 
-    fn check_codec_and_corruption<T : StacksMessageCodec + fmt::Debug + Clone + PartialEq>(obj: &T, bytes: &Vec<u8>) -> () {
+    pub fn check_codec_and_corruption<T : StacksMessageCodec + fmt::Debug + Clone + PartialEq>(obj: &T, bytes: &Vec<u8>) -> () {
         assert_eq!(obj.serialize(), *bytes);
         
         let mut index = 0;
@@ -1512,8 +1479,8 @@ mod test {
             burn_consensus_hash: ConsensusHash::from_bytes(&hex_bytes("1111111111111111111111111111111111111111").unwrap()).unwrap(),
             burn_stable_block_height: 0x00001111,
             burn_stable_consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
-            additional_data: DoubleSha256::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-            signature: MessageSignature::from_bytes(&hex_bytes("4444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444").unwrap()).unwrap(),
+            additional_data: 0x33333333,
+            signature: MessageSignature::from_raw(&vec![0x44; 65]),
             payload_len: 0x000007ff,
         };
         let preamble_bytes : Vec<u8> = vec![
@@ -1532,10 +1499,12 @@ mod test {
             // stable_burn_consensus_hash
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
             // additional_data
-            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            0x33, 0x33, 0x33, 0x33,
             // signature
-            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
-            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44,
             // payload_len
             0x00, 0x00, 0x07, 0xff
         ];
@@ -1960,7 +1929,7 @@ mod test {
                 public_key_hash: Hash160::from_bytes(&hex_bytes("1111111111111111111111111111111111111111").unwrap()).unwrap(),
             },
             seq: 0x01020304,
-            signature: MessageSignature::from_bytes(&hex_bytes("4444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444").unwrap()).unwrap(),
+            signature: MessageSignature::from_raw(&vec![0x44; 65]),
         };
         let bytes = vec![
             // peer.addrbytes
@@ -1972,8 +1941,10 @@ mod test {
             // seq
             0x01, 0x02, 0x03, 0x04,
             // signature
-            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
-            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44
         ];
 
         check_codec_and_corruption::<RelayData>(&data, &bytes);
@@ -2069,7 +2040,7 @@ mod test {
                     public_key_hash: Hash160::from_bytes(&hex_bytes("1111111111111111111111111111111111111111").unwrap()).unwrap(),
                 },
                 seq: 0x01020304 + i,
-                signature: MessageSignature::from_bytes(&hex_bytes("4444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444").unwrap()).unwrap(),
+                signature: MessageSignature::from_raw(&vec![0x44; 65]),
             };
             too_many_relayers.push(next_relayer.clone());
             maximal_relayers.push(next_relayer);
@@ -2081,7 +2052,7 @@ mod test {
                 public_key_hash: Hash160::from_bytes(&hex_bytes("1111111111111111111111111111111111111111").unwrap()).unwrap(),
             },
             seq: 0x010203ff,
-            signature: MessageSignature::from_bytes(&hex_bytes("4444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444").unwrap()).unwrap(),
+            signature: MessageSignature::from_raw(&vec![0x44; 65]),
         });
 
         let relayers_bytes = maximal_relayers.serialize();
@@ -2100,8 +2071,8 @@ mod test {
                 burn_consensus_hash: ConsensusHash::from_bytes(&hex_bytes("1111111111111111111111111111111111111111").unwrap()).unwrap(),
                 burn_stable_block_height: 0x00001111,
                 burn_stable_consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
-                additional_data: DoubleSha256::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                signature: MessageSignature::from_bytes(&hex_bytes("4444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444").unwrap()).unwrap(),
+                additional_data: 0x33333333,
+                signature: MessageSignature::from_raw(&vec![0x44; 65]),
                 payload_len: (relayers_bytes.len() + payload_bytes.len() + 1) as u32,
             };
 
