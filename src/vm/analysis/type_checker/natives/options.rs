@@ -1,11 +1,11 @@
 use vm::representations::{SymbolicExpression};
 use vm::types::{AtomTypeIdentifier, TypeSignature};
 
-use vm::analysis::check_typing::{TypeResult, TypingContext, check_argument_count,
-                             CheckError, CheckErrors, no_type, CheckTyping};
+use vm::analysis::type_checker::{TypeResult, TypingContext, check_argument_count,
+                                 CheckError, CheckErrors, no_type, TypeChecker};
 
 
-pub fn check_special_okay(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_okay(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
     
     let inner_type = checker.type_check(&args[0], context)?;
@@ -14,7 +14,7 @@ pub fn check_special_okay(checker: &mut CheckTyping, args: &[SymbolicExpression]
     Ok(resp_type)
 }
 
-pub fn check_special_some(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_some(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
     
     let inner_type = checker.type_check(&args[0], context)?;
@@ -23,7 +23,7 @@ pub fn check_special_some(checker: &mut CheckTyping, args: &[SymbolicExpression]
     Ok(resp_type)
 }
 
-pub fn check_special_error(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_error(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
     
     let inner_type = checker.type_check(&args[0], context)?;
@@ -32,7 +32,7 @@ pub fn check_special_error(checker: &mut CheckTyping, args: &[SymbolicExpression
     Ok(resp_type)
 }
 
-pub fn check_special_is_okay(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_is_okay(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
     
     let input = checker.type_check(&args[0], context)?;
@@ -44,7 +44,7 @@ pub fn check_special_is_okay(checker: &mut CheckTyping, args: &[SymbolicExpressi
     }
 }
 
-pub fn check_special_is_none(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_is_none(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(1, args)?;
     
     let input = checker.type_check(&args[0], context)?;
@@ -56,7 +56,7 @@ pub fn check_special_is_none(checker: &mut CheckTyping, args: &[SymbolicExpressi
     }
 }
 
-pub fn check_special_default_to(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_default_to(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
     
     let default = checker.type_check(&args[0], context)?;
@@ -71,7 +71,7 @@ pub fn check_special_default_to(checker: &mut CheckTyping, args: &[SymbolicExpre
     }
 }
 
-pub fn check_special_expects(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_expects(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
     
     let input = checker.type_check(&args[0], context)?;
@@ -97,7 +97,7 @@ pub fn check_special_expects(checker: &mut CheckTyping, args: &[SymbolicExpressi
     }
 }
 
-pub fn check_special_expects_err(checker: &mut CheckTyping, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+pub fn check_special_expects_err(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_argument_count(2, args)?;
     
     let input = checker.type_check(&args[0], context)?;
