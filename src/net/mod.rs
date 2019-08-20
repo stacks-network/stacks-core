@@ -60,6 +60,8 @@ use util::db::DBConn;
 use util::log;
 
 use util::secp256k1::Secp256k1PublicKey;
+use util::secp256k1::MessageSignature;
+use util::secp256k1::MESSAGE_SIGNATURE_ENCODED_SIZE;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -260,21 +262,6 @@ pub trait StacksMessageCodec {
         where Self: Sized;
 }
 
-/// Fixed-length buffer for storing an ECDSA public key signature, as well as
-/// (if space permits) a few bytes of metadata for future use.
-/// Rules:
-/// -- First byte is always the length of the signature.
-/// -- Second - length+1 bytes are the signature data.
-/// -- Remaining bytes can be anything
-/// Notes:
-/// -- secp256k1 signatures are no greater than 75 bytes when DER-encoded
-/// -- eddsa signatures are 2x public key length (64 bytes)
-pub struct MessageSignature([u8; 80]);
-impl_array_newtype!(MessageSignature, u8, 80);
-impl_array_hexstring_fmt!(MessageSignature);
-impl_byte_array_newtype!(MessageSignature, u8, 80);
-pub const MESSAGE_SIGNATURE_ENCODED_SIZE : u32 = 80;
-
 /// A container for an IPv4 or IPv6 address.
 /// Rules:
 /// -- If this is an IPv6 address, the octets are in network byte order
@@ -369,10 +356,12 @@ impl PeerAddress {
 }
 
 /// A container for public keys (compressed secp256k1 public keys)
-pub struct StacksPublicKeyBuffer([u8; 33]);
+pub struct StacksPublicKeyBuffer(pub [u8; 33]);
 impl_array_newtype!(StacksPublicKeyBuffer, u8, 33);
 impl_array_hexstring_fmt!(StacksPublicKeyBuffer);
 impl_byte_array_newtype!(StacksPublicKeyBuffer, u8, 33);
+
+pub const STACKS_PUBLIC_KEY_ENCODED_SIZE : u32 = 33;
 
 /// Message preamble -- included in all network messages
 #[derive(Debug, Clone, PartialEq)]
@@ -384,7 +373,7 @@ pub struct Preamble {
     pub burn_consensus_hash: ConsensusHash,         // consensus hash at block_height
     pub burn_stable_block_height: u64,              // latest stable block height (e.g. chain tip minus 7)
     pub burn_stable_consensus_hash: ConsensusHash,  // consensus hash for burn_stable_block_height
-    pub additional_data: DoubleSha256,              // RESERVED; pointer to additional data (should be all 0's if not used)
+    pub additional_data: u32,                       // RESERVED; pointer to additional data (should be all 0's if not used)
     pub signature: MessageSignature,                // signature from the peer that sent this
     pub payload_len: u32                            // length of the following payload, including relayers vector
 }
@@ -398,7 +387,7 @@ pub const PREAMBLE_ENCODED_SIZE: u32 =
     CONSENSUS_HASH_ENCODED_SIZE +
     8 +
     CONSENSUS_HASH_ENCODED_SIZE +
-    DOUBLE_SHA256_ENCODED_SIZE +
+    4 +
     MESSAGE_SIGNATURE_ENCODED_SIZE +
     4;
 
@@ -637,7 +626,7 @@ impl_byte_array_message_codec!(DoubleSha256, 32);
 impl_byte_array_message_codec!(Hash160, 20);
 impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
 impl_byte_array_message_codec!(BlockHeaderHash, 32);
-impl_byte_array_message_codec!(MessageSignature, 80);
+impl_byte_array_message_codec!(MessageSignature, 65);
 impl_byte_array_message_codec!(PeerAddress, 16);
 impl_byte_array_message_codec!(StacksPublicKeyBuffer, 33);
 
