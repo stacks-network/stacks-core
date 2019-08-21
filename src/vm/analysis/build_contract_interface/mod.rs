@@ -142,9 +142,9 @@ impl ContractInterfaceAtomType {
             TypeSignature::Atom(atom_type) => {
                 Self::from_atom_type(atom_type)
             },
-            TypeSignature::List(atom_type, list_data) => {
+            TypeSignature::List(list_data) => {
                 ContractInterfaceAtomType::list {
-                    type_f: Box::new(Self::from_atom_type(atom_type)),
+                    type_f: Box::new(Self::from_atom_type(&list_data.atomic_type)),
                     length: list_data.max_len,
                     dimension: list_data.dimension
                 }

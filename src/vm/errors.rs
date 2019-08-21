@@ -29,6 +29,7 @@ pub enum UncheckedError {
     TypeError(String, Value),
     InvalidArguments(String),
     IncorrectArgumentCount(usize, usize),
+    ListLargerThanExpected,
     UndefinedVariable(String),
     UndefinedFunction(String),
     UndefinedContract(String),
@@ -66,6 +67,8 @@ pub enum InterpreterError {
     BadFileName,
     FailedToCreateDataDirectory,
     MarfFailure(IncomparableError<MarfError>),
+    FailureConstructingTupleWithType,
+    FailureConstructingListWithType
 }
 
 

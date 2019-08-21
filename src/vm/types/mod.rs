@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use address::c32;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
+use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError, InterpreterError};
 use util::hash;
 
 pub use vm::types::signatures::{
@@ -30,7 +30,7 @@ pub struct BuffData {
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct ListData {
     pub data: Vec<Value>,
-    type_signature: TypeSignature
+    pub type_signature: ListTypeData
 }
 
 // a standard principal is a version byte + hash160 (20 bytes)
@@ -203,18 +203,27 @@ impl Value {
         &NONE
     }
 
-    pub fn new_list(list_data: &[Value]) -> Result<Value> {
-        let vec_data = Vec::from(list_data);
-        Value::list_from(vec_data)
-    }
-
-    pub fn list_with_type(list_data: Vec<Value>, expected_type: &TypeSignature) -> Result<Value> {
-        // TODO:: actually check and enforce the expected type.
+    /// Invariant: the supplied Values have already been "checked", i.e., it's a valid Value object
+    ///  this invariant is enforced through the Value constructors, each of which checks to ensure
+    ///  that any typing data is correct.
+    pub fn list_with_type(list_data: Vec<Value>, expected_type: ListTypeData) -> Result<Value> {
         if expected_type.size()? > MAX_VALUE_SIZE {
             return Err(RuntimeErrorType::ValueTooLarge.into())
         }
 
-        Ok(Value::List(ListData { data: list_data, type_signature: expected_type.clone() }))        
+        if (expected_type.max_len as usize) < list_data.len() {
+            return Err(InterpreterError::FailureConstructingListWithType.into())
+        }
+
+        let expected_item_type = expected_type.get_list_item_type();
+
+        for item in &list_data {
+            if !expected_item_type.admits(&item) {
+                return Err(InterpreterError::FailureConstructingListWithType.into())
+            }
+        }
+
+        Ok(Value::List(ListData { data: list_data, type_signature: expected_type }))
     }
 
     pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
@@ -408,21 +417,23 @@ impl TupleData {
     }
 
     pub fn from_data_typed(mut data: Vec<(String, Value)>, expected: &TupleTypeSignature) -> Result<TupleData> {
-        // TODO:: actually check and enforce the expected type.
+        let type_map = &expected.type_map;
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {
+            let expected_type = type_map.get(&name)
+                .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
+            if !expected_type.admits(&value) {
+                return Err(InterpreterError::FailureConstructingTupleWithType.into());
+            }
             data_map.insert(name, value);
         }
         Self::new(expected.clone(), data_map)
     }
 
     pub fn get(&self, name: &str) -> Result<Value> {
-        if let Some(value) = self.data_map.get(name) {
-            Ok(value.clone())
-        } else {
-            Err(UncheckedError::NoSuchTupleField.into())
-        }
-        
+        self.data_map.get(name)
+            .cloned()
+            .ok_or_else(|| UncheckedError::NoSuchTupleField.into())
     }
 
     pub fn size(&self) -> Result<i128> {

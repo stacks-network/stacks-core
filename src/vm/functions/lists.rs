@@ -4,7 +4,7 @@ use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::{LocalContext, Environment, eval, apply, lookup_function};
 
 pub fn list_cons(args: &[Value]) -> Result<Value> {
-    Value::new_list(args)
+    Value::list_from(Vec::from(args))
 }
 
 pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
@@ -28,7 +28,7 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
                 return Err(UncheckedError::TypeError("Bool".to_string(), filter_eval).into())
             }
         }
-        Value::list_from(output)
+        Value::list_with_type(output, list_data.type_signature)
     } else {
         Err(UncheckedError::TypeError("List".to_string(), list).into())
     }

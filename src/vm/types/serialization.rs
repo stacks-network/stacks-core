@@ -205,6 +205,8 @@ impl Value {
                 }
             },
             JSONParser::List { type_n, mut entries } => {
+                let list_type = expected_type.match_list()
+                    .ok_or_else(|| RuntimeErrorType::ParseError("Expected type is not a list, but JSON represents a list".into()))?;
                 let entry_type = expected_type.get_list_item_type()
                     .ok_or_else(|| RuntimeErrorType::ParseError("Expected type is not a list, but JSON represents a list".into()))?;
                 if type_n == TYPE_LIST {
@@ -212,7 +214,7 @@ impl Value {
                         .drain(..)
                         .map(|value| Value::try_deserialize_parsed(value, &entry_type))
                         .collect();
-                    return Value::list_with_type(items?, expected_type)
+                    return Value::list_with_type(items?, list_type.clone())
                 } else {
                     Err(parse_error("list", &type_n).into())
                 }

@@ -52,6 +52,7 @@ fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression
             };
             CheckError::new(error_type)
         })
+        .map(TypeSignature::from)
 }
 
 fn check_special_print(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
