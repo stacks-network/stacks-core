@@ -300,6 +300,12 @@ impl TypeSignature {
                 Box::new(inner_type)))
     }
 
+    pub fn new_response(ok_type: TypeSignature, err_type: TypeSignature) -> TypeSignature {
+        TypeSignature::new_atom(
+            AtomTypeIdentifier::ResponseType(
+                Box::new((ok_type, err_type))))
+    }
+
     fn make_union_response_type(response_type_a: &(TypeSignature, TypeSignature),
                                 response_type_b: &(TypeSignature, TypeSignature)) -> Option<TypeSignature> {
 

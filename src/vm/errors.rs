@@ -1,6 +1,6 @@
 use std::fmt;
 use std::error;
-use vm::types::Value;
+use vm::types::{Value, TypeSignature};
 use vm::contexts::StackTrace;
 use chainstate::stacks::index::{Error as MarfError};
 
@@ -67,6 +67,7 @@ pub enum InterpreterError {
     BadFileName,
     FailedToCreateDataDirectory,
     MarfFailure(IncomparableError<MarfError>),
+    DeserializeExpected(TypeSignature),
     FailureConstructingTupleWithType,
     FailureConstructingListWithType
 }
