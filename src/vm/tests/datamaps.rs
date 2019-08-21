@@ -1,5 +1,5 @@
 use vm::errors::{Error, UncheckedError, RuntimeErrorType};
-use vm::types::{Value, StandardPrincipalData, TupleData};
+use vm::types::{Value, StandardPrincipalData, TupleData, ListData};
 use vm::contexts::{OwnedEnvironment};
 use vm::execute;
 
@@ -296,8 +296,32 @@ fn test_set_list_variable() {
         Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap(),
         Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(1)]).unwrap(),
         Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(1)]).unwrap()
-    ]);    
+    ]);
     assert_executes(expected, &contract_src);
+}
+
+#[test]
+fn test_get_list_max_len() {
+    let contract_src = r#"
+        (define-data-var ranking (list 10 int) (list 1 2 3))
+        (define-private (get-ranking)
+            (var-get ranking))
+    "#;
+
+    let mut contract_src = contract_src.to_string();
+    contract_src.push_str("(get-ranking)");
+
+    let actual_value = execute(&contract_src).unwrap().unwrap();
+
+    match actual_value {
+        Value::List(ListData { data, type_signature }) => {
+            assert_eq!(vec![Value::Int(1), Value::Int(2), Value::Int(3)],
+                       data);
+            assert_eq!(type_signature.max_len, 10);
+            assert_eq!(type_signature.dimension, 1);
+        },
+        _ => panic!("Expected List")
+    };
 }
 
 #[test]
