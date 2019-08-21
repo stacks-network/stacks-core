@@ -92,7 +92,8 @@ pub enum RuntimeErrorType {
     NoSuchToken,
     NotImplemented,
     NoSenderInContext,
-    NonPositiveTokenSupply
+    NonPositiveTokenSupply,
+    JSONParseError(IncomparableError<SerdeJSONErr>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -144,6 +145,12 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
+    }
+}
+
+impl From<SerdeJSONErr> for Error {
+    fn from(err: SerdeJSONErr) -> Self {
+        Error::from(RuntimeErrorType::JSONParseError(IncomparableError { err }))
     }
 }
 
