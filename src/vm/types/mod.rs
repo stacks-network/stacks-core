@@ -208,6 +208,15 @@ impl Value {
         Value::list_from(vec_data)
     }
 
+    pub fn list_with_type(list_data: Vec<Value>, expected_type: &TypeSignature) -> Result<Value> {
+        // TODO:: actually check and enforce the expected type.
+        if expected_type.size()? > MAX_VALUE_SIZE {
+            return Err(RuntimeErrorType::ValueTooLarge.into())
+        }
+
+        Ok(Value::List(ListData { data: list_data, type_signature: expected_type.clone() }))        
+    }
+
     pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
         let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
         // Aaron: at this point, we've _already_ allocated memory for this type.
@@ -228,14 +237,6 @@ impl Value {
         } else {
             Ok(Value::Buffer(BuffData { data: buff_data }))
         }
-    }
-
-    pub fn tuple_from_data(paired_tuple_data: Vec<(String, Value)>) -> Result<Value> {
-        let tuple_data = TupleData::from_data(paired_tuple_data)?;
-        if tuple_data.size()? > MAX_VALUE_SIZE {
-            return Err(RuntimeErrorType::ValueTooLarge.into())
-        }
-        Ok(Value::Tuple(tuple_data))
     }
 
     pub fn size(&self) -> Result<i128> {
@@ -376,7 +377,20 @@ impl From<StandardPrincipalData> for PrincipalData {
     }
 }
 
+impl From<TupleData> for Value {
+    fn from(t: TupleData) -> Self {
+        Value::Tuple(t)
+    }
+}
+
 impl TupleData {
+    fn new(type_signature: TupleTypeSignature, data_map: BTreeMap<String, Value>) -> Result<TupleData> {
+        let t = TupleData { type_signature, data_map };
+        if t.size()? > MAX_VALUE_SIZE {
+            return Err(RuntimeErrorType::ValueTooLarge.into())
+        }
+        Ok(t)
+    }
     pub fn from_data(mut data: Vec<(String, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
@@ -389,9 +403,17 @@ impl TupleData {
             }
             data_map.insert(name, value);
         }
-        Ok(TupleData { type_signature: TupleTypeSignature { type_map: type_map },
-                       data_map: data_map })
 
+        Self::new(TupleTypeSignature { type_map }, data_map)
+    }
+
+    pub fn from_data_typed(mut data: Vec<(String, Value)>, expected: &TupleTypeSignature) -> Result<TupleData> {
+        // TODO:: actually check and enforce the expected type.
+        let mut data_map = BTreeMap::new();
+        for (name, value) in data.drain(..) {
+            data_map.insert(name, value);
+        }
+        Self::new(expected.clone(), data_map)
     }
 
     pub fn get(&self, name: &str) -> Result<Value> {

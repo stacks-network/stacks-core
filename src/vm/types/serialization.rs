@@ -1,5 +1,5 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult};
-use vm::types::{Value, OptionalData, PrincipalData};
+use vm::types::{Value, OptionalData, PrincipalData, TypeSignature, AtomTypeIdentifier, TupleData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 
 use std::collections::HashMap;
@@ -147,7 +147,7 @@ fn parse_error(expected: &str, found: &str) -> RuntimeErrorType {
 }
 
 impl Value {
-    fn try_deserialize_parsed(json: JSONParser) -> InterpreterResult<Value> {
+    fn try_deserialize_parsed(json: JSONParser, expected_type: &TypeSignature) -> InterpreterResult<Value> {
         match json {
             JSONParser::Simple { type_n, value } => {
                 match type_n.as_str() {
@@ -173,36 +173,70 @@ impl Value {
                 }
             },
             JSONParser::Container { type_n, value } => {
-                let deserialized_value = Value::try_deserialize_parsed(*value)?;
+                let atomic_type = expected_type.match_atomic()
+                    .ok_or_else(|| RuntimeErrorType::ParseError("Expected type is a list, but JSON represents an atomic Response or Option".into()))?;
+
                 match type_n.as_str() {
-                    TYPE_RESP_OK => Ok(Value::okay(deserialized_value)),
-                    TYPE_RESP_ERR => Ok(Value::error(deserialized_value)),
-                    TYPE_OPT_SOME => Ok(Value::some(deserialized_value)),
+                    TYPE_RESP_OK => {
+                        if let AtomTypeIdentifier::ResponseType(types) = atomic_type {
+                            let deserialized_value = Value::try_deserialize_parsed(*value, &types.0)?;
+                            Ok(Value::okay(deserialized_value))
+                        } else {
+                            Err(RuntimeErrorType::ParseError("Expected type is not a response, but JSON represents a response".into()).into())
+                        }
+                    },
+                    TYPE_RESP_ERR => {
+                        if let AtomTypeIdentifier::ResponseType(types) = atomic_type {
+                            let deserialized_value = Value::try_deserialize_parsed(*value, &types.1)?;
+                            Ok(Value::error(deserialized_value))
+                        } else {
+                            Err(RuntimeErrorType::ParseError("Expected type is not a response, but JSON represents a response".into()).into())
+                        }
+                    },
+                    TYPE_OPT_SOME => {
+                        if let AtomTypeIdentifier::OptionalType(some_type) = atomic_type {
+                            let deserialized_value = Value::try_deserialize_parsed(*value, some_type)?;
+                            Ok(Value::some(deserialized_value))
+                        } else {
+                            Err(RuntimeErrorType::ParseError("Expected type is not an option, but JSON represents a option".into()).into())
+                        }
+                    },
                     _ => Err(parse_error("ok|err|some", &type_n).into())
                 }
             },
             JSONParser::List { type_n, mut entries } => {
+                let entry_type = expected_type.get_list_item_type()
+                    .ok_or_else(|| RuntimeErrorType::ParseError("Expected type is not a list, but JSON represents a list".into()))?;
                 if type_n == TYPE_LIST {
-                    let items: InterpreterResult<_> = entries.drain(..).map(Value::try_deserialize_parsed).collect();
-                    Ok(Value::list_from(items?)?)
+                    let items: InterpreterResult<_> = entries
+                        .drain(..)
+                        .map(|value| Value::try_deserialize_parsed(value, &entry_type))
+                        .collect();
+                    return Value::list_with_type(items?, expected_type)
                 } else {
                     Err(parse_error("list", &type_n).into())
                 }
             },
             JSONParser::Tuple { type_n, mut entries } => {
-                if type_n == TYPE_TUPLE {
+                if type_n != TYPE_TUPLE {
+                    return Err(parse_error("tuple", &type_n).into())
+                }
+                let atomic_type = expected_type.match_atomic()
+                    .ok_or_else(|| RuntimeErrorType::ParseError("Expected type is a list, but JSON represents an atomic Response or Option".into()))?;
+                if let AtomTypeIdentifier::TupleType(tuple_type) = atomic_type {
                     let deserialized_entries: InterpreterResult<_> = entries
                         .drain()
                         .map(|(key, json_val)| {
-                            match Value::try_deserialize_parsed(json_val) {
-                                Ok(value) => Ok((key, value)),
-                                Err(x) => Err(x)
-                            }
+                            let expected_field_type = tuple_type.field_type(&key)
+                                .ok_or_else(|| RuntimeErrorType::ParseError(
+                                    format!("Expected tuple type does not contain field '{}' but JSON does.", key)))?;
+                            Ok((key, Value::try_deserialize_parsed(json_val, expected_field_type)?))
                         })
                         .collect();
-                    Value::tuple_from_data(deserialized_entries?)
+                    TupleData::from_data_typed(deserialized_entries?, tuple_type)
+                        .map(Value::from)
                 } else {
-                    Err(parse_error("tuple", &type_n).into())
+                    Err(RuntimeErrorType::ParseError("Expected type is not an tuple, but JSON represents a tuple".into()).into())
                 }
             },
             JSONParser::ContractPrincipal { type_n, issuer, name } => {
@@ -223,15 +257,15 @@ impl Value {
         }
     }
 
-    fn try_deserialize(json: &str) -> InterpreterResult<Value> {
+    fn try_deserialize(json: &str, expected: &TypeSignature) -> InterpreterResult<Value> {
         let data: JSONParser = serde_json::from_str(json)?;
-        Value::try_deserialize_parsed(data)
+        Value::try_deserialize_parsed(data, expected)
     }
 }
 
-impl ClarityDeserializable<Value> for Value {
-    fn deserialize(json: &str) -> Self {
-        Value::try_deserialize(json)
+impl Value {
+    pub fn deserialize(json: &str, expected: &TypeSignature) -> Self {
+        Value::try_deserialize(json, expected)
             .expect("ERROR: Failed to parse Clarity JSON")
     }
 }
