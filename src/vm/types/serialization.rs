@@ -54,12 +54,30 @@ enum JSONParser {
     }
 }
 
-fn to_hex(val: &i128) -> String {
-    if *val >= 0 {
-        format!("{:x}", val)
-    } else {
-        format!("-{:x}", -val)
+pub fn to_hex(mut val: i128) -> String {
+    let mut result = vec![];
+    let mut negated = "";
+
+    if val < 0 {
+        negated = "-";
+        val = -val;
     }
+
+    loop {
+        let digit = match (val % 16) as u8 {
+            x @  0 ..=  9 => b'0' + x,
+            x @ 10 ..= 15 => b'a' + (x - 10),
+            _ => panic!("number not in the range 0..15")
+        };
+        result.push(digit.into());
+        val = val / 16;
+        if val == 0 {
+            break
+        }
+    }
+    result.reverse();
+    format!("{}{}", negated, std::str::from_utf8(&result)
+            .expect("ERROR: Hex serializer created non-utf8 string."))
 }
 
 fn json_simple_object(type_name: &str, val: &str) -> String {
@@ -80,7 +98,7 @@ impl ClaritySerializable for Value {
         use super::PrincipalData::*;
 
         match self {
-            Int(value) => json_simple_object(TYPE_I128, &to_hex(value)),
+            Int(value) => json_simple_object(TYPE_I128, &to_hex(*value)),
             Buffer(value) => json_simple_object(TYPE_BUFF, &hash::bytes_to_hex(&value.data)),
             Bool(value) => {
                 let str_value = if *value {
@@ -147,10 +165,8 @@ macro_rules! check_match {
     ($item:expr, $Pattern:pat) => {
         match $item {
             None => Ok(()),
-            Some(x) => match x {
-                TypeSignature::Atom($Pattern) => Ok(()),
-                _ => Err(InterpreterError::DeserializeExpected(x.clone()))
-            }
+            Some(TypeSignature::Atom($Pattern)) => Ok(()),
+            Some(x) => Err(InterpreterError::DeserializeExpected(x.clone()))
         }
     }
 }
@@ -254,12 +270,8 @@ impl Value {
 
                 let (list_type, entry_type) = match expected_type {
                     None => (None, None),
-                    Some(x) => {
-                        match x {
-                            TypeSignature::List(list_type) => (Some(list_type), Some(list_type.get_list_item_type())),
-                            _ => return Err(InterpreterError::DeserializeExpected(x.clone()).into())
-                        }
-                    }
+                    Some(TypeSignature::List(list_type)) => (Some(list_type), Some(list_type.get_list_item_type())),
+                    Some(x) => return Err(InterpreterError::DeserializeExpected(x.clone()).into())
                 };
 
                 let items: InterpreterResult<_> = entries
@@ -279,12 +291,8 @@ impl Value {
                 }
                 let tuple_type = match expected_type {
                     None => None,
-                    Some(x) => {
-                        match x {
-                            TypeSignature::Atom(AtomTypeIdentifier::TupleType(tuple_type)) => Some(tuple_type),
-                            _ => return Err(InterpreterError::DeserializeExpected(x.clone()).into())
-                        }
-                    }
+                    Some(TypeSignature::Atom(AtomTypeIdentifier::TupleType(tuple_type))) => Some(tuple_type),
+                    Some(x) => return Err(InterpreterError::DeserializeExpected(x.clone()).into())
                 };
 
                 let deserialized_entries: InterpreterResult<_> = entries
@@ -666,6 +674,17 @@ mod tests {
             Value::try_deserialize_untyped(err_int).unwrap(),
             Value::error(Value::Int(15)));
 
+    }
+
+    #[test]
+    fn test_hex() {
+        use super::to_hex;
+        assert_eq!(&to_hex(-0xdeadbeef), "-deadbeef");
+        assert_eq!(&to_hex(0xdeadbeef), "deadbeef");
+        assert_eq!(&to_hex(0xdeadbdf), "deadbdf");
+        assert_eq!(&to_hex(0xdadbc0ef), "dadbc0ef");
+        assert_eq!(&to_hex(0xf8743000), "f8743000");
+        assert_eq!(&to_hex(-0x00), "0");
     }
 
     #[test]
