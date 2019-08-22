@@ -643,8 +643,8 @@ mod test {
 
     #[test]
     fn test_asset_map_abort() {
-        let p1 = PrincipalData::ContractPrincipal("a".to_string());
-        let p2 = PrincipalData::ContractPrincipal("b".to_string());
+        let p1 = PrincipalData::Contract("a".to_string());
+        let p2 = PrincipalData::Contract("b".to_string());
 
         let t1 = AssetIdentifier { contract_identifier: "a".to_string(), asset_name: "a".to_string() };
         let t2 = AssetIdentifier { contract_identifier: "b".to_string(), asset_name: "a".to_string() };
@@ -667,9 +667,9 @@ mod test {
 
     #[test]
     fn test_asset_map_combinations() {
-        let p1 = PrincipalData::ContractPrincipal("a".to_string());
-        let p2 = PrincipalData::ContractPrincipal("b".to_string());
-        let p3 = PrincipalData::ContractPrincipal("c".to_string());
+        let p1 = PrincipalData::Contract("a".to_string());
+        let p2 = PrincipalData::Contract("b".to_string());
+        let p3 = PrincipalData::Contract("c".to_string());
 
         let t1 = AssetIdentifier { contract_identifier: "a".to_string(), asset_name: "a".to_string() };
         let t2 = AssetIdentifier { contract_identifier: "b".to_string(), asset_name: "a".to_string() };

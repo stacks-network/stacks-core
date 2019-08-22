@@ -121,7 +121,7 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     let token_identifier = AssetIdentifier { contract_identifier: "tokens".to_string(),
                                              asset_name: "stackaroos".to_string() };
 
-    let contract_principal = PrincipalData::ContractPrincipal("tokens".to_string());
+    let contract_principal = PrincipalData::Contract("tokens".to_string());
 
     let contract_identifier = QualifiedContractIdentifier::local("tokens")?;
     owned_env.initialize_contract(contract_identifier, tokens_contract).unwrap();

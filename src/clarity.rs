@@ -354,6 +354,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
 
             let contract_name = &args[2];
+            let contract_identifier = friendly_expect(QualifiedContractIdentifier::local(&contract_name), 
+                                                      "Failed to get contract name");
+
             let tx_name = &args[3];            
             let sender_in = &args[4];
 

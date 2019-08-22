@@ -83,42 +83,29 @@ pub struct ListData {
 pub struct StackAddress(pub u8, pub [u8; 20]);
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub enum PrincipalData {
-    StandardPrincipal(StackAddress),
-    ContractPrincipal(String),
-    QualifiedContractPrincipal { sender: StackAddress,
-                                 name: String },
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
 pub type StackString = String;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct QualifiedContractIdentifier {
-    pub issuer: String, // todo(ludo): should be StackAddress
+    pub issuer: StackAddress,
     pub name: String    // todo(ludo): should be StackString
 }
 
 impl QualifiedContractIdentifier {
 
-    pub fn new(issuer_data: String, name_data: String) -> Result<Self> {
-        // build issuer
-        // build contract_name
-        let issuer = issuer_data;
-        let name = name_data;
-
+    pub fn new(issuer: StackAddress, name: String) -> Result<Self> {
         Ok(Self { issuer, name })
     }
 
-    pub fn local(name_data: &str) -> Result<Self> {
-        Self::new(":transient".to_string(), name_data.to_string())
+    pub fn local(name: &str) -> Result<Self> {
+        Self::new(StackAddress(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]), name.to_string())
     }
 
     pub fn transient() -> Self {
         Self { 
-            issuer: ":transient".to_string(), 
+            issuer: StackAddress(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]), 
             name: ":transient".to_string()
         }
     }
@@ -134,7 +121,8 @@ impl fmt::Display for QualifiedContractIdentifier {
     }
 }
 
-pub enum Principal {
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub enum PrincipalData {
     Standard(StackAddress),
     Contract(QualifiedContractIdentifier),
 }
@@ -472,7 +460,8 @@ impl PrincipalData {
         let sender = Self::parse_standard_principal(split[0])?;
         let name = split[1].to_string();
         
-        Ok(PrincipalData::QualifiedContractPrincipal { sender, name })
+        // todo(ludo): put real data
+        Ok(PrincipalData::Contract(QualifiedContractIdentifier::transient()))
     }
 
     pub fn parse_standard_principal(literal: &str) -> Result<StackAddress> {
@@ -500,22 +489,26 @@ impl PrincipalData {
 impl fmt::Display for PrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PrincipalData::StandardPrincipal(sender) => {
+            PrincipalData::Standard(sender) => {
                 let c32_str = c32::c32_address(sender.0, &sender.1[..])
                     .unwrap_or_else(|_| "INVALID_C32_ADD".to_string());
                 write!(f, "'{}", c32_str)                
             },
-            PrincipalData::ContractPrincipal(contract_name) => {
-                write!(f, "'CT{}", contract_name)
+            PrincipalData::Contract(contract_identifier) => {
+                write!(f, "'CT{}", contract_identifier)
             },
-            PrincipalData::QualifiedContractPrincipal { sender, name } => {
-                let c32_str = c32::c32_address(sender.0, &sender.1[..])
-                    .unwrap_or_else(|_| "INVALID_C32_ADD".to_string());
-                write!(f, "'CT{}.{}", c32_str, name)
-            }
         }
     }
 }
+
+impl fmt::Display for StackAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let c32_str = c32::c32_address(self.0, &self.1[..])
+            .unwrap_or_else(|_| "INVALID_C32_ADD".to_string());
+        write!(f, "'{}", c32_str)                
+    }
+}
+
 
 impl Into<TypeSignature> for AtomTypeIdentifier {
     fn into(self) -> TypeSignature {
@@ -531,13 +524,13 @@ impl Into<Value> for PrincipalData {
 
 impl Into<Value> for StackAddress {
     fn into(self) -> Value {
-        Value::Principal(PrincipalData::StandardPrincipal(self))
+        Value::Principal(PrincipalData::Standard(self))
     }
 }
 
 impl Into<PrincipalData> for StackAddress {
     fn into(self) -> PrincipalData {
-        PrincipalData::StandardPrincipal(self)
+        PrincipalData::Standard(self)
     }
 }
 
