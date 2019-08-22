@@ -102,7 +102,9 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
 
     eprintln!("Initializing contract...");
     owned_env.begin();
-    owned_env.initialize_contract("tokens", &contract).unwrap();
+
+    let contract_identifier = QualifiedContractIdentifier::local("tokens")?;
+    owned_env.initialize_contract(contract_identifier, &contract).unwrap();
     owned_env.commit().unwrap();
 }
 

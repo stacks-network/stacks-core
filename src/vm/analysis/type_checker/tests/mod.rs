@@ -983,7 +983,7 @@ fn test_fetch_contract_entry_matching_type_signatures() {
             (define-private (kv-get (key int)) ({}))"#, case);
         let mut contract = parse(&contract_src).unwrap();
         analysis_db.execute(|db| {
-            type_check(&":transient:", &mut contract, db, false)
+            type_check(&QualifiedContractIdentifier::transient(), &mut contract, db, false)
         }).unwrap();
     }
 }
@@ -1017,7 +1017,7 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
         let mut contract = parse(&contract_src).unwrap();
         let res = 
             analysis_db.execute(|db| {
-                type_check(&":transient:", &mut contract, db, false)
+                type_check(&QualifiedContractIdentifier::transient(), &mut contract, db, false)
             }).unwrap_err();
 
         assert!(match &res.err {
@@ -1053,7 +1053,7 @@ fn test_fetch_contract_entry_unbound_variables() {
         let mut contract = parse(&contract_src).unwrap();
         let res = 
             analysis_db.execute(|db| {
-                type_check(&":transient:", &mut contract, db, false)
+                type_check(&QualifiedContractIdentifier::transient(), &mut contract, db, false)
             }).unwrap_err();
 
         assert!(match &res.err {

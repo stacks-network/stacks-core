@@ -118,12 +118,13 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let token_identifier = AssetIdentifier { contract_name: "tokens".to_string(),
+    let token_identifier = AssetIdentifier { contract_identifier: "tokens".to_string(),
                                              asset_name: "stackaroos".to_string() };
 
     let contract_principal = PrincipalData::ContractPrincipal("tokens".to_string());
 
-    owned_env.initialize_contract("tokens", tokens_contract).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::local("tokens")?;
+    owned_env.initialize_contract(contract_identifier, tokens_contract).unwrap();
 
     let (result, asset_map) = execute_transaction(
         owned_env, p2.clone(), "tokens", "my-token-transfer",
@@ -236,19 +237,22 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let err = owned_env.initialize_contract("tokens", bad_0).unwrap_err();
+    let contract_identifier = QualifiedContractIdentifier::local("tokens")?;
+    let err = owned_env.initialize_contract(contract_identifier, bad_0).unwrap_err();
     assert!( match err {
         Error::Runtime(RuntimeErrorType::NonPositiveTokenSupply, _) => true,
         _ => false
     });
 
-    let err = owned_env.initialize_contract("tokens", bad_1).unwrap_err();
+    let contract_identifier = QualifiedContractIdentifier::local("tokens")?;
+    let err = owned_env.initialize_contract(contract_identifier, bad_1).unwrap_err();
     assert!( match err {
         Error::Unchecked(UncheckedError::TypeError(_, _)) => true,
         _ => false
     });
 
-    owned_env.initialize_contract("tokens", contract).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::local("tokens")?;
+    owned_env.initialize_contract(contract_identifier, contract).unwrap();
 
     let (result, asset_map) = execute_transaction(owned_env,
         p1.clone(), "tokens", "gated-faucet",
@@ -293,9 +297,9 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let names_identifier = AssetIdentifier { contract_name: "names".to_string(),
+    let names_identifier = AssetIdentifier { contract_identifier: "names".to_string(),
                                              asset_name: "names".to_string() };
-    let tokens_identifier = AssetIdentifier { contract_name: "tokens".to_string(),
+    let tokens_identifier = AssetIdentifier { contract_identifier: "tokens".to_string(),
                                              asset_name: "stackaroos".to_string() };
 
 
@@ -303,7 +307,11 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
-    owned_env.initialize_contract("tokens", tokens_contract).unwrap();
+
+    let contract_identifier = QualifiedContractIdentifier::local("tokens")?;
+    owned_env.initialize_contract(contract_identifier, tokens_contract).unwrap();
+
+    let contract_identifier = QualifiedContractIdentifier::local("names")?;
     owned_env.initialize_contract("names", names_contract).unwrap();
 
     let (result, asset_map) = execute_transaction(

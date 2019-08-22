@@ -10,6 +10,7 @@ pub mod build_contract_interface;
 
 use self::types::{ContractAnalysis, AnalysisPass};
 use vm::representations::{SymbolicExpression};
+use vm::types::QualifiedContractIdentifier;
 
 pub use self::errors::{CheckResult, CheckError, CheckErrors};
 pub use self::analysis_db::{AnalysisDatabase};
@@ -24,19 +25,19 @@ pub fn mem_type_check(snippet: &str) -> CheckResult<ContractAnalysis> {
     use vm::parser::parse;
     let mut contract = parse(snippet).unwrap();
     let mut analysis_db = AnalysisDatabase::memory();
-    type_check(&":transient:", &mut contract, &mut analysis_db, false)
+    type_check(&QualifiedContractIdentifier::transient(), &mut contract, &mut analysis_db, false)
 }
 
 // Legacy function
 // The analysis is not just checking type.
-pub fn type_check(contract_name: &str, 
+pub fn type_check(contract_identifier: &QualifiedContractIdentifier, 
                   expressions: &mut [SymbolicExpression],
                   analysis_db: &mut AnalysisDatabase, 
                   insert_contract: bool) -> CheckResult<ContractAnalysis> {
-    run_analysis(contract_name, expressions, analysis_db, insert_contract)
+    run_analysis(&contract_identifier, expressions, analysis_db, insert_contract)
 }
 
-pub fn run_analysis(contract_name: &str, 
+pub fn run_analysis(&contract_identifier: &QualifiedContractIdentifier, 
                     expressions: &mut [SymbolicExpression],
                     analysis_db: &mut AnalysisDatabase, 
                     save_contract: bool) -> CheckResult<ContractAnalysis> {
@@ -48,7 +49,7 @@ pub fn run_analysis(contract_name: &str,
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         TypeChecker::run_pass(&mut contract_analysis, db)?;
         if save_contract {
-            db.insert_contract(contract_name, &contract_analysis)?;
+            db.insert_contract(&contract_identifier, &contract_analysis)?;
         }
         Ok(contract_analysis)
     })

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, InterpreterResult as Result};
-use vm::types::{Value, AssetIdentifier, PrincipalData};
+use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase, memory_db};
 use vm::{SymbolicExpression};
@@ -61,7 +61,7 @@ pub struct GlobalContext<'a> {
 
 #[derive(Serialize, Deserialize)]
 pub struct ContractContext {
-    pub name: String,
+    pub contract_identifier: QualifiedContractIdentifier,
     pub variables: HashMap<String, Value>,
     pub functions: HashMap<String, DefinedFunction>,
 }
@@ -229,7 +229,7 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment <'a> {
         OwnedEnvironment {
             context: GlobalContext::new(database),
-            default_contract: ContractContext::new(":transient:".to_string()),
+            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new()
         }
     }
@@ -245,18 +245,19 @@ impl <'a> OwnedEnvironment <'a> {
                          sender.clone(), sender)
     }
 
-    pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
+    pub fn initialize_contract(mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
         let mut exec_env = self.get_exec_environment(None);
-        exec_env.initialize_contract(contract_name, contract_content)
+        exec_env.initialize_contract(contract_identifier, contract_content)
     }
 
-    pub fn execute_transaction(&mut self, sender: Value, contract_name: &str, 
+    // todo(ludo): handle sender: Value
+    pub fn execute_transaction(&mut self, sender: Value, contract_identifier: QualifiedContractIdentifier, 
                                tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap)> {
         assert!(self.context.is_top_level());
         self.begin();
         let return_value = {
             let mut exec_env = self.get_exec_environment(Some(sender));
-            exec_env.execute_contract(contract_name, tx_name, args)
+            exec_env.execute_contract(&contract_identifier, tx_name, args)
         }?;
         let asset_map = self.commit()?;
         Ok((return_value, asset_map))
@@ -316,7 +317,7 @@ impl <'a,'b> Environment <'a,'b> {
                          self.sender.clone(), Some(caller))
     }
 
-    pub fn eval_read_only(&mut self, contract_name: &str, program: &str) -> Result<Value> {
+    pub fn eval_read_only(&mut self, contract_identifier: &QualifiedContractIdentifier, program: &str) -> Result<Value> {
         let parsed = parser::parse(program)?;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
@@ -324,7 +325,7 @@ impl <'a,'b> Environment <'a,'b> {
 
         self.global_context.begin();
 
-        let contract = self.global_context.database.get_contract(contract_name)?;
+        let contract = self.global_context.database.get_contract(contract_identifier)?;
 
         let result = {
             let mut nested_env = Environment::new(&mut self.global_context, &contract.contract_context,
@@ -350,9 +351,9 @@ impl <'a,'b> Environment <'a,'b> {
         result
     }
 
-    pub fn execute_contract(&mut self, contract_name: &str, 
+    pub fn execute_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, 
                             tx_name: &str, args: &[SymbolicExpression]) -> Result<Value> {
-        let contract = self.global_context.database.get_contract(contract_name)?;
+        let contract = self.global_context.database.get_contract(contract_identifier)?;
 
         let func = contract.contract_context.lookup_function(tx_name)
             .ok_or_else(|| { UncheckedError::UndefinedFunction(tx_name.to_string()) })?;
@@ -401,13 +402,14 @@ impl <'a,'b> Environment <'a,'b> {
         }
     }
 
-    pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
+    pub fn initialize_contract(mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
         self.global_context.begin();
-        let result = Contract::initialize(contract_name, contract_content,
+        let result = Contract::initialize(contract_identifier, 
+                                          contract_content,
                                           &mut self.global_context);
         match result {
             Ok(contract) => {
-                self.global_context.database.insert_contract(contract_name, contract);
+                self.global_context.database.insert_contract(&contract_identifier, contract);
                 self.global_context.commit()?;
                 Ok(())
             },
@@ -434,16 +436,16 @@ impl <'a> GlobalContext<'a> {
         self.asset_maps.len() == 0
     }
 
-    pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: Value) {
-        let asset_identifier = AssetIdentifier { contract_name: contract_name.to_string(),
+    pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_identifier: QualifiedContractIdentifier, asset_name: &str, transfered: Value) {
+        let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier,
                                                  asset_name: asset_name.to_string() };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
 
-    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: i128) -> Result<()> {
-        let asset_identifier = AssetIdentifier { contract_name: contract_name.to_string(),
+    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: QualifiedContractIdentifier, asset_name: &str, transfered: i128) -> Result<()> {
+        let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier,
                                                  asset_name: asset_name.to_string() };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
@@ -530,9 +532,9 @@ impl <'a> GlobalContext<'a> {
 }
 
 impl ContractContext {
-    pub fn new(name: String) -> ContractContext {
-        ContractContext {
-            name: name,
+    pub fn new(contract_identifier: QualifiedContractIdentifier) -> Self {
+        Self {
+            contract_identifier,
             variables: HashMap::new(),
             functions: HashMap::new()
         }
@@ -644,8 +646,8 @@ mod test {
         let p1 = PrincipalData::ContractPrincipal("a".to_string());
         let p2 = PrincipalData::ContractPrincipal("b".to_string());
 
-        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
-        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
+        let t1 = AssetIdentifier { contract_identifier: "a".to_string(), asset_name: "a".to_string() };
+        let t2 = AssetIdentifier { contract_identifier: "b".to_string(), asset_name: "a".to_string() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
@@ -669,11 +671,11 @@ mod test {
         let p2 = PrincipalData::ContractPrincipal("b".to_string());
         let p3 = PrincipalData::ContractPrincipal("c".to_string());
 
-        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
-        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
-        let t3 = AssetIdentifier { contract_name: "c".to_string(), asset_name: "a".to_string() };
-        let t4 = AssetIdentifier { contract_name: "d".to_string(), asset_name: "a".to_string() };
-        let t5 = AssetIdentifier { contract_name: "e".to_string(), asset_name: "a".to_string() };
+        let t1 = AssetIdentifier { contract_identifier: "a".to_string(), asset_name: "a".to_string() };
+        let t2 = AssetIdentifier { contract_identifier: "b".to_string(), asset_name: "a".to_string() };
+        let t3 = AssetIdentifier { contract_identifier: "c".to_string(), asset_name: "a".to_string() };
+        let t4 = AssetIdentifier { contract_identifier: "d".to_string(), asset_name: "a".to_string() };
+        let t5 = AssetIdentifier { contract_identifier: "e".to_string(), asset_name: "a".to_string() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();

@@ -11,7 +11,7 @@ pub const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct AssetIdentifier {
-    pub contract_name: String,
+    pub contract_identifier: QualifiedContractIdentifier,
     pub asset_name: String
 }
 
@@ -84,10 +84,64 @@ pub struct StackAddress(pub u8, pub [u8; 20]);
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum PrincipalData {
-    StandardPrincipal(StandardPrincipalData),
+    StandardPrincipal(StackAddress),
     ContractPrincipal(String),
-    QualifiedContractPrincipal { sender: StandardPrincipalData,
+    QualifiedContractPrincipal { sender: StackAddress,
                                  name: String },
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
+
+pub type StackString = String;
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct QualifiedContractIdentifier {
+    pub issuer: String, // todo(ludo): should be StackAddress
+    pub name: String    // todo(ludo): should be StackString
+}
+
+impl QualifiedContractIdentifier {
+
+    pub fn new(issuer_data: String, name_data: String) -> Result<Self> {
+        // build issuer
+        // build contract_name
+        let issuer = issuer_data;
+        let name = name_data;
+
+        Ok(Self { issuer, name })
+    }
+
+    pub fn local(name_data: &str) -> Result<Self> {
+        Self::new(":transient".to_string(), name_data.to_string())
+    }
+
+    pub fn transient() -> Self {
+        Self { 
+            issuer: ":transient".to_string(), 
+            name: ":transient".to_string()
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        format!("{}.{}", self.issuer, self.name)
+    }
+}
+
+impl fmt::Display for QualifiedContractIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
+pub enum Principal {
+    Standard(StackAddress),
+    Contract(QualifiedContractIdentifier),
+}
+
+pub enum ContractIdentifier {
+    Relative(StackString),
+    Qualified(QualifiedContractIdentifier)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,7 +244,7 @@ impl BlockInfoProperty {
 
 impl fmt::Display for AssetIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}::{}", &self.contract_name, &self.asset_name)
+        write!(f, "{}::{}", &self.contract_identifier, &self.asset_name)
     }
 }
 
@@ -475,6 +529,7 @@ impl Into<Value> for PrincipalData {
     }
 }
 
+impl Into<Value> for StackAddress {
     fn into(self) -> Value {
         Value::Principal(PrincipalData::StandardPrincipal(self))
     }

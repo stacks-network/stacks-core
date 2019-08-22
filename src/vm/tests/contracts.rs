@@ -92,7 +92,8 @@ fn test_get_block_info_eval(){
         let mut owned_env = OwnedEnvironment::memory();
         // start an initial transaction.
         owned_env.begin();
-        owned_env.initialize_contract("test-contract", contracts[i]).unwrap();
+        let contract_identifier = QualifiedContractIdentifier::local("test-contract")?;
+        env.initialize_contract(contract_identifier, contracts[i]).unwrap();
 
         let mut env = owned_env.get_exec_environment(None);
 
@@ -135,7 +136,8 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     {
         let mut env = owned_env.get_exec_environment(None);
 
-        env.initialize_contract("tokens", tokens_contract).unwrap();
+        let contract_identifier = QualifiedContractIdentifier::local("tokens")?;
+        env.initialize_contract(contract_identifier, tokens_contract).unwrap();
     }
 
     {
@@ -266,8 +268,11 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     {
         let mut env = owned_env.get_exec_environment(None);
 
-        env.initialize_contract("tokens", tokens_contract).unwrap();
-        env.initialize_contract("names", names_contract).unwrap();
+        let contract_identifier = QualifiedContractIdentifier::local("tokens")?;
+        env.initialize_contract(contract_identifier, tokens_contract).unwrap();
+        
+        let contract_identifier = QualifiedContractIdentifier::local("names")?;
+        env.initialize_contract(contract_identifier, names_contract).unwrap();
     }
 
     {
@@ -339,8 +344,11 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
 
     let mut env = owned_env.get_exec_environment(Some(get_principal()));
 
-    env.initialize_contract("factorial-contract", contract_1).unwrap();
-    env.initialize_contract("proxy-compute", contract_2).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::local("factorial-contract")?;
+    env.initialize_contract(contract_identifier, contract_1).unwrap();
+
+    let contract_identifier = QualifiedContractIdentifier::local("proxy-compute")?;
+    env.initialize_contract(contract_identifier, contract_2).unwrap();
     
     let args = symbols_from_values(vec![]);
 
@@ -396,8 +404,11 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
 ";
     let mut env = owned_env.get_exec_environment(None);
 
-    env.initialize_contract("contract-1", contract_1).unwrap();
-    env.initialize_contract("contract-2", contract_2).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::local("contract-1")?;
+    env.initialize_contract(contract_identifier, contract_1).unwrap();
+
+    let contract_identifier = QualifiedContractIdentifier::local("contract-2")?;
+    env.initialize_contract(contract_identifier, contract_2).unwrap();
 
     env.sender = Some(get_principal());
 
@@ -444,7 +455,8 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
 fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
     let mut env = owned_env.get_exec_environment(None);
 
-    env.initialize_contract("factorial", FACTORIAL_CONTRACT).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::local("factorial")?;
+    env.initialize_contract(contract_identifier, FACTORIAL_CONTRACT).unwrap();
 
     let tx_name = "compute";
     let arguments_to_test = [symbols_from_values(vec![Value::Int(1337)]),  
