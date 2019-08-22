@@ -45,12 +45,12 @@ pub enum PrincipalData {
                                  name: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct OptionalData {
     pub data: Option<Box<Value>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct ResponseData {
     pub committed: bool,
     pub data: Box<Value>,
@@ -68,13 +68,12 @@ pub enum Value {
     Response(ResponseData)
 }
 
-#[derive(Debug)]
-pub enum BlockInfoProperty {
-    Time,
-    VrfSeed,
-    HeaderHash,
-    BurnchainHeaderHash,
-}
+define_named_enum!(BlockInfoProperty {
+    Time("time"),
+    VrfSeed("vrf-seed"),
+    HeaderHash("header-hash"),
+    BurnchainHeaderHash("burnchain-header-hash"),
+});
 
 impl OptionalData {
     pub fn type_signature(&self) -> AtomTypeIdentifier {
@@ -99,42 +98,16 @@ impl ResponseData {
 }
 
 impl BlockInfoProperty {
-    pub fn from_str(s: &str) -> Option<BlockInfoProperty> {
-        use self::BlockInfoProperty::*;
-        match s {
-            "time" => Some(Time),
-            "vrf-seed" => Some(VrfSeed),
-            "header-hash" => Some(HeaderHash),
-            "burnchain-header-hash" => Some(BurnchainHeaderHash),
-            _ => None
-        }
-    }
-
-    pub fn to_str(&self) -> &'static str {
-        use self::BlockInfoProperty::*;
-        match self {
-            Time => "time",
-            VrfSeed => "vrf-seed",
-            HeaderHash => "header-hash",
-            BurnchainHeaderHash => "burnchain-header-hash",
-        }
-    }
-
     pub fn type_result(&self) -> TypeSignature {
         use self::AtomTypeIdentifier::*;
         use self::BlockInfoProperty::*;
-        match self {
-            Time => TypeSignature::new_atom(IntType),
-            VrfSeed => TypeSignature::new_atom(BufferType(32)),
-            HeaderHash => TypeSignature::new_atom(BufferType(32)),
-            BurnchainHeaderHash => TypeSignature::new_atom(BufferType(32)),
-        }
-    }
-}
-
-impl fmt::Display for BlockInfoProperty {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", &self.to_str())
+        TypeSignature::from(
+            match self {
+                Time => IntType,
+                VrfSeed => BufferType(32),
+                HeaderHash => BufferType(32),
+                BurnchainHeaderHash => BufferType(32),
+            })
     }
 }
 
@@ -145,18 +118,6 @@ impl PartialEq for ListData {
 }
 
 impl Hash for ListData {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.data.hash(state);
-    }
-}
-
-impl Hash for OptionalData {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.data.hash(state);
-    }
-}
-
-impl Hash for ResponseData {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.data.hash(state);
     }
@@ -361,15 +322,9 @@ impl fmt::Display for PrincipalData {
     }
 }
 
-impl From<Vec<u8>> for Value {
-    fn from(bytes: Vec<u8>) -> Self {
-        Value::Buffer(BuffData { data: bytes })
-    }
-}
-
 impl From<StandardPrincipalData> for Value {
     fn from(principal: StandardPrincipalData) -> Self {
-        Value::Principal(PrincipalData::StandardPrincipal(principal))
+        Value::Principal(PrincipalData::from(principal))
     }
 }
 

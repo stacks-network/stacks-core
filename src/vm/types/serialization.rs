@@ -197,7 +197,7 @@ impl Value {
                             }
                         };
 
-                        Ok(Value::from(bytes))
+                        Value::buff_from(bytes)
                     },
                     _ => Err(InterpreterError::DeserializeUnexpectedTypeField(type_n).into())
                 }
@@ -670,9 +670,12 @@ mod tests {
 
     #[test]
     fn test_buffs() {
-        assert_eq!(Value::from(vec![0,0,0,0]).serialize(), r#"{ "type": "buff", "value": "00000000" }"#);
-        assert_eq!(Value::from(vec![0xde,0xad,0xbe,0xef]).serialize(), r#"{ "type": "buff", "value": "deadbeef" }"#);
-        assert_eq!(Value::from(vec![0,0xde,0xad,0xbe,0xef,0]).serialize(), r#"{ "type": "buff", "value": "00deadbeef00" }"#);
+        assert_eq!(Value::buff_from(vec![0,0,0,0]).unwrap().serialize(), 
+                   r#"{ "type": "buff", "value": "00000000" }"#);
+        assert_eq!(Value::buff_from(vec![0xde,0xad,0xbe,0xef]).unwrap().serialize(), 
+                   r#"{ "type": "buff", "value": "deadbeef" }"#);
+        assert_eq!(Value::buff_from(vec![0,0xde,0xad,0xbe,0xef,0]).unwrap().serialize(),
+                   r#"{ "type": "buff", "value": "00deadbeef00" }"#);
         
         assert!(match Value::try_deserialize(
             r#"{ "type": "buff", "value": "00deadbeef00" }"#,
@@ -701,11 +704,11 @@ mod tests {
             Value::try_deserialize(
             r#"{ "type": "buff", "value": "00deadbeef00" }"#,
             &TypeSignature::Atom(AtomTypeIdentifier::BufferType(6))).unwrap(),
-            Value::from(vec![0,0xde,0xad,0xbe,0xef,0]));
+            Value::buff_from(vec![0,0xde,0xad,0xbe,0xef,0]).unwrap());
         assert_eq!(
             Value::try_deserialize_untyped(
                 r#"{ "type": "buff", "value": "00deadbeef00" }"#).unwrap(),
-            Value::from(vec![0,0xde,0xad,0xbe,0xef,0]));
+            Value::buff_from(vec![0,0xde,0xad,0xbe,0xef,0]).unwrap());
     }
 
     #[test]
