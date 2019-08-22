@@ -1,6 +1,6 @@
 use vm::execute as vm_execute;
 use vm::errors::{Error, UncheckedError};
-use vm::types::{Value, StandardPrincipalData, ResponseData};
+use vm::types::{Value, StackAddress, ResponseData};
 use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
@@ -62,7 +62,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
 
 
 fn get_principal() -> Value {
-    StandardPrincipalData(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into()
+    StackAddress(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into()
 }
 
 #[test]

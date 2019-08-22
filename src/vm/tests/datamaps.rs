@@ -1,5 +1,5 @@
 use vm::errors::{Error, UncheckedError, RuntimeErrorType};
-use vm::types::{Value, StandardPrincipalData, TupleData};
+use vm::types::{Value, StackAddress, TupleData};
 use vm::contexts::{OwnedEnvironment};
 use vm::execute;
 
@@ -198,7 +198,7 @@ fn test_fetch_contract_entry() {
     let mut env = owned_env.get_exec_environment(None);
     let r = env.initialize_contract("kv-store-contract", kv_store_contract_src).unwrap();
     env.initialize_contract("proxy-contract", proxy_src).unwrap();
-    env.sender = Some(StandardPrincipalData(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into());
+    env.sender = Some(StackAddress(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into());
 
     assert_eq!(Value::Int(42), env.eval_read_only("proxy-contract", "(fetch-via-conntract-call)").unwrap());
     assert_eq!(Value::Int(42), env.eval_read_only("proxy-contract", "(fetch-via-contract-map-get-using-implicit-tuple)").unwrap());

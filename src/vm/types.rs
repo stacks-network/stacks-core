@@ -80,7 +80,7 @@ pub struct ListData {
 
 // a standard principal is a version byte + hash160 (20 bytes)
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
+pub struct StackAddress(pub u8, pub [u8; 20]);
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum PrincipalData {
@@ -421,7 +421,7 @@ impl PrincipalData {
         Ok(PrincipalData::QualifiedContractPrincipal { sender, name })
     }
 
-    pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
+    pub fn parse_standard_principal(literal: &str) -> Result<StackAddress> {
         let (version, data) = c32::c32_address_decode(&literal)
             .map_err(|x| { RuntimeErrorType::ParseError(format!("Invalid principal literal: {}", x)) })?;
         if data.len() != 20 {
@@ -430,7 +430,7 @@ impl PrincipalData {
         }
         let mut fixed_data = [0; 20];
         fixed_data.copy_from_slice(&data[..20]);
-        Ok(StandardPrincipalData(version, fixed_data))
+        Ok(StackAddress(version, fixed_data))
     }
 
     pub fn deserialize(json: &str) -> PrincipalData {
@@ -475,13 +475,12 @@ impl Into<Value> for PrincipalData {
     }
 }
 
-impl Into<Value> for StandardPrincipalData {
     fn into(self) -> Value {
         Value::Principal(PrincipalData::StandardPrincipal(self))
     }
 }
 
-impl Into<PrincipalData> for StandardPrincipalData {
+impl Into<PrincipalData> for StackAddress {
     fn into(self) -> PrincipalData {
         PrincipalData::StandardPrincipal(self)
     }
