@@ -199,10 +199,6 @@ impl Value {
             data: Box::new(data) })
     }
 
-    pub fn static_none() -> &'static Value {
-        &NONE
-    }
-
     /// Invariant: the supplied Values have already been "checked", i.e., it's a valid Value object
     ///  this invariant is enforced through the Value constructors, each of which checks to ensure
     ///  that any typing data is correct.
@@ -292,9 +288,12 @@ impl fmt::Display for Value {
             Value::Optional(opt_data) => write!(f, "{}", opt_data),
             Value::Response(res_data) => write!(f, "{}", res_data),
             Value::List(list_data) => {
-                write!(f, "( ")?;
-                for v in list_data.data.iter() {
-                    write!(f, "{} ", v)?;
+                write!(f, "(")?;
+                for (ix, v) in list_data.data.iter().enumerate() {
+                    if ix > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{}", v)?;
                 }
                 write!(f, ")")
             }
@@ -443,16 +442,62 @@ impl TupleData {
 
 impl fmt::Display for TupleData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut first = true;
-        write!(f, "(tuple ")?;
+        write!(f, "(tuple")?;
         for (name, value) in self.data_map.iter() {
-            if !first {
-                write!(f, " ")?;
-            }
-            first = false;
+            write!(f, " ")?;
             write!(f, "({} {})", name, value)?;
         }
         write!(f, ")")
     }
 }
 
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn test_constructors() {
+        assert_eq!(
+            Value::list_with_type(
+                vec![Value::Int(5), Value::Int(2)],
+                ListTypeData { max_len: 3, dimension: 1, atomic_type: AtomTypeIdentifier::BoolType.into() }),
+            Err(InterpreterError::FailureConstructingListWithType.into()));
+        assert_eq!(
+            Value::list_with_type(
+                vec![Value::Int(5), Value::Int(2)],
+                ListTypeData { max_len: MAX_VALUE_SIZE as u32, dimension: 2, atomic_type: AtomTypeIdentifier::BoolType.into() }),
+            Err(RuntimeErrorType::ValueTooLarge.into()));
+
+        assert_eq!(
+            Value::buff_from(
+                vec![0; (MAX_VALUE_SIZE+1) as usize]),
+            Err(RuntimeErrorType::ValueTooLarge.into()));
+
+        // on 32-bit archs, this error cannot even happen, so don't test (and cause an overflow panic)
+        if (u32::max_value() as usize) < usize::max_value() {
+            assert_eq!(
+                Value::buff_from(
+                    vec![0; (u32::max_value() as usize) + 10]),
+                Err(RuntimeErrorType::BufferTooLarge.into()));
+        }
+    }
+    #[test]
+    fn test_some_displays() {
+        assert_eq!(&format!("{}", Value::list_from(vec![Value::Int(10), Value::Int(5)]).unwrap()),
+                   "(10 5)");
+        assert_eq!(&format!("{}", Value::some(Value::Int(10))),
+                   "(some 10)");
+        assert_eq!(&format!("{}", Value::okay(Value::Int(10))),
+                   "(ok 10)");
+        assert_eq!(&format!("{}", Value::error(Value::Int(10))),
+                   "(err 10)");
+        assert_eq!(&format!("{}", Value::none()),
+                   "none");
+        assert_eq!(&format!("{}", Value::from(
+            PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap())),
+                   "'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
+
+        assert_eq!(&format!("{}", Value::from(TupleData::from_data(
+            vec![("a".to_string(), Value::Int(2))]).unwrap())),
+                   "(tuple (a 2))");
+    }
+}

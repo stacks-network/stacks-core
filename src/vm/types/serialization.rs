@@ -18,6 +18,8 @@ const TYPE_OPT_NONE: &str = "none";
 const TYPE_TUPLE: &str = "tuple";
 const TYPE_LIST: &str = "list";
 
+enum ContainerTypes { OPT_SOME, RESP_OK, RESP_ERR }
+
 #[derive(Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 enum JSONParser {
@@ -141,145 +143,198 @@ impl ClaritySerializable for Value {
     }
 }
 
+macro_rules! check_match {
+    ($item:expr, $Pattern:pat) => {
+        match $item {
+            None => Ok(()),
+            Some(x) => match x {
+                TypeSignature::Atom($Pattern) => Ok(()),
+                _ => Err(InterpreterError::DeserializeExpected(x.clone()))
+            }
+        }
+    }
+}
+
+
 impl Value {
-    fn try_deserialize_parsed(json: JSONParser, expected_type: &TypeSignature) -> InterpreterResult<Value> {
+    /// This function attempts to deserialize a JSONParser struct into a Clarity Value.
+    ///   The `expected_type` parameter determines whether or not the deserializer should expect (and enforce)
+    ///   a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
+    ///   have their max-length and other type information set by the type declarations in the contract.
+    ///   If passed `None`, the deserializer will construct the values as if they were literals in the contract, e.g.,
+    ///     list max length = the length of the list.
+    fn try_deserialize_parsed(json: JSONParser, expected_type: Option<&TypeSignature>) -> InterpreterResult<Value> {
         match json {
             JSONParser::Simple { type_n, value } => {
                 match type_n.as_str() {
                     TYPE_I128 => {
-                        if expected_type.match_atomic() != Some(&AtomTypeIdentifier::IntType) {
-                            Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
-                        } else {
-                            let value = i128::from_str_radix(&value, 16)
-                                .map_err(|e| RuntimeErrorType::ParseError("Failed to parse hexstring as integer".into()))?;
-                            Ok(Value::Int(value))
-                        }
+                        check_match!(expected_type, AtomTypeIdentifier::IntType)?;
+                        let value = i128::from_str_radix(&value, 16)
+                            .map_err(|e| RuntimeErrorType::ParseError("Failed to parse hexstring as integer".into()))?;
+                        Ok(Value::Int(value))
                     },
                     TYPE_STANDARD_PRINCIPAL => {
-                        if expected_type.match_atomic() != Some(&AtomTypeIdentifier::PrincipalType) {
-                            Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
-                        } else {
-                            PrincipalData::parse_standard_principal(&value)
-                                .map(|principal| Value::from(principal))
-                        }
+                        check_match!(expected_type, AtomTypeIdentifier::PrincipalType)?;
+                        PrincipalData::parse_standard_principal(&value)
+                            .map(|principal| Value::from(principal))
                     },
                     TYPE_BUFF => {
-                        if let Some(AtomTypeIdentifier::BufferType(buff_len)) = expected_type.match_atomic() {
-                            let bytes = hash::hex_bytes(&value)
-                                .map_err(|e| RuntimeErrorType::ParseError("Bad hex string".into()))?;
-                            if bytes.len() > (*buff_len as usize) {
-                                return Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
+                        let bytes = hash::hex_bytes(&value)
+                            .map_err(|e| RuntimeErrorType::ParseError("Bad hex string".into()))?;
+
+                        match expected_type {
+                            None => {},
+                            Some(x) => {
+                                let passed_test = match x {
+                                    TypeSignature::Atom(AtomTypeIdentifier::BufferType(buff_len)) => {
+                                        bytes.len() <= (*buff_len as usize)
+                                    },
+                                    _ => false
+                                };
+                                if !passed_test {
+                                    return Err(InterpreterError::DeserializeExpected(x.clone()).into())
+                                }
                             }
-                            Ok(Value::from(bytes))
-                        } else {
-                            Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
-                        }
+                        };
+
+                        Ok(Value::from(bytes))
                     },
-                    _ => Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
+                    _ => Err(InterpreterError::DeserializeUnexpectedTypeField(type_n).into())
                 }
             },
             JSONParser::Bool { type_n, value } => {
-                if type_n != TYPE_BOOL || expected_type.match_atomic() != Some(&AtomTypeIdentifier::BoolType) {
-                    Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
-                } else {
+                check_match!(expected_type, AtomTypeIdentifier::BoolType)?;
+
+                if type_n == TYPE_BOOL {
                     Ok(Value::Bool(value))
+                } else {
+                    Err(InterpreterError::DeserializeUnexpectedTypeField(type_n).into())
                 }
             },
             JSONParser::None { type_n } => {
+                check_match!(expected_type, AtomTypeIdentifier::OptionalType(_))?;
                 if type_n == TYPE_OPT_NONE {
-                    if let Some(AtomTypeIdentifier::OptionalType(_)) = expected_type.match_atomic() {
-                        return Ok(Value::none())
-                    }
+                    Ok(Value::none())
+                } else {
+                    Err(InterpreterError::DeserializeUnexpectedTypeField(type_n).into())
                 }
-                Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
             },
             JSONParser::Container { type_n, value } => {
-                let atomic_type = expected_type.match_atomic()
-                    .ok_or_else(|| InterpreterError::DeserializeExpected(expected_type.clone()))?;
+                let outer_type = match type_n.as_str() {
+                    TYPE_RESP_OK => Ok(ContainerTypes::RESP_OK),
+                    TYPE_RESP_ERR => Ok(ContainerTypes::RESP_ERR),
+                    TYPE_OPT_SOME => Ok(ContainerTypes::OPT_SOME),
+                    _ => Err(InterpreterError::DeserializeUnexpectedTypeField(type_n))
+                }?;
 
-                match type_n.as_str() {
-                    TYPE_RESP_OK => {
-                        if let AtomTypeIdentifier::ResponseType(types) = atomic_type {
-                            let deserialized_value = Value::try_deserialize_parsed(*value, &types.0)?;
-                            Ok(Value::okay(deserialized_value))
-                        } else {
-                            Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
-                        }
-                    },
-                    TYPE_RESP_ERR => {
-                        if let AtomTypeIdentifier::ResponseType(types) = atomic_type {
-                            let deserialized_value = Value::try_deserialize_parsed(*value, &types.1)?;
-                            Ok(Value::error(deserialized_value))
-                        } else {
-                            Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
-                        }
-                    },
-                    TYPE_OPT_SOME => {
-                        if let AtomTypeIdentifier::OptionalType(some_type) = atomic_type {
-                            let deserialized_value = Value::try_deserialize_parsed(*value, some_type)?;
-                            Ok(Value::some(deserialized_value))
-                        } else {
-                            Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
-                        }
-                    },
-                    _ => Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
+                let expect_contained_type = match expected_type {
+                    None => None,
+                    Some(x) => {
+                        let contained_type = match (&outer_type, x) {
+                            (ContainerTypes::RESP_OK,  TypeSignature::Atom(AtomTypeIdentifier::ResponseType(types))) => Ok(&types.0),
+                            (ContainerTypes::RESP_ERR, TypeSignature::Atom(AtomTypeIdentifier::ResponseType(types))) => Ok(&types.1),
+                            (ContainerTypes::OPT_SOME, TypeSignature::Atom(AtomTypeIdentifier::OptionalType(some_type))) => Ok(some_type.as_ref()),
+                            _ => Err(InterpreterError::DeserializeExpected(x.clone()))
+                        }?;
+                        Some(contained_type)
+                    }
+                };
+
+                let deserialized_value = Value::try_deserialize_parsed(*value, expect_contained_type)?;
+                match outer_type {
+                    ContainerTypes::RESP_OK => Ok(Value::okay(deserialized_value)),
+                    ContainerTypes::RESP_ERR => Ok(Value::error(deserialized_value)),
+                    ContainerTypes::OPT_SOME => Ok(Value::some(deserialized_value))
                 }
             },
             JSONParser::List { type_n, mut entries } => {
-                let list_type = expected_type.match_list()
-                    .ok_or_else(|| InterpreterError::DeserializeExpected(expected_type.clone()))?;
-                let entry_type = list_type.get_list_item_type();
-                if type_n == TYPE_LIST {
-                    let items: InterpreterResult<_> = entries
-                        .drain(..)
-                        .map(|value| Value::try_deserialize_parsed(value, &entry_type))
-                        .collect();
-                    return Value::list_with_type(items?, list_type.clone())
+                if type_n != TYPE_LIST {
+                    return Err(InterpreterError::DeserializeUnexpectedTypeField(type_n).into())
+                }
+
+                let (list_type, entry_type) = match expected_type {
+                    None => (None, None),
+                    Some(x) => {
+                        match x {
+                            TypeSignature::List(list_type) => (Some(list_type), Some(list_type.get_list_item_type())),
+                            _ => return Err(InterpreterError::DeserializeExpected(x.clone()).into())
+                        }
+                    }
+                };
+
+                let items: InterpreterResult<_> = entries
+                    .drain(..)
+                    .map(|value| Value::try_deserialize_parsed(value, entry_type.as_ref()))
+                    .collect();
+
+                if let Some(list_type) = list_type {
+                    Value::list_with_type(items?, list_type.clone())
                 } else {
-                    Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
+                    Value::list_from(items?)
                 }
             },
             JSONParser::Tuple { type_n, mut entries } => {
                 if type_n != TYPE_TUPLE {
-                    return Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
+                    return Err(InterpreterError::DeserializeUnexpectedTypeField(type_n).into())
                 }
-                if let Some(AtomTypeIdentifier::TupleType(tuple_type)) = expected_type.match_atomic() {
-                    let deserialized_entries: InterpreterResult<_> = entries
-                        .drain()
-                        .map(|(key, json_val)| {
-                            let expected_field_type = tuple_type.field_type(&key)
-                                .ok_or_else(|| RuntimeErrorType::ParseError(
-                                    format!("Expected tuple type does not contain field '{}' but JSON does.", key)))?;
-                            Ok((key, Value::try_deserialize_parsed(json_val, expected_field_type)?))
-                        })
-                        .collect();
+                let tuple_type = match expected_type {
+                    None => None,
+                    Some(x) => {
+                        match x {
+                            TypeSignature::Atom(AtomTypeIdentifier::TupleType(tuple_type)) => Some(tuple_type),
+                            _ => return Err(InterpreterError::DeserializeExpected(x.clone()).into())
+                        }
+                    }
+                };
+
+                let deserialized_entries: InterpreterResult<_> = entries
+                    .drain()
+                    .map(|(key, json_val)| {
+                        let expected_field_type = match tuple_type {
+                            None => None,
+                            Some(some_tuple) => Some(
+                                some_tuple
+                                    .field_type(&key)
+                                    .ok_or_else(|| RuntimeErrorType::ParseError(
+                                        format!("Expected tuple type does not contain field '{}' but JSON does.", key)))?)
+                        };
+                        Ok((key, Value::try_deserialize_parsed(json_val, expected_field_type)?))
+                    })
+                    .collect();
+                if let Some(tuple_type) = tuple_type {
                     TupleData::from_data_typed(deserialized_entries?, tuple_type)
                         .map(Value::from)
                 } else {
-                    Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
+                    TupleData::from_data(deserialized_entries?)
+                        .map(Value::from)
                 }
             },
             JSONParser::ContractPrincipal { type_n, issuer, name } => {
-                if type_n != TYPE_CONTRACT_PRINCIPAL || expected_type.match_atomic() != Some(&AtomTypeIdentifier::PrincipalType) {
-                    Err(InterpreterError::DeserializeExpected(expected_type.clone()).into())
-                } else {
-                    Ok(Value::from(
-                        if issuer == ":none:" {
-                            PrincipalData::ContractPrincipal(name)
-                        } else {
-                            PrincipalData::QualifiedContractPrincipal {
-                                sender: PrincipalData::parse_standard_principal(&issuer)?,
-                                name }
-                        }
-                    ))
+                if type_n != TYPE_CONTRACT_PRINCIPAL {
+                    return Err(InterpreterError::DeserializeUnexpectedTypeField(type_n).into())
                 }
+                check_match!(expected_type, AtomTypeIdentifier::PrincipalType)?;
+                Ok(Value::from(
+                    if issuer == ":none:" {
+                        PrincipalData::ContractPrincipal(name)
+                    } else {
+                        PrincipalData::QualifiedContractPrincipal {
+                            sender: PrincipalData::parse_standard_principal(&issuer)?,
+                            name }
+                    }
+                ))
             }
         }
     }
 
     pub fn try_deserialize(json: &str, expected: &TypeSignature) -> InterpreterResult<Value> {
         let data: JSONParser = serde_json::from_str(json)?;
-        Value::try_deserialize_parsed(data, expected)
+        Value::try_deserialize_parsed(data, Some(expected))
+    }
+
+    pub fn try_deserialize_untyped(json: &str) -> InterpreterResult<Value> {
+        let data: JSONParser = serde_json::from_str(json)?;
+        Value::try_deserialize_parsed(data, None)
     }
 }
 
@@ -325,6 +380,12 @@ mod tests {
             serialized_0, &TypeSignature::List(
                 ListTypeData { max_len: 5, dimension: 2, atomic_type: AtomTypeIdentifier::IntType })).unwrap();
 
+        assert_eq!(
+            Value::try_deserialize(
+                serialized_0, &TypeSignature::List(
+                    ListTypeData { max_len: 3, dimension: 2, atomic_type: AtomTypeIdentifier::IntType })).unwrap(),
+            Value::try_deserialize_untyped(serialized_0).unwrap());
+
         // Fail because the atomic type isn't correct
         //  leads to an unexpected attempt to deserialize an int as bool.
         assert_eq!(Value::try_deserialize(
@@ -358,7 +419,13 @@ mod tests {
         assert!(match Value::try_deserialize(
             r#"{ "type": "listtt", "entries": []}"#,
             &TypeSignature::Atom(AtomTypeIdentifier::IntType)).unwrap_err() {
-            Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
+            _ => false
+        });
+
+        assert!(match Value::try_deserialize_untyped(
+            r#"{ "type": "listtt", "entries": []}"#).unwrap_err() {
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
             _ => false
         });
 
@@ -379,7 +446,13 @@ mod tests {
         assert!(match Value::try_deserialize(
             r#"{ "type": "bol", "value": false}"#,
             &TypeSignature::Atom(AtomTypeIdentifier::BoolType)).unwrap_err() {
-            Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
+            _ => false
+        });
+
+        assert!(match Value::try_deserialize_untyped(
+            r#"{ "type": "bol", "value": false}"#).unwrap_err() {
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
             _ => false
         });
 
@@ -390,9 +463,12 @@ mod tests {
             _ => false
         });
 
-        Value::try_deserialize(
-            r#"{ "type": "bool", "value": false}"#,
-            &TypeSignature::Atom(AtomTypeIdentifier::BoolType)).unwrap();
+        assert_eq!(
+            Value::try_deserialize(
+                r#"{ "type": "bool", "value": false}"#,
+                &TypeSignature::Atom(AtomTypeIdentifier::BoolType)).unwrap(),
+            Value::try_deserialize_untyped(
+                r#"{ "type": "bool", "value": false}"#).unwrap());
     }
 
     #[test]
@@ -403,7 +479,13 @@ mod tests {
         assert!(match Value::try_deserialize(
             r#"{ "type": "i125", "value": "-f"}"#,
             &TypeSignature::Atom(AtomTypeIdentifier::IntType)).unwrap_err() {
-            Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
+            _ => false
+        });
+
+        assert!(match Value::try_deserialize_untyped(
+            r#"{ "type": "i125", "value": "-f"}"#).unwrap_err() {
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
             _ => false
         });
 
@@ -421,10 +503,20 @@ mod tests {
             _ => false
         });
 
+        assert!(match Value::try_deserialize_untyped(
+            r#"{ "type": "i128", "value": "-xf"}"#).unwrap_err() {
+            Error::Runtime(RuntimeErrorType::ParseError(_),_) => true,
+            _ => false
+        });
+
         assert_eq!(
             Value::try_deserialize(
                 r#"{ "type": "i128", "value": "-1"}"#,
                 &TypeSignature::Atom(AtomTypeIdentifier::IntType)).unwrap(),
+            Value::Int(-1));
+        assert_eq!(
+            Value::try_deserialize_untyped(
+                r#"{ "type": "i128", "value": "-1"}"#).unwrap(),
             Value::Int(-1));
     }
 
@@ -461,7 +553,27 @@ mod tests {
         assert!(match Value::try_deserialize(
             r#"{ "type": "s0me", "value": { "type": "i128", "value": "f" } }"#,
             &TypeSignature::new_option(AtomTypeIdentifier::IntType.into())).unwrap_err() {
-            Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
+            _ => false
+        });
+
+        assert!(match Value::try_deserialize_untyped(
+            r#"{ "type": "s0me", "value": { "type": "i128", "value": "f" } }"#).unwrap_err() {
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
+            _ => false
+        });
+
+        assert!(match Value::try_deserialize_untyped(
+            r#"{ "type": "n0ne" }"#).unwrap_err() {
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
+            _ => false
+        });
+
+
+        assert!(match Value::try_deserialize(
+            r#"{ "type": "n0ne" }"#,
+            &TypeSignature::new_option(AtomTypeIdentifier::IntType.into())).unwrap_err() {
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
             _ => false
         });
 
@@ -483,6 +595,18 @@ mod tests {
                 none,
                 &TypeSignature::new_option(AtomTypeIdentifier::IntType.into())).unwrap(),
             Value::none());
+        assert_eq!(
+            Value::try_deserialize(
+                some_int,
+                &TypeSignature::new_option(AtomTypeIdentifier::IntType.into())).unwrap(),
+            Value::some(Value::Int(15)));
+        assert_eq!(
+            Value::try_deserialize_untyped(some_int).unwrap(),
+            Value::some(Value::Int(15)));
+        assert_eq!(
+            Value::try_deserialize_untyped(none).unwrap(),
+            Value::none());
+
     }
 
     #[test]
@@ -535,6 +659,12 @@ mod tests {
                 err_int,
                 &TypeSignature::new_response(AtomTypeIdentifier::IntType.into(), AtomTypeIdentifier::IntType.into())).unwrap(),
             Value::error(Value::Int(15)));
+        assert_eq!(
+            Value::try_deserialize_untyped(ok_int).unwrap(),
+            Value::okay(Value::Int(15)));
+        assert_eq!(
+            Value::try_deserialize_untyped(err_int).unwrap(),
+            Value::error(Value::Int(15)));
 
     }
 
@@ -572,6 +702,10 @@ mod tests {
             r#"{ "type": "buff", "value": "00deadbeef00" }"#,
             &TypeSignature::Atom(AtomTypeIdentifier::BufferType(6))).unwrap(),
             Value::from(vec![0,0xde,0xad,0xbe,0xef,0]));
+        assert_eq!(
+            Value::try_deserialize_untyped(
+                r#"{ "type": "buff", "value": "00deadbeef00" }"#).unwrap(),
+            Value::from(vec![0,0xde,0xad,0xbe,0xef,0]));
     }
 
     #[test]
@@ -596,7 +730,7 @@ mod tests {
         assert!(match Value::try_deserialize(
             r#"{ "type": "tople", "entries": {} }"#,
             &TypeSignature::type_of(&t_1)).unwrap_err() {
-            Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
              _ => false
         });
 
@@ -628,6 +762,14 @@ mod tests {
         assert_eq!(&Value::try_deserialize(&t_1.serialize(), &TypeSignature::type_of(&t_0)).unwrap(), &t_0);
         assert_eq!(&Value::try_deserialize(&t_2.serialize(), &TypeSignature::type_of(&t_2)).unwrap(), &t_2);
         assert_eq!(&Value::try_deserialize(&t_3.serialize(), &TypeSignature::type_of(&t_3)).unwrap(), &t_3);
+        assert_eq!(Value::try_deserialize(&t_3.serialize(), &TypeSignature::type_of(&t_3)).unwrap(), 
+                   Value::try_deserialize_untyped(&t_3.serialize()).unwrap());
+        assert_eq!(Value::try_deserialize(&t_2.serialize(), &TypeSignature::type_of(&t_2)).unwrap(), 
+                   Value::try_deserialize_untyped(&t_2.serialize()).unwrap());
+        assert_eq!(Value::try_deserialize(&t_1.serialize(), &TypeSignature::type_of(&t_1)).unwrap(), 
+                   Value::try_deserialize_untyped(&t_1.serialize()).unwrap());
+        assert_eq!(Value::try_deserialize(&t_0.serialize(), &TypeSignature::type_of(&t_0)).unwrap(), 
+                   Value::try_deserialize_untyped(&t_0.serialize()).unwrap());
     }
 
     #[test]
@@ -653,7 +795,7 @@ mod tests {
         assert!(match Value::try_deserialize(
             r#"{ "type": "contract__principal", "issuer": "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G", "name": "foo" }"#,
             &TypeSignature::Atom(AtomTypeIdentifier::PrincipalType)).unwrap_err() {
-            Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
+            Error::Interpreter(InterpreterError::DeserializeUnexpectedTypeField(_)) => true,
              _ => false
         });
 
@@ -697,6 +839,21 @@ mod tests {
                 r#"{ "type": "contract_principal", "issuer": ":none:", "name": "foo" }"#,
                 &TypeSignature::Atom(AtomTypeIdentifier::PrincipalType)).unwrap()),
             &contract_p1);
+
+        assert_eq!(
+            Value::try_deserialize_untyped(
+                r#"{ "type": "principal", "value": "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G" }"#).unwrap(),
+            standard_p);
+
+        assert_eq!(
+            Value::try_deserialize_untyped(
+                r#"{ "type": "contract_principal", "issuer": "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G", "name": "foo" }"#).unwrap(),
+            contract_p2);
+
+        assert_eq!(
+            Value::try_deserialize_untyped(
+                r#"{ "type": "contract_principal", "issuer": ":none:", "name": "foo" }"#).unwrap(),
+            contract_p1);
     }
 
 }
