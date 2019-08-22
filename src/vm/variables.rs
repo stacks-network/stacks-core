@@ -3,37 +3,10 @@ use vm::types::Value;
 use vm::contexts::{LocalContext, Environment};
 use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 
-
-macro_rules! define_enum {
-    ($Name:ident { $($Variant:ident),* $(,)* }) =>
-    {
-        #[derive(Debug)]
-        pub enum $Name {
-            $($Variant),*,
-        }
-        impl $Name {
-            pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
-        }
-    }
-}
-
-define_enum!(NativeVariables {
-    ContractCaller, TxSender, BlockHeight, BurnBlockHeight, NativeNone
+define_named_enum!(NativeVariables {
+    ContractCaller("contract-caller"), TxSender("tx-sender"), BlockHeight("block-height"),
+    BurnBlockHeight("burn-block-height"), NativeNone("none"),
 });
-
-impl NativeVariables {
-    pub fn lookup_by_name(name: &str) -> Option<NativeVariables> {
-        use vm::variables::NativeVariables::*;
-        match name {
-            "tx-sender" => Some(TxSender),
-            "contract-caller" => Some(ContractCaller),
-            "block-height" => Some(BlockHeight),
-            "burn-block-height" => Some(BurnBlockHeight),
-            "none" => Some(NativeNone),
-            _ => None
-        }
-    }
-}
 
 pub fn is_reserved_name(name: &str) -> bool {
     NativeVariables::lookup_by_name(name).is_some()

@@ -21,14 +21,4 @@ impl Contract {
 
         Ok(Contract { contract_context: contract_context })
     }
-
-    pub fn deserialize(json: &str) -> Contract {
-        serde_json::from_str(json)
-            .expect("Failed to deserialize contract")
-    }
-
-    pub fn serialize(&self) -> String {
-        serde_json::to_string(self)
-            .expect("Failed to serialize contract")
-    }
 }

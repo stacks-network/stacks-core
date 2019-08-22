@@ -286,15 +286,6 @@ impl PrincipalData {
         fixed_data.copy_from_slice(&data[..20]);
         Ok(StandardPrincipalData(version, fixed_data))
     }
-
-    pub fn deserialize(json: &str) -> PrincipalData {
-        serde_json::from_str(json)
-            .expect("Failed to deserialize vm.PrincipalData")
-    }
-    pub fn serialize(&self) -> String {
-        serde_json::to_string(self)
-            .expect("Failed to serialize vm.PrincipalData")
-    }
 }
 
 impl StandardPrincipalData {
