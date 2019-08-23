@@ -136,20 +136,20 @@ fn test_simple_if_functions() {
                                   (if (eq? 5 x) 1 3)");
 
     if let Ok(parsed_bodies) = function_bodies {
-        let func_args1 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
-        let func_args2 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let func_args1 = vec![("x".into(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let func_args2 = vec![("x".into(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
         let user_function1 = DefinedFunction::new(
-            func_args1, parsed_bodies[0].clone(), Private, &"with_else", &"");
+            func_args1, parsed_bodies[0].clone(), Private, &"with_else".into(), &"");
 
         let user_function2 = DefinedFunction::new(
-            func_args2, parsed_bodies[1].clone(), Private, &"without_else", &"");
+            func_args2, parsed_bodies[1].clone(), Private, &"without_else".into(), &"");
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(":transient:".to_string());
         let mut global_context = GlobalContext::new(memory_db());
 
-        contract_context.functions.insert("with_else".to_string(), user_function1);
-        contract_context.functions.insert("without_else".to_string(), user_function2);
+        contract_context.functions.insert("with_else".into(), user_function1);
+        contract_context.functions.insert("without_else".into(), user_function2);
 
         let mut call_stack = CallStack::new();
         let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None, None);

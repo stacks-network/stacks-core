@@ -10,7 +10,7 @@ mod assets;
 use vm::errors::{UncheckedError, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::CallableType;
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 
@@ -230,7 +230,7 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
 }
 
 fn parse_eval_bindings(bindings: &[SymbolicExpression],
-                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(String, Value)>> {
+                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(ClarityName, Value)>> {
     let mut result = Vec::new();
     for binding in bindings.iter() {
         let binding_expression = binding.match_list()
@@ -266,13 +266,13 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     let mut binding_results = parse_eval_bindings(bindings, env, context)?;
     for (binding_name, binding_value) in binding_results.drain(..) {
         if is_reserved(&binding_name) {
-            return Err(UncheckedError::ReservedName(binding_name).into())
+            return Err(UncheckedError::ReservedName(binding_name.into()).into())
         }
         if env.contract_context.lookup_function(&binding_name).is_some() {
-            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
+            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name.into()).into())
         }
         if inner_context.lookup_variable(&binding_name).is_some() {
-            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
+            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name.into()).into())
         }
         inner_context.variables.insert(binding_name, binding_value);
     }

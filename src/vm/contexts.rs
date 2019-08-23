@@ -5,7 +5,7 @@ use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, Interpreter
 use vm::types::{Value, AssetIdentifier, PrincipalData};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase, memory_db};
-use vm::{SymbolicExpression};
+use vm::representations::{SymbolicExpression, ClarityName};
 use vm::contracts::Contract;
 use vm::{parser, eval};
 
@@ -62,13 +62,13 @@ pub struct GlobalContext<'a> {
 #[derive(Serialize, Deserialize)]
 pub struct ContractContext {
     pub name: String,
-    pub variables: HashMap<String, Value>,
-    pub functions: HashMap<String, DefinedFunction>,
+    pub variables: HashMap<ClarityName, Value>,
+    pub functions: HashMap<ClarityName, DefinedFunction>,
 }
 
 pub struct LocalContext <'a> {
     pub parent: Option< &'a LocalContext<'a>>,
-    pub variables: HashMap<String, Value>,
+    pub variables: HashMap<ClarityName, Value>,
     depth: u16
 }
 

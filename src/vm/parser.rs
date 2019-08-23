@@ -1,4 +1,5 @@
 use std::cmp;
+use std::convert::TryInto;
 use util::hash::hex_bytes;
 use regex::{Regex, Captures};
 use address::c32::c32_address_decode;
@@ -76,7 +77,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("'CT(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}.([[:alpha:]]|[-]){5,40})", TokenType::QualifiedContractPrincipalLiteral),
         LexMatcher::new("'CT(?P<value>([[:alpha:]]|[-]){5,40})", TokenType::ContractPrincipalLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
-        LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
+        LexMatcher::new("(?P<value>([[:word:]]|[-!?+<>=/*])+)", TokenType::Variable),
     ];
 
     let mut context = LexContext::ExpectNothing;
@@ -243,7 +244,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> Result<Vec<SymbolicEx
             },
             LexItem::Variable(value) => {
                 let end_column = column_pos + (value.len() as u32) - 1;
-                let mut expression = SymbolicExpression::atom(value);
+                let mut expression = SymbolicExpression::atom(value.try_into()?);
                 expression.set_span(line_pos, column_pos, line_pos, end_column);
 
                 match parse_stack.last_mut() {
@@ -288,7 +289,7 @@ mod test {
     use vm::{SymbolicExpression, Value, parser};
 
     fn make_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> SymbolicExpression {
-        let mut e = SymbolicExpression::atom(x.to_string());
+        let mut e = SymbolicExpression::atom(x.into());
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }

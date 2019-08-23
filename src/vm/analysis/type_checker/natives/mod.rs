@@ -163,13 +163,12 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
         checker.contract_context.check_name_used(var_name)?;
 
         if out_context.lookup_variable_type(var_name).is_some() {
-            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.clone())))
+            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.to_string())))
         }
 
         checker.type_map.set_type(&binding_exps[0], no_type())?;
         let typed_result = checker.type_check(&binding_exps[1], context)?;
-        out_context.variable_types.insert(var_name.clone(),
-                                            typed_result);
+        out_context.variable_types.insert(var_name.clone(), typed_result);
     }
     
     let mut typed_args = checker.type_check_all(&args[1..args.len()], &out_context)?;
@@ -189,7 +188,7 @@ fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression
     checker.type_map.set_type(&args[0], no_type())?;
         
     let value_type = checker.contract_context.get_persisted_variable_type(var_name)
-        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.clone())))?;
+        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.to_string())))?;
 
     Ok(value_type.clone())
 }
@@ -205,7 +204,7 @@ fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression],
     let value_type = checker.type_check(&args[1], context)?;
     
     let expected_value_type = checker.contract_context.get_persisted_variable_type(var_name)
-        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.clone())))?;
+        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.to_string())))?;
     
     if !expected_value_type.admits_type(&value_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))

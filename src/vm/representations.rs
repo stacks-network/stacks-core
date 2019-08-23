@@ -1,23 +1,22 @@
 use std::fmt;
+use std::borrow::Borrow;
+use std::ops::Deref;
+use std::convert::TryFrom;
+use regex::{Regex};
 use vm::types::{Value};
+use vm::errors::{RuntimeErrorType};
 
-/*
- I don't add a pair type here, since we're only using these S-Expressions to represent code, rather than
- data structures, and we don't support pair expressions directly in our lisp dialect.
- */
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ClarityName(String);
 
-#[derive(Debug)]
-#[derive(Serialize, Deserialize)]
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum SymbolicExpressionType {
     AtomValue(Value),
-    Atom(String),
+    Atom(ClarityName),
     List(Box<[SymbolicExpression]>),
 }
 
-#[derive(Debug)]
-#[derive(Serialize, Deserialize)]
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct SymbolicExpression {
     pub expr: SymbolicExpressionType,
     // this id field is used by compiler passes to store information in
@@ -30,6 +29,46 @@ pub struct SymbolicExpression {
 
     #[cfg(feature = "developer-mode")]
     pub span: Span,
+}
+
+impl TryFrom<String> for ClarityName {
+    type Error = RuntimeErrorType;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        // TODO: use lazy static ?
+        let regex_check = Regex::new("^([a-zA-z0-9]|[-!?+<>=/*])*$")
+            .expect("FAIL: Bad static regex.");
+        if regex_check.is_match(&value) {
+            Ok(ClarityName(value))
+        } else {
+            Err(RuntimeErrorType::ParseError("Attempted to construct bad ClarityName".to_string()).into())
+        }
+    }
+}
+
+impl Deref for ClarityName {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Borrow<str> for ClarityName {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Into<String> for ClarityName {
+    fn into(self) -> String {
+        self.0
+    }
+}
+
+#[cfg(test)]
+impl From<&'_ str> for ClarityName {
+    fn from(value: &str) -> ClarityName {
+        Self::try_from(value.to_string()).unwrap()
+    }
 }
 
 impl SymbolicExpression {
@@ -70,7 +109,7 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn atom(val: String) -> SymbolicExpression {
+    pub fn atom(val: ClarityName) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::Atom(val),
             .. SymbolicExpression::cons()
@@ -97,7 +136,7 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn match_atom(&self) -> Option<&String> {
+    pub fn match_atom(&self) -> Option<&ClarityName> {
         if let SymbolicExpressionType::Atom(ref value) = self.expr {
             Some(value)
         } else {
@@ -125,7 +164,7 @@ impl fmt::Display for SymbolicExpression {
                 write!(f, " )")?;
             },
             SymbolicExpressionType::Atom(ref value) => {
-                write!(f, "{}", value)?;
+                write!(f, "{}", &**value)?;
             },
             SymbolicExpressionType::AtomValue(ref value) => {
                 write!(f, "{}", value)?;

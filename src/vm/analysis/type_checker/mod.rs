@@ -2,7 +2,7 @@ pub mod contexts;
 //mod maps;
 pub mod natives;
 
-use vm::representations::{SymbolicExpression};
+use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, FunctionArg, FunctionType, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
@@ -216,7 +216,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
     }
 
     fn type_check_define_function(&mut self, args: &[SymbolicExpression],
-                                  context: &TypingContext) -> CheckResult<(String, FunctionType)> {
+                                  context: &TypingContext) -> CheckResult<(ClarityName, FunctionType)> {
         check_argument_count(2, &args)?;
 
         self.type_map.set_type(&args[0], no_type())?;
@@ -271,13 +271,13 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 let func_args: Vec<FunctionArg> = args.drain(..)
                     .map(|(arg_name, arg_type)| FunctionArg::new(arg_type, &arg_name)).collect();
 
-                Ok((function_name.to_string(), FunctionType::Fixed(func_args, return_type)))
+                Ok((function_name.clone(), FunctionType::Fixed(func_args, return_type)))
             }
         }
     }
 
     fn type_check_define_map(&mut self, args: &[SymbolicExpression],
-                                 _context: &TypingContext) -> CheckResult<(String, (TypeSignature, TypeSignature))> {
+                                 _context: &TypingContext) -> CheckResult<(ClarityName, (TypeSignature, TypeSignature))> {
         check_argument_count(3, &args)?;
 
         self.type_map.set_type(&args[0], no_type())?;
@@ -300,7 +300,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             .map_err(|_| { CheckErrors::BadMapTypeDefinition })?;
 
 
-        Ok((map_name.to_string(), (key_type, value_type)))
+        Ok((map_name.clone(), (key_type, value_type)))
     }
 
     // Aaron: note, using lazy statics here would speed things up a bit and reduce clone()s
@@ -325,7 +325,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             type_result
         } else {
             let function_type = self.get_function_type(function_name)
-                .ok_or(CheckErrors::UnknownFunction(function_name.clone()))?;
+                .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?;
             self.type_check_function_type(&function_type, args, context)
         }
     }
@@ -359,7 +359,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok(type_sig)
     }
 
-    fn type_check_define_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
+    fn type_check_define_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
         check_argument_count(2, args)?;
         let var_name = args[0].match_atom()
             .ok_or(CheckErrors::DefineVariableBadSignature)?
@@ -368,7 +368,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok((var_name, var_type))
     }
 
-    fn type_check_define_persisted_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
+    fn type_check_define_persisted_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
         check_argument_count(3, args)?;
         let var_name = args[0].match_atom()
             .ok_or(CheckErrors::DefineVariableBadSignature)?
@@ -382,7 +382,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok((var_name, expected_type))
     }
 
-    fn type_check_define_ft(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<String> {
+    fn type_check_define_ft(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<ClarityName> {
         if args.len() != 1 && args.len() != 2 {
             return Err(CheckErrors::IncorrectArgumentCount(2, args.len()).into())
         }
@@ -398,7 +398,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok(token_name)
     }
 
-    fn type_check_define_nft(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(String, TypeSignature)> {
+    fn type_check_define_nft(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
         check_argument_count(2, args)?;
 
         let asset_name = args[0].match_atom()
