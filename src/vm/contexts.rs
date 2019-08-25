@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::convert::TryInto;
 
 use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, InterpreterResult as Result};
 use vm::types::{Value, AssetIdentifier, PrincipalData};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase, memory_db};
-use vm::representations::{SymbolicExpression, ClarityName};
+use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
 use vm::{parser, eval};
 
@@ -61,7 +62,7 @@ pub struct GlobalContext<'a> {
 
 #[derive(Serialize, Deserialize)]
 pub struct ContractContext {
-    pub name: String,
+    pub name: ContractName,
     pub variables: HashMap<ClarityName, Value>,
     pub functions: HashMap<ClarityName, DefinedFunction>,
 }
@@ -78,6 +79,8 @@ pub struct CallStack {
 }
 
 pub type StackTrace = Vec<FunctionIdentifier>;
+
+pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
 
 impl AssetMap {
     pub fn new() -> AssetMap {
@@ -229,7 +232,7 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment <'a> {
         OwnedEnvironment {
             context: GlobalContext::new(database),
-            default_contract: ContractContext::new(":transient:".to_string()),
+            default_contract: ContractContext::new_transient(),
             call_stack: CallStack::new()
         }
     }
@@ -434,17 +437,17 @@ impl <'a> GlobalContext<'a> {
         self.asset_maps.len() == 0
     }
 
-    pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: Value) {
-        let asset_identifier = AssetIdentifier { contract_name: contract_name.to_string(),
-                                                 asset_name: asset_name.to_string() };
+    pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_name: &ContractName, asset_name: &ClarityName, transfered: Value) {
+        let asset_identifier = AssetIdentifier { contract_name: contract_name.clone(),
+                                                 asset_name: asset_name.clone() };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
 
-    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_name: &str, asset_name: &str, transfered: i128) -> Result<()> {
-        let asset_identifier = AssetIdentifier { contract_name: contract_name.to_string(),
-                                                 asset_name: asset_name.to_string() };
+    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_name: &ContractName, asset_name: &ClarityName, transfered: i128) -> Result<()> {
+        let asset_identifier = AssetIdentifier { contract_name: contract_name.clone(),
+                                                 asset_name: asset_name.clone() };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_token_transfer(sender, asset_identifier, transfered)
@@ -530,12 +533,18 @@ impl <'a> GlobalContext<'a> {
 }
 
 impl ContractContext {
-    pub fn new(name: String) -> ContractContext {
+    pub fn new(name: ContractName) -> ContractContext {
         ContractContext {
-            name: name,
+            name,
             variables: HashMap::new(),
             functions: HashMap::new()
         }
+    }
+
+    pub fn new_transient() -> ContractContext {
+        Self::new(
+            TRANSIENT_CONTRACT_NAME
+                .to_string().try_into().expect("FAIL: BAD TRANSIENT CONTRACT NAME"))
     }
 
     pub fn lookup_variable(&self, name: &str) -> Option<Value> {
@@ -641,11 +650,11 @@ mod test {
 
     #[test]
     fn test_asset_map_abort() {
-        let p1 = PrincipalData::ContractPrincipal("a".to_string());
-        let p2 = PrincipalData::ContractPrincipal("b".to_string());
+        let p1 = PrincipalData::ContractPrincipal("a".into());
+        let p2 = PrincipalData::ContractPrincipal("b".into());
 
-        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
-        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
+        let t1 = AssetIdentifier { contract_name: "a".into(), asset_name: "a".into() };
+        let t2 = AssetIdentifier { contract_name: "b".into(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
@@ -665,15 +674,15 @@ mod test {
 
     #[test]
     fn test_asset_map_combinations() {
-        let p1 = PrincipalData::ContractPrincipal("a".to_string());
-        let p2 = PrincipalData::ContractPrincipal("b".to_string());
-        let p3 = PrincipalData::ContractPrincipal("c".to_string());
+        let p1 = PrincipalData::ContractPrincipal("a".into());
+        let p2 = PrincipalData::ContractPrincipal("b".into());
+        let p3 = PrincipalData::ContractPrincipal("c".into());
 
-        let t1 = AssetIdentifier { contract_name: "a".to_string(), asset_name: "a".to_string() };
-        let t2 = AssetIdentifier { contract_name: "b".to_string(), asset_name: "a".to_string() };
-        let t3 = AssetIdentifier { contract_name: "c".to_string(), asset_name: "a".to_string() };
-        let t4 = AssetIdentifier { contract_name: "d".to_string(), asset_name: "a".to_string() };
-        let t5 = AssetIdentifier { contract_name: "e".to_string(), asset_name: "a".to_string() };
+        let t1 = AssetIdentifier { contract_name: "a".into(), asset_name: "a".into() };
+        let t2 = AssetIdentifier { contract_name: "b".into(), asset_name: "a".into() };
+        let t3 = AssetIdentifier { contract_name: "c".into(), asset_name: "a".into() };
+        let t4 = AssetIdentifier { contract_name: "d".into(), asset_name: "a".into() };
+        let t5 = AssetIdentifier { contract_name: "e".into(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();

@@ -8,9 +8,7 @@ use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData};
 use vm::parser::parse;
 use util::hash::hex_bytes;
 
-fn execute(s: &str) -> Value {
-    vm_execute(s).unwrap().unwrap()
-}
+use vm::tests::{execute};
 
 #[test]
 fn test_simple_let() {
@@ -145,7 +143,7 @@ fn test_simple_if_functions() {
             func_args2, parsed_bodies[1].clone(), Private, &"without_else".into(), &"");
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new(":transient:".to_string());
+        let mut contract_context = ContractContext::new_transient();
         let mut global_context = GlobalContext::new(memory_db());
 
         contract_context.functions.insert("with_else".into(), user_function1);

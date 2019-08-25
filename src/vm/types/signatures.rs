@@ -5,14 +5,14 @@ use std::collections::BTreeMap;
 
 use address::c32;
 use vm::types::{Value, MAX_VALUE_SIZE};
-use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
 use util::hash;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct AssetIdentifier {
-    pub contract_name: String,
-    pub asset_name: String
+    pub contract_name: ContractName,
+    pub asset_name: ClarityName
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -801,7 +801,7 @@ impl fmt::Display for TupleTypeSignature {
 
 impl fmt::Display for AssetIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}::{}", &self.contract_name, &self.asset_name)
+        write!(f, "{}::{}", &*self.contract_name, &*self.asset_name)
     }
 }
 

@@ -7,6 +7,7 @@ mod database;
 mod options;
 mod assets;
 
+use std::convert::TryInto;
 use vm::errors::{UncheckedError, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::CallableType;
@@ -295,7 +296,8 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     check_argument_count(1, args)?;
 
     // nest an environment.
-    let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(env.contract_context.name.clone()));
+    let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(
+        env.contract_context.name.clone()));
     let mut nested_env = env.nest_as_principal(contract_principal);
 
     eval(&args[0], &mut nested_env, context)

@@ -201,7 +201,7 @@ fn eval_all (expressions: &[SymbolicExpression],
  *  database.
  */
 pub fn execute(program: &str) -> Result<Option<Value>> {
-    let mut contract_context = ContractContext::new(":transient:".to_string());
+    let mut contract_context = ContractContext::new_transient();
     let conn = memory_db();
     let mut global_context = GlobalContext::new(conn);
     global_context.execute(|g| {
@@ -241,7 +241,7 @@ mod test {
                                                  &"do_work".into(), &"");
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new(":transient:".to_string());
+        let mut contract_context = ContractContext::new_transient();
         let mut global_context = GlobalContext::new(memory_db());
 
         contract_context.variables.insert("a".into(), Value::Int(59));

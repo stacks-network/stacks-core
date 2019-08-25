@@ -3,7 +3,7 @@ use vm::types::{Value, OptionalData, PrincipalData, TypeSignature, AtomTypeIdent
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::ClarityName;
 
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::collections::HashMap;
 use serde_json::{Value as JSONValue};
 use util::hash;
@@ -118,12 +118,12 @@ impl ClaritySerializable for Value {
                 //       should never be materialized to the database.
                 format!(
                     r#"{{ "type": "{}", "issuer": ":none:", "name": "{}" }}"#,
-                    TYPE_CONTRACT_PRINCIPAL, simple_name)
+                    TYPE_CONTRACT_PRINCIPAL, &**simple_name)
             },
             Principal(QualifiedContractPrincipal{ sender, name }) => {
                 format!(
                     r#"{{ "type": "{}", "issuer": "{}", "name": "{}" }}"#,
-                    TYPE_CONTRACT_PRINCIPAL, sender.to_address(), name)
+                    TYPE_CONTRACT_PRINCIPAL, sender.to_address(), &**name)
             },
             Response(response) => {
                 let type_name = if response.committed {
@@ -324,6 +324,7 @@ impl Value {
                     return Err(InterpreterError::DeserializeUnexpectedTypeField(type_n).into())
                 }
                 check_match!(expected_type, AtomTypeIdentifier::PrincipalType)?;
+                let name = name.try_into()?;
                 Ok(Value::from(
                     if issuer == ":none:" {
                         PrincipalData::ContractPrincipal(name)

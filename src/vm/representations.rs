@@ -6,8 +6,6 @@ use regex::{Regex};
 use vm::types::{Value};
 use vm::errors::{RuntimeErrorType};
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ClarityName(String);
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum SymbolicExpressionType {
@@ -31,45 +29,54 @@ pub struct SymbolicExpression {
     pub span: Span,
 }
 
-impl TryFrom<String> for ClarityName {
-    type Error = RuntimeErrorType;
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        // TODO: use lazy static ?
-        let regex_check = Regex::new("^([a-zA-z0-9]|[-!?+<>=/*])*$")
-            .expect("FAIL: Bad static regex.");
-        if regex_check.is_match(&value) {
-            Ok(ClarityName(value))
-        } else {
-            Err(RuntimeErrorType::ParseError("Attempted to construct bad ClarityName".to_string()).into())
+macro_rules! guarded_string {
+    ($Name:ident, $Label:literal, $Regex:expr) => {
+        #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct $Name (String);
+        impl TryFrom<String> for $Name {
+            type Error = RuntimeErrorType;
+            fn try_from(value: String) -> Result<Self, Self::Error> {
+                // TODO: use lazy static ?
+                let regex_check = $Regex
+                    .expect("FAIL: Bad static regex.");
+                if regex_check.is_match(&value) {
+                    Ok(Self(value))
+                } else {
+                    Err(RuntimeErrorType::ParseError(format!("Attempted to construct bad {}", $Label)).into())
+                }
+            }
+        }
+        
+        impl Deref for $Name {
+            type Target = str;
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl Borrow<str> for $Name {
+            fn borrow(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl Into<String> for $Name {
+            fn into(self) -> String {
+                self.0
+            }
+        }
+
+        #[cfg(test)]
+        impl From<&'_ str> for $Name {
+            fn from(value: &str) -> Self {
+                Self::try_from(value.to_string()).unwrap()
+            }
         }
     }
 }
 
-impl Deref for ClarityName {
-    type Target = str;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Borrow<str> for ClarityName {
-    fn borrow(&self) -> &str {
-        &self.0
-    }
-}
-
-impl Into<String> for ClarityName {
-    fn into(self) -> String {
-        self.0
-    }
-}
-
-#[cfg(test)]
-impl From<&'_ str> for ClarityName {
-    fn from(value: &str) -> ClarityName {
-        Self::try_from(value.to_string()).unwrap()
-    }
-}
+guarded_string!(ClarityName, "ClarityName", Regex::new("^([a-zA-z0-9]|[-!?+<>=/*])*$"));
+guarded_string!(ContractName, "ContractName", Regex::new("^([a-zA-z0-9]|[-!?+<>=/*])*$"));
 
 impl SymbolicExpression {
     #[cfg(feature = "developer-mode")]

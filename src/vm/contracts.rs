@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use vm::{Value, apply, eval_all};
 use vm::representations::{SymbolicExpression};
 use vm::errors::{InterpreterResult as Result};
@@ -15,7 +16,8 @@ pub struct Contract {
 impl Contract {
     pub fn initialize (name: &str, contract: &str, global_context: &mut GlobalContext) -> Result<Contract> {
         let parsed: Vec<_> = parser::parse(contract)?;
-        let mut contract_context = ContractContext::new(name.to_string());
+        let mut contract_context = ContractContext::new(
+            name.to_string().try_into()?);
 
         eval_all(&parsed, &mut contract_context, global_context)?;
 

@@ -3,10 +3,11 @@ mod signatures;
 
 use std::hash::{Hash, Hasher};
 use std::{fmt, cmp};
+use std::convert::TryInto;
 use std::collections::BTreeMap;
 
 use address::c32;
-use vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use vm::representations::{ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError, InterpreterError};
 use util::hash;
 
@@ -40,9 +41,9 @@ pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum PrincipalData {
     StandardPrincipal(StandardPrincipalData),
-    ContractPrincipal(String),
+    ContractPrincipal(ContractName),
     QualifiedContractPrincipal { sender: StandardPrincipalData,
-                                 name: String },
+                                 name: ContractName },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -270,7 +271,7 @@ impl PrincipalData {
                 "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
         }
         let sender = Self::parse_standard_principal(split[0])?;
-        let name = split[1].to_string();
+        let name = split[1].to_string().try_into()?;
         
         Ok(PrincipalData::QualifiedContractPrincipal { sender, name })
     }
@@ -303,11 +304,11 @@ impl fmt::Display for PrincipalData {
                 write!(f, "'{}", c32_str)                
             },
             PrincipalData::ContractPrincipal(contract_name) => {
-                write!(f, "'CT{}", contract_name)
+                write!(f, "'CT{}", &**contract_name)
             },
             PrincipalData::QualifiedContractPrincipal { sender, name } => {
                 let c32_str = sender.to_address();
-                write!(f, "'CT{}.{}", c32_str, name)
+                write!(f, "'CT{}.{}", c32_str, &**name)
             }
         }
     }

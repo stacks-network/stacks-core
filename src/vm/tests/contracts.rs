@@ -221,7 +221,7 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
     }
 
     {
-        let c_b = Value::from(PrincipalData::ContractPrincipal("contract-b".to_string()));
+        let c_b = Value::from(PrincipalData::ContractPrincipal("contract-b".into()));
         let mut env = owned_env.get_exec_environment(Some(p1.clone()));
         assert_eq!(
             env.execute_contract("contract-a", "get-caller", &vec![]).unwrap(),

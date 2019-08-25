@@ -52,6 +52,7 @@ pub enum UncheckedError {
     InvalidArgumentExpectedName,
     ContractMustReturnBoolean,
     WriteFromReadOnlyContext,
+    BadContractName,
 }
 
 /// InterpreterErrors are errors that *should never* occur.
@@ -99,6 +100,7 @@ pub enum RuntimeErrorType {
     NoSenderInContext,
     NonPositiveTokenSupply,
     JSONParseError(IncomparableError<SerdeJSONErr>),
+    AttemptToFetchInTransientContext,
 }
 
 #[derive(Debug, PartialEq)]

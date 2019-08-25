@@ -166,7 +166,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
                     TokenType::ContractPrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         Ok(LexItem::LiteralValue(str_value.len(),
-                            PrincipalData::ContractPrincipal(str_value).into()))
+                            PrincipalData::ContractPrincipal(str_value.try_into()?).into()))
                     },
                     TokenType::QualifiedContractPrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -374,13 +374,13 @@ r#"z (let ((x 1) (y 2))
         assert!( match x1.match_atom_value() {
             Some(Value::Principal(PrincipalData::QualifiedContractPrincipal {sender, name})) => {
                 format!("{}", PrincipalData::StandardPrincipal(sender.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
-                    name == "contract-a"
+                    &**name == "contract-a"
             },
             _ => false
         });
         assert!( match x2.match_atom_value() {
             Some(Value::Principal(PrincipalData::ContractPrincipal(name))) => {
-                name == "contract-b"
+                &**name == "contract-b"
             },
             _ => false
         });
