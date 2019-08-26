@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
@@ -27,8 +27,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
     let mut rest_args = rest_args?;
     let rest_args: Vec<_> = rest_args.drain(..).map(|x| { SymbolicExpression::atom_value(x) }).collect();
 
-    let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(
-        env.contract_context.name.clone()));
+    let contract_principal = Value::from(PrincipalData::ContractPrincipal(env.contract_context.name.clone()));
     let mut nested_env = env.nest_with_caller(contract_principal);
 
     nested_env.execute_contract(
@@ -43,7 +42,7 @@ pub fn special_fetch_variable(args: &[SymbolicExpression],
     let var_name = args[0].match_atom()
         .ok_or(UncheckedError::ExpectedVariableName)?;
 
-    env.global_context.database.lookup_variable(&env.contract_context.name, var_name)
+    env.global_context.database.lookup_variable(&&env.contract_context.name, var_name)
 }
 
 pub fn special_set_variable(args: &[SymbolicExpression],
@@ -60,7 +59,7 @@ pub fn special_set_variable(args: &[SymbolicExpression],
     let var_name = args[0].match_atom()
         .ok_or(UncheckedError::ExpectedMapName)?;
 
-    env.global_context.database.set_variable(&env.contract_context.name, var_name, value)
+    env.global_context.database.set_variable(&&env.contract_context.name, var_name, value)
 }
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],
@@ -76,7 +75,7 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
         Explicit => eval(&args[1], env, &context)?
     };
 
-    env.global_context.database.fetch_entry(&env.contract_context.name, map_name, &key)
+    env.global_context.database.fetch_entry(&&env.contract_context.name, map_name, &key)
 }
 
 
@@ -120,7 +119,7 @@ pub fn special_set_entry(args: &[SymbolicExpression],
     let map_name = args[0].match_atom()
         .ok_or(UncheckedError::ExpectedMapName)?;
 
-    env.global_context.database.set_entry(&env.contract_context.name, map_name, key, value)
+    env.global_context.database.set_entry(&&env.contract_context.name, map_name, key, value)
 }
 
 pub fn special_insert_entry(args: &[SymbolicExpression],

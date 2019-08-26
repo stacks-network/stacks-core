@@ -28,7 +28,7 @@ use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result};
 use vm::database::{memory_db};
 
-pub use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
 const MAX_CALL_STACK_DEPTH: usize = 128;
 
@@ -201,7 +201,7 @@ fn eval_all (expressions: &[SymbolicExpression],
  *  database.
  */
 pub fn execute(program: &str) -> Result<Option<Value>> {
-    let mut contract_context = ContractContext::new(":transient:".to_string());
+    let mut contract_context = ContractContext::new_transient();
     let conn = memory_db();
     let mut global_context = GlobalContext::new(conn);
     global_context.execute(|g| {
@@ -228,24 +228,24 @@ mod test {
         //  (do_work a)
         //
         let content = [ SymbolicExpression::list(
-            Box::new([ SymbolicExpression::atom("do_work".to_string()),
-                       SymbolicExpression::atom("a".to_string()) ])) ];
+            Box::new([ SymbolicExpression::atom("do_work".into()),
+                       SymbolicExpression::atom("a".into()) ])) ];
 
         let func_body = SymbolicExpression::list(
-            Box::new([ SymbolicExpression::atom("+".to_string()),
+            Box::new([ SymbolicExpression::atom("+".into()),
                        SymbolicExpression::atom_value(Value::Int(5)),
-                       SymbolicExpression::atom("x".to_string())]));
+                       SymbolicExpression::atom("x".into())]));
 
-        let func_args = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let func_args = vec![("x".into(), AtomTypeIdentifier::IntType.into())];
         let user_function = DefinedFunction::new(func_args, func_body, DefineType::Private,
-                                                 &"do_work", &"");
+                                                 &"do_work".into(), &"");
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new(":transient:".to_string());
+        let mut contract_context = ContractContext::new_transient();
         let mut global_context = GlobalContext::new(memory_db());
 
-        contract_context.variables.insert("a".to_string(), Value::Int(59));
-        contract_context.functions.insert("do_work".to_string(), user_function);
+        contract_context.variables.insert("a".into(), Value::Int(59));
+        contract_context.functions.insert("do_work".into(), user_function);
 
         let mut call_stack = CallStack::new();
         let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None, None);

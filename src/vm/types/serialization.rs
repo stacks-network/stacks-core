@@ -1,7 +1,9 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError};
 use vm::types::{Value, OptionalData, PrincipalData, TypeSignature, AtomTypeIdentifier, TupleData};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
+use vm::representations::ClarityName;
 
+use std::convert::{TryFrom, TryInto};
 use std::collections::HashMap;
 use serde_json::{Value as JSONValue};
 use util::hash;
@@ -116,12 +118,12 @@ impl ClaritySerializable for Value {
                 //       should never be materialized to the database.
                 format!(
                     r#"{{ "type": "{}", "issuer": ":none:", "name": "{}" }}"#,
-                    TYPE_CONTRACT_PRINCIPAL, simple_name)
+                    TYPE_CONTRACT_PRINCIPAL, &**simple_name)
             },
             Principal(QualifiedContractPrincipal{ sender, name }) => {
                 format!(
                     r#"{{ "type": "{}", "issuer": "{}", "name": "{}" }}"#,
-                    TYPE_CONTRACT_PRINCIPAL, sender.to_address(), name)
+                    TYPE_CONTRACT_PRINCIPAL, sender.to_address(), &**name)
             },
             Response(response) => {
                 let type_name = if response.committed {
@@ -150,7 +152,7 @@ impl ClaritySerializable for Value {
             Tuple(data) => {
                 let entries: Vec<String> = data.data_map
                     .iter().map(|(key, value)|
-                                format!(r#""{}": {}"#, key, value.serialize()))
+                                format!(r#""{}": {}"#, &**key, value.serialize()))
                     .collect();
                 let entries_str = entries.join(", ");
                 format!(
@@ -306,7 +308,7 @@ impl Value {
                                     .ok_or_else(|| RuntimeErrorType::ParseError(
                                         format!("Expected tuple type does not contain field '{}' but JSON does.", key)))?)
                         };
-                        Ok((key, Value::try_deserialize_parsed(json_val, expected_field_type)?))
+                        Ok((ClarityName::try_from(key)?, Value::try_deserialize_parsed(json_val, expected_field_type)?))
                     })
                     .collect();
                 if let Some(tuple_type) = tuple_type {
@@ -322,6 +324,7 @@ impl Value {
                     return Err(InterpreterError::DeserializeUnexpectedTypeField(type_n).into())
                 }
                 check_match!(expected_type, AtomTypeIdentifier::PrincipalType)?;
+                let name = name.try_into()?;
                 Ok(Value::from(
                     if issuer == ":none:" {
                         PrincipalData::ContractPrincipal(name)
@@ -733,16 +736,16 @@ mod tests {
     #[test]
     fn test_tuples() {
         let t_1 = Value::from(TupleData::from_data(vec![
-            ("a".to_string(), Value::Int(1)),
-            ("b".to_string(), Value::Int(1))]).unwrap());
+            ("a".into(), Value::Int(1)),
+            ("b".into(), Value::Int(1))]).unwrap());
         let t_0 = Value::from(TupleData::from_data(vec![
-            ("b".to_string(), Value::Int(1)),
-            ("a".to_string(), Value::Int(1))]).unwrap());
+            ("b".into(), Value::Int(1)),
+            ("a".into(), Value::Int(1))]).unwrap());
         let t_2 = Value::from(TupleData::from_data(vec![
-            ("a".to_string(), Value::Int(1)),
-            ("b".to_string(), Value::Bool(true))]).unwrap());
+            ("a".into(), Value::Int(1)),
+            ("b".into(), Value::Bool(true))]).unwrap());
         let t_3 = Value::from(TupleData::from_data(vec![
-            ("a".to_string(), Value::Int(1))]).unwrap());
+            ("a".into(), Value::Int(1))]).unwrap());
         assert_eq!(t_0.serialize(), r#"{ "type": "tuple", "entries": { "a": { "type": "i128", "value": "1" }, "b": { "type": "i128", "value": "1" } } }"#);
         assert_eq!(t_1.serialize(), r#"{ "type": "tuple", "entries": { "a": { "type": "i128", "value": "1" }, "b": { "type": "i128", "value": "1" } } }"#);
         assert_eq!(t_2.serialize(), r#"{ "type": "tuple", "entries": { "a": { "type": "i128", "value": "1" }, "b": { "type": "bool", "value": true } } }"#);

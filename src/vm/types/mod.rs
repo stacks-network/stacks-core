@@ -3,10 +3,11 @@ mod signatures;
 
 use std::hash::{Hash, Hasher};
 use std::{fmt, cmp};
+use std::convert::TryInto;
 use std::collections::BTreeMap;
 
 use address::c32;
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::representations::{ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType};
 use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError, InterpreterError};
 use util::hash;
 
@@ -19,7 +20,7 @@ pub const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
     type_signature: TupleTypeSignature,
-    pub data_map: BTreeMap<String, Value>
+    pub data_map: BTreeMap<ClarityName, Value>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -40,9 +41,9 @@ pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum PrincipalData {
     StandardPrincipal(StandardPrincipalData),
-    ContractPrincipal(String),
+    ContractPrincipal(ContractName),
     QualifiedContractPrincipal { sender: StandardPrincipalData,
-                                 name: String },
+                                 name: ContractName },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -270,7 +271,7 @@ impl PrincipalData {
                 "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
         }
         let sender = Self::parse_standard_principal(split[0])?;
-        let name = split[1].to_string();
+        let name = split[1].to_string().try_into()?;
         
         Ok(PrincipalData::QualifiedContractPrincipal { sender, name })
     }
@@ -303,11 +304,11 @@ impl fmt::Display for PrincipalData {
                 write!(f, "'{}", c32_str)                
             },
             PrincipalData::ContractPrincipal(contract_name) => {
-                write!(f, "'CT{}", contract_name)
+                write!(f, "'CT{}", &**contract_name)
             },
             PrincipalData::QualifiedContractPrincipal { sender, name } => {
                 let c32_str = sender.to_address();
-                write!(f, "'CT{}.{}", c32_str, name)
+                write!(f, "'CT{}.{}", c32_str, &**name)
             }
         }
     }
@@ -338,20 +339,20 @@ impl From<TupleData> for Value {
 }
 
 impl TupleData {
-    fn new(type_signature: TupleTypeSignature, data_map: BTreeMap<String, Value>) -> Result<TupleData> {
+    fn new(type_signature: TupleTypeSignature, data_map: BTreeMap<ClarityName, Value>) -> Result<TupleData> {
         let t = TupleData { type_signature, data_map };
         if t.size()? > MAX_VALUE_SIZE {
             return Err(RuntimeErrorType::ValueTooLarge.into())
         }
         Ok(t)
     }
-    pub fn from_data(mut data: Vec<(String, Value)>) -> Result<TupleData> {
+    pub fn from_data(mut data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {
             let type_info = TypeSignature::type_of(&value);
             if type_map.contains_key(&name) {
-                return Err(UncheckedError::VariableDefinedMultipleTimes(name).into());
+                return Err(UncheckedError::VariableDefinedMultipleTimes(name.into()).into());
             } else {
                 type_map.insert(name.clone(), type_info);
             }
@@ -361,7 +362,7 @@ impl TupleData {
         Self::new(TupleTypeSignature { type_map }, data_map)
     }
 
-    pub fn from_data_typed(mut data: Vec<(String, Value)>, expected: &TupleTypeSignature) -> Result<TupleData> {
+    pub fn from_data_typed(mut data: Vec<(ClarityName, Value)>, expected: &TupleTypeSignature) -> Result<TupleData> {
         let type_map = &expected.type_map;
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {
@@ -391,7 +392,7 @@ impl fmt::Display for TupleData {
         write!(f, "(tuple")?;
         for (name, value) in self.data_map.iter() {
             write!(f, " ")?;
-            write!(f, "({} {})", name, value)?;
+            write!(f, "({} {})", &**name, value)?;
         }
         write!(f, ")")
     }
@@ -443,7 +444,7 @@ mod test {
                    "'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
         assert_eq!(&format!("{}", Value::from(TupleData::from_data(
-            vec![("a".to_string(), Value::Int(2))]).unwrap())),
+            vec![("a".into(), Value::Int(2))]).unwrap())),
                    "(tuple (a 2))");
     }
 }

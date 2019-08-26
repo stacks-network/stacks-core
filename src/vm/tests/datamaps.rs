@@ -271,9 +271,9 @@ fn test_set_tuple_variable() {
     let mut contract_src = contract_src.to_string();
     contract_src.push_str("(list (get-keys) (set-keys (tuple (k1 2) (v1 0))) (get-keys))");
     let expected = Value::list_from(vec![
-        Value::Tuple(TupleData::from_data(vec![("k1".to_string(), Value::Int(1)), ("v1".to_string(), Value::Int(1))]).unwrap()),
-        Value::Tuple(TupleData::from_data(vec![("k1".to_string(), Value::Int(2)), ("v1".to_string(), Value::Int(0))]).unwrap()),
-        Value::Tuple(TupleData::from_data(vec![("k1".to_string(), Value::Int(2)), ("v1".to_string(), Value::Int(0))]).unwrap()),
+        Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(1)), ("v1".into(), Value::Int(1))]).unwrap()),
+        Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(2)), ("v1".into(), Value::Int(0))]).unwrap()),
+        Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(2)), ("v1".into(), Value::Int(0))]).unwrap()),
     ]);    
     assert_executes(expected, &contract_src);
 }

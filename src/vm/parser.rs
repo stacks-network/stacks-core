@@ -1,4 +1,5 @@
 use std::cmp;
+use std::convert::TryInto;
 use util::hash::hex_bytes;
 use regex::{Regex, Captures};
 use address::c32::c32_address_decode;
@@ -76,7 +77,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("'CT(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}.([[:alpha:]]|[-]){5,40})", TokenType::QualifiedContractPrincipalLiteral),
         LexMatcher::new("'CT(?P<value>([[:alpha:]]|[-]){5,40})", TokenType::ContractPrincipalLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
-        LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
+        LexMatcher::new("(?P<value>([[:word:]]|[-!?+<>=/*])+)", TokenType::Variable),
     ];
 
     let mut context = LexContext::ExpectNothing;
@@ -165,7 +166,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
                     TokenType::ContractPrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         Ok(LexItem::LiteralValue(str_value.len(),
-                            PrincipalData::ContractPrincipal(str_value).into()))
+                            PrincipalData::ContractPrincipal(str_value.try_into()?).into()))
                     },
                     TokenType::QualifiedContractPrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -243,7 +244,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> Result<Vec<SymbolicEx
             },
             LexItem::Variable(value) => {
                 let end_column = column_pos + (value.len() as u32) - 1;
-                let mut expression = SymbolicExpression::atom(value);
+                let mut expression = SymbolicExpression::atom(value.try_into()?);
                 expression.set_span(line_pos, column_pos, line_pos, end_column);
 
                 match parse_stack.last_mut() {
@@ -288,7 +289,7 @@ mod test {
     use vm::{SymbolicExpression, Value, parser};
 
     fn make_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> SymbolicExpression {
-        let mut e = SymbolicExpression::atom(x.to_string());
+        let mut e = SymbolicExpression::atom(x.into());
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
@@ -373,13 +374,13 @@ r#"z (let ((x 1) (y 2))
         assert!( match x1.match_atom_value() {
             Some(Value::Principal(PrincipalData::QualifiedContractPrincipal {sender, name})) => {
                 format!("{}", PrincipalData::StandardPrincipal(sender.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
-                    name == "contract-a"
+                    &**name == "contract-a"
             },
             _ => false
         });
         assert!( match x2.match_atom_value() {
             Some(Value::Principal(PrincipalData::ContractPrincipal(name))) => {
-                name == "contract-b"
+                &**name == "contract-b"
             },
             _ => false
         });

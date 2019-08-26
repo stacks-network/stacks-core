@@ -1,5 +1,5 @@
 use std::collections::{HashMap, BTreeMap, HashSet};
-use vm::representations::{SymbolicExpression};
+use vm::representations::{SymbolicExpression, ClarityName};
 use vm::types::{TypeSignature, FunctionType};
 
 use vm::contexts::MAX_CONTEXT_DEPTH;
@@ -12,20 +12,20 @@ pub struct TypeMap {
 }
 
 pub struct TypingContext <'a> {
-    pub variable_types: HashMap<String, TypeSignature>,
+    pub variable_types: HashMap<ClarityName, TypeSignature>,
     pub parent: Option<&'a TypingContext<'a>>,
     pub depth: u16
 }
 
 pub struct ContractContext {
-    map_types: HashMap<String, (TypeSignature, TypeSignature)>,
-    variable_types: HashMap<String, TypeSignature>,
-    private_function_types: HashMap<String, FunctionType>,
-    public_function_types: HashMap<String, FunctionType>,
-    read_only_function_types: HashMap<String, FunctionType>,
-    persisted_variable_types: HashMap<String, TypeSignature>,
-    fungible_tokens: HashSet<String>,
-    non_fungible_tokens: HashMap<String, TypeSignature>
+    map_types: HashMap<ClarityName, (TypeSignature, TypeSignature)>,
+    variable_types: HashMap<ClarityName, TypeSignature>,
+    private_function_types: HashMap<ClarityName, FunctionType>,
+    public_function_types: HashMap<ClarityName, FunctionType>,
+    read_only_function_types: HashMap<ClarityName, FunctionType>,
+    persisted_variable_types: HashMap<ClarityName, TypeSignature>,
+    fungible_tokens: HashSet<ClarityName>,
+    non_fungible_tokens: HashMap<ClarityName, TypeSignature>
 }
 
 impl TypeMap {
@@ -83,49 +83,49 @@ impl ContractContext {
         self.non_fungible_tokens.get(name)
     }
 
-    pub fn add_public_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
+    pub fn add_public_function_type(&mut self, name: ClarityName, func_type: FunctionType) -> CheckResult<()> {
         self.check_function_type(&name)?;
         self.public_function_types.insert(name, func_type);
         Ok(())
     }
 
-    pub fn add_read_only_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
+    pub fn add_read_only_function_type(&mut self, name: ClarityName, func_type: FunctionType) -> CheckResult<()> {
         self.check_function_type(&name)?;
         self.read_only_function_types.insert(name, func_type);
         Ok(())
     }
 
-    pub fn add_private_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
+    pub fn add_private_function_type(&mut self, name: ClarityName, func_type: FunctionType) -> CheckResult<()> {
         self.check_function_type(&name)?;
         self.private_function_types.insert(name, func_type);
         Ok(())
     }
 
-    pub fn add_map_type(&mut self, map_name: String, map_type: (TypeSignature, TypeSignature)) -> CheckResult<()> {
+    pub fn add_map_type(&mut self, map_name: ClarityName, map_type: (TypeSignature, TypeSignature)) -> CheckResult<()> {
         self.check_name_used(&map_name)?;
         self.map_types.insert(map_name, map_type);
         Ok(())
     }
 
-    pub fn add_variable_type(&mut self, const_name: String, var_type: TypeSignature) -> CheckResult<()> {
+    pub fn add_variable_type(&mut self, const_name: ClarityName, var_type: TypeSignature) -> CheckResult<()> {
         self.check_name_used(&const_name)?;
         self.variable_types.insert(const_name, var_type);
         Ok(())
     }
 
-    pub fn add_persisted_variable_type(&mut self, var_name: String, var_type: TypeSignature) -> CheckResult<()> {
+    pub fn add_persisted_variable_type(&mut self, var_name: ClarityName, var_type: TypeSignature) -> CheckResult<()> {
         self.check_name_used(&var_name)?;
         self.persisted_variable_types.insert(var_name, var_type);
         Ok(())
     }
 
-    pub fn add_ft(&mut self, token_name: String) -> CheckResult<()> {
+    pub fn add_ft(&mut self, token_name: ClarityName) -> CheckResult<()> {
         self.check_name_used(&token_name)?;
         self.fungible_tokens.insert(token_name);
         Ok(())
     }
 
-    pub fn add_nft(&mut self, token_name: String, token_type: TypeSignature) -> CheckResult<()> {
+    pub fn add_nft(&mut self, token_name: ClarityName, token_type: TypeSignature) -> CheckResult<()> {
         self.check_name_used(&token_name)?;
         self.non_fungible_tokens.insert(token_name, token_type);
         Ok(())
@@ -158,35 +158,35 @@ impl ContractContext {
     pub fn into_contract_analysis(mut self, contract_analysis: &mut ContractAnalysis) {
 
         for (name, function_type) in self.public_function_types.drain() {
-            contract_analysis.add_public_function(name, function_type);
+            contract_analysis.add_public_function(name.into(), function_type);
         }
 
         for (name, function_type) in self.read_only_function_types.drain() {
-            contract_analysis.add_read_only_function(name, function_type);
+            contract_analysis.add_read_only_function(name.into(), function_type);
         }
 
         for (name, (key_type, map_type)) in self.map_types.drain() {
-            contract_analysis.add_map_type(name, key_type, map_type);
+            contract_analysis.add_map_type(name.into(), key_type, map_type);
         }
 
         for (name, function_type) in self.private_function_types.drain() {
-            contract_analysis.add_private_function(name, function_type);
+            contract_analysis.add_private_function(name.into(), function_type);
         }
 
         for (name, variable_type) in self.variable_types.drain() {
-            contract_analysis.add_variable_type(name, variable_type);
+            contract_analysis.add_variable_type(name.into(), variable_type);
         }
 
         for (name, persisted_variable_type) in self.persisted_variable_types.drain() {
-            contract_analysis.add_persisted_variable_type(name, persisted_variable_type);
+            contract_analysis.add_persisted_variable_type(name.into(), persisted_variable_type);
         }
 
         for name in self.fungible_tokens.drain() {
-            contract_analysis.add_fungible_token(name);
+            contract_analysis.add_fungible_token(name.into());
         }
 
         for (name, nft_type) in self.non_fungible_tokens.drain() {
-            contract_analysis.add_non_fungible_token(name, nft_type);
+            contract_analysis.add_non_fungible_token(name.into(), nft_type);
         }
     }
 }

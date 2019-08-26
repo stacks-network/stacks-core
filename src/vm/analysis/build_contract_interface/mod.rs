@@ -1,5 +1,6 @@
 use vm::analysis::types::ContractAnalysis;
 use std::collections::{BTreeMap, BTreeSet};
+use vm::{ClarityName};
 use vm::types::{TypeSignature, FunctionArg, AtomTypeIdentifier, TupleTypeSignature, FunctionType};
 
 pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
@@ -20,37 +21,37 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
 
     contract_interface.functions.append(
         &mut ContractInterfaceFunction::from_map(
-            &private_function_types, 
+            private_function_types, 
             ContractInterfaceFunctionAccess::private));
 
     contract_interface.functions.append(
         &mut ContractInterfaceFunction::from_map(
-            &public_function_types, 
+            public_function_types, 
             ContractInterfaceFunctionAccess::public));
 
     contract_interface.functions.append(
         &mut ContractInterfaceFunction::from_map(
-            &contract_analysis.read_only_function_types, 
+            read_only_function_types, 
             ContractInterfaceFunctionAccess::read_only));
 
     contract_interface.variables.append(
         &mut ContractInterfaceVariable::from_map(
-            &variable_types, 
+            variable_types, 
             ContractInterfaceVariableAccess::constant));
 
     contract_interface.variables.append(
         &mut ContractInterfaceVariable::from_map(
-            &persisted_variable_types, 
+            persisted_variable_types, 
             ContractInterfaceVariableAccess::variable));
 
     contract_interface.maps.append(
-        &mut ContractInterfaceMap::from_map(&map_types));
+        &mut ContractInterfaceMap::from_map(map_types));
 
     contract_interface.non_fungible_tokens.append(
-        &mut ContractInterfaceNonFungibleTokens::from_map(&non_fungible_tokens));
+        &mut ContractInterfaceNonFungibleTokens::from_map(non_fungible_tokens));
 
     contract_interface.fungible_tokens.append(
-        &mut ContractInterfaceFungibleTokens::from_set(&fungible_tokens));
+        &mut ContractInterfaceFungibleTokens::from_set(fungible_tokens));
 
     contract_interface
 }
@@ -188,10 +189,10 @@ pub struct ContractInterfaceFunction {
 }
 
 impl ContractInterfaceFunction {
-    pub fn from_map(map: &BTreeMap<String, FunctionType>, access: ContractInterfaceFunctionAccess) -> Vec<ContractInterfaceFunction> {
+    pub fn from_map(map: &BTreeMap<ClarityName, FunctionType>, access: ContractInterfaceFunctionAccess) -> Vec<ContractInterfaceFunction> {
         map.iter().map(|(name, function_type)| {
             ContractInterfaceFunction {
-                name: name.to_string(),
+                name: name.clone().into(),
                 access: access.to_owned(),
                 outputs: ContractInterfaceFunctionOutput { 
                     type_f: match function_type {
@@ -229,26 +230,26 @@ pub struct ContractInterfaceVariable {
 }
 
 impl ContractInterfaceFungibleTokens {
-    pub fn from_set(tokens: &BTreeSet<String>) -> Vec<Self> {
+    pub fn from_set(tokens: &BTreeSet<ClarityName>) -> Vec<Self> {
         tokens.iter().map(|name| Self { name: name.to_string() }).collect()
     }
 }
 
 impl ContractInterfaceNonFungibleTokens {
-    pub fn from_map(assets: &BTreeMap<String, TypeSignature>) -> Vec<Self> {
+    pub fn from_map(assets: &BTreeMap<ClarityName, TypeSignature>) -> Vec<Self> {
         assets.iter().map(|(name, type_sig)| 
                           Self { 
-                              name: name.to_string(),
+                              name: name.clone().into(),
                               type_f: ContractInterfaceAtomType::from_type_signature(type_sig)
                           }).collect()
     }
 }
 
 impl ContractInterfaceVariable {
-    pub fn from_map(map: &BTreeMap<String, TypeSignature>, access: ContractInterfaceVariableAccess) -> Vec<ContractInterfaceVariable> {
+    pub fn from_map(map: &BTreeMap<ClarityName, TypeSignature>, access: ContractInterfaceVariableAccess) -> Vec<ContractInterfaceVariable> {
         map.iter().map(|(name, type_sig)| {
             ContractInterfaceVariable {
-                name: name.to_string(),
+                name: name.clone().into(),
                 access: access.to_owned(),
                 type_f: ContractInterfaceAtomType::from_type_signature(type_sig),
             }
@@ -264,7 +265,7 @@ pub struct ContractInterfaceMap {
 }
 
 impl ContractInterfaceMap {
-    pub fn from_map(map: &BTreeMap<String, (TypeSignature, TypeSignature)>) -> Vec<ContractInterfaceMap> {
+    pub fn from_map(map: &BTreeMap<ClarityName, (TypeSignature, TypeSignature)>) -> Vec<ContractInterfaceMap> {
         map.iter().map(|(name, (key_sig, val_sig))| {
 
             let key_type = match key_sig {
@@ -278,7 +279,7 @@ impl ContractInterfaceMap {
             };
 
             ContractInterfaceMap {
-                name: name.to_string(),
+                name: name.clone().into(),
                 key: key_type,
                 value: val_type,
             }

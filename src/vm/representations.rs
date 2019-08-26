@@ -1,23 +1,20 @@
 use std::fmt;
+use std::borrow::Borrow;
+use std::ops::Deref;
+use std::convert::TryFrom;
+use regex::{Regex};
 use vm::types::{Value};
+use vm::errors::{RuntimeErrorType};
 
-/*
- I don't add a pair type here, since we're only using these S-Expressions to represent code, rather than
- data structures, and we don't support pair expressions directly in our lisp dialect.
- */
 
-#[derive(Debug)]
-#[derive(Serialize, Deserialize)]
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum SymbolicExpressionType {
     AtomValue(Value),
-    Atom(String),
+    Atom(ClarityName),
     List(Box<[SymbolicExpression]>),
 }
 
-#[derive(Debug)]
-#[derive(Serialize, Deserialize)]
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct SymbolicExpression {
     pub expr: SymbolicExpressionType,
     // this id field is used by compiler passes to store information in
@@ -31,6 +28,55 @@ pub struct SymbolicExpression {
     #[cfg(feature = "developer-mode")]
     pub span: Span,
 }
+
+macro_rules! guarded_string {
+    ($Name:ident, $Label:literal, $Regex:expr) => {
+        #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub struct $Name (String);
+        impl TryFrom<String> for $Name {
+            type Error = RuntimeErrorType;
+            fn try_from(value: String) -> Result<Self, Self::Error> {
+                // TODO: use lazy static ?
+                let regex_check = $Regex
+                    .expect("FAIL: Bad static regex.");
+                if regex_check.is_match(&value) {
+                    Ok(Self(value))
+                } else {
+                    Err(RuntimeErrorType::BadNameValue($Label, value).into())
+                }
+            }
+        }
+        
+        impl Deref for $Name {
+            type Target = str;
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
+
+        impl Borrow<str> for $Name {
+            fn borrow(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl Into<String> for $Name {
+            fn into(self) -> String {
+                self.0
+            }
+        }
+
+        #[cfg(test)]
+        impl From<&'_ str> for $Name {
+            fn from(value: &str) -> Self {
+                Self::try_from(value.to_string()).unwrap()
+            }
+        }
+    }
+}
+
+guarded_string!(ClarityName, "ClarityName", Regex::new("^([a-zA-Z]|[-!?+<>=/*])([a-zA-Z0-9]|[-_!?+<>=/*])*$"));
+guarded_string!(ContractName, "ContractName", Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_])*$|^__transient$"));
 
 impl SymbolicExpression {
     #[cfg(feature = "developer-mode")]
@@ -70,7 +116,7 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn atom(val: String) -> SymbolicExpression {
+    pub fn atom(val: ClarityName) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::Atom(val),
             .. SymbolicExpression::cons()
@@ -97,7 +143,7 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn match_atom(&self) -> Option<&String> {
+    pub fn match_atom(&self) -> Option<&ClarityName> {
         if let SymbolicExpressionType::Atom(ref value) = self.expr {
             Some(value)
         } else {
@@ -125,7 +171,7 @@ impl fmt::Display for SymbolicExpression {
                 write!(f, " )")?;
             },
             SymbolicExpressionType::Atom(ref value) => {
-                write!(f, "{}", value)?;
+                write!(f, "{}", &**value)?;
             },
             SymbolicExpressionType::AtomValue(ref value) => {
                 write!(f, "{}", value)?;

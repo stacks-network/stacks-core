@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use vm::{SymbolicExpression};
+use vm::{SymbolicExpression, ClarityName};
 use vm::types::{TypeSignature, FunctionType};
 use vm::analysis::analysis_db::{AnalysisDatabase};
 use vm::analysis::errors::{CheckResult};
@@ -14,14 +14,14 @@ pub trait AnalysisPass {
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractAnalysis {
     // matt: is okay to let these new fields end up in the db?
-    pub private_function_types: BTreeMap<String, FunctionType>,
-    pub variable_types: BTreeMap<String, TypeSignature>,
-    pub public_function_types: BTreeMap<String, FunctionType>,
-    pub read_only_function_types: BTreeMap<String, FunctionType>,
-    pub map_types: BTreeMap<String, (TypeSignature, TypeSignature)>,
-    pub persisted_variable_types: BTreeMap<String, TypeSignature>,
-    pub fungible_tokens: BTreeSet<String>,
-    pub non_fungible_tokens: BTreeMap<String, TypeSignature>,
+    pub private_function_types: BTreeMap<ClarityName, FunctionType>,
+    pub variable_types: BTreeMap<ClarityName, TypeSignature>,
+    pub public_function_types: BTreeMap<ClarityName, FunctionType>,
+    pub read_only_function_types: BTreeMap<ClarityName, FunctionType>,
+    pub map_types: BTreeMap<ClarityName, (TypeSignature, TypeSignature)>,
+    pub persisted_variable_types: BTreeMap<ClarityName, TypeSignature>,
+    pub fungible_tokens: BTreeSet<ClarityName>,
+    pub non_fungible_tokens: BTreeMap<ClarityName, TypeSignature>,
     #[serde(skip)]
     pub top_level_expression_sorting: Option<Vec<usize>>,
     #[serde(skip)]
@@ -44,35 +44,35 @@ impl ContractAnalysis {
         }
     }
 
-    pub fn add_map_type(&mut self, name: String, key_type: TypeSignature, map_type: TypeSignature) {
+    pub fn add_map_type(&mut self, name: ClarityName, key_type: TypeSignature, map_type: TypeSignature) {
         self.map_types.insert(name, (key_type, map_type));
     }
     
-    pub fn add_variable_type(&mut self, name: String, variable_type: TypeSignature) {
+    pub fn add_variable_type(&mut self, name: ClarityName, variable_type: TypeSignature) {
         self.variable_types.insert(name, variable_type);
     }
     
-    pub fn add_persisted_variable_type(&mut self, name: String, persisted_variable_type: TypeSignature) {
+    pub fn add_persisted_variable_type(&mut self, name: ClarityName, persisted_variable_type: TypeSignature) {
         self.persisted_variable_types.insert(name, persisted_variable_type);
     }
 
-    pub fn add_read_only_function(&mut self, name: String, function_type: FunctionType) {
+    pub fn add_read_only_function(&mut self, name: ClarityName, function_type: FunctionType) {
         self.read_only_function_types.insert(name, function_type);
     }
 
-    pub fn add_public_function(&mut self, name: String, function_type: FunctionType) {
+    pub fn add_public_function(&mut self, name: ClarityName, function_type: FunctionType) {
         self.public_function_types.insert(name, function_type);
     }
 
-    pub fn add_private_function(&mut self, name: String, function_type: FunctionType) {
+    pub fn add_private_function(&mut self, name: ClarityName, function_type: FunctionType) {
         self.private_function_types.insert(name, function_type);
     }
 
-    pub fn add_non_fungible_token(&mut self, name: String, nft_type: TypeSignature) {
+    pub fn add_non_fungible_token(&mut self, name: ClarityName, nft_type: TypeSignature) {
         self.non_fungible_tokens.insert(name, nft_type);
     }
 
-    pub fn add_fungible_token(&mut self, name: String) {
+    pub fn add_fungible_token(&mut self, name: ClarityName) {
         self.fungible_tokens.insert(name);
     }
 

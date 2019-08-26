@@ -5,19 +5,19 @@ use std::collections::BTreeMap;
 
 use address::c32;
 use vm::types::{Value, MAX_VALUE_SIZE};
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
 use util::hash;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct AssetIdentifier {
-    pub contract_name: String,
-    pub asset_name: String
+    pub contract_name: ContractName,
+    pub asset_name: ClarityName
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleTypeSignature {
-    pub type_map: BTreeMap<String, TypeSignature>
+    pub type_map: BTreeMap<ClarityName, TypeSignature>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,8 +58,7 @@ pub enum TypeSignature {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionArg {
     pub signature: TypeSignature,
-    #[serde(skip)]
-    pub name: String,
+    pub name: ClarityName,
 }
 
 impl FunctionType {
@@ -202,7 +201,7 @@ impl AtomTypeIdentifier {
 }
 
 impl TupleTypeSignature {
-    pub fn new(type_data: Vec<(String, TypeSignature)>) -> Result<TupleTypeSignature> {
+    pub fn new(type_data: Vec<(ClarityName, TypeSignature)>) -> Result<TupleTypeSignature> {
         if type_data.len() == 0 {
             return Err(UncheckedError::ExpectedListPairs.into())
         }
@@ -210,7 +209,7 @@ impl TupleTypeSignature {
         let mut type_map = BTreeMap::new();
         for (name, type_info) in type_data {
             if type_map.contains_key(&name) {
-                return Err(UncheckedError::VariableDefinedMultipleTimes(name).into());
+                return Err(UncheckedError::VariableDefinedMultipleTimes(name.into()).into());
             } else {
                 type_map.insert(name, type_info);
             }
@@ -282,10 +281,8 @@ impl TupleTypeSignature {
 }
 
 impl FunctionArg {
-    pub fn new(sig: TypeSignature, name: &str) -> FunctionArg {
-        FunctionArg { 
-            signature: sig, 
-            name: name.to_owned() }
+    pub fn new(signature: TypeSignature, name: ClarityName) -> FunctionArg {
+        FunctionArg { signature, name }
     }
 }
 
@@ -450,16 +447,6 @@ impl TypeSignature {
         };
 
         Ok(TypeSignature::List(list_type))
-    }
-
-    pub fn deserialize(json: &str) -> TypeSignature {
-        serde_json::from_str(json)
-            .expect("Failed to deserialize vm.TypeSignature")
-    }
-
-    pub fn serialize(&self) -> String {
-        serde_json::to_string(self)
-            .expect("Failed to serialize vm.TypeSignature")
     }
 
     fn new_atom_checked(atom_type: AtomTypeIdentifier) -> Result<TypeSignature> {
@@ -733,7 +720,7 @@ impl TypeSignature {
                 let (compound_type, rest) = list_contents.split_first()
                     .ok_or(RuntimeErrorType::InvalidTypeDescription)?;
                 if let SymbolicExpressionType::Atom(ref compound_type) = compound_type.expr {
-                    match compound_type.as_str() {
+                    match compound_type.as_ref() {
                         "list" =>
                             if !allow_list {
                                 Err(RuntimeErrorType::InvalidTypeDescription.into())
@@ -754,7 +741,7 @@ impl TypeSignature {
     }
 }
 
-pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<Vec<(String, TypeSignature)>> {
+pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<Vec<(ClarityName, TypeSignature)>> {
     // this is a pretty deep nesting here, but what we're trying to do is pick out the values of
     // the form:
     // ((name1 type1) (name2 type2) (name3 type3) ...)
@@ -779,10 +766,9 @@ pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<V
     // step 2: turn into a vec of (name, typesignature) pairs.
     let key_types: Result<Vec<_>> =
         (as_pairs?).iter().map(|(name_symbol, type_symbol)| {
-            let name = match name_symbol.expr {
-                Atom(ref var) => Ok(var.clone()),
-                _ => Err(UncheckedError::ExpectedListPairs)
-            }?;
+            let name = name_symbol.match_atom()
+                .ok_or(UncheckedError::ExpectedListPairs)?
+                .clone();
             let type_info = TypeSignature::parse_type_repr(type_symbol, true)?;
             Ok((name, type_info))
         }).collect();
@@ -792,14 +778,9 @@ pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<V
 
 impl fmt::Display for TupleTypeSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut first = true;
-        write!(f, "(tuple ")?;
+        write!(f, "(tuple")?;
         for (field_name, field_type) in self.type_map.iter() {
-            if !first {
-                write!(f, " ")?;
-            }
-            first = false;
-            write!(f, "({} {})", field_name, field_type)?;
+            write!(f, " ({} {})", &**field_name, field_type)?;
         }
         write!(f, ")")
     }
@@ -807,7 +788,7 @@ impl fmt::Display for TupleTypeSignature {
 
 impl fmt::Display for AssetIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}::{}", &self.contract_name, &self.asset_name)
+        write!(f, "{}::{}", &*self.contract_name, &*self.asset_name)
     }
 }
 
@@ -822,13 +803,7 @@ impl fmt::Display for AtomTypeIdentifier {
             BufferType(len) => write!(f, "(buff {})", len),
             OptionalType(t) => write!(f, "(optional {})", t),
             ResponseType(v) => write!(f, "(response {} {})", v.0, v.1),
-            TupleType(TupleTypeSignature{ type_map }) => {
-                write!(f, "(tuple ")?;
-                for (key_name, value_type) in type_map.iter() {
-                    write!(f, "({} {})", key_name, value_type)?;
-                }
-                write!(f, ")")
-            }
+            TupleType(t) => write!(f, "{}", t)
         }
     }
 }
