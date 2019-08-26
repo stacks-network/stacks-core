@@ -126,6 +126,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     fn into_contract_analysis(self, contract_analysis: &mut ContractAnalysis) {
         self.contract_context.into_contract_analysis(contract_analysis);
+        contract_analysis.type_map = Some(self.type_map);
     }
 
     pub fn track_return_type(&mut self, return_type: TypeSignature) -> CheckResult<()> {

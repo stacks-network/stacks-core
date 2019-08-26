@@ -3,6 +3,7 @@ use vm::{SymbolicExpression, ClarityName};
 use vm::types::{TypeSignature, FunctionType};
 use vm::analysis::analysis_db::{AnalysisDatabase};
 use vm::analysis::errors::{CheckResult};
+use vm::analysis::type_checker::contexts::TypeMap;
 
 const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
 const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
@@ -13,6 +14,8 @@ pub trait AnalysisPass {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractAnalysis {
+    #[serde(skip)]
+    pub type_map: Option<TypeMap>,
     // matt: is okay to let these new fields end up in the db?
     pub private_function_types: BTreeMap<ClarityName, FunctionType>,
     pub variable_types: BTreeMap<ClarityName, TypeSignature>,
@@ -31,6 +34,7 @@ pub struct ContractAnalysis {
 impl ContractAnalysis {
     pub fn new(expressions: Vec<SymbolicExpression>) -> ContractAnalysis {
         ContractAnalysis {
+            type_map: None,
             expressions: expressions,
             private_function_types: BTreeMap::new(),
             public_function_types: BTreeMap::new(),

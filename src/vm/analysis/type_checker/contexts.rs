@@ -7,6 +7,7 @@ use vm::contexts::MAX_CONTEXT_DEPTH;
 use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
 use vm::analysis::types::{ContractAnalysis};
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct TypeMap {
     map: HashMap<u64, TypeSignature>
 }
@@ -39,6 +40,10 @@ impl TypeMap {
         } else {
             Ok(())
         }
+    }
+
+    pub fn get_type(&self, expr: &SymbolicExpression) -> Option<&TypeSignature> {
+        self.map.get(&expr.id)
     }
 }
 

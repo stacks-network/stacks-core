@@ -266,7 +266,7 @@ fn test_function_arg_names() {
     ];
 
     for (func_test, arg_names) in functions.iter().zip(expected_arg_names.iter()) {
-        let contract_analysis = mem_type_check(func_test).unwrap();
+        let contract_analysis = mem_type_check(func_test).unwrap().1;
 
         let func_type_priv = contract_analysis.get_private_function("test").unwrap();
         let func_type_pub = contract_analysis.get_public_function_type("test-pub").unwrap();
@@ -348,6 +348,17 @@ fn test_options() {
             _ => false
         });
 
+}
+
+
+#[test]
+fn test_list_nones() {
+    let contract = "
+         (begin
+           (let ((a (list none none none))) (print a)))";
+    assert_eq!(
+        "(list 3 (optional NoType))",
+        &format!("{}", mem_type_check(contract).unwrap().0.unwrap()));
 }
 
 #[test]
