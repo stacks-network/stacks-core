@@ -28,7 +28,7 @@ use vm::functions::define::DefineResult;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result};
 use vm::database::{memory_db};
 
-pub use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
 const MAX_CALL_STACK_DEPTH: usize = 128;
 

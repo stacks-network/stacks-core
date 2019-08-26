@@ -269,7 +269,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 self.function_return_tracker = None;
 
                 let func_args: Vec<FunctionArg> = args.drain(..)
-                    .map(|(arg_name, arg_type)| FunctionArg::new(arg_type, &arg_name)).collect();
+                    .map(|(arg_name, arg_type)| FunctionArg::new(arg_type, arg_name)).collect();
 
                 Ok((function_name.clone(), FunctionType::Fixed(func_args, return_type)))
             }

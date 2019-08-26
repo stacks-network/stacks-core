@@ -58,8 +58,7 @@ pub enum TypeSignature {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionArg {
     pub signature: TypeSignature,
-    #[serde(skip)]
-    pub name: String,
+    pub name: ClarityName,
 }
 
 impl FunctionType {
@@ -282,10 +281,8 @@ impl TupleTypeSignature {
 }
 
 impl FunctionArg {
-    pub fn new(sig: TypeSignature, name: &str) -> FunctionArg {
-        FunctionArg { 
-            signature: sig, 
-            name: name.to_owned() }
+    pub fn new(signature: TypeSignature, name: ClarityName) -> FunctionArg {
+        FunctionArg { signature, name }
     }
 }
 
@@ -450,16 +447,6 @@ impl TypeSignature {
         };
 
         Ok(TypeSignature::List(list_type))
-    }
-
-    pub fn deserialize(json: &str) -> TypeSignature {
-        serde_json::from_str(json)
-            .expect("Failed to deserialize vm.TypeSignature")
-    }
-
-    pub fn serialize(&self) -> String {
-        serde_json::to_string(self)
-            .expect("Failed to serialize vm.TypeSignature")
     }
 
     fn new_atom_checked(atom_type: AtomTypeIdentifier) -> Result<TypeSignature> {

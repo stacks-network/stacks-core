@@ -279,7 +279,7 @@ fn test_function_arg_names() {
             };
             
             for (expected_name, actual_name) in arg_names.iter().zip(func_args.iter().map(|x| &x.name)) {
-                assert_eq!(*expected_name, actual_name);
+                assert_eq!(*expected_name, &**actual_name);
             }
         }
     }

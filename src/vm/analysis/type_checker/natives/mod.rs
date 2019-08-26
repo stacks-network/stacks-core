@@ -1,10 +1,11 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
-use vm::representations::{SymbolicExpression};
+use vm::{ClarityName, SymbolicExpression};
 use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE, FunctionArg, FunctionType};
 use super::{TypeChecker, TypingContext, TypeResult, no_type, check_argument_count,
             check_arguments_at_least, check_function_args}; 
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use std::convert::TryFrom;
 
 mod assets;
 mod lists;
@@ -23,15 +24,25 @@ fn arithmetic_type(variadic: bool) -> FunctionType {
     if variadic {
         FunctionType::Variadic(AtomTypeIdentifier::IntType.into(), AtomTypeIdentifier::IntType.into())
     } else {
-        FunctionType::Fixed(vec![FunctionArg::new(AtomTypeIdentifier::IntType.into(), "i1"),
-                                 FunctionArg::new(AtomTypeIdentifier::IntType.into(), "i2")],
+        FunctionType::Fixed(vec![
+            FunctionArg::new(AtomTypeIdentifier::IntType.into(),
+                             ClarityName::try_from("i1".to_owned())
+                             .expect("FAIL: ClarityName failed to accept default arg name")),
+            FunctionArg::new(AtomTypeIdentifier::IntType.into(), 
+                             ClarityName::try_from("i1".to_owned())
+                             .expect("FAIL: ClarityName failed to accept default arg name"))],
                             AtomTypeIdentifier::IntType.into())
     }
 }
 
 fn arithmetic_comparison() -> FunctionType {
-    FunctionType::Fixed(vec![FunctionArg::new(AtomTypeIdentifier::IntType.into(), "i1"),
-                             FunctionArg::new(AtomTypeIdentifier::IntType.into(), "i2")],
+    FunctionType::Fixed(vec![
+            FunctionArg::new(AtomTypeIdentifier::IntType.into(),
+                             ClarityName::try_from("i1".to_owned())
+                             .expect("FAIL: ClarityName failed to accept default arg name")),
+            FunctionArg::new(AtomTypeIdentifier::IntType.into(), 
+                             ClarityName::try_from("i1".to_owned())
+                             .expect("FAIL: ClarityName failed to accept default arg name"))],
                         AtomTypeIdentifier::BoolType.into())    
 }
 
@@ -307,7 +318,10 @@ impl TypedNativeFunction {
                 Simple(SimpleNativeFunction(FunctionType::Variadic(AtomTypeIdentifier::BoolType.into(),
                                                                    AtomTypeIdentifier::BoolType.into()))),
             Not =>
-                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![FunctionArg::new(AtomTypeIdentifier::BoolType.into(), "value")],
+                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![
+                    FunctionArg::new(AtomTypeIdentifier::BoolType.into(), 
+                                     ClarityName::try_from("value".to_owned())
+                                     .expect("FAIL: ClarityName failed to accept default arg name"))],
                                                                 AtomTypeIdentifier::BoolType.into()))),
             Hash160 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
