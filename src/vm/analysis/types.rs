@@ -100,16 +100,6 @@ impl ContractAnalysis {
         self.persisted_variable_types.get(name)
     }
 
-    pub fn deserialize(json: &str) -> ContractAnalysis {
-        serde_json::from_str(json)
-            .expect(DESERIALIZE_FAIL_MESSAGE)
-    }
-
-    pub fn serialize(&self) -> String {
-        serde_json::to_string(self)
-            .expect(SERIALIZE_FAIL_MESSAGE)
-    }
-
     pub fn expressions_iter(&self) -> ExpressionsIterator {
         let expressions = &self.expressions[..];
         let sorting = match self.top_level_expression_sorting {
