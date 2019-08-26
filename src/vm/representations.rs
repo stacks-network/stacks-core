@@ -42,7 +42,7 @@ macro_rules! guarded_string {
                 if regex_check.is_match(&value) {
                     Ok(Self(value))
                 } else {
-                    Err(RuntimeErrorType::ParseError(format!("Attempted to construct bad {}", $Label)).into())
+                    Err(RuntimeErrorType::BadNameValue($Label, value).into())
                 }
             }
         }
@@ -75,8 +75,8 @@ macro_rules! guarded_string {
     }
 }
 
-guarded_string!(ClarityName, "ClarityName", Regex::new("^([a-zA-z0-9]|[-!?+<>=/*])*$"));
-guarded_string!(ContractName, "ContractName", Regex::new("^([a-zA-z0-9]|[-!?+<>=/*])*$"));
+guarded_string!(ClarityName, "ClarityName", Regex::new("^([a-zA-Z]|[-!?+<>=/*])([a-zA-Z0-9]|[-_!?+<>=/*])*$"));
+guarded_string!(ContractName, "ContractName", Regex::new("^[a-zA-Z]([a-zA-Z0-9]|[-_])*$|^__transient$"));
 
 impl SymbolicExpression {
     #[cfg(feature = "developer-mode")]

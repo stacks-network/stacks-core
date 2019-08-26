@@ -101,6 +101,7 @@ pub enum RuntimeErrorType {
     NonPositiveTokenSupply,
     JSONParseError(IncomparableError<SerdeJSONErr>),
     AttemptToFetchInTransientContext,
+    BadNameValue(&'static str, String)
 }
 
 #[derive(Debug, PartialEq)]
