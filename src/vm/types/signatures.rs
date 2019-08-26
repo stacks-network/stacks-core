@@ -198,6 +198,25 @@ impl AtomTypeIdentifier {
                     false
                 }
             },
+            AtomTypeIdentifier::ResponseType(ref my_inner_type) => {
+                if let AtomTypeIdentifier::ResponseType(other_inner_type) = other {
+                    // ResponseTypes admit according to the following rule:
+                    //   if other.ErrType is NoType, and other.OkType admits => admit
+                    //   if other.OkType is NoType, and other.ErrType admits => admit
+                    //   if both OkType and ErrType admit => admit
+                    //   otherwise fail.
+                    if other_inner_type.0.is_no_type() {
+                        my_inner_type.1.admits_type(&other_inner_type.1)
+                    } else if other_inner_type.1.is_no_type() {
+                        my_inner_type.0.admits_type(&other_inner_type.0)
+                    } else {
+                        my_inner_type.1.admits_type(&other_inner_type.1)
+                            && my_inner_type.0.admits_type(&other_inner_type.0)
+                    }
+                } else {
+                    false
+                }
+            },
             AtomTypeIdentifier::BufferType(ref my_len) => {
                 if let AtomTypeIdentifier::BufferType(ref other_len) = other {
                     my_len >= other_len
@@ -379,39 +398,14 @@ impl TypeSignature {
                     .ok_or_else(|| (a.clone(), b.clone()))
             }
 
-        // same goes for the option type
-        // this little monster is an attempt to avoid an unneccessary clone
-        // Some(0) indicates that we should return type_a
-        // Some(1) indicates that we should return type_b
-        // None indicates that we should continue trying to find the most
-        //   admissive of type_a, type_b or error if no such
-        //   admission is possible.
-        let short_return_optional = 
-            if let (TypeSignature::Atom(AtomTypeIdentifier::OptionalType(ref opt_type_a)),
-                    TypeSignature::Atom(AtomTypeIdentifier::OptionalType(ref opt_type_b))) = (&a, &b) {
-                if opt_type_b.is_no_type() {
-                    Some(0)
-                } else if opt_type_a.is_no_type() {
-                    Some(1)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-        match short_return_optional {
-            Some(0) => Ok(a),
-            Some(1) => Ok(b),
-            _ => {
-                if a.admits_type(&b) {
-                    Ok(a)
-                } else if b.admits_type(&a) {
-                    Ok(b)
-                } else {
-                    Err((a,b))
-                }
-            }
+        // same doesn't apply to option types: option(A) would already admit option(None),
+        //   so apply the same "most admissive" of the two types logic as any other type.
+        if a.admits_type(&b) {
+            Ok(a)
+        } else if b.admits_type(&a) {
+            Ok(b)
+        } else {
+            Err((a,b))
         }
     }
 
@@ -590,6 +584,11 @@ impl TypeSignature {
 
     pub fn admits_type(&self, x_type: &TypeSignature) -> bool {
         match (x_type, self) {
+            // List admisssion is recursive.
+            //  The list must have max length than self.max_len
+            //  The list must be of the same dimension
+            //  The atomic type must be admitted by self.atomic_atype
+            // Empty lists will admit for any list type
             (TypeSignature::List(ref x_list_type), TypeSignature::List(ref my_list_type)) => {
                 if x_list_type.max_len <= 0 {
                     // if x_type is an empty list, a list type should always admit.
