@@ -625,14 +625,6 @@ impl TypeSignature {
         }
     }
 
-    pub fn match_list(&self) -> Option<&ListTypeData> {
-        if let TypeSignature::List(ref list_type) = self {
-            Some(list_type)
-        } else {
-            None
-        }
-    }
-
     pub fn get_list_item_type(&self) -> Option<TypeSignature> {
         if let TypeSignature::List(list_type) = self {
             Some(list_type.get_list_item_type())
@@ -644,6 +636,7 @@ impl TypeSignature {
     fn parse_atom_type(typename: &str) -> Result<AtomTypeIdentifier> {
         match typename {
             "int" => Ok(AtomTypeIdentifier::IntType),
+            "uint" => Ok(AtomTypeIdentifier::UIntType),
             "bool" => Ok(AtomTypeIdentifier::BoolType),
             "principal" => Ok(AtomTypeIdentifier::PrincipalType),
             _ => Err(RuntimeErrorType::ParseError(format!("Unknown type name: '{}'", typename)).into())
@@ -709,8 +702,17 @@ impl TypeSignature {
             return Err(RuntimeErrorType::InvalidTypeDescription.into())
         }
         let inner_type = TypeSignature::parse_type_repr(&type_args[0], true)?;
-        Ok(TypeSignature::Atom(AtomTypeIdentifier::OptionalType(
-            Box::new(inner_type))))
+        
+        Ok(TypeSignature::new_option(inner_type))
+    }
+
+    fn parse_response_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+        if type_args.len() != 2 {
+            return Err(RuntimeErrorType::InvalidTypeDescription.into())
+        }
+        let ok_type = TypeSignature::parse_type_repr(&type_args[0], true)?;
+        let err_type = TypeSignature::parse_type_repr(&type_args[1], true)?;
+        Ok(TypeSignature::new_response(ok_type, err_type))
     }
 
     pub fn parse_type_repr(x: &SymbolicExpression, allow_list: bool) -> Result<TypeSignature> {
@@ -733,6 +735,7 @@ impl TypeSignature {
                         "buff" => TypeSignature::parse_buff_type_repr(rest),
                         "tuple" => TypeSignature::parse_tuple_type_repr(rest),
                         "optional" => TypeSignature::parse_optional_type_repr(rest),
+                        "response" => TypeSignature::parse_response_type_repr(rest),
                         _ => Err(RuntimeErrorType::InvalidTypeDescription.into())
                     }
                 } else {

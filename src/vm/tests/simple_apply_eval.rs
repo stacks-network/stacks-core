@@ -253,6 +253,26 @@ fn test_arithmetic_errors() {
 }
 
 #[test]
+fn test_unsigned_arithmetic() {
+    let tests = [
+        "(- u10)",
+        "(- u10 u11)",
+        "(> u10 80)",
+        "(+ u10 80)" ];
+
+    let expectations: &[Error] = &[
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        UncheckedError::TypeError("int, int | uint, uint".to_string(), Value::UInt(10)).into(),
+        UncheckedError::TypeError("uint".to_string(), Value::Int(80)).into(),
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+    }
+}
+
+#[test]
 fn test_options_errors() {
     let tests = [
         "(is-none? 2 1)",

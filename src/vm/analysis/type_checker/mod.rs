@@ -119,7 +119,7 @@ impl FunctionType {
                         first.clone()).into())
                 }
                 if first != second {
-                    return Err(CheckErrors::TypeError(second.clone(), first.clone()).into())
+                    return Err(CheckErrors::TypeError(first.clone(), second.clone()).into())
                 }
                 Ok(AtomTypeIdentifier::BoolType.into())
             },

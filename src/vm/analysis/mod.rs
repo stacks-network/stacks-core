@@ -29,7 +29,7 @@ pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, Cont
         .map(|x| {
              // return the first type result of the type checker
              let first_type = x.type_map.as_ref().unwrap()
-                .get_type(&x.expressions[0]).cloned();
+                .get_type(&x.expressions.last().unwrap()).cloned();
              (first_type, x) })
 }
 

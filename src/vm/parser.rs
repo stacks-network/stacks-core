@@ -20,7 +20,7 @@ pub enum LexItem {
 enum TokenType {
     LParens, RParens, Whitespace,
     StringLiteral, HexStringLiteral,
-    IntLiteral, QuoteLiteral,
+    UIntLiteral, IntLiteral, QuoteLiteral,
     Variable, PrincipalLiteral,
     ContractPrincipalLiteral,
     QualifiedContractPrincipalLiteral
@@ -72,6 +72,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("[(]", TokenType::LParens),
         LexMatcher::new("[)]", TokenType::RParens),
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
+        LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
         LexMatcher::new("'CT(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}.([[:alpha:]]|[-]){5,40})", TokenType::QualifiedContractPrincipalLiteral),
@@ -152,6 +153,14 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
                             "true" => Ok(Value::Bool(true)),
                             "false" => Ok(Value::Bool(false)),
                             _ => Err(RuntimeErrorType::ParseError(format!("Unknown 'quoted value '{}'", str_value)))
+                        }?;
+                        Ok(LexItem::LiteralValue(str_value.len(), value))
+                    },
+                    TokenType::UIntLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let value = match u128::from_str_radix(&str_value, 10) {
+                            Ok(parsed) => Ok(Value::UInt(parsed)),
+                            Err(_e) => Err(RuntimeErrorType::ParseError(format!("Failed to parse int literal '{}'", str_value)))
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },

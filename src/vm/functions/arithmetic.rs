@@ -53,7 +53,7 @@ macro_rules! type_force_variadic_arithmetic { ($function: ident, $args: expr) =>
             let typed_args: Result<Vec<_>, _> = $args.iter().map(
                 |x| match x {
                     Value::UInt(value) => Ok(value.clone()),
-                    _ => Err(UncheckedError::TypeError("int".to_string(), x.clone()))
+                    _ => Err(UncheckedError::TypeError("uint".to_string(), x.clone()))
                 })
                 .collect();
             let checked_args = typed_args?;

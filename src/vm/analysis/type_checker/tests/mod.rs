@@ -237,6 +237,114 @@ fn test_define() {
 }
 
 #[test]
+fn test_high_order_map() {
+    let good = [
+        "(define-private (foo (x int)) (list x x x x x)) 
+         (map foo (list 1 2 3))",
+        "(define-private (foo (x int)) (list x x x x x)) 
+         (map foo (list 1 2 3 4 5 6))",
+    ];
+    
+    let expected = [
+        "(list 5 2 int)",
+        "(list 6 2 int)",
+    ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
+    }
+}
+
+#[test]
+fn test_simple_uints() {
+    let good = [
+        "(define-private (foo (x uint)) (+ x u1)) 
+         (foo u2)",
+        "(define-private (foo (x uint)) (+ x x)) 
+         (foo (foo u0))",
+    ];
+    
+    let expected = [
+        "uint",
+        "uint",
+    ];
+
+    let bad = ["(> u1 1)" ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
+    }
+
+    for bad_test in bad.iter() {
+        match mem_type_check(bad_test).unwrap_err().err {
+            CheckErrors::TypeError(x, y) => assert_eq!("uint, int", &format!("{}, {}", x, y)),
+            _ => panic!()
+        };
+    }
+}
+
+
+#[test]
+fn test_response_inference() {
+    let good = ["(define-private (foo (x int)) (err x))
+                 (define-private (bar (x bool)) (ok x))
+                 (if 'true (foo 1) (bar 'false))",
+                "(define-private (check (x (response bool int))) (is-ok? x))
+                 (check (err 1))",
+                "(define-private (check (x (response bool int))) (is-ok? x))
+                 (check (ok 'true))",
+                "(define-private (check (x (response bool int))) (is-ok? x))
+                 (check (if 'true (err 1) (ok 'false)))",
+                "(define-private (check (x (response int bool)))
+                   (if (> 10 (expects! x 10)) 
+                       2
+                       (let ((z (expects! x 1))) z)))
+                 (check (ok 1))",
+                // tests top-level `expects!` type-check behavior
+                // (i.e., let it default to anything, since it will always cause a tx abort if the expectation is unmet.)
+                "(expects! (ok 2) 'true)" 
+    ];
+    
+    let expected = [
+        "(response bool int)",
+        "bool",
+        "bool",
+        "bool",
+        "int",
+        "int",
+    ];
+
+    let bad = ["(define-private (check (x (response bool int))) (is-ok? x))
+                (check 'true)",
+                "(define-private (check (x (response int bool)))
+                   (if (> 10 (expects! x 10)) 
+                       2
+                       (let ((z (expects! x 'true))) z)))
+                 (check (ok 1))",
+               "(expects! (err 2) 'true)"
+    ];
+
+    let bad_expected = [ CheckErrors::TypeError(TypeSignature::new_response(AtomTypeIdentifier::BoolType.into(),
+                                                                            AtomTypeIdentifier::IntType.into()),
+                                                AtomTypeIdentifier::BoolType.into()),
+                         CheckErrors::ReturnTypesMustMatch(AtomTypeIdentifier::IntType.into(),
+                                                           AtomTypeIdentifier::BoolType.into()),
+                         CheckErrors::CouldNotDetermineResponseOkType ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
+        assert_eq!(expected, &type_sig.to_string());
+    }
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(&mem_type_check(bad_test).unwrap_err().err,
+                   expected);
+    }
+}
+
+#[test]
 fn test_function_arg_names() {
     use vm::analysis::type_check;
     
