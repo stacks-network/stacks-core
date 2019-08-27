@@ -899,9 +899,9 @@ def blockstack_send_tokens(recipient_address, token_type, token_amount, privkey,
         return res
 
     stacks_recipient_address = res['testnet']['STACKS']
-    payment_key = get_default_payment_wallet().privkey
+    btc_payment_key = get_default_payment_wallet().privkey
 
-    txid = nodejs_cli('send_tokens', stacks_recipient_address, token_type, token_amount, serialize_privkey_info(privkey), payment_key, safety_checks=safety_checks, tx_only=tx_only, consensus_hash=consensus_hash, expect_fail=expect_fail)
+    txid = nodejs_cli('send_tokens', stacks_recipient_address, token_type, token_amount, serialize_privkey_info(privkey), serialize_privkey_info(btc_payment_key), safety_checks=safety_checks, tx_only=tx_only, consensus_hash=consensus_hash, expect_fail=expect_fail)
     if 'error' in txid:
         return txid
 
