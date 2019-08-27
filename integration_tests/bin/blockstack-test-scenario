@@ -407,13 +407,13 @@ class GaiaServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
             self.send_response(res.status_code)
             for h in res.headers:
-                if h.lower() == 'transfer-encoding':
-                    continue
+                # if h.lower() == 'transfer-encoding':
+                #    continue
 
                 self.send_header(h, res.headers[h])
 
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Content-Length', '{}'.format(len(res.text)))
+            # self.send_header('Access-Control-Allow-Origin', '*')
+            # self.send_header('Content-Length', '{}'.format(len(res.text)))
             self.end_headers()
             self.wfile.write(res.text)
             return
@@ -457,6 +457,7 @@ class GaiaServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         """
         Send to upstream Gaia hub
         """
+        """
         length = int(self.headers['content-length'])
         data = self.rfile.read(length)
         res = requests.post(self.server.upstream_gaia_url + self.path, data=data, headers=self.headers)
@@ -470,6 +471,10 @@ class GaiaServerRequestHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(res.text)
         return
+        """
+        self.send_response(302)
+        self.send_header("Location", "{}{}".format(self.server.upstream_gaia_url, self.path))
+        self.end_headers()
 
 
     def do_OPTONS(self):
