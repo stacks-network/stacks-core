@@ -230,7 +230,7 @@ fn test_arithmetic_errors() {
 
     let expectations: &[Error] = &[
         UncheckedError::IncorrectArgumentCount(2,1).into(),
-        UncheckedError::TypeError("IntType".to_string(), Value::Bool(true)).into(),
+        UncheckedError::TypeError("int".to_string(), Value::Bool(true)).into(),
         RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),

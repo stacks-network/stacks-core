@@ -62,6 +62,7 @@ pub struct ResponseData {
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Value {
     Int(i128),
+    UInt(u128),
     Bool(bool),
     Buffer(BuffData),
     List(ListData),
@@ -211,6 +212,7 @@ impl Value {
     pub fn size(&self) -> Result<i128> {
         match self {
             Value::Int(_i) => AtomTypeIdentifier::IntType.size(),
+            Value::UInt(int) => AtomTypeIdentifier::UIntType.size(),
             Value::Bool(_i) => AtomTypeIdentifier::BoolType.size(),
             Value::Principal(_) => AtomTypeIdentifier::PrincipalType.size(),
             Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
@@ -245,6 +247,7 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Int(int) => write!(f, "{}", int),
+            Value::UInt(int) => write!(f, "u{}", int),
             Value::Bool(boolean) => write!(f, "{}", boolean),
             Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes.data)),
             Value::Tuple(data) => write!(f, "{}", data),

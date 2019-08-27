@@ -9,6 +9,7 @@ use serde_json::{Value as JSONValue};
 use util::hash;
 
 const TYPE_I128: &str = "i128";
+const TYPE_U128: &str = "u128";
 const TYPE_BOOL: &str = "bool";
 const TYPE_BUFF: &str = "buff";
 const TYPE_STANDARD_PRINCIPAL: &str = "principal";
@@ -56,31 +57,40 @@ enum JSONParser {
     }
 }
 
-pub fn to_hex(mut val: i128) -> String {
-    let mut result = vec![];
-    let mut negated = "";
+macro_rules! make_to_hex {
+    ($f_name:ident, $type:ty, $negation:expr) => {
+        #[allow(unused_comparisons)]
+        pub fn $f_name(mut val: $type) -> String {
+            let mut result = vec![];
+            let mut negated = "";
+            
+            if val < 0 {
+                let (new_negated, new_val) = $negation(val);
+                negated = new_negated;
+                val = new_val;
+            }
 
-    if val < 0 {
-        negated = "-";
-        val = -val;
-    }
-
-    loop {
-        let digit = match (val % 16) as u8 {
-            x @  0 ..=  9 => b'0' + x,
-            x @ 10 ..= 15 => b'a' + (x - 10),
-            _ => panic!("number not in the range 0..15")
-        };
-        result.push(digit.into());
-        val = val / 16;
-        if val == 0 {
+            loop {
+                let digit = match (val % 16) as u8 {
+                    x @  0 ..=  9 => b'0' + x,
+                    x @ 10 ..= 15 => b'a' + (x - 10),
+                    _ => panic!("number not in the range 0..15")
+                };
+                result.push(digit.into());
+                val = val / 16;
+                if val == 0 {
             break
+                }
+            }
+            result.reverse();
+            format!("{}{}", negated, std::str::from_utf8(&result)
+                    .expect("ERROR: Hex serializer created non-utf8 string."))
         }
     }
-    result.reverse();
-    format!("{}{}", negated, std::str::from_utf8(&result)
-            .expect("ERROR: Hex serializer created non-utf8 string."))
 }
+
+make_to_hex!(i128_to_hex, i128, |x: i128| ("-", -x));
+make_to_hex!(u128_to_hex, u128, |x: u128| panic!("Negative UINT"));
 
 fn json_simple_object(type_name: &str, val: &str) -> String {
     format!(
@@ -100,7 +110,8 @@ impl ClaritySerializable for Value {
         use super::PrincipalData::*;
 
         match self {
-            Int(value) => json_simple_object(TYPE_I128, &to_hex(*value)),
+            Int(value) => json_simple_object(TYPE_I128, &i128_to_hex(*value)),
+            UInt(value) => json_simple_object(TYPE_U128, &u128_to_hex(*value)),
             Buffer(value) => json_simple_object(TYPE_BUFF, &hash::bytes_to_hex(&value.data)),
             Bool(value) => {
                 let str_value = if *value {
@@ -190,6 +201,12 @@ impl Value {
                         let value = i128::from_str_radix(&value, 16)
                             .map_err(|e| RuntimeErrorType::ParseError("Failed to parse hexstring as integer".into()))?;
                         Ok(Value::Int(value))
+                    },
+                    TYPE_U128 => {
+                        check_match!(expected_type, AtomTypeIdentifier::UIntType)?;
+                        let value = u128::from_str_radix(&value, 16)
+                            .map_err(|e| RuntimeErrorType::ParseError("Failed to parse hexstring as integer".into()))?;
+                        Ok(Value::UInt(value))
                     },
                     TYPE_STANDARD_PRINCIPAL => {
                         check_match!(expected_type, AtomTypeIdentifier::PrincipalType)?;
@@ -681,7 +698,7 @@ mod tests {
 
     #[test]
     fn test_hex() {
-        use super::to_hex;
+        use super::{i128_to_hex as to_hex};
         assert_eq!(&to_hex(-0xdeadbeef), "-deadbeef");
         assert_eq!(&to_hex(0xdeadbeef), "deadbeef");
         assert_eq!(&to_hex(0xdeadbdf), "deadbdf");

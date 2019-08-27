@@ -487,6 +487,7 @@ impl TypeSignature {
         let atom = match x {
             Value::Principal(_) => AtomTypeIdentifier::PrincipalType,
             Value::Int(_v) => AtomTypeIdentifier::IntType,
+            Value::UInt(_v) => AtomTypeIdentifier::UIntType,
             Value::Bool(_v) => AtomTypeIdentifier::BoolType,
             Value::Buffer(buff_data) => AtomTypeIdentifier::BufferType(buff_data.data.len() as u32),
             Value::Tuple(v) => AtomTypeIdentifier::TupleType(
