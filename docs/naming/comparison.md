@@ -76,7 +76,7 @@ geared towards providing programmatic control over names with Turing-complete
 on-chain resolvers.
 
 BNS has a fundamentally different relationship with blockchains than ENS.
-WHereas ENS tries to use on-chain logic as much as possible, BNS
+Whereas ENS tries to use on-chain logic as much as possible, BNS
 tries to use the blockchain as little as possible.  BNS only uses it to store a
 database log for name operations (which are interpreted with an off-chain BNS
 node like Blockstack Core).  BNS name state and BNS subdomains reside entirely

@@ -765,6 +765,10 @@ This endpoint is used to get the price of a namespace, while explicitly
 indicating the cryptocurrency units.  This is because going forward, namespaces
 are not necessarily priced in Bitcoin.
 
+The `amount` given will be in the smallest possible units of the currency.  For
+`BTC`, the `amount` will be in satoshis.  For `STACKS`, the `amount` will be in
+micro-Stacks.
+
 + Public Endpoint
 + Parameters
   + tld: id (string) - namespace to query price for
@@ -810,6 +814,10 @@ are not necessarily priced in Bitcoin.
 
 This endpoint is used to get the price of a name, denoted in a specific
 cryptocurrency (not necessarily Bitcoin).
+
+The `amount` given will be in the smallest possible units of the currency.  For
+`BTC`, the `amount` will be in satoshis.  For `STACKS`, the `amount` will be in
+micro-Stacks (1/1,000,000th of a Stack).
 
 + Public Endpoint
 + Parameters
@@ -1716,7 +1724,7 @@ Fetch a list of names from the namespace.
                 },
             }
 
-# Group Account Operations
+## Group Account Operations
 
 The set of methods in this section correspond to querying the states of
 Blockstack token accounts.  Each token account is represented by an account
@@ -2065,7 +2073,7 @@ If the account does not exist, then an empty list will be returned.
 # Group Resolver Endpoints
 
 ## Lookup User [GET /v1/users/{username}]
-Lookup and resolve a user's profile. Defaults to the `id` namespace.
+Look up and resolve a user's profile. Defaults to the `id` namespace.
 Note that [blockstack.js](https://github.com/blockstack/blockstack.js) does
 *not* rely on this endpoint.
 

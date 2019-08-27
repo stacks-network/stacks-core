@@ -3,23 +3,42 @@
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![Slack](https://img.shields.io/badge/join-slack-e32072.svg?style=flat)](http://slack.blockstack.org/)
 
-This package provides the reference implementation of a [Blockstack](https://blockstack.org) node, as well
-as tools and scripts for deploying it.
+This repo provides the packaged reference implementation of a [Blockstack](https://blockstack.org) node, as well as tools and scripts for deploying it. Use the following table to learn more about Blockstack:
 
-If you are looking to get started with Blockstack applications, we recommend you start with the [Blockstack Browser](https://github.com/blockstack/blockstack-browser) first.
+| Blockstack Topic/Tech | Where to learn more more |
+|---------------------------------|------------------------------------------------------------------------------|
+| Stacks blockchain v1 | [master branch](https://github.com/blockstack/blockstack-core/tree/mast) |
+| Stacks blockchain v2 | [develop branch](https://github.com/blockstack/blockstack-core/tree/develop) |
+| Clarity smart contract language (preview) | [develop branch](https://github.com/blockstack/blockstack-core/tree/develop) |
+| Use the package | [our core docs](https://docs.blockstack.org/core/naming/introduction.html) |
+| Develop a Blockstack App | [our developer docs](https://docs.blockstack.org/browser/hello-blockstack.html) |
+| Use a Blockstack App | [our browser docs](https://docs.blockstack.org/browser/browser-introduction.html) |
+| Blockstack the company | [our website](https://blockstack.org) |
+
+
+### Interested in the Clarity Smart Contracting language?
+
+Active development of Clarity and the Stacks blockchain is ongoing in the [`develop` branch](https://github.com/blockstack/blockstack-core/tree/develop). This branch contains preview builds of Clarity.
 
 ## Table of Contents
 
-- [What is the Blockstack project?](#what-is-blockstack)
-- [What is Blockstack Core?](#what-is-blockstack-core)
-- [Installing Blockstack Core](#installing-blockstack-core)
-- [Running a Blockstack Core Node](#running-a-blockstack-core-node)
-- [Using Blockstack Core](#using-blockstack-core)
-- [Troubleshooting](#troubleshooting)
-- [Developer Resources](#developer-resources)
-- [Community](#community)
-- [Further Information](#further-reading)
-- [Copyright and License](#copyright-and-license)
+- [Blockstack Core](#Blockstack-Core)
+    - [Interested in the Clarity Smart Contracting language?](#Interested-in-the-Clarity-Smart-Contracting-language)
+  - [Table of Contents](#Table-of-Contents)
+  - [What is Blockstack?](#What-is-Blockstack)
+    - [Why use Blockstack?](#Why-use-Blockstack)
+  - [What is Blockstack Core?](#What-is-Blockstack-Core)
+  - [Installing Blockstack Core](#Installing-Blockstack-Core)
+    - [Install from Source](#Install-from-Source)
+    - [Install with `pip`](#Install-with-pip)
+    - [Install with `docker`](#Install-with-docker)
+  - [Running a Blockstack Core Node](#Running-a-Blockstack-Core-Node)
+  - [Using Blockstack Core](#Using-Blockstack-Core)
+    - [Getting Verbose Debugging Output](#Getting-Verbose-Debugging-Output)
+  - [Developer Resources](#Developer-Resources)
+  - [Community](#Community)
+  - [Further Reading](#Further-Reading)
+  - [Copyright and License](#Copyright-and-License)
 
 ## What is Blockstack?
 
