@@ -25,6 +25,7 @@ pub struct TupleTypeSignature {
 pub enum AtomTypeIdentifier {
     NoType,
     IntType,
+    UIntType,
     BoolType,
     BufferType(u32),
     PrincipalType,
@@ -32,6 +33,11 @@ pub enum AtomTypeIdentifier {
     OptionalType(Box<TypeSignature>),
     ResponseType(Box<(TypeSignature, TypeSignature)>)
 }
+
+pub const INT_TYPE: TypeSignature = TypeSignature::Atom(AtomTypeIdentifier::IntType);
+pub const UINT_TYPE: TypeSignature = TypeSignature::Atom(AtomTypeIdentifier::UIntType);
+pub const BOOL_TYPE: TypeSignature = TypeSignature::Atom(AtomTypeIdentifier::BoolType);
+pub const PRINCIPAL_TYPE: TypeSignature = TypeSignature::Atom(AtomTypeIdentifier::PrincipalType);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
@@ -43,11 +49,18 @@ pub struct ListTypeData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FixedFunction {
+    pub args: Vec<FunctionArg>,
+    pub returns: TypeSignature
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FunctionType {
     Variadic(TypeSignature, TypeSignature),
-    Fixed(Vec<FunctionArg>, TypeSignature),
+    Fixed(FixedFunction),
     // Functions where the single input is a union type, e.g., Buffer or Int
     UnionArgs(Vec<TypeSignature>, TypeSignature),
+    ArithmeticVariadic, ArithmeticBinary, ArithmeticComparison
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,16 +73,6 @@ pub enum TypeSignature {
 pub struct FunctionArg {
     pub signature: TypeSignature,
     pub name: ClarityName,
-}
-
-impl FunctionType {
-    pub fn return_type(&self) -> TypeSignature {
-        match self {
-            FunctionType::Variadic(_, return_type) => return_type.clone(),
-            FunctionType::Fixed(_, return_type) => return_type.clone(),
-            FunctionType::UnionArgs(_, return_type) => return_type.clone()
-        }
-    }
 }
 
 impl From<AtomTypeIdentifier> for TypeSignature {
@@ -134,6 +137,7 @@ impl AtomTypeIdentifier {
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
             AtomTypeIdentifier::NoType => Ok(1),
             AtomTypeIdentifier::IntType => Ok(16),
+            AtomTypeIdentifier::UIntType => Ok(16),
             AtomTypeIdentifier::BoolType => Ok(1),
             AtomTypeIdentifier::PrincipalType => Ok(21),
             AtomTypeIdentifier::BufferType(len) => Ok(*len as i128),
@@ -796,6 +800,7 @@ impl fmt::Display for AtomTypeIdentifier {
         match self {
             NoType => write!(f, "NoType"),
             IntType => write!(f, "int"),
+            UIntType => write!(f, "uint"),
             BoolType => write!(f, "bool"),
             PrincipalType => write!(f, "principal"),
             BufferType(len) => write!(f, "(buff {})", len),

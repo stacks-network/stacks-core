@@ -455,17 +455,21 @@ fn test_bad_map_usage() {
                  bad_set_1,
                  bad_set_2,
                  bad_insert_1,
-                 bad_insert_2,
-                 unhandled_option];
+                 bad_insert_2];
 
     for contract in tests.iter() {
-        let result = mem_type_check(contract);
-        let err = result.expect_err("Expected a type error");
-        assert!(match &err.err {
-            &CheckErrors::TypeError(_,_) => true,
+        let err = mem_type_check(contract).unwrap_err();
+        assert!(match err.err {
+            CheckErrors::TypeError(_,_) => true,
             _ => false
         });
     }
+
+    assert!(match mem_type_check(unhandled_option).unwrap_err().err {
+        // Bad arg to `+` causes a uniontype error
+        CheckErrors::UnionTypeError(_, _) => true,
+        _ => false,
+    });
 }
 
 

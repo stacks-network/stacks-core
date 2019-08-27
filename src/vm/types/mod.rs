@@ -12,8 +12,10 @@ use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, 
 use util::hash;
 
 pub use vm::types::signatures::{
-    AtomTypeIdentifier, TupleTypeSignature, AssetIdentifier,
-    TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs};
+    AtomTypeIdentifier, TupleTypeSignature, AssetIdentifier, FixedFunction,
+    TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
+    INT_TYPE, UINT_TYPE, BOOL_TYPE
+};
 
 pub const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 

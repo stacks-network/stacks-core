@@ -7,7 +7,7 @@ use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
 use vm::analysis::types::ContractAnalysis;
 use vm::contexts::{OwnedEnvironment};
-use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier, FunctionType};
+use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier, FunctionType, FixedFunction};
 
 mod assets;
 mod contracts;
@@ -274,7 +274,7 @@ fn test_function_arg_names() {
 
         for func_type in &[func_type_priv, func_type_pub, func_type_ro] {
             let func_args = match func_type {
-                FunctionType::Fixed(args, _) => args,
+                FunctionType::Fixed(FixedFunction{ args, .. }) => args,
                 _ => panic!("Unexpected function type")
             };
             
