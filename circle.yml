@@ -32,28 +32,34 @@ jobs:
       - run:
           command: |
             echo "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | blockstack-core local eval tokens db
-  build:
-    machine: true
-    working_directory: ~/blockstack
+  cargo_tests:
+    docker:
+      - image: rustlang/rust:nightly-stretch
+    working_directory: /blockstack-test
     steps:
+      - run:
+          name: Fetch latest grcov
+          command: |
+            curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
       - checkout
       - run:
-          name: Pull Cargo Tarpaulin Image
+          name: Build and Test
+          environment:
+            RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
+            CARGO_INCREMENTAL: 0
+            RUST_BACKTRACE: 1
+            BLOCKSTACK_DEBUG: 1
           command: |
-            docker pull xd009642/tarpaulin
+            rustup override set nightly && cargo build --verbose && cargo test --bin blockstack-core -- --test-threads 1
       - run:
-          name: Run tests in Cargo Tarpaulin Image
+          name: Collect debug outputs
           command: |
-            docker run --security-opt seccomp=unconfined -e RUST_BACKTRACE=1 -e BLOCKSTACK_DEBUG=1 \
-            -e RUSTFLAGS=-Clink-dead-code -v "$PWD:/volume" xd009642/tarpaulin cargo tarpaulin -t 300 -o Xml \
-            -- --test-threads 1
-      - run:
-          name: Test that Cargo Tarpaulin Suceeded
-          command: test -e cobertura.xml
+            zip -0 ccov.zip `find . \( -name "blockstack_core*.gc*" \) -print` &&
+            ./grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore-dir "/*" -o lcov.info;
       - run:
           name: Upload to codecov.io
           command: |
-            bash <(curl -s https://codecov.io/bash)
+            bash <(curl -s https://codecov.io/bash) -f lcov.info;
 
 workflows:
   version: 2
