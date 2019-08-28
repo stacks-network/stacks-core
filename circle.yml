@@ -49,7 +49,7 @@ jobs:
           name: Build and Test
           command: |
             docker run -it --security-opt seccomp=unconfined -e RUST_BACKTRACE=1 -e BLOCKSTACK_DEBUG=1 -e CARGO_INCREMENTAL=0 \
-            -e RUSTFLAGS="$RUSTFLAGS" -v "$PWD:/blockstack rustlang/rust:nightly-stretch \
+            -e RUSTFLAGS="$RUSTFLAGS" -v "$PWD:/blockstack" rustlang/rust:nightly-stretch \
             cd /blockstack && rustup override set nightly && cargo build --verbose && cargo test vm --bin blockstack-core -- --test-threads 1
           environment:
             RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
