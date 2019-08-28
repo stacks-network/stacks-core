@@ -206,6 +206,8 @@ fn test_lists() {
                 "(filter not (list 'false 'true 'false))",
                 "(fold and (list 'true 'true 'false 'false) 'true)",
                 "(map - (list (+ 1 2) 3 (+ 4 5) (* (+ 1 2) 3)))"];
+    let expected = [ "(list 5 (buff 20))", "(list 3 2 int)", "(list 3 bool)", "bool", "(list 4 int)" ];
+
     let bad = [
         "(fold and (list 'true 'false) 2)",
         "(fold hash160 (list 1 2 3 4) 2)",
@@ -215,18 +217,32 @@ fn test_lists() {
         "(filter hash160 (list 1 2 3 4))",
         "(filter not (list 1 2 3 4))",
         "(filter not (list 1 2 3 4) 1)",
-        "(filter ynot (list 1 2 3 4) 1)",
+        "(filter ynot (list 1 2 3 4))",
         "(map if (list 1 2 3 4 5))",
         "(map mod (list 1 2 3 4 5))",
         "(map - (list 'true 'false 'true 'false))",
         "(map hash160 (+ 1 2))",];
+    let bad_expected = [
+        CheckErrors::TypeError(BoolType.into(), IntType.into()),
+        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrors::UnionTypeError(vec![IntType.into(), UIntType.into()], BoolType.into()),
+        CheckErrors::ListTypesMustMatch,
+        CheckErrors::ListTypesMustMatch,
+        CheckErrors::TypeError(BoolType.into(), BufferType(20).into()),
+        CheckErrors::TypeError(BoolType.into(), IntType.into()),
+        CheckErrors::IncorrectArgumentCount(2, 3),
+        CheckErrors::IllegalOrUnknownFunctionApplication("ynot".to_string()),
+        CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
+        CheckErrors::IncorrectArgumentCount(2, 1),
+        CheckErrors::UnionTypeError(vec![IntType.into(), UIntType.into()], BoolType.into()),
+        CheckErrors::ExpectedListApplication ];
 
-    for good_test in good.iter() {
-        type_check_helper(&good_test).unwrap();
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
     }
     
-    for bad_test in bad.iter() {
-        type_check_helper(&bad_test).unwrap_err();
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }
 
@@ -235,21 +251,28 @@ fn test_lists_in_defines() {
     let good = "
     (define-private (test (x int)) (eq? 0 (mod x 2)))
     (filter test (list 1 2 3 4 5))";
-    mem_type_check(good).unwrap();
+    assert_eq!("(list 5 int)", &format!("{}", mem_type_check(good).unwrap().0.unwrap()));
 }
 
 #[test]
 fn test_tuples() {
     let good = ["(+ 1 2     (get abc (tuple (abc 1) (def 'true))))",
                 "(and 'true (get def (tuple (abc 1) (def 'true))))"];
+
+    let expected = [ "int", "bool" ];
+
     let bad = ["(+ 1 2      (get def (tuple (abc 1) (def 'true))))",
                "(and 'true  (get abc (tuple (abc 1) (def 'true))))"];
-    for good_test in good.iter() {
-        type_check_helper(&good_test).unwrap();
+
+    let bad_expected = [ CheckErrors::TypeError(IntType.into(), BoolType.into()),
+                         CheckErrors::TypeError(BoolType.into(), IntType.into()), ];
+
+    for (good_test, expected) in good.iter().zip(expected.iter()) {
+        assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
     }
     
-    for bad_test in bad.iter() {
-        type_check_helper(&bad_test).unwrap_err();
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
     }
 }
 
@@ -260,11 +283,8 @@ fn test_empty_tuple_should_fail() {
             value)
     "#;
 
-    let res = mem_type_check(contract_src).unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::BadSyntaxBinding => true,
-        _ => false
-    });
+    assert_eq!(mem_type_check(contract_src).unwrap_err().err,
+               CheckErrors::BadSyntaxBinding);
 }
 
 #[test]
@@ -324,16 +344,15 @@ fn test_simple_uints() {
 
     let bad = ["(> u1 1)" ];
 
+    let bad_expected = [ CheckErrors::TypeError(UIntType.into(), IntType.into()) ];
+
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
         assert_eq!(expected, &type_sig.to_string());
     }
 
     for bad_test in bad.iter() {
-        match mem_type_check(bad_test).unwrap_err().err {
-            CheckErrors::TypeError(x, y) => assert_eq!("uint, int", &format!("{}, {}", x, y)),
-            _ => panic!()
-        };
+        mem_type_check(bad_test).unwrap_err();
     }
 }
 
