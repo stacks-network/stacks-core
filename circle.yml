@@ -37,11 +37,11 @@ jobs:
       - image: rustlang/rust:nightly-stretch
     working_directory: /blockstack-test
     steps:
+      - checkout
       - run:
           name: Fetch latest grcov
           command: |
             curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
-      - checkout
       - run:
           name: Build and Test
           environment:
