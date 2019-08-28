@@ -549,6 +549,43 @@ mod tests {
     }
 
     #[test]
+    fn test_uints() {
+        assert_eq!(Value::UInt(1).serialize(), r#"{ "type": "u128", "value": "1" }"#);
+        assert_eq!(Value::UInt(15).serialize(), r#"{ "type": "u128", "value": "f" }"#);
+
+        assert!(match Value::try_deserialize(
+            r#"{ "type": "u128", "value": "-f"}"#,
+            &TypeSignature::Atom(AtomTypeIdentifier::BoolType)).unwrap_err() {
+            Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
+            _ => false
+        });
+
+        assert!(match Value::try_deserialize(
+            r#"{ "type": "u128", "value": "-f"}"#,
+            &TypeSignature::Atom(AtomTypeIdentifier::UIntType)).unwrap_err() {
+            Error::Runtime(RuntimeErrorType::ParseError(_),_) => true,
+            _ => false
+        });
+
+        assert!(match Value::try_deserialize(
+            r#"{ "type": "u128", "value": "xf"}"#,
+            &TypeSignature::Atom(AtomTypeIdentifier::UIntType)).unwrap_err() {
+            Error::Runtime(RuntimeErrorType::ParseError(_),_) => true,
+            _ => false
+        });
+
+        assert_eq!(
+            Value::try_deserialize(
+                r#"{ "type": "u128", "value": "1"}"#,
+                &TypeSignature::Atom(AtomTypeIdentifier::UIntType)).unwrap(),
+            Value::UInt(1));
+        assert_eq!(
+            Value::try_deserialize_untyped(
+                r#"{ "type": "u128", "value": "1"}"#).unwrap(),
+            Value::UInt(1));
+    }
+
+    #[test]
     fn test_opts() {
         let none =  r#"{ "type": "none" }"#;
         let some_int = r#"{ "type": "some", "value": { "type": "i128", "value": "f" } }"#;

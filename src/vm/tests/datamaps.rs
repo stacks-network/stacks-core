@@ -1,4 +1,4 @@
-use vm::errors::{Error, UncheckedError, RuntimeErrorType};
+use vm::errors::{Error, UncheckedError, RuntimeErrorType, ShortReturnType};
 use vm::types::{Value, StandardPrincipalData, TupleData, ListData};
 use vm::contexts::{OwnedEnvironment};
 use vm::execute;
@@ -276,6 +276,30 @@ fn test_set_tuple_variable() {
         Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(2)), ("v1".into(), Value::Int(0))]).unwrap()),
     ]);    
     assert_executes(expected, &contract_src);
+}
+
+#[test]
+fn test_set_response_variable() {
+    let contract_src = r#"
+        (define-data-var keys (response int bool) (ok 1))
+        (var-set! keys (err 'true))
+        (var-set! keys (ok 3))
+        (expects! (var-get keys) 5)
+    "#;
+    let contract_src = contract_src.to_string();
+    let expected = Value::Int(3);
+    assert_executes(Ok(expected), &contract_src);
+
+    let contract_src = r#"
+        (define-data-var keys (response int bool) (ok 1))
+        (var-set! keys (err 'true))
+        (expects! (var-get keys) 5)
+    "#;
+    let contract_src = contract_src.to_string();
+    let expected = Value::Int(3);
+    assert_eq!(Err(ShortReturnType::ExpectedValue(Value::Int(5)).into()),
+               execute(&contract_src));
+
 }
 
 #[test]
