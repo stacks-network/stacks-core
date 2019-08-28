@@ -1,7 +1,6 @@
 pub mod serialization;
 mod signatures;
 
-use std::hash::{Hash, Hasher};
 use std::{fmt, cmp};
 use std::convert::TryInto;
 use std::collections::BTreeMap;
@@ -25,7 +24,7 @@ pub struct TupleData {
     pub data_map: BTreeMap<ClarityName, Value>
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuffData {
     pub data: Vec<u8>,
 }
@@ -48,18 +47,18 @@ pub enum PrincipalData {
                                  name: ContractName },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OptionalData {
     pub data: Option<Box<Value>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResponseData {
     pub committed: bool,
     pub data: Box<Value>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     Int(i128),
     UInt(u128),
@@ -121,21 +120,9 @@ impl PartialEq for ListData {
     }
 }
 
-impl Hash for ListData {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.data.hash(state);
-    }
-}
-
 impl PartialEq for TupleData {
     fn eq(&self, other: &TupleData) -> bool {
         self.data_map == other.data_map
-    }
-}
-
-impl Hash for TupleData {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.data_map.hash(state);
     }
 }
 
