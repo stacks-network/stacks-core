@@ -7,7 +7,6 @@ use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
 use vm::types::{Value, PrincipalData};
 
-#[derive(Debug)]
 pub enum LexItem {
     LeftParen,
     RightParen,
