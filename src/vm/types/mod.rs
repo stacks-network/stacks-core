@@ -155,11 +155,10 @@ impl Value {
     ///  this invariant is enforced through the Value constructors, each of which checks to ensure
     ///  that any typing data is correct.
     pub fn list_with_type(list_data: Vec<Value>, expected_type: ListTypeData) -> Result<Value> {
-        if expected_type.size()? > MAX_VALUE_SIZE {
-            return Err(RuntimeErrorType::ValueTooLarge.into())
-        }
-
-        if (expected_type.max_len as usize) < list_data.len() {
+        // Constructors for TypeSignature ensure that the size of the Value cannot
+        //   be greater than MAX_VALUE_SIZE (they error on such constructions)
+        //   so we do not need to perform that check here.
+        if (expected_type.get_max_len() as usize) < list_data.len() {
             return Err(InterpreterError::FailureConstructingListWithType.into())
         }
 
@@ -175,14 +174,13 @@ impl Value {
     }
 
     pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
-        let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
+        // Constructors for TypeSignature ensure that the size of the Value cannot
+        //   be greater than MAX_VALUE_SIZE (they error on such constructions)
         // Aaron: at this point, we've _already_ allocated memory for this type.
         //     (e.g., from a (map...) call, or a (list...) call.
         //     this is a problem _if_ the static analyzer cannot already prevent
         //     this case. This applies to all the constructor size checks.
-        if type_sig.size()? > MAX_VALUE_SIZE {
-            return Err(RuntimeErrorType::ValueTooLarge.into())
-        }
+        let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
         Ok(Value::List(ListData { data: list_data, type_signature: type_sig }))
     }
 
@@ -398,12 +396,10 @@ mod test {
         assert_eq!(
             Value::list_with_type(
                 vec![Value::Int(5), Value::Int(2)],
-                ListTypeData { max_len: 3, dimension: 1, atomic_type: AtomTypeIdentifier::BoolType.into() }),
+                ListTypeData::new_list(AtomTypeIdentifier::BoolType, 3, 1).unwrap()),
             Err(InterpreterError::FailureConstructingListWithType.into()));
         assert_eq!(
-            Value::list_with_type(
-                vec![Value::Int(5), Value::Int(2)],
-                ListTypeData { max_len: MAX_VALUE_SIZE as u32, dimension: 2, atomic_type: AtomTypeIdentifier::BoolType.into() }),
+            ListTypeData::new_list(AtomTypeIdentifier::BoolType, MAX_VALUE_SIZE as u32, 2),
             Err(RuntimeErrorType::ValueTooLarge.into()));
 
         assert_eq!(

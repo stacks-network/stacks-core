@@ -43,9 +43,9 @@ pub const PRINCIPAL_TYPE: TypeSignature = TypeSignature::Atom(AtomTypeIdentifier
 pub struct ListTypeData {
     // NOTE: for the purposes of type-checks and cost computations, list size = dimension * max_length!
     //       high dimensional lists are _expensive_ --- use lists of tuples!
-    pub max_len: u32,
-    pub dimension: u8,
-    pub atomic_type: AtomTypeIdentifier
+    max_len: u32,
+    dimension: u8,
+    atomic_type: AtomTypeIdentifier
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +102,14 @@ impl ListTypeData {
                 Ok(list_data)
             }
         }
+    }
+
+    pub fn destruct(self) -> (AtomTypeIdentifier, u32, u8) {
+        (self.atomic_type, self.max_len, self.dimension)
+    }
+
+    pub fn get_max_len(&self) -> u32 {
+        self.max_len
     }
 
     pub fn get_list_item_type(&self) -> TypeSignature {

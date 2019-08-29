@@ -379,6 +379,7 @@ mod tests {
     use vm::database::ClaritySerializable;
     use vm::errors::Error;
     use super::super::*;
+    use vm::types::AtomTypeIdentifier::{IntType, BoolType};
 
     #[test]
     fn test_lists() {
@@ -403,42 +404,42 @@ mod tests {
         // Should be legal!
         Value::try_deserialize(
             serialized_0, &TypeSignature::List(
-                ListTypeData { max_len: 3, dimension: 2, atomic_type: AtomTypeIdentifier::IntType })).unwrap();
+                ListTypeData::new_list(IntType, 3, 2).unwrap())).unwrap();
         Value::try_deserialize(
             serialized_0, &TypeSignature::List(
-                ListTypeData { max_len: 5, dimension: 2, atomic_type: AtomTypeIdentifier::IntType })).unwrap();
+                ListTypeData::new_list(IntType, 5, 2).unwrap())).unwrap();
 
         assert_eq!(
             Value::try_deserialize(
                 serialized_0, &TypeSignature::List(
-                    ListTypeData { max_len: 3, dimension: 2, atomic_type: AtomTypeIdentifier::IntType })).unwrap(),
+                    ListTypeData::new_list(IntType, 3, 2).unwrap())).unwrap(),
             Value::try_deserialize_untyped(serialized_0).unwrap());
 
         // Fail because the atomic type isn't correct
         //  leads to an unexpected attempt to deserialize an int as bool.
         assert_eq!(Value::try_deserialize(
             serialized_0, &TypeSignature::List(
-                ListTypeData { max_len: 3, dimension: 2, atomic_type: AtomTypeIdentifier::BoolType })).unwrap_err(),
+                ListTypeData::new_list(BoolType, 3, 2).unwrap())).unwrap_err(),
                    InterpreterError::DeserializeExpected(
                        TypeSignature::Atom(AtomTypeIdentifier::BoolType)).into());
         
         // Fail because the max_len isn't enough for the sublists
         assert_eq!(Value::try_deserialize(
             serialized_0, &TypeSignature::List(
-                ListTypeData { max_len: 2, dimension: 2, atomic_type: AtomTypeIdentifier::IntType })).unwrap_err(),
+                ListTypeData::new_list(IntType, 2, 2).unwrap())).unwrap_err(),
                    InterpreterError::FailureConstructingListWithType.into());
         
         // Fail because the max_len isn't enough for the outer-list
         assert_eq!(Value::try_deserialize(
             serialized_1, &TypeSignature::List(
-                ListTypeData { max_len: 2, dimension: 2, atomic_type: AtomTypeIdentifier::IntType })).unwrap_err(),
+                ListTypeData::new_list(IntType, 2, 2).unwrap())).unwrap_err(),
                    InterpreterError::FailureConstructingListWithType.into());
         
         // Fail because dimension is bad
         //  leads to an unexpected attempt to deserialize an int as list.
         assert!(match Value::try_deserialize(
             serialized_1, &TypeSignature::List(
-                ListTypeData { max_len: 3, dimension: 3, atomic_type: AtomTypeIdentifier::IntType })).unwrap_err() {
+                ListTypeData::new_list(IntType, 3, 3).unwrap())).unwrap_err() {
             Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
             _ => false
         });
@@ -610,7 +611,7 @@ mod tests {
         assert!(match Value::try_deserialize(
             some_int,
             &TypeSignature::List(
-                ListTypeData { max_len: 2, dimension: 2, atomic_type: AtomTypeIdentifier::IntType })).unwrap_err() {
+                ListTypeData::new_list(IntType, 2, 2).unwrap())).unwrap_err() {
             Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
             _ => false
         });

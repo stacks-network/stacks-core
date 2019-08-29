@@ -326,6 +326,7 @@ fn test_set_list_variable() {
 
 #[test]
 fn test_get_list_max_len() {
+    use vm::types::TypeSignature;
     let contract_src = r#"
         (define-data-var ranking (list 10 int) (list 1 2 3))
         (define-private (get-ranking)
@@ -341,8 +342,7 @@ fn test_get_list_max_len() {
         Value::List(ListData { data, type_signature }) => {
             assert_eq!(vec![Value::Int(1), Value::Int(2), Value::Int(3)],
                        data);
-            assert_eq!(type_signature.max_len, 10);
-            assert_eq!(type_signature.dimension, 1);
+            assert_eq!("(list 10 int)", &format!("{}", TypeSignature::from(type_signature)));
         },
         _ => panic!("Expected List")
     };
