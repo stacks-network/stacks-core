@@ -2,7 +2,7 @@ pub mod serialization;
 mod signatures;
 
 use std::{fmt, cmp};
-use std::convert::TryInto;
+use std::convert::{TryInto, TryFrom};
 use std::collections::BTreeMap;
 
 use address::c32;
@@ -13,14 +13,14 @@ use util::hash;
 pub use vm::types::signatures::{
     AtomTypeIdentifier, TupleTypeSignature, AssetIdentifier, FixedFunction,
     TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
-    INT_TYPE, UINT_TYPE, BOOL_TYPE
+    INT_TYPE, UINT_TYPE, BOOL_TYPE, BUFF_32, BUFF_20, BufferLength
 };
 
 pub const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
-    type_signature: TupleTypeSignature,
+    pub type_signature: TupleTypeSignature,
     pub data_map: BTreeMap<ClarityName, Value>
 }
 
@@ -102,15 +102,11 @@ impl ResponseData {
 
 impl BlockInfoProperty {
     pub fn type_result(&self) -> TypeSignature {
-        use self::AtomTypeIdentifier::*;
         use self::BlockInfoProperty::*;
-        TypeSignature::from(
-            match self {
-                Time => IntType,
-                VrfSeed => BufferType(32),
-                HeaderHash => BufferType(32),
-                BurnchainHeaderHash => BufferType(32),
-            })
+        match self {
+            Time => AtomTypeIdentifier::IntType.into(),
+            VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
+        }
     }
 }
 
@@ -185,13 +181,10 @@ impl Value {
     }
 
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
-        if buff_data.len() > u32::max_value() as usize {
-            Err(RuntimeErrorType::BufferTooLarge.into())
-        } else if buff_data.len() as i128 > MAX_VALUE_SIZE {
-            Err(RuntimeErrorType::ValueTooLarge.into())
-        } else {
-            Ok(Value::Buffer(BuffData { data: buff_data }))
-        }
+        // check the buffer size
+        BufferLength::try_from(buff_data.len())?;
+        // construct the buffer
+        Ok(Value::Buffer(BuffData { data: buff_data }))
     }
 
     pub fn size(&self) -> Result<i128> {
@@ -331,11 +324,9 @@ impl From<TupleData> for Value {
 impl TupleData {
     fn new(type_signature: TupleTypeSignature, data_map: BTreeMap<ClarityName, Value>) -> Result<TupleData> {
         let t = TupleData { type_signature, data_map };
-        if t.size()? > MAX_VALUE_SIZE {
-            return Err(RuntimeErrorType::ValueTooLarge.into())
-        }
         Ok(t)
     }
+
     pub fn from_data(mut data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
@@ -349,14 +340,13 @@ impl TupleData {
             data_map.insert(name, value);
         }
 
-        Self::new(TupleTypeSignature { type_map }, data_map)
+        Self::new(TupleTypeSignature::try_from(type_map)?, data_map)
     }
 
     pub fn from_data_typed(mut data: Vec<(ClarityName, Value)>, expected: &TupleTypeSignature) -> Result<TupleData> {
-        let type_map = &expected.type_map;
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {
-            let expected_type = type_map.get(&name)
+            let expected_type = expected.field_type(&name)
                 .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
             if !expected_type.admits(&value) {
                 return Err(InterpreterError::FailureConstructingTupleWithType.into());
@@ -412,7 +402,7 @@ mod test {
             assert_eq!(
                 Value::buff_from(
                     vec![0; (u32::max_value() as usize) + 10]),
-                Err(RuntimeErrorType::BufferTooLarge.into()));
+                Err(RuntimeErrorType::ValueTooLarge.into()));
         }
     }
     #[test]

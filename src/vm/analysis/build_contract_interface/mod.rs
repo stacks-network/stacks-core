@@ -111,7 +111,7 @@ impl ContractInterfaceAtomType {
     }
 
     pub fn vec_from_tuple_type(tuple_type: &TupleTypeSignature) -> Vec<ContractInterfaceTupleEntryType> {
-        tuple_type.type_map.iter().map(|(name, sig)| 
+        tuple_type.get_type_map().iter().map(|(name, sig)| 
             ContractInterfaceTupleEntryType { 
                 name: name.to_string(), 
                 type_f: Self::from_type_signature(sig)
@@ -127,7 +127,7 @@ impl ContractInterfaceAtomType {
             UIntType => ContractInterfaceAtomType::uint128,
             BoolType => ContractInterfaceAtomType::bool,
             PrincipalType => ContractInterfaceAtomType::principal,
-            BufferType(len) => ContractInterfaceAtomType::buffer { length: *len },
+            BufferType(len) => ContractInterfaceAtomType::buffer { length: len.into() },
             TupleType(sig) => Self::from_tuple_type(sig),
             OptionalType(sig) => ContractInterfaceAtomType::optional(
                 Box::new(Self::from_type_signature(&sig)) 

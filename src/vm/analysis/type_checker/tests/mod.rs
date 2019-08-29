@@ -10,6 +10,7 @@ use vm::contexts::{OwnedEnvironment};
 use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier, FunctionType, FixedFunction};
 
 use vm::types::AtomTypeIdentifier::{IntType, BoolType, BufferType, UIntType};
+use std::convert::TryInto;
 
 mod assets;
 mod contracts;
@@ -26,6 +27,9 @@ fn type_check_helper(exp: &str) -> TypeResult {
     })
 }
 
+fn buff_type(size: u32) -> TypeSignature {
+    AtomTypeIdentifier::BufferType(size.try_into().unwrap()).into()
+}
 
 #[test]
 fn test_get_block_info(){
@@ -126,7 +130,7 @@ fn test_simple_ifs() {
 
     let bad_expected = [
         CheckErrors::IfArmsMustMatch(BoolType.into(), IntType.into()),
-        CheckErrors::IfArmsMustMatch(BufferType(1).into(), BoolType.into()),
+        CheckErrors::IfArmsMustMatch(buff_type(1), BoolType.into()),
         CheckErrors::IncorrectArgumentCount(3, 0),
         CheckErrors::TypeError(BoolType.into(), IntType.into())
     ];
@@ -228,7 +232,7 @@ fn test_lists() {
         CheckErrors::UnionTypeError(vec![IntType.into(), UIntType.into()], BoolType.into()),
         CheckErrors::ListTypesMustMatch,
         CheckErrors::ListTypesMustMatch,
-        CheckErrors::TypeError(BoolType.into(), BufferType(20).into()),
+        CheckErrors::TypeError(BoolType.into(), buff_type(20)),
         CheckErrors::TypeError(BoolType.into(), IntType.into()),
         CheckErrors::IncorrectArgumentCount(2, 3),
         CheckErrors::IllegalOrUnknownFunctionApplication("ynot".to_string()),

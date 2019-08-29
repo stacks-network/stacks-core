@@ -222,7 +222,7 @@ impl Value {
                             Some(x) => {
                                 let passed_test = match x {
                                     TypeSignature::Atom(AtomTypeIdentifier::BufferType(buff_len)) => {
-                                        bytes.len() <= (*buff_len as usize)
+                                        bytes.len() <= (u32::from(buff_len) as usize)
                                     },
                                     _ => false
                                 };
@@ -380,6 +380,10 @@ mod tests {
     use vm::errors::Error;
     use super::super::*;
     use vm::types::AtomTypeIdentifier::{IntType, BoolType};
+
+    fn buff_type(size: u32) -> TypeSignature {
+        AtomTypeIdentifier::BufferType(size.try_into().unwrap()).into()
+    }
 
     #[test]
     fn test_lists() {
@@ -764,7 +768,7 @@ mod tests {
         // fail because we expect a shorter buffer
         assert!(match Value::try_deserialize(
             r#"{ "type": "buff", "value": "00deadbeef00" }"#,
-            &TypeSignature::Atom(AtomTypeIdentifier::BufferType(4))).unwrap_err() {
+            &buff_type(4)).unwrap_err() {
             Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
              _ => false
         });
@@ -772,7 +776,7 @@ mod tests {
         // fail because its a bad hex-string
         assert!(match Value::try_deserialize(
             r#"{ "type": "buff", "value": "00deadbeef0" }"#,
-            &TypeSignature::Atom(AtomTypeIdentifier::BufferType(6))).unwrap_err() {
+            &buff_type(6)).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_),_) => true,
             _ => false
         });
@@ -780,7 +784,7 @@ mod tests {
         assert_eq!(
             Value::try_deserialize(
             r#"{ "type": "buff", "value": "00deadbeef00" }"#,
-            &TypeSignature::Atom(AtomTypeIdentifier::BufferType(6))).unwrap(),
+            &buff_type(6)).unwrap(),
             Value::buff_from(vec![0,0xde,0xad,0xbe,0xef,0]).unwrap());
         assert_eq!(
             Value::try_deserialize_untyped(

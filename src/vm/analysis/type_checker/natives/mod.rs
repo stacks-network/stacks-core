@@ -1,7 +1,8 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
 use vm::{ClarityName, SymbolicExpression};
-use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE, FunctionArg, FunctionType, FixedFunction};
+use vm::types::{BUFF_32, BUFF_20, TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty,
+                MAX_VALUE_SIZE, FunctionArg, FunctionType, FixedFunction};
 use super::{TypeChecker, TypingContext, TypeResult, no_type, check_argument_count, check_arguments_at_least}; 
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use std::convert::TryFrom;
@@ -116,7 +117,7 @@ pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpre
         tuple_type_data.push((var_name.clone(), var_type))
     }
     
-    let tuple_signature = TupleTypeSignature::new(tuple_type_data)
+    let tuple_signature = TupleTypeSignature::try_from(tuple_type_data)
         .map_err(|_| CheckError::new(CheckErrors::BadTupleConstruction))?;
     
     Ok(TypeSignature::new_atom(
@@ -297,19 +298,22 @@ impl TypedNativeFunction {
                     returns: AtomTypeIdentifier::BoolType.into() }))),
             Hash160 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                    vec![AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32).into(),
-                         AtomTypeIdentifier::IntType.into(),],
-                    AtomTypeIdentifier::BufferType(20).into()))),
+                    vec![TypeSignature::new_buffer(MAX_VALUE_SIZE)
+                         .expect("ERROR: Failed to instantiate static buffer type"),
+                         AtomTypeIdentifier::IntType.into()],
+                    BUFF_20.clone()))),
             Sha256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                    vec![AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32).into(),
-                         AtomTypeIdentifier::IntType.into(),],
-                    AtomTypeIdentifier::BufferType(32).into()))),
+                    vec![TypeSignature::new_buffer(MAX_VALUE_SIZE)
+                         .expect("ERROR: Failed to instantiate static buffer type"),
+                         AtomTypeIdentifier::IntType.into()],
+                    BUFF_32.clone()))),
             Keccak256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                    vec![AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32).into(),
-                         AtomTypeIdentifier::IntType.into(),],
-                    AtomTypeIdentifier::BufferType(32).into()))),
+                    vec![TypeSignature::new_buffer(MAX_VALUE_SIZE)
+                         .expect("ERROR: Failed to instantiate static buffer type"),
+                         AtomTypeIdentifier::IntType.into()],
+                    BUFF_32.clone()))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
             TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),

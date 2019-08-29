@@ -1,7 +1,12 @@
-use vm::types::AtomTypeIdentifier;
+use vm::types::{AtomTypeIdentifier, TypeSignature};
 use vm::parser::parse;
 use vm::analysis::errors::CheckErrors;
-use vm::analysis::{AnalysisDatabase,mem_type_check};
+use vm::analysis::{AnalysisDatabase, mem_type_check};
+use std::convert::TryInto;
+
+fn buff_type(size: u32) -> TypeSignature {
+    AtomTypeIdentifier::BufferType(size.try_into().unwrap()).into()
+}
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-non-fungible-token stacka-nfts (buff 10))
@@ -128,16 +133,16 @@ fn test_bad_asset_usage() {
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::BadTokenName,
         CheckErrors::NoSuchNFT("stackoos".to_string()),
-        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
+        CheckErrors::TypeError(buff_type(10),
                                AtomTypeIdentifier::IntType.into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
-                               AtomTypeIdentifier::BufferType(15).into()),
+        CheckErrors::TypeError(buff_type(10),
+                               buff_type(15)),
         CheckErrors::BadTokenName,
         CheckErrors::NoSuchNFT("stackoos".to_string()),
-        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
+        CheckErrors::TypeError(buff_type(10),
                                AtomTypeIdentifier::IntType.into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
-                               AtomTypeIdentifier::BufferType(15).into()),
+        CheckErrors::TypeError(buff_type(10),
+                               buff_type(15)),
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::NoSuchFT("stackoos".to_string()),
@@ -152,7 +157,7 @@ fn test_bad_asset_usage() {
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
                                AtomTypeIdentifier::IntType.into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
+        CheckErrors::TypeError(buff_type(10),
                                AtomTypeIdentifier::IntType.into()),
         CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
