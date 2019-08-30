@@ -495,10 +495,10 @@ impl TypeSignature {
             },
             (List(ListTypeData{ max_len: len_a, entry_type: entry_a }), List(ListTypeData{ max_len: len_b, entry_type: entry_b })) => {
                 let entry_type =
-                    if len_a == 0 {
-                        entry_b.clone()
-                    } else if len_b == 0 {
-                        entry_a.clone() 
+                    if *len_a == 0 {
+                        *(entry_b.clone())
+                    } else if *len_b == 0 {
+                        *(entry_a.clone())
                     } else {
                         Self::least_supertype(entry_a, entry_b)?
                     };

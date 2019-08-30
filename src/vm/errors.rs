@@ -26,6 +26,7 @@ pub enum Error {
 #[derive(Debug, PartialEq)]
 pub enum UncheckedError {
     NonPublicFunction(String),
+    NoSuperType(TypeSignature, TypeSignature),
     TypeError(String, Value),
     InvalidArguments(String),
     IncorrectArgumentCount(usize, usize),
@@ -39,7 +40,6 @@ pub enum UncheckedError {
     RecursionDetected,
     ExpectedListPairs,
     ListEntriesMustMatch(TypeSignature, TypeSignature),
-    NoSuperType(TypeSignature, TypeSignature),
     ExpectedFunctionName,
     ExpectedVariableName,
     ExpectedContractName,

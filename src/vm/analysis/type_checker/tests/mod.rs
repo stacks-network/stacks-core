@@ -536,7 +536,7 @@ fn test_list_nones() {
          (begin
            (let ((a (list none none none))) (print a)))";
     assert_eq!(
-        "(list 3 (optional NoType))",
+        "(list 3 (optional UnknownType))",
         &format!("{}", mem_type_check(contract).unwrap().0.unwrap()));
 }
 
