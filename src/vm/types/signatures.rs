@@ -531,14 +531,6 @@ impl TypeSignature {
         }
     }
 
-    pub fn list_max_len(&self) -> Option<u32> {
-        if let TypeSignature::ListType(ListTypeData{ max_len, .. }) = self {
-            Some(max_len.clone())
-        } else {
-            None
-        }
-    }
-
     pub fn list_of(item_type: TypeSignature, max_len: u32) -> Result<TypeSignature> {
         ListTypeData::new_list(item_type, max_len).map(|x| x.into())
     }
@@ -603,14 +595,6 @@ impl TypeSignature {
             ListTypeData::new_list(current_entry_type, len)
         } else {
             Ok(TypeSignature::get_empty_list_type())
-        }
-    }
-
-    pub fn get_list_item_type(&self) -> Option<&TypeSignature> {
-        if let TypeSignature::ListType(list_type) = self {
-            Some(list_type.get_list_item_type())
-        } else {
-            None
         }
     }
 }
