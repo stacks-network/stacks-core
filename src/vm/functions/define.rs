@@ -81,7 +81,7 @@ fn handle_define_persisted_variable(variable_name: &SymbolicExpression, value_ty
 
     check_legal_define(&variable_str, &env.contract_context)?;
 
-    let value_type_signature = TypeSignature::parse_type_repr(value_type, true)?;
+    let value_type_signature = TypeSignature::parse_type_repr(value_type)?;
 
     let context = LocalContext::new();
     let value = eval(value, env, &context)?;
@@ -95,7 +95,7 @@ fn handle_define_nonfungible_asset(asset_name: &SymbolicExpression, key_type: &S
 
     check_legal_define(&asset_name, &env.contract_context)?;
 
-    let key_type_signature = TypeSignature::parse_type_repr(key_type, true)?;
+    let key_type_signature = TypeSignature::parse_type_repr(key_type)?;
 
     Ok(DefineResult::NonFungibleAsset(asset_name.to_string(), key_type_signature))
 }

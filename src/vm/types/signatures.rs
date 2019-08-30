@@ -47,11 +47,8 @@ pub const BUFF_20: TypeSignature = TypeSignature::Atom(AtomTypeIdentifier::Buffe
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
-    // NOTE: for the purposes of type-checks and cost computations, list size = dimension * max_length!
-    //       high dimensional lists are _expensive_ --- use lists of tuples!
     max_len: u32,
-    dimension: u8,
-    atomic_type: AtomTypeIdentifier
+    entry_type: Box<TypeSignature>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,6 +86,15 @@ pub struct FunctionArg {
     pub name: ClarityName,
 }
 
+#[cfg(test)]
+impl From<&str> for TypeSignature {
+    fn from(val: &str) -> Self {
+        use vm::parser;
+        let expr = &parser::parse(val).unwrap()[0];
+        TypeSignature::parse_type_repr(expr).unwrap()
+    }
+}
+
 impl From<AtomTypeIdentifier> for TypeSignature {
     fn from(atom: AtomTypeIdentifier) -> Self {
         TypeSignature::Atom(atom)
@@ -98,6 +104,12 @@ impl From<AtomTypeIdentifier> for TypeSignature {
 impl From<ListTypeData> for TypeSignature {
     fn from(data: ListTypeData) -> Self {
         TypeSignature::List(data)
+    }
+}
+
+impl From<TupleTypeSignature> for TypeSignature {
+    fn from(data: TupleTypeSignature) -> Self {
+        TypeSignature::Atom(AtomTypeIdentifier::TupleType(data))
     }
 }
 
@@ -136,42 +148,28 @@ impl TryFrom<usize> for BufferLength {
 }
 
 impl ListTypeData {
-    pub fn new_list(atomic_type: AtomTypeIdentifier, max_len: u32, dimension: u8) -> Result<ListTypeData> {
-        if dimension == 0 {
-            Err(RuntimeErrorType::InvalidTypeDescription.into())
+    pub fn new_list(entry_type: TypeSignature, max_len: u32) -> Result<ListTypeData> {
+        let list_data = ListTypeData { 
+            entry_type: Box::new(entry_type),
+            max_len: max_len as u32 
+        };
+        if list_data.size()? > MAX_VALUE_SIZE {
+            Err(RuntimeErrorType::ValueTooLarge.into())
         } else {
-            let list_data = ListTypeData { 
-                atomic_type,
-                max_len: max_len as u32,
-                dimension: dimension as u8 };
-            if list_data.size()? > MAX_VALUE_SIZE {
-                Err(RuntimeErrorType::ValueTooLarge.into())
-            } else {
-                Ok(list_data)
-            }
+            Ok(list_data)
         }
     }
 
-    pub fn destruct(self) -> (AtomTypeIdentifier, u32, u8) {
-        (self.atomic_type, self.max_len, self.dimension)
+    pub fn destruct(self) -> (TypeSignature, u32) {
+        (*self.entry_type, self.max_len)
     }
 
     pub fn get_max_len(&self) -> u32 {
         self.max_len
     }
 
-    pub fn get_list_item_type(&self) -> TypeSignature {
-        if self.dimension == 0 {
-            panic!("Invalid dimension of 0")
-        } else if self.dimension == 1 {
-            TypeSignature::Atom(self.atomic_type.clone())
-        } else {
-            let list_type = ListTypeData { 
-                atomic_type: self.atomic_type.clone(),
-                max_len: self.max_len.clone(),
-                dimension: self.dimension - 1 };
-            TypeSignature::List(list_type)
-        }
+    pub fn get_list_item_type(&self) -> &TypeSignature {
+        &self.entry_type
     }
 
     pub fn size(&self) -> Result<i128> {
@@ -179,18 +177,16 @@ impl ListTypeData {
         if self.max_len <= 0 {
             Ok(base_cost)
         } else {
-            let multiplier = (self.max_len as i128).checked_mul(self.dimension as i128)
-                .ok_or(RuntimeErrorType::ValueTooLarge)?;
-            multiplier.checked_mul(self.atomic_type.size()?)
-                .ok_or(RuntimeErrorType::ValueTooLarge)?
-                .checked_add(base_cost)
+            self.entry_type.size()?
+                .checked_mul(self.max_len as i128)
+                .and_then(|x| x.checked_mul(base_cost))
                 .ok_or(RuntimeErrorType::ValueTooLarge.into())
         }
     }
 
     pub fn type_size(&self) -> Result<i128> {
-        let fixed_cost = 4 + 1 + 1; // 1 byte for Type enum, 1 for dimension, 4 for max_len.
-        self.atomic_type.type_size()?
+        let fixed_cost = 4 + 1; // 1 byte for Type enum, 4 for max_len.
+        self.entry_type.type_size()?
             .checked_add(fixed_cost)
             .ok_or(RuntimeErrorType::ValueTooLarge.into())
     }
@@ -253,35 +249,6 @@ impl AtomTypeIdentifier {
         }
     }
 
-    fn expand_to_admit(&mut self, other: &AtomTypeIdentifier) -> Result<()> {
-        match self {
-            AtomTypeIdentifier::BufferType(ref mut my_len) => {
-                if let AtomTypeIdentifier::BufferType(ref other_len) = other {
-                    if other_len.0 > my_len.0 {
-                        my_len.0 = other_len.0
-                    }
-                    Ok(())
-                } else {
-                    Err(RuntimeErrorType::BadTypeConstruction.into())
-                }
-            },
-            AtomTypeIdentifier::TupleType(ref mut tuple_sig) => {
-                if let AtomTypeIdentifier::TupleType(ref other_tuple_sig) = other {
-                    tuple_sig.expand_to_admit(other_tuple_sig)
-                } else {
-                    Err(RuntimeErrorType::BadTypeConstruction.into())
-                }
-            },
-            _ => {
-                if other == self {
-                    Ok(())
-                } else {
-                    Err(RuntimeErrorType::BadTypeConstruction.into())
-                }
-            }
-        }
-    }
-
     fn admits(&self, other: &AtomTypeIdentifier) -> bool {
         match self {
             AtomTypeIdentifier::OptionalType(ref my_inner_type) => {
@@ -330,6 +297,7 @@ impl AtomTypeIdentifier {
                     false
                 }
             },
+            AtomTypeIdentifier::NoType => panic!("NoType should never be asked to admit."),
             _ => other == self
         }
     }
@@ -435,21 +403,6 @@ impl TupleTypeSignature {
             .ok_or(RuntimeErrorType::ValueTooLarge.into())
     }
 
-    // NOTE: this function mutates self _even if it returns an error_.
-    fn expand_to_admit(&mut self, other: &TupleTypeSignature) -> Result<()> {
-        if self.type_map.len() != other.type_map.len() {
-            return Err(RuntimeErrorType::BadTypeConstruction.into())
-        }
-
-        for (name, my_type_sig) in self.type_map.iter_mut() {
-            let other_type_sig = other.type_map.get(name)
-                .ok_or(RuntimeErrorType::BadTypeConstruction)?;
-            my_type_sig.expand_to_admit(other_type_sig)?;
-        }
-
-        Ok(())
-    }
-
     pub fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature> {
         if let SymbolicExpressionType::List(ref name_type_pairs) = type_def.expr {
             let mapped_key_types = parse_name_type_pairs(name_type_pairs)?;
@@ -483,47 +436,6 @@ impl TypeSignature {
                 Box::new((ok_type, err_type))))
     }
 
-    fn make_union_response_type(response_type_a: &(TypeSignature, TypeSignature),
-                                response_type_b: &(TypeSignature, TypeSignature)) -> Option<TypeSignature> {
-
-        // if a has any "no type" fields, then just use b's types for that field
-        let (a_type_okay, a_type_err) = {
-            let okay_type = match response_type_a.0.match_atomic() {
-                Some(AtomTypeIdentifier::NoType) => response_type_b.0.clone(),
-                _ => response_type_a.0.clone()
-            };
-            let err_type = match response_type_a.1.match_atomic() {
-                Some(AtomTypeIdentifier::NoType) => response_type_b.1.clone(),
-                _ => response_type_a.1.clone()
-            };
-            (okay_type, err_type)
-        };
-
-        // and vice-versa
-        let (b_type_okay, b_type_err) = {
-            let okay_type = match response_type_b.0.match_atomic() {
-                Some(AtomTypeIdentifier::NoType) => response_type_a.0.clone(),
-                _ => response_type_b.0.clone()
-            };
-            let err_type = match response_type_b.1.match_atomic() {
-                Some(AtomTypeIdentifier::NoType) => response_type_a.1.clone(),
-                _ => response_type_b.1.clone()
-            };
-            (okay_type, err_type)
-        };
-
-
-        let okay_type = TypeSignature::most_admissive(a_type_okay, b_type_okay);
-        let error_type = TypeSignature::most_admissive(a_type_err, b_type_err);
-        if let (Ok(okay_type), Ok(error_type)) = (okay_type, error_type) {
-            Some(TypeSignature::new_atom(
-                AtomTypeIdentifier::ResponseType(
-                    Box::new((okay_type, error_type)))))
-        } else {
-            None
-        }
-    }
-
     pub fn is_no_type(&self) -> bool {
         if let Some(AtomTypeIdentifier::NoType) = self.match_atomic() {
             true
@@ -532,24 +444,91 @@ impl TypeSignature {
         }
     }
 
-    pub fn most_admissive(a: TypeSignature, b: TypeSignature) -> std::result::Result<TypeSignature, 
-                                                                                     (TypeSignature, TypeSignature)> {
-        // if response type, we may need to return the union of a and b.
-        if let (Some(AtomTypeIdentifier::ResponseType(ref response_type_a)),
-                Some(AtomTypeIdentifier::ResponseType(ref response_type_b))) =
-            (a.match_atomic(), b.match_atomic()) {
-                return TypeSignature::make_union_response_type(response_type_a, response_type_b)
-                    .ok_or_else(|| (a.clone(), b.clone()))
-            }
-
-        // same doesn't apply to option types: option(A) would already admit option(None),
-        //   so apply the same "most admissive" of the two types logic as any other type.
-        if a.admits_type(&b) {
-            Ok(a)
-        } else if b.admits_type(&a) {
-            Ok(b)
+    /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)
+    fn factor_out_no_type(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+        if a.is_no_type() {
+            Ok(b.clone())
+        } else if b.is_no_type() {
+            Ok(a.clone())
         } else {
-            Err((a,b))
+            Self::least_supertype(a, b)
+        }
+    }
+
+    ///
+    /// This function returns the most-restrictive type that admits _both_ A and B (something like a least common supertype),
+    /// or Errors if no such type exists. On error, it throws NoSuperType(A,B), unless a constructor error'ed -- in which case,
+    /// it throws the constructor's error.
+    ///
+    ///  For two Tuples:
+    ///      least_supertype(A, B) := (tuple \for_each(key k) least_supertype(type_a_k, type_b_k))
+    ///  For two Lists:
+    ///      least_supertype(A, B) := (list max_len: max(max_len A, max_len B), entry: least_supertype(entry_a, entry_b))
+    ///        if max_len A | max_len B is 0: entry := Non-empty list entry
+    ///  For two responses:
+    ///      least_supertype(A, B) := (response least_supertype(ok_a, ok_b), least_supertype(err_a, err_b))
+    ///        if any entries are NoType, use the other type's entry
+    ///  For two options:
+    ///      least_supertype(A, B) := (option least_supertype(some_a, some_b))
+    ///        if some_a | some_b is NoType, use the other type's entry.
+    ///  For buffers:
+    ///      least_supertype(A, B) := (buff len: max(len A, len B))
+    ///  For ints, uints, principals, bools:
+    ///      least_supertype(A, B) := if A != B, error, else A
+    ///
+    pub fn least_supertype(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+        use self::TypeSignature::{List, Atom};
+        use self::AtomTypeIdentifier::{TupleType, BufferType, IntType, UIntType, PrincipalType, OptionalType, ResponseType, BoolType};
+        match (a, b) {
+            (Atom(TupleType(TupleTypeSignature{ type_map: types_a })), Atom(TupleType(TupleTypeSignature{ type_map: types_b }))) => {
+                if types_a.len() != types_b.len() {
+                    return Err(UncheckedError::NoSuperType(a.clone(), b.clone()).into())
+                }
+                let mut type_map_out = BTreeMap::new();
+                for (name, entry_a) in types_a.iter() {
+                    let entry_b = types_b.get(name)
+                        .ok_or(UncheckedError::NoSuperType(a.clone(), b.clone()))?;
+                    let entry_out = Self::least_supertype(entry_a, entry_b)?;
+                    type_map_out.insert(name.clone(), entry_out);
+                }
+                TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
+            },
+            (List(ListTypeData{ max_len: len_a, entry_type: entry_a }), List(ListTypeData{ max_len: len_b, entry_type: entry_b })) => {
+                let entry_type =
+                    if len_a == 0 {
+                        entry_b.clone()
+                    } else if len_b == 0 {
+                        entry_a.clone() 
+                    } else {
+                        Self::least_supertype(entry_a, entry_b)?
+                    };
+                let max_len = cmp::max(len_a, len_b);
+                Self::list_of(entry_type, *max_len)
+            },
+            (Atom(ResponseType(resp_a)), Atom(ResponseType(resp_b))) => {
+                let ok_type = Self::factor_out_no_type(&resp_a.0, &resp_b.0)?;
+                let err_type = Self::factor_out_no_type(&resp_a.1, &resp_b.1)?;
+                Ok(Self::new_response(ok_type, err_type))
+            },
+            (Atom(OptionalType(some_a)), Atom(OptionalType(some_b))) => {
+                let some_type = Self::factor_out_no_type(some_a, some_b)?;
+                Ok(Self::new_option(some_type))
+            },
+            (Atom(BufferType(buff_a)), Atom(BufferType(buff_b))) => {
+                let buff_len = if u32::from(buff_a) > u32::from(buff_b) {
+                    buff_a
+                } else {
+                    buff_b
+                }.clone();
+                Ok(Atom(BufferType(buff_len)))
+            },
+            (x, y) => {
+                if x == y {
+                    Ok(x.clone())
+                } else {
+                    Err(UncheckedError::NoSuperType(a.clone(), b.clone()).into())
+                }
+            }
         }
     }
 
@@ -562,36 +541,12 @@ impl TypeSignature {
     }
 
     pub fn list_of(item_type: TypeSignature, max_len: u32) -> Result<TypeSignature> {
-        let (atomic_type, max_len, dimension) = match item_type {
-            TypeSignature::List(ListTypeData { max_len: item_max_len,
-                                               dimension: item_dim,
-                                               atomic_type }) => {
-                let dimension = item_dim.checked_add(1)
-                    .ok_or(RuntimeErrorType::ListTooLarge)?;
-                let max_len = {
-                    if item_max_len > max_len {
-                        item_max_len
-                    } else {
-                        max_len
-                    }
-                };
-                (atomic_type, max_len, dimension)
-            }
-            TypeSignature::Atom(atomic_type) => {
-                (atomic_type, max_len, 1)
-            }
-        };
-
-        ListTypeData::new_list(atomic_type, max_len, dimension).map(|x| x.into())
-    }
-
-    pub fn new_tuple(tuple_type_sig: TupleTypeSignature) -> Result<TypeSignature> {
-        Ok(TypeSignature::new_atom(AtomTypeIdentifier::TupleType(tuple_type_sig)))
+        ListTypeData::new_list(item_type, max_len).map(|x| x.into())
     }
 
     pub fn new_buffer(buff_len: i128) -> Result<TypeSignature> {
         if buff_len > u32::max_value() as i128 {
-            Err(RuntimeErrorType::BufferTooLarge.into())
+            Err(RuntimeErrorType::ValueTooLarge.into())
         } else {
             BufferLength::try_from(buff_len as u32)
                 .map(|buffer_len| TypeSignature::Atom(AtomTypeIdentifier::BufferType(buffer_len)))
@@ -599,13 +554,10 @@ impl TypeSignature {
     }
 
     pub fn get_empty_list_type() -> ListTypeData {
-        // TODO: empty list type should be typed/handled differently.
-        //         any list type should _admit_
-        //         an empty list type
         ListTypeData {
-            atomic_type: AtomTypeIdentifier::NoType,
-            max_len: 0,
-            dimension: 1 }
+            entry_type: Box::new(AtomTypeIdentifier::NoType.into()),
+            max_len: 0 
+        }
     }
 
     pub fn size(&self) -> Result<i128> {
@@ -643,26 +595,6 @@ impl TypeSignature {
         TypeSignature::new_atom(atom)
     }
 
-    fn expand_to_admit(&mut self, x_type: &TypeSignature) -> Result<()> {
-        match (self, x_type) {
-            (TypeSignature::List(ref mut my_list_type),
-             TypeSignature::List(ref x_list_type)) => {
-                if my_list_type.dimension != x_list_type.dimension {
-                    return Err(RuntimeErrorType::BadTypeConstruction.into())
-                }
-                if my_list_type.max_len < x_list_type.max_len {
-                    my_list_type.max_len = x_list_type.max_len;
-                }
-                my_list_type.atomic_type.expand_to_admit(&x_list_type.atomic_type)
-            },
-            (TypeSignature::Atom(ref mut my_atomic),
-             TypeSignature::Atom(ref x_atomic)) => {
-                my_atomic.expand_to_admit(x_atomic)
-            },
-            _ => Err(RuntimeErrorType::BadTypeConstruction.into())
-        }
-    }
-
     // Checks if resulting type signature is of valid size.
     // Aaron:
     //    currently, this does "loose admission" for higher-order lists --
@@ -679,47 +611,13 @@ impl TypeSignature {
 
     pub fn parent_list_type(children: &[TypeSignature]) -> Result<ListTypeData> {
         if let Some((first, rest)) = children.split_first() {
-            // children must be all of identical types, though we're a little more permissive about
-            //   children which are _lists_: we don't care about their max_len, we just take the max()
-            let mut child_type = first.clone();
-            for cur_child_type in rest {
-                child_type.expand_to_admit(&cur_child_type)?;
+            let mut current_entry_type = first.clone();
+            for next_entry in rest.iter() {
+                current_entry_type = Self::least_supertype(&current_entry_type, next_entry)?;
             }
-
-            let mut parent_max_len = {
-                let args_len = children.len();
-                if args_len > (u32::max_value() as usize) {
-                    Err(RuntimeErrorType::ListTooLarge)
-                } else {
-                    Ok(args_len as u32)
-                }
-            }?;
-
-            let parent_dimension = match child_type {
-                TypeSignature::List(ref type_data) => {
-                    if type_data.max_len > parent_max_len {
-                        parent_max_len = type_data.max_len
-                    }
-                    type_data.dimension.checked_add(1)
-                        .ok_or(RuntimeErrorType::ListDimensionTooHigh)
-                },
-                TypeSignature::Atom(_) => {
-                    Ok(1)
-                }
-            }?;
-
-            let atomic_type = match child_type {
-                TypeSignature::List(list_type) => {
-                    list_type.atomic_type
-                },
-                TypeSignature::Atom(atomic_type) => {
-                    atomic_type
-                }
-            };
-
-            Ok(ListTypeData::new_list(atomic_type,
-                                      parent_max_len,
-                                      parent_dimension)?)
+            let len = u32::try_from(children.len())
+                .map_err(|_| RuntimeErrorType::ValueTooLarge)?;
+            ListTypeData::new_list(current_entry_type, len)
         } else {
             Ok(TypeSignature::get_empty_list_type())
         }
@@ -733,8 +631,7 @@ impl TypeSignature {
     pub fn admits_type(&self, x_type: &TypeSignature) -> bool {
         match (x_type, self) {
             // List admisssion is recursive.
-            //  The list must have max length than self.max_len
-            //  The list must be of the same dimension
+            //  The list must have max length <= self.max_len
             //  The atomic type must be admitted by self.atomic_atype
             // Empty lists will admit for any list type
             (TypeSignature::List(ref x_list_type), TypeSignature::List(ref my_list_type)) => {
@@ -743,9 +640,8 @@ impl TypeSignature {
                     return true
                 }
 
-                if my_list_type.dimension == x_list_type.dimension
-                    && my_list_type.max_len >= x_list_type.max_len {
-                    my_list_type.atomic_type.admits(&x_list_type.atomic_type)
+                if my_list_type.max_len >= x_list_type.max_len {
+                    my_list_type.entry_type.admits_type(&*x_list_type.entry_type)
                 } else {
                     false
                 }
@@ -768,7 +664,7 @@ impl TypeSignature {
         }
     }
 
-    pub fn get_list_item_type(&self) -> Option<TypeSignature> {
+    pub fn get_list_item_type(&self) -> Option<&TypeSignature> {
         if let TypeSignature::List(list_type) = self {
             Some(list_type.get_list_item_type())
         } else {
@@ -787,33 +683,18 @@ impl TypeSignature {
     }
 
     // Parses list type signatures ->
-    // (list maximum-length dimension atomic-type) or
-    // (list maximum-length atomic-type) -> denotes list of dimension 1
+    // (list maximum-length atomic-type)
     fn parse_list_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
-        if type_args.len() != 2 && type_args.len() != 3 {
+        if type_args.len() != 2 {
             return Err(RuntimeErrorType::InvalidTypeDescription.into());
         }
-        let dimension = {
-            if type_args.len() == 2 {
-                Ok(1)
-            } else if let SymbolicExpressionType::AtomValue(Value::Int(dimension)) = &type_args[1].expr {
-                Ok(u8::try_from(*dimension)
-                   .map_err(|_| RuntimeErrorType::InvalidTypeDescription)?)
-            } else {
-                Err(RuntimeErrorType::InvalidTypeDescription)
-            }
-        }?;
 
         if let SymbolicExpressionType::AtomValue(Value::Int(max_len)) = &type_args[0].expr {            
             let atomic_type_arg = &type_args[type_args.len()-1];
-            let atomic_type = TypeSignature::parse_type_repr(atomic_type_arg, false)?;
+            let entry_type = TypeSignature::parse_type_repr(atomic_type_arg)?;
             let max_len = u32::try_from(*max_len)
                 .map_err(|_| RuntimeErrorType::InvalidTypeDescription)?;
-            if let TypeSignature::Atom(atomic_type) = atomic_type {
-                ListTypeData::new_list(atomic_type, max_len, dimension).map(|x| x.into())
-            } else {
-                panic!("Parser should not have returned a non-atom")
-            }
+            ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
         } else {
             Err(RuntimeErrorType::InvalidTypeDescription.into())
         }
@@ -824,7 +705,7 @@ impl TypeSignature {
     fn parse_tuple_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
         let mapped_key_types = parse_name_type_pairs(type_args)?;
         let tuple_type_signature = TupleTypeSignature::try_from(mapped_key_types)?;
-        TypeSignature::new_tuple(tuple_type_signature)
+        Ok(TypeSignature::from(tuple_type_signature))
     }
 
     // Parses type signatures of the form:
@@ -844,7 +725,7 @@ impl TypeSignature {
         if type_args.len() != 1 {
             return Err(RuntimeErrorType::InvalidTypeDescription.into())
         }
-        let inner_type = TypeSignature::parse_type_repr(&type_args[0], true)?;
+        let inner_type = TypeSignature::parse_type_repr(&type_args[0])?;
         
         Ok(TypeSignature::new_option(inner_type))
     }
@@ -853,12 +734,12 @@ impl TypeSignature {
         if type_args.len() != 2 {
             return Err(RuntimeErrorType::InvalidTypeDescription.into())
         }
-        let ok_type = TypeSignature::parse_type_repr(&type_args[0], true)?;
-        let err_type = TypeSignature::parse_type_repr(&type_args[1], true)?;
+        let ok_type = TypeSignature::parse_type_repr(&type_args[0])?;
+        let err_type = TypeSignature::parse_type_repr(&type_args[1])?;
         Ok(TypeSignature::new_response(ok_type, err_type))
     }
 
-    pub fn parse_type_repr(x: &SymbolicExpression, allow_list: bool) -> Result<TypeSignature> {
+    pub fn parse_type_repr(x: &SymbolicExpression) -> Result<TypeSignature> {
         match x.expr {
             SymbolicExpressionType::Atom(ref atom_type_str) => {
                 let atomic_type = TypeSignature::parse_atom_type(atom_type_str)?;
@@ -869,12 +750,7 @@ impl TypeSignature {
                     .ok_or(RuntimeErrorType::InvalidTypeDescription)?;
                 if let SymbolicExpressionType::Atom(ref compound_type) = compound_type.expr {
                     match compound_type.as_ref() {
-                        "list" =>
-                            if !allow_list {
-                                Err(RuntimeErrorType::InvalidTypeDescription.into())
-                            } else {
-                                TypeSignature::parse_list_type_repr(rest)
-                            },
+                        "list" => TypeSignature::parse_list_type_repr(rest),
                         "buff" => TypeSignature::parse_buff_type_repr(rest),
                         "tuple" => TypeSignature::parse_tuple_type_repr(rest),
                         "optional" => TypeSignature::parse_optional_type_repr(rest),
@@ -918,7 +794,7 @@ pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<V
             let name = name_symbol.match_atom()
                 .ok_or(UncheckedError::ExpectedListPairs)?
                 .clone();
-            let type_info = TypeSignature::parse_type_repr(type_symbol, true)?;
+            let type_info = TypeSignature::parse_type_repr(type_symbol)?;
             Ok((name, type_info))
         }).collect();
     
@@ -945,7 +821,7 @@ impl fmt::Display for AtomTypeIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::AtomTypeIdentifier::*;
         match self {
-            NoType => write!(f, "NoType"),
+            NoType => write!(f, "UnknownType"),
             IntType => write!(f, "int"),
             UIntType => write!(f, "uint"),
             BoolType => write!(f, "bool"),
@@ -974,13 +850,8 @@ impl fmt::Display for TypeSignature {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TypeSignature::Atom(ref atomic_type) => write!(f, "{}", atomic_type),
-            TypeSignature::List(ref list_type_data) => {
-                write!(f, "(list {}", list_type_data.max_len)?;
-                if list_type_data.dimension > 1 {
-                    write!(f, " {}", list_type_data.dimension)?;
-                }
-                write!(f, " {})", list_type_data.atomic_type)
-            }
+            TypeSignature::List(ref list_type_data) =>
+                write!(f, "(list {} {})", list_type_data.max_len, list_type_data.entry_type)
         }
     }
 }

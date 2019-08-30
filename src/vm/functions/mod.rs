@@ -145,8 +145,7 @@ fn native_eq(args: &[Value]) -> Result<Value> {
         // check types:
         let mut arg_type = TypeSignature::type_of(first);
         for x in args.iter() {
-            arg_type = TypeSignature::most_admissive(TypeSignature::type_of(x), arg_type)
-                .map_err(|(a,b)| UncheckedError::TypeError(format!("{}", b), x.clone()))?;
+            arg_type = TypeSignature::least_supertype(&TypeSignature::type_of(x), &arg_type)?;
             if x != first {
                 return Ok(Value::Bool(false))
             }

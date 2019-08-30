@@ -36,6 +36,7 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
         .ok_or(CheckErrors::ExpectedListApplication)?;
     
     let argument_items_type = argument_type.get_list_item_type()
+        .cloned()
         .ok_or(CheckErrors::ExpectedListApplication)?;
     
     let mapped_type = function_type.check_args(&[argument_items_type])?;
@@ -61,6 +62,7 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
         .ok_or(CheckErrors::ExpectedListApplication)?;
     
     let argument_items_type = argument_type.get_list_item_type()
+        .cloned()
         .ok_or(CheckErrors::ExpectedListApplication)?;
     
     let filter_type = function_type.check_args(&[argument_items_type])?;
@@ -86,6 +88,7 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     let list_argument_type = checker.type_check(&args[1], context)?;
 
     let list_items_type = list_argument_type.get_list_item_type()
+        .cloned()
         .ok_or(CheckErrors::ExpectedListApplication)?;
 
     let initial_value_type = checker.type_check(&args[2], context)?;

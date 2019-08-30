@@ -1,4 +1,4 @@
-use vm::errors::{Error as InterpError, RuntimeErrorType};
+use vm::errors::{Error as InterpError, RuntimeErrorType, UncheckedError};
 use vm::functions::NativeFunctions;
 use vm::{ClarityName, SymbolicExpression};
 use vm::types::{BUFF_32, BUFF_20, TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty,
@@ -28,11 +28,12 @@ fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression
                 InterpError::Runtime(ref runtime_err, _) => {
                     match runtime_err {
                         RuntimeErrorType::BadTypeConstruction => CheckErrors::ListTypesMustMatch,
-                        RuntimeErrorType::ListTooLarge => CheckErrors::ConstructedListTooLarge,
+                        RuntimeErrorType::ValueTooLarge => CheckErrors::ConstructedListTooLarge,
                         RuntimeErrorType::ListDimensionTooHigh => CheckErrors::ConstructedListTooLarge,
                         _ => CheckErrors::UnknownListConstructionFailure
                     }
                 },
+                InterpError::Unchecked(UncheckedError::NoSuperType(_,_)) => CheckErrors::ListTypesMustMatch,
                 _ => CheckErrors::UnknownListConstructionFailure
             };
             CheckError::new(error_type)
@@ -205,8 +206,8 @@ fn check_special_equals(checker: &mut TypeChecker, args: &[SymbolicExpression], 
 
     let mut arg_type = arg_types[0].clone();
     for x_type in arg_types.drain(..) {
-        arg_type = TypeSignature::most_admissive(x_type, arg_type)
-            .map_err(|(a,b)| CheckErrors::TypeError(a, b))?;
+        arg_type = TypeSignature::least_supertype(&x_type, &arg_type)
+            .map_err(|_| CheckErrors::TypeError(x_type, arg_type))?;
 
     }
 
@@ -223,8 +224,8 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
     let expr1 = &arg_types[0];
     let expr2 = &arg_types[1];
 
-    TypeSignature::most_admissive(expr1.clone(), expr2.clone())
-        .map_err(|(a,b)| CheckError::new(CheckErrors::IfArmsMustMatch(a, b)))
+    TypeSignature::least_supertype(expr1, expr2)
+        .map_err(|_| CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone()).into())
 }
 
 fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {

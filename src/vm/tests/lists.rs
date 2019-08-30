@@ -1,4 +1,5 @@
 use vm::types::{Value, TypeSignature};
+use vm::types::AtomTypeIdentifier::{IntType, BoolType};
 
 use vm::execute;
 use vm::errors::{UncheckedError, RuntimeErrorType, Error};
@@ -132,36 +133,22 @@ fn test_simple_folds() {
 #[test]
 fn test_construct_bad_list() {
     let test1 = "(list 1 2 3 'true)";
-    assert!(
-        match execute(test1).unwrap_err() {
-            Error::Runtime(RuntimeErrorType::BadTypeConstruction, _) => true,
-            _ => false
-        });
+    assert_eq!(execute(test1).unwrap_err(), 
+               UncheckedError::NoSuperType(IntType.into(), BoolType.into()).into());
 
     let test2 = "(define-private (bad-function (x int)) (if (eq? x 1) 'true x))
                  (map bad-function (list 0 1 2 3))";
-    assert!(
-        match execute(test2).unwrap_err() {
-            Error::Runtime(RuntimeErrorType::BadTypeConstruction, _) => true,
-            _ => false
-        });
+    assert_eq!(execute(test2).unwrap_err(),
+               UncheckedError::NoSuperType(IntType.into(), BoolType.into()).into());
 
     let bad_2d_list = "(list (list 1 2 3) (list 'true 'false 'true))";
     let bad_high_order_list = "(list (list 1 2 3) (list (list 1 2 3)))";
 
-    let expected_err_1 = match execute(bad_2d_list).unwrap_err() {
-        Error::Runtime(RuntimeErrorType::BadTypeConstruction, _) => true,
-        _ => false
-    };
-
-    assert!(expected_err_1);
-
-    let expected_err_2 = match execute(bad_high_order_list).unwrap_err() {
-        Error::Runtime(RuntimeErrorType::BadTypeConstruction, _) => true,
-        _ => false
-    };
-
-   assert!(expected_err_2);
+    assert_eq!(execute(bad_2d_list).unwrap_err(),
+               UncheckedError::NoSuperType(IntType.into(), BoolType.into()).into());
+    assert_eq!(execute(bad_high_order_list).unwrap_err(),
+               UncheckedError::NoSuperType(IntType.into(), 
+                                           TypeSignature::from("(list 3 int)")).into());
 }
 
 #[test]

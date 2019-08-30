@@ -244,7 +244,7 @@ fn test_arithmetic_errors() {
         UncheckedError::IncorrectArgumentCount(2,1).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
-        UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()
+        UncheckedError::NoSuperType(TypeSignature::from("bool"), TypeSignature::from("int")).into() 
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {

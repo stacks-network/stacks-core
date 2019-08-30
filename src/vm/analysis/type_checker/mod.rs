@@ -168,8 +168,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Some(ref mut tracker) => {
                 let new_type = match tracker.take() {
                     Some(expected_type) => {
-                        TypeSignature::most_admissive(expected_type, return_type)
-                            .map_err(|(expected_type, return_type)| CheckErrors::ReturnTypesMustMatch(expected_type, return_type))?
+                        TypeSignature::least_supertype(&expected_type, &return_type)
+                            .map_err(|_| CheckErrors::ReturnTypesMustMatch(expected_type, return_type))?
                     },
                     None => return_type
                 };
@@ -293,8 +293,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     if let Some(Some(ref expected)) = self.function_return_tracker {
                         // check if the computed return type matches the return type
                         //   of any early exits from the call graph (e.g., (expects ...) calls)
-                        TypeSignature::most_admissive(expected.clone(), return_type)
-                            .map_err(|(expected, return_type)| CheckErrors::ReturnTypesMustMatch(expected, return_type))?
+                        TypeSignature::least_supertype(expected, &return_type)
+                            .map_err(|_| CheckErrors::ReturnTypesMustMatch(expected.clone(), return_type))?
                     } else {
                         return_type
                     }
@@ -324,15 +324,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         let key_type = &args[1];
         let value_type = &args[2];
 
-        let key_type = TypeSignature::new_tuple(
+        let key_type = TypeSignature::from(
             TupleTypeSignature::parse_name_type_pair_list(key_type)
-                .map_err(|_| { CheckErrors::BadMapTypeDefinition })?)
-            .map_err(|_| { CheckErrors::BadMapTypeDefinition })?;
-        let value_type = TypeSignature::new_tuple(
+                .map_err(|_| { CheckErrors::BadMapTypeDefinition })?);
+        let value_type = TypeSignature::from(
             TupleTypeSignature::parse_name_type_pair_list(value_type)
-                .map_err(|_| { CheckErrors::BadMapTypeDefinition })?)
-            .map_err(|_| { CheckErrors::BadMapTypeDefinition })?;
-
+                .map_err(|_| { CheckErrors::BadMapTypeDefinition })?);
 
         Ok((map_name.clone(), (key_type, value_type)))
     }
@@ -408,7 +405,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             .ok_or(CheckErrors::DefineVariableBadSignature)?
             .clone();
 
-        let expected_type = TypeSignature::parse_type_repr(&args[1], true)
+        let expected_type = TypeSignature::parse_type_repr(&args[1])
             .map_err(|e| CheckErrors::DefineVariableBadSignature)?;
 
         self.type_check_expects(&args[2], context, &expected_type)?;
@@ -439,7 +436,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             .ok_or(CheckErrors::DefineNFTBadSignature)?
             .clone();
 
-        let asset_type = TypeSignature::parse_type_repr(&args[1], true)
+        let asset_type = TypeSignature::parse_type_repr(&args[1])
             .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
 
         Ok((asset_name, asset_type))

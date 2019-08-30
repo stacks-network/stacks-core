@@ -86,7 +86,6 @@ pub enum ContractInterfaceAtomType {
         #[serde(rename = "type")]
         type_f: Box<ContractInterfaceAtomType>, 
         length: u32, 
-        dimension: u8 
     },
 }
 
@@ -148,9 +147,9 @@ impl ContractInterfaceAtomType {
                 Self::from_atom_type(atom_type)
             },
             TypeSignature::List(list_data) => {
-                let (type_f, length, dimension) = list_data.clone().destruct();
+                let (type_f, length) = list_data.clone().destruct();
                 ContractInterfaceAtomType::list {
-                    type_f: Box::new(Self::from_atom_type(&type_f)), length, dimension }
+                    type_f: Box::new(Self::from_type_signature(&type_f)), length }
             }
         }
     }

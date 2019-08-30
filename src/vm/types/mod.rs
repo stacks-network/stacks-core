@@ -386,10 +386,10 @@ mod test {
         assert_eq!(
             Value::list_with_type(
                 vec![Value::Int(5), Value::Int(2)],
-                ListTypeData::new_list(AtomTypeIdentifier::BoolType, 3, 1).unwrap()),
+                ListTypeData::new_list(AtomTypeIdentifier::BoolType.into(), 3).unwrap()),
             Err(InterpreterError::FailureConstructingListWithType.into()));
         assert_eq!(
-            ListTypeData::new_list(AtomTypeIdentifier::BoolType, MAX_VALUE_SIZE as u32, 2),
+            ListTypeData::new_list(AtomTypeIdentifier::IntType.into(), MAX_VALUE_SIZE as u32),
             Err(RuntimeErrorType::ValueTooLarge.into()));
 
         assert_eq!(

@@ -499,8 +499,8 @@ fn lists_system_2() {
 #[test]
 fn lists_system() {
     let test1 =
-        "(define-map lists ((name int)) ((contents (list 5 1 int))))
-         (define-private (add-list (name int) (content (list 5 1 int)))
+        "(define-map lists ((name int)) ((contents (list 5 int))))
+         (define-private (add-list (name int) (content (list 5 int)))
            (map-insert! lists (tuple (name name))
                                 (tuple (contents content))))
          (define-private (get-list (name int))

@@ -210,7 +210,7 @@ fn test_lists() {
                 "(filter not (list 'false 'true 'false))",
                 "(fold and (list 'true 'true 'false 'false) 'true)",
                 "(map - (list (+ 1 2) 3 (+ 4 5) (* (+ 1 2) 3)))"];
-    let expected = [ "(list 5 (buff 20))", "(list 3 2 int)", "(list 3 bool)", "bool", "(list 4 int)" ];
+    let expected = [ "(list 5 (buff 20))", "(list 3 (list 3 int))", "(list 3 bool)", "bool", "(list 4 int)" ];
 
     let bad = [
         "(fold and (list 'true 'false) 2)",
@@ -322,8 +322,8 @@ fn test_high_order_map() {
     ];
     
     let expected = [
-        "(list 5 2 int)",
-        "(list 6 2 int)",
+        "(list 3 (list 5 int))",
+        "(list 6 (list 5 int))",
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {

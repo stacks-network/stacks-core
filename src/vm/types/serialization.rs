@@ -295,7 +295,7 @@ impl Value {
 
                 let items: InterpreterResult<_> = entries
                     .drain(..)
-                    .map(|value| Value::try_deserialize_parsed(value, entry_type.as_ref()))
+                    .map(|value| Value::try_deserialize_parsed(value, entry_type))
                     .collect();
 
                 if let Some(list_type) = list_type {
@@ -407,43 +407,36 @@ mod tests {
 
         // Should be legal!
         Value::try_deserialize(
-            serialized_0, &TypeSignature::List(
-                ListTypeData::new_list(IntType, 3, 2).unwrap())).unwrap();
+            serialized_0, &TypeSignature::from("(list 2 (list 3 int))")).unwrap();
         Value::try_deserialize(
-            serialized_0, &TypeSignature::List(
-                ListTypeData::new_list(IntType, 5, 2).unwrap())).unwrap();
+            serialized_0, &TypeSignature::from("(list 3 (list 4 int))")).unwrap();
 
         assert_eq!(
             Value::try_deserialize(
-                serialized_0, &TypeSignature::List(
-                    ListTypeData::new_list(IntType, 3, 2).unwrap())).unwrap(),
+                serialized_0, &TypeSignature::from("(list 2 (list 3 int))")).unwrap(),
             Value::try_deserialize_untyped(serialized_0).unwrap());
 
         // Fail because the atomic type isn't correct
         //  leads to an unexpected attempt to deserialize an int as bool.
         assert_eq!(Value::try_deserialize(
-            serialized_0, &TypeSignature::List(
-                ListTypeData::new_list(BoolType, 3, 2).unwrap())).unwrap_err(),
+            serialized_0, &TypeSignature::from("(list 2 (list 3 bool))")).unwrap_err(),
                    InterpreterError::DeserializeExpected(
                        TypeSignature::Atom(AtomTypeIdentifier::BoolType)).into());
         
         // Fail because the max_len isn't enough for the sublists
         assert_eq!(Value::try_deserialize(
-            serialized_0, &TypeSignature::List(
-                ListTypeData::new_list(IntType, 2, 2).unwrap())).unwrap_err(),
+            serialized_0, &TypeSignature::from("(list 2 (list 2 int))")).unwrap_err(),
                    InterpreterError::FailureConstructingListWithType.into());
         
         // Fail because the max_len isn't enough for the outer-list
         assert_eq!(Value::try_deserialize(
-            serialized_1, &TypeSignature::List(
-                ListTypeData::new_list(IntType, 2, 2).unwrap())).unwrap_err(),
+            serialized_0, &TypeSignature::from("(list 1 (list 3 int))")).unwrap_err(),
                    InterpreterError::FailureConstructingListWithType.into());
         
         // Fail because dimension is bad
         //  leads to an unexpected attempt to deserialize an int as list.
         assert!(match Value::try_deserialize(
-            serialized_1, &TypeSignature::List(
-                ListTypeData::new_list(IntType, 3, 3).unwrap())).unwrap_err() {
+            serialized_1, &TypeSignature::from("(list 3 (list 3 (list 3 int)))")).unwrap_err() {
             Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
             _ => false
         });
@@ -600,14 +593,14 @@ mod tests {
 
         assert!(match Value::try_deserialize(
             none,
-            &TypeSignature::Atom(AtomTypeIdentifier::IntType)).unwrap_err() {
+            &TypeSignature::Atom(IntType)).unwrap_err() {
             Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
             _ => false
         });
 
         assert!(match Value::try_deserialize(
             some_int,
-            &TypeSignature::Atom(AtomTypeIdentifier::IntType)).unwrap_err() {
+            &TypeSignature::Atom(IntType)).unwrap_err() {
             Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
             _ => false
         });
@@ -615,7 +608,7 @@ mod tests {
         assert!(match Value::try_deserialize(
             some_int,
             &TypeSignature::List(
-                ListTypeData::new_list(IntType, 2, 2).unwrap())).unwrap_err() {
+                ListTypeData::new_list(IntType.into(), 2).unwrap())).unwrap_err() {
             Error::Interpreter(InterpreterError::DeserializeExpected(_)) => true,
             _ => false
         });
