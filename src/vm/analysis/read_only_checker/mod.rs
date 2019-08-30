@@ -1,6 +1,6 @@
 use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
+use vm::types::{TypeSignature, TupleTypeSignature, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::functions::tuples;

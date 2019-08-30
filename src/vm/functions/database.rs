@@ -36,7 +36,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
 
 pub fn special_fetch_variable(args: &[SymbolicExpression],
                               env: &mut Environment,
-                              context: &LocalContext) -> Result<Value> {
+                              _context: &LocalContext) -> Result<Value> {
     check_argument_count(1, args)?;
 
     let var_name = args[0].match_atom()

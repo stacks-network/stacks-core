@@ -4,7 +4,7 @@ use vm::errors::{UncheckedError, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
-use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData};
+use vm::types::{TypeSignature, BuffData};
 use vm::parser::parse;
 use util::hash::hex_bytes;
 
@@ -134,8 +134,8 @@ fn test_simple_if_functions() {
                                   (if (eq? 5 x) 1 3)");
 
     if let Ok(parsed_bodies) = function_bodies {
-        let func_args1 = vec![("x".into(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
-        let func_args2 = vec![("x".into(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let func_args1 = vec![("x".into(), TypeSignature::IntType)];
+        let func_args2 = vec![("x".into(), TypeSignature::IntType)];
         let user_function1 = DefinedFunction::new(
             func_args1, parsed_bodies[0].clone(), Private, &"with_else".into(), &"");
 

@@ -1,7 +1,7 @@
 use vm::analysis::types::ContractAnalysis;
 use std::collections::{BTreeMap, BTreeSet};
 use vm::{ClarityName};
-use vm::types::{TypeSignature, FunctionArg, AtomTypeIdentifier, TupleTypeSignature, FunctionType, FixedFunction};
+use vm::types::{TypeSignature, FunctionArg, TupleTypeSignature, FunctionType, FixedFunction};
 
 pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
     let mut contract_interface = ContractInterface::new();
@@ -118,9 +118,9 @@ impl ContractInterfaceAtomType {
         ).collect()
     }
 
-    pub fn from_atom_type(atom_type: &AtomTypeIdentifier) -> ContractInterfaceAtomType {
-        use vm::types::AtomTypeIdentifier::*;
-        match atom_type {
+    pub fn from_type_signature(sig: &TypeSignature) -> ContractInterfaceAtomType {
+        use vm::types::TypeSignature::*;
+        match sig {
             NoType => ContractInterfaceAtomType::none,
             IntType => ContractInterfaceAtomType::int128,
             UIntType => ContractInterfaceAtomType::uint128,
@@ -128,28 +128,20 @@ impl ContractInterfaceAtomType {
             PrincipalType => ContractInterfaceAtomType::principal,
             BufferType(len) => ContractInterfaceAtomType::buffer { length: len.into() },
             TupleType(sig) => Self::from_tuple_type(sig),
+            ListType(list_data) => {
+                let (type_f, length) = list_data.clone().destruct();
+                ContractInterfaceAtomType::list {
+                    type_f: Box::new(Self::from_type_signature(&type_f)), length }
+            },
             OptionalType(sig) => ContractInterfaceAtomType::optional(
                 Box::new(Self::from_type_signature(&sig)) 
             ),
-            AtomTypeIdentifier::ResponseType(boxed_sig) => {
+            TypeSignature::ResponseType(boxed_sig) => {
                 let (ok_sig, err_sig) = boxed_sig.as_ref();
                 ContractInterfaceAtomType::response { 
                     ok: Box::new(Self::from_type_signature(&ok_sig)), 
                     error: Box::new(Self::from_type_signature(&err_sig))
                 }
-            }
-        }
-    }
-
-    pub fn from_type_signature(sig: &TypeSignature) -> ContractInterfaceAtomType {
-        match sig {
-            TypeSignature::Atom(atom_type) => {
-                Self::from_atom_type(atom_type)
-            },
-            TypeSignature::List(list_data) => {
-                let (type_f, length) = list_data.clone().destruct();
-                ContractInterfaceAtomType::list {
-                    type_f: Box::new(Self::from_type_signature(&type_f)), length }
             }
         }
     }
@@ -268,12 +260,12 @@ impl ContractInterfaceMap {
         map.iter().map(|(name, (key_sig, val_sig))| {
 
             let key_type = match key_sig {
-                TypeSignature::Atom(AtomTypeIdentifier::TupleType(tuple_sig)) => ContractInterfaceAtomType::vec_from_tuple_type(&tuple_sig),
+                TypeSignature::TupleType(tuple_sig) => ContractInterfaceAtomType::vec_from_tuple_type(&tuple_sig),
                 _ => panic!("Contract map key should always be a tuple type!")
             };
 
             let val_type = match val_sig {
-                TypeSignature::Atom(AtomTypeIdentifier::TupleType(tuple_sig)) => ContractInterfaceAtomType::vec_from_tuple_type(&tuple_sig),
+                TypeSignature::TupleType(tuple_sig) => ContractInterfaceAtomType::vec_from_tuple_type(&tuple_sig),
                 _ => panic!("Contract map value should always be a tuple type!")
             };
 

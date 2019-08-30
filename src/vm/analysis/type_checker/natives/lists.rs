@@ -1,6 +1,6 @@
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{AtomTypeIdentifier, TypeSignature, FunctionType, BOOL_TYPE};
+use vm::types::{ TypeSignature, FunctionType };
 
 use vm::analysis::type_checker::{
     TypeResult, TypingContext, CheckResult, check_argument_count, CheckErrors, no_type, TypeChecker};
@@ -58,17 +58,14 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
     
     let argument_type = checker.type_check(&args[1], context)?;
     
-    let argument_length = argument_type.list_max_len()
-        .ok_or(CheckErrors::ExpectedListApplication)?;
-    
     let argument_items_type = argument_type.get_list_item_type()
         .cloned()
         .ok_or(CheckErrors::ExpectedListApplication)?;
     
     let filter_type = function_type.check_args(&[argument_items_type])?;
 
-    if BOOL_TYPE != filter_type {
-        return Err(CheckErrors::TypeError(AtomTypeIdentifier::BoolType.into(), filter_type).into())
+    if TypeSignature::BoolType != filter_type {
+        return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into())
     }
 
     Ok(argument_type)

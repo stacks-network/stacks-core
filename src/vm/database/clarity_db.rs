@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 
 use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
-use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, PrincipalData, NONE};
+use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, NONE};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -243,8 +243,8 @@ impl <'a> ClarityDatabase <'a> {
 // Data Map Functions
 impl <'a> ClarityDatabase <'a> {
     pub fn create_map(&mut self, contract_name: &str, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {
-        let key_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(key_type));
-        let value_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type));
+        let key_type = TypeSignature::from(key_type);
+        let value_type = TypeSignature::from(value_type);
 
         let data = DataMapMetadata { key_type, value_type };
 

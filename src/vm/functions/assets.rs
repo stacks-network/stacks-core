@@ -1,7 +1,7 @@
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
-use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, AtomTypeIdentifier};
+use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature};
 use vm::representations::{SymbolicExpression};
 use vm::errors::{Error, UncheckedError, InterpreterError, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
 use vm::{eval, LocalContext, Environment};
@@ -185,7 +185,7 @@ pub fn special_get_balance(args: &[SymbolicExpression],
         let balance = env.global_context.database.get_ft_balance(&env.contract_context.name, token_name, principal)?;
         Ok(Value::Int(balance))
     } else {
-        Err(UncheckedError::TypeError(AtomTypeIdentifier::PrincipalType.to_string(), owner).into())
+        Err(UncheckedError::TypeError(TypeSignature::PrincipalType.to_string(), owner).into())
     }
 
 }

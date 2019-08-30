@@ -7,7 +7,6 @@ use vm::contracts::Contract;
 use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
-const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in Smart Contract VM.";
 
 pub struct SqliteStore <'a> {
     conn: &'a Connection

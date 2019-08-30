@@ -36,7 +36,7 @@ macro_rules! type_force_binary_arithmetic { ($function: ident, $args: expr) => {
 //   the corresponding Rust integer type.
 macro_rules! type_force_variadic_arithmetic { ($function: ident, $args: expr) => {
 {
-    let (first, rest) = $args.split_first()
+    let first = $args.get(0)
         .ok_or(UncheckedError::IncorrectArgumentCount(1, $args.len()))?;
     match first {
         Value::Int(_) => {

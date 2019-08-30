@@ -85,7 +85,6 @@ pub enum CheckErrors {
     IllegalOrUnknownFunctionApplication(String),
     UnknownFunction(String),
 
-    NotImplemented,
     WriteAttemptedInReadOnly,
 }
 
@@ -232,7 +231,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::DefineNFTBadSignature => format!("(define-asset ...) expects an asset name and an asset identifier type signature as arguments"),
             CheckErrors::NoSuchNFT(asset_name) => format!("tried to use asset function with a undefined asset ('{}')", asset_name),
             CheckErrors::NoSuchFT(asset_name) => format!("tried to use token function with a undefined token ('{}')", asset_name),
-            CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure | CheckErrors::NotImplemented => {
+            CheckErrors::TypeAlreadyAnnotatedFailure | CheckErrors::CheckerImplementationFailure => {
                 format!("internal error - please file an issue on github.com/blockstack/blockstack-core")
             },
         }

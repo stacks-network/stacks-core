@@ -11,9 +11,9 @@ use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, 
 use util::hash;
 
 pub use vm::types::signatures::{
-    AtomTypeIdentifier, TupleTypeSignature, AssetIdentifier, FixedFunction,
+    TupleTypeSignature, AssetIdentifier, FixedFunction,
     TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
-    INT_TYPE, UINT_TYPE, BOOL_TYPE, BUFF_32, BUFF_20, BufferLength
+    BUFF_32, BUFF_20, BufferLength
 };
 
 pub const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
@@ -79,23 +79,21 @@ define_named_enum!(BlockInfoProperty {
 });
 
 impl OptionalData {
-    pub fn type_signature(&self) -> AtomTypeIdentifier {
+    pub fn type_signature(&self) -> TypeSignature {
         match self.data {
-            Some(ref v) => AtomTypeIdentifier::OptionalType(Box::new(
-                TypeSignature::type_of(&v))),
-            None => AtomTypeIdentifier::OptionalType(Box::new(
-                TypeSignature::new_atom(AtomTypeIdentifier::NoType)))
+            Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(&v)),
+            None => TypeSignature::new_option(TypeSignature::NoType)
         }
     }
 }
 
 impl ResponseData {
-    pub fn type_signature(&self) -> AtomTypeIdentifier {
+    pub fn type_signature(&self) -> TypeSignature {
         match self.committed {
-            true => AtomTypeIdentifier::ResponseType(Box::new(
-                (TypeSignature::type_of(&self.data), TypeSignature::new_atom(AtomTypeIdentifier::NoType)))),
-            false => AtomTypeIdentifier::ResponseType(Box::new(
-                (TypeSignature::new_atom(AtomTypeIdentifier::NoType), TypeSignature::type_of(&self.data))))
+            true => TypeSignature::new_response(
+                TypeSignature::type_of(&self.data), TypeSignature::NoType),
+            false => TypeSignature::new_response(
+                TypeSignature::NoType, TypeSignature::type_of(&self.data))
         }
     }
 }
@@ -104,7 +102,7 @@ impl BlockInfoProperty {
     pub fn type_result(&self) -> TypeSignature {
         use self::BlockInfoProperty::*;
         match self {
-            Time => AtomTypeIdentifier::IntType.into(),
+            Time => TypeSignature::IntType,
             VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
         }
     }
@@ -131,8 +129,7 @@ impl Value {
     }
 
     pub fn none() -> Value {
-        Value::Optional(OptionalData {
-            data: None })
+        NONE.clone()
     }
 
     pub fn okay(data: Value) -> Value {
@@ -189,10 +186,10 @@ impl Value {
 
     pub fn size(&self) -> Result<i128> {
         match self {
-            Value::Int(_i) => AtomTypeIdentifier::IntType.size(),
-            Value::UInt(int) => AtomTypeIdentifier::UIntType.size(),
-            Value::Bool(_i) => AtomTypeIdentifier::BoolType.size(),
-            Value::Principal(_) => AtomTypeIdentifier::PrincipalType.size(),
+            Value::Int(_i) => TypeSignature::IntType.size(),
+            Value::UInt(_int) => TypeSignature::UIntType.size(),
+            Value::Bool(_i) => TypeSignature::BoolType.size(),
+            Value::Principal(_) => TypeSignature::PrincipalType.size(),
             Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
             Value::Tuple(ref tuple_data) => tuple_data.size(),
             Value::List(ref list_data) => list_data.type_signature.size(),
@@ -386,10 +383,10 @@ mod test {
         assert_eq!(
             Value::list_with_type(
                 vec![Value::Int(5), Value::Int(2)],
-                ListTypeData::new_list(AtomTypeIdentifier::BoolType.into(), 3).unwrap()),
+                ListTypeData::new_list(TypeSignature::BoolType, 3).unwrap()),
             Err(InterpreterError::FailureConstructingListWithType.into()));
         assert_eq!(
-            ListTypeData::new_list(AtomTypeIdentifier::IntType.into(), MAX_VALUE_SIZE as u32),
+            ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE as u32),
             Err(RuntimeErrorType::ValueTooLarge.into()));
 
         assert_eq!(

@@ -7,9 +7,9 @@ use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
 use vm::analysis::types::ContractAnalysis;
 use vm::contexts::{OwnedEnvironment};
-use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier, FunctionType, FixedFunction};
+use vm::types::{Value, PrincipalData, TypeSignature, FunctionType, FixedFunction};
 
-use vm::types::AtomTypeIdentifier::{IntType, BoolType, BufferType, UIntType};
+use vm::types::TypeSignature::{IntType, BoolType, BufferType, UIntType};
 use std::convert::TryInto;
 
 mod assets;
@@ -28,7 +28,7 @@ fn type_check_helper(exp: &str) -> TypeResult {
 }
 
 fn buff_type(size: u32) -> TypeSignature {
-    AtomTypeIdentifier::BufferType(size.try_into().unwrap()).into()
+    TypeSignature::BufferType(size.try_into().unwrap()).into()
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn test_get_block_info(){
                "(get-block-info time 'true)",
                "(get-block-info time)"];
     let bad_expected = [ CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
-                         CheckErrors::TypeError(IntType.into(), BoolType.into()),
+                         CheckErrors::TypeError(IntType, BoolType),
                          CheckErrors::RequiresAtLeastArguments(2, 1) ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -68,12 +68,12 @@ fn test_simple_arithmetic_checks() {
                "(+ x y z)", // unbound variables.
                "(+ 1 2 3 (eq? 1 2))",
                "(and (or 'true 'false) (+ 1 2 3))"];
-    let bad_expected = [ CheckErrors::TypeError(IntType.into(), BoolType.into()),
+    let bad_expected = [ CheckErrors::TypeError(IntType, BoolType),
                          CheckErrors::RequiresAtLeastArguments(1, 0),
                          CheckErrors::IncorrectArgumentCount(2, 1),
                          CheckErrors::UnboundVariable("x".to_string()),
-                         CheckErrors::TypeError(IntType.into(), BoolType.into()),
-                         CheckErrors::TypeError(BoolType.into(), IntType.into()), ];
+                         CheckErrors::TypeError(IntType, BoolType),
+                         CheckErrors::TypeError(BoolType, IntType), ];
                          
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -129,10 +129,10 @@ fn test_simple_ifs() {
                "(if 0 1 0)"];
 
     let bad_expected = [
-        CheckErrors::IfArmsMustMatch(BoolType.into(), IntType.into()),
-        CheckErrors::IfArmsMustMatch(buff_type(1), BoolType.into()),
+        CheckErrors::IfArmsMustMatch(BoolType, IntType),
+        CheckErrors::IfArmsMustMatch(buff_type(1), BoolType),
         CheckErrors::IncorrectArgumentCount(3, 0),
-        CheckErrors::TypeError(BoolType.into(), IntType.into())
+        CheckErrors::TypeError(BoolType, IntType)
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -185,13 +185,13 @@ fn test_eqs() {
         "(map - (list 'true 'false 'true 'false))",
         "(map hash160 (+ 1 2))",];
 
-    let bad_expected = [ CheckErrors::TypeError(BoolType.into(), IntType.into()),
-                         CheckErrors::TypeError(TypeSignature::list_of(IntType.into(), 1).unwrap(), IntType.into()),
-                         CheckErrors::TypeError(TypeSignature::new_option(BoolType.into()), TypeSignature::new_option(IntType.into())),
+    let bad_expected = [ CheckErrors::TypeError(BoolType, IntType),
+                         CheckErrors::TypeError(TypeSignature::list_of(IntType, 1).unwrap(), IntType),
+                         CheckErrors::TypeError(TypeSignature::new_option(BoolType), TypeSignature::new_option(IntType)),
                          CheckErrors::ListTypesMustMatch,
                          CheckErrors::ListTypesMustMatch,
                          CheckErrors::IncorrectArgumentCount(2, 1),
-                         CheckErrors::UnionTypeError(vec![IntType.into(), UIntType.into()], BoolType.into()),
+                         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
                          CheckErrors::ExpectedListApplication ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -227,18 +227,18 @@ fn test_lists() {
         "(map - (list 'true 'false 'true 'false))",
         "(map hash160 (+ 1 2))",];
     let bad_expected = [
-        CheckErrors::TypeError(BoolType.into(), IntType.into()),
+        CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::UnionTypeError(vec![IntType.into(), UIntType.into()], BoolType.into()),
+        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
         CheckErrors::ListTypesMustMatch,
         CheckErrors::ListTypesMustMatch,
-        CheckErrors::TypeError(BoolType.into(), buff_type(20)),
-        CheckErrors::TypeError(BoolType.into(), IntType.into()),
+        CheckErrors::TypeError(BoolType, buff_type(20)),
+        CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(2, 3),
         CheckErrors::IllegalOrUnknownFunctionApplication("ynot".to_string()),
         CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::UnionTypeError(vec![IntType.into(), UIntType.into()], BoolType.into()),
+        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
         CheckErrors::ExpectedListApplication ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -268,8 +268,8 @@ fn test_tuples() {
     let bad = ["(+ 1 2      (get def (tuple (abc 1) (def 'true))))",
                "(and 'true  (get abc (tuple (abc 1) (def 'true))))"];
 
-    let bad_expected = [ CheckErrors::TypeError(IntType.into(), BoolType.into()),
-                         CheckErrors::TypeError(BoolType.into(), IntType.into()), ];
+    let bad_expected = [ CheckErrors::TypeError(IntType, BoolType),
+                         CheckErrors::TypeError(BoolType, IntType), ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -348,7 +348,7 @@ fn test_simple_uints() {
 
     let bad = ["(> u1 1)" ];
 
-    let bad_expected = [ CheckErrors::TypeError(UIntType.into(), IntType.into()) ];
+    let bad_expected = [ CheckErrors::TypeError(UIntType, IntType) ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
@@ -401,9 +401,9 @@ fn test_response_inference() {
                "(expects! (err 2) 'true)"
     ];
 
-    let bad_expected = [ CheckErrors::TypeError(TypeSignature::new_response(BoolType.into(), IntType.into()),
-                                                BoolType.into()),
-                         CheckErrors::ReturnTypesMustMatch(IntType.into(), BoolType.into()),
+    let bad_expected = [ CheckErrors::TypeError(TypeSignature::new_response(BoolType, IntType),
+                                                BoolType),
+                         CheckErrors::ReturnTypesMustMatch(IntType, BoolType),
                          CheckErrors::CouldNotDetermineResponseOkType ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -521,8 +521,8 @@ fn test_options() {
     assert!(
         match mem_type_check(contract).unwrap_err().err {
             CheckErrors::TypeError(t1, t2) => {
-                t1 == TypeSignature::new_option(BoolType.into()) &&
-                t2 == TypeSignature::new_option(IntType.into())
+                t1 == TypeSignature::new_option(BoolType) &&
+                t2 == TypeSignature::new_option(IntType)
             },
             _ => false
         });
