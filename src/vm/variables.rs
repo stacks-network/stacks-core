@@ -1,7 +1,7 @@
 use::std::convert::TryFrom;
 use vm::types::Value;
 use vm::contexts::{LocalContext, Environment};
-use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result};
+use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 
 
 macro_rules! define_enum {
@@ -18,7 +18,7 @@ macro_rules! define_enum {
 }
 
 define_enum!(NativeVariables {
-    TxSender, BlockHeight, BurnBlockHeight, NativeNone
+    ContractCaller, TxSender, BlockHeight, BurnBlockHeight, NativeNone
 });
 
 impl NativeVariables {
@@ -26,6 +26,7 @@ impl NativeVariables {
         use vm::variables::NativeVariables::*;
         match name {
             "tx-sender" => Some(TxSender),
+            "contract-caller" => Some(ContractCaller),
             "block-height" => Some(BlockHeight),
             "burn-block-height" => Some(BurnBlockHeight),
             "none" => Some(NativeNone),
@@ -38,18 +39,21 @@ pub fn is_reserved_name(name: &str) -> bool {
     NativeVariables::lookup_by_name(name).is_some()
 }
 
-pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &Environment) -> Result<Option<Value>> {
+pub fn lookup_reserved_variable(name: &str, _context: &LocalContext, env: &mut Environment) -> Result<Option<Value>> {
     if let Some(variable) = NativeVariables::lookup_by_name(name) {
         match variable {
             NativeVariables::TxSender => {
                 let sender = env.sender.clone()
-                    .ok_or(UncheckedError::InvalidArguments(
-                        "No sender in current context. Did you attempt to (contract-call ...) from a non-contract aware environment?"
-                            .to_string()))?;
+                    .ok_or(RuntimeErrorType::NoSenderInContext)?;
+                Ok(Some(sender))
+            },
+            NativeVariables::ContractCaller => {
+                let sender = env.caller.clone()
+                    .ok_or(RuntimeErrorType::NoSenderInContext)?;
                 Ok(Some(sender))
             },
             NativeVariables::BlockHeight => {
-                let block_height = env.global_context.get_block_height();
+                let block_height = env.global_context.database.get_simmed_block_height();
                 Ok(Some(Value::Int(block_height as i128)))
             },
             NativeVariables::BurnBlockHeight => {

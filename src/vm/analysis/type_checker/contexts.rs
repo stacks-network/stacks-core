@@ -1,29 +1,14 @@
-use std::collections::{HashMap, BTreeMap};
+use std::collections::{HashMap, BTreeMap, HashSet};
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature};
+use vm::types::{TypeSignature, FunctionType};
 
 use vm::contexts::MAX_CONTEXT_DEPTH;
 
-use vm::checker::errors::{CheckResult, CheckError, CheckErrors};
-use vm::checker::typecheck::{FunctionType};
-
-const DESERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
-const SERIALIZE_FAIL_MESSAGE: &str = "PANIC: Failed to deserialize bad database data in contract analysis.";
+use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
+use vm::analysis::types::{ContractAnalysis};
 
 pub struct TypeMap {
     map: HashMap<u64, TypeSignature>
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ContractAnalysis {
-    // matt: is okay to let these new fields end up in the db?
-    // #[serde(skip)]
-    private_function_types: BTreeMap<String, FunctionType>,
-    variable_types: BTreeMap<String, TypeSignature>,
-    public_function_types: BTreeMap<String, FunctionType>,
-    read_only_function_types: BTreeMap<String, FunctionType>,
-    map_types: BTreeMap<String, (TypeSignature, TypeSignature)>,
-    persisted_variable_types: BTreeMap<String, TypeSignature>,
 }
 
 pub struct TypingContext <'a> {
@@ -39,79 +24,8 @@ pub struct ContractContext {
     public_function_types: HashMap<String, FunctionType>,
     read_only_function_types: HashMap<String, FunctionType>,
     persisted_variable_types: HashMap<String, TypeSignature>,
-}
-
-
-impl ContractAnalysis {
-    pub fn new() -> ContractAnalysis {
-        ContractAnalysis {
-            private_function_types: BTreeMap::new(),
-            public_function_types: BTreeMap::new(),
-            read_only_function_types: BTreeMap::new(),
-            variable_types: BTreeMap::new(),
-            map_types: BTreeMap::new(),
-            persisted_variable_types: BTreeMap::new(),
-        }
-    }
-
-    pub fn deserialize(json: &str) -> ContractAnalysis {
-        serde_json::from_str(json)
-            .expect(DESERIALIZE_FAIL_MESSAGE)
-    }
-
-    pub fn serialize(&self) -> String {
-        serde_json::to_string(self)
-            .expect(SERIALIZE_FAIL_MESSAGE)
-    }
-
-    pub fn add_map_type(&mut self, name: &str, key_type: &TypeSignature, map_type: &TypeSignature) {
-        self.map_types.insert(name.to_string(), (key_type.clone(),
-                                                 map_type.clone()));
-    }
-    
-    pub fn add_variable_type(&mut self, name: &str, variable_type: &TypeSignature) {
-        self.variable_types.insert(name.to_string(), variable_type.clone());
-    }
-    
-    pub fn add_persisted_variable_type(&mut self, name: &str, persisted_variable_type: &TypeSignature) {
-        self.persisted_variable_types.insert(name.to_string(), persisted_variable_type.clone());
-    }
-
-    pub fn add_read_only_function(&mut self, name: &str, function_type: &FunctionType) {
-        self.read_only_function_types.insert(name.to_string(), function_type.clone());
-    }
-
-    pub fn add_public_function(&mut self, name: &str, function_type: &FunctionType) {
-        self.public_function_types.insert(name.to_string(), function_type.clone());
-    }
-
-    pub fn add_private_function(&mut self, name: &str, function_type: &FunctionType) {
-        self.private_function_types.insert(name.to_string(), function_type.clone());
-    }
-
-    pub fn get_public_function_type(&self, name: &str) -> Option<&FunctionType> {
-        self.public_function_types.get(name)
-    }
-
-    pub fn get_read_only_function_type(&self, name: &str) -> Option<&FunctionType> {
-        self.read_only_function_types.get(name)
-    }
-
-    pub fn get_private_function(&self, name: &str) -> Option<&FunctionType> {
-        self.private_function_types.get(name)
-    }
-
-    pub fn get_map_type(&self, name: &str) -> Option<&(TypeSignature, TypeSignature)> {
-        self.map_types.get(name)
-    }
-
-    pub fn get_variable_type(&self, name: &str) -> Option<&TypeSignature> {
-        self.variable_types.get(name)
-    }
-
-    pub fn get_persisted_variable_type(&self, name: &str) -> Option<&TypeSignature> {
-        self.persisted_variable_types.get(name)
-    }
+    fungible_tokens: HashSet<String>,
+    non_fungible_tokens: HashMap<String, TypeSignature>
 }
 
 impl TypeMap {
@@ -126,11 +40,6 @@ impl TypeMap {
             Ok(())
         }
     }
-
-    pub fn get_type(&self, expr: &SymbolicExpression) -> CheckResult<&TypeSignature> {
-        self.map.get(&expr.id)
-            .ok_or(CheckError::new(CheckErrors::TypeNotAnnotatedFailure))
-    }
 }
 
 impl ContractContext {
@@ -142,6 +51,8 @@ impl ContractContext {
             read_only_function_types: HashMap::new(),
             map_types: HashMap::new(),
             persisted_variable_types: HashMap::new(),
+            fungible_tokens: HashSet::new(),
+            non_fungible_tokens: HashMap::new(),
         }
     }
 
@@ -150,6 +61,8 @@ impl ContractContext {
             self.persisted_variable_types.contains_key(name) ||
             self.private_function_types.contains_key(name) ||
             self.public_function_types.contains_key(name) ||
+            self.fungible_tokens.contains(name) ||
+            self.non_fungible_tokens.contains_key(name) ||
             self.map_types.contains_key(name) {
                 Err(CheckError::new(CheckErrors::NameAlreadyUsed(name.to_string())))
             } else {
@@ -160,6 +73,14 @@ impl ContractContext {
     fn check_function_type(&mut self, f_name: &str) -> CheckResult<()> {
         self.check_name_used(f_name)?;
         Ok(())
+    }
+
+    pub fn ft_exists(&self, name: &str) -> bool {
+        self.fungible_tokens.contains(name)
+    }
+
+    pub fn get_nft_type(&self, name: &str) -> Option<&TypeSignature> {
+        self.non_fungible_tokens.get(name)
     }
 
     pub fn add_public_function_type(&mut self, name: String, func_type: FunctionType) -> CheckResult<()> {
@@ -198,6 +119,18 @@ impl ContractContext {
         Ok(())
     }
 
+    pub fn add_ft(&mut self, token_name: String) -> CheckResult<()> {
+        self.check_name_used(&token_name)?;
+        self.fungible_tokens.insert(token_name);
+        Ok(())
+    }
+
+    pub fn add_nft(&mut self, token_name: String, token_type: TypeSignature) -> CheckResult<()> {
+        self.check_name_used(&token_name)?;
+        self.non_fungible_tokens.insert(token_name, token_type);
+        Ok(())
+    }
+
     pub fn get_map_type(&self, map_name: &str) -> Option<&(TypeSignature, TypeSignature)> {
         self.map_types.get(map_name)
     }
@@ -220,34 +153,41 @@ impl ContractContext {
         }
     }
 
-    pub fn to_contract_analysis(&self) -> ContractAnalysis {
-        let mut contract_analysis = ContractAnalysis::new();
+    /// This function consumes the ContractContext, and puts the relevant information
+    ///  into the provided ContractAnalysis
+    pub fn into_contract_analysis(mut self, contract_analysis: &mut ContractAnalysis) {
 
-        for (name, function_type) in self.public_function_types.iter() {
+        for (name, function_type) in self.public_function_types.drain() {
             contract_analysis.add_public_function(name, function_type);
         }
 
-        for (name, function_type) in self.read_only_function_types.iter() {
+        for (name, function_type) in self.read_only_function_types.drain() {
             contract_analysis.add_read_only_function(name, function_type);
         }
 
-        for (name, (key_type, map_type)) in self.map_types.iter() {
+        for (name, (key_type, map_type)) in self.map_types.drain() {
             contract_analysis.add_map_type(name, key_type, map_type);
         }
 
-        for (name, function_type) in self.private_function_types.iter() {
+        for (name, function_type) in self.private_function_types.drain() {
             contract_analysis.add_private_function(name, function_type);
         }
 
-        for (name, variable_type) in self.variable_types.iter() {
+        for (name, variable_type) in self.variable_types.drain() {
             contract_analysis.add_variable_type(name, variable_type);
         }
 
-        for (name, persisted_variable_type) in self.persisted_variable_types.iter() {
+        for (name, persisted_variable_type) in self.persisted_variable_types.drain() {
             contract_analysis.add_persisted_variable_type(name, persisted_variable_type);
         }
 
-        contract_analysis
+        for name in self.fungible_tokens.drain() {
+            contract_analysis.add_fungible_token(name);
+        }
+
+        for (name, nft_type) in self.non_fungible_tokens.drain() {
+            contract_analysis.add_non_fungible_token(name, nft_type);
+        }
     }
 }
 

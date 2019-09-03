@@ -1,32 +1,27 @@
 use vm::execute as vm_execute;
 use vm::errors::{Error, UncheckedError};
-use vm::types::{Value, PrincipalData, ResponseData};
-use vm::contexts::{OwnedEnvironment,GlobalContext};
-use vm::database::{ContractDatabaseConnection};
+use vm::types::{Value, StandardPrincipalData, ResponseData};
+use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
 use util::hash::hex_bytes;
+use vm::database::marf::temporary_marf;
+use vm::database::ClarityDatabase;
 
-fn execute(s: &str) -> Value {
-    vm_execute(s).unwrap().unwrap()
-}
-
-fn symbols_from_values(mut vec: Vec<Value>) -> Vec<SymbolicExpression> {
-    vec.drain(..).map(|value| SymbolicExpression::atom_value(value)).collect()
-}
+use vm::tests::{with_memory_environment, with_marfed_environment, execute, symbols_from_values};
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current int) (index int)))
-         (define (init-factorial (id int) (factorial int))
-           (print (insert-entry! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
+         (define-private (init-factorial (id int) (factorial int))
+           (print (map-insert! factorials (tuple (id id)) (tuple (current 1) (index factorial)))))
          (define-public (compute (id int))
-           (let ((entry (expects! (fetch-entry factorials (tuple (id id)))
+           (let ((entry (expects! (map-get factorials (tuple (id id)))
                                  (err 'false))))
                     (let ((current (get current entry))
                           (index   (get index entry)))
                          (if (<= index 1)
                              (ok 'true)
                              (begin
-                               (set-entry! factorials (tuple (id id))
+                               (map-set! factorials (tuple (id id))
                                                       (tuple (current (* current index))
                                                              (index (- index 1))))
                                (ok 'false))))))
@@ -34,29 +29,29 @@ const FACTORIAL_CONTRACT: &str = "(define-map factorials ((id int)) ((current in
                (init-factorial 8008 5))";
 
 const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance int)))
-         (define-read-only (get-balance (account principal))
-            (default-to 0 (get balance (fetch-entry tokens (tuple (account account))))))
+         (define-read-only (my-get-token-balance (account principal))
+            (default-to 0 (get balance (map-get tokens (tuple (account account))))))
          (define-read-only (explode (account principal))
-             (delete-entry! tokens (tuple (account account))))
-         (define (token-credit! (account principal) (amount int))
+             (map-delete! tokens (tuple (account account))))
+         (define-private (token-credit! (account principal) (amount int))
             (if (<= amount 0)
                 (err \"must be positive\")
-                (let ((current-amount (get-balance account)))
+                (let ((current-amount (my-get-token-balance account)))
                   (begin
-                    (set-entry! tokens (tuple (account account))
+                    (map-set! tokens (tuple (account account))
                                        (tuple (balance (+ amount current-amount))))
                     (ok 0)))))
          (define-public (token-transfer (to principal) (amount int))
-          (let ((balance (get-balance tx-sender)))
+          (let ((balance (my-get-token-balance tx-sender)))
              (if (or (> amount balance) (<= amount 0))
                  (err \"not enough balance\")
                  (begin
-                   (set-entry! tokens (tuple (account tx-sender))
+                   (map-set! tokens (tuple (account tx-sender))
                                       (tuple (balance (- balance amount))))
                    (token-credit! to amount)))))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (token-transfer original-sender 1))))                     
+             (as-contract (print (token-transfer (print original-sender) 1)))))                     
          (define-public (mint-after (block-to-release int))
            (if (>= block-height block-to-release)
                (faucet)
@@ -65,24 +60,26 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 200)
                 (token-credit! 'CTtokens 4))";
 
+
+fn get_principal() -> Value {
+    StandardPrincipalData(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into()
+}
+
 #[test]
 fn test_get_block_info_eval(){
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
-    let env = owned_env.get_exec_environment(None);
 
     let contracts = [
-        "(define (test-func) (get-block-info time 1))",
-        "(define (test-func) (get-block-info time 100000))",
-        "(define (test-func) (get-block-info time (- 1)))",
-        "(define (test-func) (get-block-info time 'true))",
-        "(define (test-func) (get-block-info header-hash 1))",
-        "(define (test-func) (get-block-info burnchain-header-hash 1))",
-        "(define (test-func) (get-block-info vrf-seed 1))",
+        "(define-private (test-func) (get-block-info time 1))",
+        "(define-private (test-func) (get-block-info time 100000))",
+        "(define-private (test-func) (get-block-info time (- 1)))",
+        "(define-private (test-func) (get-block-info time 'true))",
+        "(define-private (test-func) (get-block-info header-hash 1))",
+        "(define-private (test-func) (get-block-info burnchain-header-hash 1))",
+        "(define-private (test-func) (get-block-info vrf-seed 1))",
     ];
 
     let expected = [
-        Ok(Value::Int(env.global_context.get_block_time(1) as i128)),
+        Ok(Value::Int(0)),
         Err(true),
         Err(true),
         Err(true),
@@ -92,22 +89,23 @@ fn test_get_block_info_eval(){
     ];
 
     for i in 0..contracts.len() {
-        let mut nested_context = GlobalContext::begin_from(&mut env.global_context.database);
-        let contract = Contract::initialize("test-contract", contracts[i],
-                                            &mut nested_context).unwrap();
-        {
-            nested_context.database.insert_contract("test-contract", contract);
+        let mut owned_env = OwnedEnvironment::memory();
+        // start an initial transaction.
+        owned_env.begin();
+        owned_env.initialize_contract("test-contract", contracts[i]).unwrap();
+
+        let mut env = owned_env.get_exec_environment(None);
+
+        let eval_result = env.eval_read_only("test-contract", "(test-func)");
+        match &expected[i] {
+            Ok(val) => {
+                match (val, &eval_result.unwrap()) {
+                    (Value::Int(_), Value::Int(_)) => {},
+                    (x, y) => assert_eq!(x, y)
+                }
+            },
+            Err(_) => assert!(eval_result.is_err()),
         }
-        {
-            let mut owned_env = OwnedEnvironment::new(&mut nested_context.database);
-            let mut env = owned_env.get_exec_environment(None);
-            let eval_result = env.eval_read_only("test-contract", "(test-func)");
-            match &expected[i] {
-                Ok(val) => assert_eq!(val, &eval_result.unwrap()),
-                Err(_) => assert!(eval_result.is_err()),
-            }
-        }
-        nested_context.database.roll_back();
     }
 }
 
@@ -128,84 +126,84 @@ fn is_err_code(v: &Value, e: i128) -> bool {
     }
 }
 
-#[test]
-fn test_simple_token_system() {
+fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
     let tokens_contract = SIMPLE_TOKENS;
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
     let p2 = execute("'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G");
 
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
+    {
+        let mut env = owned_env.get_exec_environment(None);
 
-    let mut env = owned_env.get_exec_environment(None);
+        env.initialize_contract("tokens", tokens_contract).unwrap();
+    }
 
-    env.initialize_contract("tokens", tokens_contract).unwrap();
+    {
+        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
+        assert!(!is_committed(&env.execute_contract("tokens", "token-transfer",
+                                                    &symbols_from_values(vec![p1.clone(), Value::Int(210)])).unwrap()));
+    }
 
-    env.sender = Some(p2.clone());
-    assert!(!is_committed(&env.execute_contract("tokens", "token-transfer",
-                                               &symbols_from_values(vec![p1.clone(), Value::Int(210)])).unwrap()));
+    {
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        assert!(is_committed(&
+                             env.execute_contract("tokens", "token-transfer",
+                                                  &symbols_from_values(vec![p2.clone(), Value::Int(9000)])).unwrap()));
 
-    env.sender = Some(p1.clone());
-    assert!(is_committed(&
-        env.execute_contract("tokens", "token-transfer",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(9000)])).unwrap()));
-
-    assert!(!is_committed(&
-        env.execute_contract("tokens", "token-transfer",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap()));
-    assert!(is_committed(& // send to self!
-        env.execute_contract("tokens", "token-transfer",
-                             &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap()));
-
-    assert_eq!(
-        env.eval_read_only("tokens",
-                           "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
-        Value::Int(1000));
-    assert_eq!(
-        env.eval_read_only("tokens",
-                           "(get-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
-        Value::Int(9200));
-    assert!(is_committed(&
-        env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
-
-    assert!(is_committed(&
-        env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
-
-    assert!(is_committed(&
-        env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
-
-    assert_eq!(
-        env.eval_read_only("tokens",
-                           "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
-        Value::Int(1003));
-    assert!(!is_committed(&
-        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap()));
-
-    env.global_context.database.sim_mine_blocks(10);
-    assert!(is_committed(&
-        env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap()));
-
-    assert!(!is_committed(&
-        env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
-
-    assert_eq!(
-        env.eval_read_only("tokens",
-                           "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
-        Value::Int(1004));
-    assert_eq!(
-        env.execute_contract("tokens", "get-balance", &symbols_from_values(vec![p1.clone()])).unwrap(),
-        Value::Int(1004));
-
+        assert!(!is_committed(&
+                              env.execute_contract("tokens", "token-transfer",
+                                                   &symbols_from_values(vec![p2.clone(), Value::Int(1001)])).unwrap()));
+        assert!(is_committed(& // send to self!
+                             env.execute_contract("tokens", "token-transfer",
+                                                  &symbols_from_values(vec![p1.clone(), Value::Int(1000)])).unwrap()));
+        
+        assert_eq!(
+            env.eval_read_only("tokens",
+                               "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            Value::Int(1000));
+        assert_eq!(
+            env.eval_read_only("tokens",
+                               "(my-get-token-balance 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)").unwrap(),
+            Value::Int(9200));
+        assert!(is_committed(&
+                             env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
+        
+        assert!(is_committed(&
+                             env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
+        
+        assert!(is_committed(&
+                             env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
+        
+        assert_eq!(
+            env.eval_read_only("tokens",
+                               "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            Value::Int(1003));
+        assert!(!is_committed(&
+                              env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap()));
+        
+        env.global_context.database.sim_mine_blocks(10);
+        assert!(is_committed(&
+                             env.execute_contract("tokens", "mint-after", &symbols_from_values(vec![Value::Int(25)])).unwrap()));
+        
+        assert!(!is_committed(&
+                              env.execute_contract("tokens", "faucet", &vec![]).unwrap()));
+        
+        assert_eq!(
+            env.eval_read_only("tokens",
+                               "(my-get-token-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)").unwrap(),
+            Value::Int(1004));
+        assert_eq!(
+            env.execute_contract("tokens", "my-get-token-balance", &symbols_from_values(vec![p1.clone()])).unwrap(),
+            Value::Int(1004));
+    }
 }
 
-#[test]
-fn test_simple_naming_system() {
+fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let tokens_contract = SIMPLE_TOKENS;
 
     let names_contract =
-        "(define burn-address 'SP000000000000000000002Q6VF78)
-         (define (price-function (name int))
+        "(define-constant burn-address 'SP000000000000000000002Q6VF78)
+         (define-private (price-function (name int))
            (if (< name 100000) 1000 100))
          
          (define-map name-map 
@@ -221,7 +219,7 @@ fn test_simple_naming_system() {
                                   burn-address name-price)))
             (if (is-ok? xfer-result)
                (if
-                 (insert-entry! preorder-map
+                 (map-insert! preorder-map
                    (tuple (name-hash name-hash))
                    (tuple (paid name-price)
                           (buyer tx-sender)))
@@ -236,10 +234,10 @@ fn test_simple_naming_system() {
                         (salt int))
            (let ((preorder-entry
                    ;; preorder entry must exist!
-                   (expects! (fetch-entry preorder-map
+                   (expects! (map-get preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 5)))
                  (name-entry 
-                   (fetch-entry name-map (tuple (name name)))))
+                   (map-get name-map (tuple (name name)))))
              (if (and
                   (is-none? name-entry)
                   ;; preorder must have paid enough
@@ -249,10 +247,10 @@ fn test_simple_naming_system() {
                   (eq? tx-sender
                        (get buyer preorder-entry)))
                   (if (and
-                    (insert-entry! name-map
+                    (map-insert! name-map
                       (tuple (name name))
                       (tuple (owner recipient-principal)))
-                    (delete-entry! preorder-map
+                    (map-delete! preorder-map
                       (tuple (name-hash (hash160 (xor name salt))))))
                     (ok 0)
                     (err 3))
@@ -265,85 +263,86 @@ fn test_simple_naming_system() {
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
+    {
+        let mut env = owned_env.get_exec_environment(None);
 
-    let mut env = owned_env.get_exec_environment(None);
+        env.initialize_contract("tokens", tokens_contract).unwrap();
+        env.initialize_contract("names", names_contract).unwrap();
+    }
 
-    env.initialize_contract("tokens", tokens_contract).unwrap();
-    env.initialize_contract("names", names_contract).unwrap();
+    {
+        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
 
-    env.sender = Some(p2.clone());
+        assert!(is_err_code(&
+                            env.execute_contract("names", "preorder",
+                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(), 1));
+    }
 
-    assert!(is_err_code(&
-        env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(), 1));
+    {
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        assert!(is_committed(&
+                             env.execute_contract("names", "preorder",
+                                                  &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap()));
+        assert!(is_err_code(&
+                            env.execute_contract("names", "preorder",
+                                                 &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(), 2));
+    }
 
-    env.sender = Some(p1.clone());
-    assert!(is_committed(&
-        env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap()));
-    assert!(is_err_code(&
-        env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_expensive_0.clone(), Value::Int(1000)])).unwrap(), 2));
+    {
+        // shouldn't be able to register a name you didn't preorder!
+        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
+        assert!(is_err_code(&
+                            env.execute_contract("names", "register",
+                                                 &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(), 4));
+    }
 
-    // shouldn't be able to register a name you didn't preorder!
-    env.sender = Some(p2.clone());
-    assert!(is_err_code(&
-        env.execute_contract("names", "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap(), 4));
+    {
+        // should work!
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        assert!(is_committed(&
+                             env.execute_contract("names", "register",
+                                                  &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap()));
+        
+    }
 
-    // should work!
-    env.sender = Some(p1.clone());
-    assert!(is_committed(&
-        env.execute_contract("names", "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(1) , Value::Int(0)])).unwrap()));
-
-
-    // try to underpay!
-    env.sender = Some(p2.clone());
-    assert!(is_committed(&
-        env.execute_contract("names", "preorder",
-                             &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap()));
-    assert!(is_err_code(&
-        env.execute_contract("names", "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap(), 4));
-
-    // register a cheap name!
-    assert!(is_committed(&
-        env.execute_contract("names", "preorder",
+    {
+        // try to underpay!
+        let mut env = owned_env.get_exec_environment(Some(p2.clone()));
+        assert!(is_committed(&
+                             env.execute_contract("names", "preorder",
+                                                  &symbols_from_values(vec![name_hash_expensive_1.clone(), Value::Int(100)])).unwrap()));
+        assert!(is_err_code(&
+                            env.execute_contract("names", "register",
+                                                 &symbols_from_values(vec![p2.clone(), Value::Int(2) , Value::Int(0)])).unwrap(), 4));
+        
+        // register a cheap name!
+        assert!(is_committed(&
+                             env.execute_contract("names", "preorder",
                              &symbols_from_values(vec![name_hash_cheap_0.clone(), Value::Int(100)])).unwrap()));
-    assert!(is_committed(&
-        env.execute_contract("names", "register",
+        assert!(is_committed(&
+                             env.execute_contract("names", "register",
                              &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap()));
-
-    // preorder must exist!
-    assert!(is_err_code(&
-        env.execute_contract("names", "register",
-                             &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap(), 5));
-
+        
+        // preorder must exist!
+        assert!(is_err_code(&
+                            env.execute_contract("names", "register",
+                                                 &symbols_from_values(vec![p2.clone(), Value::Int(100001) , Value::Int(0)])).unwrap(), 5));
+    }
 }
 
-
-#[test]
-fn test_simple_contract_call() {
+fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
     let contract_1 = FACTORIAL_CONTRACT;
     let contract_2 =
         "(define-public (proxy-compute)
             (contract-call! factorial-contract compute 8008))
         ";
 
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
-
-    let mut env = owned_env.get_exec_environment(None);
+    let mut env = owned_env.get_exec_environment(Some(get_principal()));
 
     env.initialize_contract("factorial-contract", contract_1).unwrap();
     env.initialize_contract("proxy-compute", contract_2).unwrap();
-
+    
     let args = symbols_from_values(vec![]);
-    env.sender = Some(Value::Principal(PrincipalData::StandardPrincipal
-                                       (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])));
 
     let expected = [Value::Int(5),
                     Value::Int(20),
@@ -355,13 +354,12 @@ fn test_simple_contract_call() {
         env.execute_contract("proxy-compute", "proxy-compute", &args).unwrap();
         assert_eq!(
             env.eval_read_only("factorial-contract",
-                               "(get current (expects! (fetch-entry factorials (tuple (id 8008))) 'false))").unwrap(),
+                               "(get current (expects! (map-get factorials (tuple (id 8008))) 'false))").unwrap(),
             *expected_result);
     }
 }
 
-#[test]
-fn test_aborts() {
+fn test_aborts(owned_env: &mut OwnedEnvironment) {
     let contract_1 ="
 (define-map data ((id int)) ((value int)))
 
@@ -372,17 +370,17 @@ fn test_aborts() {
                  (id int)
                  (value int))
    (begin
-     (set-entry! data (tuple (id id))
+     (map-set! data (tuple (id id))
                       (tuple (value value)))
      (if (eq? id value)
          (ok 1)
          (err 1))))
 
 
-(define (get-data (id int))
+(define-private (get-data (id int))
   (default-to 0
     (get value 
-     (fetch-entry data (tuple (id id))))))
+     (map-get data (tuple (id id))))))
 ";
 
     let contract_2 ="
@@ -396,17 +394,12 @@ fn test_aborts() {
     (contract-call! contract-1 modify-data 105 105)
     (err 1)))
 ";
-
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
-
     let mut env = owned_env.get_exec_environment(None);
 
     env.initialize_contract("contract-1", contract_1).unwrap();
     env.initialize_contract("contract-2", contract_2).unwrap();
 
-    env.sender = Some(Value::Principal(PrincipalData::StandardPrincipal
-                                       (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])));
+    env.sender = Some(get_principal());
 
     assert_eq!(
         env.execute_contract("contract-1", "modify-data",
@@ -448,11 +441,7 @@ fn test_aborts() {
     
 }
 
-#[test]
-fn test_factorial_contract() {
-    let mut conn = ContractDatabaseConnection::memory().unwrap();
-    let mut owned_env = OwnedEnvironment::new(&mut conn);
-
+fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
     let mut env = owned_env.get_exec_environment(None);
 
     env.initialize_contract("factorial", FACTORIAL_CONTRACT).unwrap();
@@ -485,15 +474,14 @@ fn test_factorial_contract() {
         Value::Int(120),
     ];
         
-    env.sender = Some(Value::Principal(PrincipalData::StandardPrincipal
-                                       (1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])));
+    env.sender = Some(get_principal());
 
     for (arguments, expectation) in arguments_to_test.iter().zip(expected.iter()) {
         env.execute_contract("factorial", &tx_name, arguments).unwrap();
 
         assert_eq!(*expectation,
                    env.eval_read_only("factorial",
-                                      &format!("(expects! (get current (fetch-entry factorials (tuple (id {})))) 'false)", arguments[0]))
+                                      &format!("(expects! (get current (map-get factorials (tuple (id {})))) 'false)", arguments[0]))
                    .unwrap());
     }
 
@@ -518,4 +506,17 @@ fn test_factorial_contract() {
         }
     }
 
+}
+
+#[test]
+fn test_all() {
+    let to_test = [ test_factorial_contract,
+                    test_aborts,
+                    test_simple_naming_system,
+                    test_simple_token_system,
+                    test_simple_contract_call ];
+    for test in to_test.iter() {
+        with_memory_environment(test, false);
+        with_marfed_environment(test, false);
+    }
 }

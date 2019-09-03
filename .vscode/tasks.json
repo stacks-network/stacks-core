@@ -5,7 +5,7 @@
     "tasks": [
         {
             "label": "cargo: build",
-            "type":"shell",
+            "type": "shell",
             "command": "cargo build",
             "problemMatcher": [
                 "$rustc"
@@ -19,6 +19,22 @@
             "label": "cargo: rebuild",
             "type": "shell",
             "command": "cargo clean && cargo build",
+            "problemMatcher": [
+                "$rustc"
+            ]
+        },
+        {
+            "label": "cargo: test all",
+            "type": "shell",
+            "command": "cargo test",
+            "problemMatcher": [
+                "$rustc"
+            ]
+        },
+        {
+            "label": "cargo: test clarity-vm",
+            "type": "shell",
+            "command": "cargo test vm",
             "problemMatcher": [
                 "$rustc"
             ]

@@ -1,4 +1,4 @@
-use vm::errors::{UncheckedError, InterpreterResult as Result};
+use vm::errors::{UncheckedError, InterpreterResult as Result, check_argument_count};
 use vm::types::{Value};
 use vm::representations::{SymbolicExpression,SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List};
@@ -14,7 +14,7 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
     use super::parse_eval_bindings;
 
     if args.len() < 1 {
-        return Err(UncheckedError::InvalidArguments(format!("Tuples must be constructed with named-arguments and corresponding values")).into())
+        return Err(UncheckedError::IncorrectArgumentCount(1, 0).into());
     }
 
     let bindings = parse_eval_bindings(args, env, context)?;
@@ -25,14 +25,10 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
 pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
     // (get arg-name (tuple ...))
     //    if the tuple argument is an option type, then return option(field-name).
-
-    if args.len() != 2 {
-        return Err(UncheckedError::InvalidArguments(format!("(get ..) requires exactly 2 arguments")).into())
-    }
-    let arg_name = match args[0].expr {
-        SymbolicExpressionType::Atom(ref name) => Ok(name),
-        _ => Err(UncheckedError::InvalidArguments(format!("Second argument to (get ..) must be a name, found: {:?}", args[0])))
-    }?;
+    check_argument_count(2, args)?;
+    
+    let arg_name = args[0].match_atom()
+        .ok_or(UncheckedError::ExpectedTupleKey)?;
 
     let value = eval(&args[1], env, context)?;
 
