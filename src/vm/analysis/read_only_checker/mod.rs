@@ -1,6 +1,6 @@
-use vm::representations::{SymbolicExpression};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
+use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, Value, PrincipalData, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::functions::tuples;
@@ -241,12 +241,15 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 if args.len() < 2 {
                     return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
                 }
-                let contract_name = args[0].match_atom()
-                    .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
+                let contract_identifier = match args[0].expr {
+                    SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
+                    _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
+                };
+
                 let function_name = args[1].match_atom()
                     .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
 
-                let is_function_read_only = self.db.get_read_only_function_type(contract_name, function_name)?.is_some();
+                let is_function_read_only = self.db.get_read_only_function_type(&contract_identifier, function_name)?.is_some();
                 self.are_all_read_only(is_function_read_only, &args[2..])
             }
         }

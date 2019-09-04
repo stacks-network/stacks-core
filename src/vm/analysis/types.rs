@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use vm::{SymbolicExpression};
-use vm::types::{TypeSignature, FunctionType};
+use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
 use vm::analysis::analysis_db::{AnalysisDatabase};
 use vm::analysis::errors::{CheckResult};
 
@@ -13,6 +13,7 @@ pub trait AnalysisPass {
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractAnalysis {
+    pub contract_identifier: QualifiedContractIdentifier,
     // matt: is okay to let these new fields end up in the db?
     pub private_function_types: BTreeMap<String, FunctionType>,
     pub variable_types: BTreeMap<String, TypeSignature>,
@@ -29,9 +30,10 @@ pub struct ContractAnalysis {
 }
 
 impl ContractAnalysis {
-    pub fn new(expressions: Vec<SymbolicExpression>) -> ContractAnalysis {
+    pub fn new(contract_identifier: QualifiedContractIdentifier, expressions: Vec<SymbolicExpression>) -> ContractAnalysis {
         ContractAnalysis {
-            expressions: expressions,
+            contract_identifier,
+            expressions,
             private_function_types: BTreeMap::new(),
             public_function_types: BTreeMap::new(),
             read_only_function_types: BTreeMap::new(),
