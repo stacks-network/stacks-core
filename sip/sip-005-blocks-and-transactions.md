@@ -1073,32 +1073,6 @@ before each `]` or `}` character.
 integer, with a `-` indicator for negative `i128` values. Buffers are
 hex encoded. Principals are C32CHECK encoded account addresses.
 
-#### Clarity Type Signature Representation
-
-Clarity type signatures are represented with the same subset of JSON encoding
-as Clarity Values.
-
-IN PROGRESS: JSON schema for Clarity type signatures.
-
-#### Clarity Code Body Representation
-
-Clarity code bodies are represented with the same subset of JSON encoding as Clarity
-Values. Code bodies are encoded with the Clarity symbolic representation.
-Clarity symbolic representations are a recursive type with three types:
-
-* Lists: these are lists of other Clarity symbolic representations (e.g., `(+ 1 2 3)` is
-  a list of `+`, `1`, `2`, and `3`)
-* Atoms: these are the atomic elements of Clarity code, i.e., `+`
-* AtomValues: these are atomic elements containing literal Clarity values, i.e., `1`
-
-Example:
-
-```json
-[ "+", { "type": "i128", "value": "1" }, { "type": "i128", "value": "2" }, { "type": "i128", "value": "3" } ]
-```
-
-IN PROGRESS: JSON schema for Clarity symbolic representations.
-
 #### Calculating the State of an Account
 
 An account's canonical encoding as a key/value pair in the account state
@@ -1127,12 +1101,11 @@ state is as follows:
    * a list of data map names this contract declares, in lexical order
    * a list of fungible asset names this contract declares, in lexical order
    * a list of non-fungible asset names this contract declares, in lexical order
-   * a list of functions defined by this contract, in lexical order, paired with:
-     * the function type (public, private, or public-read-only)
-     * the list of argument type signatures
-     * the function body
-   * a list of constant names defined by this contract in lexical order, paired with
-     their associated Clarity values.
+
+Note that _other_ kinds of smart contract data (e.g., analysis data, function bodies, etc.)
+must also be indexed by Stacks peers. However, this data does not need to be included in a
+peer's commitment, is indexed via a secondary MARF structure, and the representation of
+that data is therefore _not_ specified as part of the Stacks protocol. 
 
 Example: `"smart-contract.SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q.my-contract"` refers
 to a smart contract created by standard account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`
