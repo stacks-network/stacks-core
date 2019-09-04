@@ -1,6 +1,6 @@
 use vm::execute as vm_execute;
 use vm::errors::{Error, UncheckedError, RuntimeErrorType};
-use vm::types::{Value, PrincipalData, ResponseData, AssetIdentifier};
+use vm::types::{Value, PrincipalData, ResponseData, QualifiedContractIdentifier, AssetIdentifier};
 use vm::contexts::{OwnedEnvironment, GlobalContext, AssetMap, AssetMapEntry};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
@@ -99,7 +99,13 @@ const ASSET_NAMES: &str =
 
 fn execute_transaction(env: &mut OwnedEnvironment, sender: Value, contract: &str,
                        tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap), Error> {
-    env.execute_transaction(sender, contract, tx, args)
+    let sender = if let Value::Principal(PrincipalData::Standard(address)) = sender {
+        address
+    } else {
+        panic!();
+    };
+    let contract_identifier = QualifiedContractIdentifier::new(sender, contract.to_string()).unwrap();
+    env.execute_transaction(contract_identifier, tx, args)
 }
 
 fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
@@ -118,12 +124,13 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let token_identifier = AssetIdentifier { contract_name: "tokens".to_string(),
+    let token_identifier = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("tokens").unwrap(),
                                              asset_name: "stackaroos".to_string() };
 
-    let contract_principal = PrincipalData::ContractPrincipal("tokens".to_string());
+    let contract_principal = PrincipalData::Contract(QualifiedContractIdentifier::local("tokens").unwrap());
 
-    owned_env.initialize_contract("tokens", tokens_contract).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+    owned_env.initialize_contract(contract_identifier, tokens_contract).unwrap();
 
     let (result, asset_map) = execute_transaction(
         owned_env, p2.clone(), "tokens", "my-token-transfer",
@@ -236,19 +243,22 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let err = owned_env.initialize_contract("tokens", bad_0).unwrap_err();
+    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+    let err = owned_env.initialize_contract(contract_identifier, bad_0).unwrap_err();
     assert!( match err {
         Error::Runtime(RuntimeErrorType::NonPositiveTokenSupply, _) => true,
         _ => false
     });
 
-    let err = owned_env.initialize_contract("tokens", bad_1).unwrap_err();
+    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+    let err = owned_env.initialize_contract(contract_identifier, bad_1).unwrap_err();
     assert!( match err {
         Error::Unchecked(UncheckedError::TypeError(_, _)) => true,
         _ => false
     });
 
-    owned_env.initialize_contract("tokens", contract).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+    owned_env.initialize_contract(contract_identifier, contract).unwrap();
 
     let (result, asset_map) = execute_transaction(owned_env,
         p1.clone(), "tokens", "gated-faucet",
@@ -293,9 +303,9 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let names_identifier = AssetIdentifier { contract_name: "names".to_string(),
+    let names_identifier = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("names").unwrap(),
                                              asset_name: "names".to_string() };
-    let tokens_identifier = AssetIdentifier { contract_name: "tokens".to_string(),
+    let tokens_identifier = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("tokens").unwrap(),
                                              asset_name: "stackaroos".to_string() };
 
 
@@ -303,8 +313,12 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
-    owned_env.initialize_contract("tokens", tokens_contract).unwrap();
-    owned_env.initialize_contract("names", names_contract).unwrap();
+
+    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+    owned_env.initialize_contract(contract_identifier, tokens_contract).unwrap();
+
+    let contract_identifier = QualifiedContractIdentifier::local("names").unwrap();
+    owned_env.initialize_contract(contract_identifier, names_contract).unwrap();
 
     let (result, asset_map) = execute_transaction(
         owned_env, p2.clone(), "names", "preorder",
@@ -346,7 +360,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     {
         let mut env = owned_env.get_exec_environment(None);
         assert_eq!(
-            env.eval_read_only("names",
+            env.eval_read_only(&QualifiedContractIdentifier::local("names").unwrap(),
                                "(nft-get-owner names 1)").unwrap(),
             Value::some(p2.clone()));
     }

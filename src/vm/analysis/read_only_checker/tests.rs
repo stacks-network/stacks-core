@@ -1,5 +1,6 @@
 use vm::parser::parse;
 use vm::analysis::{type_check, mem_type_check, CheckError, CheckErrors, AnalysisDatabase};
+use vm::types::QualifiedContractIdentifier;
 
 #[test]
 fn test_simple_read_only_violations() {
@@ -86,11 +87,11 @@ fn test_contract_call_read_only_violations() {
     let mut ok_caller = parse(ok_caller).unwrap();
 
     let mut db = AnalysisDatabase::memory();
-    db.execute(|db| type_check(&"contract1", &mut contract1, db, true)).unwrap();
+    db.execute(|db| type_check(&QualifiedContractIdentifier::local("contract1").unwrap(), &mut contract1, db, true)).unwrap();
 
-    let err = db.execute(|db| type_check(&"bad_caller", &mut bad_caller, db, true)).unwrap_err();
+    let err = db.execute(|db| type_check(&QualifiedContractIdentifier::local("bad_caller").unwrap(), &mut bad_caller, db, true)).unwrap_err();
     assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
 
-    db.execute(|db| type_check(&"ok_caller", &mut ok_caller, db, true)).unwrap();
+    db.execute(|db| type_check(&QualifiedContractIdentifier::local("ok_caller").unwrap(), &mut ok_caller, db, true)).unwrap();
 
 }

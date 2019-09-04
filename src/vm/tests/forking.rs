@@ -3,6 +3,7 @@ use vm::contexts::{OwnedEnvironment};
 use vm::representations::SymbolicExpression;
 use vm::database::marf::temporary_marf;
 use vm::database::ClarityDatabase;
+use vm::types::{QualifiedContractIdentifier, PrincipalData};
 
 use vm::tests::{symbols_from_values, execute, is_err_code, is_committed};
 
@@ -102,7 +103,9 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
 
     eprintln!("Initializing contract...");
     owned_env.begin();
-    owned_env.initialize_contract("tokens", &contract).unwrap();
+
+    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+    owned_env.initialize_contract(contract_identifier, &contract).unwrap();
     owned_env.commit().unwrap();
 }
 
@@ -113,7 +116,8 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
     {
         let mut env = owned_env.get_exec_environment(None);
         let command = format!("(get-balance {})", p1_str);
-        let balance = env.eval_read_only("tokens", &command).unwrap();
+        let balance = env.eval_read_only(&QualifiedContractIdentifier::local("tokens").unwrap(), 
+                                         &command).unwrap();
         let expected = if expect_success {
             10
         } else {
@@ -121,8 +125,16 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
         };
         assert_eq!(balance, Value::Int(expected));
     }
+    let p1_address = {
+        if let Value::Principal(PrincipalData::Standard(address)) = p1 {
+            address
+        } else {
+            panic!();
+        }
+    };
 
-    let (result, _) = owned_env.execute_transaction(p1, "tokens", "destroy",
+    let (result, _) = owned_env.execute_transaction(QualifiedContractIdentifier::new(p1_address, "tokens".to_string()).unwrap(), 
+                                                    "destroy",
                                                     &symbols_from_values(vec![Value::Int(10)])).unwrap();
 
     if expect_success {

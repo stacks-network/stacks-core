@@ -4,7 +4,7 @@ use vm::errors::{UncheckedError, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
-use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData};
+use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData, QualifiedContractIdentifier};
 use vm::parser::parse;
 use util::hash::hex_bytes;
 
@@ -145,7 +145,7 @@ fn test_simple_if_functions() {
             func_args2, parsed_bodies[1].clone(), Private, &"without_else", &"");
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new(":transient:".to_string());
+        let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut global_context = GlobalContext::new(memory_db());
 
         contract_context.functions.insert("with_else".to_string(), user_function1);

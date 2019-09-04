@@ -1,4 +1,4 @@
-use vm::types::AtomTypeIdentifier;
+use vm::types::{AtomTypeIdentifier, QualifiedContractIdentifier};
 use vm::parser::parse;
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{AnalysisDatabase,mem_type_check};
@@ -81,8 +81,8 @@ fn test_names_tokens_contracts() {
     let mut db = AnalysisDatabase::memory();
 
     db.execute(|db| {
-        type_check(&"tokens", &mut tokens_contract, db, true)?;
-        type_check(&"names", &mut names_contract, db, true)
+        type_check(&QualifiedContractIdentifier::local("tokens").unwrap(), &mut tokens_contract, db, true)?;
+        type_check(&QualifiedContractIdentifier::local("names").unwrap(), &mut names_contract, db, true)
     }).unwrap();
 }
 
