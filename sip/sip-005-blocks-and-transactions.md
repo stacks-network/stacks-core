@@ -910,12 +910,9 @@ The first set of key/value pairs is the **account state**.  The Stacks peer
 calculates an index over all accounts in each fork as they are created.
 
 The second set of key/value pairs is the **smart contract context state**.  It maps the
-_fully-qualified name_ of the smart contract to a bundle of metadata,
-which contains:
+_fully-qualified name_ of the smart contract to:
    * the transaction ID that created the smart contract (which can be used to
      derive the contract account address and to query its code),
-   * all functions and constants defined by this contract
-   * all data variables, data maps, and tokens defined by this contract
 
 The fully-qualified name of a smart contract is composed of the c32check-encoded
 standard account address that created it, as well as an ASCII-encoded string chosen by
@@ -1095,12 +1092,7 @@ state is as follows:
 * Key: The string "smart-contract", followed by a `.`, followed by the
   c32check-encoded address of the standard account that created it,
   followed by a `.`, followed by the ASCII-encoded name of the contract.
-* Value: A specifically encoded JSON object containing the folllowing data:
-   * The transaction ID, encoded as a buffer
-   * a list of names of data variables this contract declares, in lexical order
-   * a list of data map names this contract declares, in lexical order
-   * a list of fungible asset names this contract declares, in lexical order
-   * a list of non-fungible asset names this contract declares, in lexical order
+* Value: The transaction ID, encoded as a buffer
 
 Note that _other_ kinds of smart contract data (e.g., analysis data, function bodies, etc.)
 must also be indexed by Stacks peers. However, this data does not need to be included in a
