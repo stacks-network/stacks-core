@@ -1,5 +1,5 @@
-use vm::representations::{SymbolicExpression};
-use vm::types::{AtomTypeIdentifier, TypeSignature};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::types::{AtomTypeIdentifier, TypeSignature, Value, PrincipalData};
 
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
@@ -42,7 +42,7 @@ pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[Sym
     }
 
     let contract_identifier = match args[0].expr {
-        SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(contract_identifier))) => contract_identifier,
+        SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
         _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
     };
 

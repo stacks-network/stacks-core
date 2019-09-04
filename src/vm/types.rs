@@ -460,8 +460,8 @@ impl PrincipalData {
         let sender = Self::parse_standard_principal(split[0])?;
         let name = split[1].to_string();
         
-        // todo(ludo): put real data
-        Ok(PrincipalData::Contract(QualifiedContractIdentifier::transient()))
+        let contract_identifier = QualifiedContractIdentifier::new(sender, name)?;
+        Ok(PrincipalData::Contract(contract_identifier))
     }
 
     pub fn parse_standard_principal(literal: &str) -> Result<StackAddress> {

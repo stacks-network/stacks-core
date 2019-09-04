@@ -16,7 +16,7 @@ pub fn special_contract_call(args: &[SymbolicExpression],
     }
 
     let contract_identifier = match args[0].expr {
-        SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(contract_identifier))) => contract_identifier,
+        SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
         _ => return Err(UncheckedError::ExpectedContractName.into())
     };
 
@@ -89,7 +89,7 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
     check_argument_count(3, args)?;
 
     let contract_identifier = match args[0].expr {
-        SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(contract_identifier))) => contract_identifier,
+        SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
         _ => return Err(UncheckedError::ExpectedContractName.into())
     };
 

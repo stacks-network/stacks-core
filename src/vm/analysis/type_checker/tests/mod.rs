@@ -7,7 +7,7 @@ use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
 use vm::analysis::types::ContractAnalysis;
 use vm::contexts::{OwnedEnvironment};
-use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier, FunctionType};
+use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier, FunctionType, QualifiedContractIdentifier};
 
 mod assets;
 mod contracts;
@@ -967,7 +967,7 @@ fn test_fetch_contract_entry_matching_type_signatures() {
 
     let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
-        type_check(&"kv-store-contract", &mut kv_store_contract, db, true)
+        type_check(&QualifiedContractIdentifier::local("kv-store-contract").unwrap(), &mut kv_store_contract, db, true)
     }).unwrap();
 
     let cases = [
@@ -999,7 +999,7 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
     let mut analysis_db = AnalysisDatabase::memory();
     let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
-        type_check(&"kv-store-contract", &mut kv_store_contract, db, true)
+        type_check(&QualifiedContractIdentifier::local("kv-store-contract").unwrap(), &mut kv_store_contract, db, true)
     }).unwrap();
     
     let cases = [
@@ -1038,7 +1038,7 @@ fn test_fetch_contract_entry_unbound_variables() {
     let mut analysis_db = AnalysisDatabase::memory();
     let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
-        type_check(&"kv-store-contract", &mut kv_store_contract, db, true)
+        type_check(&QualifiedContractIdentifier::local("kv-store-contract").unwrap(), &mut kv_store_contract, db, true)
     }).unwrap();
     
     let cases = [

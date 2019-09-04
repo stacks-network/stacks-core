@@ -1,5 +1,5 @@
 use vm::errors::{Error, UncheckedError, RuntimeErrorType};
-use vm::types::{Value, StackAddress, TupleData};
+use vm::types::{Value, StackAddress, TupleData, QualifiedContractIdentifier};
 use vm::contexts::{OwnedEnvironment};
 use vm::execute;
 
@@ -196,11 +196,11 @@ fn test_fetch_contract_entry() {
     let mut owned_env = OwnedEnvironment::memory();
 
     let mut env = owned_env.get_exec_environment(None);
-    let kv_contract_identifier = QualifiedContractIdentifier::local("kv-store-contract")?;
+    let kv_contract_identifier = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
     let r = env.initialize_contract(kv_contract_identifier, kv_store_contract_src).unwrap();
 
-    let contract_identifier = QualifiedContractIdentifier::local("proxy-contract")?;
-    env.initialize_contract(contract_identifier, proxy_src).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::local("proxy-contract").unwrap();
+    env.initialize_contract(contract_identifier.clone(), proxy_src).unwrap();
     env.sender = Some(StackAddress(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into());
 
     assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-conntract-call)").unwrap());

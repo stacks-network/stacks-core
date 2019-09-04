@@ -6,6 +6,7 @@ use vm::analysis::errors::CheckErrors;
 use vm::analysis::{AnalysisDatabase, build_contract_interface::build_contract_interface};
 use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
+use vm::types::QualifiedContractIdentifier;
 
 const SIMPLE_TOKENS: &str =
         "(define-map tokens ((account principal)) ((balance int)))
@@ -351,8 +352,8 @@ fn test_names_tokens_contracts() {
     let mut db = AnalysisDatabase::memory();
 
     db.execute(|db| {
-        type_check(&"tokens", &mut tokens_contract, db, true)?;
-        type_check(&"names", &mut names_contract, db, true)
+        type_check(&QualifiedContractIdentifier::local("tokens").unwrap(), &mut tokens_contract, db, true)?;
+        type_check(&QualifiedContractIdentifier::local("names").unwrap(), &mut names_contract, db, true)
     }).unwrap();
 }
 
@@ -375,9 +376,9 @@ fn test_names_tokens_contracts_bad() {
     let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(&names_contract).unwrap();
     let mut db = AnalysisDatabase::memory();
-    db.execute(|db| type_check(&"tokens", &mut tokens_contract, db, true)).unwrap();
+    db.execute(|db| type_check(&QualifiedContractIdentifier::local("tokens").unwrap(), &mut tokens_contract, db, true)).unwrap();
 
-    let err = db.execute(|db| type_check(&"names", &mut names_contract, db, true)).unwrap_err();
+    let err = db.execute(|db| type_check(&QualifiedContractIdentifier::local("names").unwrap(), &mut names_contract, db, true)).unwrap_err();
     assert!(match &err.err {
             &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
                 eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
@@ -403,9 +404,9 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
     let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
     let mut names_contract = parse(&names_contract).unwrap();
     let mut db = AnalysisDatabase::memory();
-    db.execute(|db| type_check(&"tokens", &mut tokens_contract, db, true)).unwrap();
+    db.execute(|db| type_check(&QualifiedContractIdentifier::local("tokens").unwrap(), &mut tokens_contract, db, true)).unwrap();
 
-    let err = db.execute(|db| type_check(&"names", &mut names_contract, db, true)).unwrap_err();
+    let err = db.execute(|db| type_check(&QualifiedContractIdentifier::local("names").unwrap(), &mut names_contract, db, true)).unwrap_err();
     assert!(match &err.err {
             &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
                 eprintln!("Received TypeError on: {} {}", expected_type, actual_type);

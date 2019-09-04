@@ -216,7 +216,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 mod test {
     use vm::database::memory_db;
     use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression, CallStack};
-    use vm::types::{TypeSignature, AtomTypeIdentifier};
+    use vm::types::{TypeSignature, AtomTypeIdentifier, QualifiedContractIdentifier};
     use vm::callables::{DefinedFunction, DefineType};
     use vm::eval;
 

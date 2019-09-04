@@ -116,7 +116,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
 
         env.global_context.database.set_nft_owner(&env.contract_context.contract_identifier, asset_name, &asset, to_principal)?;
 
-        env.global_context.log_asset_transfer(from_principal, env.contract_context.contract_identifier, asset_name, asset);
+        env.global_context.log_asset_transfer(from_principal, &env.contract_context.contract_identifier, asset_name, asset);
 
         Ok(Value::okay(Value::Bool(true)))
     } else {
@@ -163,7 +163,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
         env.global_context.database.set_ft_balance(&env.contract_context.contract_identifier, token_name, from_principal, final_from_bal)?;
         env.global_context.database.set_ft_balance(&env.contract_context.contract_identifier, token_name, to_principal, final_to_bal)?;
 
-        env.global_context.log_token_transfer(from_principal, env.contract_context.contract_identifier, token_name, amount)?;
+        env.global_context.log_token_transfer(from_principal, &env.contract_context.contract_identifier, token_name, amount)?;
 
         Ok(Value::okay(Value::Bool(true)))
     } else {

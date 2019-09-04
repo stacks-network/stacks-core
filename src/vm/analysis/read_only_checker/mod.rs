@@ -1,6 +1,6 @@
-use vm::representations::{SymbolicExpression};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
+use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, Value, PrincipalData, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::functions::tuples;
@@ -242,8 +242,9 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                     return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
                 }
 
+                println!("====> {:?}", args[0]);
                 let contract_identifier = match args[0].expr {
-                    SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(contract_identifier))) => contract_identifier,
+                    SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
                     _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
                 };
 

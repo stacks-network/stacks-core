@@ -19,7 +19,7 @@ use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::analysis::{AnalysisDatabase, run_analysis};
 use vm::analysis::build_contract_interface::build_contract_interface;
 use vm::analysis::types::ContractAnalysis;
-use vm::types::QualifiedContractIdentifier;
+use vm::types::{QualifiedContractIdentifier, PrincipalData};
 
 use address::c32::c32_address;
 
@@ -354,8 +354,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
 
             let contract_name = &args[2];
-            let contract_identifier = friendly_expect(QualifiedContractIdentifier::local(&contract_name), 
-                                                      "Failed to get contract name");
 
             let tx_name = &args[3];            
             let sender_in = &args[4];
@@ -367,13 +365,18 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         .pop(),
                     &format!("Failed to read a sender from {}", sender_in));
             let sender = {
-                if let Some(Value::Principal(principal_data)) = sender.match_atom_value() {
-                    Value::Principal(principal_data.clone())
+                if let Some(Value::Principal(PrincipalData::Standard(sender))) = sender.match_atom_value() {
+                    sender.clone()
                 } else {
                     eprintln!("Unexpected result parsing sender: {}", sender_in);
                     panic_test!();
                 }
             };
+
+            let contract_identifier = friendly_expect(
+                                            QualifiedContractIdentifier::new(sender, contract_name.to_string()), 
+                                            "Failed to get contract name");
+
             let arguments: Vec<_> = args[5..]
                 .iter()
                 .map(|argument| {
@@ -394,7 +397,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 let result = {
                     let db = ClarityDatabase::new(Box::new(&mut marf));
                     let mut vm_env = OwnedEnvironment::new(db);
-                    vm_env.execute_transaction(sender, &contract_name, &tx_name, &arguments) };
+                    vm_env.execute_transaction(contract_identifier, &tx_name, &arguments) };
                 (marf, result)
             });
 

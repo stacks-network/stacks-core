@@ -21,7 +21,6 @@ enum TokenType {
     StringLiteral, HexStringLiteral,
     IntLiteral, QuoteLiteral,
     Variable, PrincipalLiteral,
-    ContractPrincipalLiteral,
     QualifiedContractPrincipalLiteral
 }
 
@@ -74,7 +73,6 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
         LexMatcher::new("'CT(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}.([[:alpha:]]|[-]){5,40})", TokenType::QualifiedContractPrincipalLiteral),
-        LexMatcher::new("'CT(?P<value>([[:alpha:]]|[-]){5,40})", TokenType::ContractPrincipalLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
     ];
@@ -161,11 +159,6 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
                             Err(_e) => Err(RuntimeErrorType::ParseError(format!("Failed to parse int literal '{}'", str_value)))
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
-                    },
-                    TokenType::ContractPrincipalLiteral => {
-                        let str_value = get_value_or_err(current_slice, captures)?;
-                        Ok(LexItem::LiteralValue(str_value.len(),
-                            PrincipalData::Contract(str_value).into()))
                     },
                     TokenType::QualifiedContractPrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
@@ -371,15 +364,15 @@ r#"z (let ((x 1) (y 2))
         let x1 = &parsed[0];
         let x2 = &parsed[1];
         assert!( match x1.match_atom_value() {
-            Some(Value::Principal(PrincipalData::Contract() {sender, name})) => {
-                format!("{}", PrincipalData::Standard(sender.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
-                    name == "contract-a"
+            Some(Value::Principal(PrincipalData::Contract(identifier))) => {
+                format!("{}", PrincipalData::Standard(identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                    identifier.name == "contract-a"
             },
             _ => false
         });
         assert!( match x2.match_atom_value() {
-            Some(Value::Principal(PrincipalData::Contract(name))) => {
-                name == "contract-b"
+            Some(Value::Principal(PrincipalData::Contract(identifier))) => {
+                identifier.name == "contract-b"
             },
             _ => false
         });
