@@ -239,10 +239,7 @@ The Stacks blockchain supports the following two types of comparators:
   fungible asset balance increased or decreased as a result of the transaction's
   execution.  The contract can assert that the quantity of tokens increased,
   decreased, or stayed the same.  In addition, the contract can assert that the
-  change was greater than, equal to, or less than a given amount.  If any fungible
-  asset post-conditions are present, then such conditions are treated as a whitelist,
-  meaning that any fungible tokens not present in the post-conditions are treated as
-  "stays the same" constraints.
+  change was greater than, equal to, or less than a given amount.
 * **Non-fungible asset state** -- that is, a question of _whether or not_ the
   account owns a particular non-fungible asset when the transaction finishes
   executing.
