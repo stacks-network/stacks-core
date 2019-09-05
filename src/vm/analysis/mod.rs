@@ -24,7 +24,7 @@ use self::sugar_expander::SugarExpander;
 
 #[cfg(test)]
 pub fn mem_type_check(snippet: &str) -> CheckResult<ContractAnalysis> {
-    use vm::parser::parse;
+    use vm::ast::parse;
     let mut contract = parse(snippet).unwrap();
     let mut analysis_db = AnalysisDatabase::memory();
     type_check(&QualifiedContractIdentifier::transient(), &mut contract, &mut analysis_db, false)

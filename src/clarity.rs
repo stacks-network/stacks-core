@@ -10,7 +10,7 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::storage::{TrieFileStorage};
 
 
-use vm::parser::parse;
+use vm::ast::parse;
 use vm::contexts::OwnedEnvironment;
 use vm::database::{ClarityDatabase, SqliteStore, SqliteConnection, KeyValueStorage,
                    MarfedKV, memory_db, sqlite_marf};

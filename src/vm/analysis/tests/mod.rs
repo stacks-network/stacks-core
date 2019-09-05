@@ -1,4 +1,4 @@
-use vm::parser::parse;
+use vm::ast::parse;
 use vm::analysis::{AnalysisDatabase, mem_type_check};
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{ContractAnalysis, type_check};

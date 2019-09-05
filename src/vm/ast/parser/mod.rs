@@ -278,7 +278,7 @@ pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>> {
 
 #[cfg(test)]
 mod test {
-    use vm::{SymbolicExpression, Value, parser};
+    use vm::{SymbolicExpression, Value, ast};
 
     fn make_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> SymbolicExpression {
         let mut e = SymbolicExpression::atom(x.to_string());
@@ -338,7 +338,7 @@ r#"z (let ((x 1) (y 2))
             make_atom("y", 6, 15, 6, 15),
         ];
 
-        let parsed = parser::parse(&input);
+        let parsed = ast::parse(&input);
         assert_eq!(Ok(program), parsed, "Should match expected symbolic expression");
 
         let input = "        -1234
@@ -349,7 +349,7 @@ r#"z (let ((x 1) (y 2))
                                 make_atom_value(Value::Int(12), 2, 12, 2, 13),
                                 make_atom_value(Value::Int(34), 2, 15, 2, 16)])) ];
 
-        let parsed = parser::parse(&input);
+        let parsed = ast::parse(&input);
         assert_eq!(Ok(program), parsed, "Should match expected symbolic expression");
         
     }
@@ -358,7 +358,7 @@ r#"z (let ((x 1) (y 2))
     fn test_parse_contract_principals() {
         use vm::types::PrincipalData;
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract-a";
-        let parsed = parser::parse(&input).unwrap();
+        let parsed = ast::parse(&input).unwrap();
 
         let x1 = &parsed[0];
         assert!( match x1.match_atom_value() {
@@ -381,22 +381,22 @@ r#"z (let ((x 1) (y 2))
         let split_tokens = "(let ((023ab13 1)))";
         let name_with_dot = "(let ((ab.de 1)))";
 
-        assert!(match parser::parse(&split_tokens).unwrap_err() {
+        assert!(match ast::parse(&split_tokens).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse with an expectation of whitespace or parens");
 
-        assert!(match parser::parse(&too_much_closure).unwrap_err() {
+        assert!(match ast::parse(&too_much_closure).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse with too many right parens");
         
-        assert!(match parser::parse(&not_enough_closure).unwrap_err() {
+        assert!(match ast::parse(&not_enough_closure).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse with too few right parens");
         
-        let x = parser::parse(&middle_hash).unwrap_err();
+        let x = ast::parse(&middle_hash).unwrap_err();
         assert!(match x {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => {
@@ -405,12 +405,12 @@ r#"z (let ((x 1) (y 2))
             }
         }, "Should have failed to parse with a middle hash");
 
-        assert!(match parser::parse(&unicode).unwrap_err() {
+        assert!(match ast::parse(&unicode).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse a unicode variable name");
 
-        assert!(match parser::parse(&name_with_dot).unwrap_err() {
+        assert!(match ast::parse(&name_with_dot).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse a variable name with a dot.");

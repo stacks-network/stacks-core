@@ -5,7 +5,7 @@ use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallS
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
 use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData, QualifiedContractIdentifier};
-use vm::parser::parse;
+use vm::ast::parse;
 use util::hash::hex_bytes;
 
 fn execute(s: &str) -> Value {

@@ -1,4 +1,4 @@
-use vm::parser::parse;
+use vm::ast::parse;
 use vm::representations::SymbolicExpression;
 use vm::analysis::type_checker::{TypeResult, TypeChecker, TypingContext};
 use vm::analysis::{AnalysisDatabase, expression_identifier};

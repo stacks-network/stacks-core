@@ -1,7 +1,7 @@
 use assert_json_diff;
 use serde_json;
 
-use vm::parser::parse;
+use vm::ast::parse;
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{AnalysisDatabase, build_contract_interface::build_contract_interface};
 use vm::analysis::mem_type_check;

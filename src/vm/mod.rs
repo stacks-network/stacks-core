@@ -6,7 +6,7 @@ pub mod types;
 pub mod contracts;
 
 mod representations;
-pub mod parser;
+pub mod ast;
 pub mod contexts;
 pub mod database;
 
@@ -206,7 +206,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
     let conn = memory_db();
     let mut global_context = GlobalContext::new(conn);
     global_context.execute(|g| {
-        let parsed = parser::parse(program)?;
+        let parsed = ast::parse(program)?;
         eval_all(&parsed, &mut contract_context, g)
     })
 }

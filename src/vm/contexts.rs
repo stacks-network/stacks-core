@@ -7,7 +7,8 @@ use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase, memory_db};
 use vm::{SymbolicExpression};
 use vm::contracts::Contract;
-use vm::{parser, eval};
+use vm::ast;
+use vm::eval;
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -318,7 +319,7 @@ impl <'a,'b> Environment <'a,'b> {
     }
 
     pub fn eval_read_only(&mut self, contract_identifier: &QualifiedContractIdentifier, program: &str) -> Result<Value> {
-        let parsed = parser::parse(program)?;
+        let parsed = ast::parse(program)?;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }
@@ -340,7 +341,7 @@ impl <'a,'b> Environment <'a,'b> {
     }
     
     pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
-        let parsed = parser::parse(program)?;
+        let parsed = ast::parse(program)?;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }
