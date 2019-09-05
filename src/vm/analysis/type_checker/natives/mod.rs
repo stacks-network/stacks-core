@@ -290,6 +290,18 @@ impl TypedNativeFunction {
             And | Or =>
                 Simple(SimpleNativeFunction(FunctionType::Variadic(AtomTypeIdentifier::BoolType.into(),
                                                                    AtomTypeIdentifier::BoolType.into()))),
+            ToUInt =>
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![FunctionArg::new(AtomTypeIdentifier::IntType.into(),
+                                                ClarityName::try_from("value".to_owned())
+                                                .expect("FAIL: ClarityName failed to accept default arg name"))],
+                    returns: AtomTypeIdentifier::UIntType.into() }))),
+            ToInt =>
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![FunctionArg::new(AtomTypeIdentifier::UIntType.into(),
+                                                ClarityName::try_from("value".to_owned())
+                                                .expect("FAIL: ClarityName failed to accept default arg name"))],
+                    returns: AtomTypeIdentifier::IntType.into() }))),
             Not =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction { 
                     args: vec![FunctionArg::new(AtomTypeIdentifier::BoolType.into(), ClarityName::try_from("value".to_owned())

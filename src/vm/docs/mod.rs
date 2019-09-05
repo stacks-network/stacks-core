@@ -91,6 +91,20 @@ const NONE_KEYWORD: KeywordAPI = KeywordAPI {
 "
 };
 
+const TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(to-uint i)",
+    description: "Tries to convert the `int` argument to a `uint`. Will cause a runtime error and abort if the supplied argument is negative.",
+    example: "(to-uint 238) ;; Returns u238"
+};
+
+const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(to-int u)",
+    description: "Tries to convert the `uint` argument to an `int`. Will cause a runtime error and abort if the supplied argument is >= 2^127.",
+    example: "(to-int u238) ;; Returns 238"
+};
+
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: Some("+ (add)"),
     signature: "(+ i1 i2...)",
@@ -891,6 +905,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     let name = function.get_name();
     match function {
         Add => make_for_simple_native(&ADD_API, &Add, name),
+        ToUInt => make_for_simple_native(&TO_UINT_API, &ToUInt, name),
+        ToInt => make_for_simple_native(&TO_INT_API, &ToInt, name),
         Subtract => make_for_simple_native(&SUB_API, &Subtract, name),
         Multiply => make_for_simple_native(&MUL_API, &Multiply, name),
         Divide => make_for_simple_native(&DIV_API, &Divide, name),

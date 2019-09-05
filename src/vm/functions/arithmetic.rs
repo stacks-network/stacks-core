@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use vm::types::Value;
 use vm::errors::{UncheckedError, RuntimeErrorType, InterpreterResult, check_argument_count};
 
@@ -174,4 +175,26 @@ pub fn native_pow(args: &[Value]) -> InterpreterResult<Value> {
 }
 pub fn native_mod(args: &[Value]) -> InterpreterResult<Value> {
     type_force_binary_arithmetic!(modulo, args)
+}
+
+pub fn native_to_uint(args: &[Value]) -> InterpreterResult<Value> {
+    check_argument_count(1, args)?;
+    if let Value::Int(int_val) = args[0] {
+        let uint_val = u128::try_from(int_val)
+            .map_err(|_| RuntimeErrorType::ArithmeticUnderflow)?;
+        Ok(Value::UInt(uint_val))
+    } else {
+        Err(UncheckedError::TypeError("int".to_string(), args[0].clone()).into())
+    }
+}
+
+pub fn native_to_int(args: &[Value]) -> InterpreterResult<Value> {
+    check_argument_count(1, args)?;
+    if let Value::UInt(uint_val) = args[0] {
+        let int_val = i128::try_from(uint_val)
+            .map_err(|_| RuntimeErrorType::ArithmeticOverflow)?;
+        Ok(Value::Int(int_val))
+    } else {
+        Err(UncheckedError::TypeError("uint".to_string(), args[0].clone()).into())
+    }
 }
