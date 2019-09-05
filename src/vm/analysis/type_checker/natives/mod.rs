@@ -286,6 +286,18 @@ impl TypedNativeFunction {
             And | Or =>
                 Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::BoolType,
                                                                    TypeSignature::BoolType))),
+            ToUInt =>
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![FunctionArg::new(TypeSignature::IntType,
+                                                ClarityName::try_from("value".to_owned())
+                                                .expect("FAIL: ClarityName failed to accept default arg name"))],
+                    returns: TypeSignature::UIntType }))),
+            ToInt =>
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![FunctionArg::new(TypeSignature::UIntType,
+                                                ClarityName::try_from("value".to_owned())
+                                                .expect("FAIL: ClarityName failed to accept default arg name"))],
+                    returns: TypeSignature::IntType }))),
             Not =>
                 Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction { 
                     args: vec![FunctionArg::new(TypeSignature::BoolType, ClarityName::try_from("value".to_owned())

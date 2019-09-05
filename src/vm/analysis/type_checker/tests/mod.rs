@@ -339,16 +339,22 @@ fn test_simple_uints() {
          (foo u2)",
         "(define-private (foo (x uint)) (+ x x)) 
          (foo (foo u0))",
+        "(+ u10 (to-uint 15))",
+        "(- 10 (to-int u1))",
     ];
     
     let expected = [
         "uint",
         "uint",
+        "uint",
+        "int"
     ];
 
-    let bad = ["(> u1 1)" ];
+    let bad = ["(> u1 1)", "(to-uint 'true)", "(to-int 'false)"];
 
-    let bad_expected = [ CheckErrors::TypeError(UIntType, IntType) ];
+    let bad_expected = [ CheckErrors::TypeError(UIntType, IntType),
+                         CheckErrors::TypeError(IntType, BoolType),
+                         CheckErrors::TypeError(UIntType, BoolType) ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         let type_sig = mem_type_check(good_test).unwrap().0.unwrap();
