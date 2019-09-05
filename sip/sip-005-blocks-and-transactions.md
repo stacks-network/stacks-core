@@ -45,15 +45,14 @@ are paid for by an _account_.
 An _account_ is the logical entity that executes transactions.  A transaction's
 execution is governed by three accounts, which may or may not be distinct:
 
-* The **originating account** is the account that creates and sends
-  the transaction.  This is always an account owned by a user.  Each
-  transaction is _authorized_ by its originating account.
+* The **originating account** is the account that creates and sends the
+  transaction.  This is always an account owned by a user.  Each transaction is
+_authorized_ by its originating account.
 
-* The **paying account** is the account that is billed by the miner
-  for the cost of validating and executing the transaction.  This is
-  usually an account owned by a user, but it may also be an account
-  owned by a smart contract.  Its address is identified in each
-  transaction separately from the originating account.
+* The **paying account** is the account that is billed by the miner for the cost
+  of validating and executing the transaction.  This is usually an account owned
+by a user, but it may also be an account owned by a smart contract.  Its address
+is identified in each transaction separately from the originating account.
 
 * The **sending account** is the account that identifies _who_ is
   _currently_ executing the transaction. The sending account can
