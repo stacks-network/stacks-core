@@ -1,6 +1,6 @@
 use vm::contracts::Contract;
-use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
-use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, PrincipalData, NONE};
+use vm::errors::{Error, InterpreterError, RuntimeErrorType, InterpreterResult as Result, IncomparableError};
+use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, NONE};
 
 pub trait ClaritySerializable {
     fn serialize(&self) -> String;
@@ -77,7 +77,6 @@ pub struct SimmedBlock {
 
 clarity_serializable!(SimmedBlock);
 
-clarity_serializable!(Value);
 clarity_serializable!(PrincipalData);
 clarity_serializable!(i128);
 clarity_serializable!(u64);

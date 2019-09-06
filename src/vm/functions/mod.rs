@@ -7,10 +7,11 @@ mod database;
 mod options;
 mod assets;
 
-use vm::errors::{UncheckedError, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
+use std::convert::TryInto;
+use vm::errors::{CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::CallableType;
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 
@@ -23,6 +24,8 @@ define_named_enum!(NativeFunctions {
     CmpLeq("<="),
     CmpLess("<"),
     CmpGreater(">"),
+    ToInt("to-int"),
+    ToUInt("to-uint"),
     Modulo("mod"),
     Power("pow"),
     BitwiseXOR("xor"),
@@ -81,6 +84,8 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             CmpLeq => CallableType::NativeFunction("native_leq", &arithmetic::native_leq),
             CmpLess => CallableType::NativeFunction("native_le", &arithmetic::native_le),
             CmpGreater => CallableType::NativeFunction("native_ge", &arithmetic::native_ge),
+            ToUInt => CallableType::NativeFunction("native_to_uint", &arithmetic::native_to_uint),
+            ToInt => CallableType::NativeFunction("native_to_int", &arithmetic::native_to_int),
             Modulo => CallableType::NativeFunction("native_mod", &arithmetic::native_mod),
             Power => CallableType::NativeFunction("native_pow", &arithmetic::native_pow),
             BitwiseXOR => CallableType::NativeFunction("native_xor", &arithmetic::native_xor),
@@ -144,8 +149,7 @@ fn native_eq(args: &[Value]) -> Result<Value> {
         // check types:
         let mut arg_type = TypeSignature::type_of(first);
         for x in args.iter() {
-            arg_type = TypeSignature::most_admissive(TypeSignature::type_of(x), arg_type)
-                .map_err(|(a,b)| UncheckedError::TypeError(format!("{}", b), x.clone()))?;
+            arg_type = TypeSignature::least_supertype(&TypeSignature::type_of(x), &arg_type)?;
             if x != first {
                 return Ok(Value::Bool(false))
             }
@@ -162,7 +166,7 @@ fn native_hash160(args: &[Value]) -> Result<Value> {
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
+        _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], input.clone()))
     }?;
     let hash160 = Hash160::from_data(&bytes);
     Value::buff_from(hash160.as_bytes().to_vec())
@@ -176,7 +180,7 @@ fn native_sha256(args: &[Value]) -> Result<Value> {
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
+        _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], input.clone()))
     }?;
     let sha256 = Sha256Sum::from_data(&bytes);
     Value::buff_from(sha256.as_bytes().to_vec())
@@ -190,7 +194,7 @@ fn native_keccak256(args: &[Value]) -> Result<Value> {
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
+        _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], input.clone()))
     }?;
     let keccak256 = Keccak256Hash::from_data(&bytes);
     Value::buff_from(keccak256.as_bytes().to_vec())
@@ -199,7 +203,7 @@ fn native_keccak256(args: &[Value]) -> Result<Value> {
 fn native_begin(args: &[Value]) -> Result<Value> {
     match args.last() {
         Some(v) => Ok(v.clone()),
-        None => Err(UncheckedError::IncorrectArgumentCount(1,0).into())
+        None => Err(CheckErrors::RequiresAtLeastArguments(1,0).into())
     }
 }
 
@@ -225,21 +229,21 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
                 eval(&args[2], env, context)
             }
         },
-        _ => Err(UncheckedError::TypeError("BoolType".to_string(), conditional).into())
+        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into())
     }
 }
 
 fn parse_eval_bindings(bindings: &[SymbolicExpression],
-                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(String, Value)>> {
+                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(ClarityName, Value)>> {
     let mut result = Vec::new();
     for binding in bindings.iter() {
         let binding_expression = binding.match_list()
-            .ok_or(UncheckedError::BindingExpectsPair)?;
+            .ok_or(CheckErrors::BadSyntaxBinding)?;
         if binding_expression.len() != 2 {
-            return Err(UncheckedError::BindingExpectsPair.into());
+            return Err(CheckErrors::BadSyntaxBinding.into());
         }
         let var_name = binding_expression[0].match_atom()
-            .ok_or(UncheckedError::ExpectedVariableName)?;
+            .ok_or(CheckErrors::BadSyntaxBinding)?;
         let value = eval(&binding_expression[1], env, context)?;
         result.push((var_name.clone(), value));
     }
@@ -253,26 +257,21 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1..n => body
-    if args.len() < 2 {
-        return Err(UncheckedError::IncorrectArgumentCount(2, 1).into())
-    }
+    check_arguments_at_least(2, args)?;
+
     // create a new context.
     let mut inner_context = context.extend()?;
 
     let bindings = args[0].match_list()
-        .ok_or(UncheckedError::ExpectedListPairs)?;
+        .ok_or(CheckErrors::BadLetSyntax)?;
 
     // parse and eval the bindings.
     let mut binding_results = parse_eval_bindings(bindings, env, context)?;
     for (binding_name, binding_value) in binding_results.drain(..) {
-        if is_reserved(&binding_name) {
-            return Err(UncheckedError::ReservedName(binding_name).into())
-        }
-        if env.contract_context.lookup_function(&binding_name).is_some() {
-            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
-        }
-        if inner_context.lookup_variable(&binding_name).is_some() {
-            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
+        if is_reserved(&binding_name) ||
+           env.contract_context.lookup_function(&binding_name).is_some() ||
+           inner_context.lookup_variable(&binding_name).is_some() {
+            return Err(CheckErrors::NameAlreadyUsed(binding_name.into()).into())
         }
         inner_context.variables.insert(binding_name, binding_value);
     }
@@ -295,7 +294,8 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     check_argument_count(1, args)?;
 
     // nest an environment.
-    let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(env.contract_context.name.clone()));
+    let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(
+        env.contract_context.name.clone()));
     let mut nested_env = env.nest_as_principal(contract_principal);
 
     eval(&args[0], &mut nested_env, context)

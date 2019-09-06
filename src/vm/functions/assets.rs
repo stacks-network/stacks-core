@@ -1,9 +1,9 @@
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
-use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, AtomTypeIdentifier};
+use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature};
 use vm::representations::{SymbolicExpression};
-use vm::errors::{Error, UncheckedError, InterpreterError, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
+use vm::errors::{Error, InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
 use vm::{eval, LocalContext, Environment};
 
 enum MintAssetErrorCodes { ALREADY_EXIST = 1 }
@@ -17,7 +17,7 @@ pub fn special_mint_token(args: &[SymbolicExpression],
     check_argument_count(3, args)?;
 
     let token_name = args[0].match_atom()
-        .ok_or(UncheckedError::InvalidArgumentExpectedName)?;
+        .ok_or(CheckErrors::BadTokenName)?;
 
     let amount = eval(&args[1], env, context)?;
     let to =     eval(&args[2], env, context)?;
@@ -40,7 +40,7 @@ pub fn special_mint_token(args: &[SymbolicExpression],
 
         Ok(Value::okay(Value::Bool(true)))
     } else {
-        Err(UncheckedError::InvalidArguments("mint-token! expects an integer amount and a to principal".to_string()).into())
+        Err(CheckErrors::BadMintFTArguments.into())
     }
 }
 
@@ -50,7 +50,7 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom()
-        .ok_or(UncheckedError::InvalidArgumentExpectedName)?;
+        .ok_or(CheckErrors::BadTokenName)?;
 
     let asset =  eval(&args[1], env, context)?;
     let to    =  eval(&args[2], env, context)?;
@@ -58,7 +58,7 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
     let expected_asset_type = env.global_context.database.get_nft_key_type(&env.contract_context.name, asset_name)?;
 
     if !expected_asset_type.admits(&asset) {
-        return Err(UncheckedError::TypeError(expected_asset_type.to_string(), asset).into())
+        return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into())
     }
 
     if let Value::Principal(ref to_principal) = to {
@@ -72,7 +72,7 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
 
         Ok(Value::okay(Value::Bool(true)))
     } else {
-        Err(UncheckedError::InvalidArguments("mint-asset! expects a to principal".to_string()).into())
+        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, to).into())
     }
 }
 
@@ -82,7 +82,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
     check_argument_count(4, args)?;
 
     let asset_name = args[0].match_atom()
-        .ok_or(UncheckedError::InvalidArgumentExpectedName)?;
+        .ok_or(CheckErrors::BadTokenName)?;
 
     let asset =  eval(&args[1], env, context)?;
     let from  =  eval(&args[2], env, context)?;
@@ -91,7 +91,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
     let expected_asset_type = env.global_context.database.get_nft_key_type(&env.contract_context.name, asset_name)?;
 
     if !expected_asset_type.admits(&asset) {
-        return Err(UncheckedError::TypeError(expected_asset_type.to_string(), asset).into())
+        return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into())
     }
 
     if let (Value::Principal(ref from_principal),
@@ -120,7 +120,7 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
 
         Ok(Value::okay(Value::Bool(true)))
     } else {
-        Err(UncheckedError::InvalidArguments("transer-asset! expects a from principal and a to principal".to_string()).into())
+        Err(CheckErrors::BadTransferNFTArguments.into())
     }
 }
 
@@ -130,7 +130,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
     check_argument_count(4, args)?;
 
     let token_name = args[0].match_atom()
-        .ok_or(UncheckedError::InvalidArgumentExpectedName)?;
+        .ok_or(CheckErrors::BadTokenName)?;
 
     let amount = eval(&args[1], env, context)?;
     let from =   eval(&args[2], env, context)?;
@@ -167,7 +167,7 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
 
         Ok(Value::okay(Value::Bool(true)))
     } else {
-        Err(UncheckedError::InvalidArguments("transer-token! expects an integer amount, a from principal and a to principal".to_string()).into())
+        Err(CheckErrors::BadTransferFTArguments.into())
     }
 }
 
@@ -177,7 +177,7 @@ pub fn special_get_balance(args: &[SymbolicExpression],
     check_argument_count(2, args)?;
 
     let token_name = args[0].match_atom()
-        .ok_or(UncheckedError::InvalidArgumentExpectedName)?;
+        .ok_or(CheckErrors::BadTokenName)?;
 
     let owner = eval(&args[1], env, context)?;
 
@@ -185,7 +185,7 @@ pub fn special_get_balance(args: &[SymbolicExpression],
         let balance = env.global_context.database.get_ft_balance(&env.contract_context.name, token_name, principal)?;
         Ok(Value::Int(balance))
     } else {
-        Err(UncheckedError::TypeError(AtomTypeIdentifier::PrincipalType.to_string(), owner).into())
+        Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into())
     }
 
 }
@@ -196,13 +196,13 @@ pub fn special_get_owner(args: &[SymbolicExpression],
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom()
-        .ok_or(UncheckedError::InvalidArgumentExpectedName)?;
+        .ok_or(CheckErrors::BadTokenName)?;
 
     let asset = eval(&args[1], env, context)?;
     let expected_asset_type = env.global_context.database.get_nft_key_type(&env.contract_context.name, asset_name)?;
 
     if !expected_asset_type.admits(&asset) {
-        return Err(UncheckedError::TypeError(expected_asset_type.to_string(), asset).into())
+        return Err(CheckErrors::TypeValueError(expected_asset_type, asset).into())
     }
 
     match env.global_context.database.get_nft_owner(&env.contract_context.name, asset_name, &asset) {

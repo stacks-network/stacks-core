@@ -115,7 +115,7 @@ fn test_names_tokens_contracts_interface() {
         (define-private (f02 (a1 principal)) 'true)
         (define-private (f03 (a1 (buff 54))) 'true)
         (define-private (f04 (a1 (tuple (t-name1 bool) (t-name2 int)))) 'true)
-        (define-private (f05 (a1 (list 7 6 int))) 'true)
+        (define-private (f05 (a1 (list 7 (list 3 int)))) 'true)
 
         (define-private (f06) 1)
         (define-private (f07) 'true)
@@ -140,7 +140,7 @@ fn test_names_tokens_contracts_interface() {
     ";
 
 
-    let contract_analysis = mem_type_check(INTERFACE_TEST_CONTRACT).unwrap();
+    let contract_analysis = mem_type_check(INTERFACE_TEST_CONTRACT).unwrap().1;
     let test_contract_json_str = build_contract_interface(&contract_analysis).serialize();
     let test_contract_json = serde_json::from_str(&test_contract_json_str).unwrap();
 
@@ -176,7 +176,7 @@ fn test_names_tokens_contracts_interface() {
             },
             { "name": "f05",
                 "access": "private",
-                "args": [{ "name": "a1", "type": { "list": { "type": "int128", "length": 7, "dimension": 6 } } }],
+                "args": [{ "name": "a1", "type": { "list": { "type": { "list": { "type": "int128", "length": 3 } }, "length": 7 } } }],
                 "outputs": { "type": "bool" } 
             },
             { "name": "f06",
@@ -234,12 +234,20 @@ fn test_names_tokens_contracts_interface() {
             { "name": "f15",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "list": { "type": "int128", "length": 3, "dimension": 1 } } }
+                "outputs": { "type": { "list": { "type": "int128", "length": 3 } } }
             },
             { "name": "f16",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "list": { "type": "int128", "length": 2, "dimension": 3 } } }
+                "outputs": {
+                  "type": { "list": {
+                      "type": { "list": {
+                            "type": { "list": { "type": "int128", "length": 1 } },
+                            "length": 1 }
+                              },
+                      "length": 2 }
+                          }
+                }
             },
             { "name": "pub-f01",
                 "access": "public",
@@ -338,6 +346,8 @@ fn test_names_tokens_contracts_interface() {
         "fungible_tokens": [],
         "non_fungible_tokens": []
     }"#).unwrap();
+
+    eprintln!("{}", test_contract_json_str);
 
     assert_json_eq!(test_contract_json, test_contract_json_expected);
 
@@ -455,17 +465,21 @@ fn test_bad_map_usage() {
                  bad_set_1,
                  bad_set_2,
                  bad_insert_1,
-                 bad_insert_2,
-                 unhandled_option];
+                 bad_insert_2];
 
     for contract in tests.iter() {
-        let result = mem_type_check(contract);
-        let err = result.expect_err("Expected a type error");
-        assert!(match &err.err {
-            &CheckErrors::TypeError(_,_) => true,
+        let err = mem_type_check(contract).unwrap_err();
+        assert!(match err.err {
+            CheckErrors::TypeError(_,_) => true,
             _ => false
         });
     }
+
+    assert!(match mem_type_check(unhandled_option).unwrap_err().err {
+        // Bad arg to `+` causes a uniontype error
+        CheckErrors::UnionTypeError(_, _) => true,
+        _ => false,
+    });
 }
 
 

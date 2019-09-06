@@ -1,4 +1,4 @@
-use vm::errors::{UncheckedError, ShortReturnType, InterpreterResult as Result, check_argument_count};
+use vm::errors::{CheckErrors, ShortReturnType, InterpreterResult as Result, check_argument_count};
 use vm::types::{Value, ResponseData};
 
 pub fn native_expects(args: &[Value]) -> Result<Value> {
@@ -21,7 +21,7 @@ pub fn native_expects(args: &[Value]) -> Result<Value> {
                 Err(ShortReturnType::ExpectedValue(thrown.clone()).into())
             }
         },
-        _ => Err(UncheckedError::TypeError("OptionalType|ResponseType".to_string(), input.clone()).into())
+        _ => Err(CheckErrors::ExpectedResponseValue(input.clone()).into())
     }
 }
 
@@ -39,7 +39,7 @@ pub fn native_expects_err(args: &[Value]) -> Result<Value> {
                 Err(ShortReturnType::ExpectedValue(thrown.clone()).into())
             }
         },
-        _ => Err(UncheckedError::TypeError("ResponseType".to_string(), input.clone()).into())
+        _ => Err(CheckErrors::ExpectedResponseValue(input.clone()).into())
     }
 }
 
@@ -56,7 +56,7 @@ pub fn native_is_none(args: &[Value]) -> Result<Value> {
 
     match input {
         Value::Optional(ref data) => Ok(Value::Bool(data.data.is_none())),
-        _ => Err(UncheckedError::TypeError("OptionalType".to_string(), input.clone()).into())
+        _ => Err(CheckErrors::ExpectedOptionalValue(input.clone()).into())
     }
 }
 
@@ -67,7 +67,7 @@ pub fn native_is_okay(args: &[Value]) -> Result<Value> {
 
     match input {
         Value::Response(data) => Ok(Value::Bool(data.committed)),
-        _ => Err(UncheckedError::TypeError("ResponseType".to_string(), input.clone()).into())
+        _ => Err(CheckErrors::ExpectedResponseValue(input.clone()).into())
     }
 }
 
@@ -98,6 +98,6 @@ pub fn native_default_to(args: &[Value]) -> Result<Value> {
                 None => Ok(default.clone())
             }
         },
-        _ => Err(UncheckedError::TypeError("OptionalType".to_string(), input.clone()).into())
+        _ => Err(CheckErrors::ExpectedOptionalValue(input.clone()).into())
     }
 }

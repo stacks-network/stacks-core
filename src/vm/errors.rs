@@ -1,6 +1,8 @@
 use std::fmt;
 use std::error;
-use vm::types::Value;
+pub use vm::analysis::errors::{CheckErrors};
+pub use vm::analysis::errors::{check_argument_count, check_arguments_at_least};
+use vm::types::{Value, TypeSignature};
 use vm::contexts::StackTrace;
 use chainstate::stacks::index::{Error as MarfError};
 
@@ -14,43 +16,13 @@ pub struct IncomparableError<T> {
 
 #[derive(Debug)]
 pub enum Error {
-    Unchecked(UncheckedError),
-    Interpreter(InterpreterError),
-    Runtime(RuntimeErrorType, Option<StackTrace>),
-    ShortReturn(ShortReturnType)
-}
-
 /// UncheckedErrors are errors that *should* be caught by the
 ///   TypeChecker and other check passes. Test executions may
 ///   trigger these errors.
-#[derive(Debug, PartialEq)]
-pub enum UncheckedError {
-    NonPublicFunction(String),
-    TypeError(String, Value),
-    InvalidArguments(String),
-    IncorrectArgumentCount(usize, usize),
-    UndefinedVariable(String),
-    UndefinedFunction(String),
-    UndefinedContract(String),
-    UndefinedMap(String),
-    UndefinedTokenType(String),
-    TryEvalToFunction,
-    RecursionDetected,
-    ExpectedListPairs,
-    ExpectedFunctionName,
-    ExpectedVariableName,
-    ExpectedContractName,
-    ExpectedMapName,
-    ExpectedTupleKey,
-    ExpectedBlockPropertyName,
-    NoSuchTupleField,
-    BindingExpectsPair,
-    ReservedName(String),
-    ContractAlreadyExists(String),
-    VariableDefinedMultipleTimes(String),
-    InvalidArgumentExpectedName,
-    ContractMustReturnBoolean,
-    WriteFromReadOnlyContext,
+    Unchecked(CheckErrors),
+    Interpreter(InterpreterError),
+    Runtime(RuntimeErrorType, Option<StackTrace>),
+    ShortReturn(ShortReturnType)
 }
 
 /// InterpreterErrors are errors that *should never* occur.
@@ -66,6 +38,10 @@ pub enum InterpreterError {
     BadFileName,
     FailedToCreateDataDirectory,
     MarfFailure(IncomparableError<MarfError>),
+    DeserializeExpected(TypeSignature),
+    DeserializeUnexpectedTypeField(String),
+    FailureConstructingTupleWithType,
+    FailureConstructingListWithType
 }
 
 
@@ -82,17 +58,17 @@ pub enum RuntimeErrorType {
     MaxStackDepthReached,
     MaxContextDepthReached,
     ListDimensionTooHigh,
-    ListTooLarge,
     BadTypeConstruction,
-    BufferTooLarge,
     ValueTooLarge,
-    InvalidTypeDescription,
     BadBlockHeight(String),
     TransferNonPositiveAmount,
     NoSuchToken,
     NotImplemented,
     NoSenderInContext,
-    NonPositiveTokenSupply
+    NonPositiveTokenSupply,
+    JSONParseError(IncomparableError<SerdeJSONErr>),
+    AttemptToFetchInTransientContext,
+    BadNameValue(&'static str, String)
 }
 
 #[derive(Debug, PartialEq)]
@@ -147,14 +123,20 @@ impl error::Error for Error {
     }
 }
 
+impl From<SerdeJSONErr> for Error {
+    fn from(err: SerdeJSONErr) -> Self {
+        Error::from(RuntimeErrorType::JSONParseError(IncomparableError { err }))
+    }
+}
+
 impl From<RuntimeErrorType> for Error {
     fn from(err: RuntimeErrorType) -> Self {
         Error::Runtime(err, None)
     }
 }
 
-impl From<UncheckedError> for Error {
-    fn from(err: UncheckedError) -> Self {
+impl From<CheckErrors> for Error {
+    fn from(err: CheckErrors) -> Self {
         Error::Unchecked(err)
     }
 }
@@ -176,14 +158,6 @@ impl Into<Value> for ShortReturnType {
         match self {
             ShortReturnType::ExpectedValue(v) => v
         }
-    }
-}
-
-pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), UncheckedError> {
-    if args.len() != expected {
-        Err(UncheckedError::IncorrectArgumentCount(expected, args.len()))
-    } else {
-        Ok(())
     }
 }
 

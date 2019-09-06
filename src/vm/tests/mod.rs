@@ -1,5 +1,5 @@
 use vm::execute as vm_execute;
-use vm::errors::{Error, UncheckedError};
+use vm::errors::{Error};
 use vm::types::{Value, PrincipalData, ResponseData};
 use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
