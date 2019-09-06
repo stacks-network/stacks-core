@@ -71,7 +71,7 @@ fn test_simple_arithmetic_checks() {
     let bad_expected = [ CheckErrors::TypeError(IntType, BoolType),
                          CheckErrors::RequiresAtLeastArguments(1, 0),
                          CheckErrors::IncorrectArgumentCount(2, 1),
-                         CheckErrors::UnboundVariable("x".to_string()),
+                         CheckErrors::UndefinedVariable("x".to_string()),
                          CheckErrors::TypeError(IntType, BoolType),
                          CheckErrors::TypeError(BoolType, IntType), ];
                          
@@ -178,21 +178,11 @@ fn test_eqs() {
     let bad = [
         "(eq? 1 2 'false)",
         "(eq? 1 2 3 (list 2))",
-        "(eq? (some 1) (some 'true))",
-        "(list (list 1 2) (list 'true) (list 5 1 7))",
-        "(list 1 2 3 'true 'false 4 5 6)",
-        "(map mod (list 1 2 3 4 5))",
-        "(map - (list 'true 'false 'true 'false))",
-        "(map hash160 (+ 1 2))",];
+        "(eq? (some 1) (some 'true))" ];
 
     let bad_expected = [ CheckErrors::TypeError(BoolType, IntType),
                          CheckErrors::TypeError(TypeSignature::list_of(IntType, 1).unwrap(), IntType),
-                         CheckErrors::TypeError(TypeSignature::new_option(BoolType), TypeSignature::new_option(IntType)),
-                         CheckErrors::ListTypesMustMatch,
-                         CheckErrors::ListTypesMustMatch,
-                         CheckErrors::IncorrectArgumentCount(2, 1),
-                         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-                         CheckErrors::ExpectedListApplication ];
+                         CheckErrors::TypeError(TypeSignature::new_option(BoolType), TypeSignature::new_option(IntType)) ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
@@ -230,8 +220,8 @@ fn test_lists() {
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-        CheckErrors::ListTypesMustMatch,
-        CheckErrors::ListTypesMustMatch,
+        CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::TypeError(IntType, BoolType),
         CheckErrors::TypeError(BoolType, buff_type(20)),
         CheckErrors::TypeError(BoolType, IntType),
         CheckErrors::IncorrectArgumentCount(2, 3),
@@ -680,7 +670,7 @@ fn test_direct_access_to_persisted_var_should_fail() {
 
     let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
-        &CheckErrors::UnboundVariable(_) => true,
+        &CheckErrors::UndefinedVariable(_) => true,
         _ => false
     });
 }
@@ -714,7 +704,7 @@ fn test_mutating_unknown_data_var_should_fail() {
 
     let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
-        &CheckErrors::NoSuchVariable(_) => true,
+        &CheckErrors::NoSuchDataVariable(_) => true,
         _ => false
     });
 }
@@ -728,7 +718,7 @@ fn test_accessing_unknown_data_var_should_fail() {
 
     let res = mem_type_check(contract_src).unwrap_err();
     assert!(match &res.err {
-        &CheckErrors::NoSuchVariable(_) => true,
+        &CheckErrors::NoSuchDataVariable(_) => true,
         _ => false
     });
 }
@@ -952,7 +942,7 @@ fn test_fetch_entry_unbound_variables() {
                 ({}))", case);
         let res = mem_type_check(&contract_src).unwrap_err();
         assert!(match &res.err {
-            &CheckErrors::UnboundVariable(_) => true,
+            &CheckErrors::UndefinedVariable(_) => true,
             _ => false
         });
     }
@@ -1015,7 +1005,7 @@ fn test_insert_entry_unbound_variables() {
                 ({}))", case);
         let res = mem_type_check(&contract_src).unwrap_err();
         assert!(match &res.err {
-            &CheckErrors::UnboundVariable(_) => true,
+            &CheckErrors::UndefinedVariable(_) => true,
             _ => false
         });
     }
@@ -1077,7 +1067,7 @@ fn test_delete_entry_unbound_variables() {
                 ({}))", case);
         let res = mem_type_check(&contract_src).unwrap_err();
         assert!(match &res.err {
-            &CheckErrors::UnboundVariable(_) => true,
+            &CheckErrors::UndefinedVariable(_) => true,
             _ => false
         });
     }
@@ -1145,7 +1135,7 @@ fn test_set_entry_unbound_variables() {
                 ({}))", case);
         let res = mem_type_check(&&contract_src).unwrap_err();
         assert!(match &res.err {
-            &CheckErrors::UnboundVariable(_) => true,
+            &CheckErrors::UndefinedVariable(_) => true,
             _ => false
         });
     }
@@ -1253,7 +1243,7 @@ fn test_fetch_contract_entry_unbound_variables() {
             }).unwrap_err();
 
         assert!(match &res.err {
-            &CheckErrors::UnboundVariable(_) => true,
+            &CheckErrors::UndefinedVariable(_) => true,
             _ => false
         });
     }

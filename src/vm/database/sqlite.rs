@@ -4,7 +4,7 @@ use rusqlite::types::{ToSql, FromSql};
 use vm::database::{KeyValueStorage};
 
 use vm::contracts::Contract;
-use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
+use vm::errors::{Error, InterpreterError, RuntimeErrorType, InterpreterResult as Result, IncomparableError};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 

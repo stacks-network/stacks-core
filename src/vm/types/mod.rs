@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use address::c32;
 use vm::representations::{ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType};
-use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError, InterpreterError};
+use vm::errors::{RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError, InterpreterError};
 use util::hash;
 
 pub use vm::types::signatures::{
@@ -191,11 +191,12 @@ impl Value {
             Value::Bool(_i) => TypeSignature::BoolType.size(),
             Value::Principal(_) => TypeSignature::PrincipalType.size(),
             Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
-            Value::Tuple(ref tuple_data) => tuple_data.size(),
+            Value::Tuple(ref tuple_data) => tuple_data.type_signature.size(),
             Value::List(ref list_data) => list_data.type_signature.size(),
             Value::Optional(ref opt_data) => opt_data.type_signature().size(),
             Value::Response(ref res_data) => res_data.type_signature().size()
         }
+        .map_err(|e| e.into())
     }
 
 }
@@ -330,7 +331,7 @@ impl TupleData {
         for (name, value) in data.drain(..) {
             let type_info = TypeSignature::type_of(&value);
             if type_map.contains_key(&name) {
-                return Err(UncheckedError::VariableDefinedMultipleTimes(name.into()).into());
+                return Err(CheckErrors::NameAlreadyUsed(name.into()).into());
             } else {
                 type_map.insert(name.clone(), type_info);
             }
@@ -356,11 +357,7 @@ impl TupleData {
     pub fn get(&self, name: &str) -> Result<Value> {
         self.data_map.get(name)
             .cloned()
-            .ok_or_else(|| UncheckedError::NoSuchTupleField.into())
-    }
-
-    pub fn size(&self) -> Result<i128> {
-        self.type_signature.size()
+            .ok_or_else(|| CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into())
     }
 }
 
@@ -387,19 +384,19 @@ mod test {
             Err(InterpreterError::FailureConstructingListWithType.into()));
         assert_eq!(
             ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE as u32),
-            Err(RuntimeErrorType::ValueTooLarge.into()));
+            Err(CheckErrors::ValueTooLarge));
 
         assert_eq!(
             Value::buff_from(
                 vec![0; (MAX_VALUE_SIZE+1) as usize]),
-            Err(RuntimeErrorType::ValueTooLarge.into()));
+            Err(CheckErrors::ValueTooLarge.into()));
 
         // on 32-bit archs, this error cannot even happen, so don't test (and cause an overflow panic)
         if (u32::max_value() as usize) < usize::max_value() {
             assert_eq!(
                 Value::buff_from(
                     vec![0; (u32::max_value() as usize) + 10]),
-                Err(RuntimeErrorType::ValueTooLarge.into()));
+                Err(CheckErrors::ValueTooLarge.into()));
         }
     }
     #[test]

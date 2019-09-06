@@ -8,7 +8,7 @@ mod options;
 mod assets;
 
 use std::convert::TryInto;
-use vm::errors::{UncheckedError, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
+use vm::errors::{CheckErrors, RuntimeErrorType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::CallableType;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
@@ -166,7 +166,7 @@ fn native_hash160(args: &[Value]) -> Result<Value> {
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
+        _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], input.clone()))
     }?;
     let hash160 = Hash160::from_data(&bytes);
     Value::buff_from(hash160.as_bytes().to_vec())
@@ -180,7 +180,7 @@ fn native_sha256(args: &[Value]) -> Result<Value> {
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
+        _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], input.clone()))
     }?;
     let sha256 = Sha256Sum::from_data(&bytes);
     Value::buff_from(sha256.as_bytes().to_vec())
@@ -194,7 +194,7 @@ fn native_keccak256(args: &[Value]) -> Result<Value> {
     let bytes = match input {
         Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
         Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
+        _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], input.clone()))
     }?;
     let keccak256 = Keccak256Hash::from_data(&bytes);
     Value::buff_from(keccak256.as_bytes().to_vec())
@@ -203,7 +203,7 @@ fn native_keccak256(args: &[Value]) -> Result<Value> {
 fn native_begin(args: &[Value]) -> Result<Value> {
     match args.last() {
         Some(v) => Ok(v.clone()),
-        None => Err(UncheckedError::IncorrectArgumentCount(1,0).into())
+        None => Err(CheckErrors::RequiresAtLeastArguments(1,0).into())
     }
 }
 
@@ -229,7 +229,7 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
                 eval(&args[2], env, context)
             }
         },
-        _ => Err(UncheckedError::TypeError("BoolType".to_string(), conditional).into())
+        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into())
     }
 }
 
@@ -238,12 +238,12 @@ fn parse_eval_bindings(bindings: &[SymbolicExpression],
     let mut result = Vec::new();
     for binding in bindings.iter() {
         let binding_expression = binding.match_list()
-            .ok_or(UncheckedError::BindingExpectsPair)?;
+            .ok_or(CheckErrors::BadSyntaxBinding)?;
         if binding_expression.len() != 2 {
-            return Err(UncheckedError::BindingExpectsPair.into());
+            return Err(CheckErrors::BadSyntaxBinding.into());
         }
         let var_name = binding_expression[0].match_atom()
-            .ok_or(UncheckedError::ExpectedVariableName)?;
+            .ok_or(CheckErrors::BadSyntaxBinding)?;
         let value = eval(&binding_expression[1], env, context)?;
         result.push((var_name.clone(), value));
     }
@@ -257,26 +257,21 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1..n => body
-    if args.len() < 2 {
-        return Err(UncheckedError::IncorrectArgumentCount(2, 1).into())
-    }
+    check_arguments_at_least(2, args)?;
+
     // create a new context.
     let mut inner_context = context.extend()?;
 
     let bindings = args[0].match_list()
-        .ok_or(UncheckedError::ExpectedListPairs)?;
+        .ok_or(CheckErrors::BadLetSyntax)?;
 
     // parse and eval the bindings.
     let mut binding_results = parse_eval_bindings(bindings, env, context)?;
     for (binding_name, binding_value) in binding_results.drain(..) {
-        if is_reserved(&binding_name) {
-            return Err(UncheckedError::ReservedName(binding_name.into()).into())
-        }
-        if env.contract_context.lookup_function(&binding_name).is_some() {
-            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name.into()).into())
-        }
-        if inner_context.lookup_variable(&binding_name).is_some() {
-            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name.into()).into())
+        if is_reserved(&binding_name) ||
+           env.contract_context.lookup_function(&binding_name).is_some() ||
+           inner_context.lookup_variable(&binding_name).is_some() {
+            return Err(CheckErrors::NameAlreadyUsed(binding_name.into()).into())
         }
         inner_context.variables.insert(binding_name, binding_value);
     }

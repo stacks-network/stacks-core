@@ -1,4 +1,4 @@
-use vm::errors::{Error as InterpError, RuntimeErrorType, UncheckedError};
+use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
 use vm::{ClarityName, SymbolicExpression};
 use vm::types::{BUFF_32, BUFF_20, TypeSignature, TupleTypeSignature, BlockInfoProperty,
@@ -23,21 +23,7 @@ pub struct SimpleNativeFunction(pub FunctionType);
 fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     let typed_args = checker.type_check_all(args, context)?;
     TypeSignature::parent_list_type(&typed_args)
-        .map_err(|x| {
-            let error_type = match x {
-                InterpError::Runtime(ref runtime_err, _) => {
-                    match runtime_err {
-                        RuntimeErrorType::BadTypeConstruction => CheckErrors::ListTypesMustMatch,
-                        RuntimeErrorType::ValueTooLarge => CheckErrors::ConstructedListTooLarge,
-                        RuntimeErrorType::ListDimensionTooHigh => CheckErrors::ConstructedListTooLarge,
-                        _ => CheckErrors::UnknownListConstructionFailure
-                    }
-                },
-                InterpError::Unchecked(UncheckedError::NoSuperType(_,_)) => CheckErrors::ListTypesMustMatch,
-                _ => CheckErrors::UnknownListConstructionFailure
-            };
-            CheckError::new(error_type)
-        })
+        .map_err(|x| x.into())
         .map(TypeSignature::from)
 }
 
@@ -168,7 +154,7 @@ fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression
     checker.type_map.set_type(&args[0], no_type())?;
         
     let value_type = checker.contract_context.get_persisted_variable_type(var_name)
-        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.to_string())))?;
+        .ok_or(CheckError::new(CheckErrors::NoSuchDataVariable(var_name.to_string())))?;
 
     Ok(value_type.clone())
 }
@@ -184,7 +170,7 @@ fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression],
     let value_type = checker.type_check(&args[1], context)?;
     
     let expected_value_type = checker.contract_context.get_persisted_variable_type(var_name)
-        .ok_or(CheckErrors::NoSuchVariable(var_name.to_string()))?;
+        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
     
     if !expected_value_type.admits_type(&value_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))

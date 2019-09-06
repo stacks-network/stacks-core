@@ -369,7 +369,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         } else if let Some(type_result) = context.lookup_variable_type(name) {
             Ok(type_result.clone())
         } else {
-            Err(CheckError::new(CheckErrors::UnboundVariable(name.to_string())))
+            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
     }
 

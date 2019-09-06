@@ -7,8 +7,10 @@ use std::collections::BTreeMap;
 use address::c32;
 use vm::types::{Value, MAX_VALUE_SIZE};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
-use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError, Error as VMError};
+use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
 use util::hash;
+
+type Result <R> = std::result::Result<R, CheckErrors>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct AssetIdentifier {
@@ -112,10 +114,10 @@ impl From<BufferLength> for u32 {
 }
 
 impl TryFrom<u32> for BufferLength {
-    type Error = VMError;
+    type Error = CheckErrors;
     fn try_from(data: u32) -> Result<BufferLength> {
         if (data as i128) > MAX_VALUE_SIZE {
-            Err(RuntimeErrorType::ValueTooLarge.into())
+            Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(BufferLength(data))
         }
@@ -123,10 +125,10 @@ impl TryFrom<u32> for BufferLength {
 }
 
 impl TryFrom<usize> for BufferLength {
-    type Error = VMError;
+    type Error = CheckErrors;
     fn try_from(data: usize) -> Result<BufferLength> {
         if (data as i128) > MAX_VALUE_SIZE || data > (u32::max_value() as usize) {
-            Err(RuntimeErrorType::ValueTooLarge.into())
+            Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(BufferLength(data as u32))
         }
@@ -134,13 +136,13 @@ impl TryFrom<usize> for BufferLength {
 }
 
 impl ListTypeData {
-    pub fn new_list(entry_type: TypeSignature, max_len: u32) -> Result<ListTypeData> {
+    pub fn new_list(entry_type: TypeSignature, max_len: u32) -> std::result::Result<ListTypeData, CheckErrors> {
         let list_data = ListTypeData { 
             entry_type: Box::new(entry_type),
             max_len: max_len as u32 
         };
         if list_data.size()? > MAX_VALUE_SIZE {
-            Err(RuntimeErrorType::ValueTooLarge.into())
+            Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(list_data)
         }
@@ -157,26 +159,6 @@ impl ListTypeData {
     pub fn get_list_item_type(&self) -> &TypeSignature {
         &self.entry_type
     }
-
-    pub fn size(&self) -> Result<i128> {
-        let base_cost = self.type_size()?; 
-        if self.max_len <= 0 {
-            Ok(base_cost)
-        } else {
-            self.entry_type.size()?
-                .checked_mul(self.max_len as i128)
-                .and_then(|x| x.checked_mul(base_cost))
-                .ok_or(RuntimeErrorType::ValueTooLarge.into())
-        }
-    }
-
-    pub fn type_size(&self) -> Result<i128> {
-        let fixed_cost = 4 + 1; // 1 byte for Type enum, 4 for max_len.
-        self.entry_type.type_size()?
-            .checked_add(fixed_cost)
-            .ok_or(RuntimeErrorType::ValueTooLarge.into())
-    }
-
 }
 
 impl TypeSignature {
@@ -217,7 +199,7 @@ impl TypeSignature {
             OptionalType(t) => {
                 t.size()?
                     .checked_add(1)
-                    .ok_or(RuntimeErrorType::ValueTooLarge.into())
+                    .ok_or(CheckErrors::ValueTooLarge)
             },
             ListType(list_type) => list_type.size(),
             ResponseType(v) => {
@@ -226,7 +208,7 @@ impl TypeSignature {
                 let s_size = s.size()?;
                 cmp::max(t_size, s_size)
                     .checked_add(1)
-                    .ok_or(RuntimeErrorType::ValueTooLarge.into())
+                    .ok_or(CheckErrors::ValueTooLarge)
             },
         }
     }
@@ -246,15 +228,15 @@ impl TypeSignature {
             OptionalType(t) => {
                 t.type_size()?
                     .checked_add(1)
-                    .ok_or(RuntimeErrorType::ValueTooLarge.into())
+                    .ok_or(CheckErrors::ValueTooLarge)
             },
             ResponseType(v) => {
                 let (t, s) = (&v.0, &v.1);
                 t.type_size()?
                     .checked_add(s.type_size()?)
-                    .ok_or(RuntimeErrorType::ValueTooLarge)?
+                    .ok_or(CheckErrors::ValueTooLarge)?
                     .checked_add(1)
-                    .ok_or(RuntimeErrorType::ValueTooLarge.into())
+                    .ok_or(CheckErrors::ValueTooLarge)
             },
             ListType(list_type) => list_type.type_size()
         }
@@ -329,23 +311,23 @@ impl TypeSignature {
 }
 
 impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
-    type Error = VMError;
+    type Error = CheckErrors;
     fn try_from(mut type_data: Vec<(ClarityName, TypeSignature)>) -> Result<TupleTypeSignature> {
         if type_data.len() == 0 {
-            return Err(UncheckedError::ExpectedListPairs.into())
+            return Err(CheckErrors::EmptyTuplesNotAllowed)
         }
 
         let mut type_map = BTreeMap::new();
         for (name, type_info) in type_data.drain(..) {
             if type_map.contains_key(&name) {
-                return Err(UncheckedError::VariableDefinedMultipleTimes(name.into()).into());
+                return Err(CheckErrors::NameAlreadyUsed(name.into()));
             } else {
                 type_map.insert(name, type_info);
             }
         }
         let result = TupleTypeSignature { type_map };        
         if result.size()? > MAX_VALUE_SIZE {
-            Err(RuntimeErrorType::ValueTooLarge.into())
+            Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(result)
         }
@@ -353,14 +335,14 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
 }
 
 impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
-    type Error = VMError;
+    type Error = CheckErrors;
     fn try_from(type_map: BTreeMap<ClarityName, TypeSignature>) -> Result<TupleTypeSignature> {
         if type_map.len() == 0 {
-            return Err(UncheckedError::ExpectedListPairs.into())
+            return Err(CheckErrors::EmptyTuplesNotAllowed)
         }
         let result = TupleTypeSignature { type_map };
         if result.size()? > MAX_VALUE_SIZE {
-            Err(RuntimeErrorType::ValueTooLarge.into())
+            Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(result)
         }
@@ -400,14 +382,14 @@ impl TupleTypeSignature {
         for (name, type_signature) in self.type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
             name_size = name_size.checked_add(name.len() as i128)
-                .ok_or(RuntimeErrorType::ValueTooLarge)?;
+                .ok_or(CheckErrors::ValueTooLarge)?;
             value_size = value_size.checked_add(type_signature.type_size()? as i128)
-                .ok_or(RuntimeErrorType::ValueTooLarge)?;
+                .ok_or(CheckErrors::ValueTooLarge)?;
         }
         let name_total_size = name_size.checked_mul(2)
-            .ok_or(RuntimeErrorType::ValueTooLarge)?;
+            .ok_or(CheckErrors::ValueTooLarge)?;
         value_size.checked_add(name_total_size)
-            .ok_or(RuntimeErrorType::ValueTooLarge.into())        
+            .ok_or(CheckErrors::ValueTooLarge)        
     }
 
     pub fn size(&self) -> Result<i128> {
@@ -416,16 +398,16 @@ impl TupleTypeSignature {
         for (name, type_signature) in self.type_map.iter() {
             // we only accept ascii names, so 1 char = 1 byte.
             name_size = name_size.checked_add(name.len() as i128)
-                .ok_or(RuntimeErrorType::ValueTooLarge)?;
+                .ok_or(CheckErrors::ValueTooLarge)?;
             value_size = value_size.checked_add(type_signature.size()? as i128)
-                .ok_or(RuntimeErrorType::ValueTooLarge)?;
+                .ok_or(CheckErrors::ValueTooLarge)?;
         }
         let name_total_size = name_size.checked_mul(2)
-            .ok_or(RuntimeErrorType::ValueTooLarge)?;
+            .ok_or(CheckErrors::ValueTooLarge)?;
         value_size.checked_add(name_total_size)
-            .ok_or(RuntimeErrorType::ValueTooLarge)?
+            .ok_or(CheckErrors::ValueTooLarge)?
             .checked_add(self.type_size()?)
-            .ok_or(RuntimeErrorType::ValueTooLarge.into())
+            .ok_or(CheckErrors::ValueTooLarge)
     }
 
     pub fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature> {
@@ -433,7 +415,7 @@ impl TupleTypeSignature {
             let mapped_key_types = parse_name_type_pairs(name_type_pairs)?;
             TupleTypeSignature::try_from(mapped_key_types)
         } else {
-            Err(UncheckedError::ExpectedListPairs.into())
+            Err(CheckErrors::BadSyntaxExpectedListOfPairs)
         }
     }
 }
@@ -445,8 +427,13 @@ impl FunctionArg {
 }
 
 impl TypeSignature {
+    pub fn max_buffer() -> TypeSignature {
+        BufferType(BufferLength(u32::try_from(MAX_VALUE_SIZE)
+                                .expect("FAIL: Max Clarity Value Size is no longer realizable in Buffer Type")))
+    }
+
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)
-    fn factor_out_no_type(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+    fn factor_out_no_type(a: &TypeSignature, b: &TypeSignature) -> std::result::Result<TypeSignature, CheckErrors> {
         if a.is_no_type() {
             Ok(b.clone())
         } else if b.is_no_type() {
@@ -477,20 +464,21 @@ impl TypeSignature {
     ///  For ints, uints, principals, bools:
     ///      least_supertype(A, B) := if A != B, error, else A
     ///
-    pub fn least_supertype(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+    pub fn least_supertype(a: &TypeSignature, b: &TypeSignature) -> std::result::Result<TypeSignature, CheckErrors> {
         match (a, b) {
             (TupleType(TupleTypeSignature{ type_map: types_a }), TupleType(TupleTypeSignature{ type_map: types_b })) => {
                 if types_a.len() != types_b.len() {
-                    return Err(UncheckedError::NoSuperType(a.clone(), b.clone()).into())
+                    return Err(CheckErrors::TypeError(a.clone(), b.clone()))
                 }
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
                     let entry_b = types_b.get(name)
-                        .ok_or(UncheckedError::NoSuperType(a.clone(), b.clone()))?;
+                        .ok_or(CheckErrors::TypeError(a.clone(), b.clone()))?;
                     let entry_out = Self::least_supertype(entry_a, entry_b)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
-                TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
+                Ok(TupleTypeSignature::try_from(type_map_out).map(|x| x.into())
+                   .expect("ERR: least_supertype attempted to construct a too-large supertype of two types"))
             },
             (ListType(ListTypeData{ max_len: len_a, entry_type: entry_a }), ListType(ListTypeData{ max_len: len_b, entry_type: entry_b })) => {
                 let entry_type =
@@ -502,7 +490,8 @@ impl TypeSignature {
                         Self::least_supertype(entry_a, entry_b)?
                     };
                 let max_len = cmp::max(len_a, len_b);
-                Self::list_of(entry_type, *max_len)
+                Ok(Self::list_of(entry_type, *max_len)
+                   .expect("ERR: least_supertype attempted to construct a too-large supertype of two types"))
             },
             (ResponseType(resp_a), ResponseType(resp_b)) => {
                 let ok_type = Self::factor_out_no_type(&resp_a.0, &resp_b.0)?;
@@ -525,7 +514,7 @@ impl TypeSignature {
                 if x == y {
                     Ok(x.clone())
                 } else {
-                    Err(UncheckedError::NoSuperType(a.clone(), b.clone()).into())
+                    Err(CheckErrors::TypeError(a.clone(), b.clone()))
                 }
             }
         }
@@ -537,7 +526,7 @@ impl TypeSignature {
 
     pub fn new_buffer(buff_len: i128) -> Result<TypeSignature> {
         if buff_len > u32::max_value() as i128 {
-            Err(RuntimeErrorType::ValueTooLarge.into())
+            Err(CheckErrors::ValueTooLarge)
         } else {
             BufferLength::try_from(buff_len as u32)
                 .map(|buffer_len| TypeSignature::BufferType(buffer_len))
@@ -584,14 +573,14 @@ impl TypeSignature {
         TypeSignature::parent_list_type(&children_types)
     }
 
-    pub fn parent_list_type(children: &[TypeSignature]) -> Result<ListTypeData> {
+    pub fn parent_list_type(children: &[TypeSignature]) -> std::result::Result<ListTypeData, CheckErrors> {
         if let Some((first, rest)) = children.split_first() {
             let mut current_entry_type = first.clone();
             for next_entry in rest.iter() {
                 current_entry_type = Self::least_supertype(&current_entry_type, next_entry)?;
             }
             let len = u32::try_from(children.len())
-                .map_err(|_| RuntimeErrorType::ValueTooLarge)?;
+                .map_err(|_| CheckErrors::ValueTooLarge)?;
             ListTypeData::new_list(current_entry_type, len)
         } else {
             Ok(TypeSignature::get_empty_list_type())
@@ -608,7 +597,7 @@ impl TypeSignature {
             "uint" => Ok(TypeSignature::UIntType),
             "bool" => Ok(TypeSignature::BoolType),
             "principal" => Ok(TypeSignature::PrincipalType),
-            _ => Err(RuntimeErrorType::ParseError(format!("Unknown type name: '{}'", typename)).into())
+            _ => Err(CheckErrors::UnknownTypeName(typename.into()))
         }
     }
 
@@ -616,17 +605,17 @@ impl TypeSignature {
     // (list maximum-length atomic-type)
     fn parse_list_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
         if type_args.len() != 2 {
-            return Err(RuntimeErrorType::InvalidTypeDescription.into());
+            return Err(CheckErrors::InvalidTypeDescription);
         }
 
         if let SymbolicExpressionType::AtomValue(Value::Int(max_len)) = &type_args[0].expr {            
             let atomic_type_arg = &type_args[type_args.len()-1];
             let entry_type = TypeSignature::parse_type_repr(atomic_type_arg)?;
             let max_len = u32::try_from(*max_len)
-                .map_err(|_| RuntimeErrorType::InvalidTypeDescription)?;
+                .map_err(|_| CheckErrors::InvalidTypeDescription)?;
             ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
         } else {
-            Err(RuntimeErrorType::InvalidTypeDescription.into())
+            Err(CheckErrors::InvalidTypeDescription)
         }
     }
 
@@ -642,18 +631,18 @@ impl TypeSignature {
     // (buff 10)
     fn parse_buff_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
         if type_args.len() != 1 {
-            return Err(RuntimeErrorType::InvalidTypeDescription.into())
+            return Err(CheckErrors::InvalidTypeDescription)
         }
         if let SymbolicExpressionType::AtomValue(Value::Int(buff_len)) = &type_args[0].expr {
             TypeSignature::new_buffer(*buff_len)
         } else {
-            Err(RuntimeErrorType::InvalidTypeDescription.into())
+            Err(CheckErrors::InvalidTypeDescription)
         }
     }
 
     fn parse_optional_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
         if type_args.len() != 1 {
-            return Err(RuntimeErrorType::InvalidTypeDescription.into())
+            return Err(CheckErrors::InvalidTypeDescription)
         }
         let inner_type = TypeSignature::parse_type_repr(&type_args[0])?;
         
@@ -662,7 +651,7 @@ impl TypeSignature {
 
     fn parse_response_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
         if type_args.len() != 2 {
-            return Err(RuntimeErrorType::InvalidTypeDescription.into())
+            return Err(CheckErrors::InvalidTypeDescription)
         }
         let ok_type = TypeSignature::parse_type_repr(&type_args[0])?;
         let err_type = TypeSignature::parse_type_repr(&type_args[1])?;
@@ -677,7 +666,7 @@ impl TypeSignature {
             },
             SymbolicExpressionType::List(ref list_contents) => {
                 let (compound_type, rest) = list_contents.split_first()
-                    .ok_or(RuntimeErrorType::InvalidTypeDescription)?;
+                    .ok_or(CheckErrors::InvalidTypeDescription)?;
                 if let SymbolicExpressionType::Atom(ref compound_type) = compound_type.expr {
                     match compound_type.as_ref() {
                         "list" => TypeSignature::parse_list_type_repr(rest),
@@ -685,14 +674,35 @@ impl TypeSignature {
                         "tuple" => TypeSignature::parse_tuple_type_repr(rest),
                         "optional" => TypeSignature::parse_optional_type_repr(rest),
                         "response" => TypeSignature::parse_response_type_repr(rest),
-                        _ => Err(RuntimeErrorType::InvalidTypeDescription.into())
+                        _ => Err(CheckErrors::InvalidTypeDescription)
                     }
                 } else {
-                    Err(RuntimeErrorType::InvalidTypeDescription.into())
+                    Err(CheckErrors::InvalidTypeDescription)
                 }
             },
-            _ => Err(RuntimeErrorType::InvalidTypeDescription.into())
+            _ => Err(CheckErrors::InvalidTypeDescription)
         }
+    }
+}
+
+impl ListTypeData {
+    pub fn size(&self) -> Result<i128> {
+        let base_cost = self.type_size()?; 
+        if self.max_len <= 0 {
+            Ok(base_cost)
+        } else {
+            self.entry_type.size()?
+                .checked_mul(self.max_len as i128)
+                .and_then(|x| x.checked_mul(base_cost))
+                .ok_or(CheckErrors::ValueTooLarge)
+        }
+    }
+
+    fn type_size(&self) -> Result<i128> {
+        let fixed_cost = 4 + 1; // 1 byte for Type enum, 4 for max_len.
+        self.entry_type.type_size()?
+            .checked_add(fixed_cost)
+            .ok_or(CheckErrors::ValueTooLarge)
     }
 }
 
@@ -709,12 +719,12 @@ pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<V
             |key_type_pair| {
                 if let List(ref as_vec) = key_type_pair.expr {
                     if as_vec.len() != 2 {
-                        Err(UncheckedError::ExpectedListPairs.into())
+                        Err(CheckErrors::BadSyntaxExpectedListOfPairs)
                     } else {
                         Ok((&as_vec[0], &as_vec[1]))
                     }
                 } else {
-                    Err(UncheckedError::ExpectedListPairs.into())
+                    Err(CheckErrors::BadSyntaxExpectedListOfPairs)
                 }
             }).collect();
 
@@ -722,7 +732,7 @@ pub fn parse_name_type_pairs(name_type_pairs: &[SymbolicExpression]) -> Result<V
     let key_types: Result<Vec<_>> =
         (as_pairs?).iter().map(|(name_symbol, type_symbol)| {
             let name = name_symbol.match_atom()
-                .ok_or(UncheckedError::ExpectedListPairs)?
+                .ok_or(CheckErrors::BadSyntaxExpectedListOfPairs)?
                 .clone();
             let type_info = TypeSignature::parse_type_repr(type_symbol)?;
             Ok((name, type_info))

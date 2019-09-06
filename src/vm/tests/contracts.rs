@@ -1,5 +1,5 @@
 use vm::execute as vm_execute;
-use vm::errors::{Error, UncheckedError};
+use vm::errors::{Error, CheckErrors};
 use vm::types::{Value, StandardPrincipalData, ResponseData, PrincipalData};
 use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
@@ -529,7 +529,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
                                           &symbols_from_values(vec![Value::Int(9000),
                                                                     Value::Int(15)])).unwrap_err();
     match err_result {
-        Error::Unchecked(UncheckedError::NonPublicFunction(_)) => {},
+        Error::Unchecked(CheckErrors::NoSuchPublicFunction(_, _)) => {},
         _ => {
             println!("{:?}", err_result);
             panic!("Attempt to call init-factorial should fail!")
@@ -539,7 +539,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
     let err_result = env.execute_contract("factorial", "compute",
                                           &symbols_from_values(vec![Value::Bool(true)])).unwrap_err();
     match err_result {
-        Error::Unchecked(UncheckedError::TypeError(_, _)) => {},
+        Error::Unchecked(CheckErrors::TypeValueError(_, _)) => {},
         _ => {
             println!("{:?}", err_result);
             assert!(false, "Attempt to call compute with void type should fail!")
