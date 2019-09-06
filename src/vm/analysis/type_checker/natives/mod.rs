@@ -291,20 +291,17 @@ impl TypedNativeFunction {
                     returns: TypeSignature::BoolType }))),
             Hash160 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                    vec![TypeSignature::new_buffer(MAX_VALUE_SIZE)
-                         .expect("ERROR: Failed to instantiate static buffer type"),
+                    vec![TypeSignature::max_buffer(),
                          TypeSignature::IntType],
                     BUFF_20.clone()))),
             Sha256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                    vec![TypeSignature::new_buffer(MAX_VALUE_SIZE)
-                         .expect("ERROR: Failed to instantiate static buffer type"),
+                    vec![TypeSignature::max_buffer(),
                          TypeSignature::IntType],
                     BUFF_32.clone()))),
             Keccak256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                    vec![TypeSignature::new_buffer(MAX_VALUE_SIZE)
-                         .expect("ERROR: Failed to instantiate static buffer type"),
+                    vec![TypeSignature::max_buffer(),
                          TypeSignature::IntType],
                     BUFF_32.clone()))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),

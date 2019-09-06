@@ -116,7 +116,7 @@ impl From<BufferLength> for u32 {
 impl TryFrom<u32> for BufferLength {
     type Error = CheckErrors;
     fn try_from(data: u32) -> Result<BufferLength> {
-        if (data as i128) > MAX_VALUE_SIZE {
+        if data > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(BufferLength(data))
@@ -127,7 +127,18 @@ impl TryFrom<u32> for BufferLength {
 impl TryFrom<usize> for BufferLength {
     type Error = CheckErrors;
     fn try_from(data: usize) -> Result<BufferLength> {
-        if (data as i128) > MAX_VALUE_SIZE || data > (u32::max_value() as usize) {
+        if data > (MAX_VALUE_SIZE as usize) {
+            Err(CheckErrors::ValueTooLarge)
+        } else {
+            Ok(BufferLength(data as u32))
+        }
+    }
+}
+
+impl TryFrom<i128> for BufferLength {
+    type Error = CheckErrors;
+    fn try_from(data: i128) -> Result<BufferLength> {
+        if data > (MAX_VALUE_SIZE as i128) {
             Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(BufferLength(data as u32))
@@ -136,12 +147,14 @@ impl TryFrom<usize> for BufferLength {
 }
 
 impl ListTypeData {
-    pub fn new_list(entry_type: TypeSignature, max_len: u32) -> std::result::Result<ListTypeData, CheckErrors> {
+    pub fn new_list(entry_type: TypeSignature, max_len: u32) -> Result<ListTypeData> {
         let list_data = ListTypeData { 
             entry_type: Box::new(entry_type),
             max_len: max_len as u32 
         };
-        if list_data.size()? > MAX_VALUE_SIZE {
+        let would_be_size = list_data.inner_size()
+            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+        if would_be_size > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(list_data)
@@ -171,75 +184,12 @@ impl TypeSignature {
     }
 
     pub fn is_no_type(&self) -> bool {
-        if let TypeSignature::NoType = self {
-            true
-        } else {
-            false
-        }
+        &TypeSignature::NoType == self
     }
 
     pub fn admits(&self, x: &Value) -> bool {
         let x_type = TypeSignature::type_of(x);
         self.admits_type(&x_type)
-    }
-
-    pub fn size(&self) -> Result<i128> {
-        match self {
-            // NoType's may be asked for their size at runtime --
-            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            NoType => Ok(1),
-            IntType => Ok(16),
-            UIntType => Ok(16),
-            BoolType => Ok(1),
-            // TODO: Principal Size isn't quite right.
-            //    it can be much larger due to contract principals.
-            PrincipalType => Ok(21),
-            BufferType(len) => Ok(u32::from(len) as i128),
-            TupleType(tuple_sig) => tuple_sig.size(),
-            OptionalType(t) => {
-                t.size()?
-                    .checked_add(1)
-                    .ok_or(CheckErrors::ValueTooLarge)
-            },
-            ListType(list_type) => list_type.size(),
-            ResponseType(v) => {
-                let (t, s) = (&v.0, &v.1);
-                let t_size = t.size()?;
-                let s_size = s.size()?;
-                cmp::max(t_size, s_size)
-                    .checked_add(1)
-                    .ok_or(CheckErrors::ValueTooLarge)
-            },
-        }
-    }
-
-    /// Returns the size of the _type signature_
-    fn type_size(&self) -> Result<i128> {
-        match self {
-            // NoType's may be asked for their size at runtime --
-            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
-            NoType => Ok(1),
-            IntType => Ok(1),
-            UIntType => Ok(1),
-            BoolType => Ok(1),
-            PrincipalType => Ok(1),
-            BufferType(len) => Ok(1 + 4),
-            TupleType(tuple_sig) => tuple_sig.type_size(),
-            OptionalType(t) => {
-                t.type_size()?
-                    .checked_add(1)
-                    .ok_or(CheckErrors::ValueTooLarge)
-            },
-            ResponseType(v) => {
-                let (t, s) = (&v.0, &v.1);
-                t.type_size()?
-                    .checked_add(s.type_size()?)
-                    .ok_or(CheckErrors::ValueTooLarge)?
-                    .checked_add(1)
-                    .ok_or(CheckErrors::ValueTooLarge)
-            },
-            ListType(list_type) => list_type.type_size()
-        }
     }
 
     pub fn admits_type(&self, other: &TypeSignature) -> bool {
@@ -325,8 +275,10 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
                 type_map.insert(name, type_info);
             }
         }
-        let result = TupleTypeSignature { type_map };        
-        if result.size()? > MAX_VALUE_SIZE {
+        let result = TupleTypeSignature { type_map };
+        let would_be_size = result.inner_size()
+            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+        if would_be_size > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(result)
@@ -341,7 +293,9 @@ impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
             return Err(CheckErrors::EmptyTuplesNotAllowed)
         }
         let result = TupleTypeSignature { type_map };
-        if result.size()? > MAX_VALUE_SIZE {
+        let would_be_size = result.inner_size()
+            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+        if would_be_size > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge)
         } else {
             Ok(result)
@@ -376,40 +330,6 @@ impl TupleTypeSignature {
         return true
     }
 
-    fn type_size(&self) -> Result<i128> {
-        let mut name_size: i128 = 0;
-        let mut value_size: i128 = 0;
-        for (name, type_signature) in self.type_map.iter() {
-            // we only accept ascii names, so 1 char = 1 byte.
-            name_size = name_size.checked_add(name.len() as i128)
-                .ok_or(CheckErrors::ValueTooLarge)?;
-            value_size = value_size.checked_add(type_signature.type_size()? as i128)
-                .ok_or(CheckErrors::ValueTooLarge)?;
-        }
-        let name_total_size = name_size.checked_mul(2)
-            .ok_or(CheckErrors::ValueTooLarge)?;
-        value_size.checked_add(name_total_size)
-            .ok_or(CheckErrors::ValueTooLarge)        
-    }
-
-    pub fn size(&self) -> Result<i128> {
-        let mut name_size: i128 = 0;
-        let mut value_size: i128 = 0;
-        for (name, type_signature) in self.type_map.iter() {
-            // we only accept ascii names, so 1 char = 1 byte.
-            name_size = name_size.checked_add(name.len() as i128)
-                .ok_or(CheckErrors::ValueTooLarge)?;
-            value_size = value_size.checked_add(type_signature.size()? as i128)
-                .ok_or(CheckErrors::ValueTooLarge)?;
-        }
-        let name_total_size = name_size.checked_mul(2)
-            .ok_or(CheckErrors::ValueTooLarge)?;
-        value_size.checked_add(name_total_size)
-            .ok_or(CheckErrors::ValueTooLarge)?
-            .checked_add(self.type_size()?)
-            .ok_or(CheckErrors::ValueTooLarge)
-    }
-
     pub fn parse_name_type_pair_list(type_def: &SymbolicExpression) -> Result<TupleTypeSignature> {
         if let SymbolicExpressionType::List(ref name_type_pairs) = type_def.expr {
             let mapped_key_types = parse_name_type_pairs(name_type_pairs)?;
@@ -433,7 +353,7 @@ impl TypeSignature {
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)
-    fn factor_out_no_type(a: &TypeSignature, b: &TypeSignature) -> std::result::Result<TypeSignature, CheckErrors> {
+    fn factor_out_no_type(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
         if a.is_no_type() {
             Ok(b.clone())
         } else if b.is_no_type() {
@@ -464,7 +384,7 @@ impl TypeSignature {
     ///  For ints, uints, principals, bools:
     ///      least_supertype(A, B) := if A != B, error, else A
     ///
-    pub fn least_supertype(a: &TypeSignature, b: &TypeSignature) -> std::result::Result<TypeSignature, CheckErrors> {
+    pub fn least_supertype(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
         match (a, b) {
             (TupleType(TupleTypeSignature{ type_map: types_a }), TupleType(TupleTypeSignature{ type_map: types_b })) => {
                 if types_a.len() != types_b.len() {
@@ -524,16 +444,7 @@ impl TypeSignature {
         ListTypeData::new_list(item_type, max_len).map(|x| x.into())
     }
 
-    pub fn new_buffer(buff_len: i128) -> Result<TypeSignature> {
-        if buff_len > u32::max_value() as i128 {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            BufferLength::try_from(buff_len as u32)
-                .map(|buffer_len| TypeSignature::BufferType(buffer_len))
-        }
-    }
-
-    pub fn get_empty_list_type() -> ListTypeData {
+    pub fn empty_list() -> ListTypeData {
         ListTypeData {
             entry_type: Box::new(TypeSignature::NoType),
             max_len: 0 
@@ -583,7 +494,7 @@ impl TypeSignature {
                 .map_err(|_| CheckErrors::ValueTooLarge)?;
             ListTypeData::new_list(current_entry_type, len)
         } else {
-            Ok(TypeSignature::get_empty_list_type())
+            Ok(TypeSignature::empty_list())
         }
     }
 }
@@ -612,7 +523,7 @@ impl TypeSignature {
             let atomic_type_arg = &type_args[type_args.len()-1];
             let entry_type = TypeSignature::parse_type_repr(atomic_type_arg)?;
             let max_len = u32::try_from(*max_len)
-                .map_err(|_| CheckErrors::InvalidTypeDescription)?;
+                .map_err(|_| CheckErrors::ValueTooLarge)?;
             ListTypeData::new_list(entry_type, max_len).map(|x| x.into())
         } else {
             Err(CheckErrors::InvalidTypeDescription)
@@ -634,7 +545,8 @@ impl TypeSignature {
             return Err(CheckErrors::InvalidTypeDescription)
         }
         if let SymbolicExpressionType::AtomValue(Value::Int(buff_len)) = &type_args[0].expr {
-            TypeSignature::new_buffer(*buff_len)
+            BufferLength::try_from(*buff_len)
+                .map(|buff_len| TypeSignature::BufferType(buff_len))
         } else {
             Err(CheckErrors::InvalidTypeDescription)
         }
@@ -685,24 +597,139 @@ impl TypeSignature {
     }
 }
 
-impl ListTypeData {
-    pub fn size(&self) -> Result<i128> {
-        let base_cost = self.type_size()?; 
-        if self.max_len <= 0 {
-            Ok(base_cost)
-        } else {
-            self.entry_type.size()?
-                .checked_mul(self.max_len as i128)
-                .and_then(|x| x.checked_mul(base_cost))
-                .ok_or(CheckErrors::ValueTooLarge)
+/// These implement the size calculations in TypeSignatures
+///    in constructors of TypeSignatures, only `.inner_size()` may be called.
+///    .inner_size is a failable method to compute the size of the type signature,
+///    Failures indicate that a type signature represents _too large_ of a value.
+/// TypeSignature constructors will fail instead of constructing such a type.
+///   because of this, the public interface to size is infallible.
+impl TypeSignature {
+    pub fn size(&self) -> u32 {
+        self.inner_size()
+            .expect("FAIL: .size() overflowed on too large of a type. construction should have failed!")
+    }
+
+    fn inner_size(&self) -> Option<u32> {
+        match self {
+            // NoType's may be asked for their size at runtime --
+            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
+            NoType => Some(1),
+            IntType => Some(16),
+            UIntType => Some(16),
+            BoolType => Some(1),
+            // TODO: This principal size isn't quite right.
+            //    it can be much larger due to contract principals.
+            PrincipalType => Some(21),
+            BufferType(len) => Some(u32::from(len)),
+            TupleType(tuple_sig) => tuple_sig.inner_size(),
+            ListType(list_type) => list_type.inner_size(),
+            OptionalType(t) => t.size().checked_add(1),
+            ResponseType(v) => {
+                // ResponseTypes are 1 byte for the committed bool,
+                //   plus max(err_type, ok_type)
+                let (t, s) = (&v.0, &v.1);
+                let t_size = t.size();
+                let s_size = s.size();
+                cmp::max(t_size, s_size)
+                    .checked_add(1)
+            },
         }
     }
 
-    fn type_size(&self) -> Result<i128> {
-        let fixed_cost = 4 + 1; // 1 byte for Type enum, 4 for max_len.
-        self.entry_type.type_size()?
-            .checked_add(fixed_cost)
-            .ok_or(CheckErrors::ValueTooLarge)
+    /// Returns the size of the _type signature_
+    fn type_size(&self) -> Option<u32> {
+        match self {
+            // NoType's may be asked for their size at runtime --
+            //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
+            // These types all only use ~1 byte for their type enum
+            NoType | IntType | UIntType | BoolType | PrincipalType => Some(1),
+            // u32 length + type enum
+            BufferType(len) => Some(1 + 4),
+            TupleType(tuple_sig) => tuple_sig.type_size(),
+            ListType(list_type) => list_type.type_size(),
+            OptionalType(t) => {
+                t.type_size()?
+                    .checked_add(1)
+            },
+            ResponseType(v) => {
+                let (t, s) = (&v.0, &v.1);
+                t.type_size()?
+                    .checked_add(s.type_size()?)?
+                    .checked_add(1)
+            },
+        }
+    }
+}
+
+impl ListTypeData {
+    /// List Size: type_signature_size + max_len * entry_type.size() 
+    fn inner_size(&self) -> Option<u32> {
+        let total_size = self.entry_type.size()
+            .checked_mul(self.max_len)?
+            .checked_add(self.type_size()?)?;
+        if total_size > MAX_VALUE_SIZE {
+            None
+        } else {
+            Some(total_size)
+        }
+    }
+
+    fn type_size(&self) -> Option<u32> {
+        let total_size = self.entry_type.type_size()?
+            .checked_add(4 + 1)?; // 1 byte for Type enum, 4 for max_len.
+        if total_size > MAX_VALUE_SIZE {
+            None
+        } else {
+            Some(total_size)
+        }
+    }
+}
+
+impl TupleTypeSignature {
+    /// Tuple Size:
+    ///    size( btreemap<name, type> ) = 2*map.len() + sum(names) + sum(values)
+    fn type_size(&self) -> Option<u32> {
+        let mut type_map_size = u32::try_from(self.type_map.len())
+            .ok()?
+            .checked_mul(2)?;
+
+        for (name, type_signature) in self.type_map.iter() {
+            // we only accept ascii names, so 1 char = 1 byte.
+            type_map_size = type_map_size
+                .checked_add(type_signature.type_size()?)?
+                // name.len() is bound to MAX_STRING_LEN (128), so `as u32` won't ever truncate
+                .checked_add(name.len() as u32)?;
+        }
+
+        if type_map_size > MAX_VALUE_SIZE {
+            None
+        } else {
+            Some(type_map_size)
+        }
+    }
+
+    /// Tuple Size:
+    ///    size( btreemap<name, value> ) + type_size
+    ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)
+    fn inner_size(&self) -> Option<u32> {
+        let mut total_size = u32::try_from(self.type_map.len())
+            .ok()?
+            .checked_mul(2)?
+            .checked_add(self.type_size()?)?;
+
+        for (name, type_signature) in self.type_map.iter() {
+            // we only accept ascii names, so 1 char = 1 byte.
+            total_size = total_size
+                .checked_add(type_signature.size())?
+                // name.len() is bound to MAX_STRING_LEN (128), so `as u32` won't ever truncate
+                .checked_add(name.len() as u32)?;
+        }
+
+        if total_size > MAX_VALUE_SIZE {
+            None
+        } else {
+            Some(total_size)
+        }
     }
 }
 
@@ -783,5 +810,79 @@ impl fmt::Display for BufferLength {
 impl fmt::Display for FunctionArg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.signature)
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use super::CheckErrors::*;
+
+    fn fail_parse(val: &str) -> CheckErrors {
+        use vm::parser;
+        let expr = &parser::parse(val).unwrap()[0];
+        TypeSignature::parse_type_repr(expr).unwrap_err()
+    }
+
+    #[test]
+    fn type_signature_way_too_big() {
+        // first_tuple.type_size ~= 131
+        // second_tuple.type_size = k * (130+130)
+        // to get a type-size greater than max_value all by itself,
+        //   set k = 4033
+        let first_tuple = TypeSignature::from("(tuple (a0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 bool))");
+
+        let mut keys = vec![];
+        for i in 0..4033 {
+            let key_name = ClarityName::try_from(format!("a{:0127}", i)).unwrap();
+            let key_val = first_tuple.clone();
+            keys.push((key_name, key_val));
+        }
+
+        assert_eq!(TupleTypeSignature::try_from(keys).unwrap_err(), ValueTooLarge);
+    }
+
+    #[test]
+    fn test_construction() {
+        let bad_type_descriptions = [
+            ("(tuple)", EmptyTuplesNotAllowed),
+            ("(list int int)", InvalidTypeDescription),
+            ("(list 4294967296 int)", ValueTooLarge),
+            ("(list 50 bazel)", UnknownTypeName("bazel".into())),
+            ("(buff)", InvalidTypeDescription),
+            ("(buff 4294967296)", ValueTooLarge),
+            ("(buff int)", InvalidTypeDescription),
+            ("(response int)", InvalidTypeDescription),
+            ("(optional bazel)", UnknownTypeName("bazel".into())),
+            ("(response bazel int)", UnknownTypeName("bazel".into())),
+            ("(response int bazel)", UnknownTypeName("bazel".into())),
+            ("bazel", UnknownTypeName("bazel".into())),
+            ("()", InvalidTypeDescription),
+            ("(1234)", InvalidTypeDescription),
+            ("(int 3 int)", InvalidTypeDescription),
+            ("1234", InvalidTypeDescription),
+            ("(list 1 (buff 1048576))", ValueTooLarge),
+            ("(list 4294967295 (buff 2))", ValueTooLarge),
+            ("(list 2147483647 (buff 2))", ValueTooLarge),
+            ("(tuple (l (buff 1048576)))", ValueTooLarge),
+        ];
+
+        for (desc, expected) in bad_type_descriptions.iter() {
+            assert_eq!(&fail_parse(desc), expected);
+        }
+
+        let okay_types = [
+            "(list 16 uint)",
+            "(list 15 (response int bool))",
+            "(list 15 (response bool int))",
+            "(buff 1048576)",
+            "(list 4400 bool)",
+            "(tuple (l (buff 1048550)))",
+        ];
+
+        for desc in okay_types.iter() {
+            TypeSignature::from(*desc); // panics on failed types.
+        }
     }
 }

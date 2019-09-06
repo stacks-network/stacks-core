@@ -199,8 +199,12 @@ fn test_lists() {
                 "(list (list 1 2) (list 3 4) (list 5 1 7))",
                 "(filter not (list 'false 'true 'false))",
                 "(fold and (list 'true 'true 'false 'false) 'true)",
-                "(map - (list (+ 1 2) 3 (+ 4 5) (* (+ 1 2) 3)))"];
-    let expected = [ "(list 5 (buff 20))", "(list 3 (list 3 int))", "(list 3 bool)", "bool", "(list 4 int)" ];
+                "(map - (list (+ 1 2) 3 (+ 4 5) (* (+ 1 2) 3)))",
+                "(if 'true (list 1 2 3 4) (list))",
+                "(if 'true (list) (list 1 2 3 4))",
+                ];
+    let expected = [ "(list 5 (buff 20))", "(list 3 (list 3 int))", "(list 3 bool)", "bool", "(list 4 int)",
+                     "(list 4 int)", "(list 4 int)" ];
 
     let bad = [
         "(fold and (list 'true 'false) 2)",

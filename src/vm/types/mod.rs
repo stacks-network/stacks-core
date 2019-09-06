@@ -16,7 +16,7 @@ pub use vm::types::signatures::{
     BUFF_32, BUFF_20, BufferLength
 };
 
-pub const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
+pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
@@ -183,22 +183,6 @@ impl Value {
         // construct the buffer
         Ok(Value::Buffer(BuffData { data: buff_data }))
     }
-
-    pub fn size(&self) -> Result<i128> {
-        match self {
-            Value::Int(_i) => TypeSignature::IntType.size(),
-            Value::UInt(_int) => TypeSignature::UIntType.size(),
-            Value::Bool(_i) => TypeSignature::BoolType.size(),
-            Value::Principal(_) => TypeSignature::PrincipalType.size(),
-            Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
-            Value::Tuple(ref tuple_data) => tuple_data.type_signature.size(),
-            Value::List(ref list_data) => list_data.type_signature.size(),
-            Value::Optional(ref opt_data) => opt_data.type_signature().size(),
-            Value::Response(ref res_data) => res_data.type_signature().size()
-        }
-        .map_err(|e| e.into())
-    }
-
 }
 
 impl fmt::Display for OptionalData {
