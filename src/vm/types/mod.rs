@@ -155,11 +155,13 @@ impl Value {
             return Err(InterpreterError::FailureConstructingListWithType.into())
         }
 
-        let expected_item_type = expected_type.get_list_item_type();
+        {
+            let expected_item_type = expected_type.get_list_item_type();
 
-        for item in &list_data {
-            if !expected_item_type.admits(&item) {
-                return Err(InterpreterError::FailureConstructingListWithType.into())
+            for item in &list_data {
+                if !expected_item_type.admits(&item) {
+                    return Err(InterpreterError::FailureConstructingListWithType.into())
+                }
             }
         }
 

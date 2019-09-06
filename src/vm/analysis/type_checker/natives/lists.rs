@@ -55,16 +55,18 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
     checker.type_map.set_type(&args[0], no_type())?;
     
     let argument_type = checker.type_check(&args[1], context)?;
-    
-    let argument_items_type = match &argument_type {
-        TypeSignature::ListType(list_data) => Ok(list_data.get_list_item_type()),
-        _ => Err(CheckErrors::ExpectedListApplication)
-    }?;
-    
-    let filter_type = function_type.check_args(&[argument_items_type.clone()])?;
 
-    if TypeSignature::BoolType != filter_type {
-        return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into())
+    {
+        let argument_items_type = match &argument_type {
+            TypeSignature::ListType(list_data) => Ok(list_data.get_list_item_type()),
+            _ => Err(CheckErrors::ExpectedListApplication)
+        }?;
+    
+        let filter_type = function_type.check_args(&[argument_items_type.clone()])?;
+
+        if TypeSignature::BoolType != filter_type {
+            return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into())
+        }
     }
 
     Ok(argument_type)
