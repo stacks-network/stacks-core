@@ -52,7 +52,7 @@ jobs:
             -e RUSTFLAGS="$RUSTFLAGS" -v "$PWD:/blockstack" rustlang/rust:nightly-stretch \
             bash -c "cd /blockstack && rustup override set nightly && cargo build --verbose && cargo test --bin blockstack-core -- --test-threads 1"
           environment:
-            RUSTFLAGS: -Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
+            RUSTFLAGS: -Zprofile -Copt-level=2 -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
       - run:
           name: Collect debug outputs
           command: |
