@@ -54,12 +54,14 @@ _authorized_ by its originating account.
 by a user, but it may also be an account owned by a smart contract.  Its address
 is identified in each transaction separately from the originating account.
 
-* The **sending account** is the account that identifies _who_ is executing the
-  transaction.  Accounts may execute transactions on behalf of other accounts
-via the Clarity function `as-contract`.  Each transaction's initial sending
-account is its originating account -- i.e. the account that authorizes the
-transaction.  Smart contracts determine the sending account's principal using
-the `tx-sender` built-in function.
+* The **sending account** is the account that identifies _who_ is
+  _currently_ executing the transaction. The sending account can
+      change during the course of transaction execution via the Clarity
+  function `as-contract`, which executes the provided code block as
+  the _current contract's_ account. Each transaction's initial sending
+  account is its originating account -- i.e. the account that
+  authorizes the transaction.  Smart contracts determine the sending
+  account's principal using the `tx-sender` built-in function.
 
 This document frames accounts in the Stacks blockchain as actors that process
 transactions in order to describe the lifecycle of a transaction.  The tasks
@@ -190,12 +192,10 @@ atomically.
 
 #### Type-2: Calling an Existing Smart Contract
 
-A type-2 transaction has restricted access to the Clarity VM.  A type-2
-transaction may only contain a single public function call (via
-`contract-call!`), and may only supply literals as its arguments.  It cannot
-read any public state, it cannot create any objects (not even private ones), and
-it cannot store any persistent state.  These transactions do _not_ materialize a
-contract account.
+A type-2 transaction has restricted access to the Clarity VM.  A
+type-2 transaction may only contain a single public function call (via
+`contract-call!`), and may only supply literals as its
+arguments. These transactions do _not_ materialize a contract account.
 
 The intended use-case for a type-2 transaction is to invoke an existing public
 smart contract function.  Because they have such restricted access to the
@@ -256,6 +256,16 @@ smart contract could be deployed.  Well-designed wallets would provide an
 intuitive user interface for encoding post-conditions, as well as provide a set
 of recommended mitigations based on whether or not the transaction would
 interact with a known-buggy smart contract.
+
+#### Example: Name Purchase
+
+This post-condition encodes the requirement that a name "blocky.id" is
+owned after the execution of a transaction, and at most 1 STX was paid.
+
+```
+[(STX, ft-decrease-by-at-most, 1),
+ (BNS.name, nft-owns, "blocky.id")]
+```
 
 #### Post-Condition Encoding
 
@@ -889,42 +899,29 @@ the Stacks peer tracks the following sets of key/value pairs:
 * the mapping between account addresses and their nonces and asset maps
 * the mapping between fully-qualified smart contract names and a bundle of
   metadata about them (described below).
-* the mapping between fully-qualified data variable names and their values
-* the mapping between fully-qualified data map keys and their values
+* the mapping between fully-qualified smart contract data keys and their 
+  associated values. 
 
 The first set of key/value pairs is the **account state**.  The Stacks peer
 calculates an index over all accounts in each fork as they are created.
 
-The second set of key/value pairs is the **smart contract state**.  It maps the
-_fully-qualified name_ of the smart contract to a bundle of metadata,
-which contains:
+The second set of key/value pairs is the **smart contract context state**.  It maps the
+_fully-qualified name_ of the smart contract to:
    * the transaction ID that created the smart contract (which can be used to
      derive the contract account address and to query its code),
-   * the list of data variable names defined by this contract
-   * the list of data maps defined by this contract
-   * the list of assets defined by this contract
-   * the list of tokens defined by this contract
 
 The fully-qualified name of a smart contract is composed of the c32check-encoded
 standard account address that created it, as well as an ASCII-encoded string chosen by
 the standard account owner(s) when the contract is instantiated.  Note that all
 fully-qualified smart contract names are globally unique -- the same standard
 account cannot create two smart contracts with the same name.
-The metadata itself is encoded as a _typed netstring_, described below.
 
-The third set of key/value pairs is the **smart contract data variable state**.
-It maps the _fully-qualified data variable names_ to their values.  The
-fully-qualified name for a data variable is composed of the c32check-encoded
-contract account address of the contract that declared it, as well as the
-ASCII-encoded name of the variable in the contract.  The value is encoded as a
-typed netstring.
-
-The fourth set of key/value pairs is the **smart contract data map state**.
-This maps the set of _fully-qualified data map keys_ to their values.  The
-fully-qualified name for a data map key is composed of the c32check-encoded
-contract account address of the contract that declared it, the name of the data
-map, and the typed netstring encoding of the fully-qualified key.
-The values are also encoded as typed netstrings.
+The third set of key/value pairs is the **smart contract data state**.
+It maps the _fully-qualified_ data keys to their values. This stores
+all data related to a smart contract: the values associated with data
+map keys, the current value of any data variables, and the ownership
+of fungible and non-fungible tokens. The construction of these keys and
+values is described below.
 
 All sets of key/value pairs are stored in the same MARF index.  Keys are
 prefixed with the type of state they represent in order to avoid key collisions
@@ -951,52 +948,123 @@ sets of key/value pairs, an ASCII period `.` is used to denote the separation be
 the c32check-encoded address and the following name.  Note that the c32 alphabet
 does _not_ include the ASCII period.
 
-#### Calculating a Typed Netstring
+#### Clarity Value Representation
 
-A typed netstring is a variation of a
-[netstring](https://en.wikipedia.org/wiki/Netstring), which is a recursively-defined
-self-describing printable-ASCII encoding for type-carrying byte strings.
-Typed netstrings were chosen because each sequence of typed byte strings
-encodes to exactly one typed netstring.  While many typed variations of
-netstrings exist, the particular encoding used in Stacks is described here.
+Clarity value's are represented through a specific JSON encoding, described with the
+following JSON schema:
 
-Each type is encoded by a 1-byte alphabetical ASCII character as a prefix to the
-netstring length.  The following characters are used for Clarity types:
+```json
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "ClarityValue",
+    "anyOf": [
+        {   "type": "object",
+            "properties": {
+                "type": { "const", "bool"},
+                "value": { "type", "bool }
+            },
+            "required": ["type", "value"],
+            "additionalProperties": false
+        },
+        {
+            "type": "object", 
+            "properties": {
+                "type": { "const": "i128" },
+                "value": { "type": "string" }
+            },
+            "required": ["type", "value"],
+            "additionalProperties": false
+        },
+        {
+            "type": "object", 
+            "properties": {
+                "type": { "const": "u128" },
+                "value": { "type": "string" }
+            },
+            "required": ["type", "value"],
+            "additionalProperties": false
+        },
+        {
+            "type": "object", 
+            "properties": {
+                "type": { "const": "buff" },
+                "value": { "type": "string" }
+            },
+            "required": ["type", "value"],
+            "additionalProperties": false
+        },
+        {
+            "type": "object", 
+            "properties": {
+                "type": { "const": "principal" },
+                "value": { "type": "string" }
+            },
+            "required": ["type", "value"],
+            "additionalProperties": false
+        },
+        {
+            "type": "object", 
+            "properties": {
+                "type": { "const": "contract_principal" },
+                "namespace": { "type": "string" },
+                "name": { "type": "string" }
+            },
+            "required": ["type", "name", "namespace"],
+            "additionalProperties": false
+        },
+        {
+            "type": "object", 
+            "properties": {
+                "type": { "enum": ["ok", "err", "some"] },
+                "value": {"$ref": "ClarityValue"}
+            },
+            "required": ["type", "value"],
+            "additionalProperties": false
+        },
+        {
+            "type": "object", 
+            "properties": {
+                "type": { "const": "none" }
+            },
+            "required": ["type"],
+            "additionalProperties": false
+        },
+        {
+            "type": "object", 
+            "properties": {
+                "type": { "const": "list" },
+                "entries": { "type": "array", "items": { "$ref": "ClarityValue" } }
+            },
+            "required": ["type", "entries"],
+            "additionalProperties": false
+        },
+        {
+            "type": "object", 
+            "properties": {
+                "type": { "const": "tuple" },
+                "entries": {
+                    "type": "object",
+                    "patternProperties": {
+                        "^[A-Za-z_!+=/0-9-]+": { "$ref": "ClarityValue" }
+                    }
+                }
+            },
+            "required": ["type", "entries"],
+            "additionalProperties": false
+        }
+    ]
+}
+```
 
-* `i` for integer, which will be encoded as an ASCII string of numbers
-* `s` for buffer, which will be encoded as a lower-case hexadecimal string
-* `b` for boolean, which encodes to `1` for "true" or `0` for "false" 
-* `p` for standard principal, which will be encoded as an upper-case c32check string
-* `c` for contract principal, which will be encoded as an upper-case c32check string
-* `n` for a Clarity item name.  All Clarity items are encoded in ASCII already,
-  so converting them to a hex string is unnecessary.  In particular, this encoding is used for
-tuple names and asset names.
-* `t` for tuple.  Each item name is encoded as `n${len(name)}:${name},` followed
-  by its encoded value.  The name and value are in turn encoded as `t${total-len}:n${len(name)}:${name},${value_type}${len(value)}:${value},,`
-* `o` for option.
-   * `some x` is encoded as `o${len(x) + 4}:${x_type}${encode(x)},`.
-   * `none` is encoded as `o4:v0:,,`
-* `v` is a void type, used for `none` options.
-* `r` for result.
-   * `ok x` is encoded as `r${len(x) + 3}:o${x_type}${encode(x)},`
-   * `err x` is encoded as `r${len(x) + 3}:e${x_type}${encode(x)},`
-* `l` for list, which acts as a container for the above items.  Note that all
-  items in a list must have the same type.  The length of a list is the total
-length of its encoded items.
+JSON objects are created without newlines or tab characters, with a
+single space between field names and their values, a single space
+between commas and subsequent entries, and a single space of padding
+after each `[` or `{` character, and an additional space of padding
+before each `]` or `}` character.
 
-For example:
-
-* The integer `123` encodes to `"i3:123,"`
-* The buffer `0xdeadbeaf` encodes to `"s8:deadbeaf,"`
-* The value `true` encodes to `"b1:1,"`.  `false` encodes to `"b1:0,"`
-* The principal `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q` encodes to
-  `"p41:SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q,"`
-* The tuple `(word "hello")` encodes to `"t23:n4:word,s10:68656c6c6f,,"`
-* The list `(list 1 2 34 567)` encodes to `"l23:i1:1,i1:2,i2:34,i3:567,,"`
-* The option `(some 3)` encodes to `"o5:i1:3,,"`
-* The option `none` for integers encodes to `"o4:v0:,,"`
-* The result `(ok 'true)` encodes to `"r6:ob1:1,,"`
-* The result `(err 123)` encodes to `"r8:ei3:123,,"`
+`u128` and `i128` values are encoded as the hex representation of the
+integer, with a `-` indicator for negative `i128` values. Buffers are
+hex encoded. Principals are C32CHECK encoded account addresses.
 
 #### Calculating the State of an Account
 
@@ -1005,7 +1073,7 @@ is as follows:
 
 * Key: The string "account", a period, and a c32check-encoded address.
 * Value: A typed netstring constructed as the concatenation of the
-  encoded-nonce, and a sequence of asset/quantity pairs encoded as a list of tuples.
+  encoded-nonce, and the account's sequence of asset/quantity pairs encoded as a list of tuples.
 The sequence of asset/quantity pairs is determined by the order in the chain
 history into which their mapping was materialized.
 
@@ -1020,56 +1088,48 @@ state is as follows:
 * Key: The string "smart-contract", followed by a `.`, followed by the
   c32check-encoded address of the standard account that created it,
   followed by a `.`, followed by the ASCII-encoded name of the contract.
-* Value:  A typed netstring constructed as the concatenation of the following
-  data:
-   * the transaction ID, encoded as a buffer
-   * a list of names of data variables this contract declares, in order by their
-     source-level declaration
-   * a list of data map names this contract declares, in order by their
-     source-level declaration
-   * a list of fungible asset names this contract declares, in order by their
-     source-level declaration
-   * a list of non-fungible asset names this contract declares, in order by
-     their source-level declaration
+* Value: The transaction ID, encoded as a buffer
+
+Note that _other_ kinds of smart contract data (e.g., analysis data, function bodies, etc.)
+must also be indexed by Stacks peers. However, this data does not need to be included in a
+peer's commitment, is indexed via a secondary MARF structure, and the representation of
+that data is therefore _not_ specified as part of the Stacks protocol. 
 
 Example: `"smart-contract.SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q.my-contract"` refers
 to a smart contract created by standard account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`
 called `my-contract`.
 
-#### Calculating the State of Data Variables
+#### Calculating the State of Smart Contract Data
 
-The set of data variables in the data variable state are encoded as follows:
+Smart contract data is encoded as follows:
 
-* Key: The string "data-variable", followed by a `.`, followed by the
-  c32check-encoded standard account address that created the the contract that
-  defines the variable, followed by a `.`, followed by the name of the contract,
-  followed by a `.`, followed by the ASCII-encoded name of the variable.
-* Value:  A typed netstring that encodes its Clarity value
+* Key: A string composed of the following elements, joined by `::` 
+  * A string denoting the data type:
+    * "data-variable"
+    * "data-map"
+    * "fungible-token"
+    * "non-fungible-token"
+  * The fully qualified contract name
+  * The ASCII-encoded data name (e.g., the data-map name or variable
+    name)
+  * In the case of a data-map, fungible token, or non-fungible-token,
+    a fourth string:
+    * For data maps: the encoded Clarity value of the data map key.
+    * For non-fungible-tokens: the encoded Clarity value identifying
+      the specific non-fungible token.
+    * For fungible-tokens: the encoded Clarity principal identifying
+      an account entry in the fungible token's ownership table.
+
+* Value: The encoded Clarity Value corresponding to the keyed data:
+  * For data variables and data maps, this is simply the data associated
+    with the variable or a specific key.
+  * For fungible-tokens, it is the balance of the particular address.
+  * For non-fungible-tokens, it is the current owner of the particular
+    non-fungible-token.
 
 Example: `"data-variable.SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q.my-contract.my-var"` 
 refers to a data variable called `my-var`, which was declared in a smart contract called `my-contract`,
 which was in turn created by the standard account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
-
-#### Calculating the State of Data Maps
-
-The set of data maps in the data map state are encoded as follows:
-
-* Key:  The string "data-map", followed by a `.`, followed by the
-  c32check-encoded standard account address that created the contract that
-  defines the data map, followed by a `.`, followed by the name of the data map,
-  followed by a `.`, followed by typed netstring that
-  encodes the key.  Per Clarity, this is always a tuple.
-* Value:  A typed netstring that encodes the Clarity value of this key in the
-  data map.
-
-If a data map key/value pair is deleted, the value will be set to the empty
-netstring `0:,`.  This acts as a "tombstone" for the key -- it lets the Stacks
-peer commit to the deletion of the mapping from the data map.
-
-Example: `"data-map.SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q.my-contract.my-data-map.t23:n4:word,s10:68656c6c6f,,"`
-refers to the key typle `(word "hello")` in a data map called `my-data-map`,
-which was declared in a smart contract called `my-contract` created by
-standard account `SP2RZRSEQHCFPHSBHJTKNWT86W6VSK51M7BCMY06Q`.
 
 ### Cryptographic Commitment
 
