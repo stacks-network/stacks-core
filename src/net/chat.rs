@@ -365,7 +365,7 @@ impl Conversation {
     
     fn check_consensus_hash(block_height: u64, their_consensus_hash: &ConsensusHash, burndb_conn: &DBConn) -> Result<bool, net_error> {
         // only proceed if our latest consensus hash matches 
-        let our_consensus_hash_opt = burndb::get_consensus_or(burndb_conn, block_height, &ConsensusHash::empty())
+        let our_consensus_hash_opt = BurnDB::get_canonical_consensus_hash(burndb_conn, block_height)
             .map_err(|e| {
                 error!("Failed to read burnchain DB consensus hash at {}: {:?}", block_height, e);
                 net_error::DBError
@@ -375,7 +375,7 @@ impl Conversation {
             Some(our_consensus_hash) => {
                 if our_consensus_hash != *their_consensus_hash {
                     // remote peer is on a different burnchain fork than us
-                    test_debug!("{}: {:?} != {:?}", block_height, &our_consensus_hash, their_consensus_hash);
+                    test_debug!("{}: our {:?} != their {:?}", block_height, &our_consensus_hash, their_consensus_hash);
                     Ok(false)
                 }
                 else {
@@ -383,8 +383,9 @@ impl Conversation {
                 }
             },
             None => {
-                // shouldn't happen 
-                panic!("BurnDB is corrupt -- unable to read consensus hash for {}", block_height);
+                // we don't know about this consensus hash
+                test_debug!("{}: unknown consensus hash {:?}", block_height, their_consensus_hash);
+                Ok(false)
             }
         }
     }
@@ -411,11 +412,13 @@ impl Conversation {
             return Err(net_error::InvalidMessage);
         }
 
-        let block_height = burndb::get_block_height(burndb_conn)
+        let chain_tip = BurnDB::get_canonical_chain_tip(burndb_conn)
             .map_err(|e| {
                 error!("Failed to read burnchain DB: {:?}", e);
                 net_error::DBError
             })?;
+
+        let block_height = chain_tip.block_height;
 
         if msg.preamble.burn_stable_block_height > block_height {
             // this node is too far ahead of us, but otherwise still potentially valid 
@@ -884,6 +887,7 @@ mod test {
     use net::db::*;
     use net::p2p::*;
     use util::secp256k1::*;
+    use util::uint::*;
     use burnchains::*;
     use burnchains::burnchain::*;
     use chainstate::*;
@@ -918,52 +922,46 @@ mod test {
         convo.recv(&mut in_fd).unwrap();
     }
 
-    fn db_setup(peerdb: &mut PeerDB, burndb: &mut BurnDB<BitcoinAddress, BitcoinPublicKey>, socketaddr: &SocketAddr, chain_view: &BurnchainView) -> () {
+    fn db_setup(peerdb: &mut PeerDB, burndb: &mut BurnDB, socketaddr: &SocketAddr, chain_view: &BurnchainView) -> () {
         {
             let mut tx = peerdb.tx_begin().unwrap();
             PeerDB::set_local_ipaddr(&mut tx, &PeerAddress::from_socketaddr(socketaddr), socketaddr.port()).unwrap();
             tx.commit().unwrap();
         }
-        {
-            let i_1 = (chain_view.burn_block_height & 0xff) as u8;
-            let snapshot_row_1 = BlockSnapshot {
-                block_height: chain_view.burn_block_height,
-                burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i_1 as u8]).unwrap(),
-                parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i_1 == 0 { 0xff } else { i_1 - 1 }) as u8]).unwrap(),
-                consensus_hash: chain_view.burn_consensus_hash.clone(),
-                ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i_1 as u8]).unwrap(),
-                total_burn: i_1 as u64,
-                sortition_burn: i_1 as u64,
-                burn_quota: 0,
-                sortition: true,
-                sortition_hash: SortitionHash::initial(),
-                winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                canonical: true
-            };
+        let mut tx = burndb.tx_begin().unwrap();
+        let mut prev_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
+        for i in prev_snapshot.block_height..chain_view.burn_block_height+1 {
+            let mut next_snapshot = prev_snapshot.clone();
 
-            let i_2 = (chain_view.burn_stable_block_height & 0xff) as u8;
-            let snapshot_row_2 = BlockSnapshot {
-                block_height: chain_view.burn_stable_block_height,
-                burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i_2 as u8]).unwrap(),
-                parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i_2 == 0 { 0xff } else { i_2 - 1 }) as u8]).unwrap(),
-                consensus_hash: chain_view.burn_stable_consensus_hash.clone(),
-                ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i_2 as u8]).unwrap(),
-                total_burn: i_2 as u64,
-                sortition_burn: i_2 as u64,
-                burn_quota: 0,
-                sortition: true,
-                sortition_hash: SortitionHash::initial(),
-                winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                canonical: true
-            };
+            next_snapshot.block_height += 1;
+            next_snapshot.fork_segment_length += 1;
+            next_snapshot.fork_length += 1;
 
-            let mut tx = burndb.tx_begin().unwrap();
-            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row_1).unwrap();
-            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row_2).unwrap();
-            tx.commit().unwrap();
+            if i > chain_view.burn_stable_block_height {
+                next_snapshot.consensus_hash = chain_view.burn_consensus_hash.clone();
+            }
+            else {
+                next_snapshot.consensus_hash = chain_view.burn_stable_consensus_hash.clone();
+            }
+
+            let big_i = Uint256::from_u64(i as u64);
+            let mut big_i_bytes_32 = [0u8; 32];
+            big_i_bytes_32.copy_from_slice(&big_i.to_u8_slice());
+
+            next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
+            next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
+            next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
+            next_snapshot.total_burn += 1;
+            next_snapshot.sortition = true;
+            next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
+
+            BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &next_snapshot).unwrap();
+
+            test_debug!("i = {}, chain_view.burn_block_height = {}, ch = {}", i, chain_view.burn_block_height, next_snapshot.consensus_hash.to_hex());
+            
+            prev_snapshot = next_snapshot;
         }
+        tx.commit().unwrap();
     }
 
     #[test]
@@ -980,11 +978,6 @@ mod test {
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
-            burn_quota: BurnQuotaConfig {
-                inc: 21000,
-                dec_num: 4,
-                dec_den: 5
-            },
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
@@ -1001,8 +994,8 @@ mod test {
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
         
-        let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
-        let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
 
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
@@ -1084,11 +1077,6 @@ mod test {
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
-            burn_quota: BurnQuotaConfig {
-                inc: 21000,
-                dec_num: 4,
-                dec_den: 5
-            },
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
@@ -1105,8 +1093,8 @@ mod test {
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
         
-        let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
-        let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
 
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
@@ -1179,11 +1167,6 @@ mod test {
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
-            burn_quota: BurnQuotaConfig {
-                inc: 21000,
-                dec_num: 4,
-                dec_den: 5
-            },
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
@@ -1202,8 +1185,8 @@ mod test {
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
         
-        let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
-        let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
 
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
@@ -1265,11 +1248,6 @@ mod test {
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
-            burn_quota: BurnQuotaConfig {
-                inc: 21000,
-                dec_num: 4,
-                dec_den: 5
-            },
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
@@ -1288,8 +1266,8 @@ mod test {
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
         
-        let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
-        let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
 
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
@@ -1360,11 +1338,6 @@ mod test {
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
-            burn_quota: BurnQuotaConfig {
-                inc: 21000,
-                dec_num: 4,
-                dec_den: 5
-            },
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
@@ -1383,8 +1356,8 @@ mod test {
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         
-        let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
-        let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
 
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
@@ -1455,11 +1428,6 @@ mod test {
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
-            burn_quota: BurnQuotaConfig {
-                inc: 21000,
-                dec_num: 4,
-                dec_den: 5
-            },
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
@@ -1478,8 +1446,8 @@ mod test {
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         
-        let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
-        let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
 
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
@@ -1600,11 +1568,6 @@ mod test {
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
-            burn_quota: BurnQuotaConfig {
-                inc: 21000,
-                dec_num: 4,
-                dec_den: 5
-            },
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
@@ -1623,8 +1586,8 @@ mod test {
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
         
-        let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
-        let mut burndb_2 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
 
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         db_setup(&mut peerdb_2, &mut burndb_2, &socketaddr_2, &chain_view);
@@ -1691,11 +1654,6 @@ mod test {
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
-            burn_quota: BurnQuotaConfig {
-                inc: 21000,
-                dec_num: 4,
-                dec_den: 5
-            },
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
@@ -1710,7 +1668,8 @@ mod test {
         };
 
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
-        let mut burndb_1 : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
+        let mut burndb_2 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
         
         db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_1, &chain_view);
         
@@ -1757,9 +1716,9 @@ mod test {
             chain_view_bad.burn_stable_block_height -= 1 + burnchain.stable_confirmations as u64;
             chain_view_bad.burn_block_height -= 1 + burnchain.stable_confirmations as u64;
             
-            db_setup(&mut peerdb_1, &mut burndb_1, &socketaddr_2, &chain_view_bad);
+            db_setup(&mut peerdb_1, &mut burndb_2, &socketaddr_2, &chain_view_bad);
             
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, burndb_1.conn()), Ok(false));
+            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, burndb_2.conn()), Ok(false));
         }
 
         // unstable consensus hash mismatch
@@ -1774,7 +1733,7 @@ mod test {
 
             let ping_bad = convo_bad.sign_message(&chain_view_bad, &local_peer_1.private_key, StacksMessageType::Ping(ping_data.clone())).unwrap();
             
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, burndb_1.conn()), Ok(false));
+            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, burndb_2.conn()), Ok(false));
         }
 
         // stable consensus hash mismatch 
@@ -1789,7 +1748,7 @@ mod test {
 
             let ping_bad = convo_bad.sign_message(&chain_view_bad, &local_peer_1.private_key, StacksMessageType::Ping(ping_data.clone())).unwrap();
             
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, burndb_1.conn()), Err(net_error::InvalidMessage));
+            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, burndb_2.conn()), Err(net_error::InvalidMessage));
         }
     }
 }
