@@ -488,12 +488,15 @@ pub struct HandshakeData {
 #[repr(C)]
 pub enum ServiceFlags {
     RELAY = 0x01,
+    RPC = 0x02,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HandshakeAcceptData {
     pub handshake: HandshakeData,       // this peer's handshake information
     pub heartbeat_interval: u32,        // hint as to how long this peer will remember you
+
+    // TODO: string with useful data (e.g. RPC endpoints)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -720,6 +723,7 @@ mod test {
     
     use util::secp256k1::*;
     use util::hash::*;
+    use util::uint::*;
 
     use std::net::*;
     use std::io;
@@ -822,13 +826,14 @@ mod test {
         pub fn default() -> TestPeerConfig {
             let conn_opts = ConnectionOptions::default();
             let start_block = 10000;
+            let burnchain = Burnchain::default_unittest(start_block, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap());
             TestPeerConfig {
-                current_block: start_block + 1,
+                current_block: start_block + (burnchain.consensus_hash_lifetime + 1) as u64,
                 private_key: Secp256k1PrivateKey::new(),
                 private_key_expire: start_block + conn_opts.private_key_lifetime,
                 initial_neighbors: vec![],
                 asn4_entries: vec![],
-                burnchain: Burnchain::default_unittest(start_block, &BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()),
+                burnchain: burnchain,
                 connection_opts: conn_opts,
                 server_port: 32000,
                 asn: 0,
@@ -875,7 +880,7 @@ mod test {
     pub struct TestPeer {
         pub config: TestPeerConfig,
         pub network: PeerNetwork,
-        pub burndb: Option<BurnDB<BitcoinAddress, BitcoinPublicKey>>
+        pub burndb: Option<BurnDB>
     }
 
     pub fn u64_to_bytes(i: u64) -> [u8; 8] {
@@ -894,28 +899,36 @@ mod test {
     impl TestPeer {
         pub fn new(config: &TestPeerConfig) -> TestPeer {
             let mut peerdb = PeerDB::connect_memory(config.burnchain.network_id, config.private_key_expire, &config.asn4_entries, &config.initial_neighbors).unwrap();
-            let mut burndb = BurnDB::<BitcoinAddress, BitcoinPublicKey>::connect_memory(config.burnchain.first_block_height, &config.burnchain.first_block_hash).unwrap();
+            let mut burndb = BurnDB::connect_memory(config.burnchain.first_block_height, &config.burnchain.first_block_hash).unwrap();
 
-            for i in config.burnchain.first_block_height+1..config.current_block {
-                let i_bytes = u64_to_bytes(i);
-                let i_prev_bytes = u64_to_bytes(i-1);
-                let i_bytes_rev = u64_to_bytes(i.to_be());
-                
-                let burn_header_hash = BurnchainHeaderHash::from_bytes(&DoubleSha256::from_data(&i_bytes)[0..32]).unwrap();
-                let parent_burn_header_hash =
-                    if i == config.burnchain.first_block_height {
-                        config.burnchain.first_block_hash.clone()
-                    }
-                    else {
-                        BurnchainHeaderHash::from_bytes(&DoubleSha256::from_data(&i_prev_bytes)[0..32]).unwrap()
-                    };
+            {
+                let mut tx = burndb.tx_begin().unwrap();
+                let mut prev_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
+                for i in prev_snapshot.block_height..config.current_block {
+                    let mut next_snapshot = prev_snapshot.clone();
 
-                {
-                    let mut tx = burndb.tx_begin().unwrap();
-                    let snapshot = BlockSnapshot::make_snapshot::<BitcoinAddress, BitcoinPublicKey>(&mut tx, &config.burnchain, config.burnchain.first_block_height, i, &burn_header_hash, &parent_burn_header_hash, &vec![]).unwrap();
-                    BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot).unwrap();
-                    tx.commit().unwrap();
+                    next_snapshot.block_height += 1;
+                    next_snapshot.fork_segment_length += 1;
+                    next_snapshot.fork_length += 1;
+                    
+                    let big_i = Uint256::from_u64(i as u64);
+                    let mut big_i_bytes_32 = [0u8; 32];
+                    big_i_bytes_32.copy_from_slice(&big_i.to_u8_slice());
+
+                    next_snapshot.consensus_hash = ConsensusHash(Hash160::from_sha256(&big_i_bytes_32).into_bytes());
+
+                    next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
+                    next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
+                    next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
+                    next_snapshot.total_burn += 1;
+                    next_snapshot.sortition = true;
+                    next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
+
+                    BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &next_snapshot).unwrap();
+
+                    prev_snapshot = next_snapshot;
                 }
+                tx.commit().unwrap();
             }
 
             let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), config.server_port);
@@ -943,7 +956,7 @@ mod test {
         pub fn connect_initial(&mut self) -> Result<(), net_error> {
             let local_peer = PeerDB::get_local_peer(self.network.peerdb.conn()).unwrap();
             let chain_view = match self.burndb {
-                Some(ref burndb) => burndb::get_burnchain_view(burndb.conn(), &self.config.burnchain).unwrap(),
+                Some(ref burndb) => BurnDB::get_burnchain_view(burndb.conn(), &self.config.burnchain).unwrap(),
                 None => panic!("Misconfigured peer: no burndb")
             };
 
@@ -961,42 +974,29 @@ mod test {
             ret
         }
 
-        pub fn empty_burnchain_block(&self, block_height: u64) -> BurnchainBlock<BitcoinAddress, BitcoinPublicKey> {
+        pub fn empty_burnchain_block(&self, block_height: u64) -> BurnchainBlock {
             assert!(block_height + 1 >= self.config.burnchain.first_block_height);
             let prev_block_height = block_height - 1;
-            BurnchainBlock {
-                block_height: block_height,
-                block_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                                                            ((block_height >> 56) & 0xff) as u8,
-                                                            ((block_height >> 48) & 0xff) as u8,
-                                                            ((block_height >> 40) & 0xff) as u8,
-                                                            ((block_height >> 32) & 0xff) as u8,
-                                                            ((block_height >> 24) & 0xff) as u8,
-                                                            ((block_height >> 16) & 0xff) as u8,
-                                                            ((block_height >> 8) & 0xff) as u8,
-                                                            ((block_height) & 0xff) as u8]).unwrap(),
-                parent_block_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                                                            ((prev_block_height >> 56) & 0xff) as u8,
-                                                            ((prev_block_height >> 48) & 0xff) as u8,
-                                                            ((prev_block_height >> 40) & 0xff) as u8,
-                                                            ((prev_block_height >> 32) & 0xff) as u8,
-                                                            ((prev_block_height >> 24) & 0xff) as u8,
-                                                            ((prev_block_height >> 16) & 0xff) as u8,
-                                                            ((prev_block_height >> 8) & 0xff) as u8,
-                                                            ((prev_block_height) & 0xff) as u8]).unwrap(),
+
+            let block_hash_i = Uint256::from_u64(block_height);
+            let mut block_hash_bytes = [0u8; 32];
+            block_hash_bytes.copy_from_slice(&block_hash_i.to_u8_slice());
+            
+            let prev_block_hash_i = Uint256::from_u64(prev_block_height);
+            let mut prev_block_hash_bytes = [0u8; 32];
+            prev_block_hash_bytes.copy_from_slice(&prev_block_hash_i.to_u8_slice());
+
+            BurnchainBlock::Bitcoin(BitcoinBlock {
+                block_height: block_height + 1,
+                block_hash: BurnchainHeaderHash(block_hash_bytes),
+                parent_block_hash: BurnchainHeaderHash(prev_block_hash_bytes),
                 txs: vec![]
-            }
+            })
         }
 
-        pub fn make_burnchain_block(&self, block_height: u64, transactions: &Vec<BurnchainTransaction<BitcoinAddress, BitcoinPublicKey>>) -> BurnchainBlock<BitcoinAddress, BitcoinPublicKey> {
-            let mut block = self.empty_burnchain_block(block_height);
-            block.txs = transactions.clone();
-            block
-        }
-
-        pub fn next_burnchain_block(&mut self, block: &BurnchainBlock<BitcoinAddress, BitcoinPublicKey>) -> () {
+        pub fn next_burnchain_block(&mut self, block: &BurnchainBlock) -> () {
             let mut burndb = self.burndb.take().unwrap();
-            Burnchain::append_block(&mut burndb, &self.config.burnchain, block).unwrap();
+            Burnchain::process_block(&mut burndb, &self.config.burnchain, block).unwrap();
             self.burndb = Some(burndb);
         }
 
