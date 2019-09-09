@@ -38,8 +38,6 @@ pub const NETWORK_P2P_PORT : u16 = 6265;
 /// Synchronize burn transactions from the Bitcoin blockchain 
 pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Result<u64, burnchain_error> {
     use burnchains::bitcoin::indexer::BitcoinIndexer;
-    use burnchains::bitcoin::indexer::BitcoinIndexerAddress;
-    use burnchains::bitcoin::indexer::BitcoinIndexerPublicKey;
 
     let mut burnchain = Burnchain::new(working_dir, &"bitcoin".to_string(), network_name)
         .map_err(|e| {
@@ -47,7 +45,7 @@ pub fn sync_burnchain_bitcoin(working_dir: &String, network_name: &String) -> Re
             e
         })?;
 
-    let new_height_res = burnchain.sync::<BitcoinIndexer, BitcoinIndexerAddress, BitcoinIndexerPublicKey>();
+    let new_height_res = burnchain.sync::<BitcoinIndexer>();
     let new_height = new_height_res
         .map_err(|e| {
             error!("Failed to synchronize Bitcoin chain state for {} in {}", network_name, working_dir);
