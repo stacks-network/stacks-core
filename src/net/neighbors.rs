@@ -1889,7 +1889,7 @@ mod test {
         peer_1_config.whitelisted = -1;
         peer_2_config.whitelisted = -1;
         
-        let first_block_height = peer_1_config.burnchain.first_block_height + 1;
+        let first_block_height = peer_1_config.current_block + 1; // peer_1_config.burnchain.first_block_height + 1;
 
         // make keys expire soon
         peer_1_config.private_key_expire = first_block_height + 3;
@@ -1954,8 +1954,8 @@ mod test {
                 };
             }
 
-            let empty_block_1 = peer_1.empty_burnchain_block(i + first_block_height);
-            let empty_block_2 = peer_2.empty_burnchain_block(i + first_block_height);
+            let empty_block_1 = peer_1.empty_burnchain_block(i + first_block_height - 1);
+            let empty_block_2 = peer_2.empty_burnchain_block(i + first_block_height - 1);
 
             peer_1.next_burnchain_block(&empty_block_1);
             peer_2.next_burnchain_block(&empty_block_2);
