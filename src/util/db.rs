@@ -28,6 +28,7 @@ use rusqlite::types::ToSql;
 use serde_json::Error as serde_error;
 
 pub type DBConn = rusqlite::Connection;
+pub type DBTx<'a> = rusqlite::Transaction<'a>;
 
 #[derive(Debug)]
 pub enum Error {
@@ -129,10 +130,10 @@ where
     T: FromRow<T>
 {
     let mut stmt = conn.prepare(sql_query)
-        .map_err(|e| Error::SqliteError(e))?;
+        .expect("FATAL: failed to prepare Sqlite query");
 
     let mut rows = stmt.query(sql_args)
-        .map_err(|e| Error::SqliteError(e))?;
+        .expect("FATAL: failed to execute Sqlite query");
 
     // gather 
     let mut row_data = vec![];
@@ -143,7 +144,7 @@ where
                 row_data.push(next_row);
             },
             Err(e) => {
-                return Err(Error::SqliteError(e));
+                panic!("FATAL: Failed to read row from Sqlite");
             }
         };
     }
@@ -158,12 +159,14 @@ where
     P::Item: ToSql
 {
     let mut stmt = conn.prepare(sql_query)
-        .map_err(|e| Error::SqliteError(e))?;
+        .expect("FATAL: failed to prepare Sqlite query");
 
-    stmt.query_row(sql_args,
+    let count = stmt.query_row(sql_args,
         |row| {
             let res : i64 = row.get(0);
             res
         })
-        .map_err(|e| Error::SqliteError(e))
+        .expect("FATAL: failed to query Sqlite row");
+
+    Ok(count)
 }
