@@ -52,9 +52,6 @@ use util::log;
 
 use dirs;
 
-pub type BitcoinIndexerPublicKey = <<BitcoinIndexer as BurnchainIndexer>::P as BurnchainBlockParser>::K;
-pub type BitcoinIndexerAddress = <<BitcoinIndexer as BurnchainIndexer>::P as BurnchainBlockParser>::A;
-
 pub const USER_AGENT: &'static str = "Blockstack Core v21";
 
 pub const BITCOIN_MAINNET: u32 = 0xD9B4BEF9;

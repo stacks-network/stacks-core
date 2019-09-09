@@ -35,13 +35,13 @@ use chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_MULTISIG
 };
 
-#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum BitcoinAddressType {
     PublicKeyHash,
     ScriptHash
 }
 
-#[derive(Debug, PartialEq, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub struct BitcoinAddress {
     pub addrtype: BitcoinAddressType,
     pub network_id: BitcoinNetworkType,
@@ -53,7 +53,7 @@ pub const ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 5;
 pub const ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 111;
 pub const ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 196;
 
-fn address_type_to_version_byte(addrtype: BitcoinAddressType, network_id: BitcoinNetworkType) -> u8 {
+pub fn address_type_to_version_byte(addrtype: BitcoinAddressType, network_id: BitcoinNetworkType) -> u8 {
     match (addrtype, network_id) {
         (BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Mainnet) => ADDRESS_VERSION_MAINNET_SINGLESIG,
         (BitcoinAddressType::ScriptHash, BitcoinNetworkType::Mainnet) => ADDRESS_VERSION_MAINNET_MULTISIG,
@@ -62,7 +62,7 @@ fn address_type_to_version_byte(addrtype: BitcoinAddressType, network_id: Bitcoi
     }
 }
 
-fn version_byte_to_address_type(version: u8) -> Option<(BitcoinAddressType, BitcoinNetworkType)> {
+pub fn version_byte_to_address_type(version: u8) -> Option<(BitcoinAddressType, BitcoinNetworkType)> {
     match version {
         ADDRESS_VERSION_MAINNET_SINGLESIG => Some((BitcoinAddressType::PublicKeyHash, BitcoinNetworkType::Mainnet)),
         ADDRESS_VERSION_MAINNET_MULTISIG => Some((BitcoinAddressType::ScriptHash, BitcoinNetworkType::Mainnet)),
@@ -72,7 +72,7 @@ fn version_byte_to_address_type(version: u8) -> Option<(BitcoinAddressType, Bitc
     }
 }
 
-fn to_c32_version_byte(version: u8) -> Option<u8> {
+pub fn to_c32_version_byte(version: u8) -> Option<u8> {
     match version {
         ADDRESS_VERSION_MAINNET_SINGLESIG => Some(C32_ADDRESS_VERSION_MAINNET_SINGLESIG),
         ADDRESS_VERSION_MAINNET_MULTISIG => Some(C32_ADDRESS_VERSION_MAINNET_MULTISIG),
@@ -202,8 +202,8 @@ impl Address for BitcoinAddress {
         }
     }
 
-    fn burn_bytes() -> Vec<u8> {
-        [0u8; 20].to_vec()
+    fn is_burn(&self) -> bool {
+        self.bytes == Hash160([0u8; 20])
     }
 }
 

@@ -34,6 +34,15 @@ use std::io;
 use std::error;
 use std::sync::Arc;
 
+use chainstate::burn::operations::BlockstackOperationType;
+
+use burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::keys::BitcoinPublicKey;
+use burnchains::{
+    BurnchainHeaderHash,
+    Txid
+};
+
 use deps;
 
 use deps::bitcoin::network::serialize::Error as btc_serialize_error;
@@ -161,4 +170,52 @@ pub enum BitcoinNetworkType {
     Mainnet,
     Testnet,
     Regtest
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct BitcoinTxOutput {
+    pub address: BitcoinAddress,
+    pub units: u64
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub enum BitcoinInputType {
+    Standard,
+    SegwitP2SH
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BitcoinTxInput {
+    pub keys: Vec<BitcoinPublicKey>,
+    pub num_required: usize,
+    pub in_type: BitcoinInputType
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct BitcoinTransaction {
+    pub txid: Txid,
+    pub vtxindex: u32,
+    pub opcode: u8,
+    pub data: Vec<u8>,
+    pub inputs: Vec<BitcoinTxInput>,
+    pub outputs: Vec<BitcoinTxOutput>
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct BitcoinBlock {
+    pub block_height: u64,
+    pub block_hash: BurnchainHeaderHash,
+    pub parent_block_hash: BurnchainHeaderHash,
+    pub txs: Vec<BitcoinTransaction>,
+}
+
+impl BitcoinBlock {
+    pub fn new(height: u64, hash: &BurnchainHeaderHash, parent: &BurnchainHeaderHash, txs: &Vec<BitcoinTransaction>) -> BitcoinBlock {
+        BitcoinBlock {
+            block_height: height,
+            block_hash: hash.clone(),
+            parent_block_hash: parent.clone(),
+            txs: txs.clone(),
+        }
+    }
 }
