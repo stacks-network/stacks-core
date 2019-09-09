@@ -18,14 +18,22 @@
 */
 use std::marker::PhantomData;
 
-use chainstate::burn::operations::BlockstackOperation;
 use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::CheckResult;
 use chainstate::burn::ConsensusHash;
-
-use chainstate::burn::db::DBConn;
+use chainstate::burn::Opcodes;
+use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::db::burndb::BurnDB;
 
+use chainstate::burn::operations::{
+    LeaderBlockCommitOp,
+    LeaderKeyRegisterOp,
+    UserBurnSupportOp,
+    BlockstackOperation,
+    BlockstackOperationType,
+    parse_u16_from_be
+};
+
+use burnchains::BurnchainBlockHeader;
 use burnchains::BurnchainTransaction;
 use burnchains::Txid;
 use burnchains::Address;
@@ -34,167 +42,215 @@ use burnchains::BurnchainHeaderHash;
 use burnchains::Burnchain;
 
 use util::hash::Hash160;
-use util::vrf::{ECVRF_check_public_key, ECVRF_public_key_to_hex};
+use util::vrf::{VRF, VRFPublicKey};
 use util::log;
 
-use ed25519_dalek::PublicKey as VRFPublicKey;
-
-pub const OPCODE: u8 = '_' as u8;
-
-#[derive(Debug, PartialEq, Clone, Eq)]
-pub struct UserBurnSupportOp<A, K> {
-    pub consensus_hash: ConsensusHash,
-    pub public_key: VRFPublicKey,
-    pub block_header_hash_160: Hash160,
-    pub memo: Vec<u8>,
-    pub burn_fee: u64,
-
-    // common to all transactions
-    pub op: u8,                             // bytecode describing the operation
-    pub txid: Txid,                         // transaction ID
-    pub vtxindex: u32,                      // index in the block where this tx occurs
-    pub block_number: u64,                  // block height at which this tx occurs
-    pub burn_header_hash: BurnchainHeaderHash,   // hash of burnchain block with this tx
-
-    // required to help the compiler figure out impls
-    pub _phantom_a: PhantomData<A>,
-    pub _phantom_k: PhantomData<K>
-}
+use util::db::DBConn;
+use util::db::DBTx;
 
 // return type for parse_data (below)
 struct ParsedData {
     pub consensus_hash: ConsensusHash,
     pub public_key: VRFPublicKey,
+    pub key_block_backptr: u16,
+    pub key_vtxindex: u16,
     pub block_header_hash_160: Hash160,
     pub memo: Vec<u8>
 }
 
-impl<AddrType, PubkeyType> UserBurnSupportOp<AddrType, PubkeyType>
-where
-    AddrType: Address,
-    PubkeyType: PublicKey
-{
+impl UserBurnSupportOp {
+    #[cfg(test)]
+    pub fn new(public_key: &VRFPublicKey, key_block_height: u16, key_vtxindex: u16, block_hash: &BlockHeaderHash, burn_fee: u64) -> UserBurnSupportOp {
+        UserBurnSupportOp {
+            public_key: public_key.clone(),
+            block_header_hash_160: Hash160::from_sha256(block_hash.as_bytes()),
+            memo: vec![],
+            burn_fee: burn_fee,
+            key_vtxindex: key_vtxindex,
+
+            // partially filled in
+            key_block_backptr: key_block_height,
+            
+            // to be filled in 
+            consensus_hash: ConsensusHash([0u8; 20]),
+            txid: Txid([0u8; 32]),
+            vtxindex: 0,
+            block_height: 0,
+            burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+            fork_segment_id: 0,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn set_mined_at(&mut self, burnchain: &Burnchain, consensus_hash: &ConsensusHash, block_header: &BurnchainBlockHeader) -> () {
+        if self.consensus_hash != ConsensusHash([0u8; 20]) {
+            self.consensus_hash = consensus_hash.clone();
+        }
+
+        if self.txid != Txid([0u8; 32]) {
+            self.txid = Txid::from_test_data(block_header.block_height, self.vtxindex, &block_header.block_hash);
+        }
+        
+        if self.burn_header_hash != BurnchainHeaderHash([0u8; 32]) {
+            self.burn_header_hash = block_header.block_hash.clone();
+        }
+
+        self.key_block_backptr = (block_header.block_height - (self.key_block_backptr as u64)) as u16;
+        self.block_height = block_header.block_height;
+        self.fork_segment_id = block_header.fork_segment_id;
+    }
+
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
 
-            0      2  3              23                       55                 75       80
-            |------|--|---------------|-----------------------|------------------|--------|
-             magic  op consensus hash    proving public key       block hash 160    memo
+            0      2  3              23                       55                 75       77        79    80
+            |------|--|---------------|-----------------------|------------------|--------|---------|-----|
+             magic  op consensus hash    proving public key       block hash 160   key blk  key      memo
+                                                                                   backptr  vtxindex
 
             
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
         */
         // memo can be empty, and magic + op are omitted 
-        if data.len() < 72 {
+        if data.len() < 77 {
             warn!("USER_BURN_SUPPORT payload is malformed ({} bytes)", data.len());
             return None;
         }
 
-        let consensus_hash = ConsensusHash::from_vec(&data[0..20].to_vec()).unwrap();
-        let pubkey_opt = ECVRF_check_public_key(&data[20..52].to_vec());
-        if pubkey_opt.is_none() {
-            warn!("Invalid VRF public key");
-            return None;
-        }
-        let pubkey = pubkey_opt.unwrap(); 
-        let block_header_hash_160 = Hash160::from_vec(&data[52..72].to_vec()).unwrap();
-        let memo = data[72..].to_vec();
+        let consensus_hash = ConsensusHash::from_vec(&data[0..20].to_vec()).expect("FATAL: invalid data slice for consensus hash");
+        let pubkey = match VRFPublicKey::from_bytes(&data[20..52].to_vec()) {
+            Some(pubk) => {
+                pubk
+            },
+            None => {
+                warn!("Invalid VRF public key");
+                return None;
+            }
+        };
+
+        let block_header_hash_160 = Hash160::from_vec(&data[52..72].to_vec()).expect("FATAL: invalid data slice for block hash160");
+        let key_block_backptr = parse_u16_from_be(&data[72..74]).unwrap();
+        let key_vtxindex = parse_u16_from_be(&data[74..76]).unwrap();
+
+        let memo = data[76..].to_vec();
 
         Some(ParsedData {
             consensus_hash,
             public_key: pubkey,
             block_header_hash_160,
+            key_block_backptr,
+            key_vtxindex,
             memo
         })
     }
 
-    fn parse_from_tx<A, K>(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<UserBurnSupportOp<A, K>, op_error>
-    where
-        A: Address,
-        K: PublicKey
-    {
+    fn parse_from_tx(block_height: u64, fork_segment_id: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction) -> Result<UserBurnSupportOp, op_error> {
         // can't be too careful...
-        if tx.inputs.len() == 0 || tx.outputs.len() == 0 {
-            test_debug!("Invalid tx: inputs: {}, outputs: {}", tx.inputs.len(), tx.outputs.len());
+        let inputs = tx.get_signers();
+        let outputs = tx.get_recipients();
+
+        if inputs.len() == 0 || outputs.len() == 0 {
+            test_debug!("Invalid tx: inputs: {}, outputs: {}", inputs.len(), outputs.len());
             return Err(op_error::InvalidInput);
         }
 
-        if tx.opcode != OPCODE {
-            test_debug!("Invalid tx: invalid opcode {}", tx.opcode);
+        if tx.opcode() != Opcodes::UserBurnSupport as u8 {
+            test_debug!("Invalid tx: invalid opcode {}", tx.opcode());
             return Err(op_error::InvalidInput);
         }
 
         // outputs[0] should be the burn output
-        if tx.outputs[0].address.to_bytes() != A::burn_bytes() {
+        if !outputs[0].address.is_burn() {
             // wrong burn output
-            test_debug!("Invalid tx: burn output missing (got {:?})", tx.outputs[0]);
+            test_debug!("Invalid tx: burn output missing (got {:?})", outputs[0]);
             return Err(op_error::ParseError);
         }
 
-        let burn_fee = tx.outputs[0].units;
+        let burn_fee = outputs[0].amount;
 
-        let parse_data_opt = UserBurnSupportOp::<A, K>::parse_data(&tx.data);
-        if parse_data_opt.is_none() {
-            test_debug!("Invalid tx data");
+        let data = match UserBurnSupportOp::parse_data(&tx.data()) {
+            None => {
+                test_debug!("Invalid tx data");
+                return Err(op_error::ParseError);
+            },
+            Some(d) => d
+        };
+
+        // basic sanity checks
+        if data.key_block_backptr == 0 {
+            warn!("Invalid tx: key block back-pointer must be positive");
             return Err(op_error::ParseError);
         }
 
-        let data = parse_data_opt.unwrap();
+        if data.key_block_backptr as u64 >= block_height {
+            warn!("Invalid tx: key block back-pointer {} exceeds block height {}", data.key_block_backptr, block_height);
+            return Err(op_error::ParseError);
+        }
 
         Ok(UserBurnSupportOp {
             consensus_hash: data.consensus_hash,
             public_key: data.public_key,
             block_header_hash_160: data.block_header_hash_160,
+            key_block_backptr: data.key_block_backptr,
+            key_vtxindex: data.key_vtxindex,
             memo: data.memo,
             burn_fee: burn_fee,
 
-            op: OPCODE,
-            txid: tx.txid.clone(),
-            vtxindex: tx.vtxindex,
-            block_number: block_height,
+            txid: tx.txid(),
+            vtxindex: tx.vtxindex(),
+            block_height: block_height,
             burn_header_hash: block_hash.clone(),
-
-            _phantom_a: PhantomData,
-            _phantom_k: PhantomData
+            fork_segment_id: fork_segment_id
         })
     }
 }
 
-impl<A, K> BlockstackOperation<A, K> for UserBurnSupportOp<A, K>
-where
-    A: Address,
-    K: PublicKey
-{
-    fn from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction<A, K>) -> Result<UserBurnSupportOp<A, K>, op_error> {
-        UserBurnSupportOp::<A, K>::parse_from_tx(block_height, block_hash, tx)
+impl BlockstackOperation for UserBurnSupportOp {
+    fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<UserBurnSupportOp, op_error> {
+        UserBurnSupportOp::parse_from_tx(block_header.block_height, block_header.fork_segment_id, &block_header.block_hash, tx)
     }
 
-    fn check(&self, burnchain: &Burnchain, conn: &DBConn) -> Result<CheckResult, op_error> {
+    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut DBTx<'a>) -> Result<(), op_error> {
+        // this will be the chain tip we're building on
+        let chain_tip = BurnDB::get_block_snapshot(tx, &block_header.parent_block_hash)
+            .expect("FATAL: failed to query parent block snapshot")
+            .expect("FATAL: no parent snapshot in the DB");
+
+        let leader_key_block_height = self.block_height - (self.key_block_backptr as u64);
 
         /////////////////////////////////////////////////////////////////
         // Consensus hash must be recent and valid
         /////////////////////////////////////////////////////////////////
 
-        let consensus_hash_recent = BurnDB::<A, K>::is_fresh_consensus_hash(conn, self.block_number, burnchain.consensus_hash_lifetime, &self.consensus_hash)
-            .map_err(op_error::DBError)?;
+        let consensus_hash_recent = BurnDB::is_fresh_consensus_hash(tx, chain_tip.block_height, burnchain.consensus_hash_lifetime.into(), &self.consensus_hash, chain_tip.fork_segment_id)
+            .expect("Sqlite failure while verifying that a consensus hash is fresh");
 
         if !consensus_hash_recent {
             warn!("Invalid user burn: invalid consensus hash {}", &self.consensus_hash.to_hex());
-            return Ok(CheckResult::UserBurnSupportBadConsensusHash);
+            return Err(op_error::UserBurnSupportBadConsensusHash);
         }
 
         /////////////////////////////////////////////////////////////////////////////////////
         // There must exist a previously-accepted LeaderKeyRegisterOp that matches this 
         // user support burn's VRF public key.
         /////////////////////////////////////////////////////////////////////////////////////
+        if self.key_block_backptr == 0 {
+            warn!("Invalid tx: key block back-pointer must be positive");
+            return Err(op_error::ParseError);
+        }
 
-        let register_key_opt = BurnDB::<A, K>::get_leader_key_by_VRF_key(conn, &self.public_key)
-            .map_err(op_error::DBError)?;
+        if self.key_block_backptr as u64 >= self.block_height {
+            warn!("Invalid tx: key block back-pointer {} exceeds block height {}", self.key_block_backptr, self.block_height);
+            return Err(op_error::ParseError);
+        }
+
+        let register_key_opt = BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), chain_tip.fork_segment_id)
+            .expect("Sqlite failure while fetching a leader record by VRF key");
 
         if register_key_opt.is_none() {
-            warn!("Invalid user burn: no such leader VRF key {}", &ECVRF_public_key_to_hex(&self.public_key));
-            return Ok(CheckResult::UserBurnSupportNoLeaderKey);
+            warn!("Invalid user burn: no such leader VRF key {}", &self.public_key.to_hex());
+            return Err(op_error::UserBurnSupportNoLeaderKey);
         }
         
         /////////////////////////////////////////////////////////////////////////////////////
@@ -204,7 +260,7 @@ where
         // a block commit and the commit's corresponding leader key.
         /////////////////////////////////////////////////////////////////////////////////////
 
-        Ok(CheckResult::UserBurnSupportOk)
+        Ok(())
     }
 }
 
@@ -215,16 +271,22 @@ mod tests {
     use burnchains::bitcoin::BitcoinNetworkType;
     use burnchains::Txid;
     use burnchains::BLOCKSTACK_MAGIC_MAINNET;
+    use burnchains::BurnchainBlockHeader;
 
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::burnchain::get_burn_quota_config;
 
-    use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
-    use chainstate::burn::operations::leader_key_register::OPCODE as LeaderKeyRegisterOpcode;
+    use chainstate::burn::operations::{
+        LeaderBlockCommitOp,
+        LeaderKeyRegisterOp,
+        UserBurnSupportOp,
+        BlockstackOperation,
+        BlockstackOperationType
+    };
 
     use chainstate::burn::{ConsensusHash, OpsHash, SortitionHash, BlockSnapshot};
-    use chainstate::burn::operations::CheckResult;
+    
+    use chainstate::stacks::StacksAddress;
     
     use deps::bitcoin::network::serialize::deserialize;
     use deps::bitcoin::blockdata::transaction::Transaction;
@@ -232,16 +294,14 @@ mod tests {
     use util::hash::{hex_bytes, Hash160};
     use util::log;
 
-    use super::OPCODE as UserBurnSupportOpcode;
-
     struct OpFixture {
         txstr: String,
-        result: Option<UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey>>
+        result: Option<UserBurnSupportOp>
     }
 
     struct CheckFixture {
-        op: UserBurnSupportOp<BitcoinAddress, BitcoinPublicKey>,
-        res: CheckResult
+        op: UserBurnSupportOp,
+        res: Result<(), op_error>
     }
 
     fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
@@ -265,17 +325,17 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+                    key_block_backptr: 513,
+                    key_vtxindex: 1027,
+                    memo: vec![0x05],
                     burn_fee: 12345,
 
-                    op: OPCODE,
                     txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
                     vtxindex: vtxindex,
-                    block_number: block_height,
+                    block_height: block_height,
                     burn_header_hash: burn_header_hash,
 
-                    _phantom_a: PhantomData,
-                    _phantom_k: PhantomData
+                    fork_segment_id: 0
                 })
             },
             OpFixture {
@@ -304,9 +364,37 @@ mod tests {
 
         for tx_fixture in tx_fixtures {
             let tx = make_tx(&tx_fixture.txstr).unwrap();
-            let burnchain_tx = parser.parse_tx(&tx, vtxindex as usize).unwrap();
-            let op = UserBurnSupportOp::from_tx(block_height, &burn_header_hash, &burnchain_tx);
+            let burnchain_tx = BurnchainTransaction::Bitcoin(parser.parse_tx(&tx, vtxindex as usize).unwrap());
+            
+            let header = match tx_fixture.result {
+                Some(ref op) => {
+                    BurnchainBlockHeader {
+                        block_height: op.block_height,
+                        block_hash: op.burn_header_hash.clone(),
+                        parent_block_hash: op.burn_header_hash.clone(),
+                        num_txs: 1,
+                        fork_segment_id: op.fork_segment_id,
+                        parent_fork_segment_id: op.fork_segment_id,
+                        fork_segment_length: 1,
+                        fork_length: 1,
+                    }
+                },
+                None => {
+                    BurnchainBlockHeader {
+                        block_height: 0,
+                        block_hash: BurnchainHeaderHash([0u8; 32]),
+                        parent_block_hash: BurnchainHeaderHash([0u8; 32]),
+                        num_txs: 0,
+                        fork_segment_id: 0,
+                        parent_fork_segment_id: 0,
+                        fork_segment_length: 0,
+                        fork_length: 0,
+                    }
+                }
+            };
 
+            let op = UserBurnSupportOp::from_tx(&header, &burnchain_tx);
+            
             match (op, tx_fixture.result) {
                 (Ok(parsed_tx), Some(result)) => {
                     assert_eq!(parsed_tx, result);
@@ -340,50 +428,51 @@ mod tests {
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
-            burn_quota: get_burn_quota_config(&"bitcoin".to_string()).unwrap(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: first_block_height,
             first_block_hash: first_burn_hash.clone()
         };
         
-        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
 
-        let leader_key_1 : LeaderKeyRegisterOp<BitcoinAddress, BitcoinPublicKey> = LeaderKeyRegisterOp { 
+        let leader_key_1 = LeaderKeyRegisterOp { 
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap(),
+            address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
 
-            op: LeaderKeyRegisterOpcode,
             txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
             vtxindex: 456,
-            block_number: 123,
+            block_height: 123,
             burn_header_hash: block_123_hash.clone(),
-            
-            _phantom: PhantomData
+
+            fork_segment_id: 0
         };
         
         // populate consensus hashes
         {
             let mut tx = db.tx_begin().unwrap();
+            let mut prev_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap(); 
             for i in 0..10 {
                 let snapshot_row = BlockSnapshot {
-                    block_height: i + first_block_height,
+                    block_height: i + 1 + first_block_height,
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i-1 }) as u8]).unwrap(),
+                    parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
-                    sortition_burn: i,
-                    burn_quota: 0,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    canonical: true
+                    fork_segment_id: 0,
+                    parent_fork_segment_id: 0,
+                    fork_segment_length: i + 1,
+                    fork_length: i + 1,
                 };
-                BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
+                BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row).unwrap();
+                prev_snapshot = snapshot_row;
             }
             
             tx.commit().unwrap();
@@ -391,7 +480,7 @@ mod tests {
 
         {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_leader_key(&mut tx, &leader_key_1).unwrap();
+            BurnDB::insert_leader_key(&mut tx, &leader_key_1).unwrap();
             tx.commit().unwrap();
         }
 
@@ -402,19 +491,19 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("1000000000000000000000000000000000000000").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
-                    memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+                    key_block_backptr: 1,
+                    key_vtxindex: 456,
+                    memo: vec![0x05],
                     burn_fee: 10000,
 
-                    op: UserBurnSupportOpcode,
                     txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716b").unwrap()).unwrap(),
                     vtxindex: 13,
-                    block_number: 124,
+                    block_height: 124,
                     burn_header_hash: block_124_hash.clone(),
-                    
-                    _phantom_a: PhantomData,
-                    _phantom_k: PhantomData
+
+                    fork_segment_id: 0,
                 },
-                res: CheckResult::UserBurnSupportBadConsensusHash,
+                res: Err(op_error::UserBurnSupportBadConsensusHash),
             },
             CheckFixture {
                 // reject -- no leader key
@@ -422,19 +511,19 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
-                    memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+                    key_block_backptr: 1,
+                    key_vtxindex: 457,
+                    memo: vec![0x05],
                     burn_fee: 10000,
 
-                    op: UserBurnSupportOpcode,
                     txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716b").unwrap()).unwrap(),
                     vtxindex: 13,
-                    block_number: 124,
+                    block_height: 124,
                     burn_header_hash: block_124_hash.clone(),
                     
-                    _phantom_a: PhantomData,
-                    _phantom_k: PhantomData
+                    fork_segment_id: 0,
                 },
-                res: CheckResult::UserBurnSupportNoLeaderKey,
+                res: Err(op_error::UserBurnSupportNoLeaderKey),
             },
             CheckFixture {
                 // accept 
@@ -442,24 +531,35 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("0000000000000000000000000000000000000000").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     block_header_hash_160: Hash160::from_bytes(&hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap()).unwrap(),       // 22222....2222
-                    memo: vec![0x01, 0x02, 0x03, 0x04, 0x05],
+                    key_block_backptr: 1,
+                    key_vtxindex: 456,
+                    memo: vec![0x05],
                     burn_fee: 10000,
 
-                    op: UserBurnSupportOpcode,
                     txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716b").unwrap()).unwrap(),
                     vtxindex: 13,
-                    block_number: 124,
+                    block_height: 124,
                     burn_header_hash: block_124_hash.clone(),
                     
-                    _phantom_a: PhantomData,
-                    _phantom_k: PhantomData
+                    fork_segment_id: 0,
                 },
-                res: CheckResult::UserBurnSupportOk,
+                res: Ok(())
             }
         ];
 
         for fixture in check_fixtures {
-            assert_eq!(fixture.res, fixture.op.check(&burnchain, db.conn()).unwrap());
+            let header = BurnchainBlockHeader {
+                block_height: fixture.op.block_height,
+                block_hash: fixture.op.burn_header_hash.clone(),
+                parent_block_hash: fixture.op.burn_header_hash.clone(),
+                num_txs: 1,
+                fork_segment_id: fixture.op.fork_segment_id,
+                parent_fork_segment_id: fixture.op.fork_segment_id,
+                fork_segment_length: 1,
+                fork_length: 1,
+            };
+            let mut tx = db.tx_begin().unwrap();
+            assert_eq!(fixture.res, fixture.op.check(&burnchain, &header, &mut tx));
         }
     }
 }
