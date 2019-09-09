@@ -29,8 +29,6 @@ use ripemd160::Ripemd160;
 use sha2::{Sha256, Sha512, Digest};
 use sha3::Keccak256;
 
-use serde::{Serialize, Serializer, de::Visitor, Deserializer, Deserialize};
-
 use util::uint::Uint256;
 
 // hash function for Merkle trees
@@ -104,42 +102,6 @@ impl Hash160 {
 impl Sha512Sum {
     pub fn from_data(data: &[u8]) -> Sha512Sum {
         Sha512Sum::from(Sha512::digest(data).as_slice())
-    }
-}
-
-/// [T;64] doesn't have a (de)serializer defined, so we need
-///   implement our own (de)serializers.
-impl Serialize for Sha512Sum {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(&self.0)
-    }
-}
-
-struct Sha512SumDeserialize ();
-
-impl <'de> Visitor <'de> for Sha512SumDeserialize {
-    type Value = Sha512Sum;
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "a 64 length byte array")
-    }
-
-    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Sha512Sum::from(v))
-    }
-}
-
-impl<'de> Deserialize<'de> for Sha512Sum {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_byte_buf(Sha512SumDeserialize())
     }
 }
 
