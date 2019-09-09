@@ -400,6 +400,7 @@ impl StacksMessageCodec for StacksTransaction {
         write_next(&mut ret, &self.auth);
         write_next(&mut ret, &self.fee);
         write_next(&mut ret, &(self.anchor_mode as u8));
+        write_next(&mut ret, &(self.post_condition_mode as u8));
         write_next(&mut ret, &self.post_conditions);
         write_next(&mut ret, &self.payload);
         
@@ -414,6 +415,7 @@ impl StacksMessageCodec for StacksTransaction {
         let auth : TransactionAuth      = read_next(buf, &mut index, max_size)?;
         let fee : TransactionFee        = read_next(buf, &mut index, max_size)?;
         let anchor_mode_u8 : u8         = read_next(buf, &mut index, max_size)?;
+        let post_condition_mode_u8 : u8 = read_next(buf, &mut index, max_size)?;
         let post_conditions : Vec<TransactionPostCondition> = read_next(buf, &mut index, max_size)?;
         let payload : TransactionPayload = read_next(buf, &mut index, max_size)?;
 
@@ -440,6 +442,18 @@ impl StacksMessageCodec for StacksTransaction {
             }
         };
 
+        let post_condition_mode = match post_condition_mode_u8 {
+            x if x == TransactionPostConditionMode::Allow as u8 => {
+                TransactionPostConditionMode::Allow
+            },
+            x if x == TransactionPostConditionMode::Deny as u8 => {
+                TransactionPostConditionMode::Deny
+            },
+            _ => {
+                return Err(net_error::DeserializeError);
+            }
+        };
+
         *index_ptr = index;
         Ok(StacksTransaction {
             version,
@@ -447,6 +461,7 @@ impl StacksMessageCodec for StacksTransaction {
             auth,
             fee,
             anchor_mode,
+            post_condition_mode,
             post_conditions,
             payload
         })
@@ -462,6 +477,7 @@ impl StacksTransaction {
             auth: auth,
             fee: TransactionFee::from_stx(0),
             anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Deny,
             post_conditions: vec![],
             payload: payload
         }
@@ -475,6 +491,11 @@ impl StacksTransaction {
     /// Set anchor mode
     pub fn set_anchor_mode(&mut self, anchor_mode: TransactionAnchorMode) -> () {
         self.anchor_mode = anchor_mode;
+    }
+
+    /// Set post-condition mode 
+    pub fn set_post_condition_mode(&mut self, postcond_mode: TransactionPostConditionMode) -> () {
+        self.post_condition_mode = postcond_mode;
     }
 
     /// Add a post-condition
@@ -1027,6 +1048,15 @@ mod test {
         let mut corrupt_tx_post_conditions = signed_tx.clone();
         corrupt_tx_post_conditions.post_conditions.push(TransactionPostCondition::STX(FungibleConditionCode::NoChange, 0));
 
+        let mut corrupt_tx_post_condition_mode = signed_tx.clone();
+        corrupt_tx_post_condition_mode.post_condition_mode =
+            if corrupt_tx_post_condition_mode.post_condition_mode == TransactionPostConditionMode::Allow {
+                TransactionPostConditionMode::Deny
+            }
+            else {
+                TransactionPostConditionMode::Allow
+            };
+
         // mess with payload
         let mut corrupt_tx_payload = signed_tx.clone();
         corrupt_tx_payload.payload = match corrupt_tx_payload.payload {
@@ -1047,6 +1077,7 @@ mod test {
             corrupt_tx_chain_id,
             corrupt_tx_fee,
             corrupt_tx_anchor_mode,
+            corrupt_tx_post_condition_mode,
             corrupt_tx_post_conditions,
             corrupt_tx_payload
         ];
@@ -1087,23 +1118,7 @@ mod test {
             tx_bytes[i] = next_byte as u8;
         }
     }
-
-    #[test]
-    fn tx_stacks_string() {
-        let s = "hello world";
-        let stacks_str = StacksString::from_str(&s).unwrap();
-
-        assert_eq!(stacks_str[..], s.as_bytes().to_vec()[..]);
-        let s2 = stacks_str.to_string();
-        assert_eq!(s2.to_string(), s.to_string());
-
-        let b = stacks_str.serialize();
-        let mut bytes = vec![0x00, 0x00, 0x00, s.len() as u8];
-        bytes.extend_from_slice(s.as_bytes());
-
-        check_codec_and_corruption::<StacksString>(&stacks_str, &bytes);
-    }
-
+    
     #[test]
     fn tx_stacks_transacton_payload() {
         let hello_contract_call = "hello contract call";
@@ -1533,6 +1548,7 @@ mod test {
                                 auth: tx_auth.clone(),
                                 fee: tx_fee.clone(),
                                 anchor_mode: TransactionAnchorMode::OnChainOnly,
+                                post_condition_mode: TransactionPostConditionMode::Deny,
                                 post_conditions: tx_post_condition.clone(),
                                 payload: tx_payload.clone()
                             };
@@ -1547,6 +1563,7 @@ mod test {
                             tx_bytes.append(&mut (tx_auth.serialize()));
                             tx_bytes.append(&mut (tx_fee.serialize()));
                             tx_bytes.append(&mut vec![TransactionAnchorMode::OnChainOnly as u8]);
+                            tx_bytes.append(&mut vec![TransactionPostConditionMode::Deny as u8]);
                             tx_bytes.append(&mut (tx_post_condition.serialize()));
                             tx_bytes.append(&mut (tx_payload.serialize()));
 
@@ -1589,6 +1606,7 @@ mod test {
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
@@ -1653,6 +1671,7 @@ mod test {
             assert_eq!(tx.chain_id, signed_tx.chain_id);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
@@ -1712,6 +1731,7 @@ mod test {
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
             
@@ -1776,6 +1796,7 @@ mod test {
             assert_eq!(tx.chain_id, signed_tx.chain_id);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
             
@@ -1844,6 +1865,7 @@ mod test {
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
@@ -1928,6 +1950,7 @@ mod test {
             assert_eq!(tx.chain_id, signed_tx.chain_id);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
@@ -2008,6 +2031,7 @@ mod test {
             assert_eq!(tx.chain_id, signed_tx.chain_id);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
@@ -2091,6 +2115,7 @@ mod test {
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
@@ -2167,6 +2192,7 @@ mod test {
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
@@ -2251,6 +2277,7 @@ mod test {
             assert_eq!(tx.chain_id, signed_tx.chain_id);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
@@ -2318,6 +2345,7 @@ mod test {
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
             
@@ -2382,6 +2410,7 @@ mod test {
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
             
@@ -2450,6 +2479,7 @@ mod test {
             assert_eq!(tx.version, signed_tx.version);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
@@ -2534,6 +2564,7 @@ mod test {
             assert_eq!(tx.chain_id, signed_tx.chain_id);
             assert_eq!(tx.fee, signed_tx.fee);
             assert_eq!(tx.anchor_mode, signed_tx.anchor_mode);
+            assert_eq!(tx.post_condition_mode, signed_tx.post_condition_mode);
             assert_eq!(tx.post_conditions, signed_tx.post_conditions);
             assert_eq!(tx.payload, signed_tx.payload);
 
