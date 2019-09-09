@@ -48,7 +48,7 @@ use rand::thread_rng;
 // per-thread Secp256k1 context
 thread_local!(static _secp256k1: Secp256k1<secp256k1::All> = Secp256k1::new());
 
-#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct Secp256k1PublicKey {
     // serde is broken for secp256k1, so do it ourselves
     #[serde(serialize_with = "secp256k1_pubkey_serialize", deserialize_with = "secp256k1_pubkey_deserialize")]
@@ -56,7 +56,7 @@ pub struct Secp256k1PublicKey {
     compressed: bool
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct Secp256k1PrivateKey {
     // serde is broken for secp256k1, so do it ourselves
     #[serde(serialize_with = "secp256k1_privkey_serialize", deserialize_with = "secp256k1_privkey_deserialize")]
