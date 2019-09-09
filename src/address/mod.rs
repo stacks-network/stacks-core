@@ -84,7 +84,7 @@ impl error::Error for Error {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, )]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
 pub enum AddressHashMode {
     // serialization modes for public keys to addresses.
     // We support four different modes due to legacy compatibility with Stacks v1 addresses:
