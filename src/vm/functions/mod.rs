@@ -47,6 +47,7 @@ define_named_enum!(NativeFunctions {
     Begin("begin"),
     Hash160("hash160"),
     Sha256("sha256"),
+    Sha512("sha512"),
     Keccak256("keccak256"),
     Print("print"),
     ContractCall("contract-call!"),
@@ -106,6 +107,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Begin => CallableType::NativeFunction("native_begin", &native_begin),
             Hash160 => CallableType::NativeFunction("native_hash160", &native_hash160),
             Sha256 => CallableType::NativeFunction("native_sha256", &native_sha256),
+            Sha512 => CallableType::NativeFunction("native_sha512", &native_sha512),
             Keccak256 => CallableType::NativeFunction("native_keccak256", &native_keccak256),
             Print => CallableType::NativeFunction("native_print", &native_print),
             ContractCall => CallableType::SpecialFunction("native_contract-call", &database::special_contract_call),
@@ -180,6 +182,20 @@ fn native_sha256(args: &[Value]) -> Result<Value> {
     }?;
     let sha256 = Sha256Sum::from_data(&bytes);
     Value::buff_from(sha256.as_bytes().to_vec())
+}
+
+fn native_sha512(args: &[Value]) -> Result<Value> {
+    use util::hash::Sha512Sum;
+    check_argument_count(1, args)?;
+
+    let input = &args[0];
+    let bytes = match input {
+        Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
+        Value::Buffer(value) => Ok(value.data.clone()),
+        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
+    }?;
+    let sha512 = Sha512Sum::from_data(&bytes);
+    Value::buff_from(sha512.as_bytes().to_vec())
 }
 
 fn native_keccak256(args: &[Value]) -> Result<Value> {

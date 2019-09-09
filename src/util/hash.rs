@@ -26,8 +26,10 @@ use util::log;
 use util::HexError;
 
 use ripemd160::Ripemd160;
-use sha2::Sha256;
+use sha2::{Sha256, Sha512, Digest};
 use sha3::Keccak256;
+
+use serde::{Serialize, Serializer, de::Visitor, Deserializer, Deserialize};
 
 use util::uint::Uint256;
 
@@ -59,6 +61,11 @@ impl_array_newtype!(Sha256Sum, u8, 32);
 impl_array_hexstring_fmt!(Sha256Sum);
 impl_byte_array_newtype!(Sha256Sum, u8, 32);
 
+pub struct Sha512Sum(pub [u8; 64]);
+impl_array_newtype!(Sha512Sum, u8, 64);
+impl_array_hexstring_fmt!(Sha512Sum);
+impl_byte_array_newtype!(Sha512Sum, u8, 64);
+
 #[derive(Serialize, Deserialize)]
 pub struct DoubleSha256(pub [u8; 32]);
 impl_array_newtype!(DoubleSha256, u8, 32);
@@ -78,7 +85,6 @@ const MERKLE_PATH_NODE_TAG : u8 = 0x01;
 
 impl Hash160 {
     pub fn from_sha256(sha256_hash: &[u8; 32]) -> Hash160 {
-        use ripemd160::Digest;
         let mut rmd = Ripemd160::new();
         let mut ret = [0u8; 20];
         rmd.input(sha256_hash);
@@ -89,12 +95,51 @@ impl Hash160 {
     /// Create a hash by hashing some data
     /// (borrwed from Andrew Poelstra)
     pub fn from_data(data: &[u8]) -> Hash160 {
-        use sha2::Digest;
-        let mut tmp = [0u8; 32];
-        let mut sha2 = Sha256::new();
-        sha2.input(data);
-        tmp.copy_from_slice(sha2.result().as_slice());
-        Hash160::from_sha256(&tmp)
+        let sha2_result = Sha256::digest(data);
+        let ripe_160_result = Ripemd160::digest(sha2_result.as_slice());
+        Hash160::from(ripe_160_result.as_slice())
+    }
+}
+
+impl Sha512Sum {
+    pub fn from_data(data: &[u8]) -> Sha512Sum {
+        Sha512Sum::from(Sha512::digest(data).as_slice())
+    }
+}
+
+/// [T;64] doesn't have a (de)serializer defined, so we need
+///   implement our own (de)serializers.
+impl Serialize for Sha512Sum {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+struct Sha512SumDeserialize ();
+
+impl <'de> Visitor <'de> for Sha512SumDeserialize {
+    type Value = Sha512Sum;
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "a 64 length byte array")
+    }
+
+    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(Sha512Sum::from(v))
+    }
+}
+
+impl<'de> Deserialize<'de> for Sha512Sum {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_byte_buf(Sha512SumDeserialize())
     }
 }
 
@@ -104,7 +149,6 @@ impl MerkleHashFunc for Hash160 {
     }
 
     fn from_tagged_data(tag: u8, data: &[u8]) -> Hash160 {
-        use sha2::Digest;
         let mut tmp = [0u8; 32];
         let mut sha2 = Sha256::new();
         sha2.input(&[tag]);
@@ -124,7 +168,6 @@ impl MerkleHashFunc for Sha256Sum {
     }
 
     fn from_tagged_data(tag: u8, data: &[u8]) -> Sha256Sum {
-        use sha2::Digest;
         let mut tmp = [0u8; 32];
 
         let mut sha2 = Sha256::new();
@@ -146,7 +189,6 @@ impl MerkleHashFunc for DoubleSha256 {
     }
 
     fn from_tagged_data(tag: u8, data: &[u8]) -> DoubleSha256 {
-        use sha2::Digest;
         let mut tmp = [0u8; 32];
         let mut tmp2 = [0u8; 32];
 
@@ -169,7 +211,6 @@ impl MerkleHashFunc for DoubleSha256 {
 
 impl Keccak256Hash {
     pub fn from_data(data: &[u8]) -> Keccak256Hash {
-        use sha3::Digest;
         let mut tmp = [0u8; 32];
         let mut digest = Keccak256::new();
         digest.input(data);
@@ -180,7 +221,6 @@ impl Keccak256Hash {
 
 impl Sha256Sum {
     pub fn from_data(data: &[u8]) -> Sha256Sum {
-        use sha2::Digest;
         let mut tmp = [0u8; 32];
         let mut sha2_1 = Sha256::new();
         sha2_1.input(data);
@@ -191,7 +231,6 @@ impl Sha256Sum {
 
 impl DoubleSha256 {
     pub fn from_data(data: &[u8]) -> DoubleSha256 {
-        use sha2::Digest;
         let mut tmp = [0u8; 32];
         
         let mut sha2 = Sha256::new();

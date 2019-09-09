@@ -6,7 +6,7 @@ use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
 use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData};
 use vm::parser::parse;
-use util::hash::hex_bytes;
+use util::hash::{hex_bytes, to_hex};
 
 fn execute(s: &str) -> Value {
     vm_execute(s).unwrap().unwrap()
@@ -60,6 +60,31 @@ fn test_sha256() {
 
     sha256_evals.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!(to_buffer(expectation), execute(program)));
+}
+
+#[test]
+fn test_sha512() {
+    let sha512_evals = [
+        "(sha512 \"\")",
+        "(sha512 0)",
+        "(sha512 \"The quick brown fox jumps over the lazy dog\")",
+    ];
+
+    fn p_to_hex(val: Value) -> String {
+        match val {
+            Value::Buffer(BuffData { data }) => to_hex(&data),
+            _ => panic!("Failed")
+        }
+    }
+
+    let expectations = [
+        "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e",
+        "0b6cbac838dfe7f47ea1bd0df00ec282fdf45510c92161072ccfb84035390c4da743d9c3b954eaa1b0f86fc9861b23cc6c8667ab232c11c686432ebb5c8c3f27",
+        "07e547d9586f6a73f73fbac0435ed76951218fb7d0c8d788a309d785436bbb642e93a252a954f23912547d1e8a3b5ed6e1bfd7097821233fa0538f3db854fee6"
+    ];
+
+    sha512_evals.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation, &p_to_hex(execute(program))));
 }
 
 #[test]
@@ -319,6 +344,8 @@ fn test_hash_errors() {
         "(sha256 'true)",
         "(keccak256 'true)",
         "(hash160 'true)",
+        "(sha512 'true)",
+        "(sha512 1 2)",
     ];
 
     let expectations: &[Error] = &[
@@ -328,6 +355,8 @@ fn test_hash_errors() {
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
+        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
+        UncheckedError::IncorrectArgumentCount(1, 2).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {

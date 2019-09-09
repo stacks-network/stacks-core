@@ -319,6 +319,11 @@ impl TypedNativeFunction {
                     vec![AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32).into(),
                          AtomTypeIdentifier::IntType.into(),],
                     AtomTypeIdentifier::BufferType(32).into()))),
+            Sha512 =>
+                Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                    vec![AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32).into(),
+                         AtomTypeIdentifier::IntType.into(),],
+                    AtomTypeIdentifier::BufferType(64).into()))),
             Keccak256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32).into(),
