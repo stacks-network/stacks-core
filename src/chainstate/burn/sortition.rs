@@ -23,7 +23,6 @@ use rusqlite::Transaction;
 use rusqlite::Connection;
 
 use chainstate::burn::{
-    BurnchainBlock,
     OpsHash,
     ConsensusHash,
     SortitionHash,
@@ -35,74 +34,65 @@ use chainstate::burn::{
 use util::db::Error as db_error;
 
 use chainstate::burn::db::burndb::BurnDB;
-use chainstate::burn::operations::BlockstackOperationType;
-use chainstate::burn::operations::leader_key_register::LeaderKeyRegisterOp;
-use chainstate::burn::operations::leader_block_commit::LeaderBlockCommitOp;
-use chainstate::burn::operations::user_burn_support::UserBurnSupportOp;
 use chainstate::burn::BlockSnapshot;
 use chainstate::burn::distribution::BurnSamplePoint;
+use chainstate::burn::operations::{
+    LeaderBlockCommitOp,
+    LeaderKeyRegisterOp,
+    UserBurnSupportOp,
+    BlockstackOperation,
+    BlockstackOperationType,
+};
 
 use burnchains::Address;
 use burnchains::PublicKey;
 use burnchains::Burnchain;
+use burnchains::BurnchainBlock;
+use burnchains::BurnchainBlockHeader;
 
 use util::hash::Hash160;
 use util::uint::Uint256;
 use util::uint::Uint512;
 use util::uint::BitArray;
-use util::vrf::ECVRF_public_key_to_hex;
 
 use util::log;
 
 impl BlockSnapshot {
-    /// Calculate a new burn quota by incrementing.
-    /// Panic on numeric overflow.
-    fn burn_quota_inc_checked(last_burn_quota: u64, burn_quota_inc: u64) -> u64 {
-        if last_burn_quota.checked_add(burn_quota_inc).is_none() {
-            panic!("FATAL ERROR burn quota overflow ({} + {})", last_burn_quota, burn_quota_inc);
+    /// Create the sentinel block snapshot -- the first one
+    pub fn initial(first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash) -> BlockSnapshot {
+        BlockSnapshot {
+            block_height: first_block_height,
+            burn_header_hash: first_burn_header_hash.clone(),
+            parent_burn_header_hash: first_burn_header_hash.clone(),
+            consensus_hash: ConsensusHash([0u8; 20]),
+            ops_hash: OpsHash([0u8; 32]),
+            total_burn: 0,
+            sortition: true,
+            sortition_hash: SortitionHash::initial(),
+            winning_block_txid: Txid([0u8; 32]),
+            winning_block_burn_hash: BurnchainHeaderHash([0u8; 32]),
+            fork_segment_id: 0,
+            parent_fork_segment_id: 0,
+            fork_segment_length: 0,
+            fork_length: 0
         }
-
-        if last_burn_quota + burn_quota_inc > ((1 as u64) << 63) - 1 {
-            panic!("FATAL ERROR burn quota exceeds i64 ({})", last_burn_quota + burn_quota_inc);
-        }
-
-        last_burn_quota + burn_quota_inc
     }
 
-    /// Calculate a new burn quota by multiplicatively decreasing
-    /// Panic on numeric overflow
-    fn burn_quota_dec_checked(last_burn_quota: u64, burn_quota_num: u64, burn_quota_den: u64) -> u64 {
-        let mut last_burn_quota_u128 = last_burn_quota as u128;
-        if last_burn_quota_u128.checked_mul(burn_quota_num.into()).is_none() {
-            panic!("FATAL ERROR burn quota overflow ({} * {})", last_burn_quota, burn_quota_num);
-        }
-        last_burn_quota_u128 = last_burn_quota_u128 * (burn_quota_num as u128);
-
-        if last_burn_quota_u128.checked_div(burn_quota_den as u128).is_none() {
-            panic!("FATAL ERROR burn quota unsafe divide ({} * {} / {})", last_burn_quota, burn_quota_num, burn_quota_den);
-        }
-        last_burn_quota_u128 = last_burn_quota_u128 / (burn_quota_den as u128);
-
-        last_burn_quota_u128 as u64
+    pub fn is_initial(&self, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash) -> bool {
+        self.burn_header_hash == *first_burn_header_hash &&
+        self.parent_burn_header_hash == *first_burn_header_hash &&
+        self.total_burn == 0 &&
+        self.consensus_hash == ConsensusHash([0u8; 20]) &&
+        self.ops_hash == OpsHash([0u8; 32]) && 
+        self.parent_fork_segment_id == 0 &&
+        self.fork_segment_id == 0 &&
+        self.fork_length == 0 &&
+        self.fork_segment_length == 0
     }
 
-    /// Calculate the total burn.
-    /// Panic on numeric overflow.
-    fn burn_total_checked(last_burn_total: u64, block_burn_total: u64) -> u64 {
-        if block_burn_total.checked_add(last_burn_total).is_none() {
-            panic!("FATAL ERROR burn total overflow ({} + {})", block_burn_total, last_burn_total);
-        }
-
-        block_burn_total + last_burn_total
-    }
-    
     /// Given the weighted burns, VRF seed of the last winner, and sortition hash, pick the next
     /// winner.  Return the index into the distribution *if there is a sample to take*.
-    fn sample_burn_distribution<A, K>(dist: &Vec<BurnSamplePoint<A, K>>, VRF_seed: &VRFSeed, sortition_hash: &SortitionHash) -> Option<usize>
-    where
-        A: Address,
-        K: PublicKey
-    {
+    fn sample_burn_distribution(dist: &Vec<BurnSamplePoint>, VRF_seed: &VRFSeed, sortition_hash: &SortitionHash) -> Option<usize> {
         if dist.len() == 0 {
             // no winners 
             return None;
@@ -115,7 +105,7 @@ impl BlockSnapshot {
         let index = sortition_hash.mix_VRF_seed(VRF_seed).to_uint256();
         for i in 0..dist.len() {
             if (dist[i].range_start <= index) && (index < dist[i].range_end) {
-                debug!("Sampled {}: {} <= HASH({},{}) < {}", dist[i].candidate.block_header_hash.to_hex(), dist[i].range_start, &sortition_hash.to_hex(), &VRF_seed.to_hex(), dist[i].range_end);
+                debug!("Sampled {}: sortition index = {}", dist[i].candidate.block_header_hash.to_hex(), &index);
                 return Some(i);
             }
         }
@@ -135,30 +125,24 @@ impl BlockSnapshot {
     /// Note that the VRF seed is not guaranteed to be the hash of a valid VRF
     /// proof.  Miners would only build off of leader block commits for which they
     /// (1) have the associated block data and (2) the proof in that block is valid.
-    fn select_winning_block<'a, A, K>(tx: &mut Transaction<'a>, block_height: u64, sortition_hash: &SortitionHash, burn_dist: &Vec<BurnSamplePoint<A, K>>) -> Result<Option<LeaderBlockCommitOp<A, K>>, db_error>
-    where
-        A: Address,
-        K: PublicKey
-    {
-        // get the last winner's VRF seed
-        let last_sortition_snapshot = BurnDB::<A, K>::get_last_snapshot_with_sortition(tx, block_height)?;
-        let VRF_seed;
+    fn select_winning_block<'a>(tx: &mut Transaction<'a>, block_header: &BurnchainBlockHeader, sortition_hash: &SortitionHash, burn_dist: &Vec<BurnSamplePoint>) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        let burn_block_height = block_header.block_height;
 
-        if last_sortition_snapshot.sortition_hash == SortitionHash::initial() {
-            // this is the sentinal "first-sortition" block 
-            VRF_seed = VRFSeed::initial();
-        }
-        else {
-            // there was a prior winning block commit.  Use its VRF seed.
-            let last_winning_block_commit_opt = BurnDB::<A, K>::get_block_commit(tx, &last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.winning_block_burn_hash)?;
-            if last_winning_block_commit_opt.is_none() {
-                // something is seriously wrong -- the canonical block snapshot doesn't point to a
-                // canonical block commit.
-                panic!("FATAL ERROR: no block commit for snapshot {:?}", last_sortition_snapshot);
+        // get the last winner's VRF seed in this block's fork
+        let last_sortition_snapshot = BurnDB::get_last_snapshot_with_sortition(tx, burn_block_height - 1, block_header.parent_fork_segment_id)
+            .expect("FATAL: failed to query last snapshot with sortition");
+
+        let VRF_seed =
+            if last_sortition_snapshot.sortition_hash == SortitionHash::initial() {
+                // this is the sentinal "first-sortition" block 
+                VRFSeed::initial()
             }
-            let last_winning_block_commit = last_winning_block_commit_opt.unwrap();
-            VRF_seed = last_winning_block_commit.new_seed.clone();
-        }
+            else {
+                // there may have been a prior winning block commit.  Use its VRF seed if possible
+                BurnDB::get_block_commit(tx, &last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.winning_block_burn_hash, last_sortition_snapshot.fork_segment_id)?
+                    .expect("FATAL ERROR: no winning block commits in database (indicates corruption)")
+                    .new_seed.clone()
+            };
 
         // pick the next winner
         let win_idx_opt = BlockSnapshot::sample_burn_distribution(burn_dist, &VRF_seed, sortition_hash);
@@ -173,147 +157,224 @@ impl BlockSnapshot {
             }
         }
     }
+
+    /// Make the snapshot struct for the case where _no sortition_ takes place
+    fn make_snapshot_no_sortition<'a>(tx: &mut Transaction<'a>, block_header: &BurnchainBlockHeader, first_block_height: u64, burn_total: u64, sortition_hash: &SortitionHash, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
+        let block_height = block_header.block_height;
+        let block_hash = block_header.block_hash.clone();
+        let parent_block_hash = block_header.parent_block_hash.clone();
+
+        let non_winning_block_txid = Txid::from_bytes(&[0u8; 32]).unwrap();
+        let non_winning_block_burn_hash = BurnchainHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+
+        let ops_hash = OpsHash::from_txids(txids);
+        let ch = ConsensusHash::from_parent_block_data(tx, &ops_hash, block_height - 1, first_block_height, block_header.parent_fork_segment_id, burn_total)?;
+
+        info!("SORTITION({}): NO BLOCK CHOSEN", block_height);
+
+        Ok(BlockSnapshot {
+            block_height: block_height,
+            burn_header_hash: block_hash,
+            parent_burn_header_hash: parent_block_hash,
+            consensus_hash: ch,
+            ops_hash: ops_hash,
+            total_burn: burn_total,
+            sortition: false,
+            sortition_hash: sortition_hash.clone(),
+            winning_block_txid: non_winning_block_txid,
+            winning_block_burn_hash: non_winning_block_burn_hash,
+
+            fork_segment_id: block_header.fork_segment_id,
+            parent_fork_segment_id: block_header.parent_fork_segment_id,
+            fork_length: block_header.fork_length,
+            fork_segment_length: block_header.fork_segment_length
+        })
+    }
     
 
     /// Make a block snapshot from is block's data and the previous block.
     /// This process will:
     /// * calculate the new consensus hash
     /// * calculate the total burn so far
-    /// * calculate the new burn quota
     /// * determine whether or not we can do a sortition, and if so,
     /// * carry out the sortition to select the next candidate block.
     ///
     /// All of this is rolled into the BlockSnapshot struct.
     /// 
     /// Call this *after* you store all of the block's transactions to the burn db.
-    pub fn make_snapshot<'a, A, K>(tx: &mut Transaction<'a>, burnchain: &Burnchain, first_block_height: u64,
-                                   block_height: u64, block_hash: &BurnchainHeaderHash, parent_block_hash: &BurnchainHeaderHash, burn_dist: &Vec<BurnSamplePoint<A, K>>) -> Result<BlockSnapshot, db_error>
-    where
-        A: Address, 
-        K: PublicKey
-    {
-        // txids for operations stored in this block
-        let txids = BurnDB::<A, K>::get_block_txids(tx, block_height, block_hash)?;
+    pub fn make_snapshot<'a>(tx: &mut Transaction<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, burn_dist: &Vec<BurnSamplePoint>, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
+        assert_eq!(parent_snapshot.burn_header_hash, block_header.parent_block_hash);
+        assert_eq!(parent_snapshot.block_height + 1, block_header.block_height);
+
+        let block_height = block_header.block_height;
+        let block_hash = block_header.block_hash.clone();
+        let parent_block_hash = block_header.parent_block_hash.clone();
+        let first_block_height = burnchain.first_block_height;
+
+        let last_sortition_hash = parent_snapshot.sortition_hash.clone();
+        let last_burn_total = parent_snapshot.total_burn;
+        let last_sortition = parent_snapshot.sortition;
+        
+        // next sortition hash
+        let next_sortition_hash = last_sortition_hash.mix_burn_header(&block_hash);
+        
+        if burn_dist.len() == 0 {
+            // no burns happened
+            info!("No burns happened in block {} {:?}", block_height, &block_hash);
+            return BlockSnapshot::make_snapshot_no_sortition(tx, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
+        }
 
         // NOTE: this only counts burns from leader block commits and user burns that match them.
         // It ignores user burns that don't match any block.
-        let block_burn_total_opt = BurnSamplePoint::get_total_burns(burn_dist);
-        if block_burn_total_opt.is_none() {
-            return Err(db_error::Overflow);
-        }
-        let block_burn_total = block_burn_total_opt.unwrap();
-
-        let last_burn_quota;
-        let last_sortition_hash;
-        let last_burn_total;
-        let last_sortition_burn_total;
-        let last_sortition;
-
-        let next_sortition;
-        let next_sortition_burn_total;
-        let next_burn_quota;
-        let winning_block_txid;
-        let winning_block_burn_hash;
-
-        let last_block_snapshot_opt = BurnDB::<A, K>::get_block_snapshot(tx, block_height - 1)?;
-        match last_block_snapshot_opt {
-            Some(prev_snapshot) => {
-                last_burn_total = prev_snapshot.total_burn;
-                last_sortition_burn_total = prev_snapshot.sortition_burn;
-                last_burn_quota = prev_snapshot.burn_quota;
-                last_sortition_hash = prev_snapshot.sortition_hash;
-                last_sortition = prev_snapshot.sortition;
+        let block_burn_total = match BurnSamplePoint::get_total_burns(burn_dist) {
+            Some(total) => {
+                if total == 0 {
+                    // no one burned, so no sortition
+                    info!("No transactions submitted burns in block {} {:?}", block_height, &block_hash);
+                    return BlockSnapshot::make_snapshot_no_sortition(tx, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
+                }
+                else {
+                    total
+                }
             },
             None => {
-                // initial block snapshot
-                last_burn_total = 0;
-                last_sortition_burn_total = 0;
-                last_burn_quota = 0;
-                last_sortition_hash = SortitionHash::initial();
-                last_sortition = true;
+                // overflow -- treat as 0 (no sortition)
+                warn!("Burn count exceeds maximum threshold");
+                return BlockSnapshot::make_snapshot_no_sortition(tx, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
             }
         };
 
-        let sortition_burn_total = BlockSnapshot::burn_total_checked(block_burn_total, last_sortition_burn_total); 
-        let next_sortition_hash = last_sortition_hash.mix_burn_header(block_hash);
-       
-        // did we burn enough?
-        if sortition_burn_total >= last_burn_quota {
-            // can do a sortition in this block
-            // Try to pick a next block.
-            let winning_block_opt : Option<LeaderBlockCommitOp<A, K>> = BlockSnapshot::select_winning_block(tx, block_height, &next_sortition_hash, burn_dist)?;
-            match winning_block_opt {
-                None => {
-                    // we burned enough for a sortition, but no winner was picked.
-                    // can happen if the burn quota is 0.
-                    next_sortition = false;
-                    winning_block_txid = Txid::from_bytes(&[0u8; 32]).unwrap();
-                    winning_block_burn_hash = BurnchainHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-
-                    info!("SORTITION({}): Burn quota met ({}), but NO BLOCK CHOSEN", block_height, block_burn_total);
-                },
-                Some(winning_block) => {
-                    // we burned enough for a sortition, and a winner was picked! 
-                    next_sortition = true;
-                    winning_block_txid = winning_block.txid.clone();
-                    winning_block_burn_hash = winning_block.burn_header_hash.clone();
-
-                    info!("SORTITION({}): Burn quota met ({}). WINNER BLOCK is {}", block_height, block_burn_total, &winning_block.block_header_hash.to_hex());
-                }
-            };
-
-            // either way, we burned enough that we can alter the burn quota.
-            // -- we INCREMENT if the burn quota was met in the _last_ block
-            //      -- we either did a sortition last block, OR
-            //      -- no blocks were committed (so no sortition) and the burn quota was 0
-            // -- we DECREMENT otherwise
-            if last_sortition || (last_sortition_burn_total == 0 && last_burn_quota == 0) {
-                debug!("SORTITION({}): burned enough for sortition last block, so QUOTA INCREMENT", block_height);
-                next_burn_quota = BlockSnapshot::burn_quota_inc_checked(last_burn_quota, burnchain.burn_quota.inc);
+        // total burn.  If this ever overflows, then just stall the chain and deny all future
+        // sortitions (at least the chain will remain available to serve queries, but it won't be
+        // able to make progress).
+        let next_burn_total = match last_burn_total.checked_add(block_burn_total) {
+            Some(new_total) => {
+                new_total
+            },
+            None => {
+                // overflow.  Deny future sortitions
+                warn!("Cumulative sortition burn has overflown.  Subsequent sortitions will be denied.");
+                return BlockSnapshot::make_snapshot_no_sortition(tx, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids);
             }
-            else {
-                debug!("SORTITION({}): did no burn enough for sortition last block, so QUOTA DECREASE", block_height);
-                next_burn_quota = BlockSnapshot::burn_quota_dec_checked(last_burn_quota, burnchain.burn_quota.dec_num, burnchain.burn_quota.dec_den);
+        };
+
+        // Try to pick a next block.
+        let (winning_txid, winning_burn_hash, winning_block_hash) = match BlockSnapshot::select_winning_block(tx, block_header, &next_sortition_hash, burn_dist)? {
+            None => {
+                // should be unreachable, but would happen if there were no burns
+                warn!("No winner for block {} {:?}", block_height, &block_hash);
+                return BlockSnapshot::make_snapshot_no_sortition(tx, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids)
+            },
+            Some(winning_block) => {
+                (winning_block.txid, winning_block.burn_header_hash, winning_block.block_header_hash)
             }
-
-            // we will have burned 0 towards the next sortition.
-            next_sortition_burn_total = 0;
-        }
-        else {
-            // cannot do a sortition in this block, but don't change the burn quota -- it will only
-            // be decremented once we meet it!  Instead, keep a running total of how much we burned
-            // since the last sortition, and use that in the next epoch to see if we can adjust the
-            // burn quota.
-            next_sortition = false;
-            next_burn_quota = last_burn_quota;
-            next_sortition_burn_total = sortition_burn_total;
-
-            winning_block_txid = Txid::from_bytes(&[0u8; 32]).unwrap();
-            winning_block_burn_hash = BurnchainHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-
-            info!("SORTITION({}): Burn quota not met ({} < {}), so NO QUOTA CHANGE", block_height, block_burn_total, last_burn_quota);
-        }
-
-        let next_burn_total = BlockSnapshot::burn_total_checked(last_burn_total, block_burn_total);
+        };
         
         let next_ops_hash = OpsHash::from_txids(&txids);
-        let next_ch = ConsensusHash::from_block_data::<A, K>(tx, &next_ops_hash, block_height, first_block_height, next_burn_total)?;
+        let next_ch = ConsensusHash::from_parent_block_data(tx, &next_ops_hash, block_height - 1, first_block_height, block_header.parent_fork_segment_id, next_burn_total)?;
+
+        info!("SORTITION({}): WINNER IS {:?} (from {:?})", block_height, winning_block_hash, winning_txid);
 
         Ok(BlockSnapshot {
             block_height: block_height,
-            burn_header_hash: block_hash.clone(),
-            parent_burn_header_hash: parent_block_hash.clone(), 
+            burn_header_hash: block_hash,
+            parent_burn_header_hash: parent_block_hash,
             consensus_hash: next_ch,
             ops_hash: next_ops_hash,
             total_burn: next_burn_total,
-            sortition_burn: next_sortition_burn_total,
-            burn_quota: next_burn_quota,
-            sortition: next_sortition,
+            sortition: true,
             sortition_hash: next_sortition_hash,
-            winning_block_txid: winning_block_txid,
-            winning_block_burn_hash: winning_block_burn_hash,
-            canonical: true
+            winning_block_txid: winning_txid,
+            winning_block_burn_hash: winning_burn_hash,
+            
+            fork_segment_id: block_header.fork_segment_id,
+            parent_fork_segment_id: block_header.parent_fork_segment_id,
+            fork_segment_length: block_header.fork_segment_length,
+            fork_length: block_header.fork_length
         })
     }
 }
 
+#[cfg(test)]
+mod test {
+
+    use super::*;
+    use burnchains::*;
+    use burnchains::test::*;
+    use chainstate::stacks::*;
+    use chainstate::burn::operations::*;
+
+    use chainstate::burn::VRFSeed;
+    use chainstate::burn::BlockHeaderHash;
+    use util::vrf::VRFPublicKey;
+    use util::vrf::VRFPrivateKey;
+
+    use util::hash::hex_bytes;
+
+    use address::*;
+
+    #[test]
+    fn make_snapshot_no_sortition() {
+        
+        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000123").unwrap();
+        let first_block_height = 120;
+        
+        let burnchain = Burnchain {
+            peer_version: 0x012345678,
+            network_id: 0x9abcdef0,
+            chain_name: "bitcoin".to_string(),
+            network_name: "testnet".to_string(),
+            working_dir: "/nope".to_string(),
+            consensus_hash_lifetime: 24,
+            stable_confirmations: 7,
+            first_block_height: first_block_height,
+            first_block_hash: first_burn_hash.clone()
+        };
+
+        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+
+        let empty_block_header = BurnchainBlockHeader {
+            block_height: first_block_height + 1,
+            block_hash: BurnchainHeaderHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0x01,0x24]),
+            parent_block_hash: first_burn_hash.clone(),
+            num_txs: 0,
+            fork_segment_id: 0,
+            parent_fork_segment_id: 0,
+            fork_length: 1,
+            fork_segment_length: 1
+        };
+        
+        let initial_snapshot = BurnDB::get_first_block_snapshot(db.conn()).unwrap();
+
+        let snapshot_no_transactions = {
+            let mut tx = db.tx_begin().unwrap();
+            let sn = BlockSnapshot::make_snapshot(&mut tx, &burnchain, &initial_snapshot, &empty_block_header, &vec![], &vec![]).unwrap();
+            tx.commit().unwrap();
+            sn
+        };
+
+        assert!(!snapshot_no_transactions.sortition);
+        assert_eq!(snapshot_no_transactions.total_burn, 0);
+
+        let key = LeaderKeyRegisterOp::new_from_secrets(&vec![StacksPrivateKey::new()], 1, &AddressHashMode::SerializeP2PKH, &VRFPrivateKey::new()).unwrap();
+
+        let empty_burn_point = BurnSamplePoint {
+            burns: 0,
+            range_start: Uint256::from_u64(0),
+            range_end: Uint256([0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF]),
+            candidate: LeaderBlockCommitOp::initial(&BlockHeaderHash([1u8; 32]), &key, 0, &BurnchainSigner::new_p2pkh(&StacksPublicKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())),
+            key: LeaderKeyRegisterOp::new(&StacksAddress::new(0, Hash160([0u8; 20])), &VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap()),
+            user_burns: vec![]
+        };
+
+        let snapshot_no_burns = {
+            let mut tx = db.tx_begin().unwrap();
+            let sn = BlockSnapshot::make_snapshot(&mut tx, &burnchain, &initial_snapshot, &empty_block_header, &vec![empty_burn_point.clone()], &vec![key.txid.clone()]).unwrap();
+            tx.commit().unwrap();
+            sn
+        };
+
+        assert!(!snapshot_no_burns.sortition);
+        assert_eq!(snapshot_no_transactions.total_burn, 0);
+    }
+}
