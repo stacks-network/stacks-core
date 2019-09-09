@@ -22,6 +22,7 @@ use net::Error as net_error;
 use net::codec::{read_next, write_next};
 
 use address::AddressHashMode;
+use address::c32::c32_address;
 use address::public_keys_to_address_hash;
 
 use chainstate::stacks::StacksPublicKey;
@@ -32,6 +33,16 @@ use util::hash::Hash160;
 use util::hash::HASH160_ENCODED_SIZE;
 
 use burnchains::PublicKey;
+use burnchains::Address;
+
+use address::c32::c32_address_decode;
+
+use burnchains::bitcoin::address::BitcoinAddress;
+use burnchains::bitcoin::address::{
+    address_type_to_version_byte,
+    to_c32_version_byte
+};
+
 
 impl StacksMessageCodec for StacksAddress {
     fn serialize(&self) -> Vec<u8> {
@@ -110,6 +121,49 @@ impl StacksAddress {
         
         let hash_bits = public_keys_to_address_hash(hash_mode, num_sigs, pubkeys);
         Some(StacksAddress::new(version, hash_bits))
+    }
+
+    /// Convert from a Bitcoin address
+    pub fn from_bitcoin_address(addr: &BitcoinAddress) -> StacksAddress {
+        let btc_version = address_type_to_version_byte(addr.addrtype, addr.network_id);
+
+        // should not fail by construction
+        let version = to_c32_version_byte(btc_version).expect("Failed to decode Bitcoin version byte to Stacks version byte");
+        StacksAddress {
+            version: version,
+            bytes: addr.bytes.clone()
+        }
+    }
+}
+
+impl Address for StacksAddress {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.bytes.as_bytes().to_vec()
+    }
+
+    fn to_string(&self) -> String {
+        c32_address(self.version, self.bytes.as_bytes()).expect("Stacks version is not C32-encodable")
+    }
+
+    fn from_string(s: &String) -> Option<StacksAddress> {
+        let (version, bytes) = match c32_address_decode(s.as_str()) {
+            Ok((v, b)) => (v, b),
+            Err(_) => {
+                return None;
+            }
+        };
+        
+        if bytes.len() != 20 {
+            return None;
+        }
+
+        let mut hash_bytes = [0u8; 20];
+        hash_bytes.copy_from_slice(&bytes[..]);
+        Some(StacksAddress { version: version, bytes: Hash160(hash_bytes) })
+    }
+
+    fn is_burn(&self) -> bool {
+        self.bytes == Hash160([0u8; 20])
     }
 }
 
