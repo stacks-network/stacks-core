@@ -31,9 +31,9 @@ use burnchains::Txid;
 use burnchains::Address;
 use burnchains::PublicKey;
 use burnchains::BurnchainHeaderHash;
-use burnchains::BurnchainBlock;
 
 use util::hash::Hash160;
+use util::vrf::VRFProof;
 
 use sha2::Sha256;
 use ripemd160::Ripemd160;
@@ -49,6 +49,7 @@ use core::SYSTEM_FORK_SET_VERSION;
 
 use util::log;
 use util::uint::Uint256;
+use util::hash::Sha512_256;
 
 pub struct ConsensusHash(pub [u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
@@ -62,7 +63,7 @@ impl_array_hexstring_fmt!(BlockHeaderHash);
 impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
 pub const BLOCK_HEADER_HASH_ENCODED_SIZE : u32 = 32;
 
-pub struct VRFSeed([u8; 32]);
+pub struct VRFSeed(pub [u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
 impl_array_hexstring_fmt!(VRFSeed);
 impl_byte_array_newtype!(VRFSeed, u8, 32);
@@ -73,19 +74,38 @@ impl VRFSeed {
     pub fn initial() -> VRFSeed {
         VRFSeed::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()
     }
+
+    pub fn from_proof(proof: &VRFProof) -> VRFSeed {
+        let h = Sha512_256::from_data(&proof.to_bytes());
+        let mut b = [0u8; 32];
+        b.copy_from_slice(h.as_bytes());
+        VRFSeed(b)
+    }
+
+    pub fn is_from_proof(&self, proof: &VRFProof) -> bool {
+        self.as_bytes().to_vec() == VRFSeed::from_proof(proof).as_bytes().to_vec()
+    }
 }
 
 // operations hash -- the sha256 hash of a sequence of transaction IDs 
-pub struct OpsHash([u8; 32]);
+pub struct OpsHash(pub [u8; 32]);
 impl_array_newtype!(OpsHash, u8, 32);
 impl_array_hexstring_fmt!(OpsHash);
 impl_byte_array_newtype!(OpsHash, u8, 32);
 
 // rolling hash of PoW outputs to mix with the VRF seed on sortition 
-pub struct SortitionHash([u8; 32]);
+pub struct SortitionHash(pub [u8; 32]);
 impl_array_newtype!(SortitionHash, u8, 32);
 impl_array_hexstring_fmt!(SortitionHash);
 impl_byte_array_newtype!(SortitionHash, u8, 32);
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
+pub enum Opcodes {
+    LeaderBlockCommit = '[' as u8,
+    LeaderKeyRegister = '^' as u8,
+    UserBurnSupport = '_' as u8
+}
 
 // a burnchain block snapshot
 #[derive(Debug, Clone, PartialEq)]
@@ -96,15 +116,17 @@ pub struct BlockSnapshot {
     pub consensus_hash: ConsensusHash,
     pub ops_hash: OpsHash,
     pub total_burn: u64,        // how many burn tokens have been destroyed since genesis
-    pub sortition_burn: u64,    // how many burn tokens have been destroyed since the last sortition
-    pub burn_quota: u64,        // how many burn tokens must be destroyed in this block for a sortition to occur
-    pub sortition: bool,        // whether or not a sortition happened in this block (will be false if either the burn quota isn't met, or no block commits occured)
+    pub sortition: bool,        // whether or not a sortition happened in this block (will be false if there were no burns)
     pub sortition_hash: SortitionHash,  // rolling hash of the burn chain's block headers -- this gets mixed with the sortition VRF seed
     pub winning_block_txid: Txid,       // txid of the leader block commit that won sortition.  Will all 0's if sortition is false. 
     pub winning_block_burn_hash: BurnchainHeaderHash,   // burn header hash of the block containing the leader block commit that won sortition.  Will be all 0's if sortition is false.
-    pub canonical: bool         // whether or not this snapshot is on the canonical burn chain history
+   
+    // internal use
+    pub fork_segment_id: u64,           // which burn chain fork this is on
+    pub parent_fork_segment_id: u64,    // which fork segment does this fork descend from (will differ from fork_segment_id only if this is the initial snapshot of the fork segment)
+    pub fork_length: u64,       // how many blocks in this fork total,
+    pub fork_segment_length: u64,   // how many blocks in this "run" of the fork row that contains this snapshot
 }
-
 
 impl BlockHeaderHash {
     pub fn to_hash160(&self) -> Hash160 {
@@ -229,17 +251,14 @@ impl ConsensusHash {
 
     /// Get the previous consensus hashes that must be hashed to find
     /// the *next* consensus hash at a particular block.
-    /// The resulting list will include the consensus hash at block_height.
-    pub fn get_prev_consensus_hashes<A, K>(conn: &Connection, block_height: u64, first_block_height: u64) -> Result<Vec<ConsensusHash>, db_error>
-    where
-        A: Address,
-        K: PublicKey
-    {
+    pub fn get_prev_consensus_hashes<'a>(tx: &mut Transaction<'a>, block_height: u64, first_block_height: u64, fork_segment_id: u64) -> Result<Vec<ConsensusHash>, db_error> {
         let mut i = 0;
         let mut prev_chs = vec![];
         while i < 64 && block_height - (((1 as u64) << i) - 1) >= first_block_height {
             let prev_block : u64 = block_height - (((1 as u64) << i) - 1);
-            let prev_ch_opt = BurnDB::<A, K>::get_consensus_at(conn, prev_block)?;
+            let prev_ch_opt = BurnDB::get_consensus_at(tx, prev_block, fork_segment_id)
+                .expect(&format!("FATAL: failed to get consensus hash at {} in fork {}", prev_block, fork_segment_id));
+
             match prev_ch_opt {
                 Some(prev_ch) => {
                     debug!("Consensus at {}: {}", prev_block, &prev_ch.to_hex());
@@ -251,7 +270,7 @@ impl ConsensusHash {
                     }
                 }
                 None => {
-                    error!("Failed to read consensus hash for block height {}", prev_block);
+                    error!("Failed to read consensus hash for block height {} fork segment {}", prev_block, fork_segment_id);
                     return Err(db_error::Corruption);
                 }
             };
@@ -264,13 +283,9 @@ impl ConsensusHash {
         Ok(prev_chs)
     }
 
-    /// Make a new consensus hash, given the ops hash and other block data
-    pub fn from_block_data<A, K>(conn: &Connection, opshash: &OpsHash, block_height: u64, first_block_height: u64, total_burn: u64) -> Result<ConsensusHash, db_error>
-    where
-        A: Address,
-        K: PublicKey
-    {
-        let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes::<A, K>(conn, block_height - 1, first_block_height)?;
+    /// Make a new consensus hash, given the ops hash and parent block data
+    pub fn from_parent_block_data<'a>(tx: &mut Transaction<'a>, opshash: &OpsHash, parent_block_height: u64, first_block_height: u64, parent_fork_segment_id: u64, total_burn: u64) -> Result<ConsensusHash, db_error> {
+        let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes(tx, parent_block_height, first_block_height, parent_fork_segment_id)?;
         Ok(ConsensusHash::from_ops(opshash, total_burn, &prev_consensus_hashes))
     }
 }
@@ -289,8 +304,6 @@ mod tests {
 
     use burnchains::BurnchainHeaderHash;
 
-    use burnchains::BurnchainTxInput;
-    use burnchains::BurnchainInputType;
     use burnchains::bitcoin::keys::BitcoinPublicKey;
     use burnchains::bitcoin::address::BitcoinAddress;
 
@@ -304,10 +317,11 @@ mod tests {
     #[test]
     fn get_prev_consensus_hashes() {
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        let mut db : BurnDB<BitcoinAddress, BitcoinPublicKey> = BurnDB::connect_memory(123, &first_burn_hash).unwrap();
+        let mut db = BurnDB::connect_memory(0, &first_burn_hash).unwrap();
         {
             let mut tx = db.tx_begin().unwrap();
-            for i in 0..256 {
+            let mut prev_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
+            for i in 1..256 {
                 let snapshot_row = BlockSnapshot {
                     block_height: i,
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
@@ -315,73 +329,77 @@ mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
-                    sortition_burn: i,
-                    burn_quota: 0,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    canonical: true
+                    fork_segment_id: 0,
+                    parent_fork_segment_id: 0,
+                    fork_length: i,
+                    fork_segment_length: i,
                 };
-                BurnDB::<BitcoinAddress, BitcoinPublicKey>::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
+                BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row).unwrap();
+                prev_snapshot = snapshot_row;
             }
             
             tx.commit().unwrap();
         }
+
+        let mut tx = db.tx_begin().unwrap();
         
-        let prev_chs_0 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 0, 0).unwrap();
+        let prev_chs_0 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 0, 0, 0).unwrap();
         assert_eq!(prev_chs_0, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
         
-        let prev_chs_1 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 1, 0).unwrap();
+        let prev_chs_1 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 1, 0, 0).unwrap();
         assert_eq!(prev_chs_1, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
         
-        let prev_chs_2 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 2, 0).unwrap();
+        let prev_chs_2 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 2, 0, 0).unwrap();
         assert_eq!(prev_chs_2, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
         
-        let prev_chs_3 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 3, 0).unwrap();
+        let prev_chs_3 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 3, 0, 0).unwrap();
         assert_eq!(prev_chs_3, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
         
-        let prev_chs_4 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 4, 0).unwrap();
+        let prev_chs_4 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 4, 0, 0).unwrap();
         assert_eq!(prev_chs_4, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
         
-        let prev_chs_5 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 5, 0).unwrap();
+        let prev_chs_5 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 5, 0, 0).unwrap();
         assert_eq!(prev_chs_5, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap()]);
         
-        let prev_chs_6 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 6, 0).unwrap();
+        let prev_chs_6 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 6, 0, 0).unwrap();
         assert_eq!(prev_chs_6, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3]).unwrap()]);
         
-        let prev_chs_7 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 7, 0).unwrap();
+        let prev_chs_7 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 7, 0, 0).unwrap();
         assert_eq!(prev_chs_7, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
         
-        let prev_chs_8 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 8, 0).unwrap();
+        let prev_chs_8 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 8, 0, 0).unwrap();
         assert_eq!(prev_chs_8, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
         
-        let prev_chs_62 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 62, 0).unwrap();
+        let prev_chs_62 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 62, 0, 0).unwrap();
         assert_eq!(prev_chs_62, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,62]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,61]).unwrap(),
@@ -390,7 +408,7 @@ mod tests {
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,47]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,31]).unwrap()]);
 
-        let prev_chs_63 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 63, 0).unwrap();
+        let prev_chs_63 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 63, 0, 0).unwrap();
         assert_eq!(prev_chs_63, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,62]).unwrap(),
@@ -400,7 +418,7 @@ mod tests {
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,32]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
 
-        let prev_chs_64 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 64, 0).unwrap();
+        let prev_chs_64 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 64, 0, 0).unwrap();
         assert_eq!(prev_chs_64, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,64]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap(),
@@ -410,7 +428,7 @@ mod tests {
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,33]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
 
-        let prev_chs_126 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 126, 0).unwrap();
+        let prev_chs_126 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 126, 0, 0).unwrap();
         assert_eq!(prev_chs_126, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,126]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,125]).unwrap(),
@@ -420,7 +438,7 @@ mod tests {
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,95]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,63]).unwrap()]);
 
-        let prev_chs_127 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 127, 0).unwrap();
+        let prev_chs_127 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 127, 0, 0).unwrap();
         assert_eq!(prev_chs_127, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,126]).unwrap(),
@@ -431,7 +449,7 @@ mod tests {
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,64]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap()]);
 
-        let prev_chs_128 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 128, 0).unwrap();
+        let prev_chs_128 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 128, 0, 0).unwrap();
         assert_eq!(prev_chs_128, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap(),
@@ -442,7 +460,7 @@ mod tests {
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,65]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap()]);
         
-        let prev_chs_254 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 254, 0).unwrap();
+        let prev_chs_254 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 254, 0, 0).unwrap();
         assert_eq!(prev_chs_254, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,254]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,253]).unwrap(),
@@ -453,7 +471,7 @@ mod tests {
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,191]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,127]).unwrap()]);
 
-        let prev_chs_255 = ConsensusHash::get_prev_consensus_hashes::<BitcoinAddress, BitcoinPublicKey>(db.conn(), 255, 0).unwrap();
+        let prev_chs_255 = ConsensusHash::get_prev_consensus_hashes(&mut tx, 255, 0, 0).unwrap();
         assert_eq!(prev_chs_255, vec![
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255]).unwrap(),
             ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,254]).unwrap(),
