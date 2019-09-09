@@ -28,35 +28,35 @@ use net::Error as net_error;
 use net::codec::{read_next, write_next};
 
 use util::vrf::{
-    ECVRF_Proof,
-    ECVRF_PROOF_ENCODED_SIZE
+    VRFProof,
+    VRF_PROOF_ENCODED_SIZE
 };
 
 use util::hash::MerkleTree;
 use util::hash::Sha512_256;
 use util::secp256k1::MessageSignature;
 
-impl StacksMessageCodec for ECVRF_Proof {
+impl StacksMessageCodec for VRFProof {
     fn serialize(&self) -> Vec<u8> {
         self.to_bytes().to_vec()
     }
 
-    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<ECVRF_Proof, net_error> {
+    fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<VRFProof, net_error> {
         let index = *index_ptr;
-        if index > u32::max_value() - ECVRF_PROOF_ENCODED_SIZE {
+        if index > u32::max_value() - VRF_PROOF_ENCODED_SIZE {
             return Err(net_error::OverflowError);
         }
-        if index + ECVRF_PROOF_ENCODED_SIZE < max_size {
+        if index + VRF_PROOF_ENCODED_SIZE < max_size {
             return Err(net_error::OverflowError);
         }
 
-        if (buf.len() as u32) < index + ECVRF_PROOF_ENCODED_SIZE {
+        if (buf.len() as u32) < index + VRF_PROOF_ENCODED_SIZE {
             return Err(net_error::UnderflowError);
         }
-        let res = ECVRF_Proof::from_slice(&buf[(index as usize)..((index+ECVRF_PROOF_ENCODED_SIZE) as usize)])
+        let res = VRFProof::from_slice(&buf[(index as usize)..((index+VRF_PROOF_ENCODED_SIZE) as usize)])
             .map_err(|_e| net_error::DeserializeError)?;
             
-        *index_ptr += ECVRF_PROOF_ENCODED_SIZE;
+        *index_ptr += VRF_PROOF_ENCODED_SIZE;
         Ok(res)
     }
 }
@@ -96,7 +96,7 @@ impl StacksMessageCodec for StacksBlockHeader {
     fn deserialize(buf: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<StacksBlockHeader, net_error> {
         let version: u8                         = read_next(buf, index, max_size)?;
         let total_work : StacksWorkScore        = read_next(buf, index, max_size)?;
-        let proof : ECVRF_Proof                 = read_next(buf, index, max_size)?;
+        let proof : VRFProof                 = read_next(buf, index, max_size)?;
         let parent_block: BlockHeaderHash       = read_next(buf, index, max_size)?;
         let parent_microblock: BlockHeaderHash  = read_next(buf, index, max_size)?;
         let tx_merkle_root: Sha512_256          = read_next(buf, index, max_size)?;
@@ -181,7 +181,7 @@ impl StacksMessageCodec for StacksMicroblockHeader {
 
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMicroblockHeader, net_error> {
         let version : u8                    = read_next(buf, index_ptr, max_size)?;
-        let sequence : u32                  = read_next(buf, index_ptr, max_size)?;
+        let sequence : u8                   = read_next(buf, index_ptr, max_size)?;
         let prev_block : BlockHeaderHash    = read_next(buf, index_ptr, max_size)?;
         let tx_merkle_root : Sha512_256     = read_next(buf, index_ptr, max_size)?;
         let signature : MessageSignature    = read_next(buf, index_ptr, max_size)?;
@@ -249,5 +249,38 @@ impl StacksMessageCodec for StacksMicroblock {
             header,
             txs
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use chainstate::stacks::*;
+    use net::*;
+    use net::codec::*;
+    use net::codec::test::*;
+
+    use util::hash::*;
+
+    #[test]
+    fn block_ecvrf_proof() {
+        let proof_bytes = hex_bytes("024c1484fcb05cecdb4dbfb9bf4e08e7f529aea3b3a2515716ad4e9cf7bace6c91181b6bb7d8201c5a85a11c626d1848aa2ac4d188c7e24a94faa32d1eec48d600fad7c55c7e71adb6a7dd6c73f6fc02").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        check_codec_and_corruption::<VRFProof>(&proof, &proof_bytes);
+    }
+   
+    #[test]
+    fn block_work_score() {
+        let work_score = StacksWorkScore {
+            burn: 123,
+            work: 456
+        };
+        let work_score_bytes = vec![
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 123,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 200,
+        ];
+        
+        check_codec_and_corruption::<StacksWorkScore>(&work_score, &work_score_bytes);
     }
 }
