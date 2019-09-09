@@ -23,17 +23,16 @@ pub mod block;
 pub mod index;
 pub mod transaction;
 
-use std::ops::Deref;
-use std::ops::DerefMut;
 use std::fmt;
 use std::error;
 
 use util::secp256k1;
 use util::hash::Hash160;
-use util::vrf::ECVRF_Proof;
+use util::vrf::VRFProof;
 use util::hash::Sha512_256;
 use util::hash::HASH160_ENCODED_SIZE;
 
+use util::strings::StacksString;
 use util::secp256k1::MessageSignature;
 
 use address::AddressHashMode;
@@ -59,13 +58,48 @@ pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20;        // M
 pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26;       // T
 pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21;        // N
 
-// "empty" DER-encoded compressed public key bytes.
-// Can't be all 0's because the first byte must be 0x02 or 0x03, and the values can't be all 0.
-pub const STACKS_PUBLIC_KEY_EMPTY_BYTES : [u8; 33] = [
-    0x02,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01
-];
+impl AddressHashMode {
+    pub fn to_version_mainnet(&self) -> u8 {
+        match *self {
+            AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+            _ => C32_ADDRESS_VERSION_MAINNET_MULTISIG
+        }
+    }
+
+    pub fn to_version_testnet(&self) -> u8 {
+        match *self {
+            AddressHashMode::SerializeP2PKH => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            _ => C32_ADDRESS_VERSION_TESTNET_MULTISIG
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Error {
+    InvalidFee
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::InvalidFee => f.write_str(error::Error::description(self)),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn cause(&self) -> Option<&error::Error> {
+        match *self {
+            Error::InvalidFee => None,
+        }
+    }
+
+    fn description(&self) -> &str {
+        match *self {
+            Error::InvalidFee => "Invalid fee"
+        }
+    }
+}
 
 impl Txid {
     /// A Stacks transaction ID is a sha512/256 hash (not a double-sha256 hash)
@@ -82,181 +116,7 @@ impl Txid {
     }
 }
 
-#[derive(Debug)]
-pub enum Error {
-    /// Failed to encode
-    EncodeError,
-    /// Failed to decode 
-    DecodeError,
-    /// Failed to validate spending condition 
-    AuthError,
-    /// Invalid transaction fee
-    InvalidFee
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Error::EncodeError => f.write_str(error::Error::description(self)),
-            Error::DecodeError => f.write_str(error::Error::description(self)),
-            Error::AuthError => f.write_str(error::Error::description(self)),
-            Error::InvalidFee => f.write_str(error::Error::description(self)),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&error::Error> {
-        match *self {
-            Error::EncodeError => None,
-            Error::DecodeError => None,
-            Error::AuthError => None,
-            Error::InvalidFee => None,
-        }
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::EncodeError => "Failed to encode",
-            Error::DecodeError => "Failed to decode",
-            Error::AuthError => "Failed to authenticate transaction",
-            Error::InvalidFee => "Invalid transaction fee",
-        }
-    }
-}
-
-/// printable-ASCII-only string, but encodable.
-/// Note that it cannot be longer than ARRAY_MAX_LEN (4.1 billion bytes)
-#[derive(Clone, PartialEq)]
-pub struct StacksString(Vec<u8>);
-
-impl fmt::Display for StacksString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(String::from_utf8_lossy(&self).into_owned().as_str())
-    }
-}
-
-impl fmt::Debug for StacksString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(String::from_utf8_lossy(&self).into_owned().as_str())
-    }
-}
-
-impl Deref for StacksString {
-    type Target = Vec<u8>;
-    fn deref(&self) -> &Vec<u8> {
-        &self.0
-    }
-}
-
-impl DerefMut for StacksString {
-    fn deref_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.0
-    }
-}
-
-impl StacksMessageCodec for StacksString {
-    fn serialize(&self) -> Vec<u8> {
-        let mut res = vec![];
-        write_next(&mut res, &self.0);
-        res
-    }
-
-    fn deserialize(buf: &Vec<u8>, index: &mut u32, max_size: u32) -> Result<StacksString, net_error> {
-        let bytes : Vec<u8> = read_next(buf, index, max_size)?;
-
-        // must encode a valid string
-        let s = String::from_utf8(bytes.clone())
-            .map_err(|_e| net_error::DeserializeError)?;
-        
-        if !StacksString::is_valid_string(&s) {
-            // non-printable ASCII or not ASCII
-            return Err(net_error::DeserializeError);
-        }
-
-        Ok(StacksString(bytes))
-    }
-}
-
-impl StacksString {
-    /// Is the given string a valid Clarity string?
-    pub fn is_valid_string(s: &String) -> bool {
-        s.is_ascii() && StacksString::is_printable(s)
-    }
-
-    /// Is the given string a well-formed name for a Clarity smart contract?
-    pub fn is_valid_contract_name(s: &String) -> bool {
-        StacksString::is_valid_string(s) && s.find('.').is_none()
-    }
-    
-    /// Is the given string a well-formed name for a Clarity asset?
-    pub fn is_valid_asset_name(s: &String) -> bool {
-        // TODO: verify that we don't want periods in asset names
-        StacksString::is_valid_string(s) && s.find('.').is_none()
-    }
-
-    /// Is the given string a well-formed name for a non-fungible token?
-    pub fn is_valid_nft_name(s: &String) -> bool {
-        // TODO: verify that this is sufficient
-        StacksString::is_valid_string(s)
-    }
-
-    pub fn is_printable(s: &String) -> bool {
-        if !s.is_ascii() {
-            return false;
-        }
-        // all characters must be ASCII "printable" characters, excluding "delete".
-        // This is 0x20 through 0x7e, inclusive
-        for c in s.as_bytes().iter() {
-            if (*c as u8) < 0x20 || (*c as u8) > 0x7e {
-                return false;
-            }
-        }
-        true
-    }
-
-    pub fn from_string(s: &String) -> Option<StacksString> {
-        if !StacksString::is_valid_string(s) {
-            return None;
-        }
-        Some(StacksString(s.as_bytes().to_vec()))
-    }
-
-    pub fn from_contract_name(s: &String) -> Option<StacksString> {
-        if !StacksString::is_valid_contract_name(s) {
-            return None;
-        }
-        Some(StacksString(s.as_bytes().to_vec()))
-    }
-
-    pub fn from_asset_name(s: &String) -> Option<StacksString> {
-        if !StacksString::is_valid_asset_name(s) {
-            return None;
-        }
-        Some(StacksString(s.as_bytes().to_vec()))
-    }
-
-    pub fn from_nft_name(s: &String) -> Option<StacksString> {
-        if !StacksString::is_valid_nft_name(s) {
-            return None;
-        }
-        Some(StacksString(s.as_bytes().to_vec()))
-    }
-
-    pub fn from_str(s: &str) -> Option<StacksString> {
-        if !StacksString::is_valid_string(&String::from(s)) {
-            return None;
-        }
-        Some(StacksString(s.as_bytes().to_vec()))
-    }
-
-    pub fn to_string(&self) -> String {
-        // guaranteed to always succeed because the string is ASCII
-        String::from_utf8(self.0.clone()).unwrap()
-    }
-} 
-
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize)]
 pub struct StacksAddress {
     pub version: u8,
     pub bytes: Hash160
@@ -602,7 +462,15 @@ impl NonfungibleConditionCode {
 pub enum TransactionPostCondition {
     STX(FungibleConditionCode, u64),
     Fungible(AssetType, FungibleConditionCode, u64),
-    Nonfungible(AssetType, NonfungibleConditionCode)
+    Nonfungible(AssetType, NonfungibleConditionCode),
+}
+
+/// Post-condition modes for unspecified assets
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum TransactionPostConditionMode {
+    Allow = 0x01,       // allow any other changes not specified
+    Deny = 0x02         // deny any other changes not specified
 }
 
 /// Stacks transaction versions
@@ -620,6 +488,7 @@ pub struct StacksTransaction {
     pub auth: TransactionAuth,
     pub fee: TransactionFee,
     pub anchor_mode: TransactionAnchorMode,
+    pub post_condition_mode: TransactionPostConditionMode,
     pub post_conditions: Vec<TransactionPostCondition>,
     pub payload: TransactionPayload
 }
@@ -643,7 +512,7 @@ pub struct StacksWorkScore {
 pub struct StacksBlockHeader {
     version: u8,
     total_work: StacksWorkScore,
-    proof: ECVRF_Proof,
+    proof: VRFProof,
     parent_block: BlockHeaderHash,
     parent_microblock: BlockHeaderHash,
     tx_merkle_root: Sha512_256,
@@ -663,7 +532,7 @@ pub struct StacksBlock {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksMicroblockHeader {
     version: u8,
-    sequence: u32,
+    sequence: u8,       // you can send 1 microblock on average once every 2.34 seconds, if there's a 600-second block time
     prev_block: BlockHeaderHash,
     tx_merkle_root: Sha512_256,
     signature: MessageSignature
@@ -682,6 +551,3 @@ pub const MAX_BLOCK_SIZE : u32 = 1048576;
 
 // maximum microblock size is 64KB
 pub const MAX_MICROBLOCK_SIZE : u32 = 65536;
-
-// maximum microblocks between stacks blocks (amounts to 16MB of data at max)
-pub const MAX_MICROBLOCK_SEQUENCE_LEN : u32 = 256;
