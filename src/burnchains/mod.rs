@@ -26,11 +26,39 @@ pub mod burnchain;
 use std::fmt;
 use std::error;
 use std::io;
+use std::default::Default;
 
 use self::bitcoin::Error as btc_error;
 
+use self::bitcoin::{
+    BitcoinBlock,
+    BitcoinTransaction,
+    BitcoinTxInput,
+    BitcoinTxOutput,
+    BitcoinInputType
+};
+
+use self::bitcoin::indexer::{
+    BITCOIN_MAINNET_NAME,
+    BITCOIN_TESTNET_NAME,
+    BITCOIN_REGTEST_NAME,
+    FIRST_BLOCK_MAINNET as BITCOIN_FIRST_BLOCK_MAINNET,
+    FIRST_BLOCK_TESTNET as BITCOIN_FIRST_BLOCK_TESTNET,
+    FIRST_BLOCK_REGTEST as BITCOIN_FIRST_BLOCK_REGTEST,
+    BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET,
+    BITCOIN_TESTNET as BITCOIN_NETWORK_ID_TESTNET,
+    BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST
+};
+
 use chainstate::burn::operations::Error as op_error;
 use chainstate::burn::ConsensusHash;
+
+use chainstate::stacks::StacksAddress;
+use chainstate::stacks::StacksPublicKey; 
+
+use chainstate::burn::operations::BlockstackOperationType;
+
+use address::AddressHashMode;
 
 use util::hash::Hash160;
 use util::db::Error as db_error;
@@ -45,7 +73,7 @@ impl_byte_array_newtype!(Txid, u8, 32);
 pub const TXID_ENCODED_SIZE : u32 = 32;
 
 #[derive(Serialize, Deserialize)]
-pub struct BurnchainHeaderHash([u8; 32]);
+pub struct BurnchainHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
 impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
@@ -59,33 +87,53 @@ impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 
 pub const BLOCKSTACK_MAGIC_MAINNET : MagicBytes = MagicBytes([105, 100]);  // 'id'
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct BurnQuotaConfig {
-    pub inc: u64,
-    pub dec_num: u64,
-    pub dec_den: u64
+#[derive(Debug, PartialEq, Clone)]
+pub struct BurnchainParameters {
+    chain_name: String,
+    network_name: String,
+    network_id: u32,
+    first_block_height: u64,
+    first_block_hash: BurnchainHeaderHash,
+    stable_confirmations: u32,
+    consensus_hash_lifetime: u32,
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
-pub enum BurnchainInputType {
-    BitcoinInput,
-    BitcoinSegwitP2SHInput,
+impl BurnchainParameters {
+    pub fn bitcoin_mainnet() -> BurnchainParameters {
+        BurnchainParameters {
+            chain_name: "bitcoin".to_string(),
+            network_name: BITCOIN_MAINNET_NAME.to_string(),
+            network_id: BITCOIN_NETWORK_ID_MAINNET,
+            first_block_height: BITCOIN_FIRST_BLOCK_MAINNET,
+            first_block_hash: BurnchainHeaderHash([0u8; 32]),       // TODO
+            stable_confirmations: 7,
+            consensus_hash_lifetime: 24,
+        }
+    }
 
-    // TODO: expand this as more burnchains are supported
-}
+    pub fn bitcoin_testnet() -> BurnchainParameters {
+        BurnchainParameters {
+            chain_name: "bitcoin".to_string(),
+            network_name: BITCOIN_TESTNET_NAME.to_string(),
+            network_id: BITCOIN_NETWORK_ID_TESTNET,
+            first_block_height: BITCOIN_FIRST_BLOCK_TESTNET,
+            first_block_hash: BurnchainHeaderHash([0u8; 32]),       // TODO
+            stable_confirmations: 7,
+            consensus_hash_lifetime: 24,
+        }
+    }
 
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
-pub enum StableConfirmations {
-    Bitcoin = 7
-
-    // TODO: expand this as more burnchains are supported
-}
-
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
-pub enum ConsensusHashLifetime {
-    Bitcoin = 24
-
-    // TODO: expand this as more burnchains are supported
+    pub fn bitcoin_regtest() -> BurnchainParameters {
+        BurnchainParameters {
+            chain_name: "bitcoin".to_string(),
+            network_name: BITCOIN_REGTEST_NAME.to_string(),
+            network_id: BITCOIN_NETWORK_ID_REGTEST,
+            first_block_height: BITCOIN_FIRST_BLOCK_REGTEST,
+            first_block_hash: BurnchainHeaderHash([0u8; 32]),       // TODO
+            stable_confirmations: 1,
+            consensus_hash_lifetime: 24
+        }
+    }
 }
 
 pub trait PublicKey : Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
@@ -103,38 +151,91 @@ pub trait Address : Clone + fmt::Debug {
     fn to_string(&self) -> String;
     fn from_string(&String) -> Option<Self>
         where Self: Sized;
-    fn burn_bytes() -> Vec<u8>;
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct BurnchainTxOutput<A> {
-    pub address: A,
-    pub units: u64
+    fn is_burn(&self) -> bool;
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct BurnchainTxInput<K> {
-    pub keys: Vec<K>,
-    pub num_required: usize,
-    pub in_type: BurnchainInputType
+pub struct BurnchainSigner {
+    pub hash_mode: AddressHashMode,
+    pub num_sigs: usize,
+    pub public_keys: Vec<StacksPublicKey>
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct BurnchainTransaction<A, K> {
-    pub txid: Txid,
-    pub vtxindex: u32,
-    pub opcode: u8,
-    pub data: Vec<u8>,
-    pub inputs: Vec<BurnchainTxInput<K>>,
-    pub outputs: Vec<BurnchainTxOutput<A>>
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BurnchainRecipient {
+    pub address: StacksAddress,
+    pub amount: u64
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct BurnchainBlock<A, K> {
+#[derive(Debug, PartialEq, Clone)]
+pub enum BurnchainTransaction {
+    Bitcoin(BitcoinTransaction),
+
+    // TODO: fill in more types as we support them
+}
+
+impl BurnchainTransaction {
+    pub fn txid(&self) -> Txid {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.txid.clone()
+        }
+    }
+
+    pub fn vtxindex(&self) -> u32 {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.vtxindex
+        }
+    }
+
+    pub fn opcode(&self) -> u8 {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.opcode
+        }
+    }
+    
+    pub fn data(&self) -> Vec<u8> {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.data.clone()
+        }
+    }
+
+    pub fn num_signers(&self) -> usize {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.inputs.len()
+        }
+    }
+
+    pub fn get_signers(&self) -> Vec<BurnchainSigner> {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.inputs.iter().map(|ref i| BurnchainSigner::from_bitcoin_input(i)).collect()
+        }
+    }
+
+    pub fn get_recipients(&self) -> Vec<BurnchainRecipient> {
+        match *self {
+            BurnchainTransaction::Bitcoin(ref btc) => btc.outputs.iter().map(|ref o| BurnchainRecipient::from_bitcoin_output(o)).collect()
+        }
+    }
+}
+
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum BurnchainBlock {
+    Bitcoin(BitcoinBlock),
+
+    // TODO: fill in some more types as we support them
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct BurnchainBlockHeader {
     pub block_height: u64,
     pub block_hash: BurnchainHeaderHash,
     pub parent_block_hash: BurnchainHeaderHash,
-    pub txs: Vec<BurnchainTransaction<A, K>>
+    pub num_txs: u64,
+    pub fork_segment_id: u64,
+    pub parent_fork_segment_id: u64,
+    pub fork_segment_length: u64,
+    pub fork_length: u64
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -144,7 +245,6 @@ pub struct Burnchain {
     pub chain_name: String,
     pub network_name: String,
     pub working_dir: String,
-    pub burn_quota : BurnQuotaConfig,
     pub consensus_hash_lifetime: u32,
     pub stable_confirmations: u32,
     pub first_block_height: u64,
@@ -176,6 +276,8 @@ pub enum Error {
     ThreadChannelError,
     /// Missing headers 
     MissingHeaders,
+    /// Missing parent block
+    MissingParentBlock,
     /// filesystem error 
     FSError(io::Error),
     /// Operation processing error 
@@ -191,6 +293,7 @@ impl fmt::Display for Error {
             Error::DownloadError(ref btce) => fmt::Display::fmt(btce, f),
             Error::ParseError => f.write_str(error::Error::description(self)),
             Error::MissingHeaders => f.write_str(error::Error::description(self)),
+            Error::MissingParentBlock => f.write_str(error::Error::description(self)),
             Error::ThreadChannelError => f.write_str(error::Error::description(self)),
             Error::FSError(ref e) => fmt::Display::fmt(e, f),
             Error::OpError(ref e) => fmt::Display::fmt(e, f),
@@ -207,6 +310,7 @@ impl error::Error for Error {
             Error::DownloadError(ref e) => Some(e),
             Error::ParseError => None,
             Error::MissingHeaders => None,
+            Error::MissingParentBlock => None,
             Error::ThreadChannelError => None,
             Error::FSError(ref e) => Some(e),
             Error::OpError(ref e) => Some(e),
@@ -221,9 +325,109 @@ impl error::Error for Error {
             Error::DownloadError(ref e) => e.description(),
             Error::ParseError => "Parse error",
             Error::MissingHeaders => "Missing block headers",
+            Error::MissingParentBlock => "Missing parent block",
             Error::ThreadChannelError => "Error in thread channel",
             Error::FSError(ref e) => e.description(),
             Error::OpError(ref e) => e.description(),
         }
     }
 }
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use util::hash::*;
+
+    use burnchains::Burnchain;
+    use chainstate::burn::operations::BlockstackOperationType;
+    use chainstate::burn::db::burndb::*;
+
+    use chainstate::burn::*;
+
+    impl Txid {
+        pub fn from_test_data(block_height: u64, vtxindex: u32, burn_header_hash: &BurnchainHeaderHash) -> Txid {
+            let mut bytes = vec![];
+            bytes.extend_from_slice(&block_height.to_be_bytes());
+            bytes.extend_from_slice(&vtxindex.to_be_bytes());
+            bytes.extend_from_slice(burn_header_hash.as_bytes());
+            let h = DoubleSha256::from_data(&bytes[..]);
+            let mut hb = [0u8; 32];
+            hb.copy_from_slice(h.as_bytes());
+
+            Txid(hb)
+        }
+    }
+
+    impl BurnchainHeaderHash {
+        pub fn from_test_data(block_height: u64, fork_segment_id: u64) -> BurnchainHeaderHash {
+            let mut bytes = vec![];
+            bytes.extend_from_slice(&block_height.to_be_bytes());
+            bytes.extend_from_slice(&fork_segment_id.to_be_bytes());
+            let h = DoubleSha256::from_data(&bytes[..]);
+            let mut hb = [0u8; 32];
+            hb.copy_from_slice(h.as_bytes());
+
+            BurnchainHeaderHash(hb)
+        }
+    }
+
+    pub fn txs_mined_at(burnchain: &Burnchain, consensus_hash: &ConsensusHash, block_header: &BurnchainBlockHeader, ops: &mut Vec<BlockstackOperationType>) -> () {
+        for i in 0..ops.len() {
+            ops[i].set_mined_at(burnchain, consensus_hash, block_header);
+        }
+    }
+
+    pub fn next_burnchain_block_at(db: &mut BurnDB, burnchain: &Burnchain, burn_header_hash: &BurnchainHeaderHash, parent_burn_header_hash: &BurnchainHeaderHash, ops: &mut Vec<BlockstackOperationType>) -> BlockSnapshot {
+        let last_snapshot = BurnDB::get_block_snapshot(db.conn(), parent_burn_header_hash).unwrap().unwrap();
+        let header = BurnchainBlockHeader {
+            block_height: last_snapshot.block_height + 1,
+            block_hash: burn_header_hash.clone(),
+            parent_block_hash: parent_burn_header_hash.clone(),
+            num_txs: ops.len() as u64,
+            fork_segment_id: last_snapshot.fork_segment_id,
+            parent_fork_segment_id: last_snapshot.parent_fork_segment_id,
+            fork_segment_length: last_snapshot.fork_segment_length + 1,
+            fork_length: last_snapshot.fork_length + 1
+        };
+
+        txs_mined_at(burnchain, &last_snapshot.consensus_hash, &header, ops);
+
+        let mut tx = db.tx_begin().unwrap();
+        let next_snapshot = Burnchain::process_block_ops(&mut tx, burnchain, &last_snapshot, &header, ops).unwrap();
+        tx.commit().unwrap();
+
+        next_snapshot
+    }
+
+    pub fn next_burnchain_block(db: &mut BurnDB, burnchain: &Burnchain, ops: &mut Vec<BlockstackOperationType>) -> BlockSnapshot {
+        let chain_tip = BurnDB::get_canonical_chain_tip(db.conn()).unwrap();
+        let next_block_height = chain_tip.block_height + 1;
+        let next_burn_header = BurnchainHeaderHash::from_test_data(next_block_height, 0);
+
+        next_burnchain_block_at(db, burnchain, &next_burn_header, &chain_tip.burn_header_hash, ops)
+    }
+
+    pub fn next_burnchain_blocks_at(db: &mut BurnDB, burnchain: &Burnchain, block_height: u64, burn_header_hash: &BurnchainHeaderHash, fork_segment_id: u64, all_ops: &mut Vec<Vec<BlockstackOperationType>>) -> BlockSnapshot {
+        let mut cur_snapshot = BurnDB::get_block_snapshot(db.conn(), burn_header_hash).unwrap().unwrap();
+        let mut parent_burn_hash = burn_header_hash.clone();
+        let mut cur_block_height = block_height;
+        let mut cur_burn_hash = BurnchainHeaderHash::from_test_data(block_height, fork_segment_id);
+
+        for i in 0..all_ops.len() {
+            let mut ops = &mut all_ops[i];
+            cur_snapshot = next_burnchain_block_at(db, burnchain, &cur_burn_hash, &parent_burn_hash, ops);
+
+            parent_burn_hash = cur_burn_hash.clone();
+            cur_block_height += 1;
+            cur_burn_hash = BurnchainHeaderHash::from_test_data(cur_block_height, fork_segment_id);
+        }
+
+        cur_snapshot
+    }
+
+    pub fn next_burnchain_blocks(db: &mut BurnDB, burnchain: &Burnchain, all_ops: &mut Vec<Vec<BlockstackOperationType>>) -> BlockSnapshot {
+        let chain_tip = BurnDB::get_canonical_chain_tip(db.conn()).unwrap();
+        next_burnchain_blocks_at(db, burnchain, chain_tip.block_height, &chain_tip.burn_header_hash, 0, all_ops)
+    }
+}
+
