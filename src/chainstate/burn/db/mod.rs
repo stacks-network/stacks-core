@@ -32,12 +32,10 @@ use serde_json::Error as serde_error;
 
 use burnchains::{Txid, BurnchainHeaderHash, Address};
 
-use util::vrf::ECVRF_check_public_key;
+use util::vrf::*;
 use util::hash::{hex_bytes, Hash160};
 
 use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, SortitionHash};
-
-use ed25519_dalek::PublicKey as VRFPublicKey;
 
 use util::db;
 use util::db::FromRow;
@@ -52,18 +50,14 @@ impl_byte_array_from_row!(OpsHash);
 impl_byte_array_from_row!(BurnchainHeaderHash);
 impl_byte_array_from_row!(SortitionHash);
 
-#[allow(non_snake_case)]
-pub fn VRFPublicKey_from_row<'a>(row: &'a Row, index: usize) -> Result<VRFPublicKey, db_error> {
-    let public_key_hex : String = row.get(index);
-    let public_key_bytes = hex_bytes(&public_key_hex)
-        .map_err(|_e| db_error::ParseError)?;
-
-    ECVRF_check_public_key(&public_key_bytes.to_vec())
-        .ok_or(db_error::ParseError)?;
-
-    let public_key = VRFPublicKey::from_bytes(&public_key_bytes)
-        .map_err(|_e| db_error::ParseError)?;
-    Ok(public_key)
+impl FromRow<VRFPublicKey> for VRFPublicKey {
+    fn from_row<'a>(row: &'a Row, index: usize) -> Result<VRFPublicKey, db_error> {
+        let pubkey_hex : String = row.get(index);
+        match VRFPublicKey::from_hex(&pubkey_hex) {
+            Some(pubk) => Ok(pubk),
+            None => Err(db_error::ParseError)
+        }
+    }
 }
 
 impl<A: Address> FromRow<A> for A {
