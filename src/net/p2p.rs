@@ -69,7 +69,7 @@ use burnchains::PublicKey;
 use burnchains::Burnchain;
 use burnchains::BurnchainView;
 
-use chainstate::burn::db::burndb;
+use chainstate::burn::db::burndb::BurnDB;
 
 use util::log;
 use util::get_epoch_time_secs;
@@ -1203,7 +1203,7 @@ impl PeerNetwork {
         let local_peer = PeerDB::get_local_peer(self.peerdb.conn())
             .map_err(|e| net_error::DBError)?;
 
-        let chain_view = burndb::get_burnchain_view(burndb_conn, &self.burnchain)
+        let chain_view = BurnDB::get_burnchain_view(burndb_conn, &self.burnchain)
             .map_err(|e| net_error::DBError)?;
 
         // handle network I/O requests from other threads, and get back reply handles to them
@@ -1340,7 +1340,6 @@ mod test {
             chain_name: "bitcoin".to_string(),
             network_name: "testnet".to_string(),
             working_dir: "/nope".to_string(),
-            burn_quota: get_burn_quota_config(&"bitcoin".to_string()).unwrap(),
             consensus_hash_lifetime: 24,
             stable_confirmations: 7,
             first_block_height: 12300,
