@@ -13,6 +13,7 @@ use vm::callables::CallableType;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
+use util::hash;
 
 define_named_enum!(NativeFunctions {
     Add("+"),
@@ -48,6 +49,7 @@ define_named_enum!(NativeFunctions {
     Hash160("hash160"),
     Sha256("sha256"),
     Sha512("sha512"),
+    Sha512Trunc256("sha512/256"),
     Keccak256("keccak256"),
     Print("print"),
     ContractCall("contract-call!"),
@@ -108,6 +110,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             Hash160 => CallableType::NativeFunction("native_hash160", &native_hash160),
             Sha256 => CallableType::NativeFunction("native_sha256", &native_sha256),
             Sha512 => CallableType::NativeFunction("native_sha512", &native_sha512),
+            Sha512Trunc256 => CallableType::NativeFunction("native_sha512trunc256", &native_sha512trunc256),
             Keccak256 => CallableType::NativeFunction("native_keccak256", &native_keccak256),
             Print => CallableType::NativeFunction("native_print", &native_print),
             ContractCall => CallableType::SpecialFunction("native_contract-call", &database::special_contract_call),
@@ -156,61 +159,28 @@ fn native_eq(args: &[Value]) -> Result<Value> {
     }
 }
 
-fn native_hash160(args: &[Value]) -> Result<Value> {
-    use util::hash::Hash160;
-    check_argument_count(1, args)?;
+macro_rules! native_hash_func {
+    ($name:ident, $module:ty) => {
+        fn $name(args: &[Value]) -> Result<Value> {
+            check_argument_count(1, args)?;
 
-    let input = &args[0];
-    let bytes = match input {
-        Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
-        Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
-    }?;
-    let hash160 = Hash160::from_data(&bytes);
-    Value::buff_from(hash160.as_bytes().to_vec())
+            let input = &args[0];
+            let bytes = match input {
+                Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
+                Value::Buffer(value) => Ok(value.data.clone()),
+                _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
+            }?;
+            let hash = <$module>::from_data(&bytes);
+            Value::buff_from(hash.as_bytes().to_vec())
+        }
+    }
 }
 
-fn native_sha256(args: &[Value]) -> Result<Value> {
-    use util::hash::Sha256Sum;
-    check_argument_count(1, args)?;
-
-    let input = &args[0];
-    let bytes = match input {
-        Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
-        Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
-    }?;
-    let sha256 = Sha256Sum::from_data(&bytes);
-    Value::buff_from(sha256.as_bytes().to_vec())
-}
-
-fn native_sha512(args: &[Value]) -> Result<Value> {
-    use util::hash::Sha512Sum;
-    check_argument_count(1, args)?;
-
-    let input = &args[0];
-    let bytes = match input {
-        Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
-        Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
-    }?;
-    let sha512 = Sha512Sum::from_data(&bytes);
-    Value::buff_from(sha512.as_bytes().to_vec())
-}
-
-fn native_keccak256(args: &[Value]) -> Result<Value> {
-    use util::hash::Keccak256Hash;
-    check_argument_count(1, args)?;
-
-    let input = &args[0];
-    let bytes = match input {
-        Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
-        Value::Buffer(value) => Ok(value.data.clone()),
-        _ => Err(UncheckedError::TypeError("Int|Buffer".to_string(), input.clone()))
-    }?;
-    let keccak256 = Keccak256Hash::from_data(&bytes);
-    Value::buff_from(keccak256.as_bytes().to_vec())
-}
+native_hash_func!(native_hash160, hash::Hash160);
+native_hash_func!(native_sha256, hash::Sha256Sum);
+native_hash_func!(native_sha512, hash::Sha512Sum);
+native_hash_func!(native_sha512trunc256, hash::Sha512Trunc256Sum);
+native_hash_func!(native_keccak256, hash::Keccak256Hash);
 
 fn native_begin(args: &[Value]) -> Result<Value> {
     match args.last() {

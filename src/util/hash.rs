@@ -26,7 +26,7 @@ use util::log;
 use util::HexError;
 
 use ripemd160::Ripemd160;
-use sha2::{Sha256, Sha512, Digest};
+use sha2::{Sha256, Sha512, Sha512Trunc256, Digest};
 use sha3::Keccak256;
 
 use util::uint::Uint256;
@@ -64,6 +64,11 @@ impl_array_newtype!(Sha512Sum, u8, 64);
 impl_array_hexstring_fmt!(Sha512Sum);
 impl_byte_array_newtype!(Sha512Sum, u8, 64);
 
+pub struct Sha512Trunc256Sum(pub [u8; 32]);
+impl_array_newtype!(Sha512Trunc256Sum, u8, 32);
+impl_array_hexstring_fmt!(Sha512Trunc256Sum);
+impl_byte_array_newtype!(Sha512Trunc256Sum, u8, 32);
+
 #[derive(Serialize, Deserialize)]
 pub struct DoubleSha256(pub [u8; 32]);
 impl_array_newtype!(DoubleSha256, u8, 32);
@@ -100,8 +105,14 @@ impl Hash160 {
 }
 
 impl Sha512Sum {
-    pub fn from_data(data: &[u8]) -> Sha512Sum {
-        Sha512Sum::from(Sha512::digest(data).as_slice())
+    pub fn from_data(data: &[u8]) -> Self {
+        Self::from(Sha512::digest(data).as_slice())
+    }
+}
+
+impl Sha512Trunc256Sum {
+    pub fn from_data(data: &[u8]) -> Self {
+        Self::from(Sha512Trunc256::digest(data).as_slice())
     }
 }
 

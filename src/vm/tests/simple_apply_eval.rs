@@ -88,6 +88,31 @@ fn test_sha512() {
 }
 
 #[test]
+fn test_sha512trunc256() {
+    let sha512_evals = [
+        "(sha512/256 \"\")",
+        "(sha512/256 0)",
+        "(sha512/256 \"The quick brown fox jumps over the lazy dog\")",
+    ];
+
+    fn p_to_hex(val: Value) -> String {
+        match val {
+            Value::Buffer(BuffData { data }) => to_hex(&data),
+            _ => panic!("Failed")
+        }
+    }
+
+    let expectations = [
+        "c672b8d1ef56ed28ab87c3622c5114069bdd3ad7b8f9737498d0c01ecef0967a",
+        "e41c9660b04714cdf7249f0fd6e6c5556f54a7e04d299958b69a877e0fada2fb",
+        "dd9d67b371519c339ed8dbd25af90e976a1eeefd4ad3d889005e532fc5bef04d",
+    ];
+
+    sha512_evals.iter().zip(expectations.iter())
+        .for_each(|(program, expectation)| assert_eq!(expectation, &p_to_hex(execute(program))));
+}
+
+#[test]
 fn test_keccak256() {
     let keccak256_evals = [
         "(keccak256 \"\")",
@@ -346,6 +371,8 @@ fn test_hash_errors() {
         "(hash160 'true)",
         "(sha512 'true)",
         "(sha512 1 2)",
+        "(sha512/256 'true)",
+        "(sha512/256 1 2)",
     ];
 
     let expectations: &[Error] = &[
@@ -355,6 +382,8 @@ fn test_hash_errors() {
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
+        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
+        UncheckedError::IncorrectArgumentCount(1, 2).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
         UncheckedError::IncorrectArgumentCount(1, 2).into(),
     ];

@@ -65,12 +65,14 @@ fn test_simple_arithmetic_checks() {
 fn test_simple_hash_checks() {
     let good = ["(hash160 1)",
                 "(sha512 10)",
+                "(sha512/256 10)",
                 "(sha256 (keccak256 1))"];
     let bad_types = ["(hash160 'true)",
                      "(sha256 'false)",
                      "(sha512 'false)",
+                     "(sha512/256 'false)",
                      "(keccak256 (list 1 2 3))"];
-    let invalid_args = ["(sha256 1 2 3)", "(sha512 1 2 3)"];
+    let invalid_args = ["(sha256 1 2 3)", "(sha512 1 2 3)", "(sha512/256 1 2 3)"];
     for good_test in good.iter() {
         type_check_helper(&good_test).unwrap();
     }
