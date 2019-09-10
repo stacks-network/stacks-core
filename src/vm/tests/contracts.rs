@@ -1,6 +1,6 @@
 use vm::execute as vm_execute;
 use vm::errors::{Error, UncheckedError};
-use vm::types::{Value, StandardPrincipalData, ResponseData};
+use vm::types::{Value, StandardPrincipalData, ResponseData, PrincipalData};
 use vm::contexts::{OwnedEnvironment,GlobalContext, Environment};
 use vm::representations::SymbolicExpression;
 use vm::contracts::Contract;
@@ -195,6 +195,46 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         assert_eq!(
             env.execute_contract("tokens", "my-get-token-balance", &symbols_from_values(vec![p1.clone()])).unwrap(),
             Value::Int(1004));
+    }
+}
+
+fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
+    let contract_a =
+        "(define-read-only (get-caller)
+           (list contract-caller tx-sender))";
+    let contract_b =
+        "(define-read-only (get-caller)
+           (list contract-caller tx-sender))
+         (define-read-only (as-contract-get-caller)
+           (as-contract (get-caller)))
+         (define-read-only (cc-get-caller)
+           (contract-call! contract-a get-caller))
+         (define-read-only (as-contract-cc-get-caller)
+           (as-contract (contract-call! contract-a get-caller)))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    {
+        let mut env = owned_env.get_exec_environment(None);
+        env.initialize_contract("contract-a", contract_a).unwrap();
+        env.initialize_contract("contract-b", contract_b).unwrap();
+    }
+
+    {
+        let c_b = Value::from(PrincipalData::ContractPrincipal("contract-b".into()));
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        assert_eq!(
+            env.execute_contract("contract-a", "get-caller", &vec![]).unwrap(),
+            Value::list_from(vec![p1.clone(), p1.clone()]).unwrap());
+        assert_eq!(
+            env.execute_contract("contract-b", "as-contract-get-caller", &vec![]).unwrap(),
+            Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
+        assert_eq!(
+            env.execute_contract("contract-b", "cc-get-caller", &vec![]).unwrap(),
+            Value::list_from(vec![c_b.clone(), p1.clone()]).unwrap());
+        assert_eq!(
+            env.execute_contract("contract-b", "as-contract-cc-get-caller", &vec![]).unwrap(),
+            Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
     }
 }
 
@@ -512,6 +552,7 @@ fn test_factorial_contract(owned_env: &mut OwnedEnvironment) {
 fn test_all() {
     let to_test = [ test_factorial_contract,
                     test_aborts,
+                    test_contract_caller,
                     test_simple_naming_system,
                     test_simple_token_system,
                     test_simple_contract_call ];

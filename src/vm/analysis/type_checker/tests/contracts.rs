@@ -140,7 +140,7 @@ fn test_names_tokens_contracts_interface() {
     ";
 
 
-    let contract_analysis = mem_type_check(INTERFACE_TEST_CONTRACT).unwrap();
+    let contract_analysis = mem_type_check(INTERFACE_TEST_CONTRACT).unwrap().1;
     let test_contract_json_str = build_contract_interface(&contract_analysis).serialize();
     let test_contract_json = serde_json::from_str(&test_contract_json_str).unwrap();
 
@@ -455,17 +455,21 @@ fn test_bad_map_usage() {
                  bad_set_1,
                  bad_set_2,
                  bad_insert_1,
-                 bad_insert_2,
-                 unhandled_option];
+                 bad_insert_2];
 
     for contract in tests.iter() {
-        let result = mem_type_check(contract);
-        let err = result.expect_err("Expected a type error");
-        assert!(match &err.err {
-            &CheckErrors::TypeError(_,_) => true,
+        let err = mem_type_check(contract).unwrap_err();
+        assert!(match err.err {
+            CheckErrors::TypeError(_,_) => true,
             _ => false
         });
     }
+
+    assert!(match mem_type_check(unhandled_option).unwrap_err().err {
+        // Bad arg to `+` causes a uniontype error
+        CheckErrors::UnionTypeError(_, _) => true,
+        _ => false,
+    });
 }
 
 

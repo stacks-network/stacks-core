@@ -7,10 +7,11 @@ mod database;
 mod options;
 mod assets;
 
+use std::convert::TryInto;
 use vm::errors::{UncheckedError, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
 use vm::types::{Value, PrincipalData, ResponseData, TypeSignature};
 use vm::callables::CallableType;
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName};
 use vm::representations::SymbolicExpressionType::{List, Atom};
 use vm::{LocalContext, Environment, eval};
 use util::hash;
@@ -24,6 +25,8 @@ define_named_enum!(NativeFunctions {
     CmpLeq("<="),
     CmpLess("<"),
     CmpGreater(">"),
+    ToInt("to-int"),
+    ToUInt("to-uint"),
     Modulo("mod"),
     Power("pow"),
     BitwiseXOR("xor"),
@@ -84,6 +87,8 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             CmpLeq => CallableType::NativeFunction("native_leq", &arithmetic::native_leq),
             CmpLess => CallableType::NativeFunction("native_le", &arithmetic::native_le),
             CmpGreater => CallableType::NativeFunction("native_ge", &arithmetic::native_ge),
+            ToUInt => CallableType::NativeFunction("native_to_uint", &arithmetic::native_to_uint),
+            ToInt => CallableType::NativeFunction("native_to_int", &arithmetic::native_to_int),
             Modulo => CallableType::NativeFunction("native_mod", &arithmetic::native_mod),
             Power => CallableType::NativeFunction("native_pow", &arithmetic::native_pow),
             BitwiseXOR => CallableType::NativeFunction("native_xor", &arithmetic::native_xor),
@@ -216,7 +221,7 @@ fn special_if(args: &[SymbolicExpression], env: &mut Environment, context: &Loca
 }
 
 fn parse_eval_bindings(bindings: &[SymbolicExpression],
-                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(String, Value)>> {
+                       env: &mut Environment, context: &LocalContext)-> Result<Vec<(ClarityName, Value)>> {
     let mut result = Vec::new();
     for binding in bindings.iter() {
         let binding_expression = binding.match_list()
@@ -252,13 +257,13 @@ fn special_let(args: &[SymbolicExpression], env: &mut Environment, context: &Loc
     let mut binding_results = parse_eval_bindings(bindings, env, context)?;
     for (binding_name, binding_value) in binding_results.drain(..) {
         if is_reserved(&binding_name) {
-            return Err(UncheckedError::ReservedName(binding_name).into())
+            return Err(UncheckedError::ReservedName(binding_name.into()).into())
         }
         if env.contract_context.lookup_function(&binding_name).is_some() {
-            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
+            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name.into()).into())
         }
         if inner_context.lookup_variable(&binding_name).is_some() {
-            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name).into())
+            return Err(UncheckedError::VariableDefinedMultipleTimes(binding_name.into()).into())
         }
         inner_context.variables.insert(binding_name, binding_value);
     }
@@ -281,7 +286,8 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     check_argument_count(1, args)?;
 
     // nest an environment.
-    let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(env.contract_context.name.clone()));
+    let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(
+        env.contract_context.name.clone()));
     let mut nested_env = env.nest_as_principal(contract_principal);
 
     eval(&args[0], &mut nested_env, context)

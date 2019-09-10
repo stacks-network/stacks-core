@@ -118,10 +118,10 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let token_identifier = AssetIdentifier { contract_name: "tokens".to_string(),
-                                             asset_name: "stackaroos".to_string() };
+    let token_identifier = AssetIdentifier { contract_name: "tokens".into(),
+                                             asset_name: "stackaroos".into() };
 
-    let contract_principal = PrincipalData::ContractPrincipal("tokens".to_string());
+    let contract_principal = PrincipalData::ContractPrincipal("tokens".into());
 
     owned_env.initialize_contract("tokens", tokens_contract).unwrap();
 
@@ -293,10 +293,10 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let names_identifier = AssetIdentifier { contract_name: "names".to_string(),
-                                             asset_name: "names".to_string() };
-    let tokens_identifier = AssetIdentifier { contract_name: "tokens".to_string(),
-                                             asset_name: "stackaroos".to_string() };
+    let names_identifier = AssetIdentifier { contract_name: "names".into(),
+                                             asset_name: "names".into() };
+    let tokens_identifier = AssetIdentifier { contract_name: "tokens".into(),
+                                             asset_name: "stackaroos".into() };
 
 
     let name_hash_expensive_0 = execute("(hash160 1)");

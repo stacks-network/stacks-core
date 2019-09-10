@@ -1,6 +1,6 @@
 use std::fmt;
 use std::error;
-use vm::types::Value;
+use vm::types::{Value, TypeSignature};
 use vm::contexts::StackTrace;
 use chainstate::stacks::index::{Error as MarfError};
 
@@ -29,6 +29,7 @@ pub enum UncheckedError {
     TypeError(String, Value),
     InvalidArguments(String),
     IncorrectArgumentCount(usize, usize),
+    ListLargerThanExpected,
     UndefinedVariable(String),
     UndefinedFunction(String),
     UndefinedContract(String),
@@ -51,6 +52,7 @@ pub enum UncheckedError {
     InvalidArgumentExpectedName,
     ContractMustReturnBoolean,
     WriteFromReadOnlyContext,
+    BadContractName,
 }
 
 /// InterpreterErrors are errors that *should never* occur.
@@ -66,6 +68,10 @@ pub enum InterpreterError {
     BadFileName,
     FailedToCreateDataDirectory,
     MarfFailure(IncomparableError<MarfError>),
+    DeserializeExpected(TypeSignature),
+    DeserializeUnexpectedTypeField(String),
+    FailureConstructingTupleWithType,
+    FailureConstructingListWithType
 }
 
 
@@ -92,7 +98,10 @@ pub enum RuntimeErrorType {
     NoSuchToken,
     NotImplemented,
     NoSenderInContext,
-    NonPositiveTokenSupply
+    NonPositiveTokenSupply,
+    JSONParseError(IncomparableError<SerdeJSONErr>),
+    AttemptToFetchInTransientContext,
+    BadNameValue(&'static str, String)
 }
 
 #[derive(Debug, PartialEq)]
@@ -144,6 +153,12 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
+    }
+}
+
+impl From<SerdeJSONErr> for Error {
+    fn from(err: SerdeJSONErr) -> Self {
+        Error::from(RuntimeErrorType::JSONParseError(IncomparableError { err }))
     }
 }
 

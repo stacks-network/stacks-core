@@ -1,4 +1,4 @@
-use vm::representations::{SymbolicExpression};
+use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
@@ -18,7 +18,7 @@ mod tests;
 
 pub struct ReadOnlyChecker <'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
-    defined_functions: HashMap<String, bool>
+    defined_functions: HashMap<ClarityName, bool>
 }
 
 impl <'a, 'b> AnalysisPass for ReadOnlyChecker <'a, 'b> {
@@ -54,19 +54,20 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         Ok(())
     }
 
-    fn check_define_function(&mut self, args: &[SymbolicExpression]) -> CheckResult<(String, bool)> {
+    fn check_define_function(&mut self, args: &[SymbolicExpression]) -> CheckResult<(ClarityName, bool)> {
         check_argument_count(2, args)?;
 
         let signature = args[0].match_list()
             .ok_or(CheckErrors::DefineFunctionBadSignature)?;
         let body = &args[1];
 
-        let (function_name, _) = signature.split_first()
-            .ok_or(CheckErrors::DefineFunctionBadSignature)?;
+        let function_name = signature.get(0)
+            .ok_or(CheckErrors::DefineFunctionBadSignature)?
+            .match_atom().ok_or(CheckErrors::BadFunctionName)?;
 
         let is_read_only = self.is_read_only(body)?;
 
-        Ok((function_name.to_string(), is_read_only))
+        Ok((function_name.clone(), is_read_only))
     }
 
     fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
@@ -141,6 +142,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             Modulo | Power | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
             Sha512 | Sha512Trunc256 |
             ConsSome | ConsOkay | ConsError | DefaultTo | Expects | ExpectsErr | IsOkay | IsNone |
+            ToUInt | ToInt |
             ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin | FetchVar | GetTokenBalance | GetAssetOwner => {
                 self.are_all_read_only(true, args)
             },
@@ -249,7 +251,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             result
         } else {
             let is_function_read_only = self.defined_functions.get(function_name)
-                .ok_or(CheckErrors::UnknownFunction(function_name.clone()))?
+                .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?
                 .clone();
             self.are_all_read_only(is_function_read_only, args)
         }

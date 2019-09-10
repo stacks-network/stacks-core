@@ -1,7 +1,7 @@
 use vm::functions::{NativeFunctions};
 use vm::functions::define::{DefineFunctions};
 use vm::variables::{NativeVariables};
-use vm::types::{FunctionType};
+use vm::types::{FunctionType, FixedFunction};
 use vm::analysis::type_checker::{TypedNativeFunction};
 use vm::analysis::type_checker::natives::SimpleNativeFunction;
 
@@ -89,6 +89,20 @@ const NONE_KEYWORD: KeywordAPI = KeywordAPI {
 (only-if-positive 4) ;; Returns (some 4)
 (only-if-positive (- 3)) ;; Returns none
 "
+};
+
+const TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(to-uint i)",
+    description: "Tries to convert the `int` argument to a `uint`. Will cause a runtime error and abort if the supplied argument is negative.",
+    example: "(to-uint 238) ;; Returns u238"
+};
+
+const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    signature: "(to-int u)",
+    description: "Tries to convert the `uint` argument to an `int`. Will cause a runtime error and abort if the supplied argument is >= `pow(2, 127)`",
+    example: "(to-int u238) ;; Returns 238"
 };
 
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -229,19 +243,23 @@ fn make_for_simple_native(api: &SimpleFunctionAPI, function: &NativeFunctions, n
                 FunctionType::Variadic(ref in_type, _) => {
                     format!("{}, ...", in_type)
                 },
-                FunctionType::Fixed(ref in_types, _) => {
-                    let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x.signature)).collect();
+                FunctionType::Fixed(FixedFunction{ ref args, .. }) => {
+                    let in_types: Vec<String> = args.iter().map(|x| format!("{}", x.signature)).collect();
                     in_types.join(", ")
                 },
                 FunctionType::UnionArgs(ref in_types, _) => {
                     let in_types: Vec<String> = in_types.iter().map(|x| format!("{}", x)).collect();
                     in_types.join(" | ")
                 },
+                FunctionType::ArithmeticVariadic => "int, ... | uint, ...".to_string(),
+                FunctionType::ArithmeticBinary | FunctionType::ArithmeticComparison => "int, int | uint, uint".to_string(),
             };
             let output_type = match function_type {
                 FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
-                FunctionType::Fixed(_, ref out_type) => format!("{}", out_type),
-                FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type)
+                FunctionType::Fixed(FixedFunction{ ref returns, .. }) => format!("{}", returns),
+                FunctionType::UnionArgs(_, ref out_type) => format!("{}", out_type),
+                FunctionType::ArithmeticVariadic | FunctionType::ArithmeticBinary => "int | uint".to_string(),
+                FunctionType::ArithmeticComparison => "bool".to_string(),
             };
             (input_type, output_type)
         } else {
@@ -908,6 +926,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     let name = function.get_name();
     match function {
         Add => make_for_simple_native(&ADD_API, &Add, name),
+        ToUInt => make_for_simple_native(&TO_UINT_API, &ToUInt, name),
+        ToInt => make_for_simple_native(&TO_INT_API, &ToInt, name),
         Subtract => make_for_simple_native(&SUB_API, &Subtract, name),
         Multiply => make_for_simple_native(&MUL_API, &Multiply, name),
         Divide => make_for_simple_native(&DIV_API, &Divide, name),
