@@ -1,5 +1,6 @@
-use vm::errors::{Error, UncheckedError, RuntimeErrorType, ShortReturnType};
-use vm::types::{Value, StandardPrincipalData, TupleData, ListData};
+use std::convert::TryFrom;
+use vm::errors::{Error, RuntimeErrorType, ShortReturnType, CheckErrors};
+use vm::types::{Value, StandardPrincipalData, TupleData, ListData, TypeSignature, TupleTypeSignature};
 use vm::contexts::{OwnedEnvironment};
 use vm::execute;
 
@@ -326,6 +327,7 @@ fn test_set_list_variable() {
 
 #[test]
 fn test_get_list_max_len() {
+    use vm::types::TypeSignature;
     let contract_src = r#"
         (define-data-var ranking (list 10 int) (list 1 2 3))
         (define-private (get-ranking)
@@ -341,8 +343,7 @@ fn test_get_list_max_len() {
         Value::List(ListData { data, type_signature }) => {
             assert_eq!(vec![Value::Int(1), Value::Int(2), Value::Int(3)],
                        data);
-            assert_eq!(type_signature.max_len, 10);
-            assert_eq!(type_signature.dimension, 1);
+            assert_eq!("(list 10 int)", &format!("{}", TypeSignature::from(type_signature)));
         },
         _ => panic!("Expected List")
     };
@@ -470,8 +471,8 @@ fn datamap_errors() {
     ];
 
     for program in tests.iter() {
-        assert_eq!( Error::Unchecked(UncheckedError::UndefinedMap("non-existent".to_string())),
-                    execute(program).unwrap_err() );
+        assert_eq!(execute(program).unwrap_err(),
+                   CheckErrors::NoSuchMap("non-existent".to_string()).into());
     }
 }
 
@@ -491,7 +492,7 @@ fn lists_system_2() {
         (map-insert! lists (tuple (name 1)) (tuple (contentious (list 1 2 6))))";
 
     match execute(test) {
-        Err(Error::Unchecked(UncheckedError::TypeError(_,_))) => true,
+        Err(Error::Unchecked(CheckErrors::TypeError(_,_))) => true,
         _ => false
     };
 }
@@ -499,8 +500,8 @@ fn lists_system_2() {
 #[test]
 fn lists_system() {
     let test1 =
-        "(define-map lists ((name int)) ((contents (list 5 1 int))))
-         (define-private (add-list (name int) (content (list 5 1 int)))
+        "(define-map lists ((name int)) ((contents (list 5 int))))
+         (define-private (add-list (name int) (content (list 5 int)))
            (map-insert! lists (tuple (name name))
                                 (tuple (contents content))))
          (define-private (get-list (name int))
@@ -544,9 +545,10 @@ fn lists_system() {
 
     for test in [test_list_too_big, test_bad_tuple_1, test_bad_tuple_2,
                  test_bad_tuple_3, test_bad_tuple_4].iter() {
-    
-        let expected_type_error = match execute(test) {
-            Err(Error::Unchecked(UncheckedError::TypeError(_,_))) => true,
+        let test = execute(test);
+        println!("{:#?}", test);
+        let expected_type_error = match test {
+            Err(Error::Unchecked(CheckErrors::TypeValueError(_,_))) => true,
             _ => false
         };
 
@@ -608,7 +610,7 @@ fn tuples_system() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::Unchecked(UncheckedError::TypeError(_,_))) => true,
+            Err(Error::Unchecked(CheckErrors::TypeValueError(_,_))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -631,12 +633,12 @@ fn bad_define_maps() {
         "(define-map lists ((name int)) ((contents (list 5 0 int))))",
     ];
     let mut expected: Vec<Error> = vec![
-        UncheckedError::ExpectedListPairs.into(),
-        UncheckedError::ExpectedListPairs.into(),
-        UncheckedError::ExpectedListPairs.into(),
-        UncheckedError::ExpectedMapName.into(),
-        UncheckedError::IncorrectArgumentCount(3, 4).into(),
-        RuntimeErrorType::InvalidTypeDescription.into()
+        CheckErrors::BadSyntaxExpectedListOfPairs.into(),
+        CheckErrors::BadSyntaxExpectedListOfPairs.into(),
+        CheckErrors::BadSyntaxExpectedListOfPairs.into(),
+        CheckErrors::ExpectedName.into(),
+        CheckErrors::IncorrectArgumentCount(3, 4).into(),
+        CheckErrors::InvalidTypeDescription.into()
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.drain(..)) {
@@ -655,12 +657,14 @@ fn bad_tuples() {
                  "(get name five (tuple (name 1)))",
                  "(get 1234 (tuple (name 1)))"];
     let mut expected = vec![
-        UncheckedError::VariableDefinedMultipleTimes("name".to_string()),
-        UncheckedError::BindingExpectsPair,
-        UncheckedError::BindingExpectsPair,
-        UncheckedError::NoSuchTupleField,
-        UncheckedError::IncorrectArgumentCount(2, 3),
-        UncheckedError::ExpectedTupleKey
+        CheckErrors::NameAlreadyUsed("name".into()),
+        CheckErrors::BadSyntaxBinding,
+        CheckErrors::BadSyntaxBinding,
+        CheckErrors::NoSuchTupleField(
+            "value".into(),
+            TupleTypeSignature::try_from(vec![("name".into(), TypeSignature::IntType)]).unwrap()),
+        CheckErrors::IncorrectArgumentCount(2, 3),
+        CheckErrors::ExpectedName
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.drain(..)) {

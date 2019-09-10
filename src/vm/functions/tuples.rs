@@ -1,5 +1,5 @@
-use vm::errors::{UncheckedError, InterpreterResult as Result, check_argument_count};
-use vm::types::{Value, TupleData};
+use vm::errors::{CheckErrors, check_arguments_at_least, InterpreterResult as Result, check_argument_count};
+use vm::types::{Value, TupleData, TypeSignature};
 use vm::representations::{SymbolicExpression,SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List};
 use vm::{LocalContext, Environment, eval};
@@ -13,9 +13,7 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
     //           (arg-name value))
     use super::parse_eval_bindings;
 
-    if args.len() < 1 {
-        return Err(UncheckedError::IncorrectArgumentCount(1, 0).into());
-    }
+    check_arguments_at_least(1, args)?;
 
     let bindings = parse_eval_bindings(args, env, context)?;
 
@@ -28,7 +26,7 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
     check_argument_count(2, args)?;
     
     let arg_name = args[0].match_atom()
-        .ok_or(UncheckedError::ExpectedTupleKey)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     let value = eval(&args[1], env, context)?;
 
@@ -40,14 +38,14 @@ pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &L
                     if let Value::Tuple(tuple_data) = data {
                         Ok(Value::some(tuple_data.get(arg_name)?))
                     } else {
-                        Err(UncheckedError::TypeError("TupleType".to_string(), data.clone()).into())
+                        Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(data)).into())
                     }
                 },
                 None => Ok(value.clone()) // just pass through none-types.
             }
         },
         Value::Tuple(tuple_data) => tuple_data.get(arg_name),
-        _ => Err(UncheckedError::TypeError("TupleType".to_string(), value.clone()).into())
+        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&value)).into())
     }
 }
 

@@ -1,10 +1,10 @@
 use vm::{eval, execute as vm_execute};
 use vm::database::memory_db;
-use vm::errors::{UncheckedError, RuntimeErrorType, Error};
+use vm::errors::{CheckErrors, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
-use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData};
+use vm::types::{TypeSignature, BuffData};
 use vm::parser::parse;
 use util::hash::{hex_bytes, to_hex};
 
@@ -184,8 +184,8 @@ fn test_simple_if_functions() {
                                   (if (eq? 5 x) 1 3)");
 
     if let Ok(parsed_bodies) = function_bodies {
-        let func_args1 = vec![("x".into(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
-        let func_args2 = vec![("x".into(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let func_args1 = vec![("x".into(), TypeSignature::IntType)];
+        let func_args2 = vec![("x".into(), TypeSignature::IntType)];
         let user_function1 = DefinedFunction::new(
             func_args1, parsed_bodies[0].clone(), Private, &"with_else".into(), &"");
 
@@ -285,22 +285,22 @@ fn test_arithmetic_errors() {
         "(eq? (some 1) (some 'true))"];
 
     let expectations: &[Error] = &[
-        UncheckedError::IncorrectArgumentCount(2,1).into(),
-        UncheckedError::TypeError("int".to_string(), Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::TypeValueError(TypeSignature::IntType, Value::Bool(true)).into(),
         RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticUnderflow.into(),
-        UncheckedError::IncorrectArgumentCount(1,0).into(),
-        UncheckedError::IncorrectArgumentCount(1,0).into(),
-        UncheckedError::IncorrectArgumentCount(2,1).into(),
-        UncheckedError::IncorrectArgumentCount(2,1).into(),
-        UncheckedError::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::IncorrectArgumentCount(1,0).into(),
+        CheckErrors::IncorrectArgumentCount(1,0).into(),
+        CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::IncorrectArgumentCount(2,1).into(),
+        CheckErrors::IncorrectArgumentCount(2,1).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
-        UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()
+        CheckErrors::TypeError(TypeSignature::from("bool"), TypeSignature::from("int")).into() 
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -322,8 +322,8 @@ fn test_unsigned_arithmetic() {
     let expectations: &[Error] = &[
         RuntimeErrorType::ArithmeticUnderflow.into(),
         RuntimeErrorType::ArithmeticUnderflow.into(),
-        UncheckedError::TypeError("int, int | uint, uint".to_string(), Value::UInt(10)).into(),
-        UncheckedError::TypeError("uint".to_string(), Value::Int(80)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType], Value::UInt(10)).into(),
+        CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(80)).into(),
         RuntimeErrorType::ArithmeticUnderflow.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
     ];
@@ -348,15 +348,15 @@ fn test_options_errors() {
         ];
 
     let expectations: &[Error] = &[
-        UncheckedError::IncorrectArgumentCount(1,2).into(),
-        UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
-        UncheckedError::IncorrectArgumentCount(1,2).into(),
-        UncheckedError::TypeError("ResponseType".to_string(), Value::Bool(true)).into(),
-        UncheckedError::IncorrectArgumentCount(1,2).into(),
-        UncheckedError::IncorrectArgumentCount(1,2).into(),
-        UncheckedError::IncorrectArgumentCount(1,2).into(),
-        UncheckedError::IncorrectArgumentCount(2,3).into(),
-        UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::ExpectedResponseValue(Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::IncorrectArgumentCount(1,2).into(),
+        CheckErrors::IncorrectArgumentCount(2,3).into(),
+        CheckErrors::ExpectedOptionalValue(Value::Bool(true)).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -405,16 +405,16 @@ fn test_hash_errors() {
     ];
 
     let expectations: &[Error] = &[
-        UncheckedError::IncorrectArgumentCount(1, 2).into(),
-        UncheckedError::IncorrectArgumentCount(1, 2).into(),
-        UncheckedError::IncorrectArgumentCount(1, 2).into(),
-        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
-        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
-        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
-        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
-        UncheckedError::IncorrectArgumentCount(1, 2).into(),
-        UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
-        UncheckedError::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::max_buffer()], Value::Bool(true)).into(),
+        CheckErrors::IncorrectArgumentCount(1, 2).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -455,10 +455,10 @@ fn test_bad_lets() {
         "(let ((a 1) (b 2)) (var-set! cursor a) (var-set! cursor (+ b (var-get cursor))) (+ a b))"];
 
     let expectations: &[Error] = &[
-        UncheckedError::ReservedName("tx-sender".to_string()).into(),
-        UncheckedError::ReservedName("*".to_string()).into(),
-        UncheckedError::VariableDefinedMultipleTimes("a".to_string()).into(),
-        UncheckedError::UndefinedVariable("cursor".to_string()).into()];
+        CheckErrors::NameAlreadyUsed("tx-sender".to_string()).into(),
+        CheckErrors::NameAlreadyUsed("*".to_string()).into(),
+        CheckErrors::NameAlreadyUsed("a".to_string()).into(),
+        CheckErrors::NoSuchDataVariable("cursor".to_string()).into()];
 
     tests.iter().zip(expectations.iter())
         .for_each(|(program, expectation)| assert_eq!((*expectation), vm_execute(program).unwrap_err()));

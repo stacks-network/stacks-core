@@ -1,5 +1,5 @@
 use vm::representations::{SymbolicExpression};
-use vm::types::{AtomTypeIdentifier, TypeSignature};
+use vm::types::{ TypeSignature};
 
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
@@ -82,7 +82,7 @@ pub fn check_special_delete_entry(checker: &mut TypeChecker, args: &[SymbolicExp
     if !expected_key_type.admits_type(&key_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
     } else {
-        return Ok(AtomTypeIdentifier::BoolType.into())
+        return Ok(TypeSignature::BoolType)
     }
 }
 
@@ -112,7 +112,7 @@ pub fn check_special_set_entry(checker: &mut TypeChecker, args: &[SymbolicExpres
     } else if !expected_value_type.admits_type(&value_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))
     } else {
-        return Ok(AtomTypeIdentifier::BoolType.into())
+        return Ok(TypeSignature::BoolType)
     }
 }
 
@@ -142,6 +142,6 @@ pub fn check_special_insert_entry(checker: &mut TypeChecker, args: &[SymbolicExp
     } else if !expected_value_type.admits_type(&value_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))
     } else {
-        return Ok(AtomTypeIdentifier::BoolType.into())
+        return Ok(TypeSignature::BoolType)
     }
 }

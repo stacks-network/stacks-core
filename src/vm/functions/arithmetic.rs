@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
-use vm::types::Value;
-use vm::errors::{UncheckedError, RuntimeErrorType, InterpreterResult, check_argument_count};
+use vm::types::{Value, TypeSignature};
+use vm::errors::{CheckErrors, RuntimeErrorType, InterpreterResult, check_argument_count};
 
 struct U128Ops();
 struct I128Ops();
@@ -26,8 +26,8 @@ macro_rules! type_force_binary_arithmetic { ($function: ident, $args: expr) => {
     match (&$args[0], &$args[1]) {
         (Value::Int(x), Value::Int(y)) => I128Ops::$function(*x, *y),
         (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(*x, *y),
-        _ => Err(UncheckedError::TypeError("int, int | uint, uint".to_string(),
-                                           $args[0].clone()).into())
+        _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType],
+                                                  $args[0].clone()).into())
     }
 }
 }}
@@ -37,14 +37,14 @@ macro_rules! type_force_binary_arithmetic { ($function: ident, $args: expr) => {
 //   the corresponding Rust integer type.
 macro_rules! type_force_variadic_arithmetic { ($function: ident, $args: expr) => {
 {
-    let (first, rest) = $args.split_first()
-        .ok_or(UncheckedError::IncorrectArgumentCount(1, $args.len()))?;
+    let first = $args.get(0)
+        .ok_or(CheckErrors::IncorrectArgumentCount(1, $args.len()))?;
     match first {
         Value::Int(_) => {
             let typed_args: Result<Vec<_>, _> = $args.iter().map(
                 |x| match x {
                     Value::Int(value) => Ok(value.clone()),
-                    _ => Err(UncheckedError::TypeError("int".to_string(), x.clone()))
+                    _ => Err(CheckErrors::TypeValueError(TypeSignature::IntType, x.clone()))
                 })
                 .collect();
             let checked_args = typed_args?;
@@ -54,14 +54,14 @@ macro_rules! type_force_variadic_arithmetic { ($function: ident, $args: expr) =>
             let typed_args: Result<Vec<_>, _> = $args.iter().map(
                 |x| match x {
                     Value::UInt(value) => Ok(value.clone()),
-                    _ => Err(UncheckedError::TypeError("uint".to_string(), x.clone()))
+                    _ => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x.clone()))
                 })
                 .collect();
             let checked_args = typed_args?;
             U128Ops::$function(&checked_args)
         },
-        _ => Err(UncheckedError::TypeError("int, int | uint, uint".to_string(),
-                                           first.clone()).into())
+        _ => Err(CheckErrors::UnionTypeValueError(vec![TypeSignature::IntType, TypeSignature::UIntType],
+                                                  first.clone()).into())
     }
 }
 }}
@@ -95,7 +95,7 @@ macro_rules! make_arithmetic_ops { ($struct_name: ident, $type:ty) => {
         }
         fn sub(args: &[$type]) -> InterpreterResult<Value> {
             let (first, rest) = args.split_first()
-                .ok_or(UncheckedError::IncorrectArgumentCount(1, 0))?;
+                .ok_or(CheckErrors::IncorrectArgumentCount(1, 0))?;
             if rest.len() == 0 { // return negation
                 return Self::make_value(first.checked_neg()
                                         .ok_or(RuntimeErrorType::ArithmeticUnderflow)?)
@@ -114,7 +114,7 @@ macro_rules! make_arithmetic_ops { ($struct_name: ident, $type:ty) => {
         }
         fn div(args: &[$type]) -> InterpreterResult<Value> {
             let (first, rest) = args.split_first()
-                .ok_or(UncheckedError::IncorrectArgumentCount(1, 0))?;
+                .ok_or(CheckErrors::IncorrectArgumentCount(1, 0))?;
             let result = rest.iter()
                 .try_fold(*first, |acc: $type, x: &$type| { acc.checked_div(*x) })
                 .ok_or(RuntimeErrorType::DivisionByZero)?;
@@ -184,7 +184,7 @@ pub fn native_to_uint(args: &[Value]) -> InterpreterResult<Value> {
             .map_err(|_| RuntimeErrorType::ArithmeticUnderflow)?;
         Ok(Value::UInt(uint_val))
     } else {
-        Err(UncheckedError::TypeError("int".to_string(), args[0].clone()).into())
+        Err(CheckErrors::TypeValueError(TypeSignature::IntType, args[0].clone()).into())
     }
 }
 
@@ -195,6 +195,6 @@ pub fn native_to_int(args: &[Value]) -> InterpreterResult<Value> {
             .map_err(|_| RuntimeErrorType::ArithmeticOverflow)?;
         Ok(Value::Int(int_val))
     } else {
-        Err(UncheckedError::TypeError("uint".to_string(), args[0].clone()).into())
+        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, args[0].clone()).into())
     }
 }
