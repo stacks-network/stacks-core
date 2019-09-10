@@ -531,7 +531,7 @@ relayed to bootstrapping peers.
 
 ## Types
 
-The Clarity language uses a stricts static type system. Function arguments
+The Clarity language uses a strong static type system. Function arguments
 and database schemas require specified types, and use of types is checked
 during contract launch. The type system does _not_ have a universal
 super type. The type system contains the following types:
