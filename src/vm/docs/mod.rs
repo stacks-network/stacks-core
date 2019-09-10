@@ -101,7 +101,7 @@ const TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
 const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     signature: "(to-int u)",
-    description: "Tries to convert the `uint` argument to an `int`. Will cause a runtime error and abort if the supplied argument is >= 2^127.",
+    description: "Tries to convert the `uint` argument to an `int`. Will cause a runtime error and abort if the supplied argument is >= `pow(2, 127)`",
     example: "(to-int u238) ;; Returns 238"
 };
 
