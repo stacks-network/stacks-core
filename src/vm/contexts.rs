@@ -548,17 +548,11 @@ impl ContractContext {
     }
 
     pub fn lookup_variable(&self, name: &str) -> Option<Value> {
-        match self.variables.get(name) {
-            Some(value) => Option::Some(value.clone()),
-            None => Option::None
-        }
+        self.variables.get(name).cloned()
     }
 
     pub fn lookup_function(&self, name: &str) -> Option<DefinedFunction> {
-        match self.functions.get(name) {
-            Some(value) => Option::Some(value.clone()),
-            None => Option::None
-        }
+        self.functions.get(name).cloned()
     }
 }
 

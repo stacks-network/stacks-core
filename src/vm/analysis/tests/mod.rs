@@ -14,6 +14,12 @@ fn test_list_types_must_match() {
 fn test_type_error() {
     let snippet = "(+ 'true 1)";
     let err = mem_type_check(snippet).unwrap_err();
+    println!("{}", err.diagnostic);
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int' or 'uint', found 'bool'"));
+
+    let snippet = "(+ 1 'true)";
+    let err = mem_type_check(snippet).unwrap_err();
+    println!("{}", err.diagnostic);
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int', found 'bool'"));
 }
 

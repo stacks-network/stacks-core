@@ -7,14 +7,14 @@ use vm::types::{Value};
 use vm::errors::{RuntimeErrorType};
 
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum SymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
     List(Box<[SymbolicExpression]>),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct SymbolicExpression {
     pub expr: SymbolicExpressionType,
     // this id field is used by compiler passes to store information in

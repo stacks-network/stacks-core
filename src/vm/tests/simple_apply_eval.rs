@@ -183,6 +183,9 @@ fn test_simple_arithmetic_functions() {
          "(>= 1 1)",
          "(pow 2 16)",
          "(pow 2 32)",
+         "(+ (pow u2 u127) (- (pow u2 u127) u1))",
+         "(+ (to-uint 127) u10)",
+         "(to-int (- (pow u2 u127) u1))",
          "(- (pow 2 32))"];
 
     let expectations = [
@@ -201,6 +204,9 @@ fn test_simple_arithmetic_functions() {
         Value::Bool(true),
         Value::Int(65536),
         Value::Int(u32::max_value() as i128 + 1),
+        Value::UInt(u128::max_value()),
+        Value::UInt(137),
+        Value::Int(i128::max_value()),
         Value::Int(-1 * (u32::max_value() as i128 + 1)),
     ];
 
@@ -230,7 +236,7 @@ fn test_arithmetic_errors() {
 
     let expectations: &[Error] = &[
         UncheckedError::IncorrectArgumentCount(2,1).into(),
-        UncheckedError::TypeError("IntType".to_string(), Value::Bool(true)).into(),
+        UncheckedError::TypeError("int".to_string(), Value::Bool(true)).into(),
         RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
@@ -245,6 +251,31 @@ fn test_arithmetic_errors() {
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+    }
+}
+
+#[test]
+fn test_unsigned_arithmetic() {
+    let tests = [
+        "(- u10)",
+        "(- u10 u11)",
+        "(> u10 80)",
+        "(+ u10 80)",
+        "(to-uint -10)",
+        "(to-int (pow u2 u127))",
+    ];
+
+    let expectations: &[Error] = &[
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        UncheckedError::TypeError("int, int | uint, uint".to_string(), Value::UInt(10)).into(),
+        UncheckedError::TypeError("uint".to_string(), Value::Int(80)).into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        RuntimeErrorType::ArithmeticOverflow.into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {

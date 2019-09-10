@@ -25,6 +25,7 @@ pub struct TupleTypeSignature {
 pub enum AtomTypeIdentifier {
     NoType,
     IntType,
+    UIntType,
     BoolType,
     BufferType(u32),
     PrincipalType,
@@ -32,6 +33,11 @@ pub enum AtomTypeIdentifier {
     OptionalType(Box<TypeSignature>),
     ResponseType(Box<(TypeSignature, TypeSignature)>)
 }
+
+pub const INT_TYPE: TypeSignature = TypeSignature::Atom(AtomTypeIdentifier::IntType);
+pub const UINT_TYPE: TypeSignature = TypeSignature::Atom(AtomTypeIdentifier::UIntType);
+pub const BOOL_TYPE: TypeSignature = TypeSignature::Atom(AtomTypeIdentifier::BoolType);
+pub const PRINCIPAL_TYPE: TypeSignature = TypeSignature::Atom(AtomTypeIdentifier::PrincipalType);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
@@ -43,11 +49,18 @@ pub struct ListTypeData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FixedFunction {
+    pub args: Vec<FunctionArg>,
+    pub returns: TypeSignature
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FunctionType {
     Variadic(TypeSignature, TypeSignature),
-    Fixed(Vec<FunctionArg>, TypeSignature),
+    Fixed(FixedFunction),
     // Functions where the single input is a union type, e.g., Buffer or Int
     UnionArgs(Vec<TypeSignature>, TypeSignature),
+    ArithmeticVariadic, ArithmeticBinary, ArithmeticComparison
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,16 +73,6 @@ pub enum TypeSignature {
 pub struct FunctionArg {
     pub signature: TypeSignature,
     pub name: ClarityName,
-}
-
-impl FunctionType {
-    pub fn return_type(&self) -> TypeSignature {
-        match self {
-            FunctionType::Variadic(_, return_type) => return_type.clone(),
-            FunctionType::Fixed(_, return_type) => return_type.clone(),
-            FunctionType::UnionArgs(_, return_type) => return_type.clone()
-        }
-    }
 }
 
 impl From<AtomTypeIdentifier> for TypeSignature {
@@ -134,6 +137,7 @@ impl AtomTypeIdentifier {
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
             AtomTypeIdentifier::NoType => Ok(1),
             AtomTypeIdentifier::IntType => Ok(16),
+            AtomTypeIdentifier::UIntType => Ok(16),
             AtomTypeIdentifier::BoolType => Ok(1),
             AtomTypeIdentifier::PrincipalType => Ok(21),
             AtomTypeIdentifier::BufferType(len) => Ok(*len as i128),
@@ -193,6 +197,25 @@ impl AtomTypeIdentifier {
                         true
                     } else {
                         my_inner_type.admits_type(other_inner_type)
+                    }
+                } else {
+                    false
+                }
+            },
+            AtomTypeIdentifier::ResponseType(ref my_inner_type) => {
+                if let AtomTypeIdentifier::ResponseType(other_inner_type) = other {
+                    // ResponseTypes admit according to the following rule:
+                    //   if other.ErrType is NoType, and other.OkType admits => admit
+                    //   if other.OkType is NoType, and other.ErrType admits => admit
+                    //   if both OkType and ErrType admit => admit
+                    //   otherwise fail.
+                    if other_inner_type.0.is_no_type() {
+                        my_inner_type.1.admits_type(&other_inner_type.1)
+                    } else if other_inner_type.1.is_no_type() {
+                        my_inner_type.0.admits_type(&other_inner_type.0)
+                    } else {
+                        my_inner_type.1.admits_type(&other_inner_type.1)
+                            && my_inner_type.0.admits_type(&other_inner_type.0)
                     }
                 } else {
                     false
@@ -379,39 +402,14 @@ impl TypeSignature {
                     .ok_or_else(|| (a.clone(), b.clone()))
             }
 
-        // same goes for the option type
-        // this little monster is an attempt to avoid an unneccessary clone
-        // Some(0) indicates that we should return type_a
-        // Some(1) indicates that we should return type_b
-        // None indicates that we should continue trying to find the most
-        //   admissive of type_a, type_b or error if no such
-        //   admission is possible.
-        let short_return_optional = 
-            if let (TypeSignature::Atom(AtomTypeIdentifier::OptionalType(ref opt_type_a)),
-                    TypeSignature::Atom(AtomTypeIdentifier::OptionalType(ref opt_type_b))) = (&a, &b) {
-                if opt_type_b.is_no_type() {
-                    Some(0)
-                } else if opt_type_a.is_no_type() {
-                    Some(1)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-        match short_return_optional {
-            Some(0) => Ok(a),
-            Some(1) => Ok(b),
-            _ => {
-                if a.admits_type(&b) {
-                    Ok(a)
-                } else if b.admits_type(&a) {
-                    Ok(b)
-                } else {
-                    Err((a,b))
-                }
-            }
+        // same doesn't apply to option types: option(A) would already admit option(None),
+        //   so apply the same "most admissive" of the two types logic as any other type.
+        if a.admits_type(&b) {
+            Ok(a)
+        } else if b.admits_type(&a) {
+            Ok(b)
+        } else {
+            Err((a,b))
         }
     }
 
@@ -489,6 +487,7 @@ impl TypeSignature {
         let atom = match x {
             Value::Principal(_) => AtomTypeIdentifier::PrincipalType,
             Value::Int(_v) => AtomTypeIdentifier::IntType,
+            Value::UInt(_v) => AtomTypeIdentifier::UIntType,
             Value::Bool(_v) => AtomTypeIdentifier::BoolType,
             Value::Buffer(buff_data) => AtomTypeIdentifier::BufferType(buff_data.data.len() as u32),
             Value::Tuple(v) => AtomTypeIdentifier::TupleType(
@@ -590,6 +589,11 @@ impl TypeSignature {
 
     pub fn admits_type(&self, x_type: &TypeSignature) -> bool {
         match (x_type, self) {
+            // List admisssion is recursive.
+            //  The list must have max length than self.max_len
+            //  The list must be of the same dimension
+            //  The atomic type must be admitted by self.atomic_atype
+            // Empty lists will admit for any list type
             (TypeSignature::List(ref x_list_type), TypeSignature::List(ref my_list_type)) => {
                 if x_list_type.max_len <= 0 {
                     // if x_type is an empty list, a list type should always admit.
@@ -621,14 +625,6 @@ impl TypeSignature {
         }
     }
 
-    pub fn match_list(&self) -> Option<&ListTypeData> {
-        if let TypeSignature::List(ref list_type) = self {
-            Some(list_type)
-        } else {
-            None
-        }
-    }
-
     pub fn get_list_item_type(&self) -> Option<TypeSignature> {
         if let TypeSignature::List(list_type) = self {
             Some(list_type.get_list_item_type())
@@ -640,6 +636,7 @@ impl TypeSignature {
     fn parse_atom_type(typename: &str) -> Result<AtomTypeIdentifier> {
         match typename {
             "int" => Ok(AtomTypeIdentifier::IntType),
+            "uint" => Ok(AtomTypeIdentifier::UIntType),
             "bool" => Ok(AtomTypeIdentifier::BoolType),
             "principal" => Ok(AtomTypeIdentifier::PrincipalType),
             _ => Err(RuntimeErrorType::ParseError(format!("Unknown type name: '{}'", typename)).into())
@@ -705,8 +702,17 @@ impl TypeSignature {
             return Err(RuntimeErrorType::InvalidTypeDescription.into())
         }
         let inner_type = TypeSignature::parse_type_repr(&type_args[0], true)?;
-        Ok(TypeSignature::Atom(AtomTypeIdentifier::OptionalType(
-            Box::new(inner_type))))
+        
+        Ok(TypeSignature::new_option(inner_type))
+    }
+
+    fn parse_response_type_repr(type_args: &[SymbolicExpression]) -> Result<TypeSignature> {
+        if type_args.len() != 2 {
+            return Err(RuntimeErrorType::InvalidTypeDescription.into())
+        }
+        let ok_type = TypeSignature::parse_type_repr(&type_args[0], true)?;
+        let err_type = TypeSignature::parse_type_repr(&type_args[1], true)?;
+        Ok(TypeSignature::new_response(ok_type, err_type))
     }
 
     pub fn parse_type_repr(x: &SymbolicExpression, allow_list: bool) -> Result<TypeSignature> {
@@ -729,6 +735,7 @@ impl TypeSignature {
                         "buff" => TypeSignature::parse_buff_type_repr(rest),
                         "tuple" => TypeSignature::parse_tuple_type_repr(rest),
                         "optional" => TypeSignature::parse_optional_type_repr(rest),
+                        "response" => TypeSignature::parse_response_type_repr(rest),
                         _ => Err(RuntimeErrorType::InvalidTypeDescription.into())
                     }
                 } else {
@@ -797,6 +804,7 @@ impl fmt::Display for AtomTypeIdentifier {
         match self {
             NoType => write!(f, "NoType"),
             IntType => write!(f, "int"),
+            UIntType => write!(f, "uint"),
             BoolType => write!(f, "bool"),
             PrincipalType => write!(f, "principal"),
             BufferType(len) => write!(f, "(buff {})", len),

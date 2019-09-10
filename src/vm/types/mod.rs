@@ -1,7 +1,6 @@
 pub mod serialization;
 mod signatures;
 
-use std::hash::{Hash, Hasher};
 use std::{fmt, cmp};
 use std::convert::TryInto;
 use std::collections::BTreeMap;
@@ -12,8 +11,10 @@ use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, 
 use util::hash;
 
 pub use vm::types::signatures::{
-    AtomTypeIdentifier, TupleTypeSignature, AssetIdentifier,
-    TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs};
+    AtomTypeIdentifier, TupleTypeSignature, AssetIdentifier, FixedFunction,
+    TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
+    INT_TYPE, UINT_TYPE, BOOL_TYPE
+};
 
 pub const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
 
@@ -23,7 +24,7 @@ pub struct TupleData {
     pub data_map: BTreeMap<ClarityName, Value>
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuffData {
     pub data: Vec<u8>,
 }
@@ -46,20 +47,21 @@ pub enum PrincipalData {
                                  name: ContractName },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OptionalData {
     pub data: Option<Box<Value>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResponseData {
     pub committed: bool,
     pub data: Box<Value>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     Int(i128),
+    UInt(u128),
     Bool(bool),
     Buffer(BuffData),
     List(ListData),
@@ -118,21 +120,9 @@ impl PartialEq for ListData {
     }
 }
 
-impl Hash for ListData {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.data.hash(state);
-    }
-}
-
 impl PartialEq for TupleData {
     fn eq(&self, other: &TupleData) -> bool {
         self.data_map == other.data_map
-    }
-}
-
-impl Hash for TupleData {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.data_map.hash(state);
     }
 }
 
@@ -209,6 +199,7 @@ impl Value {
     pub fn size(&self) -> Result<i128> {
         match self {
             Value::Int(_i) => AtomTypeIdentifier::IntType.size(),
+            Value::UInt(int) => AtomTypeIdentifier::UIntType.size(),
             Value::Bool(_i) => AtomTypeIdentifier::BoolType.size(),
             Value::Principal(_) => AtomTypeIdentifier::PrincipalType.size(),
             Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
@@ -243,6 +234,7 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Int(int) => write!(f, "{}", int),
+            Value::UInt(int) => write!(f, "u{}", int),
             Value::Bool(boolean) => write!(f, "{}", boolean),
             Value::Buffer(vec_bytes) => write!(f, "0x{}", hash::to_hex(&vec_bytes.data)),
             Value::Tuple(data) => write!(f, "{}", data),

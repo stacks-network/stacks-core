@@ -1,7 +1,7 @@
 use vm::analysis::types::ContractAnalysis;
 use std::collections::{BTreeMap, BTreeSet};
 use vm::{ClarityName};
-use vm::types::{TypeSignature, FunctionArg, AtomTypeIdentifier, TupleTypeSignature, FunctionType};
+use vm::types::{TypeSignature, FunctionArg, AtomTypeIdentifier, TupleTypeSignature, FunctionType, FixedFunction};
 
 pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
     let mut contract_interface = ContractInterface::new();
@@ -75,6 +75,7 @@ pub struct ContractInterfaceTupleEntryType {
 pub enum ContractInterfaceAtomType {
     none,
     int128,
+    uint128,
     bool,
     principal,
     buffer { length: u32 },
@@ -119,14 +120,16 @@ impl ContractInterfaceAtomType {
     }
 
     pub fn from_atom_type(atom_type: &AtomTypeIdentifier) -> ContractInterfaceAtomType {
+        use vm::types::AtomTypeIdentifier::*;
         match atom_type {
-            AtomTypeIdentifier::NoType => ContractInterfaceAtomType::none,
-            AtomTypeIdentifier::IntType => ContractInterfaceAtomType::int128,
-            AtomTypeIdentifier::BoolType => ContractInterfaceAtomType::bool,
-            AtomTypeIdentifier::PrincipalType => ContractInterfaceAtomType::principal,
-            AtomTypeIdentifier::BufferType(len) => ContractInterfaceAtomType::buffer { length: *len },
-            AtomTypeIdentifier::TupleType(sig) => Self::from_tuple_type(sig),
-            AtomTypeIdentifier::OptionalType(sig) => ContractInterfaceAtomType::optional(
+            NoType => ContractInterfaceAtomType::none,
+            IntType => ContractInterfaceAtomType::int128,
+            UIntType => ContractInterfaceAtomType::uint128,
+            BoolType => ContractInterfaceAtomType::bool,
+            PrincipalType => ContractInterfaceAtomType::principal,
+            BufferType(len) => ContractInterfaceAtomType::buffer { length: *len },
+            TupleType(sig) => Self::from_tuple_type(sig),
+            OptionalType(sig) => ContractInterfaceAtomType::optional(
                 Box::new(Self::from_type_signature(&sig)) 
             ),
             AtomTypeIdentifier::ResponseType(boxed_sig) => {
@@ -197,19 +200,17 @@ impl ContractInterfaceFunction {
                 access: access.to_owned(),
                 outputs: ContractInterfaceFunctionOutput { 
                     type_f: match function_type {
-                        FunctionType::Fixed(_, fnType) => {
-                            ContractInterfaceAtomType::from_type_signature(&fnType)
+                        FunctionType::Fixed(FixedFunction { returns, .. }) => {
+                            ContractInterfaceAtomType::from_type_signature(&returns)
                         },
-                        FunctionType::Variadic(_, _) => panic!("Contract functions should never have a variadic return type!"),
-                        FunctionType::UnionArgs(_, _) => panic!("Contract functions should never have a union return type!"),
+                        _ => panic!("Contract functions should only have fixed function return types!"),
                     }
                 },
                 args: match function_type {
-                    FunctionType::Fixed(fnArgs, _) => {
-                        ContractInterfaceFunctionArg::from_function_args(&fnArgs)
+                    FunctionType::Fixed(FixedFunction { args, .. }) => {
+                        ContractInterfaceFunctionArg::from_function_args(&args)
                     },
-                    FunctionType::Variadic(_, _) => panic!("Contract functions should never have variadic arguments!"),
-                    FunctionType::UnionArgs(_, _) => panic!("Contract functions should never have union arguments!"),
+                    _ => panic!("Contract functions should only have fixed function arguments!"),
                 }
             }
         }).collect()
