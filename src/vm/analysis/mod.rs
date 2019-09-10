@@ -10,6 +10,7 @@ pub mod build_contract_interface;
 
 use self::types::{ContractAnalysis, AnalysisPass};
 use vm::representations::{SymbolicExpression};
+use vm::types::{TypeSignature};
 
 pub use self::errors::{CheckResult, CheckError, CheckErrors};
 pub use self::analysis_db::{AnalysisDatabase};
@@ -20,11 +21,16 @@ use self::read_only_checker::ReadOnlyChecker;
 use self::type_checker::TypeChecker;
 
 #[cfg(test)]
-pub fn mem_type_check(snippet: &str) -> CheckResult<ContractAnalysis> {
+pub fn mem_type_check(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     use vm::parser::parse;
     let mut contract = parse(snippet).unwrap();
     let mut analysis_db = AnalysisDatabase::memory();
     type_check(&":transient:", &mut contract, &mut analysis_db, false)
+        .map(|x| {
+             // return the first type result of the type checker
+             let first_type = x.type_map.as_ref().unwrap()
+                .get_type(&x.expressions[0]).cloned();
+             (first_type, x) })
 }
 
 // Legacy function

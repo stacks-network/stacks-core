@@ -1,5 +1,5 @@
 use vm::errors::{UncheckedError, InterpreterResult as Result, check_argument_count};
-use vm::types::{Value};
+use vm::types::{Value, TupleData};
 use vm::representations::{SymbolicExpression,SymbolicExpressionType};
 use vm::representations::SymbolicExpressionType::{List};
 use vm::{LocalContext, Environment, eval};
@@ -19,7 +19,7 @@ pub fn tuple_cons(args: &[SymbolicExpression], env: &mut Environment, context: &
 
     let bindings = parse_eval_bindings(args, env, context)?;
 
-    Value::tuple_from_data(bindings)
+    TupleData::from_data(bindings).map(Value::from)
 }
 
 pub fn tuple_get(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {

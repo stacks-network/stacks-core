@@ -77,7 +77,6 @@ pub struct SimmedBlock {
 
 clarity_serializable!(SimmedBlock);
 
-clarity_serializable!(Value);
 clarity_serializable!(PrincipalData);
 clarity_serializable!(i128);
 clarity_serializable!(u64);

@@ -78,6 +78,11 @@ impl <'a> ClarityDatabase <'a> {
             .map(|x| T::deserialize(&x))
     }
 
+    fn get_value (&mut self, key: &str, expected: &TypeSignature) -> Option<Value> {
+        self.store.get(&key)
+            .map(|json| Value::deserialize(&json, expected))
+    }
+
     pub fn make_key_for_trip(contract_name: &str, data: StoreType, var_name: &str) -> String {
         format!("vm::{}::{}::{}", contract_name, data as u8, var_name)
     }
@@ -226,7 +231,7 @@ impl <'a> ClarityDatabase <'a> {
 
         let key = ClarityDatabase::make_key_for_trip(contract_name, StoreType::Variable, variable_name);
 
-        let result = self.get(&key);
+        let result = self.get_value(&key, &variable_descriptor.value_type);
 
         match result {
             None => Ok(Value::none()),
@@ -267,7 +272,8 @@ impl <'a> ClarityDatabase <'a> {
 
         let key = ClarityDatabase::make_key_for_quad(contract_name, StoreType::DataMap, map_name, key_value.serialize());
 
-        let result = self.get(&key);
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+        let result = self.get_value(&key, &stored_type);
 
         match result {
             None => Ok(Value::none()),
@@ -283,11 +289,11 @@ impl <'a> ClarityDatabase <'a> {
         self.inner_set_entry(contract_name, map_name, key, value, true)
     }
 
-    fn data_map_entry_exists(&mut self, key: &str) -> Result<bool> {
-        match self.store.get(&key) {
+    fn data_map_entry_exists(&mut self, key: &str, expected_value: &TypeSignature) -> Result<bool> {
+        match self.get_value(key, expected_value) {
             None => Ok(false),
-            Some(serialized) =>
-                Ok(Value::deserialize(&serialized) != Value::none())
+            Some(value) =>
+                Ok(value != Value::none())
         }
     }
     
@@ -302,7 +308,9 @@ impl <'a> ClarityDatabase <'a> {
 
         let key = ClarityDatabase::make_key_for_quad(contract_name, StoreType::DataMap, map_name, key_value.serialize());
 
-        if return_if_exists && self.data_map_entry_exists(&key)? {
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+
+        if return_if_exists && self.data_map_entry_exists(&key, &stored_type)? {
             return Ok(Value::Bool(false))
         }
 
@@ -318,7 +326,8 @@ impl <'a> ClarityDatabase <'a> {
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_name, StoreType::DataMap, map_name, key_value.serialize());
-        if !self.data_map_entry_exists(&key)? {
+        let stored_type = TypeSignature::new_option(map_descriptor.value_type);
+        if !self.data_map_entry_exists(&key, &stored_type)? {
             return Ok(Value::Bool(false))
         }
 
