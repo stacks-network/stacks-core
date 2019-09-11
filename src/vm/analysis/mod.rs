@@ -1,4 +1,3 @@
-pub mod diagnostic;
 pub mod types;
 pub mod errors;
 pub mod definition_sorter;

@@ -1,6 +1,7 @@
 extern crate regex;
 
 pub mod errors;
+pub mod diagnostic;
 pub mod types;
 
 pub mod contracts;
