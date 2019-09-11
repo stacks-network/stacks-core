@@ -1,5 +1,5 @@
-use vm::errors::{Error, UncheckedError, RuntimeErrorType};
-use vm::types::{Value, StackAddress, TupleData, QualifiedContractIdentifier};
+use vm::errors::{Error, UncheckedError, RuntimeErrorType, ShortReturnType};
+use vm::types::{Value, TupleData, QualifiedContractIdentifier, StandardPrincipalData, ListData};
 use vm::contexts::{OwnedEnvironment};
 use vm::execute;
 
@@ -201,7 +201,7 @@ fn test_fetch_contract_entry() {
 
     let contract_identifier = QualifiedContractIdentifier::local("proxy-contract").unwrap();
     env.initialize_contract(contract_identifier.clone(), proxy_src).unwrap();
-    env.sender = Some(StackAddress(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into());
+    env.sender = Some(StandardPrincipalData(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into());
 
     assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-conntract-call)").unwrap());
     assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-contract-map-get-using-implicit-tuple)").unwrap());
@@ -274,11 +274,35 @@ fn test_set_tuple_variable() {
     let mut contract_src = contract_src.to_string();
     contract_src.push_str("(list (get-keys) (set-keys (tuple (k1 2) (v1 0))) (get-keys))");
     let expected = Value::list_from(vec![
-        Value::Tuple(TupleData::from_data(vec![("k1".to_string(), Value::Int(1)), ("v1".to_string(), Value::Int(1))]).unwrap()),
-        Value::Tuple(TupleData::from_data(vec![("k1".to_string(), Value::Int(2)), ("v1".to_string(), Value::Int(0))]).unwrap()),
-        Value::Tuple(TupleData::from_data(vec![("k1".to_string(), Value::Int(2)), ("v1".to_string(), Value::Int(0))]).unwrap()),
+        Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(1)), ("v1".into(), Value::Int(1))]).unwrap()),
+        Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(2)), ("v1".into(), Value::Int(0))]).unwrap()),
+        Value::Tuple(TupleData::from_data(vec![("k1".into(), Value::Int(2)), ("v1".into(), Value::Int(0))]).unwrap()),
     ]);    
     assert_executes(expected, &contract_src);
+}
+
+#[test]
+fn test_set_response_variable() {
+    let contract_src = r#"
+        (define-data-var keys (response int bool) (ok 1))
+        (var-set! keys (err 'true))
+        (var-set! keys (ok 3))
+        (expects! (var-get keys) 5)
+    "#;
+    let contract_src = contract_src.to_string();
+    let expected = Value::Int(3);
+    assert_executes(Ok(expected), &contract_src);
+
+    let contract_src = r#"
+        (define-data-var keys (response int bool) (ok 1))
+        (var-set! keys (err 'true))
+        (expects! (var-get keys) 5)
+    "#;
+    let contract_src = contract_src.to_string();
+    let expected = Value::Int(3);
+    assert_eq!(Err(ShortReturnType::ExpectedValue(Value::Int(5)).into()),
+               execute(&contract_src));
+
 }
 
 #[test]
@@ -299,8 +323,32 @@ fn test_set_list_variable() {
         Value::list_from(vec![Value::Int(1), Value::Int(2), Value::Int(3)]).unwrap(),
         Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(1)]).unwrap(),
         Value::list_from(vec![Value::Int(2), Value::Int(3), Value::Int(1)]).unwrap()
-    ]);    
+    ]);
     assert_executes(expected, &contract_src);
+}
+
+#[test]
+fn test_get_list_max_len() {
+    let contract_src = r#"
+        (define-data-var ranking (list 10 int) (list 1 2 3))
+        (define-private (get-ranking)
+            (var-get ranking))
+    "#;
+
+    let mut contract_src = contract_src.to_string();
+    contract_src.push_str("(get-ranking)");
+
+    let actual_value = execute(&contract_src).unwrap().unwrap();
+
+    match actual_value {
+        Value::List(ListData { data, type_signature }) => {
+            assert_eq!(vec![Value::Int(1), Value::Int(2), Value::Int(3)],
+                       data);
+            assert_eq!(type_signature.max_len, 10);
+            assert_eq!(type_signature.dimension, 1);
+        },
+        _ => panic!("Expected List")
+    };
 }
 
 #[test]

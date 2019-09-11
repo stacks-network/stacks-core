@@ -97,14 +97,14 @@ const ASSET_NAMES: &str =
                     (err 3))
                   (err 4))))";
 
-fn execute_transaction(env: &mut OwnedEnvironment, sender: Value, contract: &str,
+fn execute_transaction(env: &mut OwnedEnvironment, issuer: Value, contract: &str,
                        tx: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap), Error> {
-    let sender = if let Value::Principal(PrincipalData::Standard(address)) = sender {
+    let issuer = if let Value::Principal(PrincipalData::Standard(address)) = issuer {
         address
     } else {
         panic!();
     };
-    let contract_identifier = QualifiedContractIdentifier::new(sender, contract.to_string()).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::new(issuer, contract.into());
     env.execute_transaction(contract_identifier, tx, args)
 }
 
@@ -124,8 +124,8 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let token_identifier = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("tokens").unwrap(),
-                                             asset_name: "stackaroos".to_string() };
+    let token_identifier = AssetIdentifier { contract_name: "tokens".into(),
+                                             asset_name: "stackaroos".into() };
 
     let contract_principal = PrincipalData::Contract(QualifiedContractIdentifier::local("tokens").unwrap());
 
@@ -303,10 +303,10 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let names_identifier = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("names").unwrap(),
-                                             asset_name: "names".to_string() };
-    let tokens_identifier = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("tokens").unwrap(),
-                                             asset_name: "stackaroos".to_string() };
+    let names_identifier = AssetIdentifier { contract_name: "names".into(),
+                                             asset_name: "names".into() };
+    let tokens_identifier = AssetIdentifier { contract_name: "tokens".into(),
+                                             asset_name: "stackaroos".into() };
 
 
     let name_hash_expensive_0 = execute("(hash160 1)");

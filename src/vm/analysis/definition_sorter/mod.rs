@@ -1,6 +1,6 @@
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
-use vm::representations::{SymbolicExpression};
+use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
@@ -13,7 +13,7 @@ mod tests;
 
 pub struct DefinitionSorter {
     graph: Graph,
-    top_level_expressions_map: HashMap<String, TopLevelExpressionIndex>   
+    top_level_expressions_map: HashMap<ClarityName, TopLevelExpressionIndex>   
 }
 
 impl AnalysisPass for DefinitionSorter {
@@ -57,11 +57,11 @@ impl <'a> DefinitionSorter {
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
         
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let deps_props: Vec<(String, u64, &SymbolicExpression)> = deps.iter().map(|i| {
+            let deps_props: Vec<(_)> = deps.iter().map(|i| {
                 let exp = &contract_analysis.expressions[*i];
                 self.find_expression_definition(&exp).unwrap()
             }).collect();
-            let functions_names = deps_props.iter().map(|i| i.0.clone()).collect();
+            let functions_names = deps_props.iter().map(|i| i.0.to_string()).collect();
             let exprs = deps_props.iter().map(|i| i.2.clone()).collect();
 
             let mut error = CheckError::new(CheckErrors::CircularReference(functions_names));
@@ -192,25 +192,14 @@ impl <'a> DefinitionSorter {
         Ok(())
     }
 
-    fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(String, u64, &'b SymbolicExpression)> {
-        if let Some(expression) = exp.match_list() {
-            if let Some((function_name, function_args)) = expression.split_first() {
-                if let Some(definition_type) = function_name.match_atom() {
-                    if DefineFunctions::lookup_by_name(definition_type).is_some() {
-                        if function_args.len() > 1 {
-                            let defined_name = match function_args[0].match_list() {
-                                Some(list) => &list[0],
-                                _ => &function_args[0]
-                            };
-                            if let Some(tle_name) = defined_name.match_atom() {
-                                return Some((tle_name.clone(), defined_name.id, defined_name));
-                            }   
-                        }
-                    }
-                } 
-            }
-        }
-        None
+    fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(ClarityName, u64, &'b SymbolicExpression)> {
+        let (_define_type, args) = DefineFunctions::try_parse(exp)?;
+        let defined_name = match args.get(0)?.match_list() {
+            Some(list) => list.get(0)?,
+            _ => &args[0]
+        };
+        let tle_name = defined_name.match_atom()?;
+        Some((tle_name.clone(), defined_name.id, defined_name))
     }
 }
 

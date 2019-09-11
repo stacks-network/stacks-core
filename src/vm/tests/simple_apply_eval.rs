@@ -8,9 +8,7 @@ use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData, QualifiedContractId
 use vm::ast::parse;
 use util::hash::hex_bytes;
 
-fn execute(s: &str) -> Value {
-    vm_execute(s).unwrap().unwrap()
-}
+use vm::tests::{execute};
 
 #[test]
 fn test_simple_let() {
@@ -140,20 +138,20 @@ fn test_simple_if_functions() {
                                   (if (eq? 5 x) 1 3)");
 
     if let Ok(parsed_bodies) = function_bodies {
-        let func_args1 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
-        let func_args2 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let func_args1 = vec![("x".into(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let func_args2 = vec![("x".into(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
         let user_function1 = DefinedFunction::new(
-            func_args1, parsed_bodies[0].clone(), Private, &"with_else", &"");
+            func_args1, parsed_bodies[0].clone(), Private, &"with_else".into(), &"");
 
         let user_function2 = DefinedFunction::new(
-            func_args2, parsed_bodies[1].clone(), Private, &"without_else", &"");
+            func_args2, parsed_bodies[1].clone(), Private, &"without_else".into(), &"");
 
         let context = LocalContext::new();
         let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut global_context = GlobalContext::new(memory_db());
 
-        contract_context.functions.insert("with_else".to_string(), user_function1);
-        contract_context.functions.insert("without_else".to_string(), user_function2);
+        contract_context.functions.insert("with_else".into(), user_function1);
+        contract_context.functions.insert("without_else".into(), user_function2);
 
         let mut call_stack = CallStack::new();
         let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None, None);
@@ -189,6 +187,9 @@ fn test_simple_arithmetic_functions() {
          "(>= 1 1)",
          "(pow 2 16)",
          "(pow 2 32)",
+         "(+ (pow u2 u127) (- (pow u2 u127) u1))",
+         "(+ (to-uint 127) u10)",
+         "(to-int (- (pow u2 u127) u1))",
          "(- (pow 2 32))"];
 
     let expectations = [
@@ -207,6 +208,9 @@ fn test_simple_arithmetic_functions() {
         Value::Bool(true),
         Value::Int(65536),
         Value::Int(u32::max_value() as i128 + 1),
+        Value::UInt(u128::max_value()),
+        Value::UInt(137),
+        Value::Int(i128::max_value()),
         Value::Int(-1 * (u32::max_value() as i128 + 1)),
     ];
 
@@ -236,7 +240,7 @@ fn test_arithmetic_errors() {
 
     let expectations: &[Error] = &[
         UncheckedError::IncorrectArgumentCount(2,1).into(),
-        UncheckedError::TypeError("IntType".to_string(), Value::Bool(true)).into(),
+        UncheckedError::TypeError("int".to_string(), Value::Bool(true)).into(),
         RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::DivisionByZero.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
@@ -251,6 +255,31 @@ fn test_arithmetic_errors() {
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+    }
+}
+
+#[test]
+fn test_unsigned_arithmetic() {
+    let tests = [
+        "(- u10)",
+        "(- u10 u11)",
+        "(> u10 80)",
+        "(+ u10 80)",
+        "(to-uint -10)",
+        "(to-int (pow u2 u127))",
+    ];
+
+    let expectations: &[Error] = &[
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        UncheckedError::TypeError("int, int | uint, uint".to_string(), Value::UInt(10)).into(),
+        UncheckedError::TypeError("uint".to_string(), Value::Int(80)).into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        RuntimeErrorType::ArithmeticOverflow.into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {

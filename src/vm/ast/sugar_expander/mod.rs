@@ -1,12 +1,13 @@
+use std::convert::TryInto;
 use vm::representations::{SymbolicExpression};
 use vm::{SymbolicExpressionType};
-use vm::types::{QualifiedContractIdentifier, Value, PrincipalData, StackAddress};
+use vm::types::{QualifiedContractIdentifier, Value, PrincipalData, StandardPrincipalData};
 use vm::ast::types::{ContractAST, BuildASTPass};
-use vm::ast::errors::{ParseResult};
+use vm::ast::errors::{ParseResult, ParseError, ParseErrors};
 use vm::functions::NativeFunctions;
 
 pub struct SugarExpander {
-    issuer: StackAddress   
+    issuer: StandardPrincipalData   
 }
 
 impl BuildASTPass for SugarExpander {
@@ -19,7 +20,7 @@ impl BuildASTPass for SugarExpander {
 
 impl SugarExpander {
 
-    fn new(issuer: StackAddress) -> Self {
+    fn new(issuer: StandardPrincipalData) -> Self {
         Self { issuer }
     }
 
@@ -43,32 +44,35 @@ impl SugarExpander {
             } else { return Ok(()) }
         };
         if let Some(native_function) = NativeFunctions::lookup_by_name(&function_name) {
+            // todo(ludo): revisit this implementation
             match native_function {
                 NativeFunctions::FetchContractEntry | NativeFunctions::ContractCall => {
-                    if let Some(contract_name) = function_args[0].clone().match_atom() {
-                        let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name.to_string()).unwrap();
+                    if let Some(arg) = function_args[0].clone().match_atom() {
+                        let contract_name = arg.to_string().try_into()
+                            .map_err(|x| { ParseError::new(ParseErrors::IllegalContractName(arg.to_string())) })?;
+                        let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
                         function_args[0].expr = SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(contract_identifier)));
                     }
                 }
                 // NativeFunctions::MintAsset | NativeFunctions::MintToken => {
                 //     if let Some(contract_name) = function_args[2].clone().match_atom() {
-                //         let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name.to_string()).unwrap();
+                //         let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name.into());
                 //         function_args[2].expr = SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(contract_identifier)));
                 //     }
                 // } 
                 // NativeFunctions::TransferAsset | NativeFunctions::TransferToken => {
                 //     if let Some(contract_name) = function_args[1].clone().match_atom() {
-                //         let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name.to_string()).unwrap();
+                //         let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name.into());
                 //         function_args[1].expr = SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(contract_identifier)));
                 //     }
                 //     if let Some(contract_name) = function_args[2].clone().match_atom() {
-                //         let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name.to_string()).unwrap();
+                //         let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name.into());
                 //         function_args[2].expr = SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(contract_identifier)));
                 //     }
                 // }
                 // NativeFunctions::GetTokenBalance => {
                 //     if let Some(contract_name) = function_args[1].clone().match_atom() {
-                //         let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name.to_string()).unwrap();
+                //         let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name.into());
                 //         function_args[1].expr = SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(contract_identifier)));
                 //     }
                 // }

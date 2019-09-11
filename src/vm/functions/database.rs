@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
@@ -186,7 +186,7 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
     let property_name = args[0].match_atom()
         .ok_or(UncheckedError::ExpectedBlockPropertyName)?;
 
-    let block_info_prop = BlockInfoProperty::from_str(property_name)
+    let block_info_prop = BlockInfoProperty::lookup_by_name(property_name)
         .ok_or(UncheckedError::ExpectedBlockPropertyName)?;
 
     // Handle the block-height input arg clause.

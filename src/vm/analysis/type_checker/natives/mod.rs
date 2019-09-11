@@ -1,9 +1,10 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
-use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE, FunctionArg, FunctionType};
-use super::{TypeChecker, TypingContext, TypeResult, no_type, check_atomic_type, check_function_args}; 
+use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use vm::types::{Value, PrincipalData, TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE, FunctionArg, FunctionType, FixedFunction};
+use super::{TypeChecker, TypingContext, TypeResult, no_type, check_argument_count, check_arguments_at_least}; 
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use std::convert::TryFrom;
 
 mod assets;
 mod lists;
@@ -17,23 +18,6 @@ pub enum TypedNativeFunction {
 
 pub struct SpecialNativeFunction(&'static Fn(&mut TypeChecker, &[SymbolicExpression], &TypingContext) -> TypeResult);
 pub struct SimpleNativeFunction(pub FunctionType);
-
-fn arithmetic_type(variadic: bool) -> FunctionType {
-    if variadic {
-        FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::IntType ),
-                               TypeSignature::new_atom( AtomTypeIdentifier::IntType ))
-    } else {
-        FunctionType::Fixed(vec![FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i1"),
-                                 FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i2")],
-                            TypeSignature::new_atom( AtomTypeIdentifier::IntType ))
-    }
-}
-
-fn arithmetic_comparison() -> FunctionType {
-    FunctionType::Fixed(vec![FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i1"),
-                             FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::IntType ), "i2")],
-                        TypeSignature::new_atom( AtomTypeIdentifier::BoolType ))    
-}
 
 fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     let typed_args = checker.type_check_all(args, context)?;
@@ -52,29 +36,22 @@ fn check_special_list_cons(checker: &mut TypeChecker, args: &[SymbolicExpression
             };
             CheckError::new(error_type)
         })
+        .map(TypeSignature::from)
 }
 
 fn check_special_print(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 1 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
-    }
-    
+    check_argument_count(1, args)?;
     checker.type_check(&args[0], context)
 }
 
 fn check_special_as_contract(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 1 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))        
-    }
-    
+    check_argument_count(1, args)?;
     checker.type_check(&args[0], context)
 }
 
 fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() < 1 {
-        return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
-    }
-    
+    check_arguments_at_least(1, args)?;
+        
     let mut typed_args = checker.type_check_all(args, context)?;
     
     let last_return = typed_args.pop()
@@ -91,25 +68,23 @@ fn inner_handle_tuple_get(tuple_type_sig: &TupleTypeSignature, field_to_get: &st
 }
 
 fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
-    }
+    check_argument_count(2, args)?;
     
     let field_to_get = args[0].match_atom()
-        .ok_or(CheckError::new(CheckErrors::BadTupleFieldName))?;
+        .ok_or(CheckErrors::BadTupleFieldName)?;
     
     checker.type_map.set_type(&args[0], no_type())?;
     
     let argument_type = checker.type_check(&args[1], context)?;
     let atomic_type = argument_type
         .match_atomic()
-        .ok_or(CheckError::new(CheckErrors::ExpectedTuple(argument_type.clone())))?;
+        .ok_or(CheckErrors::ExpectedTuple(argument_type.clone()))?;
     
     if let AtomTypeIdentifier::TupleType(tuple_type_sig) = atomic_type {
         inner_handle_tuple_get(tuple_type_sig, field_to_get)
     } else if let AtomTypeIdentifier::OptionalType(value_type_sig) = atomic_type {
         let atomic_value_type = value_type_sig.match_atomic()
-            .ok_or(CheckError::new(CheckErrors::ExpectedTuple((**value_type_sig).clone())))?;
+            .ok_or(CheckErrors::ExpectedTuple((**value_type_sig).clone()))?;
         if let AtomTypeIdentifier::TupleType(tuple_type_sig) = atomic_value_type {
             let inner_type = inner_handle_tuple_get(tuple_type_sig, field_to_get)?;
             let option_type = TypeSignature::new_option(inner_type);
@@ -123,9 +98,7 @@ fn check_special_get(checker: &mut TypeChecker, args: &[SymbolicExpression], con
 }
 
 pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() < 1 {
-        return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
-    }
+    check_arguments_at_least(1, args)?;
     
     let mut tuple_type_data = Vec::new();
     for pair in args.iter() {
@@ -151,11 +124,10 @@ pub fn check_special_tuple_cons(checker: &mut TypeChecker, args: &[SymbolicExpre
 }
 
 fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() < 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
-    }
-    
+    check_arguments_at_least(2, args)?;
+
     checker.type_map.set_type(&args[0], no_type())?;
+
     let binding_list = args[0].match_list()
         .ok_or(CheckError::new(CheckErrors::BadLetSyntax))?;
     
@@ -175,13 +147,12 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
         checker.contract_context.check_name_used(var_name)?;
 
         if out_context.lookup_variable_type(var_name).is_some() {
-            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.clone())))
+            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(var_name.to_string())))
         }
 
         checker.type_map.set_type(&binding_exps[0], no_type())?;
         let typed_result = checker.type_check(&binding_exps[1], context)?;
-        out_context.variable_types.insert(var_name.clone(),
-                                            typed_result);
+        out_context.variable_types.insert(var_name.clone(), typed_result);
     }
     
     let mut typed_args = checker.type_check_all(&args[1..args.len()], &out_context)?;
@@ -193,9 +164,7 @@ fn check_special_let(checker: &mut TypeChecker, args: &[SymbolicExpression], con
 }
 
 fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 1 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(1, args.len())))
-    }
+    check_argument_count(1, args)?;
     
     let var_name = args[0].match_atom()
         .ok_or(CheckError::new(CheckErrors::BadMapName))?;
@@ -203,15 +172,13 @@ fn check_special_fetch_var(checker: &mut TypeChecker, args: &[SymbolicExpression
     checker.type_map.set_type(&args[0], no_type())?;
         
     let value_type = checker.contract_context.get_persisted_variable_type(var_name)
-        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.clone())))?;
+        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.to_string())))?;
 
     Ok(value_type.clone())
 }
 
 fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() < 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
-    }
+    check_arguments_at_least(2, args)?;
     
     let var_name = args[0].match_atom()
         .ok_or(CheckError::new(CheckErrors::BadMapName))?;
@@ -221,7 +188,7 @@ fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression],
     let value_type = checker.type_check(&args[1], context)?;
     
     let expected_value_type = checker.contract_context.get_persisted_variable_type(var_name)
-        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.clone())))?;
+        .ok_or(CheckError::new(CheckErrors::NoSuchVariable(var_name.to_string())))?;
     
     if !expected_value_type.admits_type(&value_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))
@@ -231,44 +198,36 @@ fn check_special_set_var(checker: &mut TypeChecker, args: &[SymbolicExpression],
 }
 
 fn check_special_equals(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() < 1 {
-        return Err(CheckError::new(CheckErrors::VariadicNeedsOneArgument))
-    }
-    
+    check_arguments_at_least(1, args)?;
+
     let mut arg_types = checker.type_check_all(args, context)?;
 
     let mut arg_type = arg_types[0].clone();
     for x_type in arg_types.drain(..) {
         arg_type = TypeSignature::most_admissive(x_type, arg_type)
-            .map_err(|(a,b)| CheckError::new(CheckErrors::TypeError(a, b)))?;
+            .map_err(|(a,b)| CheckErrors::TypeError(a, b))?;
 
     }
 
-    Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
+    Ok(AtomTypeIdentifier::BoolType.into())
 }
 
 fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() != 3 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
-    }
+    check_argument_count(3, args)?;
     
-    let arg_types = checker.type_check_all(args, context)?;
+    checker.type_check_expects(&args[0], context, &AtomTypeIdentifier::BoolType.into())?;
 
-
-    check_atomic_type(AtomTypeIdentifier::BoolType, &arg_types[0])?;
+    let arg_types = checker.type_check_all(&args[1..], context)?;
     
-    let expr1 = &arg_types[1];
-    let expr2 = &arg_types[2];
+    let expr1 = &arg_types[0];
+    let expr2 = &arg_types[1];
 
     TypeSignature::most_admissive(expr1.clone(), expr2.clone())
         .map_err(|(a,b)| CheckError::new(CheckErrors::IfArmsMustMatch(a, b)))
 }
 
 fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() < 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
-    }
-
+    check_arguments_at_least(2, args)?;
     let contract_identifier = match args[0].expr {
         SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
         _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
@@ -292,26 +251,23 @@ fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], c
 
     let contract_call_args = checker.type_check_all(&args[2..], context)?;
     
-    check_function_args(&contract_call_function_type, &contract_call_args)?;
+    let return_type = contract_call_function_type.check_args(&contract_call_args)?;
     
-    Ok(contract_call_function_type.return_type())
+    Ok(return_type)
 }
 
 fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() < 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
-    }
+    check_arguments_at_least(2, args)?;
 
     checker.type_map.set_type(&args[0], no_type())?;
     let block_info_prop_str = args[0].match_atom()
         .ok_or(CheckError::new(CheckErrors::GetBlockInfoExpectPropertyName))?;
 
-    let block_info_prop = BlockInfoProperty::from_str(block_info_prop_str)
+    let block_info_prop = BlockInfoProperty::lookup_by_name(block_info_prop_str)
         .ok_or(CheckError::new(CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string())))?;
 
-    let block_height_arg = checker.type_check(&args[1], &context)?;
-    check_atomic_type(AtomTypeIdentifier::IntType, &block_height_arg)?;
-    
+    checker.type_check_expects(&args[1], &context, &AtomTypeIdentifier::IntType.into())?;
+        
     Ok(block_info_prop.type_result())
 }
 
@@ -329,32 +285,46 @@ impl TypedNativeFunction {
         use vm::functions::NativeFunctions::*;
         match function {
             Add | Subtract | Divide | Multiply =>
-                Simple(SimpleNativeFunction(arithmetic_type(true))),
+                Simple(SimpleNativeFunction(FunctionType::ArithmeticVariadic)),
             CmpGeq | CmpLeq | CmpLess | CmpGreater =>
-                Simple(SimpleNativeFunction(arithmetic_comparison())),
+                Simple(SimpleNativeFunction(FunctionType::ArithmeticComparison)),
             Modulo | Power | BitwiseXOR =>
-                Simple(SimpleNativeFunction(arithmetic_type(false))),
+                Simple(SimpleNativeFunction(FunctionType::ArithmeticBinary)),
             And | Or =>
-                Simple(SimpleNativeFunction(FunctionType::Variadic(TypeSignature::new_atom( AtomTypeIdentifier::BoolType ),
-                                                                   TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
+                Simple(SimpleNativeFunction(FunctionType::Variadic(AtomTypeIdentifier::BoolType.into(),
+                                                                   AtomTypeIdentifier::BoolType.into()))),
+            ToUInt =>
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![FunctionArg::new(AtomTypeIdentifier::IntType.into(),
+                                                ClarityName::try_from("value".to_owned())
+                                                .expect("FAIL: ClarityName failed to accept default arg name"))],
+                    returns: AtomTypeIdentifier::UIntType.into() }))),
+            ToInt =>
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                    args: vec![FunctionArg::new(AtomTypeIdentifier::UIntType.into(),
+                                                ClarityName::try_from("value".to_owned())
+                                                .expect("FAIL: ClarityName failed to accept default arg name"))],
+                    returns: AtomTypeIdentifier::IntType.into() }))),
             Not =>
-                Simple(SimpleNativeFunction(FunctionType::Fixed(vec![FunctionArg::new(TypeSignature::new_atom( AtomTypeIdentifier::BoolType ), "value")],
-                                                                TypeSignature::new_atom( AtomTypeIdentifier::BoolType )))),
+                Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction { 
+                    args: vec![FunctionArg::new(AtomTypeIdentifier::BoolType.into(), ClarityName::try_from("value".to_owned())
+                                                .expect("FAIL: ClarityName failed to accept default arg name"))],
+                    returns: AtomTypeIdentifier::BoolType.into() }))),
             Hash160 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                    vec![TypeSignature::new_atom(AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32)),
-                         TypeSignature::new_atom(AtomTypeIdentifier::IntType),],
-                    TypeSignature::new_atom( AtomTypeIdentifier::BufferType(20) )))),
+                    vec![AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32).into(),
+                         AtomTypeIdentifier::IntType.into(),],
+                    AtomTypeIdentifier::BufferType(20).into()))),
             Sha256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                    vec![TypeSignature::new_atom(AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32)),
-                         TypeSignature::new_atom(AtomTypeIdentifier::IntType),],
-                    TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
+                    vec![AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32).into(),
+                         AtomTypeIdentifier::IntType.into(),],
+                    AtomTypeIdentifier::BufferType(32).into()))),
             Keccak256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                    vec![TypeSignature::new_atom(AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32)),
-                         TypeSignature::new_atom(AtomTypeIdentifier::IntType),],
-                    TypeSignature::new_atom( AtomTypeIdentifier::BufferType(32) )))),
+                    vec![AtomTypeIdentifier::BufferType(MAX_VALUE_SIZE as u32).into(),
+                         AtomTypeIdentifier::IntType.into(),],
+                    AtomTypeIdentifier::BufferType(32).into()))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
             TransferToken => Special(SpecialNativeFunction(&assets::check_special_transfer_token)),

@@ -6,16 +6,15 @@ use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
 use super::check_special_tuple_cons;
 use vm::analysis::type_checker::{TypeResult, TypingContext, 
-                             CheckError, CheckErrors, no_type, TypeChecker};
+                                 check_arguments_at_least,
+                                 CheckError, CheckErrors, no_type, TypeChecker};
 
 pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
 
-    if args.len() < 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
-    }
+    check_arguments_at_least(2, args)?;
 
     let map_name = args[0].match_atom()
-        .ok_or(CheckError::new(CheckErrors::BadMapName))?;
+        .ok_or(CheckErrors::BadMapName)?;
         
     checker.type_map.set_type(&args[0], no_type())?;
 
@@ -25,7 +24,7 @@ pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpr
     };
 
     let (expected_key_type, value_type) = checker.contract_context.get_map_type(map_name)
-        .ok_or(CheckError::new(CheckErrors::NoSuchMap(map_name.clone())))?;
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
     let option_type = TypeSignature::new_option(value_type.clone());
 
@@ -37,9 +36,8 @@ pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpr
 }
 
 pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() < 3 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
-    }
+    check_arguments_at_least(3, args)?;
+    
 
     let contract_identifier = match args[0].expr {
         SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
@@ -47,7 +45,7 @@ pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[Sym
     };
 
     let map_name = args[1].match_atom()
-        .ok_or(CheckError::new(CheckErrors::BadMapName))?;
+        .ok_or(CheckErrors::BadMapName)?;
     
     checker.type_map.set_type(&args[0], no_type())?;
     checker.type_map.set_type(&args[1], no_type())?;
@@ -69,12 +67,10 @@ pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[Sym
 }
 
 pub fn check_special_delete_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() < 2 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(2, args.len())))
-    }
+    check_arguments_at_least(2, args)?;
 
     let map_name = args[0].match_atom()
-        .ok_or(CheckError::new(CheckErrors::BadMapName))?;
+        .ok_or(CheckErrors::BadMapName)?;
 
     checker.type_map.set_type(&args[0], no_type())?;
 
@@ -84,22 +80,20 @@ pub fn check_special_delete_entry(checker: &mut TypeChecker, args: &[SymbolicExp
     };
     
     let (expected_key_type, _) = checker.contract_context.get_map_type(map_name)
-        .ok_or(CheckError::new(CheckErrors::NoSuchMap(map_name.clone())))?;
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
     
     if !expected_key_type.admits_type(&key_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
     } else {
-        return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
+        return Ok(AtomTypeIdentifier::BoolType.into())
     }
 }
 
 pub fn check_special_set_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() < 3 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
-    }
+    check_arguments_at_least(3, args)?;
     
     let map_name = args[0].match_atom()
-        .ok_or(CheckError::new(CheckErrors::BadMapName))?;
+        .ok_or(CheckErrors::BadMapName)?;
     
     checker.type_map.set_type(&args[0], no_type())?;
     
@@ -114,24 +108,22 @@ pub fn check_special_set_entry(checker: &mut TypeChecker, args: &[SymbolicExpres
     };
     
     let (expected_key_type, expected_value_type) = checker.contract_context.get_map_type(map_name)
-        .ok_or(CheckError::new(CheckErrors::NoSuchMap(map_name.clone())))?;
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
     
     if !expected_key_type.admits_type(&key_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
     } else if !expected_value_type.admits_type(&value_type) {
-        return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
+        return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))
     } else {
-        return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
+        return Ok(AtomTypeIdentifier::BoolType.into())
     }
 }
 
 pub fn check_special_insert_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
-    if args.len() < 3 {
-        return Err(CheckError::new(CheckErrors::IncorrectArgumentCount(3, args.len())))
-    }
+    check_arguments_at_least(3, args)?;
     
     let map_name = args[0].match_atom()
-        .ok_or(CheckError::new(CheckErrors::BadMapName))?;
+        .ok_or(CheckErrors::BadMapName)?;
     
     checker.type_map.set_type(&args[0], no_type())?;
     
@@ -146,13 +138,13 @@ pub fn check_special_insert_entry(checker: &mut TypeChecker, args: &[SymbolicExp
     };
         
     let (expected_key_type, expected_value_type) = checker.contract_context.get_map_type(map_name)
-        .ok_or(CheckError::new(CheckErrors::NoSuchMap(map_name.clone())))?;
+        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
     
     if !expected_key_type.admits_type(&key_type) {
         return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
     } else if !expected_value_type.admits_type(&value_type) {
-        return Err(CheckError::new(CheckErrors::TypeError(expected_key_type.clone(), key_type)))
+        return Err(CheckError::new(CheckErrors::TypeError(expected_value_type.clone(), value_type)))
     } else {
-        return Ok(TypeSignature::new_atom(AtomTypeIdentifier::BoolType))
+        return Ok(AtomTypeIdentifier::BoolType.into())
     }
 }

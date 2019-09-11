@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::convert::TryInto;
 
 use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, InterpreterResult as Result};
 use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase, memory_db};
-use vm::{SymbolicExpression};
+use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
 use vm::ast;
 use vm::eval;
@@ -63,13 +64,13 @@ pub struct GlobalContext<'a> {
 #[derive(Serialize, Deserialize)]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
-    pub variables: HashMap<String, Value>,
-    pub functions: HashMap<String, DefinedFunction>,
+    pub variables: HashMap<ClarityName, Value>,
+    pub functions: HashMap<ClarityName, DefinedFunction>,
 }
 
 pub struct LocalContext <'a> {
     pub parent: Option< &'a LocalContext<'a>>,
-    pub variables: HashMap<String, Value>,
+    pub variables: HashMap<ClarityName, Value>,
     depth: u16
 }
 
@@ -79,6 +80,8 @@ pub struct CallStack {
 }
 
 pub type StackTrace = Vec<FunctionIdentifier>;
+
+pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
 
 impl AssetMap {
     pub fn new() -> AssetMap {
@@ -440,16 +443,16 @@ impl <'a> GlobalContext<'a> {
     }
 
     pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &str, transfered: Value) {
-        let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
-                                                 asset_name: asset_name.to_string() };
+        let asset_identifier = AssetIdentifier { contract_name: contract_identifier.name.clone(),
+                                                 asset_name: asset_name.into() };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
 
     pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &str, transfered: i128) -> Result<()> {
-        let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
-                                                 asset_name: asset_name.to_string() };
+        let asset_identifier = AssetIdentifier { contract_name: contract_identifier.name.clone(),
+                                                 asset_name: asset_name.into() };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_token_transfer(sender, asset_identifier, transfered)
@@ -544,17 +547,11 @@ impl ContractContext {
     }
 
     pub fn lookup_variable(&self, name: &str) -> Option<Value> {
-        match self.variables.get(name) {
-            Some(value) => Option::Some(value.clone()),
-            None => Option::None
-        }
+        self.variables.get(name).cloned()
     }
 
     pub fn lookup_function(&self, name: &str) -> Option<DefinedFunction> {
-        match self.functions.get(name) {
-            Some(value) => Option::Some(value.clone()),
-            None => Option::None
-        }
+        self.functions.get(name).cloned()
     }
 }
 
@@ -649,8 +646,8 @@ mod test {
         let p1 = PrincipalData::Contract(QualifiedContractIdentifier::local("a").unwrap());
         let p2 = PrincipalData::Contract(QualifiedContractIdentifier::local("b").unwrap());
 
-        let t1 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("a").unwrap(), asset_name: "a".to_string() };
-        let t2 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("b").unwrap(), asset_name: "a".to_string() };
+        let t1 = AssetIdentifier { contract_name: "a".into(), asset_name: "a".into() };
+        let t2 = AssetIdentifier { contract_name: "b".into(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
@@ -674,11 +671,11 @@ mod test {
         let p2 = PrincipalData::Contract(QualifiedContractIdentifier::local("b").unwrap());
         let p3 = PrincipalData::Contract(QualifiedContractIdentifier::local("c").unwrap());
 
-        let t1 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("a").unwrap(), asset_name: "a".to_string() };
-        let t2 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("b").unwrap(), asset_name: "a".to_string() };
-        let t3 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("c").unwrap(), asset_name: "a".to_string() };
-        let t4 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("d").unwrap(), asset_name: "a".to_string() };
-        let t5 = AssetIdentifier { contract_identifier: QualifiedContractIdentifier::local("e").unwrap(), asset_name: "a".to_string() };
+        let t1 = AssetIdentifier { contract_name: "a".into(), asset_name: "a".into() };
+        let t2 = AssetIdentifier { contract_name: "b".into(), asset_name: "a".into() };
+        let t3 = AssetIdentifier { contract_name: "c".into(), asset_name: "a".into() };
+        let t4 = AssetIdentifier { contract_name: "d".into(), asset_name: "a".into() };
+        let t5 = AssetIdentifier { contract_name: "e".into(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();

@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::fs;
 use std::env;
 use std::process;
+use std::convert::TryInto;
 use util::log;
 
 use chainstate::burn::BlockHeaderHash;
@@ -359,23 +360,22 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let vm_filename = &args[1];
             let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
 
-            let contract_name = &args[2];
+            // todo(ludo): rely on friendly_expect instead
+            let contract_name = args[2].to_string().try_into().unwrap();
 
             let tx_name = &args[3];            
             let sender_in = &args[4];
 
-            let sender = {
-                if let Ok(sender) = PrincipalData::parse_standard_principal(sender_in) {
-                    sender.clone()
+            let issuer = {
+                if let Ok(issuer) = PrincipalData::parse_standard_principal(sender_in) {
+                    issuer.clone()
                 } else {
                     eprintln!("Unexpected result parsing sender: {}", sender_in);
                     panic_test!();
                 }
             };
 
-            let contract_identifier = friendly_expect(
-                                            QualifiedContractIdentifier::new(sender, contract_name.to_string()), 
-                                            "Failed to get contract name");
+            let contract_identifier = QualifiedContractIdentifier::new(issuer, contract_name);
 
             let arguments: Vec<_> = args[5..]
                 .iter()

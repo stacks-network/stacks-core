@@ -133,7 +133,7 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
         }
     };
 
-    let (result, _) = owned_env.execute_transaction(QualifiedContractIdentifier::new(p1_address, "tokens".to_string()).unwrap(), 
+    let (result, _) = owned_env.execute_transaction(QualifiedContractIdentifier::new(p1_address, "tokens".into()), 
                                                     "destroy",
                                                     &symbols_from_values(vec![Value::Int(10)])).unwrap();
 
