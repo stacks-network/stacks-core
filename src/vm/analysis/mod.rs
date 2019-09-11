@@ -7,7 +7,7 @@ pub mod type_checker;
 pub mod sugar_expander;
 pub mod read_only_checker;
 pub mod analysis_db;
-pub mod build_contract_interface;
+pub mod contract_interface_builder;
 
 use self::types::{ContractAnalysis, AnalysisPass};
 use vm::representations::{SymbolicExpression};

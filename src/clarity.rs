@@ -17,7 +17,7 @@ use vm::database::{ClarityDatabase, SqliteStore, SqliteConnection, KeyValueStora
 use vm::errors::{InterpreterResult};
 use vm::{SymbolicExpression, SymbolicExpressionType, Value};
 use vm::analysis::{AnalysisDatabase, run_analysis};
-use vm::analysis::build_contract_interface::build_contract_interface;
+use vm::analysis::contract_interface_builder::build_contract_interface;
 use vm::analysis::types::ContractAnalysis;
 use vm::types::{QualifiedContractIdentifier, PrincipalData};
 
