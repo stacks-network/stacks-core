@@ -1,10 +1,8 @@
 pub mod diagnostic;
 pub mod types;
 pub mod errors;
-pub mod expression_identifier;
 pub mod definition_sorter;
 pub mod type_checker;
-pub mod sugar_expander;
 pub mod read_only_checker;
 pub mod analysis_db;
 pub mod contract_interface_builder;
@@ -16,11 +14,9 @@ use vm::types::QualifiedContractIdentifier;
 pub use self::errors::{CheckResult, CheckError, CheckErrors};
 pub use self::analysis_db::{AnalysisDatabase};
 
-use self::expression_identifier::ExpressionIdentifier;
 use self::definition_sorter::DefinitionSorter;
 use self::read_only_checker::ReadOnlyChecker;
 use self::type_checker::TypeChecker;
-use self::sugar_expander::SugarExpander;
 
 #[cfg(test)]
 pub fn mem_type_check(snippet: &str) -> CheckResult<ContractAnalysis> {
@@ -46,9 +42,7 @@ pub fn run_analysis(contract_identifier: &QualifiedContractIdentifier,
 
     analysis_db.execute(|db| {
         let mut contract_analysis = ContractAnalysis::new(contract_identifier.clone(), expressions.to_vec());
-        ExpressionIdentifier::run_pass(&mut contract_analysis, db)?;
         DefinitionSorter::run_pass(&mut contract_analysis, db)?;
-        SugarExpander::run_pass(&mut contract_analysis, db)?;
         ReadOnlyChecker::run_pass(&mut contract_analysis, db)?;
         TypeChecker::run_pass(&mut contract_analysis, db)?;
         if save_contract {

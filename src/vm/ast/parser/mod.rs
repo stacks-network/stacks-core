@@ -2,9 +2,10 @@ use std::cmp;
 use util::hash::hex_bytes;
 use regex::{Regex, Captures};
 use address::c32::c32_address_decode;
+use vm::ast::errors::{ParseResult, ParseErrors, ParseError};
 use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
 use vm::representations::SymbolicExpression;
-use vm::types::{Value, PrincipalData};
+use vm::types::{Value, PrincipalData, QualifiedContractIdentifier};
 
 #[derive(Debug)]
 pub enum LexItem {
@@ -43,9 +44,9 @@ impl LexMatcher {
     }
 }
 
-fn get_value_or_err(input: &str, captures: Captures) -> Result<String> {
+fn get_value_or_err(input: &str, captures: Captures) -> ParseResult<String> {
     let matched = captures.name("value").ok_or(
-        RuntimeErrorType::ParseError("Failed to capture value from input".to_string()))?;
+        ParseError::new(ParseErrors::FailedCapturingInput))?;
     Ok(input[matched.start()..matched.end()].to_string())
 }
 
@@ -57,7 +58,7 @@ fn get_lines_at(input: &str) -> Vec<usize> {
     out
 }
 
-pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
+pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     // Aaron: I'd like these to be static, but that'd require using
     //    lazy_static (or just hand implementing that), and I'm not convinced
     //    it's worth either (1) an extern macro, or (2) the complexity of hand implementing.
@@ -72,7 +73,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("0x(?P<value>[[:xdigit:]]+)", TokenType::HexStringLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
-        LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}.([[:alpha:]]|[-]){5,40})", TokenType::QualifiedContractPrincipalLiteral),
+        LexMatcher::new(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}(\.)([[:alpha:]]|[-]){5,40})"#, TokenType::QualifiedContractPrincipalLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("(?P<value>([[:word:]]|[-#!?+<>=/*])+)", TokenType::Variable),
     ];
@@ -93,7 +94,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
                 next_line_break = line_indices.pop();
                 column_pos = 1;
                 current_line = current_line.checked_add(1)
-                    .ok_or(RuntimeErrorType::ParseError("Program too large to parse.".to_string()))?;
+                    .ok_or(ParseError::new(ParseErrors::ProgramTooLarge))?;
             }
         }
 
@@ -114,8 +115,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
                         match matcher.handler {
                             TokenType::RParens => Ok(()),
                             TokenType::Whitespace => Ok(()),
-                            _ => Err(RuntimeErrorType::ParseError(format!("Expected whitespace or a close parens. Found: '{}'",
-                                                                          &current_slice[..whole_match.end()])))
+                            _ => Err(ParseError::new(ParseErrors::SeparatorExpected(current_slice[..whole_match.end()].to_string())))
                         }
                     }
                 }?;
@@ -138,7 +138,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
                     TokenType::Variable => {
                         let value = get_value_or_err(current_slice, captures)?;
                         if value.contains("#") {
-                            Err(RuntimeErrorType::ParseError(format!("Illegal variable name: '{}'", value)))
+                            Err(ParseError::new(ParseErrors::IllegalVariableName(value)))
                         } else {
                             Ok(LexItem::Variable(value))
                         }
@@ -148,7 +148,7 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
                         let value = match str_value.as_str() {
                             "true" => Ok(Value::Bool(true)),
                             "false" => Ok(Value::Bool(false)),
-                            _ => Err(RuntimeErrorType::ParseError(format!("Unknown 'quoted value '{}'", str_value)))
+                            _ => Err(ParseError::new(ParseErrors::UnknownQuotedValue(str_value.clone())))
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
@@ -156,27 +156,36 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match i128::from_str_radix(&str_value, 10) {
                             Ok(parsed) => Ok(Value::Int(parsed)),
-                            Err(_e) => Err(RuntimeErrorType::ParseError(format!("Failed to parse int literal '{}'", str_value)))
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingIntValue(str_value.clone())))
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
                     TokenType::QualifiedContractPrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        Ok(LexItem::LiteralValue(
-                            str_value.len(),
-                            PrincipalData::parse_qualified_contract_principal(&str_value)?.into()))
+                        println!("1 ===> {:?}", str_value);
+                        let value = match PrincipalData::parse_qualified_contract_principal(&str_value) {
+                            Ok(parsed) => Ok(Value::Principal(parsed)),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone())))
+                        }?;
+                        Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
                     TokenType::PrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        Ok(LexItem::LiteralValue(
-                            str_value.len(),
-                            PrincipalData::parse_standard_principal(&str_value)?.into()))
+                        println!("2 ===> {:?}", str_value);
+                        let value = match PrincipalData::parse_standard_principal(&str_value) {
+                            Ok(parsed) => Ok(Value::Principal(PrincipalData::Standard(parsed))),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone())))
+                        }?;
+                        Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
                     TokenType::HexStringLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let byte_vec = hex_bytes(&str_value)
-                            .map_err(|x| { RuntimeErrorType::ParseError(format!("Invalid hex-string literal {}: {}", &str_value, x)) })?;
-                        let value = Value::buff_from(byte_vec)?;
+                            .map_err(|x| { ParseError::new(ParseErrors::FailedParsingHexValue(str_value.clone(), x.to_string())) })?;
+                        let value = match Value::buff_from(byte_vec) {
+                            Ok(parsed) => Ok(parsed),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingBuffer(str_value.clone())))
+                        }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
                     TokenType::StringLiteral => {
@@ -184,7 +193,10 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
                         let quote_unescaped = str_value.replace("\\\"","\"");
                         let slash_unescaped = quote_unescaped.replace("\\\\","\\");
                         let byte_vec = slash_unescaped.as_bytes().to_vec();
-                        let value = Value::buff_from(byte_vec)?;
+                        let value = match Value::buff_from(byte_vec) {
+                            Ok(parsed) => Ok(parsed),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingBuffer(str_value.clone())))
+                        }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     }
                 }?;
@@ -200,11 +212,11 @@ pub fn lex(input: &str) -> Result<Vec<(LexItem, u32, u32)>> {
     if munch_index == input.len() {
         Ok(result)
     } else {
-        Err(RuntimeErrorType::ParseError(format!("Failed to lex input remainder: {}", &input[munch_index..])).into())
+        Err(ParseError::new(ParseErrors::FailedParsingRemainder(input[munch_index..].to_string())))
     }
 }
 
-pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> Result<Vec<SymbolicExpression>> {
+pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<SymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
@@ -231,7 +243,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> Result<Vec<SymbolicEx
                         }
                     };
                 } else {
-                    return Err(RuntimeErrorType::ParseError("Tried to close list which isn't open.".to_string()).into())
+                    return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected))
                 }
             },
             LexItem::Variable(value) => {
@@ -264,13 +276,13 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> Result<Vec<SymbolicEx
 
     // check unfinished stack:
     if parse_stack.len() > 0 {
-        Err(RuntimeErrorType::ParseError("List expressions (..) left opened.".to_string()).into())
+        Err(ParseError::new(ParseErrors::ClosingParenthesisExpected))
     } else {
         Ok(output_list)
     }
 }
 
-pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>> {
+pub fn parse(input: &str) -> ParseResult<Vec<SymbolicExpression>> {
     let lexed = lex(input)?;
     parse_lexed(lexed)
 }
@@ -279,6 +291,7 @@ pub fn parse(input: &str) -> Result<Vec<SymbolicExpression>> {
 #[cfg(test)]
 mod test {
     use vm::{SymbolicExpression, Value, ast};
+    use vm::types::{QualifiedContractIdentifier};
 
     fn make_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> SymbolicExpression {
         let mut e = SymbolicExpression::atom(x.to_string());
@@ -338,7 +351,7 @@ r#"z (let ((x 1) (y 2))
             make_atom("y", 6, 15, 6, 15),
         ];
 
-        let parsed = ast::parse(&input);
+        let parsed = ast::parser::parse(&input);
         assert_eq!(Ok(program), parsed, "Should match expected symbolic expression");
 
         let input = "        -1234
@@ -349,7 +362,7 @@ r#"z (let ((x 1) (y 2))
                                 make_atom_value(Value::Int(12), 2, 12, 2, 13),
                                 make_atom_value(Value::Int(34), 2, 15, 2, 16)])) ];
 
-        let parsed = ast::parse(&input);
+        let parsed = ast::parser::parse(&input);
         assert_eq!(Ok(program), parsed, "Should match expected symbolic expression");
         
     }
@@ -358,12 +371,13 @@ r#"z (let ((x 1) (y 2))
     fn test_parse_contract_principals() {
         use vm::types::PrincipalData;
         let input = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract-a";
-        let parsed = ast::parse(&input).unwrap();
+        let parsed = ast::parser::parse(&input).unwrap();
 
         let x1 = &parsed[0];
         assert!( match x1.match_atom_value() {
             Some(Value::Principal(PrincipalData::Contract(identifier))) => {
-                format!("{}", PrincipalData::Standard(identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
+                format!("{}", 
+                    PrincipalData::Standard(identifier.issuer.clone())) == "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR" &&
                     identifier.name == "contract-a"
             },
             _ => false
@@ -381,22 +395,24 @@ r#"z (let ((x 1) (y 2))
         let split_tokens = "(let ((023ab13 1)))";
         let name_with_dot = "(let ((ab.de 1)))";
 
-        assert!(match ast::parse(&split_tokens).unwrap_err() {
+        let contract_id = QualifiedContractIdentifier::transient();
+
+        assert!(match ast::parse(&contract_id, &split_tokens).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse with an expectation of whitespace or parens");
 
-        assert!(match ast::parse(&too_much_closure).unwrap_err() {
+        assert!(match ast::parse(&contract_id, &too_much_closure).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse with too many right parens");
         
-        assert!(match ast::parse(&not_enough_closure).unwrap_err() {
+        assert!(match ast::parse(&contract_id, &not_enough_closure).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse with too few right parens");
         
-        let x = ast::parse(&middle_hash).unwrap_err();
+        let x = ast::parse(&contract_id, &middle_hash).unwrap_err();
         assert!(match x {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => {
@@ -405,12 +421,12 @@ r#"z (let ((x 1) (y 2))
             }
         }, "Should have failed to parse with a middle hash");
 
-        assert!(match ast::parse(&unicode).unwrap_err() {
+        assert!(match ast::parse(&contract_id, &unicode).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse a unicode variable name");
 
-        assert!(match ast::parse(&name_with_dot).unwrap_err() {
+        assert!(match ast::parse(&contract_id, &name_with_dot).unwrap_err() {
             Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
             _ => false
         }, "Should have failed to parse a variable name with a dot.");
