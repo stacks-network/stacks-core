@@ -606,6 +606,22 @@ impl MARF {
         self.storage.chain_tips()
     }
 
+    /// Check if a block can open successfully, i.e.,
+    ///   it's a known block and the storage system isn't issueing IOErrors
+    pub fn check_block_hash(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+        let cur_block_hash = self.storage.get_cur_block();
+        let cur_block_rw = self.storage.readwrite();
+
+        // test open
+        let result = self.storage.open_block(bhh, false);
+
+        // restore
+        self.storage.open_block(&cur_block_hash, cur_block_rw)
+            .map_err(|e| Error::RestoreMarfBlockError(Box::new(e)))?;
+
+        result
+    }
+
     /// Access internal storage
     #[cfg(test)]
     pub fn borrow_storage_backend(&mut self) -> &mut TrieFileStorage {

@@ -171,7 +171,8 @@ pub enum Error {
     PartialWriteError,
     InProgressError,
     WriteNotBegunError,
-    CursorError(node::CursorError)
+    CursorError(node::CursorError),
+    RestoreMarfBlockError(Box<Error>)
 }
 
 impl fmt::Display for Error {
@@ -188,6 +189,7 @@ impl fmt::Display for Error {
             Error::PartialWriteError => f.write_str(error::Error::description(self)),
             Error::InProgressError => f.write_str(error::Error::description(self)),
             Error::WriteNotBegunError => f.write_str(error::Error::description(self)),
+            Error::RestoreMarfBlockError(ref e) => f.write_str(error::Error::description(self)),
             Error::CursorError(ref e) => fmt::Display::fmt(e, f)
         }
     }
@@ -208,6 +210,7 @@ impl error::Error for Error {
             Error::InProgressError => None,
             Error::WriteNotBegunError => None,
             Error::CursorError(ref e) => None,
+            Error::RestoreMarfBlockError(ref e) => Some(e),
         }
     }
 
@@ -224,7 +227,8 @@ impl error::Error for Error {
             Error::PartialWriteError => "Data is partially written and not yet recovered",
             Error::InProgressError => "Write was in progress",
             Error::WriteNotBegunError => "Write has not begun",
-            Error::CursorError(ref e) => e.description()
+            Error::CursorError(ref e) => e.description(),
+            Error::RestoreMarfBlockError(ref _e) => "Failed to restore previous open block during block header check"
         }
     }
 }

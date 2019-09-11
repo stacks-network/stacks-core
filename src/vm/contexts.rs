@@ -11,7 +11,6 @@ use vm::contracts::Contract;
 use vm::{parser, eval};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
-use burnchains::BurnchainHeaderHash;
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -402,6 +401,22 @@ impl <'a,'b> Environment <'a,'b> {
         } else {
             self.global_context.handle_tx_result(result)
         }
+    }
+
+    pub fn evaluate_at_block(&mut self, bhh: BlockHeaderHash, closure: &SymbolicExpression, local: &LocalContext) -> Result<Value> {
+        self.global_context.begin_read_only();
+
+        let result = self.global_context.database.set_block_hash(bhh)
+            .and_then(|prior_bhh| {
+                let result = eval(closure, self, local);
+                self.global_context.database.set_block_hash(prior_bhh)
+                    .expect("ERROR: Failed to restore prior active block after time-shifted evaluation.");
+                result
+            });
+
+        self.global_context.roll_back();
+
+        result
     }
 
     pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
