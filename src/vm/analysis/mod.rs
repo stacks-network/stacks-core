@@ -20,7 +20,8 @@ use self::type_checker::TypeChecker;
 #[cfg(test)]
 pub fn mem_type_check(snippet: &str) -> CheckResult<ContractAnalysis> {
     use vm::ast::parse;
-    let mut contract = parse(snippet).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    let mut contract = parse(&contract_identifier, snippet).unwrap();
     let mut analysis_db = AnalysisDatabase::memory();
     type_check(&QualifiedContractIdentifier::transient(), &mut contract, &mut analysis_db, false)
 }

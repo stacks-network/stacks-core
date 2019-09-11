@@ -319,7 +319,7 @@ impl <'a,'b> Environment <'a,'b> {
     }
 
     pub fn eval_read_only(&mut self, contract_identifier: &QualifiedContractIdentifier, program: &str) -> Result<Value> {
-        let parsed = ast::parse(program)?;
+        let parsed = ast::parse(contract_identifier, program)?;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }
@@ -341,7 +341,9 @@ impl <'a,'b> Environment <'a,'b> {
     }
     
     pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
-        let parsed = ast::parse(program)?;
+        let contract_id = QualifiedContractIdentifier::transient();
+
+        let parsed = ast::parse(&contract_id, program)?;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }

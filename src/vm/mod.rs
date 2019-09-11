@@ -203,11 +203,12 @@ fn eval_all (expressions: &[SymbolicExpression],
  *  database.
  */
 pub fn execute(program: &str) -> Result<Option<Value>> {
-    let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract_context = ContractContext::new(contract_id.clone());
     let conn = memory_db();
     let mut global_context = GlobalContext::new(conn);
     global_context.execute(|g| {
-        let parsed = ast::parse(program)?;
+        let parsed = ast::parse(&contract_id, program)?;
         eval_all(&parsed, &mut contract_context, g)
     })
 }

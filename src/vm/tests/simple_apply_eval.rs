@@ -28,8 +28,8 @@ fn test_simple_let() {
                         (let ((z 3))
                              (+ z y))
                         x))";
-
-    if let Ok(parsed_program) = parse(&program) {
+    let contract_id = QualifiedContractIdentifier::transient();
+    if let Ok(parsed_program) = parse(&contract_id, &program) {
         let context = LocalContext::new();
         let mut env = OwnedEnvironment::memory();
 
@@ -127,12 +127,16 @@ fn test_simple_if_functions() {
 
     use vm::callables::DefineType::Private;
 
-    let evals = parse(&
+    let contract_id = QualifiedContractIdentifier::transient();
+
+    let evals = parse(&contract_id, &
         "(with_else 5)
          (without_else 3)
          (with_else 3)");
 
-    let function_bodies = parse(&"(if (eq? 5 x) 1 0)
+    let contract_id = QualifiedContractIdentifier::transient();
+
+    let function_bodies = parse(&contract_id, &"(if (eq? 5 x) 1 0)
                                   (if (eq? 5 x) 1 3)");
 
     if let Ok(parsed_bodies) = function_bodies {

@@ -1,22 +1,19 @@
 use vm::analysis::{CheckErrors, mem_type_check as run_analysis_helper};
-use vm::parser::parse;
+use vm::ast::parse;
 use vm::types::QualifiedContractIdentifier;
 use vm::analysis::{CheckResult, AnalysisDatabase};
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
-use vm::analysis::expression_identifier::ExpressionIdentifier;
 use vm::analysis::definition_sorter::DefinitionSorter;
-use vm::analysis::sugar_expander::SugarExpander;
 
 fn run_scoped_analysis_helper(contract: &str) -> CheckResult<ContractAnalysis> {
     let mut db = AnalysisDatabase::memory();
-    let expressions = parse(contract).unwrap();
+    let contract_identifier = QualifiedContractIdentifier::transient();
+
+    let expressions = parse(&contract_identifier, contract).unwrap();
 
     db.execute(|db| {
-        let contract_identifier = QualifiedContractIdentifier::transient();
         let mut contract_analysis = ContractAnalysis::new(contract_identifier, expressions.to_vec());
-        ExpressionIdentifier::run_pass(&mut contract_analysis, db)?;
         DefinitionSorter::run_pass(&mut contract_analysis, db)?;
-        SugarExpander::run_pass(&mut contract_analysis, db)?;
         Ok(contract_analysis)
     })
 }

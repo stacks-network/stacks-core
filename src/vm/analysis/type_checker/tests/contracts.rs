@@ -3,7 +3,7 @@ use serde_json;
 
 use vm::ast::parse;
 use vm::analysis::errors::CheckErrors;
-use vm::analysis::{AnalysisDatabase, build_contract_interface::build_contract_interface};
+use vm::analysis::{AnalysisDatabase, contract_interface_builder::build_contract_interface};
 use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
 use vm::types::QualifiedContractIdentifier;
@@ -347,13 +347,16 @@ fn test_names_tokens_contracts_interface() {
 
 #[test]
 fn test_names_tokens_contracts() {
-    let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
-    let mut names_contract = parse(SIMPLE_NAMES).unwrap();
+    let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+    let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
+
+    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
+    let mut names_contract = parse(&names_contract_id, SIMPLE_NAMES).unwrap();
     let mut db = AnalysisDatabase::memory();
 
     db.execute(|db| {
-        type_check(&QualifiedContractIdentifier::local("tokens").unwrap(), &mut tokens_contract, db, true)?;
-        type_check(&QualifiedContractIdentifier::local("names").unwrap(), &mut names_contract, db, true)
+        type_check(&tokens_contract_id, &mut tokens_contract, db, true)?;
+        type_check(&names_contract_id, &mut names_contract, db, true)
     }).unwrap();
 }
 
@@ -373,12 +376,15 @@ fn test_names_tokens_contracts_bad() {
         format!("{}
                  {}", SIMPLE_NAMES, broken_public);
 
-    let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
-    let mut names_contract = parse(&names_contract).unwrap();
-    let mut db = AnalysisDatabase::memory();
-    db.execute(|db| type_check(&QualifiedContractIdentifier::local("tokens").unwrap(), &mut tokens_contract, db, true)).unwrap();
+    let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+    let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
 
-    let err = db.execute(|db| type_check(&QualifiedContractIdentifier::local("names").unwrap(), &mut names_contract, db, true)).unwrap_err();
+    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
+    let mut names_contract = parse(&names_contract_id, &names_contract).unwrap();
+    let mut db = AnalysisDatabase::memory();
+    db.execute(|db| type_check(&tokens_contract_id, &mut tokens_contract, db, true)).unwrap();
+
+    let err = db.execute(|db| type_check(&names_contract_id, &mut names_contract, db, true)).unwrap_err();
     assert!(match &err.err {
             &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
                 eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
@@ -401,12 +407,15 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
         format!("{}
                  {}", SIMPLE_NAMES, broken_public);
 
-    let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
-    let mut names_contract = parse(&names_contract).unwrap();
-    let mut db = AnalysisDatabase::memory();
-    db.execute(|db| type_check(&QualifiedContractIdentifier::local("tokens").unwrap(), &mut tokens_contract, db, true)).unwrap();
+    let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+    let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
 
-    let err = db.execute(|db| type_check(&QualifiedContractIdentifier::local("names").unwrap(), &mut names_contract, db, true)).unwrap_err();
+    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
+    let mut names_contract = parse(&names_contract_id, &names_contract).unwrap();
+    let mut db = AnalysisDatabase::memory();
+    db.execute(|db| type_check(&tokens_contract_id, &mut tokens_contract, db, true)).unwrap();
+
+    let err = db.execute(|db| type_check(&names_contract_id, &mut names_contract, db, true)).unwrap_err();
     assert!(match &err.err {
             &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
                 eprintln!("Received TypeError on: {} {}", expected_type, actual_type);

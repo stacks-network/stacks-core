@@ -1,7 +1,7 @@
 use vm::ast::parse;
 use vm::representations::SymbolicExpression;
 use vm::analysis::type_checker::{TypeResult, TypeChecker, TypingContext};
-use vm::analysis::{AnalysisDatabase, expression_identifier};
+use vm::analysis::{AnalysisDatabase};
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
@@ -14,8 +14,8 @@ mod contracts;
 
 fn type_check_helper(exp: &str) -> TypeResult {
     let mut db = AnalysisDatabase::memory();
-    let mut exp = parse(exp).unwrap();
-    expression_identifier::update_expression_id(&mut exp).unwrap();
+    let contract_id = QualifiedContractIdentifier::transient();
+    let exp = parse(&contract_id, exp).unwrap();
     db.execute(|db| {
         let mut type_checker = TypeChecker::new(db);
         
@@ -965,9 +965,11 @@ fn test_fetch_contract_entry_matching_type_signatures() {
 
     let mut analysis_db = AnalysisDatabase::memory();
 
-    let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
+    let contract_id = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
+
+    let mut kv_store_contract = parse(&contract_id, &kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
-        type_check(&QualifiedContractIdentifier::local("kv-store-contract").unwrap(), &mut kv_store_contract, db, true)
+        type_check(&contract_id, &mut kv_store_contract, db, true)
     }).unwrap();
 
     let cases = [
@@ -977,13 +979,15 @@ fn test_fetch_contract_entry_matching_type_signatures() {
         "contract-map-get kv-store-contract kv-store (compatible-tuple)",
     ];
 
+    let transient_contract_id = QualifiedContractIdentifier::transient();
+
     for case in cases.into_iter() {
         let contract_src = format!(r#"
             (define-private (compatible-tuple) (tuple (key 1)))
             (define-private (kv-get (key int)) ({}))"#, case);
-        let mut contract = parse(&contract_src).unwrap();
+        let mut contract = parse(&transient_contract_id, &contract_src).unwrap();
         analysis_db.execute(|db| {
-            type_check(&QualifiedContractIdentifier::transient(), &mut contract, db, false)
+            type_check(&transient_contract_id, &mut contract, db, false)
         }).unwrap();
     }
 }
@@ -996,10 +1000,11 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
             (expects! (get value (map-get kv-store ((key key)))) 0))
         (begin (map-insert! kv-store ((key 42)) ((value 42))))"#;
 
+    let contract_id = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
     let mut analysis_db = AnalysisDatabase::memory();
-    let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
+    let mut kv_store_contract = parse(&contract_id, &kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
-        type_check(&QualifiedContractIdentifier::local("kv-store-contract").unwrap(), &mut kv_store_contract, db, true)
+        type_check(&contract_id, &mut kv_store_contract, db, true)
     }).unwrap();
     
     let cases = [
@@ -1008,16 +1013,18 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
         "contract-map-get kv-store-contract kv-store (incompatible-tuple)",
     ];
 
+    let transient_contract_id = QualifiedContractIdentifier::transient();
+
     for case in cases.into_iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (incompatible-tuple) (tuple (k 1)))
              (define-private (kv-get (key int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
+        let mut contract = parse(&transient_contract_id, &contract_src).unwrap();
         let res = 
             analysis_db.execute(|db| {
-                type_check(&QualifiedContractIdentifier::transient(), &mut contract, db, false)
+                type_check(&transient_contract_id, &mut contract, db, false)
             }).unwrap_err();
 
         assert!(match &res.err {
@@ -1035,25 +1042,28 @@ fn test_fetch_contract_entry_unbound_variables() {
             (expects! (get value (map-get kv-store ((key key)))) 0))
         (begin (map-insert! kv-store ((key 42)) ((value 42))))"#;
 
+    let contract_id = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
     let mut analysis_db = AnalysisDatabase::memory();
-    let mut kv_store_contract = parse(&kv_store_contract_src).unwrap();
+    let mut kv_store_contract = parse(&contract_id, &kv_store_contract_src).unwrap();
     analysis_db.execute(|db| {
-        type_check(&QualifiedContractIdentifier::local("kv-store-contract").unwrap(), &mut kv_store_contract, db, true)
+        type_check(&contract_id, &mut kv_store_contract, db, true)
     }).unwrap();
     
     let cases = [
         "contract-map-get kv-store-contract kv-store ((key unknown-value))",
     ];
 
+    let transient_contract_id = QualifiedContractIdentifier::transient();
+
     for case in cases.into_iter() {
         let contract_src = format!(
             "(define-map kv-store ((key int)) ((value int)))
              (define-private (kv-get (key int))
                 ({}))", case);
-        let mut contract = parse(&contract_src).unwrap();
+        let mut contract = parse(&transient_contract_id, &contract_src).unwrap();
         let res = 
             analysis_db.execute(|db| {
-                type_check(&QualifiedContractIdentifier::transient(), &mut contract, db, false)
+                type_check(&transient_contract_id, &mut contract, db, false)
             }).unwrap_err();
 
         assert!(match &res.err {

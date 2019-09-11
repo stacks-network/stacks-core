@@ -82,16 +82,20 @@ fn test_contract_call_read_only_violations() {
         "(define-read-only (is-reading-only)
             (eq? 0 (expects! (contract-call! contract1 get-token-balance) 'false)))";
 
-    let mut contract1 = parse(contract1).unwrap();
-    let mut bad_caller = parse(bad_caller).unwrap();
-    let mut ok_caller = parse(ok_caller).unwrap();
+    let contract_1_id = QualifiedContractIdentifier::local("contract1").unwrap();
+    let contract_bad_caller_id = QualifiedContractIdentifier::local("bad_caller").unwrap();
+    let contract_ok_caller_id = QualifiedContractIdentifier::local("ok_caller").unwrap();
+
+    let mut contract1 = parse(&contract_1_id, contract1).unwrap();
+    let mut bad_caller = parse(&contract_bad_caller_id, bad_caller).unwrap();
+    let mut ok_caller = parse(&contract_ok_caller_id, ok_caller).unwrap();
 
     let mut db = AnalysisDatabase::memory();
-    db.execute(|db| type_check(&QualifiedContractIdentifier::local("contract1").unwrap(), &mut contract1, db, true)).unwrap();
+    db.execute(|db| type_check(&contract_1_id, &mut contract1, db, true)).unwrap();
 
-    let err = db.execute(|db| type_check(&QualifiedContractIdentifier::local("bad_caller").unwrap(), &mut bad_caller, db, true)).unwrap_err();
+    let err = db.execute(|db| type_check(&contract_bad_caller_id, &mut bad_caller, db, true)).unwrap_err();
     assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
 
-    db.execute(|db| type_check(&QualifiedContractIdentifier::local("ok_caller").unwrap(), &mut ok_caller, db, true)).unwrap();
+    db.execute(|db| type_check(&contract_ok_caller_id, &mut ok_caller, db, true)).unwrap();
 
 }

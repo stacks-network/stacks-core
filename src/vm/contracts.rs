@@ -15,7 +15,7 @@ pub struct Contract {
 //          will probably be removed soon.
 impl Contract {
     pub fn initialize (contract_identifier: QualifiedContractIdentifier, contract: &str, global_context: &mut GlobalContext) -> Result<Contract> {
-        let parsed: Vec<_> = ast::parse(contract)?;
+        let parsed: Vec<_> = ast::parse(&contract_identifier, contract)?;
         let mut contract_context = ContractContext::new(contract_identifier);
 
         eval_all(&parsed, &mut contract_context, global_context)?;

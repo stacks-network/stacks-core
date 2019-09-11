@@ -458,15 +458,21 @@ impl PrincipalData {
                 "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
         }
         let sender = Self::parse_standard_principal(split[0])?;
-        let name = split[1].to_string();
         
-        let contract_identifier = QualifiedContractIdentifier::new(sender, name)?;
+        let contract_identifier = {
+            let sender_data = split[0];
+            let name = split[1].to_string();
+            if sender_data == "11111111111111111111111111111111111111111" {
+                QualifiedContractIdentifier::local(&name)
+            } else {
+                QualifiedContractIdentifier::new(sender, name)
+            }
+        }?;
         Ok(PrincipalData::Contract(contract_identifier))
     }
 
     pub fn parse_standard_principal(literal: &str) -> Result<StackAddress> {
-        let (version, data) = c32::c32_address_decode(&literal)
-            .map_err(|x| { RuntimeErrorType::ParseError(format!("Invalid principal literal: {}", x)) })?;
+        let (version, data) = c32::c32_address_decode(&literal).map_err(|x| { RuntimeErrorType::ParseError(format!("Invalid principal literal: {}", x)) })?;
         if data.len() != 20 {
             return Err(RuntimeErrorType::ParseError(
                 "Invalid principal literal: Expected 20 data bytes.".to_string()).into());

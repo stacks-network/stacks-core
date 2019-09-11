@@ -5,9 +5,8 @@ use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
-
+use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
 use super::AnalysisDatabase;
-use super::errors::{CheckResult, CheckError, CheckErrors};
 
 #[cfg(test)]
 mod tests;
@@ -35,7 +34,7 @@ impl <'a> DefinitionSorter {
         }
     }
 
-    pub fn run(&mut self, contract_analysis: &'a mut ContractAnalysis) -> CheckResult<()> {
+    pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
 
         let exprs = contract_analysis.expressions[..].to_vec();
         for (expr_index, expr) in exprs.iter().enumerate() {
@@ -193,7 +192,6 @@ impl <'a> DefinitionSorter {
         Ok(())
     }
 
-
     fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(String, u64, &'b SymbolicExpression)> {
         if let Some(expression) = exp.match_list() {
             if let Some((function_name, function_args)) = expression.split_first() {
@@ -210,7 +208,7 @@ impl <'a> DefinitionSorter {
                         }
                     }
                 } 
-            } 
+            }
         }
         None
     }

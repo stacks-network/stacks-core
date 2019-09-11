@@ -58,7 +58,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
                (err \"must be in the future\")))
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 200)
-                (token-credit! 'CTtokens 4))";
+                (token-credit! '11111111111111111111111111111111111111111.tokens 4))";
 
 
 fn get_principal() -> Value {
