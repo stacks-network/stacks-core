@@ -100,6 +100,7 @@ impl KeyValueStorage for &mut MarfedKV {
         self.marf.check_block_hash(&bhh).map_err(|e| {
             match e {
                 MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
+                MarfError::NonMatchingForks(_,_) => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e)
             }
         })?;

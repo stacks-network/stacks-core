@@ -211,7 +211,7 @@ impl error::Error for Error {
             Error::WriteNotBegunError => "Write has not begun",
             Error::CursorError(ref e) => e.description(),
             Error::RestoreMarfBlockError(ref _e) => "Failed to restore previous open block during block header check",
-            Error::NonMatchingForks(ref a, ref b) => "The supplied blocks are not in the same ",
+            Error::NonMatchingForks(ref a, ref b) => "The supplied blocks are not in the same fork",
         }
     }
 }
