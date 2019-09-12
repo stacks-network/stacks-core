@@ -5,13 +5,14 @@ use regex::{Regex, Captures};
 use address::c32::c32_address_decode;
 use vm::ast::errors::{ParseResult, ParseErrors, ParseError};
 use vm::errors::{RuntimeErrorType, InterpreterResult as Result};
-use vm::representations::SymbolicExpression;
+use vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType, ContractName};
 use vm::types::{Value, PrincipalData, QualifiedContractIdentifier};
 
 pub enum LexItem {
     LeftParen,
     RightParen,
     LiteralValue(usize, Value),
+    UnexpandedContractName(usize, ContractName),
     Variable(String),
     Whitespace
 }
@@ -22,7 +23,8 @@ enum TokenType {
     StringLiteral, HexStringLiteral,
     UIntLiteral, IntLiteral, QuoteLiteral,
     Variable, PrincipalLiteral,
-    QualifiedContractPrincipalLiteral
+    QualifiedContractPrincipalLiteral,
+    UnexpandedContractNameLiteral
 }
 
 struct LexMatcher {
@@ -74,7 +76,8 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
         LexMatcher::new("u(?P<value>[[:digit:]]+)", TokenType::UIntLiteral),
         LexMatcher::new("(?P<value>-?[[:digit:]]+)", TokenType::IntLiteral),
         LexMatcher::new("'(?P<value>true|false)", TokenType::QuoteLiteral),
-        LexMatcher::new(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}(\.)([[:alpha:]]|[-]){5,40})"#, TokenType::QualifiedContractPrincipalLiteral),
+        LexMatcher::new(r#"'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41}(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::QualifiedContractPrincipalLiteral),
+        LexMatcher::new(r#"(?P<value>(\.)([[:alnum:]]|[-]){5,40})"#, TokenType::UnexpandedContractNameLiteral),
         LexMatcher::new("'(?P<value>[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{28,41})", TokenType::PrincipalLiteral),
         LexMatcher::new("(?P<value>([[:word:]]|[-!?+<>=/*])+)", TokenType::Variable),
     ];
@@ -171,16 +174,22 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                     },
                     TokenType::QualifiedContractPrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        println!("1 ===> {:?}", str_value);
                         let value = match PrincipalData::parse_qualified_contract_principal(&str_value) {
                             Ok(parsed) => Ok(Value::Principal(parsed)),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone())))
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     },
+                    TokenType::UnexpandedContractNameLiteral => {
+                        let str_value = get_value_or_err(current_slice, captures)?;
+                        let value = match str_value[1..].to_string().try_into() {
+                            Ok(parsed) => Ok(parsed),
+                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone())))
+                        }?;
+                        Ok(LexItem::UnexpandedContractName(str_value.len(), value))
+                    },
                     TokenType::PrincipalLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
-                        println!("2 ===> {:?}", str_value);
                         let value = match PrincipalData::parse_standard_principal(&str_value) {
                             Ok(parsed) => Ok(Value::Principal(PrincipalData::Standard(parsed))),
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(str_value.clone())))
@@ -207,7 +216,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
                             Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingBuffer(str_value.clone())))
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
-                    }
+                    },
                 }?;
 
                 result.push((token, current_line, column_pos));
@@ -225,7 +234,7 @@ pub fn lex(input: &str) -> ParseResult<Vec<(LexItem, u32, u32)>> {
     }
 }
 
-pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<SymbolicExpression>> {
+pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
@@ -240,15 +249,15 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<Symbo
             LexItem::RightParen => {
                 // end current list.
                 if let Some((value, start_line, start_column)) = parse_stack.pop() {
-                    let mut expression = SymbolicExpression::list(value.into_boxed_slice());
-                    expression.set_span(start_line, start_column, line_pos, column_pos);
+                    let mut pre_expr = PreSymbolicExpression::list(value.into_boxed_slice());
+                    pre_expr.set_span(start_line, start_column, line_pos, column_pos);
                     match parse_stack.last_mut() {
                         None => {
                             // no open lists on stack, add current to result.
-                            output_list.push(expression)
+                            output_list.push(pre_expr)
                         },
                         Some((ref mut list, _, _)) => {
-                            list.push(expression);
+                            list.push(pre_expr);
                         }
                     };
                 } else {
@@ -259,12 +268,12 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<Symbo
                 let end_column = column_pos + (value.len() as u32) - 1;
                 let value = value.clone().try_into()
                     .map_err(|_| { ParseError::new(ParseErrors::IllegalVariableName(value.to_string())) })?;
-                let mut expression = SymbolicExpression::atom(value);
-                expression.set_span(line_pos, column_pos, line_pos, end_column);
+                let mut pre_expr = PreSymbolicExpression::atom(value);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
 
                 match parse_stack.last_mut() {
-                    None => output_list.push(expression),
-                    Some((ref mut list, _, _)) => list.push(expression)
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _)) => list.push(pre_expr)
                 };
             },
             LexItem::LiteralValue(length, value) => {
@@ -273,12 +282,26 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<Symbo
                 if length > 0 {
                     end_column = end_column - 1;
                 }
-                let mut expression = SymbolicExpression::atom_value(value);
-                expression.set_span(line_pos, column_pos, line_pos, end_column);
+                let mut pre_expr = PreSymbolicExpression::atom_value(value);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
 
                 match parse_stack.last_mut() {
-                    None => output_list.push(expression),
-                    Some((ref mut list, _, _)) => list.push(expression)
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _)) => list.push(pre_expr)
+                };
+            },
+            LexItem::UnexpandedContractName(length, value) => {
+                let mut end_column = column_pos + (length as u32);
+                // Avoid underflows on cases like empty strings
+                if length > 0 {
+                    end_column = end_column - 1;
+                }
+                let mut pre_expr = PreSymbolicExpression::unexpanded_contract_name(value);
+                pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
+
+                match parse_stack.last_mut() {
+                    None => output_list.push(pre_expr),
+                    Some((ref mut list, _, _)) => list.push(pre_expr)
                 };
             },
             LexItem::Whitespace => ()
@@ -293,7 +316,7 @@ pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<Symbo
     }
 }
 
-pub fn parse(input: &str) -> ParseResult<Vec<SymbolicExpression>> {
+pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
     let lexed = lex(input)?;
     parse_lexed(lexed)
 }
@@ -301,23 +324,24 @@ pub fn parse(input: &str) -> ParseResult<Vec<SymbolicExpression>> {
 
 #[cfg(test)]
 mod test {
-    use vm::{SymbolicExpression, Value, ast};
+    use vm::representations::{PreSymbolicExpression};
+    use vm::{Value, ast};
     use vm::types::{QualifiedContractIdentifier};
 
-    fn make_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> SymbolicExpression {
-        let mut e = SymbolicExpression::atom(x.into());
+    fn make_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
+        let mut e = PreSymbolicExpression::atom(x.into());
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
 
-    fn make_atom_value(x: Value, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> SymbolicExpression {
-        let mut e = SymbolicExpression::atom_value(x);
+    fn make_atom_value(x: Value, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
+        let mut e = PreSymbolicExpression::atom_value(x);
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }
 
-    fn make_list(start_line: u32, start_column: u32, end_line: u32, end_column: u32, x: Box<[SymbolicExpression]>) -> SymbolicExpression {
-        let mut e = SymbolicExpression::list(x);
+    fn make_list(start_line: u32, start_column: u32, end_line: u32, end_column: u32, x: Box<[PreSymbolicExpression]>) -> PreSymbolicExpression {
+        let mut e = PreSymbolicExpression::list(x);
         e.set_span(start_line, start_column, end_line, end_column);
         e
     }

@@ -20,9 +20,9 @@ pub fn parse(contract_identifier: &QualifiedContractIdentifier,source_code: &str
 }
 
 pub fn build_ast(contract_identifier: &QualifiedContractIdentifier, source_code: &str) -> ParseResult<ContractAST> {
-    let expressions = parser::parse(source_code)?;
-    let mut contract_ast = ContractAST::new(contract_identifier.clone(), expressions);
-    ExpressionIdentifier::run_pass(&mut contract_ast)?;
+    let pre_expressions = parser::parse(source_code)?;
+    let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
     SugarExpander::run_pass(&mut contract_ast)?;
+    ExpressionIdentifier::run_pass(&mut contract_ast)?;
     Ok(contract_ast)
 }

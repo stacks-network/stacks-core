@@ -8,7 +8,7 @@ fn inner_relabel(args: &mut [SymbolicExpression], index: u64) -> ParseResult<u64
     for expression in &mut args[..] {
         expression.id = current;
         current = match expression.expr {
-            SymbolicExpressionType::AtomValue(_) => {
+            SymbolicExpressionType::AtomValue(_) | SymbolicExpressionType::LiteralValue(_) => {
                 current.checked_add(1)
                     .ok_or(ParseError::new(ParseErrors::TooManyExpressions))
             },
