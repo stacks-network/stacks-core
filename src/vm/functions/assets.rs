@@ -25,7 +25,7 @@ pub fn special_mint_token(args: &[SymbolicExpression],
     if let (Value::Int(amount),
             Value::Principal(ref to_principal)) = (amount, to) {
         if amount <= 0 {
-            return Ok(Value::error(Value::Int(MintTokenErrorCodes::NON_POSITIVE_AMOUNT as i128)));
+            return Ok(Value::error(Value::Int(MintTokenErrorCodes::NON_POSITIVE_AMOUNT as u128)));
         }
 
         env.global_context.database.checked_increase_token_supply(
@@ -64,7 +64,7 @@ pub fn special_mint_asset(args: &[SymbolicExpression],
     if let Value::Principal(ref to_principal) = to {
         match env.global_context.database.get_nft_owner(&env.contract_context.name, asset_name, &asset) {
             Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
-            Ok(_owner) => return Ok(Value::error(Value::Int(MintAssetErrorCodes::ALREADY_EXIST as i128))),
+            Ok(_owner) => return Ok(Value::error(Value::Int(MintAssetErrorCodes::ALREADY_EXIST as u128))),
             Err(e) => Err(e)
         }?;
 
@@ -98,20 +98,20 @@ pub fn special_transfer_asset(args: &[SymbolicExpression],
             Value::Principal(ref to_principal)) = (from, to) {
 
         if from_principal == to_principal {
-            return Ok(Value::error(Value::Int(TransferAssetErrorCodes::SENDER_IS_RECIPIENT as i128)))
+            return Ok(Value::error(Value::Int(TransferAssetErrorCodes::SENDER_IS_RECIPIENT as u128)))
         }
 
         let current_owner = match env.global_context.database.get_nft_owner(&env.contract_context.name, asset_name, &asset) {
             Ok(owner) => Ok(owner),
             Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
-                return Ok(Value::error(Value::Int(TransferAssetErrorCodes::DOES_NOT_EXIST as i128)))
+                return Ok(Value::error(Value::Int(TransferAssetErrorCodes::DOES_NOT_EXIST as u128)))
             },
             Err(e) => Err(e)
         }?;
             
 
         if current_owner != *from_principal {
-            return Ok(Value::error(Value::Int(TransferAssetErrorCodes::NOT_OWNED_BY as i128)))
+            return Ok(Value::error(Value::Int(TransferAssetErrorCodes::NOT_OWNED_BY as u128)))
         }
 
         env.global_context.database.set_nft_owner(&env.contract_context.name, asset_name, &asset, to_principal)?;
@@ -140,17 +140,17 @@ pub fn special_transfer_token(args: &[SymbolicExpression],
             Value::Principal(ref from_principal),
             Value::Principal(ref to_principal)) = (amount, from, to) {
         if amount <= 0 {
-            return Ok(Value::error(Value::Int(TransferTokenErrorCodes::NON_POSITIVE_AMOUNT as i128)))
+            return Ok(Value::error(Value::Int(TransferTokenErrorCodes::NON_POSITIVE_AMOUNT as u128)))
         }
 
         if from_principal == to_principal {
-            return Ok(Value::error(Value::Int(TransferTokenErrorCodes::SENDER_IS_RECIPIENT as i128)))
+            return Ok(Value::error(Value::Int(TransferTokenErrorCodes::SENDER_IS_RECIPIENT as u128)))
         }
 
         let from_bal = env.global_context.database.get_ft_balance(&env.contract_context.name, token_name, from_principal)?;
 
         if from_bal < amount {
-            return Ok(Value::error(Value::Int(TransferTokenErrorCodes::NOT_ENOUGH_BALANCE as i128)))
+            return Ok(Value::error(Value::Int(TransferTokenErrorCodes::NOT_ENOUGH_BALANCE as u128)))
         }
 
         let final_from_bal = from_bal - amount;
