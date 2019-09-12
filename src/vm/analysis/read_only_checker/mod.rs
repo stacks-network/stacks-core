@@ -1,5 +1,5 @@
 use vm::representations::{SymbolicExpressionType, SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, Value, PrincipalData, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
@@ -230,6 +230,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
                 check_arguments_at_least(2, args)?;
                 let contract_identifier = match args[0].expr {
                     SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
+                    SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
                     _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
                 };
 
@@ -262,7 +263,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
 
     fn is_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
         match expr.expr {
-            AtomValue(_) => {
+            AtomValue(_) | LiteralValue(_) => {
                 Ok(true)
             },
             Atom(_) => {

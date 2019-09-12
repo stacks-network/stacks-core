@@ -108,14 +108,13 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
         env.call_stack.remove(&identifier, track_recursion)?;
         resp
     }
-            
 }
 
 pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &LocalContext) -> Result<Value> {
-    use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+    use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 
     match exp.expr {
-        AtomValue(ref value) => Ok(value.clone()),
+        AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
         Atom(ref value) => lookup_variable(&value, context, env),
         List(ref children) => {
             let (function_variable, rest) = children.split_first()

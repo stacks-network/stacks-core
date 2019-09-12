@@ -3,7 +3,7 @@ pub mod contexts;
 pub mod natives;
 
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, FunctionArg,
                 FunctionType, FixedFunction, INT_TYPE, UINT_TYPE, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
@@ -378,7 +378,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
 
     fn inner_type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
         let type_sig = match expr.expr {
-            AtomValue(ref value) => {
+            AtomValue(ref value) | LiteralValue(ref value) => {
                 TypeSignature::type_of(value)
             },
             Atom(ref name) => {

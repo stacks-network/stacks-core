@@ -1,7 +1,7 @@
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
@@ -75,7 +75,7 @@ impl <'a> DefinitionSorter {
 
     fn probe_for_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
         match expr.expr {
-            AtomValue(_) => Ok(()),
+            AtomValue(_)  | LiteralValue(_) => Ok(()),
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
