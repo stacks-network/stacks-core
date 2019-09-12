@@ -980,7 +980,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetTokenBalance => make_for_special(&GET_BALANCE, name),
         GetAssetOwner => make_for_special(&GET_OWNER, name),
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
-        TransferAsset => make_for_special(&ASSET_TRANSFER, name)
+        TransferAsset => make_for_special(&ASSET_TRANSFER, name),
+        AtBlock => panic!(),
     }
 }
 

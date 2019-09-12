@@ -112,6 +112,7 @@ pub enum CheckErrors {
     UnknownFunction(String),
 
     WriteAttemptedInReadOnly,
+    AtBlockClosureMustBeReadOnly
 }
 
 #[derive(Debug, PartialEq)]
@@ -267,6 +268,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{}", function_name),
             CheckErrors::UnknownFunction(function_name) => format!("use of unresolved function '{}'", function_name),
             CheckErrors::WriteAttemptedInReadOnly => format!("expecting read-only statements, detected a writing operation"),
+            CheckErrors::AtBlockClosureMustBeReadOnly => format!("(at-block ...) closures expect read-only statements, but detected a writing operation"),
             CheckErrors::BadTokenName => format!("expecting an token name as an argument"),
             CheckErrors::DefineFTBadSignature => format!("(define-token ...) expects a token name as an argument"),
             CheckErrors::DefineNFTBadSignature => format!("(define-asset ...) expects an asset name and an asset identifier type signature as arguments"),

@@ -37,6 +37,12 @@ fn check_special_as_contract(checker: &mut TypeChecker, args: &[SymbolicExpressi
     checker.type_check(&args[0], context)
 }
 
+fn check_special_at_block(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(2, args)?;
+    checker.type_check_expects(&args[0], context, &BUFF_32)?;
+    checker.type_check(&args[1], context)
+}
+
 fn check_special_begin(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(1, args)?;
         
@@ -348,7 +354,8 @@ impl TypedNativeFunction {
             Expects => Special(SpecialNativeFunction(&options::check_special_expects)),
             ExpectsErr => Special(SpecialNativeFunction(&options::check_special_expects_err)),
             IsOkay => Special(SpecialNativeFunction(&options::check_special_is_okay)),
-            IsNone => Special(SpecialNativeFunction(&options::check_special_is_none))
+            IsNone => Special(SpecialNativeFunction(&options::check_special_is_none)),
+            AtBlock => Special(SpecialNativeFunction(&check_special_at_block)),
         }
     }
 }

@@ -187,6 +187,14 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin | FetchVar | GetTokenBalance | GetAssetOwner => {
                 self.check_all_read_only(args)
             },
+            AtBlock => {
+                let is_block_arg_read_only = self.check_read_only(&args[0])?;
+                let closure_read_only = self.check_read_only(&args[1])?;
+                if !closure_read_only {
+                    return Err(CheckErrors::AtBlockClosureMustBeReadOnly.into())
+                }
+                Ok(is_block_arg_read_only)
+            },
             FetchEntry => {                
                 let res = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
                     Implicit(ref tuple_expr) => {

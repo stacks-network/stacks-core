@@ -56,7 +56,7 @@ use util::log;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrieForkPtr {
-    fork_id: usize,
+    pub fork_id: usize,
     index: usize,
     parent_fork_id: usize,
     parent_index: usize

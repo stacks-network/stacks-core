@@ -172,25 +172,17 @@ pub enum Error {
     InProgressError,
     WriteNotBegunError,
     CursorError(node::CursorError),
-    RestoreMarfBlockError(Box<Error>)
+    RestoreMarfBlockError(Box<Error>),
+    NonMatchingForks(usize, usize)
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
-            Error::NotFoundError => f.write_str(error::Error::description(self)),
-            Error::BackptrNotFoundError => f.write_str(error::Error::description(self)),
-            Error::ExistsError => f.write_str(error::Error::description(self)),
-            Error::BadSeekValue => f.write_str(error::Error::description(self)),
             Error::CorruptionError(ref s) => fmt::Display::fmt(s, f),
-            Error::ReadOnlyError => f.write_str(error::Error::description(self)),
-            Error::NotDirectoryError => f.write_str(error::Error::description(self)),
-            Error::PartialWriteError => f.write_str(error::Error::description(self)),
-            Error::InProgressError => f.write_str(error::Error::description(self)),
-            Error::WriteNotBegunError => f.write_str(error::Error::description(self)),
-            Error::RestoreMarfBlockError(ref e) => f.write_str(error::Error::description(self)),
-            Error::CursorError(ref e) => fmt::Display::fmt(e, f)
+            Error::CursorError(ref e) => fmt::Display::fmt(e, f),
+            _ => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -199,18 +191,8 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&error::Error> {
         match *self {
             Error::IOError(ref e) => Some(e),
-            Error::NotFoundError => None,
-            Error::BackptrNotFoundError => None,
-            Error::ExistsError => None,
-            Error::BadSeekValue => None,
-            Error::CorruptionError(ref _s) => None,
-            Error::ReadOnlyError => None,
-            Error::NotDirectoryError => None,
-            Error::PartialWriteError => None,
-            Error::InProgressError => None,
-            Error::WriteNotBegunError => None,
-            Error::CursorError(ref e) => None,
             Error::RestoreMarfBlockError(ref e) => Some(e),
+            _ => None
         }
     }
 
@@ -228,7 +210,8 @@ impl error::Error for Error {
             Error::InProgressError => "Write was in progress",
             Error::WriteNotBegunError => "Write has not begun",
             Error::CursorError(ref e) => e.description(),
-            Error::RestoreMarfBlockError(ref _e) => "Failed to restore previous open block during block header check"
+            Error::RestoreMarfBlockError(ref _e) => "Failed to restore previous open block during block header check",
+            Error::NonMatchingForks(ref a, ref b) => "The supplied blocks are not in the same ",
         }
     }
 }
