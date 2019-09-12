@@ -19,7 +19,7 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
                (err 8)))
          (begin (ft-mint! stackaroos 10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
                 (ft-mint! stackaroos 200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
-                (ft-mint! stackaroos 4 '11111111111111111111111111111111111111111.tokens))";
+                (ft-mint! stackaroos 4 .tokens))";
 
 const ASSET_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
@@ -34,7 +34,7 @@ const ASSET_NAMES: &str =
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
-           (let ((xfer-result (contract-call! tokens my-token-transfer
+           (let ((xfer-result (contract-call! .tokens my-token-transfer
                                 burn-address name-price)))
             (if (is-ok? xfer-result)
                (if

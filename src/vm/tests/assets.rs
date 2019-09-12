@@ -22,7 +22,7 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
                (err \"must be in the future\")))
          (begin (ft-mint! stackaroos 10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
                 (ft-mint! stackaroos 200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
-                (ft-mint! stackaroos 4   '11111111111111111111111111111111111111111.tokens))";
+                (ft-mint! stackaroos 4 .tokens))";
 
 const ASSET_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
@@ -37,7 +37,7 @@ const ASSET_NAMES: &str =
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
-           (let ((xfer-result (contract-call! tokens my-token-transfer
+           (let ((xfer-result (contract-call! .tokens my-token-transfer
                                 burn-address name-price)))
             (if (is-ok? xfer-result)
                (if
@@ -53,20 +53,20 @@ const ASSET_NAMES: &str =
            (nft-mint! names name tx-sender))
          (define-public (try-bad-transfers)
            (begin
-             (contract-call! tokens my-token-transfer burn-address 50000)
-             (contract-call! tokens my-token-transfer burn-address 1000)
-             (contract-call! tokens my-token-transfer burn-address 1)
+             (contract-call! .tokens my-token-transfer burn-address 50000)
+             (contract-call! .tokens my-token-transfer burn-address 1000)
+             (contract-call! .tokens my-token-transfer burn-address 1)
              (err 0)))
          (define-public (try-bad-transfers-but-ok)
            (begin
-             (contract-call! tokens my-token-transfer burn-address 50000)
-             (contract-call! tokens my-token-transfer burn-address 1000)
-             (contract-call! tokens my-token-transfer burn-address 1)
+             (contract-call! .tokens my-token-transfer burn-address 50000)
+             (contract-call! .tokens my-token-transfer burn-address 1000)
+             (contract-call! .tokens my-token-transfer burn-address 1)
              (ok 0)))
          (define-public (transfer (name int) (recipient principal))
            (let ((transfer-name-result (nft-transfer! names name tx-sender recipient))
-                 (token-to-contract-result (contract-call! tokens my-token-transfer '11111111111111111111111111111111111111111.names 1))
-                 (contract-to-burn-result (as-contract (contract-call! tokens my-token-transfer burn-address 1))))
+                 (token-to-contract-result (contract-call! .tokens my-token-transfer '11111111111111111111111111111111111111111.names 1))
+                 (contract-to-burn-result (as-contract (contract-call! .tokens my-token-transfer burn-address 1))))
              (begin (expects! transfer-name-result transfer-name-result)
                     (expects! token-to-contract-result token-to-contract-result)
                     (expects! contract-to-burn-result contract-to-burn-result)

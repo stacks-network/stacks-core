@@ -58,7 +58,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
                (err \"must be in the future\")))
          (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 10000)
                 (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G 200)
-                (token-credit! '11111111111111111111111111111111111111111.tokens 4))";
+                (token-credit! .tokens 4))";
 
 
 fn get_principal() -> Value {
@@ -220,9 +220,9 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
          (define-read-only (as-contract-get-caller)
            (as-contract (get-caller)))
          (define-read-only (cc-get-caller)
-           (contract-call! contract-a get-caller))
+           (contract-call! .contract-a get-caller))
          (define-read-only (as-contract-cc-get-caller)
-           (as-contract (contract-call! contract-a get-caller)))";
+           (as-contract (contract-call! .contract-a get-caller)))";
 
     let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
 
@@ -267,7 +267,7 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
-           (let ((xfer-result (contract-call! tokens token-transfer
+           (let ((xfer-result (contract-call! .tokens token-transfer
                                   burn-address name-price)))
             (if (is-ok? xfer-result)
                (if
@@ -389,7 +389,7 @@ fn test_simple_contract_call(owned_env: &mut OwnedEnvironment) {
     let contract_1 = FACTORIAL_CONTRACT;
     let contract_2 =
         "(define-public (proxy-compute)
-            (contract-call! factorial-contract compute 8008))
+            (contract-call! .factorial-contract compute 8008))
         ";
 
     let mut env = owned_env.get_exec_environment(Some(get_principal()));
@@ -444,12 +444,12 @@ fn test_aborts(owned_env: &mut OwnedEnvironment) {
     let contract_2 ="
 (define-public (fail-in-other)
   (begin
-    (contract-call! contract-1 modify-data 100 101)
+    (contract-call! .contract-1 modify-data 100 101)
     (ok 1)))
 
 (define-public (fail-in-self)
   (begin
-    (contract-call! contract-1 modify-data 105 105)
+    (contract-call! .contract-1 modify-data 105 105)
     (err 1)))
 ";
     let mut env = owned_env.get_exec_environment(None);

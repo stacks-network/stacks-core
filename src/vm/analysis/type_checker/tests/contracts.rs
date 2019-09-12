@@ -53,7 +53,7 @@ const SIMPLE_NAMES: &str =
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
-           (let ((xfer-result (contract-call! tokens token-transfer
+           (let ((xfer-result (contract-call! .tokens token-transfer
                                   burn-address name-price)))
             (if (is-ok? xfer-result)
                (if
@@ -364,7 +364,7 @@ fn test_names_tokens_contracts() {
 fn test_names_tokens_contracts_bad() {
     let broken_public = "
          (define-public (broken-cross-contract (name-hash (buff 20)) (name-price int))
-           (if (is-ok? (contract-call! tokens token-transfer
+           (if (is-ok? (contract-call! .tokens token-transfer
                  burn-address 'true))
                (begin (map-insert! preorder-map
                  (tuple (name-hash name-hash))

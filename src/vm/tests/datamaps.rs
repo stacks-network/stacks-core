@@ -184,7 +184,7 @@ fn test_fetch_contract_entry() {
 
     let proxy_src = r#"
         (define-private (fetch-via-conntract-call)
-            (contract-call! kv-store-contract kv-get 42))
+            (contract-call! .kv-store-contract kv-get 42))
         (define-private (fetch-via-contract-map-get-using-explicit-tuple)
             (expects! (get value (contract-map-get kv-store-contract kv-store (tuple (key 42)))) 0))
         (define-private (fetch-via-contract-map-get-using-implicit-tuple)

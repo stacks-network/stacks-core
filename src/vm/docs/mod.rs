@@ -507,12 +507,12 @@ is supplied the hash is computed over the little-endian representation of the in
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     output_type: "(response A B)",
-    signature: "(contract-call! contract-name function-name arg0 arg1 ...)",
+    signature: "(contract-call! .contract-name function-name arg0 arg1 ...)",
     description: "The `contract-call!` function executes the given public function of the given contract.
 You _may not_ this function to call a public function defined in the current contract. If the public
 function returns _err_, any database changes resulting from calling `contract-call!` are aborted.
 If the function returns _ok_, database changes occurred.",
-    example: "(contract-call! tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns (ok 1)"
+    example: "(contract-call! .tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns (ok 1)"
 };
 
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
