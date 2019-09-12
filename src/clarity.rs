@@ -274,11 +274,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             };
 
             let contract_name = &args[1];
-            let contract_identifier = friendly_expect(QualifiedContractIdentifier::local(&contract_name), 
+            let contract_identifier = friendly_expect(QualifiedContractIdentifier::local(contract_name), 
                                                       "Failed to get contract name");
 
             let mut vm_env = OwnedEnvironment::new(db);
-            let contract_name = &args[1];
             
             let result = vm_env.get_exec_environment(None)
                 .eval_read_only(&contract_identifier, &content);
@@ -301,7 +300,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let vm_filename = &args[3];
 
             let contract_name = &args[1];
-            let contract_identifier = friendly_expect(QualifiedContractIdentifier::local(&contract_name), 
+            let contract_identifier = friendly_expect(QualifiedContractIdentifier::local(contract_name), 
                                                       "Failed to get contract name");
 
             let contract_content: String = friendly_expect(fs::read_to_string(&args[2]),

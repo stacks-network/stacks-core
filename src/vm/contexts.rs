@@ -443,16 +443,18 @@ impl <'a> GlobalContext<'a> {
     }
 
     pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &str, transfered: Value) {
+        let asset_name = String::from(asset_name).try_into().expect("Failed to get asset name");
         let asset_identifier = AssetIdentifier { contract_name: contract_identifier.name.clone(),
-                                                 asset_name: asset_name.into() };
+                                                 asset_name };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
 
     pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &str, transfered: i128) -> Result<()> {
+        let asset_name = String::from(asset_name).try_into().expect("Failed to get asset name");
         let asset_identifier = AssetIdentifier { contract_name: contract_identifier.name.clone(),
-                                                 asset_name: asset_name.into() };
+                                                 asset_name };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_token_transfer(sender, asset_identifier, transfered)

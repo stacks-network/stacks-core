@@ -51,13 +51,15 @@ impl QualifiedContractIdentifier {
     }
 
     pub fn local(name: &str) -> Result<Self> {
-        Ok(Self::new(StandardPrincipalData(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]), name.into()))
+        let name = name.to_string().try_into()?;
+        Ok(Self::new(StandardPrincipalData(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]), name))
     }
 
     pub fn transient() -> Self {
+        let name = String::from("__transient").try_into().unwrap();
         Self { 
             issuer: StandardPrincipalData(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]), 
-            name: "__transient".into()
+            name
         }
     }
 
