@@ -327,6 +327,7 @@ mod test {
     use vm::representations::{PreSymbolicExpression};
     use vm::{Value, ast};
     use vm::types::{QualifiedContractIdentifier};
+    use vm::ast::errors::{ParseErrors, ParseError};
 
     fn make_atom(x: &str, start_line: u32, start_column: u32, end_line: u32, end_column: u32) -> PreSymbolicExpression {
         let mut e = PreSymbolicExpression::atom(x.into());
@@ -430,42 +431,24 @@ r#"z (let ((x 1) (y 2))
         let split_tokens = "(let ((023ab13 1)))";
         let name_with_dot = "(let ((ab.de 1)))";
 
-        let contract_id = QualifiedContractIdentifier::transient();
+        assert!(match ast::parser::parse(&split_tokens).unwrap_err().err { 
+            ParseErrors::SeparatorExpected(_) => true, _ => false });
 
-        assert!(match ast::parse(&contract_id, &split_tokens).unwrap_err() {
-            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
-            _ => false
-        }, "Should have failed to parse with an expectation of whitespace or parens");
+        assert!(match ast::parser::parse(&too_much_closure).unwrap_err().err { 
+            ParseErrors::ClosingParenthesisUnexpected => true, _ => false });
 
-        assert!(match ast::parse(&contract_id, &too_much_closure).unwrap_err() {
-            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
-            _ => false
-        }, "Should have failed to parse with too many right parens");
-        
-        assert!(match ast::parse(&contract_id, &not_enough_closure).unwrap_err() {
-            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
-            _ => false
-        }, "Should have failed to parse with too few right parens");
-        
-        let x = ast::parse(&contract_id, &middle_hash).unwrap_err();
-        assert!(match x {
-            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
-            _ => {
-                println!("Expected parser error. Unexpected value is:\n {:?}", x);
-                false
-            }
-        }, "Should have failed to parse with a middle hash");
+        assert!(match ast::parser::parse(&not_enough_closure).unwrap_err().err { 
+            ParseErrors::ClosingParenthesisExpected => true, _ => false });
 
-        assert!(match ast::parse(&contract_id, &unicode).unwrap_err() {
-            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
-            _ => false
-        }, "Should have failed to parse a unicode variable name");
+        // todo(ludo): improve erroring
+        assert!(match ast::parser::parse(&middle_hash).unwrap_err().err { 
+            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
-        assert!(match ast::parse(&contract_id, &name_with_dot).unwrap_err() {
-            Error::Runtime(RuntimeErrorType::ParseError(_), _) => true,
-            _ => false
-        }, "Should have failed to parse a variable name with a dot.");
+        assert!(match ast::parser::parse(&unicode).unwrap_err().err { 
+            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
+        assert!(match ast::parser::parse(&name_with_dot).unwrap_err().err { 
+            ParseErrors::FailedParsingRemainder(_) => true, _ => false });
     }
 
 }
