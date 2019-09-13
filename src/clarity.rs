@@ -353,28 +353,26 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
         },
         "execute" => {
             if args.len() < 5 {
-                eprintln!("Usage: {} {} [vm-state.db] [contract-name] [public-function-name] [sender-address] [args...]", invoked_by, args[0]);
+                eprintln!("Usage: {} {} [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]", invoked_by, args[0]);
                 panic_test!();
             }
             let vm_filename = &args[1];
             let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
 
             // todo(ludo): rely on friendly_expect instead
-            let contract_name = args[2].to_string().try_into().unwrap();
+            let contract_identifier = QualifiedContractIdentifier::parse(&args[2]).unwrap();
 
             let tx_name = &args[3];            
             let sender_in = &args[4];
 
-            let issuer = {
-                if let Ok(issuer) = PrincipalData::parse_standard_principal(sender_in) {
-                    issuer.clone()
+            let sender = {
+                if let Ok(sender) = PrincipalData::parse_standard_principal(sender_in) {
+                    sender.clone()
                 } else {
                     eprintln!("Unexpected result parsing sender: {}", sender_in);
                     panic_test!();
                 }
             };
-
-            let contract_identifier = QualifiedContractIdentifier::new(issuer, contract_name);
 
             let arguments: Vec<_> = args[5..]
                 .iter()
@@ -396,7 +394,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 let result = {
                     let db = ClarityDatabase::new(Box::new(&mut marf));
                     let mut vm_env = OwnedEnvironment::new(db);
-                    vm_env.execute_transaction(contract_identifier, &tx_name, &arguments) };
+                    vm_env.execute_transaction(sender, contract_identifier, &tx_name, &arguments) };
                 (marf, result)
             });
 

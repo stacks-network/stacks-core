@@ -254,12 +254,11 @@ impl <'a> OwnedEnvironment <'a> {
         exec_env.initialize_contract(contract_identifier, contract_content)
     }
 
-    pub fn execute_transaction(&mut self, contract_identifier: QualifiedContractIdentifier, 
+    pub fn execute_transaction(&mut self, sender: Value, contract_identifier: QualifiedContractIdentifier, 
                                tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap)> {
         assert!(self.context.is_top_level());
         self.begin();
         let return_value = {
-            let sender = Value::Principal(PrincipalData::Standard(contract_identifier.issuer.clone()));
             let mut exec_env = self.get_exec_environment(Some(sender));
             exec_env.execute_contract(&contract_identifier, tx_name, args)
         }?;

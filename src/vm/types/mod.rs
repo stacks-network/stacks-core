@@ -70,6 +70,17 @@ impl QualifiedContractIdentifier {
         }
     }
 
+    pub fn parse(literal: &str) -> Result<Self> {
+        let split: Vec<_> = literal.splitn(2, ".").collect();
+        if split.len() != 2 {
+            return Err(RuntimeErrorType::ParseError(
+                "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
+        }
+        let sender = PrincipalData::parse_standard_principal(split[0])?;
+        let name = split[1].to_string().try_into()?;
+        Ok(QualifiedContractIdentifier::new(sender, name))
+    }
+
     pub fn to_string(&self) -> String {
         format!("'{}.{}", self.issuer, self.name.to_string())
     }
@@ -302,15 +313,8 @@ impl fmt::Display for Value {
 
 impl PrincipalData {
     pub fn parse_qualified_contract_principal(literal: &str) -> Result<PrincipalData> {
-        let split: Vec<_> = literal.splitn(2, ".").collect();
-        if split.len() != 2 {
-            return Err(RuntimeErrorType::ParseError(
-                "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
-        }
-        let sender = Self::parse_standard_principal(split[0])?;
-        let name = split[1].to_string().try_into()?;
-        
-        Ok(PrincipalData::Contract(QualifiedContractIdentifier::new(sender, name)))
+        let contract_id = QualifiedContractIdentifier::parse(literal)?;
+        Ok(PrincipalData::Contract(contract_id))
     }
 
     pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
