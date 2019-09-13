@@ -62,7 +62,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens ((account principal)) ((balance 
 
 
 fn get_principal() -> Value {
-    StandardPrincipalData(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into()
+    StandardPrincipalData::transient().into()
 }
 
 #[test]

@@ -195,13 +195,13 @@ fn test_fetch_contract_entry() {
 
     let mut owned_env = OwnedEnvironment::memory();
 
-    let mut env = owned_env.get_exec_environment(None);
+    let sender = StandardPrincipalData::transient().into();
+    let mut env = owned_env.get_exec_environment(Some(sender));
     let kv_contract_identifier = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
     let r = env.initialize_contract(kv_contract_identifier, kv_store_contract_src).unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("proxy-contract").unwrap();
     env.initialize_contract(contract_identifier.clone(), proxy_src).unwrap();
-    env.sender = Some(StandardPrincipalData(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into());
 
     assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-conntract-call)").unwrap());
     assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-contract-map-get-using-implicit-tuple)").unwrap());
