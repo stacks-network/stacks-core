@@ -158,7 +158,7 @@ fn test_return_types_must_match() {
 
 #[test]
 fn test_no_such_contract() {
-    let snippet = "(contract-map-get unicorn map ((value 0)))";
+    let snippet = "(contract-map-get .unicorn map ((value 0)))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("use of unresolved contract"));
 }

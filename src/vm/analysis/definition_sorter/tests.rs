@@ -206,7 +206,7 @@ fn should_raise_dependency_cycle_case_insert_entry() {
 fn should_not_raise_dependency_cycle_case_fetch_contract_entry() {
     let contract = r#"
         (define-private (foo (x int)) (begin (bar 1) 1))
-        (define-private (bar (x int)) (contract-map-get c1 kv-store ((foo 1)))) 
+        (define-private (bar (x int)) (contract-map-get .contract1 kv-store ((foo 1)))) 
     "#;
 
     run_scoped_analysis_helper(contract).unwrap();

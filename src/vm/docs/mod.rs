@@ -440,13 +440,13 @@ If a value did not exist for this key in the data map, the function returns `fal
 const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, MapName, tuple",
     output_type: "(optional (tuple))",
-    signature: "(contract-map-get contract-name map-name key-tuple)",
+    signature: "(contract-map-get .contract-name map-name key-tuple)",
     description: "The `contract-map-get` function looks up and returns an entry from a
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
 it returns (some value).",
-    example: "(expects! (contract-map-get names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
-(expects! (contract-map-get names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
+    example: "(expects! (contract-map-get .names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
+(expects! (contract-map-get .names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
 ",
 };
 

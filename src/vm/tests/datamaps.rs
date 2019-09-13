@@ -186,12 +186,12 @@ fn test_fetch_contract_entry() {
         (define-private (fetch-via-conntract-call)
             (contract-call! .kv-store-contract kv-get 42))
         (define-private (fetch-via-contract-map-get-using-explicit-tuple)
-            (expects! (get value (contract-map-get kv-store-contract kv-store (tuple (key 42)))) 0))
+            (expects! (get value (contract-map-get .kv-store-contract kv-store (tuple (key 42)))) 0))
         (define-private (fetch-via-contract-map-get-using-implicit-tuple)
-            (expects! (get value (contract-map-get kv-store-contract kv-store ((key 42)))) 0))
+            (expects! (get value (contract-map-get .kv-store-contract kv-store ((key 42)))) 0))
         (define-private (fetch-via-contract-map-get-using-bound-tuple)
             (let ((t (tuple (key 42))))
-            (expects! (get value (contract-map-get kv-store-contract kv-store t)) 0)))"#;
+            (expects! (get value (contract-map-get .kv-store-contract kv-store t)) 0)))"#;
 
     let mut owned_env = OwnedEnvironment::memory();
 

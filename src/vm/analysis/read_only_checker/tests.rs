@@ -77,7 +77,7 @@ fn test_contract_call_read_only_violations() {
               (ok 1)))";
     let bad_caller = 
         "(define-read-only (not-reading-only)
-            (contract-call! .contract112 mint))";
+            (contract-call! .contract1 mint))";
     let ok_caller =
         "(define-read-only (is-reading-only)
             (eq? 0 (expects! (contract-call! .contract1 get-token-balance) 'false)))";

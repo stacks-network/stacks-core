@@ -1165,10 +1165,10 @@ fn test_fetch_contract_entry_matching_type_signatures() {
     }).unwrap();
 
     let cases = [
-        "contract-map-get kv-store-contract kv-store ((key key))",
-        "contract-map-get kv-store-contract kv-store ((key 0))",
-        "contract-map-get kv-store-contract kv-store (tuple (key 0))",
-        "contract-map-get kv-store-contract kv-store (compatible-tuple)",
+        "contract-map-get .kv-store-contract kv-store ((key key))",
+        "contract-map-get .kv-store-contract kv-store ((key 0))",
+        "contract-map-get .kv-store-contract kv-store (tuple (key 0))",
+        "contract-map-get .kv-store-contract kv-store (compatible-tuple)",
     ];
 
     let transient_contract_id = QualifiedContractIdentifier::transient();
@@ -1200,9 +1200,9 @@ fn test_fetch_contract_entry_mismatching_type_signatures() {
     }).unwrap();
     
     let cases = [
-        "contract-map-get kv-store-contract kv-store ((incomptible-key key))",
-        "contract-map-get kv-store-contract kv-store ((key 'true))",
-        "contract-map-get kv-store-contract kv-store (incompatible-tuple)",
+        "contract-map-get .kv-store-contract kv-store ((incomptible-key key))",
+        "contract-map-get .kv-store-contract kv-store ((key 'true))",
+        "contract-map-get .kv-store-contract kv-store (incompatible-tuple)",
     ];
 
     let transient_contract_id = QualifiedContractIdentifier::transient();
@@ -1242,7 +1242,7 @@ fn test_fetch_contract_entry_unbound_variables() {
     }).unwrap();
     
     let cases = [
-        "contract-map-get kv-store-contract kv-store ((key unknown-value))",
+        "contract-map-get .kv-store-contract kv-store ((key unknown-value))",
     ];
 
     let transient_contract_id = QualifiedContractIdentifier::transient();

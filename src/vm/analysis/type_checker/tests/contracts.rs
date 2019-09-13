@@ -48,7 +48,7 @@ const SIMPLE_NAMES: &str =
          (define-private (check-balance)
            (default-to 0 
              (get balance (contract-map-get
-              tokens tokens (tuple (account tx-sender))))))
+              .tokens tokens (tuple (account tx-sender))))))
 
          (define-public (preorder 
                         (name-hash (buff 20))
@@ -400,7 +400,7 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
          (define-private (check-balance)
            (default-to 0 
              (get balance (contract-map-get
-              tokens tokens (tuple (accnt tx-sender)))))) ;; should be a non-admissable tuple!
+              .tokens tokens (tuple (accnt tx-sender)))))) ;; should be a non-admissable tuple!
     ";
 
     let names_contract =
