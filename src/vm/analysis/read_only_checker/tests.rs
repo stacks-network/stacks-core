@@ -18,6 +18,8 @@ fn test_at_block_violations() {
         "(define-data-var foo int 1)
          (+ (begin (var-set! foo 2) (var-get foo))
             (begin (at-block (sha256 0) (var-set! foo 0)) (var-get foo)))",
+        "(define-data-var foo int 1)
+         (define-fungible-token bar (begin (at-block (sha256 0) (var-set! foo 0)) 1))",
     ];
 
     for contract in examples.iter() {

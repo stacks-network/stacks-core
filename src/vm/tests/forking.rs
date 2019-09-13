@@ -1,4 +1,5 @@
 use vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
+use vm::analysis::errors::{CheckErrors};
 use vm::types::{Value};
 use vm::contexts::{OwnedEnvironment};
 use vm::representations::SymbolicExpression;
@@ -78,6 +79,73 @@ fn test_at_block_good() {
             assert_eq!(branch(x, 10, "reset").unwrap(),
                        Value::okay(Value::Int(11)));
         });
+}
+
+#[test]
+fn test_at_block_missing_defines() {
+    fn initialize_1(owned_env: &mut OwnedEnvironment) {
+        let contract =
+            "(define-map datum ((id bool)) ((value int)))
+             
+             (define-public (flip)
+               (let ((current (default-to (get value (map-get! datum ((id 'true)))) 0)))
+                 (map-set! datum ((id 'true)) (if (eq? 1 current) 0 1))
+                 (ok current)))";
+
+        eprintln!("Initializing contract...");
+        owned_env.begin();
+        owned_env.initialize_contract("contract_a", &contract).unwrap();
+        owned_env.commit().unwrap();
+    }
+
+    fn initialize_2(owned_env: &mut OwnedEnvironment) -> Error {
+        let contract =
+            "(define-private (problematic-cc)
+               (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
+                 (contract-call! contract_a flip)))
+             (problematic-cc)
+            ";
+
+        eprintln!("Initializing contract...");
+        owned_env.begin();
+        let e = owned_env.initialize_contract("contract_b", &contract).unwrap_err();
+        owned_env.commit().unwrap();
+        e
+    }
+
+    fn initialize_3(owned_env: &mut OwnedEnvironment) -> Error {
+        let contract =
+            "(define-private (problematic-fetch-entry)
+               (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
+                 (contract-map-get contract_a datum ((id 'true)))))
+             (problematic-fetch-entry)
+            ";
+
+        eprintln!("Initializing contract...");
+        owned_env.begin();
+        let e = owned_env.initialize_contract("contract_b", &contract).unwrap_err();
+        owned_env.commit().unwrap();
+        e
+    }
+
+    with_separate_forks_environment(
+        |_| {},
+        initialize_1,
+        |_| {},
+        |env| {
+            let err = initialize_2(env);
+            assert_eq!(err, CheckErrors::NoSuchContract("contract_a".into()).into());
+        });
+
+    with_separate_forks_environment(
+        |_| {},
+        initialize_1,
+        |_| {},
+        |env| {
+            let err = initialize_3(env);
+            assert_eq!(err, CheckErrors::NoSuchMap("datum".into()).into());
+        });
+
 }
 
 // execute:

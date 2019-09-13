@@ -2,7 +2,7 @@ use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
 use vm::types::{TypeSignature, TupleTypeSignature, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
-use vm::functions::define::DefineFunctions;
+use vm::functions::define::DefineFunctionsParsed;
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
@@ -54,13 +54,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         Ok(())
     }
 
-    fn check_define_function(&mut self, args: &[SymbolicExpression]) -> CheckResult<(ClarityName, bool)> {
-        check_argument_count(2, args)?;
-
-        let signature = args[0].match_list()
-            .ok_or(CheckErrors::DefineFunctionBadSignature)?;
-        let body = &args[1];
-
+    fn check_define_function(&mut self, signature: &[SymbolicExpression], body: &SymbolicExpression) -> CheckResult<(ClarityName, bool)> {
         let function_name = signature.get(0)
             .ok_or(CheckErrors::DefineFunctionBadSignature)?
             .match_atom().ok_or(CheckErrors::BadFunctionName)?;
@@ -71,56 +65,41 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     }
 
     fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
-        use vm::functions::define::DefineFunctions::*;
-        if let Some((define_type, args)) = DefineFunctions::try_parse(expr) {
+        use vm::functions::define::DefineFunctionsParsed::*;
+        if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)? {
             match define_type {
                 // The _arguments_ to Constant, PersistedVariable, FT defines must be checked to ensure that
                 //   any _evaluated arguments_ supplied to them are valid with respect to read-only requirements.
-                Constant => {
-                    check_argument_count(2, args)?;
-                    self.check_read_only(&args[1])?;
-                    Ok(())
+                Constant { value, .. } => {
+                    self.check_read_only(value)?;
                 },
-                PersistedVariable => {
-                    check_argument_count(3, args)?;
-                    self.check_read_only(&args[2])?;
-                    Ok(())
+                PersistedVariable { initial, .. } => {
+                    self.check_read_only(initial)?;
                 },
-                FungibleToken => {
+                BoundedFungibleToken { max_supply, .. } => {
                     // only the *optional* total supply arg is eval'ed
-                    if args.len() == 2 {
-                        self.check_read_only(&args[1])?;
-                    }
-                    Ok(())
+                    self.check_read_only(max_supply)?;
                 },
-                Map | NonFungibleToken => {
-                    // No arguments to (define-map ...) or (define-non-fungible-token) are eval'ed.
-                    Ok(())
-                },
-                PrivateFunction => {
-                    let (f_name, is_read_only) = self.check_define_function(args)?;
+                PrivateFunction { signature, body } | PublicFunction { signature, body } => {
+                    let (f_name, is_read_only) = self.check_define_function(signature, body)?;
                     self.defined_functions.insert(f_name, is_read_only);
-                    Ok(())
                 },
-                PublicFunction => {
-                    let (f_name, is_read_only) = self.check_define_function(args)?;
-                    self.defined_functions.insert(f_name, is_read_only);
-                    Ok(())
-                },
-                ReadOnlyFunction => {
-                    let (f_name, is_read_only) = self.check_define_function(args)?;
+                ReadOnlyFunction { signature, body } => {
+                    let (f_name, is_read_only) = self.check_define_function(signature, body)?;
                     if !is_read_only {
-                        Err(CheckErrors::WriteAttemptedInReadOnly.into())
+                        return Err(CheckErrors::WriteAttemptedInReadOnly.into())
                     } else {
                         self.defined_functions.insert(f_name, is_read_only);
-                        Ok(())
                     }
+                },
+                Map { .. } | NonFungibleToken { .. } | UnboundedFungibleToken { .. } => {
+                    // No arguments to (define-map ...) or (define-non-fungible-token) or fungible tokens without max supplies are eval'ed.
                 },
             }
         } else {
             self.check_read_only(expr)?;
-            Ok(())
         }
+        Ok(())
     }
 
     /// Checks the supplied symbolic expressions

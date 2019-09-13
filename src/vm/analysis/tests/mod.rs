@@ -115,7 +115,7 @@ fn test_no_such_variable() {
 fn test_bad_map_name() {
     let snippet = "(define-map 1 ((key int)) ((value int)))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid map name"));
+    assert!(format!("{}", err.diagnostic).contains("expected a name argument"));
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn test_public_function_must_return_response() {
 fn test_define_variable_bad_signature() {
     let snippet = "(define-data-var 1 int 0)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid variable definition"));
+    assert!(format!("{}", err.diagnostic).contains("expected a name argument"));
 }
 
 #[test]
