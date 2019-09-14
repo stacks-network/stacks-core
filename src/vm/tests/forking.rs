@@ -90,6 +90,13 @@ where F0: FnOnce(&mut OwnedEnvironment),
 const p1_str: &str = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
 
 fn initialize_contract(owned_env: &mut OwnedEnvironment) {
+    let p1_address = {
+        if let Value::Principal(PrincipalData::Standard(address)) = execute(p1_str) {
+            address
+        } else {
+            panic!();
+        }
+    };
     let contract = format!(
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-fungible-token stackaroos)
@@ -104,19 +111,27 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
     eprintln!("Initializing contract...");
     owned_env.begin();
 
-    let contract_identifier = QualifiedContractIdentifier::local("tokens").unwrap();
+    let contract_identifier = QualifiedContractIdentifier::new(p1_address, "tokens".into());
     owned_env.initialize_contract(contract_identifier, &contract).unwrap();
     owned_env.commit().unwrap();
 }
 
 fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
-    let p1 = execute(p1_str);
+    let p1_address = {
+        if let Value::Principal(PrincipalData::Standard(address)) = execute(p1_str) {
+            address
+        } else {
+            panic!();
+        }
+    };
+    let contract_identifier = QualifiedContractIdentifier::new(p1_address.clone(), "tokens".into());
+
     eprintln!("Branched execution...");
 
     {
         let mut env = owned_env.get_exec_environment(None);
         let command = format!("(get-balance {})", p1_str);
-        let balance = env.eval_read_only(&QualifiedContractIdentifier::local("tokens").unwrap(), 
+        let balance = env.eval_read_only(&contract_identifier, 
                                          &command).unwrap();
         let expected = if expect_success {
             10
@@ -125,15 +140,9 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
         };
         assert_eq!(balance, Value::Int(expected));
     }
-    let p1_address = {
-        if let Value::Principal(PrincipalData::Standard(address)) = p1 {
-            address
-        } else {
-            panic!();
-        }
-    };
 
-    let (result, _) = owned_env.execute_transaction(QualifiedContractIdentifier::new(p1_address, "tokens".into()), 
+    let (result, _) = owned_env.execute_transaction(Value::Principal(PrincipalData::Standard(p1_address)),
+                                                    contract_identifier, 
                                                     "destroy",
                                                     &symbols_from_values(vec![Value::Int(10)])).unwrap();
 

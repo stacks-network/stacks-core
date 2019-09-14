@@ -367,7 +367,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
 
             let sender = {
                 if let Ok(sender) = PrincipalData::parse_standard_principal(sender_in) {
-                    sender.clone()
+                    PrincipalData::Standard(sender.clone())
                 } else {
                     eprintln!("Unexpected result parsing sender: {}", sender_in);
                     panic_test!();
@@ -394,7 +394,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 let result = {
                     let db = ClarityDatabase::new(Box::new(&mut marf));
                     let mut vm_env = OwnedEnvironment::new(db);
-                    vm_env.execute_transaction(sender, contract_identifier, &tx_name, &arguments) };
+                    vm_env.execute_transaction(Value::Principal(sender), contract_identifier, &tx_name, &arguments) };
                 (marf, result)
             });
 
