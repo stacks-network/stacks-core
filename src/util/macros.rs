@@ -24,6 +24,40 @@ pub fn is_big_endian() -> bool {
     u32::from_be(0x1Au32) == 0x1Au32
 }
 
+/// Define a "named" enum, i.e., each variant corresponds
+///  to a string literal, with a 1-1 mapping. You get EnumType::lookup_by_name
+///  and EnumType.get_name() for free.
+macro_rules! define_named_enum {
+    ($Name:ident { $($Variant:ident($VarName:literal),)* }) =>
+    {
+        #[derive(Debug)]
+        pub enum $Name {
+            $($Variant),*,
+        }
+        impl $Name {
+            pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
+            pub const ALL_NAMES: &'static [&'static str] = &[$($VarName),*];
+
+            pub fn lookup_by_name(name: &str) -> Option<Self> {
+                match name {
+                    $(
+                        $VarName => Some($Name::$Variant),
+                    )*
+                    _ => None
+                }
+            }
+
+            pub fn get_name(&self) -> String {
+                match self {
+                    $(
+                        $Name::$Variant => $VarName.to_string(),
+                    )*
+                }
+            }
+        }
+    }
+}
+
 /// Borrowed from Andrew Poelstra's rust-bitcoin
 macro_rules! impl_array_newtype {
     ($thing:ident, $ty:ty, $len:expr) => {

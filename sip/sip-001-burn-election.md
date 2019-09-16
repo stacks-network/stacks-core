@@ -1,4 +1,20 @@
-# Abstract
+# SIP 001 Burn Election
+
+## Preamble
+
+Title: Burn Election
+
+Author: Jude Nelson <jude@blockstack.com>, Aaron Blankstein <aaron@blockstack.com>
+
+Status: Draft
+
+Type: Standard
+
+Created: 1/1/2019
+
+License: BSD 2-Clause
+
+## Abstract
 
 This proposal describes a mechanism for single-leader election using
 _tunable proofs_.  Tunable proofs are a mechanism for bootstrapping a new
@@ -21,7 +37,7 @@ blockchain's security to preserve its transaction histories while leader
 participation is low (such as during the chain's infancy), and over time
 transition towards its own leader pool as the chain becomes more popular.
 
-# Introduction
+## Introduction
 
 Blockstack's first-generation blockchain operates in such a way that each transaction is
 in 1-to-1 correspondence with a Bitcoin transaction.  The reason for doing this
@@ -35,7 +51,7 @@ Blockstack's second-generation blockchain (the _Stacks
 blockchain_).  The Stacks blockchain makes the following improvements over the
 first-generation blockchain:
 
-## 1. High validation throughput
+### 1. High validation throughput
 
 The number of Stacks transactions processed is decoupled from the
 transaction processing rate of the underlying burn chain (Bitcoin).  Before, each Stacks
@@ -44,7 +60,7 @@ blockchain, an _entire block_ of Blockstack transactions corresponds to a
 Bitcoin transaction.  This significantly improves cost/byte ratio for processing
 Blockstack transactions, thereby effectively increasing its throughput.
 
-## 2. Low-latency block inclusion
+### 2. Low-latency block inclusion
 
 Users of the first version of the Stacks blockchain encounter high latencies for
 on-chain transactions -- in particular, they must wait for an equivalent
@@ -56,7 +72,7 @@ adaptively select and package transactions into their block as they arrive in th
 mempool.  This ensures users learn when a transaction is included in a block
 on the order of _seconds_.
 
-## 3. An open leadership set
+### 3. An open leadership set
 
 The Stacks blockchain uses tunable proofs to decide who appends the next
 block.  The protocol (described in this SIP) ensures that anyone can become
@@ -65,7 +81,7 @@ This preserves the open-leadership property from the existing blockchain (where
 Blockstack blockchain miners were also Bitcoin miners), but realizes it through
 an entirely different mechanism that enables the properties listed here.
 
-## 4. Participation without mining hardware
+### 4. Participation without mining hardware
 
 Producing a block in the Stacks blockchain takes negligeable energy on top of
 the burn blockchain.  Would-be miners append blocks by _burning_ an existing cryptocurrency
@@ -74,7 +90,7 @@ is what drives block production in the Stacks blockchain.  As such, anyone who
 can acquire the burn cryptocurrency (e.g. Bitcoin) can participate in mining,
 _even if they can only afford a minimal amount_.
 
-## 5. Fair mining pools
+### 5. Fair mining pools
 
 Related to the point above, it is difficult to participate in block mining in
 a proof-of-work blockchain.  This is because a would-be miner needs to
@@ -101,7 +117,7 @@ receive some of the reward if their preferred chain tip loses.  This is
 important because it gives frequent leaders a way to reduce the variance of
 their block rewards.
 
-## 6. Ability to migrate to a separate burn chain in the future
+### 6. Ability to migrate to a separate burn chain in the future
 
 A key lesson learned in the design of the first-generation Stacks blockchain is that
 the network must be portable, in order to survive systemic failures such as peer
@@ -110,7 +126,7 @@ The tunable proofs mining system will preserve this feature,
 so the underlying burn chain can be "swapped out" at a later date if need be and
 ultimately be replaced by a dedicated set of Stacks leaders.
 
-## Assumptions
+### Assumptions
 
 Given the design goals, the Stacks leader election protocol makes the following
 assumptions:
@@ -136,7 +152,7 @@ again by burn weight) and that honestly-produced Stacks blocks propagate to the 
 coalition at least as quickly as burn blocks (i.e. all honest peers receive the
 latest honest Stacks block data within one epoch of it being produced).
 
-# Protocol overview
+## Protocol overview
 
 Like existing blockchains, the Stacks blockchain encodes a cryptocurrency and
 rules for spending its tokens.  Like existing cryptocurrencies, the Stacks
@@ -186,7 +202,7 @@ and is used in the Stacks blockchain with some modifications -- in particular, a
 leader may commit to _some_ transactions that _must_ be broadcast during its
 tenure, and may opportunistically stream additional transactions in microblocks.
 
-## Novel properties enabled by tunable proofs
+### Novel properties enabled by tunable proofs
 
 Each Stacks block is anchored to the burn chain by
 way of a cryptographic hash.  That is, the burn chain's canonical transaction
@@ -206,7 +222,7 @@ have this, and their peers do not necessarily agree on the times when blocks wer
 blocks that *exist*.  Existing blockchains do not have this, but instead
 rely on a well-connected peer network to gossip all blocks.
 
-* **Global knowledge of blocks** -- Each correct Stacks peer with the same view
+* **Global knowledge of cumulative work** -- Each correct Stacks peer with the same view
   of the burn chain will know how much cumulative cryptocurrency was destroyed
 and how much work was committed in order to produce the blockchain.  Existing
 blockchains do not have this -- a private fork can coexist with all public
@@ -241,7 +257,7 @@ their proofs across _all_ competing chain tips.  Both fair mining pools and gene
 proofs over a distribution of chain tips are possible only because all peers have 
 knowledge of all existing chain tips and the proofs behind them.
 
-# Leader Election
+## Leader Election
 
 The Stacks blockchain makes progress by selecting successive leaders to produce
 blocks.  It does so by having would-be leaders submit their candidacies
@@ -284,7 +300,7 @@ expected number of proof-of-work attempts the candidate had to make to calculate
 solution, divided by the total expected number of attempts across all
 candidates.
 
-## Committing to a chain tip
+### Committing to a chain tip
 
 The existence of multiple chain tips is a direct consequence of the
 single-leader design of the Stacks blockchain.
@@ -331,7 +347,7 @@ making a leader announce their chain tip commitment _before they know if their
 blocks are included_ -- they can only receive Stacks tokens if the block for
 which they submitted a tunable proof is accepted into the "best" fork.
 
-## Election Protocol
+### Election Protocol
 
 To encourage safety and liveness when appending to the blockchain, the leader
 election protocol requires leaders to burn cryptocurrency and spend energy before they know
@@ -354,7 +370,7 @@ chain tips, and to reconstruct the proposed block parent relationships and
 block VRF seeds.  The on-chain data does _not_ indicate whether or not a block or a seed is
 valid, however.
 
-### Step 1: Register key
+#### Step 1: Register key
 
 In the first step of the protocol, each leader candidate registers itself for a
 future election by sending a _key transaction_. In this transaction, the leader
@@ -370,7 +386,7 @@ The key transaction can be used at any time to commit to a chain tip, once
 confirmed.  This is because the selection of the next block cannot be determined
 in advance.  However, a key can only be used once.
 
-### Step 2: Burn & Commit
+#### Step 2: Burn & Commit
 
 Once a leader's key transaction is confirmed, the leader will be a candidate for election
 for a subsequent burn block in which it must send a _commitment transaction_.
@@ -400,7 +416,7 @@ The burn chain block that contains the candidates' commitment transaction
 serves as the election block for the leader's block (i.e. _N_), and is used to
 determine which block commitment "wins."
 
-### Step 3: Sortition
+#### Step 3: Sortition
 
 In each election block, there is one election across all candidate leaders (across
 all chain tips).  The next block is determined with the following algorithm:
@@ -467,7 +483,7 @@ the election.  This enables the implementation of many different leaders,
 such as high-security leaders where all private keys are kept on air-gapped
 computers and signed blocks and transactions are generated offline.
 
-### On the use of a VRF
+#### On the use of a VRF
 
 When generating the chain tip commitment transaction, a correct leader will need to obtain the
 previous election's _seed_ to produce its proof output.  This seed, which is
@@ -516,7 +532,7 @@ distribution.  Since the PoW miner is not expected to be able
 to generate more than one PoW nonce per epoch, the burn chain miners won't know
 in advance which leader will be elected.
 
-# Operation as a leader
+## Operation as a leader
 
 The Stacks blockchain uses a hybrid approach for generating block data:  it can
 "batch" transactions and it can "stream" them.  Batched transactions are
@@ -563,7 +579,7 @@ sortition algorithm will be run to select which of the candidate leaders will be
 able to append to the Stacks blockchain.  Once selected, the new leader broadcasts their
 transaction batch and then proceeds to stream microblocks.
 
-## Building off the latest block
+### Building off the latest block
 
 Like existing blockchains, the leader can selet any prior block as its preferred
 chain tip.  In the Stacks blockchain, this allows leaders to tolerate block loss by building
@@ -598,9 +614,7 @@ To help discourage both self-orphaning and "micro-bribes" to double-spend or
 omit specific transactions or trigger longer-than-necessary micro-forks, leaders are
 rewarded only 40% of their transaction fees in their block reward (including
 those that were batched).  They receive
-60% of the previous leader's transaction fees (the exact distribution is
-"smoothed over" so that the expected pay-out to the leader is 40%; the exact
-details are described in the Reward Window below).  This result was shown in the
+60% of the previous leader's transaction fees.  This result was shown in the
 Bitcoin-NG paper to be necessary to ensure that honest behavior is the most
 profitable behavior in the streaming model.
 
@@ -619,7 +633,7 @@ of a high transaction fee makes their transactions more likely to be included in
 the next batch or streamed first, which additionally raises the bribe price for
 omitting transactions.
 
-## Leader volume limits
+### Leader volume limits
 
 A leader propagates blocks irrespective of the underlying burn chain's capacity.
 This poses a DDoS vulnerability to the network:  a high-transaction-volume
@@ -636,7 +650,7 @@ data a leader can send during its epoch (this places a _de facto_ limit
 on the number of transactions in a Stack block). This cap is enforced
 by the consensus rules.  If a leader exceeds this cap, the block is invalid.
 
-## Batch transaction latency
+### Batch transaction latency
 
 The fact that leaders execute a leading commmitment to batched transactions means that
 it takes at least one epoch for a user to know if their transaction was
@@ -654,7 +668,7 @@ of a future SIP.  Users who need low-latency confirmations today and are willing
 to risk micro-forks and intentional orphaning can submit their transactions for
 streaming.
 
-# Burning pools
+## Burning pools
 
 Proof-of-burn mining is not only concerned with electing leaders, but also concerned with
 enhancing chain quality.  For this reason, the Stacks chain not
@@ -664,7 +678,7 @@ The leader that commits to the winning chain tip and the peers who also burn for
 that leader collectively share in the block's reward, proportional to how much
 each one burned.
 
-## Encouraging honest leaders
+### Encouraging honest leaders
 
 The reason for allowing users to support leader candidates at all is to help
 maintain the chain's liveness in the presence of leaders who follow the
@@ -692,7 +706,7 @@ to honest behavior, and users can help prevent dishonest (but more profitable)
 leaders from getting elected.  Moreover, leaders cannot defraud users who submit
 proofs in their support, since users are rewarded by the election protocol itself.
 
-## Fair mining
+### Fair mining
 
 Because all peers see the same sequence of burns in the Stacks blockchain, users
 can easily set up distributed mining pools where each user receives a fair share
@@ -713,7 +727,7 @@ included by submitting a Merkle path from the root to their transaction.  For
 streamed transactions, leaders have a variety of options for promising users
 that they will stream a transaction, but these techniques are beyond the scope of this SIP.
 
-## Minimizing reward variance
+### Minimizing reward variance
 
 Leaders compete to elect the next block by burning more cryptocurrency and/or
 spending more energy.  However, if they lose the election, the lose the cryptocurrency the burned.
@@ -729,7 +743,7 @@ different chain tips as leaders.  This gives them the ability to receive some
 reward no matter who wins.  This also reduces the barrier to
 entry for becoming a leader in the first place.
 
-## Leader support mechanism
+### Leader support mechanism
 
 There are a couple important considerations for the mechanism by which peers
 submit proofs for their preferred chain tips.
@@ -756,7 +770,7 @@ same burn chain block_ as the commitment transaction.  This limits the degree to
 which peers can adaptively out-bid each other to include their
 commitments.
 
-# Reward distribution
+## Reward distribution
 
 New Stacks tokens come into existence on a fork in an epoch where a leader is
 selected, and are granted to the leader if the leader produces a valid block.
@@ -771,7 +785,7 @@ contributed for the block.  In addition to implementing a lockup period, the
 Stacks protocol "smooths out" the token rewards over a _reward window_
 to help realize a close approximation of this payout distribution.
 
-## Sharing the rewards among winners
+### Sharing the rewards among winners
 
 Block rewards (coinbases and transaction fees) are not granted immediately,
 but are delayed for a lock-up period.  After the lock-up period passes,
@@ -794,8 +808,33 @@ that had a tunable proof score _b_ out of a total sum of _B_ scores receives _b/
 sum(C[N]...C[N+k])_ rewards.
 
 * Batched transactions:  the transaction fees for batched transactions are
-  awarded exclusively to the leader that produced the block.  This ensures that leaders are
-rewarded for processing and validating transactions correctly.
+  distributed to leaders such that leaders are rewarded for processing and
+validating transactions correctly, but in a way that leads to a fair "auction"
+of transaction processing capacity across users.  Specifically, a fraction _F_ of the
+transaction fees will be averaged over _B_ blocks, so a miner will receive _b/B * F *
+sum(T[N]...T[N+k])_ STX in expectation, where:
+
+   * _T[i]_ is the transaction fee for block _i_,
+   * _b_ is the total tunable proof score over _k_ blocks from this miner,
+   * _B_ is the total tunable proof score over _k_ blocks over all miners.
+
+   In addition, the miner will receive _(1 - F) * T[i]_ transaction fees if it mines block
+   _i_, and 0 if it does not.  In other words, the first _F_% of transaction fees are "smoothed"
+   across all miners, and the remaining _(1 - F)%_ are awarded exclusively to
+   the miner.
+
+   An anchored block must be _F_% "full" to receive its transaction
+   fees.  Failure to do so will result in its block not being relayed by the peer network
+   if there are pending transactions.  If there are no pending transactions -- i.e.
+   the miner could not fill the block, then the miner will receive _P * M_
+   STX, where:
+
+   * _0 < M_ is the minimum allowable transaction fee rate,
+   * _0 < P < F_ is the fraction of the block that the miner was able to fill.
+
+   This is all in the service of implementing the fee auction strategy described in [1],
+   and its adaptation to the Stacks blockchain will be described in a subsequent
+   SIP.
 
 * Streamed transactions:  the transaction fees for streamed transactions are
   distributed according to a 60/40 split -- the leader that validated the
@@ -805,13 +844,13 @@ processing and validating transactions correctly _while also_ incentivizing the
 subsequent leader to include them in their block, instead of orphaning them.
 
 The amount of tokens awarded from the coinbase is variable, and depends on how
-many _Stacks_ tokens are burned by smart contracts.  The chain defines a
+many STX tokens are _burned_ by smart contracts.  The chain defines a
 _minimum_ and _maximum_ coinbase, and awards an amount between these two values
 based on the average number of tokens destroyed per block in a prior _evaluation
 window_ (a sliding window of prior blocks).  The details are discussed in the
-Blockstack Token Economics whitepaper.
+Blockstack Token Economics whitepaper [2].
 
-# Recovery from data loss
+## Recovery from data loss
 
 Stacks block data can get lost after a leader commits to it.  However, the burn
 chain will record the chain tip, the batched transactions' hash, and the leader's public
@@ -836,7 +875,7 @@ once the honest majority comes within one block height difference of the hidden
 fork.  This orphans the majority fork, causing them to lose their Stacks tokens
 and re-build on top of the minority fork.
 
-## Seflish mining mitigation strategies
+### Seflish mining mitigation strategies
 
 Fortunately, all peers in the Stacks blockchain have global knowledge of state,
  time, and tunable proofs.  Intuitively, this gives the Stacks blockchain some novel tools
@@ -891,7 +930,7 @@ clean slate blockchain design, we have an opportunity to consider the past
 several years of research into attacks and defenses against block-hiding
 attacks.  This section will be updated as our understanding evolves.
 
-# Fork Selection
+## Fork Selection
 
 Fork selection in the Stacks blockchain requires a metric to determine which
 chain, between two candidates, is the "best" chain.  For Stacks, **the fork with
@@ -918,7 +957,7 @@ totals controlled by the attacker.  Note that the attacker is only guaranteed to
 reverse a transaction _K_ blocks back if they consistently control over 50% of the total
 tunable proof score.
 
-# Migration to a native proof-of-work chain
+## Migration to a native proof-of-work chain
 
 The protocol will initially cap the proof-of-work component's weight in the
 tunable proof of work score to a small fraction, such as 5%.  The fraction will
@@ -965,13 +1004,18 @@ good behavior in both domains.
 The design and implementation of a native proof-of-work chain, as well as the
 protocol for switching over to it, are both topics for subsequent SIPs.
 
-# Implementation
+## Implementation
 
 The Stacks blockchain leader election protocol will be written in Rust.
 
-# Appendix
+## References
 
-## Definitions
+[1] Basu, Easley, O'Hara, and Sirer. [Towards a Functional Market for Cryptocurrencies.](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3318327)
+[2] Blockstack PBC. [Blockstack PBC Offerring Circular](https://stackstoken.com/static/offering-circular-20190711.pdf)
+
+## Appendix
+
+### Definitions
 
 **Burn chain**: the blockchain whose cryptocurrency is destroyed in burn-mining.
 

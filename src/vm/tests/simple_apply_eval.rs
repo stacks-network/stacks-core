@@ -1,5 +1,5 @@
 use vm::{eval, execute as vm_execute};
-use vm::database::ContractDatabaseConnection;
+use vm::database::memory_db;
 use vm::errors::{UncheckedError, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
@@ -8,9 +8,7 @@ use vm::types::{TypeSignature, AtomTypeIdentifier, BuffData};
 use vm::parser::parse;
 use util::hash::hex_bytes;
 
-fn execute(s: &str) -> Value {
-    vm_execute(s).unwrap().unwrap()
-}
+use vm::tests::{execute};
 
 #[test]
 fn test_simple_let() {
@@ -31,10 +29,9 @@ fn test_simple_let() {
 
     if let Ok(parsed_program) = parse(&program) {
         let context = LocalContext::new();
-        let mut conn = ContractDatabaseConnection::memory().unwrap();
-        let mut env = OwnedEnvironment::new(&mut conn);
+        let mut env = OwnedEnvironment::memory();
 
-        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env.get_exec_environment(None), &context));        
+        assert_eq!(Ok(Value::Int(7)), eval(&parsed_program[0], &mut env.get_exec_environment(None), &context));
     } else {
         assert!(false, "Failed to parse program.");
     }
@@ -137,24 +134,23 @@ fn test_simple_if_functions() {
                                   (if (eq? 5 x) 1 3)");
 
     if let Ok(parsed_bodies) = function_bodies {
-        let func_args1 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
-        let func_args2 = vec![("x".to_string(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let func_args1 = vec![("x".into(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
+        let func_args2 = vec![("x".into(), TypeSignature::new_atom(AtomTypeIdentifier::IntType))];
         let user_function1 = DefinedFunction::new(
-            func_args1, parsed_bodies[0].clone(), Private, &"with_else", &"");
+            func_args1, parsed_bodies[0].clone(), Private, &"with_else".into(), &"");
 
         let user_function2 = DefinedFunction::new(
-            func_args2, parsed_bodies[1].clone(), Private, &"without_else", &"");
+            func_args2, parsed_bodies[1].clone(), Private, &"without_else".into(), &"");
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new(":transient:".to_string());
-        let mut conn = ContractDatabaseConnection::memory().unwrap();
-        let mut global_context = GlobalContext::begin_from(&mut conn);
+        let mut contract_context = ContractContext::new_transient();
+        let mut global_context = GlobalContext::new(memory_db());
 
-        contract_context.functions.insert("with_else".to_string(), user_function1);
-        contract_context.functions.insert("without_else".to_string(), user_function2);
+        contract_context.functions.insert("with_else".into(), user_function1);
+        contract_context.functions.insert("without_else".into(), user_function2);
 
         let mut call_stack = CallStack::new();
-        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None);
+        let mut env = Environment::new(&mut global_context, &contract_context, &mut call_stack, None, None);
 
         if let Ok(tests) = evals {
             assert_eq!(Ok(Value::Int(1)), eval(&tests[0], &mut env, &context));
@@ -187,6 +183,9 @@ fn test_simple_arithmetic_functions() {
          "(>= 1 1)",
          "(pow 2 16)",
          "(pow 2 32)",
+         "(+ (pow u2 u127) (- (pow u2 u127) u1))",
+         "(+ (to-uint 127) u10)",
+         "(to-int (- (pow u2 u127) u1))",
          "(- (pow 2 32))"];
 
     let expectations = [
@@ -205,6 +204,9 @@ fn test_simple_arithmetic_functions() {
         Value::Bool(true),
         Value::Int(65536),
         Value::Int(u32::max_value() as i128 + 1),
+        Value::UInt(u128::max_value()),
+        Value::UInt(137),
+        Value::Int(i128::max_value()),
         Value::Int(-1 * (u32::max_value() as i128 + 1)),
     ];
 
@@ -233,22 +235,47 @@ fn test_arithmetic_errors() {
         "(eq? (some 1) (some 'true))"];
 
     let expectations: &[Error] = &[
-        UncheckedError::InvalidArguments("Binary comparison must be called with exactly 2 arguments".to_string()).into(),
-        UncheckedError::TypeError("IntType".to_string(), Value::Bool(true)).into(),
-        RuntimeErrorType::Arithmetic("Divide by 0".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Modulus by 0".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Overflowed in power".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Overflowed in multiplication".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Overflowed in addition".to_string()).into(),
-        RuntimeErrorType::Arithmetic("Underflowed in subtraction".to_string()).into(),
-        UncheckedError::InvalidArguments("(- ...) must be called with at least 1 argument".to_string()).into(),
-        UncheckedError::InvalidArguments("(/ ...) must be called with at least 1 argument".to_string()).into(),
-        UncheckedError::InvalidArguments("(mod ...) must be called with exactly 2 arguments".to_string()).into(),
-        UncheckedError::InvalidArguments("(pow ...) must be called with exactly 2 arguments".to_string()).into(),
-        UncheckedError::InvalidArguments("(xor ...) must be called with exactly 2 arguments".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
+        UncheckedError::TypeError("int".to_string(), Value::Bool(true)).into(),
+        RuntimeErrorType::DivisionByZero.into(),
+        RuntimeErrorType::DivisionByZero.into(),
+        RuntimeErrorType::ArithmeticOverflow.into(),
+        RuntimeErrorType::ArithmeticOverflow.into(),
+        RuntimeErrorType::ArithmeticOverflow.into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        UncheckedError::IncorrectArgumentCount(1,0).into(),
+        UncheckedError::IncorrectArgumentCount(1,0).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
+        UncheckedError::IncorrectArgumentCount(2,1).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         RuntimeErrorType::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string()).into(),
         UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()
+    ];
+
+    for (program, expectation) in tests.iter().zip(expectations.iter()) {
+        assert_eq!(*expectation, vm_execute(program).unwrap_err());
+    }
+}
+
+#[test]
+fn test_unsigned_arithmetic() {
+    let tests = [
+        "(- u10)",
+        "(- u10 u11)",
+        "(> u10 80)",
+        "(+ u10 80)",
+        "(to-uint -10)",
+        "(to-int (pow u2 u127))",
+    ];
+
+    let expectations: &[Error] = &[
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        UncheckedError::TypeError("int, int | uint, uint".to_string(), Value::UInt(10)).into(),
+        UncheckedError::TypeError("uint".to_string(), Value::Int(80)).into(),
+        RuntimeErrorType::ArithmeticUnderflow.into(),
+        RuntimeErrorType::ArithmeticOverflow.into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -271,14 +298,14 @@ fn test_options_errors() {
         ];
 
     let expectations: &[Error] = &[
-        UncheckedError::InvalidArguments("Wrong number of arguments to is-none? (expects 1)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
         UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to is-ok? (expects 1)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
         UncheckedError::TypeError("ResponseType".to_string(), Value::Bool(true)).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to ok (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to some (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to err (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to default-to (expects 2)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
+        UncheckedError::IncorrectArgumentCount(1,2).into(),
+        UncheckedError::IncorrectArgumentCount(2,3).into(),
         UncheckedError::TypeError("OptionalType".to_string(), Value::Bool(true)).into(),
     ];
 
@@ -324,9 +351,9 @@ fn test_hash_errors() {
     ];
 
     let expectations: &[Error] = &[
-        UncheckedError::InvalidArguments("Wrong number of arguments to sha256 (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to keccak256 (expects 1)".to_string()).into(),
-        UncheckedError::InvalidArguments("Wrong number of arguments to hash160 (expects 1)".to_string()).into(),
+        UncheckedError::IncorrectArgumentCount(1, 2).into(),
+        UncheckedError::IncorrectArgumentCount(1, 2).into(),
+        UncheckedError::IncorrectArgumentCount(1, 2).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
         UncheckedError::TypeError("Int|Buffer".to_string(), Value::Bool(true)).into(),
@@ -367,7 +394,7 @@ fn test_bad_lets() {
         "(let ((tx-sender 1)) (+ tx-sender tx-sender))",
         "(let ((* 1)) (+ * *))",
         "(let ((a 1) (a 2)) (+ a a))",
-        "(let ((a 1) (b 2)) (set-var! cursor a) (set-var! cursor (+ b (fetch-var cursor))) (+ a b))"];
+        "(let ((a 1) (b 2)) (var-set! cursor a) (var-set! cursor (+ b (var-get cursor))) (+ a b))"];
 
     let expectations: &[Error] = &[
         UncheckedError::ReservedName("tx-sender".to_string()).into(),
@@ -383,7 +410,7 @@ fn test_bad_lets() {
 fn test_lets() {
     let tests = [
         "(let ((a 1) (b 2)) (+ a b))",
-        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (set-var! cursor a) (set-var! cursor (+ b (fetch-var cursor))) (fetch-var cursor))"];
+        "(define-data-var cursor int 0) (let ((a 1) (b 2)) (var-set! cursor a) (var-set! cursor (+ b (var-get cursor))) (var-get cursor))"];
 
     let expectations = [
         Value::Int(3),

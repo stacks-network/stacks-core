@@ -679,7 +679,7 @@ macro_rules! ordinary_opcode {
   );
 }
 
-/// "Ordinary" opcodes -- should be 60 of these
+// "Ordinary" opcodes -- should be 60 of these
 ordinary_opcode! {
   // pushdata
   OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4,

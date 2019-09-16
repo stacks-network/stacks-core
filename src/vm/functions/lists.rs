@@ -1,18 +1,17 @@
-use vm::errors::{UncheckedError, InterpreterResult as Result};
+use vm::errors::{UncheckedError, InterpreterResult as Result, check_argument_count};
 use vm::types::Value;
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::{LocalContext, Environment, eval, apply, lookup_function};
 
 pub fn list_cons(args: &[Value]) -> Result<Value> {
-    Value::new_list(args)
+    Value::list_from(Vec::from(args))
 }
 
 pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    if args.len() != 2 {
-        return Err(UncheckedError::InvalidArguments(format!("Wrong number of arguments ({}) to filter", args.len())).into())
-    }
+    check_argument_count(2, args)?;
+
     let function_name = args[0].match_atom()
-        .ok_or(UncheckedError::InvalidArguments("Filter must be called with a function name. We do not support eval'ing to functions.".to_string()))?;
+        .ok_or(UncheckedError::ExpectedFunctionName)?;
 
     let function = lookup_function(&function_name, env)?;
     let list = eval(&args[1], env, context)?;
@@ -29,18 +28,17 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
                 return Err(UncheckedError::TypeError("Bool".to_string(), filter_eval).into())
             }
         }
-        Value::list_from(output)
+        Value::list_with_type(output, list_data.type_signature)
     } else {
         Err(UncheckedError::TypeError("List".to_string(), list).into())
     }
 }
 
 pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    if args.len() != 3 {
-        return Err(UncheckedError::InvalidArguments(format!("Wrong number of arguments ({}) to fold", args.len())).into())
-    }
+    check_argument_count(3, args)?;
+
     let function_name = args[0].match_atom()
-        .ok_or(UncheckedError::InvalidArguments("Fold must be called with a function name. We do not support eval'ing to functions.".to_string()))?;
+        .ok_or(UncheckedError::ExpectedFunctionName)?;
 
     let function = lookup_function(&function_name, env)?;
     let list = eval(&args[1], env, context)?;
@@ -59,11 +57,10 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &L
 }
 
 pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &LocalContext) -> Result<Value> {
-    if args.len() != 2 {
-        return Err(UncheckedError::InvalidArguments(format!("Wrong number of arguments ({}) to map", args.len())).into())
-    }
+    check_argument_count(2, args)?;
+
     let function_name = args[0].match_atom()
-        .ok_or(UncheckedError::InvalidArguments("Map must be called with a function name. We do not support eval'ing to functions.".to_string()))?;
+        .ok_or(UncheckedError::ExpectedFunctionName)?;
     let function = lookup_function(&function_name, env)?;
 
     let list = eval(&args[1], env, context)?;

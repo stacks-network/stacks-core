@@ -156,18 +156,21 @@ defined variable to obtain the current principal:
 tx-sender
 ```
 
-Importantly, the `tx-sender` variable does not change during
-inter-contract calls. This means that if a transaction invokes a
-function in a given smart contract, that function is able to make
-calls into other smart contracts on your behalf. This enables a wide
-variety of applications, but it comes with some dangers for users of
-smart contracts. However, as mentioned before, the static analysis
+The `tx-sender` variable does not change during inter-contract
+calls. This means that if a transaction invokes a function in a given
+smart contract, that function is able to make calls into other smart
+contracts without that variable changing. This enables a wide variety
+of applications, but it comes with some dangers for users of smart
+contracts. However, as mentioned before, the static analysis
 guarantees of our smart contracting language allow clients to know a
-priori which functions a given smart contract will ever call. Good
-clients should always warn users about any potential side effects of a
-given transaction.
+priori which functions a given smart contract will ever call.
 
-Assets in the smart contracting language and blockchain will be
+Another global variable, `contract-caller`, _does_ change during
+inter-contract calls. In particular, `contract-caller` is the contract
+principal corresponding to the most recent invocation of `contract-call!`.
+In the case of a "top-level" invocation, this variable is equal to `tx-sender`.
+
+Assets in the smart contracting language and blockchain are
 "owned" by objects of the principal type, meaning that any object of
 the principal type may own an asset. For the case of public-key hash
 and multi-signature Stacks addresses, a given principal can operate on
@@ -184,11 +187,11 @@ contracts may use the special function:
 (as-contract (...))
 ```
 
-This function will execute the closure (passed as an argument) with the
-`tx-sender` set to the _contract's_ principal, rather than the current
-sender. It returns the return value of the provided closure. A smart
-contract may use the special variable `contract-principal` to refer to
-its own principal.
+This function will execute the closure (passed as an argument) with
+the `tx-sender` and `contract-caller` set to the _contract's_
+principal, rather than the current sender. It returns the return value
+of the provided closure. A smart contract may use the special variable
+`contract-principal` to refer to its own principal.
 
 For example, a smart contract that implements something like a "token
 faucet" could be implemented as so:

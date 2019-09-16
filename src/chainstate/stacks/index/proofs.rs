@@ -1186,13 +1186,13 @@ mod test {
 
         // Block #1
         m.begin(&block_0, &block_1).unwrap();
-        let r = m.insert(&k1, &old_v);
+        let r = m.insert(&k1, MARFValue::from_value(&old_v));
         let (_, root_hash_1) = Trie::read_root(m.borrow_storage_backend()).unwrap();
         m.commit().unwrap();
 
         // Block #2
         m.begin(&block_1, &block_2).unwrap();
-        let r = m.insert(&k1, &new_v);
+        let r = m.insert(&k1, MARFValue::from_value(&new_v));
         let (_, root_hash_2) = Trie::read_root(m.borrow_storage_backend()).unwrap();
         m.commit().unwrap();
 
