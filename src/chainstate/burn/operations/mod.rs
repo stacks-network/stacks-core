@@ -253,15 +253,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::UserBurnSupport(ref data) => data.fork_segment_id
         }
     }
-
-    #[cfg(test)]
-    pub fn set_mined_at(&mut self, burnchain: &Burnchain, consensus_hash: &ConsensusHash, block_header: &BurnchainBlockHeader) -> () {
-        match *self {
-            BlockstackOperationType::LeaderKeyRegister(ref mut data) => data.set_mined_at(burnchain, consensus_hash, block_header),
-            BlockstackOperationType::LeaderBlockCommit(ref mut data) => data.set_mined_at(burnchain, consensus_hash, block_header),
-            BlockstackOperationType::UserBurnSupport(ref mut data) => data.set_mined_at(burnchain, consensus_hash, block_header),
-        }
-    }
 }
 
 

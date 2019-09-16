@@ -48,6 +48,8 @@ use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::StacksPrivateKey;
 
+use chainstate::burn::BlockHeaderHash;
+
 use util::vrf::{VRF,VRFPublicKey,VRFPrivateKey};
 
 use util::log;
@@ -92,25 +94,6 @@ impl LeaderKeyRegisterOp {
         Some(LeaderKeyRegisterOp::new(&addr, &prover_pubk))
     }
     
-    #[cfg(test)]
-    pub fn set_mined_at(&mut self, burnchain: &Burnchain, consensus_hash: &ConsensusHash, block_header: &BurnchainBlockHeader) -> () {
-        if self.consensus_hash != ConsensusHash([0u8; 20]) {
-            self.consensus_hash = consensus_hash.clone();
-        }
-
-        if self.txid != Txid([0u8; 32]) {
-            self.txid = Txid::from_test_data(block_header.block_height, self.vtxindex, &block_header.block_hash);
-        }
-        
-        if self.burn_header_hash != BurnchainHeaderHash([0u8; 32]) {
-            self.burn_header_hash = block_header.block_hash.clone();
-        }
-    
-        self.block_height = block_header.block_height;
-        self.fork_segment_id = block_header.fork_segment_id;
-    }
-
-
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
@@ -447,7 +430,7 @@ mod tests {
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                    winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
 
                     fork_segment_id: 0,
                     parent_fork_segment_id: 0,

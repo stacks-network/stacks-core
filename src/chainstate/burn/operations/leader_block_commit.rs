@@ -71,10 +71,13 @@ struct ParsedData {
 
 impl LeaderBlockCommitOp {
     #[cfg(test)]
-    pub fn initial(block_header_hash: &BlockHeaderHash, paired_key: &LeaderKeyRegisterOp, burn_fee: u64, input: &BurnchainSigner) -> LeaderBlockCommitOp {
+    pub fn initial(block_header_hash: &BlockHeaderHash, block_height: u64, paired_key: &LeaderKeyRegisterOp, burn_fee: u64, input: &BurnchainSigner) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
+            block_height: block_height,
             new_seed: VRFSeed([0u8; 32]),
+            key_block_backptr: (block_height - paired_key.block_height) as u16,
             key_vtxindex: paired_key.vtxindex as u16,
+            parent_block_backptr: 0,
             parent_vtxindex: 0,
             memo: vec![0x00],       // informs mined_at not to touch parent backkptrs
             burn_fee: burn_fee,
@@ -83,36 +86,30 @@ impl LeaderBlockCommitOp {
 
             // partially filled in
             epoch_num: 0,
-            parent_block_backptr: 0,
-            key_block_backptr: paired_key.block_height as u16,
 
             // to be filled in 
             txid: Txid([0u8; 32]),
             vtxindex: 0,
-            block_height: 0,
             burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-
             fork_segment_id: 0
         }
     }
 
     #[cfg(test)]
-    pub fn new(block_header_hash: &BlockHeaderHash, new_seed: &VRFSeed, parent: &LeaderBlockCommitOp, key_block_height: u16, key_vtxindex: u16, burn_fee: u64, input: &BurnchainSigner) -> LeaderBlockCommitOp {
+    pub fn new(block_header_hash: &BlockHeaderHash, block_height: u64, new_seed: &VRFSeed, parent: &LeaderBlockCommitOp, key_block_backptr: u16, key_vtxindex: u16, burn_fee: u64, input: &BurnchainSigner) -> LeaderBlockCommitOp {
         LeaderBlockCommitOp {
             new_seed: new_seed.clone(),
+            key_block_backptr: key_block_backptr,
             key_vtxindex: key_vtxindex,
+            parent_block_backptr: (block_height - parent.block_height) as u16,
             parent_vtxindex: parent.vtxindex as u16,
             memo: vec![],
             burn_fee: burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
 
-            // partially filled in
-            epoch_num: 0,
-            parent_block_backptr: parent.block_height as u16,
-            key_block_backptr: key_block_height as u16,
-
             // to be filled in
+            epoch_num: 0,
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             block_height: 0,
@@ -120,59 +117,6 @@ impl LeaderBlockCommitOp {
 
             fork_segment_id: 0,
         }
-    }
-
-    #[cfg(test)]
-    pub fn new_from_secrets<'a>(tx: &mut DBTx<'a>, privks: &Vec<StacksPrivateKey>, num_sigs: u16, hash_mode: &AddressHashMode, prover_key: &VRFPrivateKey, key_block_height: u16, key_vtxindex: u16, block_hash: &BlockHeaderHash, burn_fee: u64) -> Option<LeaderBlockCommitOp> {
-        let pubks = privks.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
-        let input = BurnchainSigner {
-            hash_mode: hash_mode.clone(),
-            num_sigs: num_sigs as usize,
-            public_keys: pubks
-        };
-
-        let chain_tip = BurnDB::get_canonical_chain_tip(tx).expect("FATAL: failed to read canonical chain tip");
-        let last_block_height = chain_tip.block_height;
-        let fork_segment_id = chain_tip.fork_segment_id;
-        let last_snapshot = BurnDB::get_last_snapshot_with_sortition(tx, last_block_height, fork_segment_id).expect("FATAL: failed to read last snapshot");
-        let parent = match BurnDB::get_block_commit(tx, &last_snapshot.winning_block_txid, &last_snapshot.winning_block_burn_hash, last_snapshot.fork_segment_id).expect("FATAL: failed to read block commit") {
-            Some(p) => {
-                p
-            },
-            None => {
-                return None;
-            }
-        };
-
-        let prover_pubk = VRFPublicKey::from_private(prover_key);
-
-        // prove on the parent's seed to produce the new seed
-        let proof = VRF::prove(prover_key, &parent.new_seed.as_bytes().to_vec());
-        let new_seed = VRFSeed::from_proof(&proof);
-        
-        Some(LeaderBlockCommitOp::new(block_hash, &new_seed, &parent, key_block_height, key_vtxindex, burn_fee, &input))
-    }
-
-    #[cfg(test)]
-    pub fn set_mined_at(&mut self, burnchain: &Burnchain, consensus_hash: &ConsensusHash, block_header: &BurnchainBlockHeader) -> () {
-        self.key_block_backptr = (block_header.block_height - (self.key_block_backptr as u64)) as u16;
-
-        if self.memo.len() == 0 {
-            self.parent_block_backptr = (block_header.block_height - (self.parent_block_backptr as u64)) as u16;
-        }
-
-        self.epoch_num = (block_header.block_height - burnchain.first_block_height) as u32;
-
-        if self.txid != Txid([0u8; 32]) {
-            self.txid = Txid::from_test_data(block_header.block_height, self.vtxindex, &block_header.block_hash);
-        }
-        
-        if self.burn_header_hash != BurnchainHeaderHash([0u8; 32]) {
-            self.burn_header_hash = block_header.block_hash.clone();
-        }
-        
-        self.block_height = block_header.block_height;
-        self.fork_segment_id = block_header.fork_segment_id;
     }
 
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
@@ -377,16 +321,17 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             .expect("FATAL: failed to query parent block snapshot")
             .expect("FATAL: no parent snapshot in the DB");
 
-        let register_key_opt = BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), chain_tip.fork_segment_id)
-            .expect("Sqlite failure while getting a prior leader VRF key");
+        let register_key = match BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), chain_tip.fork_segment_id)
+            .expect("Sqlite failure while getting a prior leader VRF key") {
+            Some(key) => {
+                key
+            },
+            None => {
+                warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, chain_tip.fork_segment_id);
+                return Err(op_error::BlockCommitNoLeaderKey);
+            }
+        };
 
-        if register_key_opt.is_none() {
-            warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, chain_tip.fork_segment_id);
-            return Err(op_error::BlockCommitNoLeaderKey);
-        }
-
-        let register_key = register_key_opt.unwrap();
-    
         let is_key_consumed = BurnDB::is_leader_key_consumed(tx, chain_tip.block_height, &register_key, chain_tip.fork_segment_id)
             .expect("Sqlite failure while verifying that a leader VRF key is not consumed");
 
@@ -408,18 +353,19 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             return Err(op_error::BlockCommitNoParent);
         }
         else if self.parent_block_backptr != 0 || self.parent_vtxindex != 0 {
-            // not building off of genesis
-            let parent_block_opt = BurnDB::get_block_commit_at(tx, parent_block_height, self.parent_vtxindex.into(), chain_tip.fork_segment_id)
-                .expect("Sqlite failure while verifying that this block commitment is new");
-
-            if parent_block_opt.is_none() {
-                warn!("Invalid block commit: no corresponding parent block");
-                return Err(op_error::BlockCommitNoParent);
+            // not building off of genesis, so the parent block must exist
+            match BurnDB::get_block_commit_at(tx, parent_block_height, self.parent_vtxindex.into(), chain_tip.fork_segment_id)
+                .expect("Sqlite failure while verifying that this block commitment is new") {
+                Some(_) => {},
+                None => {
+                    warn!("Invalid block commit: no parent block in this fork segment");
+                    return Err(op_error::BlockCommitNoParent);
+                }
             }
         }
         
         /////////////////////////////////////////////////////////////////////////////////////
-        // This LeaderBlockCommit's input public keys must match the address of the LeaderKeyRegister
+        // This LeaderBlockCommit's input public keys must match the address of its LeaderKeyRegister
         // -- the hash of the inputs' public key(s) must equal the hash contained within the
         // LeaderKeyRegister's address.  Note that we only need to check the address bytes,
         // not the entire address (since finding two sets of different public keys that
@@ -649,7 +595,7 @@ mod tests {
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                    winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
 
                     fork_segment_id: 0,
                     parent_fork_segment_id: 0,
