@@ -299,9 +299,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
             let vm_filename = &args[3];
 
-            let contract_name = &args[1];
-            let contract_identifier = friendly_expect(QualifiedContractIdentifier::local(contract_name), 
-                                                      "Failed to get contract name");
+            let contract_identifier = QualifiedContractIdentifier::parse(&args[1]).unwrap();
 
             let contract_content: String = friendly_expect(fs::read_to_string(&args[2]),
                                                            &format!("Error reading file: {}", args[2]));
@@ -475,12 +473,12 @@ mod test {
         let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
         invoke_command("test", &["check".to_string(), "sample-programs/tokens.clar".to_string(), db_name.clone()]);
-        invoke_command("test", &["launch".to_string(), "tokens".to_string(),
+        invoke_command("test", &["launch".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
                                  "sample-programs/tokens.clar".to_string(), db_name.clone()]);
         invoke_command("test", &["check".to_string(), "sample-programs/names.clar".to_string(), db_name.clone()]);
-        invoke_command("test", &["launch".to_string(), "names".to_string(),
+        invoke_command("test", &["launch".to_string(), "S1G2081040G2081040G2081040G208105NK8PE5.names".to_string(),
                                  "sample-programs/names.clar".to_string(), db_name.clone()]);
-        invoke_command("test", &["execute".to_string(), db_name.clone(), "tokens".to_string(),
+        invoke_command("test", &["execute".to_string(), db_name.clone(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
                                  "mint!".to_string(), "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
                                  "1000".to_string()]);
     }
