@@ -119,7 +119,7 @@ pub struct BlockSnapshot {
     pub sortition: bool,        // whether or not a sortition happened in this block (will be false if there were no burns)
     pub sortition_hash: SortitionHash,  // rolling hash of the burn chain's block headers -- this gets mixed with the sortition VRF seed
     pub winning_block_txid: Txid,       // txid of the leader block commit that won sortition.  Will all 0's if sortition is false. 
-    pub winning_block_burn_hash: BurnchainHeaderHash,   // burn header hash of the block containing the leader block commit that won sortition.  Will be all 0's if sortition is false.
+    pub winning_stacks_block_hash: BlockHeaderHash,     // hash of Stacks block that won sortition (will be all 0's if sortition is false)
    
     // internal use
     pub fork_segment_id: u64,           // which burn chain fork this is on
@@ -131,6 +131,13 @@ pub struct BlockSnapshot {
 impl BlockHeaderHash {
     pub fn to_hash160(&self) -> Hash160 {
         Hash160::from_sha256(&self.0)
+    }
+
+    pub fn from_serialized_header(buf: &[u8]) -> BlockHeaderHash {
+        let h = Sha512_256::from_data(buf);
+        let mut b = [0u8; 32];
+        b.copy_from_slice(h.as_bytes());
+        BlockHeaderHash(b)
     }
 }
 
@@ -294,11 +301,7 @@ impl ConsensusHash {
 #[cfg(test)]
 mod tests {
 
-    use super::ConsensusHash;
-    use super::OpsHash;
-    use super::BlockSnapshot;
-    use super::SortitionHash;
-    use super::Txid;
+    use super::*;
 
     use chainstate::burn::db::burndb::BurnDB;
 
@@ -332,7 +335,7 @@ mod tests {
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                    winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     fork_segment_id: 0,
                     parent_fork_segment_id: 0,
                     fork_length: i,
