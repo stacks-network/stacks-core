@@ -50,6 +50,7 @@ pub enum TypeSignature {
 use self::TypeSignature::{NoType, IntType, UIntType, BoolType, BufferType,
                           PrincipalType, ListType, TupleType, OptionalType, ResponseType};
 
+pub const BUFF_64: TypeSignature = BufferType(BufferLength(64));
 pub const BUFF_32: TypeSignature = BufferType(BufferLength(32));
 pub const BUFF_20: TypeSignature = BufferType(BufferLength(20));
 

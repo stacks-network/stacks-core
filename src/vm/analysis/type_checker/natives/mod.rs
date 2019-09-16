@@ -1,7 +1,7 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
 use vm::{ClarityName, SymbolicExpression};
-use vm::types::{BUFF_32, BUFF_20, TypeSignature, TupleTypeSignature, BlockInfoProperty,
+use vm::types::{BUFF_32, BUFF_20, BUFF_64, TypeSignature, TupleTypeSignature, BlockInfoProperty,
                 MAX_VALUE_SIZE, FunctionArg, FunctionType, FixedFunction};
 use super::{TypeChecker, TypingContext, TypeResult, no_type, check_argument_count, check_arguments_at_least}; 
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
@@ -299,6 +299,16 @@ impl TypedNativeFunction {
                     vec![TypeSignature::max_buffer(),
                          TypeSignature::IntType],
                     BUFF_32.clone()))),
+            Sha512Trunc256 =>
+                Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                    vec![TypeSignature::max_buffer(),
+                         TypeSignature::IntType],
+                    BUFF_32.clone()))),
+            Sha512 =>
+                Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                    vec![TypeSignature::max_buffer(),
+                         TypeSignature::IntType],
+                    BUFF_64.clone()))),
             Keccak256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![TypeSignature::max_buffer(),

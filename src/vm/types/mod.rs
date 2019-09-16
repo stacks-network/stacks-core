@@ -13,7 +13,7 @@ use util::hash;
 pub use vm::types::signatures::{
     TupleTypeSignature, AssetIdentifier, FixedFunction,
     TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
-    BUFF_32, BUFF_20, BufferLength
+    BUFF_64, BUFF_32, BUFF_20, BufferLength
 };
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB

@@ -88,13 +88,17 @@ fn test_simple_arithmetic_checks() {
 #[test]
 fn test_simple_hash_checks() {
     let good = ["(hash160 1)",
+                "(sha512 10)",
+                "(sha512/256 10)",
                 "(sha256 (keccak256 1))"];
-    let expected = ["(buff 20)", "(buff 32)"];
+    let expected = ["(buff 20)", "(buff 64)", "(buff 32)", "(buff 32)" ];
 
     let bad_types = ["(hash160 'true)",
                      "(sha256 'false)",
+                     "(sha512 'false)",
+                     "(sha512/256 'false)",
                      "(keccak256 (list 1 2 3))"];
-    let invalid_args = ["(sha256 1 2 3)"];
+    let invalid_args = ["(sha256 1 2 3)", "(sha512 1 2 3)", "(sha512/256 1 2 3)"];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(expected, &format!("{}", type_check_helper(&good_test).unwrap()));
