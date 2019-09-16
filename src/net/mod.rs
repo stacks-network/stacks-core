@@ -956,7 +956,10 @@ mod test {
         pub fn connect_initial(&mut self) -> Result<(), net_error> {
             let local_peer = PeerDB::get_local_peer(self.network.peerdb.conn()).unwrap();
             let chain_view = match self.burndb {
-                Some(ref burndb) => BurnDB::get_burnchain_view(burndb.conn(), &self.config.burnchain).unwrap(),
+                Some(ref mut burndb) => {
+                    let mut tx = burndb.tx_begin().unwrap();
+                    BurnDB::get_burnchain_view(&mut tx, &self.config.burnchain).unwrap()
+                }
                 None => panic!("Misconfigured peer: no burndb")
             };
 
@@ -968,8 +971,12 @@ mod test {
         }
 
         pub fn step(&mut self) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
-            let burndb = self.burndb.take().unwrap();
-            let ret = self.network.run(burndb.conn(), 1);
+            let mut burndb = self.burndb.take().unwrap();
+            let burnchain_snapshot = {
+                let mut tx = burndb.tx_begin().unwrap();
+                BurnDB::get_burnchain_view(&mut tx, &self.config.burnchain).unwrap()
+            };
+            let ret = self.network.run(burndb.conn(), &burnchain_snapshot, 1);
             self.burndb = Some(burndb);
             ret
         }
