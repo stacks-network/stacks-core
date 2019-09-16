@@ -14,7 +14,7 @@ type Result <R> = std::result::Result<R, CheckErrors>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct AssetIdentifier {
-    pub contract_name: ContractName,
+    pub contract_identifier: QualifiedContractIdentifier,
     pub asset_name: ClarityName
 }
 
@@ -781,7 +781,7 @@ impl fmt::Display for TupleTypeSignature {
 
 impl fmt::Display for AssetIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}::{}", &*self.contract_name, &*self.asset_name)
+        write!(f, "{}::{}", &*self.contract_identifier.to_string(), &*self.asset_name)
     }
 }
 

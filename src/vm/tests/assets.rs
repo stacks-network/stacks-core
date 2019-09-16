@@ -118,10 +118,11 @@ fn test_simple_token_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let token_identifier = AssetIdentifier { contract_name: "tokens".into(),
+    let token_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
+
+    let token_identifier = AssetIdentifier { contract_identifier: token_contract_id.clone(),
                                              asset_name: "stackaroos".into() };
 
-    let token_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
     let contract_principal = PrincipalData::Contract(token_contract_id.clone());
 
     owned_env.initialize_contract(token_contract_id.clone(), tokens_contract).unwrap();
@@ -295,9 +296,13 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
         _ => panic!()
     };
 
-    let names_identifier = AssetIdentifier { contract_name: "names".into(),
+    let tokens_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
+
+    let names_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "names".into());
+
+    let names_identifier = AssetIdentifier { contract_identifier: names_contract_id.clone(),
                                              asset_name: "names".into() };
-    let tokens_identifier = AssetIdentifier { contract_name: "tokens".into(),
+    let tokens_identifier = AssetIdentifier { contract_identifier: tokens_contract_id.clone(),
                                              asset_name: "stackaroos".into() };
 
 
@@ -305,7 +310,6 @@ fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
-    let tokens_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "tokens".into());
     owned_env.initialize_contract(tokens_contract_id.clone(), tokens_contract).unwrap();
 
     let names_contract_id = QualifiedContractIdentifier::new(p1_principal.clone(), "names".into());

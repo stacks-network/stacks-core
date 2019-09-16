@@ -443,7 +443,7 @@ impl <'a> GlobalContext<'a> {
 
     pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &str, transfered: Value) {
         let asset_name = String::from(asset_name).try_into().expect("Failed to get asset name");
-        let asset_identifier = AssetIdentifier { contract_name: contract_identifier.name.clone(),
+        let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
                                                  asset_name };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
@@ -452,7 +452,7 @@ impl <'a> GlobalContext<'a> {
 
     pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &str, transfered: i128) -> Result<()> {
         let asset_name = String::from(asset_name).try_into().expect("Failed to get asset name");
-        let asset_identifier = AssetIdentifier { contract_name: contract_identifier.name.clone(),
+        let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
                                                  asset_name };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
@@ -644,11 +644,14 @@ mod test {
 
     #[test]
     fn test_asset_map_abort() {
-        let p1 = PrincipalData::Contract(QualifiedContractIdentifier::local("a").unwrap());
-        let p2 = PrincipalData::Contract(QualifiedContractIdentifier::local("b").unwrap());
+        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
+        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
 
-        let t1 = AssetIdentifier { contract_name: "a".into(), asset_name: "a".into() };
-        let t2 = AssetIdentifier { contract_name: "b".into(), asset_name: "a".into() };
+        let p1 = PrincipalData::Contract(a_contract_id.clone());
+        let p2 = PrincipalData::Contract(b_contract_id.clone());
+
+        let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
+        let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
@@ -668,15 +671,23 @@ mod test {
 
     #[test]
     fn test_asset_map_combinations() {
-        let p1 = PrincipalData::Contract(QualifiedContractIdentifier::local("a").unwrap());
-        let p2 = PrincipalData::Contract(QualifiedContractIdentifier::local("b").unwrap());
-        let p3 = PrincipalData::Contract(QualifiedContractIdentifier::local("c").unwrap());
+        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
+        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
+        let c_contract_id = QualifiedContractIdentifier::local("c").unwrap();
+        let d_contract_id = QualifiedContractIdentifier::local("d").unwrap();
+        let e_contract_id = QualifiedContractIdentifier::local("e").unwrap();
 
-        let t1 = AssetIdentifier { contract_name: "a".into(), asset_name: "a".into() };
-        let t2 = AssetIdentifier { contract_name: "b".into(), asset_name: "a".into() };
-        let t3 = AssetIdentifier { contract_name: "c".into(), asset_name: "a".into() };
-        let t4 = AssetIdentifier { contract_name: "d".into(), asset_name: "a".into() };
-        let t5 = AssetIdentifier { contract_name: "e".into(), asset_name: "a".into() };
+        let p1 = PrincipalData::Contract(a_contract_id.clone());
+        let p2 = PrincipalData::Contract(b_contract_id.clone());
+        let p3 = PrincipalData::Contract(c_contract_id.clone());
+        let p4 = PrincipalData::Contract(d_contract_id.clone());
+        let p5 = PrincipalData::Contract(e_contract_id.clone());
+
+        let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
+        let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
+        let t3 = AssetIdentifier { contract_identifier: c_contract_id.clone(), asset_name: "a".into() };
+        let t4 = AssetIdentifier { contract_identifier: d_contract_id.clone(), asset_name: "a".into() };
+        let t5 = AssetIdentifier { contract_identifier: e_contract_id.clone(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
