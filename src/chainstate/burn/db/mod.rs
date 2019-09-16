@@ -33,13 +33,17 @@ use serde_json::Error as serde_error;
 use burnchains::{Txid, BurnchainHeaderHash, Address};
 
 use util::vrf::*;
-use util::hash::{hex_bytes, Hash160};
+use util::hash::{hex_bytes, Hash160, Sha512_256};
 
 use chainstate::burn::{ConsensusHash, VRFSeed, BlockHeaderHash, OpsHash, SortitionHash};
 
 use util::db;
 use util::db::FromRow;
 use util::db::Error as db_error;
+
+use chainstate::stacks::index::TrieHash;
+use chainstate::stacks::StacksPublicKey;
+use net::MessageSignature;
 
 impl_byte_array_from_row!(Txid);
 impl_byte_array_from_row!(ConsensusHash);
@@ -49,6 +53,11 @@ impl_byte_array_from_row!(VRFSeed);
 impl_byte_array_from_row!(OpsHash);
 impl_byte_array_from_row!(BurnchainHeaderHash);
 impl_byte_array_from_row!(SortitionHash);
+impl_byte_array_from_row!(Sha512_256);
+impl_byte_array_from_row!(VRFProof);
+impl_byte_array_from_row!(TrieHash);
+impl_byte_array_from_row!(StacksPublicKey);
+impl_byte_array_from_row!(MessageSignature);
 
 impl FromRow<VRFPublicKey> for VRFPublicKey {
     fn from_row<'a>(row: &'a Row, index: usize) -> Result<VRFPublicKey, db_error> {
