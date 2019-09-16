@@ -42,7 +42,6 @@ use chainstate::burn::BlockHeaderHash;
 
 use chainstate::stacks::index::{TrieHash, TRIEHASH_ENCODED_SIZE};
 
-use net::StacksPublicKeyBuffer;
 use net::StacksMessageCodec;
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
@@ -57,6 +56,9 @@ pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22;       // P
 pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20;        // M
 pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26;       // T
 pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21;        // N
+
+pub const STACKS_BLOCK_VERSION: u8 = 0;
+pub const STACKS_MICROBLOCK_VERSION: u8 = 0;
 
 impl AddressHashMode {
     pub fn to_version_mainnet(&self) -> u8 {
@@ -340,6 +342,7 @@ pub struct TransactionSmartContract {
 pub enum TransactionPayload {
     ContractCall(TransactionContractCall),
     SmartContract(TransactionSmartContract),
+    PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader)        // the previous epoch leader sent two microblocks with the same sequence, and this is proof
 }
 
 #[repr(u8)]
@@ -347,6 +350,7 @@ pub enum TransactionPayload {
 pub enum TransactionPayloadID {
     SmartContract = 0,
     ContractCall = 1,
+    PoisonMicroblock = 2,
 }
 
 /// Encoding of an asset type identifier 
@@ -503,21 +507,22 @@ pub struct StacksTransactionSigner {
 /// How much work has gone into this chain so far?
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksWorkScore {
-    pub burn: u64,
-    pub work: u64
+    pub burn: u64,      // number of burn tokens destroyed
+    pub work: u64       // amount of PoW so far (TBD)
 }
 
 /// The header for an on-chain-anchored Stacks block
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksBlockHeader {
     version: u8,
-    total_work: StacksWorkScore,
+    total_work: StacksWorkScore,            // NOTE: this is the work done on the chain tip this block builds on (i.e. take this from the parent)
     proof: VRFProof,
     parent_block: BlockHeaderHash,
     parent_microblock: BlockHeaderHash,
+    parent_microblock_sequence: u8,         // highest sequence number of the microblock stream that is the parent of this block (0 if no stream)
     tx_merkle_root: Sha512_256,
     state_index_root: TrieHash,
-    microblock_pubkey: StacksPublicKey
+    microblock_pubkey_hash: Hash160,        // we'll get the public key back from the first signature
 }
 
 /// A block that contains blockchain-anchored data 
@@ -546,8 +551,12 @@ pub struct StacksMicroblock {
     txs: Vec<StacksTransaction>
 }
 
+// maximum amount of data a leader can send during its epoch (2MB)
+pub const MAX_EPOCH_SIZE : u32 = 2097152;
+
 // maximum block size is 1MB.  Complaints to /dev/null -- if you need bigger, start an app chain
 pub const MAX_BLOCK_SIZE : u32 = 1048576;
 
-// maximum microblock size is 64KB
+// maximum microblock size is 64KB, but note that the current leader has a space budget of
+// $MAX_EPOCH_SIZE bytes (so the average microblock size needs to be 4kb if there are 256 of them)
 pub const MAX_MICROBLOCK_SIZE : u32 = 65536;
