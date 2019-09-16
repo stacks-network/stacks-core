@@ -33,6 +33,7 @@ use chainstate::burn::{
 
 use util::db::Error as db_error;
 
+use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::db::burndb::BurnDB;
 use chainstate::burn::BlockSnapshot;
 use chainstate::burn::distribution::BurnSamplePoint;
@@ -70,7 +71,7 @@ impl BlockSnapshot {
             sortition: true,
             sortition_hash: SortitionHash::initial(),
             winning_block_txid: Txid([0u8; 32]),
-            winning_block_burn_hash: BurnchainHeaderHash([0u8; 32]),
+            winning_stacks_block_hash: BlockHeaderHash([0u8; 32]),
             fork_segment_id: 0,
             parent_fork_segment_id: 0,
             fork_segment_length: 0,
@@ -78,9 +79,8 @@ impl BlockSnapshot {
         }
     }
 
-    pub fn is_initial(&self, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash) -> bool {
-        self.burn_header_hash == *first_burn_header_hash &&
-        self.parent_burn_header_hash == *first_burn_header_hash &&
+    pub fn is_initial(&self) -> bool {
+        self.burn_header_hash == self.parent_burn_header_hash &&
         self.total_burn == 0 &&
         self.consensus_hash == ConsensusHash([0u8; 20]) &&
         self.ops_hash == OpsHash([0u8; 32]) && 
@@ -139,7 +139,7 @@ impl BlockSnapshot {
             }
             else {
                 // there may have been a prior winning block commit.  Use its VRF seed if possible
-                BurnDB::get_block_commit(tx, &last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.winning_block_burn_hash, last_sortition_snapshot.fork_segment_id)?
+                BurnDB::get_block_commit(tx, &last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.burn_header_hash, last_sortition_snapshot.fork_segment_id)?
                     .expect("FATAL ERROR: no winning block commits in database (indicates corruption)")
                     .new_seed.clone()
             };
@@ -165,7 +165,7 @@ impl BlockSnapshot {
         let parent_block_hash = block_header.parent_block_hash.clone();
 
         let non_winning_block_txid = Txid::from_bytes(&[0u8; 32]).unwrap();
-        let non_winning_block_burn_hash = BurnchainHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+        let non_winning_block_hash = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
 
         let ops_hash = OpsHash::from_txids(txids);
         let ch = ConsensusHash::from_parent_block_data(tx, &ops_hash, block_height - 1, first_block_height, block_header.parent_fork_segment_id, burn_total)?;
@@ -182,7 +182,7 @@ impl BlockSnapshot {
             sortition: false,
             sortition_hash: sortition_hash.clone(),
             winning_block_txid: non_winning_block_txid,
-            winning_block_burn_hash: non_winning_block_burn_hash,
+            winning_stacks_block_hash: non_winning_block_hash,
 
             fork_segment_id: block_header.fork_segment_id,
             parent_fork_segment_id: block_header.parent_fork_segment_id,
@@ -259,14 +259,14 @@ impl BlockSnapshot {
         };
 
         // Try to pick a next block.
-        let (winning_txid, winning_burn_hash, winning_block_hash) = match BlockSnapshot::select_winning_block(tx, block_header, &next_sortition_hash, burn_dist)? {
+        let (winning_txid,  winning_block_hash) = match BlockSnapshot::select_winning_block(tx, block_header, &next_sortition_hash, burn_dist)? {
             None => {
                 // should be unreachable, but would happen if there were no burns
                 warn!("No winner for block {} {:?}", block_height, &block_hash);
                 return BlockSnapshot::make_snapshot_no_sortition(tx, block_header, first_block_height, last_burn_total, &next_sortition_hash, &txids)
             },
             Some(winning_block) => {
-                (winning_block.txid, winning_block.burn_header_hash, winning_block.block_header_hash)
+                (winning_block.txid, winning_block.block_header_hash)
             }
         };
         
@@ -285,7 +285,7 @@ impl BlockSnapshot {
             sortition: true,
             sortition_hash: next_sortition_hash,
             winning_block_txid: winning_txid,
-            winning_block_burn_hash: winning_burn_hash,
+            winning_stacks_block_hash: winning_block_hash,
             
             fork_segment_id: block_header.fork_segment_id,
             parent_fork_segment_id: block_header.parent_fork_segment_id,
@@ -362,7 +362,7 @@ mod test {
             burns: 0,
             range_start: Uint256::from_u64(0),
             range_end: Uint256([0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFF]),
-            candidate: LeaderBlockCommitOp::initial(&BlockHeaderHash([1u8; 32]), &key, 0, &BurnchainSigner::new_p2pkh(&StacksPublicKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())),
+            candidate: LeaderBlockCommitOp::initial(&BlockHeaderHash([1u8; 32]), first_block_height + 1, &key, 0, &BurnchainSigner::new_p2pkh(&StacksPublicKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())),
             key: LeaderKeyRegisterOp::new(&StacksAddress::new(0, Hash160([0u8; 20])), &VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap()),
             user_burns: vec![]
         };
