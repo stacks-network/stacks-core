@@ -855,7 +855,7 @@ impl PeerNetwork {
 
     /// Make progress on sending any/all new outbound messages we have.
     /// Meant to prime sockets so we wake up on the next loop pass immediately to finish sending.
-    fn send_outbound_messages(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, burndb_conn: &DBConn) -> Vec<usize> {
+    fn send_outbound_messages(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView) -> Vec<usize> {
         let mut to_remove = vec![];
         for (mut event_id, mut convo) in self.peers.iter_mut() {
             if !self.sockets.contains_key(&event_id) {
@@ -1195,15 +1195,12 @@ impl PeerNetwork {
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
     /// Returns the list of unsolicited peer messages
-    fn dispatch_network(&mut self, burndb_conn: &DBConn, mut poll_state: NetworkPollState) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    fn dispatch_network(&mut self, burndb_conn: &DBConn, chain_view: &BurnchainView, mut poll_state: NetworkPollState) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         if self.network.is_none() {
             return Err(net_error::NotConnected);
         }
         
         let local_peer = PeerDB::get_local_peer(self.peerdb.conn())
-            .map_err(|e| net_error::DBError)?;
-
-        let chain_view = BurnDB::get_burnchain_view(burndb_conn, &self.burnchain)
             .map_err(|e| net_error::DBError)?;
 
         // handle network I/O requests from other threads, and get back reply handles to them
@@ -1247,7 +1244,7 @@ impl PeerNetwork {
 
         // send out any queued messages.
         // this has the intentional side-effect of activating some sockets as writeable.
-        let error_outbound_events = self.send_outbound_messages(&local_peer, &chain_view, burndb_conn);
+        let error_outbound_events = self.send_outbound_messages(&local_peer, &chain_view);
         for error_event in error_outbound_events {
             let _ = self.reregister_if_outbound(&local_peer, &chain_view, error_event)
                 .map_err(|e| {
@@ -1280,7 +1277,7 @@ impl PeerNetwork {
     /// -- carries out network conversations
     /// -- receives and dispatches requests from other threads
     /// Returns the list of unsolicited network messages to be acted upon.
-    pub fn run(&mut self, burndb_conn: &DBConn, poll_timeout: u64) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    pub fn run(&mut self, burndb_conn: &DBConn, burnchain_snapshot: &BurnchainView, poll_timeout: u64) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         let poll_state = match self.network {
             None => {
                 Err(net_error::NotConnected)
@@ -1290,7 +1287,7 @@ impl PeerNetwork {
             }
         }?;
 
-        let unsolicited_messages = self.dispatch_network(burndb_conn, poll_state)?;
+        let unsolicited_messages = self.dispatch_network(burndb_conn, burnchain_snapshot, poll_state)?;
         Ok(unsolicited_messages)
     }
 }
