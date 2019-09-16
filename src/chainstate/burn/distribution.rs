@@ -65,17 +65,20 @@ impl BurnSamplePoint {
     ///
     /// All operations need to be from the same block height, or this method panics.
     ///
+    /// If a key is used more than once (i.e. by two or more commits), then only the first commit
+    /// will be incorporated.  All other commits will be dropped.
+    ///
     /// Returns the distribution, which consumes the given lists of operations.
-    pub fn make_distribution(block_candidates: Vec<LeaderBlockCommitOp>, consumed_leader_keys: Vec<LeaderKeyRegisterOp>, user_burns: Vec<UserBurnSupportOp>) -> Vec<BurnSamplePoint> {
+    pub fn make_distribution(all_block_candidates: Vec<LeaderBlockCommitOp>, consumed_leader_keys: Vec<LeaderKeyRegisterOp>, user_burns: Vec<UserBurnSupportOp>) -> Vec<BurnSamplePoint> {
         // trivial case
-        if block_candidates.len() == 0 {
+        if all_block_candidates.len() == 0 {
             return vec![];
         }
 
-        BurnSamplePoint::ops_sanity_checks(&block_candidates, &consumed_leader_keys, &user_burns);
-
+        BurnSamplePoint::ops_sanity_checks(&all_block_candidates, &user_burns);
+        
         // map each leader key's position in the blockchain to its index in consumed_leader_keys.
-        // The DB will ensure that there are no duplicates.
+        // note that this effectively de-duplicates entries in consumed_leader_keys (see below)
         let mut key_index : BTreeMap<(u64, u32), usize> = BTreeMap::new();
         for i in 0..consumed_leader_keys.len() {
             let key_loc = (consumed_leader_keys[i].block_height, consumed_leader_keys[i].vtxindex);
@@ -83,30 +86,47 @@ impl BurnSamplePoint {
 
             key_index.insert(key_loc, i);
         }
+       
+        // sanity check -- each block commit must refer to a consumed key
+        for i in 0..all_block_candidates.len() {
+            let bc = &all_block_candidates[i];
+            match key_index.get(&(bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex as u32)) {
+                None => {
+                    panic!("No leader key for block commitment {} at ({},{}) -- points to ({},{})",
+                            &bc.txid.to_hex(), bc.block_height, bc.vtxindex, bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex);
+                },
+                Some(_) => {}
+            }
+        }
 
-        // consume block candidates and leader keys to produce the list of burn sample points
-        let mut burn_sample = block_candidates
-            .into_iter()
-            .map(|bc| {
-                let key_idx_opt = key_index.get(&(bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex as u32));
-                if key_idx_opt.is_none() {
-                    // should never happen -- the DB only accepts a leader block commitment if it
-                    // matches a corresponding VRF public key 
-                    panic!("No leader key for block commitment {} (at {},{}) -- points to ({},{})", 
-                           &bc.txid.to_hex(), bc.block_height, bc.vtxindex, bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex);
+        // consume block candidates and leader keys to produce the list of burn sample points.
+        // If multiple commits try to use the same key, then take the first one (by vtxindex order)
+        // and drop the rest that consume the same key.
+        let mut burn_sample = Vec::with_capacity(all_block_candidates.len());
+        for i in 0..all_block_candidates.len() {
+            let bc = &all_block_candidates[i];
+            match key_index.get(&(bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex as u32)) {
+                None => {
+                    // leader key already consumed; drop this commit
+                    warn!("VRF public key at {},{} already consumed; ignoring block commit {},{} ({})", bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex, bc.block_height, bc.vtxindex, bc.txid.to_hex());
+                    continue;
+                },
+                Some(i) => {
+                    // next burn sample
+                    burn_sample.push(BurnSamplePoint {
+                        burns: bc.burn_fee as u128,     // Initial burn weight is the block commitment's burn
+                        range_start: Uint256::zero(),   // To be filled in
+                        range_end: Uint256::zero(),     // To be filled in
+                        candidate: bc.clone(),
+                        key: consumed_leader_keys[*i].clone(),
+                        user_burns: vec![]
+                    });
                 }
-                let key_idx = key_idx_opt.unwrap();
+            };
 
-                BurnSamplePoint {
-                    burns: bc.burn_fee as u128,     // Initial burn weight is the block commitment's burn
-                    range_start: Uint256::zero(),   // To be filled in
-                    range_end: Uint256::zero(),     // To be filled in
-                    candidate: bc,
-                    key: consumed_leader_keys[*key_idx].clone(),
-                    user_burns: vec![]
-                }
-            })
-            .collect();
+            // key consumed
+            key_index.remove(&(bc.block_height - (bc.key_block_backptr as u64), bc.key_vtxindex as u32));
+        }
 
         // assign user burns to the burn sample points 
         BurnSamplePoint::apply_user_burns(&mut burn_sample, user_burns);
@@ -117,22 +137,35 @@ impl BurnSamplePoint {
     }
     
     // sanity checks for making a burn distribution
-    fn ops_sanity_checks(block_candidates: &Vec<LeaderBlockCommitOp>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>, user_burns: &Vec<UserBurnSupportOp>) -> () {
+    fn ops_sanity_checks(block_candidates: &Vec<LeaderBlockCommitOp>, user_burns: &Vec<UserBurnSupportOp>) -> () {
         // sanity checks
-        if block_candidates.len() != consumed_leader_keys.len() {
-            panic!("FATAL ERROR: {} block candidates != {} leader keys", block_candidates.len(), consumed_leader_keys.len());
-        }
+        if block_candidates.len() > 1 {
+            let block_height = block_candidates[0].block_height;
+            for i in 1..block_candidates.len() {
+                if block_candidates[i].block_height != block_height {
+                    panic!("FATAL ERROR: block commit {} is at ({},{}) not {}", &block_candidates[i].txid.to_hex(), block_candidates[i].block_height, block_candidates[i].vtxindex, block_height);
+                }
+            }
 
-        let block_height = block_candidates[0].block_height;
-        for i in 1..block_candidates.len() {
-            if block_candidates[i].block_height != block_height {
-                panic!("FATAL ERROR: block commit {} is at ({},{}) not {}", &block_candidates[i].txid.to_hex(), block_candidates[i].block_height, block_candidates[i].vtxindex, block_height);
+            for i in 0..block_candidates.len() - 1 {
+                if block_candidates[i].vtxindex >= block_candidates[i+1].vtxindex {
+                    panic!("FATAL ERROR: block candidates are not in order");
+                }
             }
         }
 
-        for i in 0..user_burns.len() {
-            if user_burns[i].block_height != block_height {
-                panic!("FATAL ERROR: user burn {} is at ({},{}) not {}", &user_burns[i].txid.to_hex(), user_burns[i].block_height, user_burns[i].vtxindex, block_height);
+        if user_burns.len() > 1 {
+            let block_height = user_burns[0].block_height;
+            for i in 0..user_burns.len() {
+                if user_burns[i].block_height != block_height {
+                    panic!("FATAL ERROR: user burn {} is at ({},{}) not {}", &user_burns[i].txid.to_hex(), user_burns[i].block_height, user_burns[i].vtxindex, block_height);
+                }
+            }
+            
+            for i in 0..user_burns.len() - 1 {
+                if user_burns[i].vtxindex >= user_burns[i+1].vtxindex {
+                    panic!("FATAL ERROR: user_burns are not in order");
+                }
             }
         }
     }
@@ -156,11 +189,10 @@ impl BurnSamplePoint {
         // match user burns to the leaders
         for user_burn in user_burns {
             let key = (user_burn.public_key.clone(), user_burn.block_header_hash_160.clone());
-            let block_idx_opt = burn_index.get(&key);
-            match block_idx_opt {
-                Some(ref_block_idx) => {
+            match burn_index.get(&key) {
+                Some(block_idx) => {
                     // user burn matches a (key, block) pair committed to in this block
-                    let idx = *ref_block_idx;
+                    let idx = *block_idx;
                     burn_sample[idx].burns += user_burn.burn_fee as u128;
                     burn_sample[idx].user_burns.push(user_burn.clone());
                 },
