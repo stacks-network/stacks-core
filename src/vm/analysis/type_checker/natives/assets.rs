@@ -1,5 +1,5 @@
 use vm::representations::{SymbolicExpression};
-use vm::types::{TypeSignature, AtomTypeIdentifier, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE};
+use vm::types::{TypeSignature, TupleTypeSignature, BlockInfoProperty, MAX_VALUE_SIZE};
 use super::{TypeChecker, TypingContext, TypeResult, FunctionType, no_type}; 
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult, check_argument_count};
 
@@ -16,8 +16,8 @@ pub fn check_special_get_owner(checker: &mut TypeChecker, args: &[SymbolicExpres
 
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
 
-    Ok(AtomTypeIdentifier::OptionalType(
-        Box::new(AtomTypeIdentifier::PrincipalType.into())).into())
+    Ok(TypeSignature::OptionalType(
+        Box::new(TypeSignature::PrincipalType)).into())
 }
 
 pub fn check_special_get_balance(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -31,10 +31,10 @@ pub fn check_special_get_balance(checker: &mut TypeChecker, args: &[SymbolicExpr
         return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());
     }
 
-    let expected_owner_type: TypeSignature = AtomTypeIdentifier::PrincipalType.into();
+    let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     checker.type_check_expects(&args[1], context, &expected_owner_type)?;
 
-    Ok(AtomTypeIdentifier::IntType.into())
+    Ok(TypeSignature::IntType)
 }
 
 pub fn check_special_mint_asset(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -44,7 +44,7 @@ pub fn check_special_mint_asset(checker: &mut TypeChecker, args: &[SymbolicExpre
         .ok_or(CheckErrors::BadTokenName)?;
     checker.type_map.set_type(&args[0], no_type())?;
 
-    let expected_owner_type: TypeSignature = AtomTypeIdentifier::PrincipalType.into();
+    let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     let expected_asset_type = checker.contract_context.get_nft_type(asset_name)
         .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?
         .clone(); // this clone shouldn't be strictly necessary, but to use `type_check_expects` with this, it would have to be.
@@ -52,9 +52,9 @@ pub fn check_special_mint_asset(checker: &mut TypeChecker, args: &[SymbolicExpre
     checker.type_check_expects(&args[1], context, &expected_asset_type)?;
     checker.type_check_expects(&args[2], context, &expected_owner_type)?;
 
-    Ok(AtomTypeIdentifier::ResponseType(
-        Box::new((AtomTypeIdentifier::BoolType.into(),
-                  AtomTypeIdentifier::IntType.into()))).into())
+    Ok(TypeSignature::ResponseType(
+        Box::new((TypeSignature::BoolType,
+                  TypeSignature::IntType))).into())
 }
 
 pub fn check_special_mint_token(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -64,8 +64,8 @@ pub fn check_special_mint_token(checker: &mut TypeChecker, args: &[SymbolicExpre
         .ok_or(CheckErrors::BadTokenName)?;
     checker.type_map.set_type(&args[0], no_type())?;
 
-    let expected_amount: TypeSignature = AtomTypeIdentifier::IntType.into();
-    let expected_owner_type: TypeSignature = AtomTypeIdentifier::PrincipalType.into();
+    let expected_amount: TypeSignature = TypeSignature::IntType;
+    let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
 
     checker.type_check_expects(&args[1], context, &expected_amount)?;
     checker.type_check_expects(&args[2], context, &expected_owner_type)?;
@@ -75,9 +75,9 @@ pub fn check_special_mint_token(checker: &mut TypeChecker, args: &[SymbolicExpre
         return Err(CheckErrors::NoSuchFT(asset_name.to_string()).into());
     }
     
-    Ok(AtomTypeIdentifier::ResponseType(
-        Box::new((AtomTypeIdentifier::BoolType.into(),
-                  AtomTypeIdentifier::IntType.into()))).into())
+    Ok(TypeSignature::ResponseType(
+        Box::new((TypeSignature::BoolType,
+                  TypeSignature::IntType))).into())
 }
 
 pub fn check_special_transfer_asset(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -87,7 +87,7 @@ pub fn check_special_transfer_asset(checker: &mut TypeChecker, args: &[SymbolicE
         .ok_or(CheckErrors::BadTokenName)?;
     checker.type_map.set_type(&args[0], no_type())?;
 
-    let expected_owner_type: TypeSignature = AtomTypeIdentifier::PrincipalType.into();
+    let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
     let expected_asset_type = checker.contract_context.get_nft_type(token_name)
         .ok_or(CheckErrors::NoSuchNFT(token_name.to_string()))?
         .clone();
@@ -96,9 +96,9 @@ pub fn check_special_transfer_asset(checker: &mut TypeChecker, args: &[SymbolicE
     checker.type_check_expects(&args[2], context, &expected_owner_type)?; // owner
     checker.type_check_expects(&args[3], context, &expected_owner_type)?; // recipient
 
-    Ok(AtomTypeIdentifier::ResponseType(
-        Box::new((AtomTypeIdentifier::BoolType.into(),
-                  AtomTypeIdentifier::IntType.into()))).into())
+    Ok(TypeSignature::ResponseType(
+        Box::new((TypeSignature::BoolType,
+                  TypeSignature::IntType))).into())
 }
 
 pub fn check_special_transfer_token(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -108,8 +108,8 @@ pub fn check_special_transfer_token(checker: &mut TypeChecker, args: &[SymbolicE
         .ok_or(CheckErrors::BadTokenName)?;
     checker.type_map.set_type(&args[0], no_type())?;
 
-    let expected_amount: TypeSignature = AtomTypeIdentifier::IntType.into();
-    let expected_owner_type: TypeSignature = AtomTypeIdentifier::PrincipalType.into();
+    let expected_amount: TypeSignature = TypeSignature::IntType;
+    let expected_owner_type: TypeSignature = TypeSignature::PrincipalType;
 
     checker.type_check_expects(&args[1], context, &expected_amount)?;
     checker.type_check_expects(&args[2], context, &expected_owner_type)?; // owner
@@ -119,7 +119,7 @@ pub fn check_special_transfer_token(checker: &mut TypeChecker, args: &[SymbolicE
         return Err(CheckErrors::NoSuchFT(token_name.to_string()).into());
     }
 
-    Ok(AtomTypeIdentifier::ResponseType(
-        Box::new((AtomTypeIdentifier::BoolType.into(),
-                  AtomTypeIdentifier::IntType.into()))).into())
+    Ok(TypeSignature::ResponseType(
+        Box::new((TypeSignature::BoolType,
+                  TypeSignature::IntType))).into())
 }

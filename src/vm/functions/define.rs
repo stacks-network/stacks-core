@@ -2,7 +2,7 @@ use vm::types::{Value, TypeSignature, TupleTypeSignature, parse_name_type_pairs}
 use vm::callables::{DefinedFunction, DefineType};
 use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{Atom, AtomValue, List};
-use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, check_argument_count};
+use vm::errors::{RuntimeErrorType, CheckErrors, InterpreterResult as Result, check_argument_count};
 use vm::contexts::{ContractContext, LocalContext, Environment};
 use vm::eval;
 
@@ -30,10 +30,8 @@ pub enum DefineResult {
 fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<()> {
     use vm::is_reserved;
 
-    if is_reserved(name) {
-        Err(UncheckedError::ReservedName(name.to_string()).into())
-    } else if contract_context.variables.contains_key(name) || contract_context.functions.contains_key(name) {
-        Err(UncheckedError::VariableDefinedMultipleTimes(name.to_string()).into())
+    if is_reserved(name) || contract_context.variables.contains_key(name) || contract_context.functions.contains_key(name) {
+        Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
     } else {
         Ok(())
     }
@@ -52,10 +50,10 @@ fn handle_define_function(signature: &[SymbolicExpression],
                           env: &Environment,
                           define_type: DefineType) -> Result<DefineResult> {
     let (function_symbol, arg_symbols) = signature.split_first()
-        .ok_or(UncheckedError::InvalidArguments("Must supply atleast a name argument to define a function".to_string()))?;
+        .ok_or(CheckErrors::DefineFunctionBadSignature)?;
 
     let function_name = function_symbol.match_atom()
-        .ok_or(UncheckedError::ExpectedFunctionName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     check_legal_define(&function_name, &env.contract_context)?;
 
@@ -77,11 +75,11 @@ fn handle_define_function(signature: &[SymbolicExpression],
 
 fn handle_define_persisted_variable(variable_name: &SymbolicExpression, value_type: &SymbolicExpression, value: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     let variable_str = variable_name.match_atom()
-        .ok_or(UncheckedError::ExpectedVariableName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     check_legal_define(&variable_str, &env.contract_context)?;
 
-    let value_type_signature = TypeSignature::parse_type_repr(value_type, true)?;
+    let value_type_signature = TypeSignature::parse_type_repr(value_type)?;
 
     let context = LocalContext::new();
     let value = eval(value, env, &context)?;
@@ -91,18 +89,18 @@ fn handle_define_persisted_variable(variable_name: &SymbolicExpression, value_ty
 
 fn handle_define_nonfungible_asset(asset_name: &SymbolicExpression, key_type: &SymbolicExpression, env: &mut Environment) -> Result<DefineResult> {
     let asset_name = asset_name.match_atom()
-        .ok_or(UncheckedError::ExpectedVariableName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     check_legal_define(&asset_name, &env.contract_context)?;
 
-    let key_type_signature = TypeSignature::parse_type_repr(key_type, true)?;
+    let key_type_signature = TypeSignature::parse_type_repr(key_type)?;
 
     Ok(DefineResult::NonFungibleAsset(asset_name.to_string(), key_type_signature))
 }
 
 fn handle_define_fungible_token(asset_name: &SymbolicExpression, total_supply: Option<&SymbolicExpression>, env: &mut Environment) -> Result<DefineResult> {
     let asset_name = asset_name.match_atom()
-        .ok_or(UncheckedError::ExpectedVariableName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     check_legal_define(&asset_name, &env.contract_context)?;
 
@@ -116,7 +114,7 @@ fn handle_define_fungible_token(asset_name: &SymbolicExpression, total_supply: O
                 Ok(DefineResult::FungibleToken(asset_name.to_string(), Some(total_supply_int)))
             }
         } else {
-            Err(UncheckedError::TypeError("int".to_string(), total_supply_value).into())
+            Err(CheckErrors::TypeValueError(TypeSignature::IntType, total_supply_value).into())
         }
     } else {
         Ok(DefineResult::FungibleToken(asset_name.to_string(), None))
@@ -128,7 +126,7 @@ fn handle_define_map(map_name: &SymbolicExpression,
                      value_type: &SymbolicExpression,
                      env: &Environment) -> Result<DefineResult> {
     let map_str = map_name.match_atom()
-        .ok_or(UncheckedError::ExpectedMapName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     check_legal_define(&map_str, &env.contract_context)?;
 
@@ -156,22 +154,19 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
             DefineFunctions::Constant => {
                 check_argument_count(2, args)?;
                 let variable = args[0].match_atom()
-                    .ok_or(UncheckedError::InvalidArguments(
-                        "Illegal operation: expects a variable name as the first argument.".to_string()))?;
+                    .ok_or(CheckErrors::ExpectedName)?;
                 handle_define_variable(variable, &args[1], env)
             },
             DefineFunctions::PrivateFunction => {
                 check_argument_count(2, args)?;
                 let function_signature = args[0].match_list()
-                    .ok_or(UncheckedError::InvalidArguments(
-                        "Illegal operation: expects a function signature as the first argument.".to_string()))?;
+                    .ok_or(CheckErrors::DefineFunctionBadSignature)?;
                 handle_define_function(&function_signature, &args[1], env, DefineType::Private)
             },
             DefineFunctions::ReadOnlyFunction => {
                 check_argument_count(2, args)?;
                 let function_signature = args[0].match_list()
-                    .ok_or(UncheckedError::InvalidArguments(
-                        "Illegal operation: expects a function signature as the first argument.".to_string()))?;
+                    .ok_or(CheckErrors::DefineFunctionBadSignature)?;
                 handle_define_function(&function_signature, &args[1], env, DefineType::ReadOnly)
             },
             DefineFunctions::NonFungibleToken => {
@@ -181,17 +176,16 @@ pub fn evaluate_define(expression: &SymbolicExpression, env: &mut Environment) -
             DefineFunctions::FungibleToken => {
                 if args.len() == 1 {
                     handle_define_fungible_token(&args[0], None, env)
-                        } else if args.len() == 2 {
+                } else if args.len() == 2 {
                     handle_define_fungible_token(&args[0], Some(&args[1]), env)
-                        } else {
-                    Err(UncheckedError::IncorrectArgumentCount(1, args.len()).into())
+                } else {
+                    Err(CheckErrors::IncorrectArgumentCount(1, args.len()).into())
                 }
             },
             DefineFunctions::PublicFunction => {
                 check_argument_count(2, args)?;
                 let function_signature = args[0].match_list()
-                    .ok_or(UncheckedError::InvalidArguments(
-                        "Illegal operation: expects a function signature as the first argument.".to_string()))?;
+                    .ok_or(CheckErrors::DefineFunctionBadSignature)?;
                 handle_define_function(&function_signature, &args[1], env, DefineType::Public)
             },
             DefineFunctions::Map => {

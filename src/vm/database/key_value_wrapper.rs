@@ -126,7 +126,7 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
     }
 
     fn get(&mut self, key: &str) -> Option<String> {
-        let current = self.stack.last()
+        self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
         let lookup_result = match self.lookup_map.get(key) {
@@ -143,7 +143,7 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
     }
 
     fn has_entry(&mut self, key: &str) -> bool {
-        let current = self.stack.last()
+        self.stack.last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
         if self.lookup_map.contains_key(key) {
             true

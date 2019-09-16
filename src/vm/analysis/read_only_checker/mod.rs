@@ -1,6 +1,6 @@
 use vm::representations::{SymbolicExpression, ClarityName};
 use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, parse_name_type_pairs};
+use vm::types::{TypeSignature, TupleTypeSignature, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::functions::tuples;
@@ -140,6 +140,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
         match function {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater |
             Modulo | Power | BitwiseXOR | And | Or | Not | Hash160 | Sha256 | Keccak256 | Equals | If |
+            Sha512 | Sha512Trunc256 |
             ConsSome | ConsOkay | ConsError | DefaultTo | Expects | ExpectsErr | IsOkay | IsNone |
             ToUInt | ToInt |
             ListCons | GetBlockInfo | TupleGet | Print | AsContract | Begin | FetchVar | GetTokenBalance | GetAssetOwner => {

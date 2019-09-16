@@ -2,25 +2,25 @@ pub mod serialization;
 mod signatures;
 
 use std::{fmt, cmp};
-use std::convert::TryInto;
+use std::convert::{TryInto, TryFrom};
 use std::collections::BTreeMap;
 
 use address::c32;
 use vm::representations::{ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType};
-use vm::errors::{RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError, InterpreterError};
+use vm::errors::{RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError, InterpreterError};
 use util::hash;
 
 pub use vm::types::signatures::{
-    AtomTypeIdentifier, TupleTypeSignature, AssetIdentifier, FixedFunction,
+    TupleTypeSignature, AssetIdentifier, FixedFunction,
     TypeSignature, FunctionType, ListTypeData, FunctionArg, parse_name_type_pairs,
-    INT_TYPE, UINT_TYPE, BOOL_TYPE
+    BUFF_64, BUFF_32, BUFF_20, BufferLength
 };
 
-pub const MAX_VALUE_SIZE: i128 = 1024 * 1024; // 1MB
+pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct TupleData {
-    type_signature: TupleTypeSignature,
+    pub type_signature: TupleTypeSignature,
     pub data_map: BTreeMap<ClarityName, Value>
 }
 
@@ -79,38 +79,32 @@ define_named_enum!(BlockInfoProperty {
 });
 
 impl OptionalData {
-    pub fn type_signature(&self) -> AtomTypeIdentifier {
+    pub fn type_signature(&self) -> TypeSignature {
         match self.data {
-            Some(ref v) => AtomTypeIdentifier::OptionalType(Box::new(
-                TypeSignature::type_of(&v))),
-            None => AtomTypeIdentifier::OptionalType(Box::new(
-                TypeSignature::new_atom(AtomTypeIdentifier::NoType)))
+            Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(&v)),
+            None => TypeSignature::new_option(TypeSignature::NoType)
         }
     }
 }
 
 impl ResponseData {
-    pub fn type_signature(&self) -> AtomTypeIdentifier {
+    pub fn type_signature(&self) -> TypeSignature {
         match self.committed {
-            true => AtomTypeIdentifier::ResponseType(Box::new(
-                (TypeSignature::type_of(&self.data), TypeSignature::new_atom(AtomTypeIdentifier::NoType)))),
-            false => AtomTypeIdentifier::ResponseType(Box::new(
-                (TypeSignature::new_atom(AtomTypeIdentifier::NoType), TypeSignature::type_of(&self.data))))
+            true => TypeSignature::new_response(
+                TypeSignature::type_of(&self.data), TypeSignature::NoType),
+            false => TypeSignature::new_response(
+                TypeSignature::NoType, TypeSignature::type_of(&self.data))
         }
     }
 }
 
 impl BlockInfoProperty {
     pub fn type_result(&self) -> TypeSignature {
-        use self::AtomTypeIdentifier::*;
         use self::BlockInfoProperty::*;
-        TypeSignature::from(
-            match self {
-                Time => IntType,
-                VrfSeed => BufferType(32),
-                HeaderHash => BufferType(32),
-                BurnchainHeaderHash => BufferType(32),
-            })
+        match self {
+            Time => TypeSignature::IntType,
+            VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
+        }
     }
 }
 
@@ -135,8 +129,7 @@ impl Value {
     }
 
     pub fn none() -> Value {
-        Value::Optional(OptionalData {
-            data: None })
+        NONE.clone()
     }
 
     pub fn okay(data: Value) -> Value {
@@ -155,19 +148,20 @@ impl Value {
     ///  this invariant is enforced through the Value constructors, each of which checks to ensure
     ///  that any typing data is correct.
     pub fn list_with_type(list_data: Vec<Value>, expected_type: ListTypeData) -> Result<Value> {
-        if expected_type.size()? > MAX_VALUE_SIZE {
-            return Err(RuntimeErrorType::ValueTooLarge.into())
-        }
-
-        if (expected_type.max_len as usize) < list_data.len() {
+        // Constructors for TypeSignature ensure that the size of the Value cannot
+        //   be greater than MAX_VALUE_SIZE (they error on such constructions)
+        //   so we do not need to perform that check here.
+        if (expected_type.get_max_len() as usize) < list_data.len() {
             return Err(InterpreterError::FailureConstructingListWithType.into())
         }
 
-        let expected_item_type = expected_type.get_list_item_type();
+        {
+            let expected_item_type = expected_type.get_list_item_type();
 
-        for item in &list_data {
-            if !expected_item_type.admits(&item) {
-                return Err(InterpreterError::FailureConstructingListWithType.into())
+            for item in &list_data {
+                if !expected_item_type.admits(&item) {
+                    return Err(InterpreterError::FailureConstructingListWithType.into())
+                }
             }
         }
 
@@ -175,41 +169,22 @@ impl Value {
     }
 
     pub fn list_from(list_data: Vec<Value>) -> Result<Value> {
-        let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
+        // Constructors for TypeSignature ensure that the size of the Value cannot
+        //   be greater than MAX_VALUE_SIZE (they error on such constructions)
         // Aaron: at this point, we've _already_ allocated memory for this type.
         //     (e.g., from a (map...) call, or a (list...) call.
         //     this is a problem _if_ the static analyzer cannot already prevent
         //     this case. This applies to all the constructor size checks.
-        if type_sig.size()? > MAX_VALUE_SIZE {
-            return Err(RuntimeErrorType::ValueTooLarge.into())
-        }
+        let type_sig = TypeSignature::construct_parent_list_type(&list_data)?;
         Ok(Value::List(ListData { data: list_data, type_signature: type_sig }))
     }
 
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
-        if buff_data.len() > u32::max_value() as usize {
-            Err(RuntimeErrorType::BufferTooLarge.into())
-        } else if buff_data.len() as i128 > MAX_VALUE_SIZE {
-            Err(RuntimeErrorType::ValueTooLarge.into())
-        } else {
-            Ok(Value::Buffer(BuffData { data: buff_data }))
-        }
+        // check the buffer size
+        BufferLength::try_from(buff_data.len())?;
+        // construct the buffer
+        Ok(Value::Buffer(BuffData { data: buff_data }))
     }
-
-    pub fn size(&self) -> Result<i128> {
-        match self {
-            Value::Int(_i) => AtomTypeIdentifier::IntType.size(),
-            Value::UInt(int) => AtomTypeIdentifier::UIntType.size(),
-            Value::Bool(_i) => AtomTypeIdentifier::BoolType.size(),
-            Value::Principal(_) => AtomTypeIdentifier::PrincipalType.size(),
-            Value::Buffer(ref buff_data) => Ok(buff_data.data.len() as i128),
-            Value::Tuple(ref tuple_data) => tuple_data.size(),
-            Value::List(ref list_data) => list_data.type_signature.size(),
-            Value::Optional(ref opt_data) => opt_data.type_signature().size(),
-            Value::Response(ref res_data) => res_data.type_signature().size()
-        }
-    }
-
 }
 
 impl fmt::Display for OptionalData {
@@ -333,32 +308,29 @@ impl From<TupleData> for Value {
 impl TupleData {
     fn new(type_signature: TupleTypeSignature, data_map: BTreeMap<ClarityName, Value>) -> Result<TupleData> {
         let t = TupleData { type_signature, data_map };
-        if t.size()? > MAX_VALUE_SIZE {
-            return Err(RuntimeErrorType::ValueTooLarge.into())
-        }
         Ok(t)
     }
+
     pub fn from_data(mut data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {
             let type_info = TypeSignature::type_of(&value);
             if type_map.contains_key(&name) {
-                return Err(UncheckedError::VariableDefinedMultipleTimes(name.into()).into());
+                return Err(CheckErrors::NameAlreadyUsed(name.into()).into());
             } else {
                 type_map.insert(name.clone(), type_info);
             }
             data_map.insert(name, value);
         }
 
-        Self::new(TupleTypeSignature { type_map }, data_map)
+        Self::new(TupleTypeSignature::try_from(type_map)?, data_map)
     }
 
     pub fn from_data_typed(mut data: Vec<(ClarityName, Value)>, expected: &TupleTypeSignature) -> Result<TupleData> {
-        let type_map = &expected.type_map;
         let mut data_map = BTreeMap::new();
         for (name, value) in data.drain(..) {
-            let expected_type = type_map.get(&name)
+            let expected_type = expected.field_type(&name)
                 .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
             if !expected_type.admits(&value) {
                 return Err(InterpreterError::FailureConstructingTupleWithType.into());
@@ -371,11 +343,7 @@ impl TupleData {
     pub fn get(&self, name: &str) -> Result<Value> {
         self.data_map.get(name)
             .cloned()
-            .ok_or_else(|| UncheckedError::NoSuchTupleField.into())
-    }
-
-    pub fn size(&self) -> Result<i128> {
-        self.type_signature.size()
+            .ok_or_else(|| CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into())
     }
 }
 
@@ -398,25 +366,23 @@ mod test {
         assert_eq!(
             Value::list_with_type(
                 vec![Value::Int(5), Value::Int(2)],
-                ListTypeData { max_len: 3, dimension: 1, atomic_type: AtomTypeIdentifier::BoolType.into() }),
+                ListTypeData::new_list(TypeSignature::BoolType, 3).unwrap()),
             Err(InterpreterError::FailureConstructingListWithType.into()));
         assert_eq!(
-            Value::list_with_type(
-                vec![Value::Int(5), Value::Int(2)],
-                ListTypeData { max_len: MAX_VALUE_SIZE as u32, dimension: 2, atomic_type: AtomTypeIdentifier::BoolType.into() }),
-            Err(RuntimeErrorType::ValueTooLarge.into()));
+            ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE as u32),
+            Err(CheckErrors::ValueTooLarge));
 
         assert_eq!(
             Value::buff_from(
                 vec![0; (MAX_VALUE_SIZE+1) as usize]),
-            Err(RuntimeErrorType::ValueTooLarge.into()));
+            Err(CheckErrors::ValueTooLarge.into()));
 
         // on 32-bit archs, this error cannot even happen, so don't test (and cause an overflow panic)
         if (u32::max_value() as usize) < usize::max_value() {
             assert_eq!(
                 Value::buff_from(
                     vec![0; (u32::max_value() as usize) + 10]),
-                Err(RuntimeErrorType::BufferTooLarge.into()));
+                Err(CheckErrors::ValueTooLarge.into()));
         }
     }
     #[test]

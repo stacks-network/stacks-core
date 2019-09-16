@@ -1,5 +1,5 @@
 use vm::execute as vm_execute;
-use vm::errors::{Error, UncheckedError, RuntimeErrorType};
+use vm::errors::{Error, CheckErrors, RuntimeErrorType};
 use vm::types::{Value, PrincipalData, ResponseData, AssetIdentifier};
 use vm::contexts::{OwnedEnvironment, GlobalContext, AssetMap, AssetMapEntry};
 use vm::representations::SymbolicExpression;
@@ -244,7 +244,7 @@ fn total_supply(owned_env: &mut OwnedEnvironment) {
 
     let err = owned_env.initialize_contract("tokens", bad_1).unwrap_err();
     assert!( match err {
-        Error::Unchecked(UncheckedError::TypeError(_, _)) => true,
+        Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
         _ => false
     });
 
