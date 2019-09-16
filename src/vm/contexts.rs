@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::convert::TryInto;
 
-use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, InterpreterResult as Result};
-use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
+use vm::errors::{InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result};
+use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase, memory_db};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
@@ -361,9 +361,9 @@ impl <'a,'b> Environment <'a,'b> {
         let contract = self.global_context.database.get_contract(contract_identifier)?;
 
         let func = contract.contract_context.lookup_function(tx_name)
-            .ok_or_else(|| { UncheckedError::UndefinedFunction(tx_name.to_string()) })?;
+            .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
         if !func.is_public() {
-            return Err(UncheckedError::NonPublicFunction(tx_name.to_string()).into());
+            return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
         }
 
         let args: Result<Vec<Value>> = args.iter()
@@ -529,7 +529,7 @@ impl <'a> GlobalContext<'a> {
                 }
                 Ok(Value::Response(data))
             } else {
-                Err(UncheckedError::ContractMustReturnBoolean.into())
+                Err(CheckErrors::PublicFunctionMustReturnResponse(TypeSignature::type_of(&result)).into())
             }
         } else {
             self.roll_back();

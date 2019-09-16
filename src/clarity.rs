@@ -139,7 +139,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                     marf.commit();
                     result
                 } else {
-                    let mut memory = friendly_expect(SqliteConnection::memory(), "Could not open in-memory analysis DB");
+                    let memory = friendly_expect(SqliteConnection::memory(), "Could not open in-memory analysis DB");
                     let mut db = AnalysisDatabase::new(Box::new(memory));
                     run_analysis(&contract_id, &mut ast, &mut db, false)
                 }
@@ -259,7 +259,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                 };
 
             let mut marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
-            let mut db = ClarityDatabase::new(Box::new(&mut marf_kv));
+            let db = ClarityDatabase::new(Box::new(&mut marf_kv));
 
             let content: String = {
                 if args.len() == 3 {

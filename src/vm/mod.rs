@@ -26,7 +26,7 @@ use vm::callables::CallableType;
 use vm::contexts::{ContractContext, LocalContext, Environment, CallStack};
 use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
-use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result};
+use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result};
 use vm::database::{memory_db};
 use vm::types::QualifiedContractIdentifier;
 
@@ -45,7 +45,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
         } else if let Some(value) = env.contract_context.lookup_variable(name) {
             Ok(value)
         } else {
-            Err(UncheckedError::UndefinedVariable(name.to_string()).into())
+            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
     }
 }
@@ -55,7 +55,7 @@ pub fn lookup_function(name: &str, env: &Environment)-> Result<CallableType> {
         Ok(result)
     } else {
         let user_function = env.contract_context.lookup_function(name).ok_or(
-            UncheckedError::UndefinedFunction(name.to_string()))?;
+            CheckErrors::UndefinedFunction(name.to_string()))?;
         Ok(CallableType::UserFunction(user_function))
     }
 }
@@ -81,7 +81,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
     };
 
     if track_recursion && env.call_stack.contains(&identifier) {
-        return Err(UncheckedError::RecursionDetected.into())
+        return Err(CheckErrors::CircularReference(vec![identifier.to_string()]).into())
     }
 
     if env.call_stack.depth() >= MAX_CALL_STACK_DEPTH {
@@ -118,15 +118,11 @@ pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &
         Atom(ref value) => lookup_variable(&value, context, env),
         List(ref children) => {
             let (function_variable, rest) = children.split_first()
-                .ok_or(UncheckedError::InvalidArguments(
-                    "List expressions (...) are function applications, and must be supplied with function names to apply.".to_string()))?;
-            match function_variable.expr {
-                Atom(ref value) => {
-                    let f = lookup_function(&value, env)?;
-                    apply(&f, &rest, env, context)
-                },
-                _ => Err(UncheckedError::TryEvalToFunction.into())
-            }
+                .ok_or(CheckErrors::NonFunctionApplication)?;
+            let function_name = function_variable.match_atom()
+                .ok_or(CheckErrors::BadFunctionName)?;
+            let f = lookup_function(&function_name, env)?;
+            apply(&f, &rest, env, context)
         }
     }
 }
@@ -217,7 +213,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 mod test {
     use vm::database::memory_db;
     use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression, CallStack};
-    use vm::types::{TypeSignature, AtomTypeIdentifier, QualifiedContractIdentifier};
+    use vm::types::{TypeSignature, QualifiedContractIdentifier};
     use vm::callables::{DefinedFunction, DefineType};
     use vm::eval;
 
@@ -238,7 +234,7 @@ mod test {
                        SymbolicExpression::atom_value(Value::Int(5)),
                        SymbolicExpression::atom("x".into())]));
 
-        let func_args = vec![("x".into(), AtomTypeIdentifier::IntType.into())];
+        let func_args = vec![("x".into(), TypeSignature::IntType)];
         let user_function = DefinedFunction::new(func_args, func_body, DefineType::Private,
                                                  &"do_work".into(), &"");
 

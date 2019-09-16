@@ -1,7 +1,12 @@
-use vm::types::{AtomTypeIdentifier, QualifiedContractIdentifier};
+use vm::types::{TypeSignature, QualifiedContractIdentifier};
 use vm::ast::parse;
 use vm::analysis::errors::CheckErrors;
-use vm::analysis::{AnalysisDatabase,mem_type_check};
+use vm::analysis::{AnalysisDatabase, mem_type_check};
+use std::convert::TryInto;
+
+fn buff_type(size: u32) -> TypeSignature {
+    TypeSignature::BufferType(size.try_into().unwrap()).into()
+}
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-non-fungible-token stacka-nfts (buff 10))
@@ -127,46 +132,46 @@ fn test_bad_asset_usage() {
     let expected = [
         CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
-        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
-                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::TypeError(TypeSignature::PrincipalType,
+                               TypeSignature::IntType),
         CheckErrors::BadTokenName,
         CheckErrors::NoSuchNFT("stackoos".to_string()),
-        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
-                               AtomTypeIdentifier::IntType.into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
-                               AtomTypeIdentifier::BufferType(15).into()),
+        CheckErrors::TypeError(buff_type(10),
+                               TypeSignature::IntType),
+        CheckErrors::TypeError(buff_type(10),
+                               buff_type(15)),
         CheckErrors::BadTokenName,
         CheckErrors::NoSuchNFT("stackoos".to_string()),
-        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
-                               AtomTypeIdentifier::IntType.into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
-                               AtomTypeIdentifier::BufferType(15).into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
-                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::TypeError(buff_type(10),
+                               TypeSignature::IntType),
+        CheckErrors::TypeError(buff_type(10),
+                               buff_type(15)),
+        CheckErrors::TypeError(TypeSignature::PrincipalType,
+                               TypeSignature::IntType),
         CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
-        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
-                               AtomTypeIdentifier::IntType.into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::IntType.into(),
-                               AtomTypeIdentifier::BoolType.into()),
+        CheckErrors::TypeError(TypeSignature::PrincipalType,
+                               TypeSignature::IntType),
+        CheckErrors::TypeError(TypeSignature::IntType,
+                               TypeSignature::BoolType),
         CheckErrors::BadTokenName,
         CheckErrors::NoSuchNFT("stackoos".to_string()),
-        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
-                               AtomTypeIdentifier::IntType.into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
-                               AtomTypeIdentifier::IntType.into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::BufferType(10).into(),
-                               AtomTypeIdentifier::IntType.into()),
+        CheckErrors::TypeError(TypeSignature::PrincipalType,
+                               TypeSignature::IntType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType,
+                               TypeSignature::IntType),
+        CheckErrors::TypeError(buff_type(10),
+                               TypeSignature::IntType),
         CheckErrors::NoSuchFT("stackoos".to_string()),
         CheckErrors::BadTokenName,
-        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
-                               AtomTypeIdentifier::IntType.into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::IntType.into(),
-                               AtomTypeIdentifier::BoolType.into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::PrincipalType.into(),
-                               AtomTypeIdentifier::IntType.into()),
-        CheckErrors::TypeError(AtomTypeIdentifier::IntType.into(),
-                               AtomTypeIdentifier::BoolType.into()),
+        CheckErrors::TypeError(TypeSignature::PrincipalType,
+                               TypeSignature::IntType),
+        CheckErrors::TypeError(TypeSignature::IntType,
+                               TypeSignature::BoolType),
+        CheckErrors::TypeError(TypeSignature::PrincipalType,
+                               TypeSignature::IntType),
+        CheckErrors::TypeError(TypeSignature::IntType,
+                               TypeSignature::BoolType),
         CheckErrors::DefineNFTBadSignature.into(),
     ];
 

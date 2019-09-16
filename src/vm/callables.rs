@@ -1,6 +1,7 @@
 use std::fmt;
 
-use vm::errors::{InterpreterResult as Result, Error, UncheckedError};
+use vm::errors::{InterpreterResult as Result, Error};
+use vm::analysis::errors::CheckErrors;
 use vm::representations::{SymbolicExpression, ClarityName};
 use vm::types::TypeSignature;
 use vm::{eval, Value, LocalContext, Environment};
@@ -57,10 +58,10 @@ impl DefinedFunction {
         let arg_iterator = self.arguments.iter().zip(self.arg_types.iter()).zip(args.iter());
         for ((arg, type_sig), value) in arg_iterator {
             if !type_sig.admits(value) {
-                return Err(UncheckedError::TypeError(format!("{}", type_sig), value.clone()).into()) 
+                return Err(CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into())
             }
             if let Some(_) = context.variables.insert(arg.clone(), value.clone()) {
-                return Err(UncheckedError::VariableDefinedMultipleTimes(arg.to_string()).into())
+                return Err(CheckErrors::NameAlreadyUsed(arg.to_string()).into())
             }
         }
         let result = eval(&self.body, env, &context);

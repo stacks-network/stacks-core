@@ -1,6 +1,6 @@
 use vm::contracts::Contract;
-use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
-use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, PrincipalData, NONE};
+use vm::errors::{Error, InterpreterError, RuntimeErrorType, InterpreterResult as Result, IncomparableError};
+use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, NONE};
 
 pub trait ClaritySerializable {
     fn serialize(&self) -> String;

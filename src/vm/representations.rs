@@ -6,6 +6,8 @@ use regex::{Regex};
 use vm::types::{Value};
 use vm::errors::{RuntimeErrorType};
 
+const MAX_STRING_LEN: u8 = 128;
+
 macro_rules! guarded_string {
     ($Name:ident, $Label:literal, $Regex:expr) => {
         #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -13,17 +15,20 @@ macro_rules! guarded_string {
         impl TryFrom<String> for $Name {
             type Error = RuntimeErrorType;
             fn try_from(value: String) -> Result<Self, Self::Error> {
+                if value.len() > (MAX_STRING_LEN as usize) {
+                    return Err(RuntimeErrorType::BadNameValue($Label, value))
+                }
                 // TODO: use lazy static ?
                 let regex_check = $Regex
                     .expect("FAIL: Bad static regex.");
                 if regex_check.is_match(&value) {
                     Ok(Self(value))
                 } else {
-                    Err(RuntimeErrorType::BadNameValue($Label, value).into())
+                    Err(RuntimeErrorType::BadNameValue($Label, value))
                 }
             }
         }
-        
+
         impl Deref for $Name {
             type Target = str;
             fn deref(&self) -> &Self::Target {

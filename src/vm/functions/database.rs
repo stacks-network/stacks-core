@@ -3,26 +3,24 @@ use std::convert::{TryFrom, TryInto};
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
-use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty};
+use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use vm::errors::{UncheckedError, InterpreterError, RuntimeErrorType, InterpreterResult as Result, check_argument_count};
+use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::{eval, LocalContext, Environment};
 
 pub fn special_contract_call(args: &[SymbolicExpression],
                              env: &mut Environment,
                              context: &LocalContext) -> Result<Value> {
-    if args.len() < 2 {
-        return Err(UncheckedError::IncorrectArgumentCount(2, args.len()).into())
-    }
+    check_arguments_at_least(2, args)?;
 
     let contract_identifier = match args[0].expr {
         SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
-        _ => return Err(UncheckedError::ExpectedContractName.into())
+        _ => return Err(CheckErrors::ContractCallExpectName.into())
     };
 
     let function_name = args[1].match_atom()
-        .ok_or(UncheckedError::ExpectedFunctionName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     let rest_args = &args[2..];
 
@@ -41,11 +39,11 @@ pub fn special_contract_call(args: &[SymbolicExpression],
 
 pub fn special_fetch_variable(args: &[SymbolicExpression],
                               env: &mut Environment,
-                              context: &LocalContext) -> Result<Value> {
+                              _context: &LocalContext) -> Result<Value> {
     check_argument_count(1, args)?;
 
     let var_name = args[0].match_atom()
-        .ok_or(UncheckedError::ExpectedVariableName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     env.global_context.database.lookup_variable(&env.contract_context.contract_identifier, var_name)
 }
@@ -54,7 +52,7 @@ pub fn special_set_variable(args: &[SymbolicExpression],
                             env: &mut Environment,
                             context: &LocalContext) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(UncheckedError::WriteFromReadOnlyContext.into())
+        return Err(CheckErrors::WriteAttemptedInReadOnly.into())
     }
 
     check_argument_count(2, args)?;
@@ -62,7 +60,7 @@ pub fn special_set_variable(args: &[SymbolicExpression],
     let value = eval(&args[1], env, &context)?;
 
     let var_name = args[0].match_atom()
-        .ok_or(UncheckedError::ExpectedMapName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     env.global_context.database.set_variable(&env.contract_context.contract_identifier, var_name, value)
 }
@@ -73,7 +71,7 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
     check_argument_count(2, args)?;
 
     let map_name = args[0].match_atom()
-        .ok_or(UncheckedError::ExpectedVariableName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     let key = match tuples::get_definition_type_of_tuple_argument(&args[1]) {
         Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
@@ -92,11 +90,11 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
     let contract_identifier = match args[0].expr {
         SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
-        _ => return Err(UncheckedError::ExpectedContractName.into())
+        _ => return Err(CheckErrors::ContractCallExpectName.into())
     };
 
     let map_name = args[1].match_atom()
-        .ok_or(UncheckedError::ExpectedMapName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     let key = match tuples::get_definition_type_of_tuple_argument(&args[2]) {
         Implicit(ref expr) => tuples::tuple_cons(expr, env, context)?,
@@ -110,7 +108,7 @@ pub fn special_set_entry(args: &[SymbolicExpression],
                          env: &mut Environment,
                          context: &LocalContext) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(UncheckedError::WriteFromReadOnlyContext.into())
+        return Err(CheckErrors::WriteAttemptedInReadOnly.into())
     }
 
     check_argument_count(3, args)?;
@@ -126,7 +124,7 @@ pub fn special_set_entry(args: &[SymbolicExpression],
     };
 
     let map_name = args[0].match_atom()
-        .ok_or(UncheckedError::ExpectedMapName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     env.global_context.database.set_entry(&env.contract_context.contract_identifier, map_name, key, value)
 }
@@ -135,7 +133,7 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
                             env: &mut Environment,
                             context: &LocalContext) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(UncheckedError::WriteFromReadOnlyContext.into())
+        return Err(CheckErrors::WriteAttemptedInReadOnly.into())
     }
 
     check_argument_count(3, args)?;
@@ -151,7 +149,7 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
     };
 
     let map_name = args[0].match_atom()
-        .ok_or(UncheckedError::ExpectedMapName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     env.global_context.database.insert_entry(&env.contract_context.contract_identifier, map_name, key, value)
 }
@@ -160,7 +158,7 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
                             env: &mut Environment,
                             context: &LocalContext) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(UncheckedError::WriteFromReadOnlyContext.into())
+        return Err(CheckErrors::WriteAttemptedInReadOnly.into())
     }
  
     check_argument_count(2, args)?;
@@ -171,7 +169,7 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
     };
 
     let map_name = args[0].match_atom()
-        .ok_or(UncheckedError::ExpectedMapName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     env.global_context.database.delete_entry(&env.contract_context.contract_identifier, map_name, &key)
 }
@@ -186,16 +184,16 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
 
     // Handle the block property name input arg.
     let property_name = args[0].match_atom()
-        .ok_or(UncheckedError::ExpectedBlockPropertyName)?;
+        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
     let block_info_prop = BlockInfoProperty::lookup_by_name(property_name)
-        .ok_or(UncheckedError::ExpectedBlockPropertyName)?;
+        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::Int(result) => Ok(result),
-        _ => Err(UncheckedError::TypeError("IntType".to_string(), height_eval))
+        x => Err(CheckErrors::TypeValueError(TypeSignature::IntType, x))
     }?;
 
     let height_value = match u64::try_from(height_value) {

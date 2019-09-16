@@ -7,7 +7,7 @@ use vm::analysis::{ContractAnalysis, type_check};
 fn test_list_types_must_match() {
     let snippet = "(list 1 'true)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("expecting elements of same type in a list"));
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type 'int', found 'bool'"));
 }
 
 #[test]

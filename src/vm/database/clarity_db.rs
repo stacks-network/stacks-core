@@ -2,8 +2,8 @@ use std::collections::{VecDeque, HashMap};
 use std::convert::TryFrom;
 
 use vm::contracts::Contract;
-use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result, IncomparableError};
-use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, AtomTypeIdentifier, PrincipalData, QualifiedContractIdentifier, NONE};
+use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result, IncomparableError};
+use vm::types::{Value, OptionalData, TypeSignature, TupleTypeSignature, PrincipalData, QualifiedContractIdentifier, NONE};
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -107,7 +107,7 @@ impl <'a> ClarityDatabase <'a> {
     pub fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Contract> {
         let key = ClarityDatabase::make_contract_key(contract_identifier);
         self.get(&key)
-            .ok_or_else(|| { UncheckedError::UndefinedContract(contract_identifier.to_string()).into() })
+            .ok_or_else(|| { CheckErrors::NoSuchContract(contract_identifier.to_string()).into() })
     }
 }
 
@@ -208,7 +208,7 @@ impl <'a> ClarityDatabase <'a> {
         let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::VariableMeta, variable_name);
 
         let data = self.get(&key)
-            .ok_or(UncheckedError::UndefinedVariable(variable_name.to_string()))?;
+            .ok_or(CheckErrors::NoSuchDataVariable(variable_name.to_string()))?;
 
         Ok(data)
     }
@@ -216,7 +216,7 @@ impl <'a> ClarityDatabase <'a> {
     pub fn set_variable(&mut self, contract_identifier: &QualifiedContractIdentifier, variable_name: &str, value: Value) -> Result<Value> {
         let variable_descriptor = self.load_variable(contract_identifier, variable_name)?;
         if !variable_descriptor.value_type.admits(&value) {
-            return Err(UncheckedError::TypeError(format!("{:?}", variable_descriptor.value_type), value).into())
+            return Err(CheckErrors::TypeValueError(variable_descriptor.value_type, value).into())
         }
 
         let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::Variable, variable_name);
@@ -243,8 +243,8 @@ impl <'a> ClarityDatabase <'a> {
 // Data Map Functions
 impl <'a> ClarityDatabase <'a> {
     pub fn create_map(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str, key_type: TupleTypeSignature, value_type: TupleTypeSignature) {
-        let key_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(key_type));
-        let value_type = TypeSignature::new_atom(AtomTypeIdentifier::TupleType(value_type));
+        let key_type = TypeSignature::from(key_type);
+        let value_type = TypeSignature::from(value_type);
 
         let data = DataMapMetadata { key_type, value_type };
 
@@ -259,7 +259,7 @@ impl <'a> ClarityDatabase <'a> {
         let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::DataMapMeta, map_name);
 
         let data = self.get(&key)
-            .ok_or(UncheckedError::UndefinedMap(map_name.to_string()))?;
+            .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
 
         Ok(data)
     }
@@ -267,7 +267,7 @@ impl <'a> ClarityDatabase <'a> {
     pub fn fetch_entry(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str, key_value: &Value) -> Result<Value> {
         let map_descriptor = self.load_map(contract_identifier, map_name)?;
         if !map_descriptor.key_type.admits(key_value) {
-            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), (*key_value).clone()).into())
+            return Err(CheckErrors::TypeValueError(map_descriptor.key_type, (*key_value).clone()).into())
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
@@ -300,10 +300,10 @@ impl <'a> ClarityDatabase <'a> {
     fn inner_set_entry(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str, key_value: Value, value: Value, return_if_exists: bool) -> Result<Value> {
         let map_descriptor = self.load_map(contract_identifier, map_name)?;
         if !map_descriptor.key_type.admits(&key_value) {
-            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), key_value).into())
+            return Err(CheckErrors::TypeValueError(map_descriptor.key_type, key_value).into())
         }
         if !map_descriptor.value_type.admits(&value) {
-            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.value_type), value).into())
+            return Err(CheckErrors::TypeValueError(map_descriptor.value_type, value).into())
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
@@ -321,7 +321,7 @@ impl <'a> ClarityDatabase <'a> {
     pub fn delete_entry(&mut self, contract_identifier: &QualifiedContractIdentifier, map_name: &str, key_value: &Value) -> Result<Value> {
         let map_descriptor = self.load_map(contract_identifier, map_name)?;
         if !map_descriptor.key_type.admits(key_value) {
-            return Err(UncheckedError::TypeError(format!("{:?}", map_descriptor.key_type), (*key_value).clone()).into())
+            return Err(CheckErrors::TypeValueError(map_descriptor.key_type, (*key_value).clone()).into())
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::DataMap, map_name, key_value.serialize());
@@ -357,7 +357,7 @@ impl <'a> ClarityDatabase <'a> {
         let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::FungibleTokenMeta, token_name);
 
         let data = self.get(&key)
-            .ok_or(UncheckedError::UndefinedTokenType(token_name.to_string()))?;
+            .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?;
 
         Ok(data)
     }
@@ -375,7 +375,7 @@ impl <'a> ClarityDatabase <'a> {
         let key = ClarityDatabase::make_key_for_trip(contract_identifier, StoreType::NonFungibleTokenMeta, token_name);
 
         let data = self.get(&key)
-            .ok_or(UncheckedError::UndefinedTokenType(token_name.to_string()))?;
+            .ok_or(CheckErrors::NoSuchNFT(token_name.to_string()))?;
 
         Ok(data)
     }
@@ -431,7 +431,7 @@ impl <'a> ClarityDatabase <'a> {
     pub fn get_nft_owner(&mut self, contract_identifier: &QualifiedContractIdentifier, asset_name: &str, asset: &Value) -> Result<PrincipalData> {
         let descriptor = self.load_nft(contract_identifier, asset_name)?;
         if !descriptor.key_type.admits(asset) {
-            return Err(UncheckedError::TypeError(descriptor.key_type.to_string(), (*asset).clone()).into())
+            return Err(CheckErrors::TypeValueError(descriptor.key_type, (*asset).clone()).into())
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::NonFungibleToken, asset_name, asset.serialize());
@@ -448,7 +448,7 @@ impl <'a> ClarityDatabase <'a> {
     pub fn set_nft_owner(&mut self, contract_identifier: &QualifiedContractIdentifier, asset_name: &str, asset: &Value, principal: &PrincipalData) -> Result<()> {
         let descriptor = self.load_nft(contract_identifier, asset_name)?;
         if !descriptor.key_type.admits(asset) {
-            return Err(UncheckedError::TypeError(descriptor.key_type.to_string(), (*asset).clone()).into())
+            return Err(CheckErrors::TypeValueError(descriptor.key_type, (*asset).clone()).into())
         }
 
         let key = ClarityDatabase::make_key_for_quad(contract_identifier, StoreType::NonFungibleToken, asset_name, asset.serialize());
