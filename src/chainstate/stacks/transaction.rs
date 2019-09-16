@@ -92,6 +92,13 @@ impl StacksMessageCodec for TransactionPayload {
                 let mut body = sc.serialize();
                 res.append(&mut body)
             }
+            TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
+                write_next(&mut res, &(TransactionPayloadID::PoisonMicroblock as u8));
+                let mut h1_body = h1.serialize();
+                let mut h2_body = h2.serialize();
+                res.append(&mut h1_body);
+                res.append(&mut h2_body);
+            }
         }
         res
     }
@@ -112,6 +119,23 @@ impl StacksMessageCodec for TransactionPayload {
                 
                 *index_ptr = index;
                 Ok(TransactionPayload::SmartContract(payload))
+            }
+            x if x == TransactionPayloadID::PoisonMicroblock as u8 => {
+                let h1 = StacksMicroblockHeader::deserialize(buf, &mut index, max_size)?;
+                let h2 = StacksMicroblockHeader::deserialize(buf, &mut index, max_size)?;
+
+                // must differ in some field
+                if h1 == h2 {
+                    return Err(net_error::DeserializeError);
+                }
+
+                // must have the same sequence number and block parent
+                if h1.sequence != h2.sequence || h1.prev_block != h2.prev_block {
+                    return Err(net_error::DeserializeError);
+                }
+
+                *index_ptr = index;
+                Ok(TransactionPayload::PoisonMicroblock(h1, h2))
             }
             _ => {
                 Err(net_error::DeserializeError)
@@ -441,6 +465,18 @@ impl StacksMessageCodec for StacksTransaction {
                 return Err(net_error::DeserializeError);
             }
         };
+
+        // if the payload is a proof of a poisoned microblock stream, then this _must_ be anchored.
+        // Otherwise, if the offending leader is the next leader, they can just orphan their proof
+        // of malfeasance.
+        match payload {
+            TransactionPayload::PoisonMicroblock(_, _) => {
+                if anchor_mode != TransactionAnchorMode::OnChainOnly {
+                    return Err(net_error::DeserializeError);
+                }
+            },
+            _ => {}
+        }
 
         let post_condition_mode = match post_condition_mode_u8 {
             x if x == TransactionPostConditionMode::Allow as u8 => {
@@ -1065,6 +1101,14 @@ mod test {
             },
             TransactionPayload::SmartContract(_) => {
                 TransactionPayload::ContractCall(TransactionContractCall { contract_call: StacksString::from_str("corrupt body").unwrap() })
+            },
+            TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
+                let mut corrupt_h1 = h1.clone();
+                let mut corrupt_h2 = h2.clone();
+
+                corrupt_h1.sequence += 1;
+                corrupt_h2.sequence += 1;
+                TransactionPayload::PoisonMicroblock(corrupt_h1, corrupt_h2)
             }
         };
         assert!(corrupt_tx_payload.txid() != signed_tx.txid());
@@ -2600,4 +2644,6 @@ mod test {
             test_signature_and_corruption(&signed_tx, true, false);
         }
     } 
+
+    // TODO: test microblock poison transaction
 }
