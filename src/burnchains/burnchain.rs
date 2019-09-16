@@ -24,6 +24,7 @@ use std::sync::mpsc::sync_channel;
 use std::time::Instant;
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use address::AddressHashMode;
 use address::public_keys_to_address_hash;
@@ -74,6 +75,7 @@ use util::hash::to_hex;
 use util::get_epoch_time_ms;
 use util::db::DBConn;
 use util::db::DBTx;
+use util::vrf::VRFPublicKey;
 
 use core::PEER_VERSION;
 use core::NETWORK_ID_MAINNET;
@@ -387,21 +389,21 @@ impl Burnchain {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
                 op.check(burnchain, block_header, tx)
                     .map_err(|e| {
-                          warn!("REJECTED leader key register {} at {},{} (fid={}, pfid={}): {:?}", &op.txid.to_hex(), op.block_height, op.vtxindex, op.fork_segment_id, block_header.parent_fork_segment_id, &e);
+                          warn!("REJECTED({}) leader key register {} at {},{} (fid={}, pfid={}): {:?}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex, op.fork_segment_id, block_header.parent_fork_segment_id, &e);
                           burnchain_error::OpError(e)
                     })
             },
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
                 op.check(burnchain, block_header, tx)
                     .map_err(|e| {
-                          warn!("REJECTED leader block commit {} at {},{} (fid={}, pfid={}): {:?}", &op.txid.to_hex(), op.block_height, op.vtxindex, op.fork_segment_id, block_header.parent_fork_segment_id, &e);
+                          warn!("REJECTED({}) leader block commit {} at {},{} (fid={}, pfid={}): {:?}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex, op.fork_segment_id, block_header.parent_fork_segment_id, &e);
                           burnchain_error::OpError(e)
                     })
             },
             BlockstackOperationType::UserBurnSupport(ref op) => {
                 op.check(burnchain, block_header, tx)
                     .map_err(|e| {
-                        warn!("REJECTED user burn support {} at {},{} (fid={}, pfid={}): {:?}", &op.txid.to_hex(), op.block_height, op.vtxindex, op.fork_segment_id, block_header.parent_fork_segment_id, &e);
+                        warn!("REJECTED({}) user burn support {} at {},{} (fid={}, pfid={}): {:?}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex, op.fork_segment_id, block_header.parent_fork_segment_id, &e);
                         burnchain_error::OpError(e)
                     })
             }
@@ -411,25 +413,34 @@ impl Burnchain {
     fn store_transaction<'a>(tx: &mut DBTx<'a>, blockstack_op: &BlockstackOperationType) -> Result<(), burnchain_error> {
         match blockstack_op {
             BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                info!("ACCEPTED leader key register {} at {},{}", &op.txid.to_hex(), op.block_height, op.vtxindex);
+                info!("ACCEPTED({}) leader key register {} at {},{}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex);
                 BurnDB::insert_leader_key(tx, op)
                     .expect("FATAL: failed to store leader key to Sqlite");
             },
             BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                info!("ACCEPTED leader block commit {} at {},{}", &op.txid.to_hex(), op.block_height, op.vtxindex);
+                info!("ACCEPTED({}) leader block commit {} at {},{}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex);
                 BurnDB::insert_block_commit(tx, op)
                     .expect("FATAL: failed to store leader block commit to Sqlite");
             },
             BlockstackOperationType::UserBurnSupport(ref op) => {
-                info!("ACCEPTED user burn support {} at {},{}", &op.txid.to_hex(), op.block_height, op.vtxindex);
+                info!("ACCEPTED({}) user burn support {} at {},{}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex);
                 BurnDB::insert_user_burn(tx, op)
                     .expect("FATAL: failed to store user burn support to Sqlite");
             }
         }
         Ok(())
     }
+    
+    /// Append a block's accepted operations to the ledger. 
+    fn store_blockstack_ops<'a>(tx: &mut DBTx<'a>, accepted_block_ops: &Vec<BlockstackOperationType>) -> Result<(), burnchain_error> {
+        for block_op in accepted_block_ops {
+            Burnchain::store_transaction(tx, block_op)?;
+        }
+        Ok(())
+    }
 
-    /// Filter out the burnchain block's transactions that could be blockstack transactions
+    /// Filter out the burnchain block's transactions that could be blockstack transactions.
+    /// Return the ordered list of blockstack operations by vtxindex
     fn get_blockstack_transactions(burnchain: &Burnchain, block: &BurnchainBlock, block_header: &BurnchainBlockHeader) -> Vec<BlockstackOperationType> {
         debug!("Extract Blockstack transactions from block {} {}", block.block_height(), &block.block_hash().to_hex());
         let mut ret = vec![];
@@ -444,6 +455,51 @@ impl Burnchain {
                 },
                 Some(ref blockstack_op) => {
                     ret.push((*blockstack_op).clone());
+                }
+            }
+        }
+        ret
+    }
+
+    /// Sanity check -- a list of checked ops is sorted and all vtxindexes are unique
+    fn ops_are_sorted(ops: &Vec<BlockstackOperationType>) -> bool {
+        if ops.len() > 1 {
+            for i in 0..ops.len() - 1 {
+                if ops[i].vtxindex() >= ops[i+1].vtxindex() {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Verify that there are no duplicate VRF keys registered.
+    /// If a key was registered more than once, take the first one and drop the rest.
+    /// checked_ops must be sorted by vtxindex
+    /// Returns the filtered list of blockstack ops
+    fn filter_block_VRF_dups(block_header: &BurnchainBlockHeader, mut checked_ops: Vec<BlockstackOperationType>) -> Vec<BlockstackOperationType> {
+        debug!("Check Blockstack transactions: reject duplicate VRF keys");
+        assert!(Burnchain::ops_are_sorted(&checked_ops));
+
+        let mut ret = Vec::with_capacity(checked_ops.len());
+
+        let mut all_keys : HashSet<VRFPublicKey> = HashSet::new();
+        for op in checked_ops.drain(..) {
+            match op {
+                BlockstackOperationType::LeaderKeyRegister(data) => {
+                    if all_keys.contains(&data.public_key) {
+                        // duplicate
+                        warn!("REJECTED({}) leader key register {} at {},{} (fid={}, pfid={}): Duplicate VRF key", data.block_height, &data.txid.to_hex(), data.block_height, data.vtxindex, data.fork_segment_id, block_header.parent_fork_segment_id);
+                    }
+                    else {
+                        // first case
+                        all_keys.insert(data.public_key.clone());
+                        ret.push(BlockstackOperationType::LeaderKeyRegister(data));
+                    }
+                },
+                _ => {
+                    // preserve
+                    ret.push(op);
                 }
             }
         }
@@ -470,7 +526,12 @@ impl Burnchain {
                 }
             }
         }
-        Ok(ret)
+
+        // block-wide check: no duplicate keys registered
+        let ret_filtered = Burnchain::filter_block_VRF_dups(block_header, ret);
+
+        assert!(Burnchain::ops_are_sorted(&ret_filtered));
+        Ok(ret_filtered)
     }
 
     /// Find the VRF public keys consumed by each block candidate in the given list.
@@ -494,82 +555,81 @@ impl Burnchain {
         Ok(leader_keys)
     }
 
-    /// Find out all blockstack ops that we're going to accept into this block's snapshot
-    fn get_accepted_blockstack_ops(this_block_ops: &Vec<BlockstackOperationType>, burn_dist: &Vec<BurnSamplePoint>) -> Vec<BlockstackOperationType> {
-        let mut ret : Vec<BlockstackOperationType> = Vec::with_capacity(this_block_ops.len());
-
-        // log which user burns are consumed and which are not
-        let mut all_user_burns : HashMap<Txid, UserBurnSupportOp> = HashMap::new();
-
-        for i in 0..this_block_ops.len() {
-            match this_block_ops[i] {
-                BlockstackOperationType::LeaderKeyRegister(ref op) => {
-                    ret.push(BlockstackOperationType::LeaderKeyRegister(op.clone()));
-                },
-                BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                    ret.push(BlockstackOperationType::LeaderBlockCommit(op.clone()));
-                },
-                BlockstackOperationType::UserBurnSupport(ref op) => {
-                    all_user_burns.insert(op.txid.clone(), op.clone());
-                }
-            };
-        }
-
-        // store user burns in the burn distribution -- these are the subset of user burns
-        // that matched a (previous) leader key and a (current) block commit.
-        for i in 0..burn_dist.len() {
-            let burn_point = &burn_dist[i];
-            for j in 0..burn_point.user_burns.len() {
-                ret.push(BlockstackOperationType::UserBurnSupport(burn_point.user_burns[j].clone()));
-                all_user_burns.remove(&burn_point.user_burns[j].txid);
-            }
-        }
-
-        for op in all_user_burns.values() {
-            warn!("REJECTED user burn support {} at {},{}: No matching block commit in this block", &op.txid.to_hex(), op.block_height, op.vtxindex);
-        }
-        
-        // order by vtxindex 
-        ret.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
-        ret
-    }
-
-    /// Append a block's accepted operations to the ledger. 
-    fn store_blockstack_ops<'a>(tx: &mut DBTx<'a>, accepted_block_ops: &Vec<BlockstackOperationType>) -> Result<(), burnchain_error> {
-        for block_op in accepted_block_ops {
-            Burnchain::store_transaction(tx, block_op)?;
-        }
-        Ok(())
-    }
-   
-    /// Calculate the burn distribution from a sequence of checked blockstack ops
-    fn blockstack_ops_to_burn_dist<'a>(tx: &mut DBTx<'a>, parent_snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>) -> Result<Vec<BurnSamplePoint>, burnchain_error> {
+    /// Calculate the burn distribution from a sequence of _checked_ blockstack ops (all must be
+    /// valid, and no duplicate VRF keys must be present).
+    /// Return the burn distribution, and the sequence of blockstack operations that went into it.
+    fn blockstack_ops_to_burn_dist<'a>(tx: &mut DBTx<'a>, parent_snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>) -> Result<(Vec<BurnSamplePoint>, Vec<BlockstackOperationType>), burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
         let mut user_burns: Vec<UserBurnSupportOp> = vec![];
+        let mut accepted_ops = Vec::with_capacity(block_ops.len());
 
-        // store all leader VRF keys and block commits we found.
-        // don't store user burns until we know if they match a block commit.
+        assert!(Burnchain::ops_are_sorted(block_ops));
+        
+        // identify which user burns and block commits are consumed and which are not
+        let mut all_user_burns : HashMap<Txid, UserBurnSupportOp> = HashMap::new();
+        let mut all_block_commits : HashMap<Txid, LeaderBlockCommitOp> = HashMap::new();
+
+        // accept all leader keys we found.
+        // don't treat block commits and user burn supports just yet.
         for i in 0..block_ops.len() {
             match block_ops[i] {
-                BlockstackOperationType::LeaderKeyRegister(ref op) => {},
+                BlockstackOperationType::LeaderKeyRegister(ref op) => {
+                    accepted_ops.push(block_ops[i].clone());
+                },
                 BlockstackOperationType::LeaderBlockCommit(ref op) => {
+                    // we don't yet know which block commits are going to be accepted until we have
+                    // the burn distribution, so just account for them for now.
+                    all_block_commits.insert(op.txid.clone(), op.clone());
                     block_commits.push(op.clone());
                 },
                 BlockstackOperationType::UserBurnSupport(ref op) => {
+                    // we don't know yet which user burns are going to be accepted until we have
+                    // the burn distribution, so just account for them for now.
+                    all_user_burns.insert(op.txid.clone(), op.clone());
                     user_burns.push(op.clone());
                 }
             };
         }
 
-        // find all VRF leader keys that were consumed by the leader block commits of this block 
+        // find all VRF leader keys that were consumed by the block commits of this block 
         let consumed_leader_keys = Burnchain::get_consumed_leader_keys(tx, parent_snapshot, &block_commits)
             .expect("FATAL: DB failed to query consumed VRF keys");
 
         // calculate the burn distribution from these operations.
-        // The resulting distribution will contain the user burns that match block commits.
+        // The resulting distribution will contain the user burns that match block commits, and
+        // will only contain block commits that consume one leader key (multiple block commits that
+        // consume the same key will be rejected)
         let burn_dist = BurnSamplePoint::make_distribution(block_commits, consumed_leader_keys, user_burns);
-        Ok(burn_dist)
+       
+        // find out which user burns and block commits we're going to take
+        for i in 0..burn_dist.len() {
+            let burn_point = &burn_dist[i];
+
+            // taking this commit in this sample point
+            accepted_ops.push(BlockstackOperationType::LeaderBlockCommit(burn_point.candidate.clone()));
+            all_block_commits.remove(&burn_point.candidate.txid);
+
+            // taking each user burn in this sample point
+            for j in 0..burn_point.user_burns.len() {
+                accepted_ops.push(BlockstackOperationType::UserBurnSupport(burn_point.user_burns[j].clone()));
+                all_user_burns.remove(&burn_point.user_burns[j].txid);
+            }
+        }
+
+        // accepted_ops contains all accepted commits and user burns now.
+        // only rejected ones remain in all_user_burns and all_block_commits
+        for op in all_block_commits.values() {
+            warn!("REJECTED({}) block commit {} at {},{}: Committed to an already-consumed VRF key", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex);
+        }
+
+        for op in all_user_burns.values() {
+            warn!("REJECTED({}) user burn support {} at {},{}: No matching block commit in this block", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex);
+        }
+        
+        accepted_ops.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
+        
+        Ok((burn_dist, accepted_ops))
     }
 
     /// Process all block's checked transactions 
@@ -583,14 +643,12 @@ impl Burnchain {
         let parent_block_hash = block_header.parent_block_hash.clone();
 
         // make the burn distribution, and in doing so, identify the user burns that we'll keep
-        let burn_dist = Burnchain::blockstack_ops_to_burn_dist(tx, parent_snapshot, this_block_ops)
+        let (burn_dist, accepted_block_ops) = Burnchain::blockstack_ops_to_burn_dist(tx, parent_snapshot, this_block_ops)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when converting {} blockstack operations in block {} ({}) to a burn distribution: {:?}", this_block_ops.len(), this_block_height, &this_block_hash.to_hex(), e);
                 e
             })?;
 
-        // get the list of accepted operations, now that we know which user burns will be accepted.
-        let accepted_block_ops = Burnchain::get_accepted_blockstack_ops(this_block_ops, &burn_dist);
         let txids = accepted_block_ops.iter().map(|ref op| op.txid()).collect();
         
         // do the cryptographic sortition and pick the next winning block.
@@ -604,8 +662,7 @@ impl Burnchain {
         BurnDB::append_chain_tip_snapshot(tx, parent_snapshot, &snapshot)
             .expect("FATAL: failed to append snapshot");
 
-        // store the user burns that went into the burn distribution, as well as any new leader
-        // keys and block commits, that went into this snapshot.
+        // store all accepted operations
         Burnchain::store_blockstack_ops(tx, &accepted_block_ops)
             .map_err(|e| {
                 error!("TRANSACTION ABORTED when storing block operations in block {} ({}): {:?}", this_block_height, &this_block_hash.to_hex(), e);
@@ -645,14 +702,15 @@ impl Burnchain {
         Ok(snapshot)
     }
 
-    /// Top-level entry point to check and process a block.
-    pub fn process_block(db: &mut BurnDB, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<BlockSnapshot, burnchain_error> {
-        debug!("Process block {} {}", block.block_height(), &block.block_hash().to_hex());
+    /// Get the abstracted burnchain header from an abstracted burnchain block, as well as its
+    /// parent snapshot.
+    /// the txs won't be considered; only the linkage to its parent.
+    /// Returns the burnchain block header (with all fork information filled in), as well as the
+    /// chain tip to which it will be attached.
+    pub fn get_burnchain_block_attachment_info<'a>(tx: &mut DBTx<'a>, block: &BurnchainBlock) -> Result<(BurnchainBlockHeader, BlockSnapshot), burnchain_error> {
+        debug!("Get header for block {} {}", block.block_height(), &block.block_hash().to_hex());
 
-        let mut tx = db.tx_begin()
-            .expect("FATAL: failed to begin Sqlite transaction");
-
-        let parent_snapshot = match BurnDB::get_block_snapshot(&mut tx, &block.parent_block_hash()).expect("FATAL: DB failed to query snapshot") {
+        let parent_snapshot = match BurnDB::get_block_snapshot(tx, &block.parent_block_hash()).expect("FATAL: DB failed to query snapshot") {
             Some(sn) => {
                 sn
             },
@@ -662,7 +720,7 @@ impl Burnchain {
             }
         };
 
-        let fork_segment_id = match BurnDB::get_next_fork_segment_id(&mut tx, &block.parent_block_hash()).expect("FATAL: db failed to query fork segment ID") {
+        let fork_segment_id = match BurnDB::get_next_fork_segment_id(tx, &parent_snapshot).expect("FATAL: DB failed to query fork segment ID") {
             Some(fid) => {
                 fid
             },
@@ -673,13 +731,43 @@ impl Burnchain {
         };
         
         let header = block.header(&parent_snapshot, fork_segment_id);
-        let blockstack_txs = Burnchain::get_blockstack_transactions(burnchain, block, &header);
+
+        Ok((header, parent_snapshot))
+    }
+
+    /// Apply safety checks on extracted blockstack transactions
+    /// - put them in order by vtxindex
+    /// - make sure there are no vtxindex duplicates
+    pub fn apply_blockstack_txs_safety_checks(blockstack_txs: &mut Vec<BlockstackOperationType>) -> () {
+        // safety -- make sure these are in order
+        blockstack_txs.sort_by(|ref a, ref b| a.vtxindex().partial_cmp(&b.vtxindex()).unwrap());
+
+        // safety -- no duplicate vtxindex (shouldn't happen but crash if so)
+        if blockstack_txs.len() > 1 {
+            for i in 0..blockstack_txs.len() - 1 {
+                if blockstack_txs[i].vtxindex() == blockstack_txs[i+1].vtxindex() {
+                    panic!("FATAL: BUG: duplicate vtxindex {} in block {}", blockstack_txs[i].vtxindex(), blockstack_txs[i].block_height());
+                }
+            }
+        }
+    }
+
+    /// Top-level entry point to check and process a block.
+    pub fn process_block(db: &mut BurnDB, burnchain: &Burnchain, block: &BurnchainBlock) -> Result<BlockSnapshot, burnchain_error> {
+        debug!("Process block {} {}", block.block_height(), &block.block_hash().to_hex());
+
+        let mut tx = db.tx_begin()
+            .expect("FATAL: failed to begin Sqlite transaction");
+
+        let (header, parent_snapshot) = Burnchain::get_burnchain_block_attachment_info(&mut tx, block)?;
+        let mut blockstack_txs = Burnchain::get_blockstack_transactions(burnchain, block, &header);
+
+        Burnchain::apply_blockstack_txs_safety_checks(&mut blockstack_txs);
+        
         let new_snapshot = Burnchain::process_block_ops(&mut tx, burnchain, &parent_snapshot, &header, &blockstack_txs)?;
 
         // commit everything!
-        tx.commit()
-            .expect("FATAL: failed to commit Sqlite transaction");
-
+        tx.commit().expect("FATAL: failed to commit Sqlite transaction");
         Ok(new_snapshot)
     }
 
@@ -1157,7 +1245,7 @@ pub mod tests {
             sortition_hash: SortitionHash::initial()
                 .mix_burn_header(&block_121_hash),
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
 
             fork_segment_id: 0,
             parent_fork_segment_id: 0,
@@ -1185,7 +1273,7 @@ pub mod tests {
                 .mix_burn_header(&block_121_hash)
                 .mix_burn_header(&block_122_hash),
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             
             fork_segment_id: 0,
             parent_fork_segment_id: 0,
@@ -1219,7 +1307,7 @@ pub mod tests {
                 .mix_burn_header(&block_122_hash)
                 .mix_burn_header(&block_123_hash),
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            winning_block_burn_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+            winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             
             fork_segment_id: 0,
             parent_fork_segment_id: 0,
@@ -1250,9 +1338,9 @@ pub mod tests {
         ];
 
         let block_124_winners = vec![
-            block_commit_1.txid.clone(),
-            block_commit_3.txid.clone(),
-            block_commit_1.txid.clone()
+            block_commit_1.clone(),
+            block_commit_3.clone(),
+            block_commit_1.clone(),
         ];
  
         let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
@@ -1346,14 +1434,7 @@ pub mod tests {
                 });
 
             let next_sortition = block_ops_124.len() > 0 && burn_total > 0;
-            let next_winning_burn_block_hash = 
-                if next_sortition {
-                    block_124_hash.clone()
-                }
-                else {
-                    BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap()
-                };
-
+            
             let mut block_124_snapshot = BlockSnapshot {
                 block_height: 124,
                 burn_header_hash: block_124_hash.clone(),
@@ -1367,8 +1448,8 @@ pub mod tests {
                     .mix_burn_header(&block_122_hash)
                     .mix_burn_header(&block_123_hash)
                     .mix_burn_header(&block_124_hash),
-                winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                winning_block_burn_hash: next_winning_burn_block_hash,
+                winning_block_txid: block_124_winners[scenario_idx].txid.clone(),
+                winning_stacks_block_hash: block_124_winners[scenario_idx].block_header_hash.clone(),
                 
                 fork_segment_id: expected_fork_segment_id,
                 parent_fork_segment_id: 0,
@@ -1387,8 +1468,26 @@ pub mod tests {
                 sn124
             };
            
-            block_124_snapshot.winning_block_txid = block_124_winners[scenario_idx].clone();
             assert_eq!(sn124, block_124_snapshot);
+
+            // get all winning block commit hashes.
+            // There should only be two -- the winning block at height 124, and the genesis
+            // sentinel block hash.  This is because epochs 121, 122, and 123 don't have any block
+            // commits.
+            let mut expected_winning_hashes = vec![
+                BlockHeaderHash([0u8; 32]),
+                block_124_winners[scenario_idx].block_header_hash.clone()
+            ];
+
+            let winning_header_hashes = {
+                let mut tx = db.tx_begin().unwrap();
+                BurnDB::get_stacks_block_header_inventory(&mut tx, 124, expected_fork_segment_id).unwrap()
+                    .iter()
+                    .map(|ref hinv| hinv.0.clone())
+                    .collect()
+            };
+
+            assert_eq!(expected_winning_hashes, winning_header_hashes);
 
             // next loop pass will make a new fork ID
             expected_fork_segment_id += 1;
@@ -1457,6 +1556,7 @@ pub mod tests {
         // insert all operations
         let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
         let mut prev_snapshot = BlockSnapshot::initial(first_block_height, &first_burn_hash);
+        let mut all_stacks_block_hashes = vec![];
 
         for i in 0..32 {
 
@@ -1464,15 +1564,15 @@ pub mod tests {
             let burn_block_hash = BurnchainHeaderHash::from_bytes(&vec![i+1,i+1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i+1]).unwrap();
             let parent_burn_block_hash = prev_snapshot.burn_header_hash.clone();
             
-            // insert block commit paired to previous round's leader key 
+            // insert block commit paired to previous round's leader key, as well as a user burn
             if i > 0 {
                 let next_block_commit = LeaderBlockCommitOp {
                     block_header_hash: BlockHeaderHash::from_bytes(&vec![i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                     new_seed: VRFSeed::from_bytes(&vec![i,i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
                     parent_block_backptr: if i == 1 { 0 } else { 1 },
-                    parent_vtxindex: if i == 1 { 0 } else { 2 },
+                    parent_vtxindex: if i == 1 { 0 } else { (2 * (i - 1)) as u16 },
                     key_block_backptr: 1,
-                    key_vtxindex: 1,
+                    key_vtxindex: (2 * (i - 1) + 1) as u16,
                     epoch_num: (i + 1) as u32,
                     memo: vec![i],
 
@@ -1486,13 +1586,14 @@ pub mod tests {
                     },
 
                     txid: Txid::from_bytes(&vec![i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i]).unwrap(),
-                    vtxindex: 2,
+                    vtxindex: (2 * i) as u32,
                     block_height: first_block_height + (i + 1) as u64,
                     burn_header_hash: burn_block_hash.clone(),
 
                     fork_segment_id: 0,
                 };
 
+                all_stacks_block_hashes.push(next_block_commit.block_header_hash.clone());
                 block_ops.push(BlockstackOperationType::LeaderBlockCommit(next_block_commit));
             }
 
@@ -1508,7 +1609,7 @@ pub mod tests {
                 address: StacksAddress::from_bitcoin_address(&leader_bitcoin_addresses[i as usize].clone()),
 
                 txid: Txid::from_bytes(&vec![i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
-                vtxindex: 1,
+                vtxindex: (2 * i + 1) as u32,
                 block_height: first_block_height + (i + 1) as u64,
                 burn_header_hash: burn_block_hash.clone(),
 
@@ -1533,7 +1634,7 @@ pub mod tests {
 
                 assert_eq!(snapshot.total_burn, expected_burn_total);
                 assert_eq!(snapshot.winning_block_txid, Txid::from_bytes(&vec![i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i]).unwrap());
-                assert_eq!(snapshot.winning_block_burn_hash, burn_block_hash);
+                assert_eq!(snapshot.winning_stacks_block_hash, BlockHeaderHash::from_bytes(&vec![i,i,i,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap());
                 assert_eq!(snapshot.burn_header_hash, burn_block_hash);
                 assert_eq!(snapshot.parent_burn_header_hash, parent_burn_block_hash);
                 assert_eq!(snapshot.block_height, (i as u64) + 1 + first_block_height);
@@ -1546,8 +1647,15 @@ pub mod tests {
 
             prev_snapshot = snapshot;
         }
+
+        
     }
 
+    // TODO: test VRF key duplication check
+    // TODO; test that all but the first of the block commits committing to the same key are
+    // dropped
+    // TODO: test that we can get the histories of all Stacks block headers from different fork segments
+    
     // TODO: test that only relevant user burns get stored in a burn distribution, and that they're
     // all present in the DB
 }
