@@ -36,6 +36,7 @@ use std::cmp::PartialEq;
 use std::cmp::Ord;
 use std::cmp::Ordering;
 use std::cmp::Eq;
+use std::hash::{Hash, Hasher};
 use std::clone::Clone;
 use util::hash::to_hex;
 
@@ -107,6 +108,12 @@ impl PartialOrd for VRFPublicKey {
 impl Ord for VRFPublicKey {
     fn cmp(&self, other: &VRFPublicKey) -> Ordering {
         self.as_bytes().to_vec().cmp(&other.as_bytes().to_vec())
+    }
+}
+
+impl Hash for VRFPublicKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_bytes().hash(state);
     }
 }
 
@@ -284,6 +291,10 @@ impl VRFProof {
         return true;
     }
 
+    pub fn empty() -> VRFProof {
+        VRFProof::from_slice(&[0u8; 80])
+    }
+
     pub fn new(Gamma: RistrettoPoint, c: ed25519_Scalar, s: ed25519_Scalar) -> Result<VRFProof, Error> {
         if !VRFProof::check_c(&c) {
             return Err(Error::InvalidDataError);
@@ -335,6 +346,17 @@ impl VRFProof {
         VRFProof::from_slice(&bytes[..])
     }
 
+    pub fn from_hex(hex_str: &String) -> Result<VRFProof, Error> {
+        match hex_bytes(hex_str) {
+            Ok(b) => {
+                VRFProof::from_slice(&b[..])
+            },
+            Err(_) => {
+                Err(Error::InvalidDataError)
+            }
+        }
+    }
+
     pub fn to_bytes(&self) -> [u8; 80] {
         let mut c_bytes_16 = [0u8; 16];
         assert!(VRFProof::check_c(&self.c), "FATAL ERROR: somehow constructed an invalid ECVRF proof");
@@ -357,6 +379,10 @@ impl VRFProof {
         let mut proof_bytes = [0u8; 80];
         proof_bytes.copy_from_slice(&ret[..]);
         proof_bytes
+    }
+    
+    pub fn to_hex(&self) -> String {
+        to_hex(&self.to_bytes())
     }
 }
 
