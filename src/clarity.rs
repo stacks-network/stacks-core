@@ -299,7 +299,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             }
             let vm_filename = &args[3];
 
-            let contract_identifier = QualifiedContractIdentifier::parse(&args[1]).unwrap();
+            let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[1]), "Failed to parse contract identifier.");
 
             let contract_content: String = friendly_expect(fs::read_to_string(&args[2]),
                                                            &format!("Error reading file: {}", args[2]));
@@ -357,8 +357,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
             let vm_filename = &args[1];
             let marf_kv = friendly_expect(sqlite_marf(vm_filename, None), "Failed to open VM database.");
 
-            // todo(ludo): rely on friendly_expect instead
-            let contract_identifier = QualifiedContractIdentifier::parse(&args[2]).unwrap();
+            let contract_identifier = friendly_expect(QualifiedContractIdentifier::parse(&args[2]), "Failed to parse contract identifier.");
 
             let tx_name = &args[3];            
             let sender_in = &args[4];

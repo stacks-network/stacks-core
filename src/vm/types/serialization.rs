@@ -124,7 +124,7 @@ impl ClaritySerializable for Value {
             Principal(Standard(data)) => {
                 json_simple_object(TYPE_STANDARD_PRINCIPAL, &data.to_address())
             },
-            Principal(PrincipalData::Contract(contract_identifier)) => {
+            Principal(Contract(contract_identifier)) => {
                 format!(
                     r#"{{ "type": "{}", "issuer": "{}", "name": "{}" }}"#,
                     TYPE_CONTRACT_PRINCIPAL, contract_identifier.issuer.to_address(), contract_identifier.name.to_string())

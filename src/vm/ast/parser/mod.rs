@@ -440,7 +440,6 @@ r#"z (let ((x 1) (y 2))
         assert!(match ast::parser::parse(&not_enough_closure).unwrap_err().err { 
             ParseErrors::ClosingParenthesisExpected => true, _ => false });
 
-        // todo(ludo): improve erroring
         assert!(match ast::parser::parse(&middle_hash).unwrap_err().err { 
             ParseErrors::FailedParsingRemainder(_) => true, _ => false });
 
