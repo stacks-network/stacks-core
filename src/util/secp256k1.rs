@@ -238,19 +238,6 @@ impl PublicKey for Secp256k1PublicKey {
             }
 
             Ok(true)
-
-            /*
-            let v = ctx.verify(&msg, &secp256k1_sig_standard, &self.key);
-            return match v {
-                Ok(()) => Ok(true),
-                Err(e) => {
-                    match e {
-                        LibSecp256k1Error::IncorrectSignature => Ok(false),
-                        _ => Err("Failed to process public key or signature")
-                    }
-                }
-            };
-            */
         })
     }
 }
