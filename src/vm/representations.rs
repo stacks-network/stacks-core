@@ -252,6 +252,14 @@ impl SymbolicExpression {
             None
         }
     }
+
+    pub fn match_literal_value(&self) -> Option<&Value> {
+        if let SymbolicExpressionType::LiteralValue(ref value) = self.expr {
+            Some(value)
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Display for SymbolicExpression {

@@ -230,7 +230,6 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             ContractCall => {
                 check_arguments_at_least(2, args)?;
                 let contract_identifier = match args[0].expr {
-                    SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
                     SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
                     _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
                 };

@@ -40,7 +40,6 @@ pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[Sym
     
 
     let contract_identifier = match args[0].expr {
-        SymbolicExpressionType::AtomValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
         SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
         _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
     };

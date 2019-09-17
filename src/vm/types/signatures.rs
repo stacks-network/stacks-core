@@ -520,7 +520,7 @@ impl TypeSignature {
             return Err(CheckErrors::InvalidTypeDescription);
         }
 
-        if let SymbolicExpressionType::AtomValue(Value::Int(max_len)) = &type_args[0].expr {            
+        if let SymbolicExpressionType::LiteralValue(Value::Int(max_len)) = &type_args[0].expr {            
             let atomic_type_arg = &type_args[type_args.len()-1];
             let entry_type = TypeSignature::parse_type_repr(atomic_type_arg)?;
             let max_len = u32::try_from(*max_len)
@@ -545,7 +545,7 @@ impl TypeSignature {
         if type_args.len() != 1 {
             return Err(CheckErrors::InvalidTypeDescription)
         }
-        if let SymbolicExpressionType::AtomValue(Value::Int(buff_len)) = &type_args[0].expr {
+        if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
             BufferLength::try_from(*buff_len)
                 .map(|buff_len| TypeSignature::BufferType(buff_len))
         } else {

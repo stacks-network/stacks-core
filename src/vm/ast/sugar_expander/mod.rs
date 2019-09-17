@@ -35,7 +35,7 @@ impl SugarExpander {
 
             let mut expr = match pre_expr.pre_expr {
                 PreSymbolicExpressionType::AtomValue(ref content) => {
-                    SymbolicExpression::atom_value(content.clone())
+                    SymbolicExpression::literal_value(content.clone())
                 },
                 PreSymbolicExpressionType::Atom(ref content) => {
                     SymbolicExpression::atom(content.clone())
@@ -152,10 +152,10 @@ mod test {
                 make_list(1, 8, 1, 20, Box::new([
                     make_list(1, 9, 1, 13, Box::new([
                         make_atom("x", 1, 10, 1, 10),
-                        make_atom_value(Value::Int(1), 1, 12, 1, 12)])),
+                        make_literal_value(Value::Int(1), 1, 12, 1, 12)])),
                     make_list(1, 15, 1, 19, Box::new([
                         make_atom("y", 1, 16, 1, 16),
-                        make_atom_value(Value::Int(2), 1, 18, 1, 18)]))])),
+                        make_literal_value(Value::Int(2), 1, 18, 1, 18)]))])),
                 make_list(2, 5, 6, 10, Box::new([
                     make_atom("+", 2, 6, 2, 6),
                     make_atom("x", 2, 8, 2, 8),
@@ -164,7 +164,7 @@ mod test {
                         make_list(4, 14, 4, 20, Box::new([
                             make_list(4, 15, 4, 19, Box::new([
                                 make_atom("x", 4, 16, 4, 16),
-                                make_atom_value(Value::Int(3), 4, 18, 4, 18)]))])),
+                                make_literal_value(Value::Int(3), 4, 18, 4, 18)]))])),
                         make_list(5, 9, 5, 15, Box::new([
                             make_atom("+", 5, 10, 5, 10),
                             make_atom("x", 5, 12, 5, 12),

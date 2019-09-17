@@ -381,7 +381,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) {
                         argument_parsed.pop(),
                         &format!("Failed to parse a value from the argument: {}", argument));
                     let argument_value = friendly_expect_opt(
-                        argument_value.match_atom_value(),
+                        argument_value.match_literal_value(),
                         &format!("Expected a literal value from the argument: {}", argument));
                     SymbolicExpression::atom_value(argument_value.clone())
                 })
