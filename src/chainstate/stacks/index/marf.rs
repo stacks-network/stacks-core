@@ -554,42 +554,44 @@ impl MARF {
     pub fn insert_batch(&mut self, keys: &Vec<String>, values: Vec<MARFValue>) -> Result<(), Error> {
         assert_eq!(keys.len(), values.len());
 
-        match self.open_chain_tip {
+        let block_hash = match self.open_chain_tip {
             None => {
                 Err(Error::WriteNotBegunError)
             },
             Some(WriteChainTip{ ref block_hash, .. }) => {
-                if keys.len() == 0 {
-                    return Ok(());
-                }
+                Ok(block_hash.clone())
+            }
+        }?;
+
+        if keys.len() == 0 {
+            return Ok(());
+        }
         
-                let cur_block_hash = self.storage.get_cur_block();
-                let cur_block_rw = self.storage.readwrite();
+        let cur_block_hash = self.storage.get_cur_block();
+        let cur_block_rw = self.storage.readwrite();
                 
-                let last = keys.len() - 1;
+        let last = keys.len() - 1;
 
-                let block_hash = block_hash.clone();
-                let mut result = keys[0..last].iter().zip(values[0..last].iter())
-                    .try_for_each(|(key, value)| {
-                        let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
-                        let path = TriePath::from_key(key);
+        
+        let mut result = keys[0..last].iter().zip(values[0..last].iter())
+            .try_for_each(|(key, value)| {
+                let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
+                let path = TriePath::from_key(key);
                         
-                        MARF::insert_leaf_in_batch(&mut self.storage, &block_hash, &path, &marf_leaf)
-                    });
+                MARF::insert_leaf_in_batch(&mut self.storage, &block_hash, &path, &marf_leaf)
+            });
 
-                if result.is_ok() {
-                    // last insert updates the root with the skiplist hash
-                    let marf_leaf = TrieLeaf::from_value(&vec![], values[last].clone());
-                    let path = TriePath::from_key(&keys[last]);
-                    result = MARF::insert_leaf(&mut self.storage, &block_hash, &path, &marf_leaf);
-                }
+        if result.is_ok() {
+            // last insert updates the root with the skiplist hash
+            let marf_leaf = TrieLeaf::from_value(&vec![], values[last].clone());
+            let path = TriePath::from_key(&keys[last]);
+            result = MARF::insert_leaf(&mut self.storage, &block_hash, &path, &marf_leaf);
+        }
 
                 // restore
-                self.storage.open_block(&cur_block_hash, cur_block_rw)?;
+        self.storage.open_block(&cur_block_hash, cur_block_rw)?;
 
-                result
-            }
-        }
+        result
     }
 
     /// Begin writing the next trie in the MARF, given the block header hash that will contain the
