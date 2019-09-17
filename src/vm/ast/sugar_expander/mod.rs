@@ -25,27 +25,27 @@ impl SugarExpander {
         Self { issuer }
     }
 
-    pub fn run(&self, pre_expressions: &[PreSymbolicExpression]) -> Vec<SymbolicExpression> {
+    pub fn run(&self, pre_expressions: &mut Vec<PreSymbolicExpression>) -> Vec<SymbolicExpression> {
         self.transform(pre_expressions)
     }
 
-    pub fn transform(&self, pre_expressions: &[PreSymbolicExpression]) -> Vec<SymbolicExpression> {
+    pub fn transform(&self, pre_expressions: &mut Vec<PreSymbolicExpression>) -> Vec<SymbolicExpression> {
         let mut expressions = Vec::new();
-        for pre_expr in pre_expressions.iter() {
+        for pre_expr in pre_expressions.drain(..) {
 
             let mut expr = match pre_expr.pre_expr {
-                PreSymbolicExpressionType::AtomValue(ref content) => {
-                    SymbolicExpression::literal_value(content.clone())
+                PreSymbolicExpressionType::AtomValue(content) => {
+                    SymbolicExpression::literal_value(content)
                 },
-                PreSymbolicExpressionType::Atom(ref content) => {
-                    SymbolicExpression::atom(content.clone())
+                PreSymbolicExpressionType::Atom(content) => {
+                    SymbolicExpression::atom(content)
                 },
-                PreSymbolicExpressionType::UnexpandedContractName(ref contract_name) => {
-                    let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name.clone());
+                PreSymbolicExpressionType::UnexpandedContractName(contract_name) => {
+                    let contract_identifier = QualifiedContractIdentifier::new(self.issuer.clone(), contract_name);
                     SymbolicExpression::literal_value(Value::Principal(PrincipalData::Contract(contract_identifier)))
                 },
-                PreSymbolicExpressionType::List(ref pre_exprs) => {
-                    let exprs = self.transform(&pre_exprs);
+                PreSymbolicExpressionType::List(pre_exprs) => {
+                    let exprs = self.transform(&mut pre_exprs.to_vec());
                     SymbolicExpression::list(exprs.into_boxed_slice())
                 }
             };
@@ -116,7 +116,7 @@ mod test {
 
     #[test]
     fn test_transform_pre_ast() {
-        let pre_ast = vec![
+        let mut pre_ast = vec![
             make_pre_atom("z", 1, 1, 1, 1),
             make_pre_list(1, 3, 6, 11, Box::new([
                 make_pre_atom("let", 1, 4, 1, 6),
@@ -176,18 +176,18 @@ mod test {
 
         let contract_id = QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.contract-a").unwrap();
         let expander = SugarExpander::new(contract_id.issuer);
-        assert_eq!(expander.run(&pre_ast), ast, "Should match expected symbolic expression");
+        assert_eq!(expander.run(&mut pre_ast), ast, "Should match expected symbolic expression");
     }
 
-        #[test]
+    #[test]
     fn test_transform_unexpanded_contract_name() {
         let contract_name = "tokens".into();
-        let pre_ast = vec![make_unexpanded_contract_name(contract_name, 1, 1, 1, 1)];
+        let mut pre_ast = vec![make_unexpanded_contract_name(contract_name, 1, 1, 1, 1)];
         let unsugared_contract_id = QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.tokens").unwrap();
         let ast = vec![make_literal_value(Value::Principal(PrincipalData::Contract(unsugared_contract_id)), 1, 1, 1, 1)];
 
         let contract_id = QualifiedContractIdentifier::parse("S1G2081040G2081040G2081040G208105NK8PE5.contract-a").unwrap();
         let expander = SugarExpander::new(contract_id.issuer);
-        assert_eq!(expander.run(&pre_ast), ast, "Should match expected symbolic expression");
+        assert_eq!(expander.run(&mut pre_ast), ast, "Should match expected symbolic expression");
     }
 }
