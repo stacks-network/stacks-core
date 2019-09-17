@@ -250,6 +250,46 @@ fn test_contract_caller(owned_env: &mut OwnedEnvironment) {
     }
 }
 
+fn test_fully_qualified_contract_call(owned_env: &mut OwnedEnvironment) {
+    let contract_a =
+        "(define-read-only (get-caller)
+           (list contract-caller tx-sender))";
+    let contract_b =
+        "(define-read-only (get-caller)
+           (list contract-caller tx-sender))
+         (define-read-only (as-contract-get-caller)
+           (as-contract (get-caller)))
+         (define-read-only (cc-get-caller)
+           (contract-call! 'S1G2081040G2081040G2081040G208105NK8PE5.contract-a get-caller))
+         (define-read-only (as-contract-cc-get-caller)
+           (as-contract (contract-call! .contract-a get-caller)))";
+
+    let p1 = execute("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR");
+
+    {
+        let mut env = owned_env.get_exec_environment(None);
+        env.initialize_contract(QualifiedContractIdentifier::local("contract-a").unwrap(), contract_a).unwrap();
+        env.initialize_contract(QualifiedContractIdentifier::local("contract-b").unwrap(), contract_b).unwrap();
+    }
+
+    {
+        let c_b = Value::from(PrincipalData::Contract(QualifiedContractIdentifier::local("contract-b").unwrap()));
+        let mut env = owned_env.get_exec_environment(Some(p1.clone()));
+        assert_eq!(
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-a").unwrap(), "get-caller", &vec![]).unwrap(),
+            Value::list_from(vec![p1.clone(), p1.clone()]).unwrap());
+        assert_eq!(
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-get-caller", &vec![]).unwrap(),
+            Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
+        assert_eq!(
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "cc-get-caller", &vec![]).unwrap(),
+            Value::list_from(vec![c_b.clone(), p1.clone()]).unwrap());
+        assert_eq!(
+            env.execute_contract(&QualifiedContractIdentifier::local("contract-b").unwrap(), "as-contract-cc-get-caller", &vec![]).unwrap(),
+            Value::list_from(vec![c_b.clone(), c_b.clone()]).unwrap());
+    }
+}
+
 fn test_simple_naming_system(owned_env: &mut OwnedEnvironment) {
     let tokens_contract = SIMPLE_TOKENS;
 
@@ -579,6 +619,7 @@ fn test_all() {
     let to_test = [ test_factorial_contract,
                     test_aborts,
                     test_contract_caller,
+                    test_fully_qualified_contract_call,
                     test_simple_naming_system,
                     test_simple_token_system,
                     test_simple_contract_call ];
