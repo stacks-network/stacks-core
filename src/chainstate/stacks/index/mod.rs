@@ -119,6 +119,66 @@ impl TrieHash {
     }
 }
 
+impl From<BlockHeaderHash> for MARFValue {
+    fn from(bhh: BlockHeaderHash) -> MARFValue {
+        let h = bhh.0;
+        let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
+        if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
+            panic!("Cannot convert a BHH into a MARF Value.");
+        }
+        for i in 0..h.len() {
+            d[i] = h[i];
+        }
+        MARFValue(d)
+    }
+}
+
+impl From<u64> for MARFValue {
+    fn from(value: u64) -> MARFValue {
+        let h = value.to_le_bytes();
+        let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
+        if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
+            panic!("Cannot convert a u64 into a MARF Value.");
+        }
+        for i in 0..h.len() {
+            d[i] = h[i];
+        }
+        MARFValue(d)
+    }
+}
+
+impl From<MARFValue> for BlockHeaderHash {
+    fn from(m: MARFValue) -> BlockHeaderHash {
+        let h = m.0;
+        let mut d = [0u8; 32];
+        for i in 0..32 {
+            d[i] = h[i];
+        }
+        for i in 32..h.len() {
+            if h[i] != 0 {
+                panic!("Failed to convert MARF value into BHH: data stored after 32nd byte");
+            }
+        }
+        BlockHeaderHash(d)
+    }
+}
+
+impl From<MARFValue> for u64 {
+    fn from(m: MARFValue) -> u64 {
+        let h = m.0;
+        let mut d = [0u8; 8];
+        for i in 0..8 {
+            d[i] = h[i];
+        }
+        for i in 8..h.len() {
+            if h[i] != 0 {
+                panic!("Failed to convert MARF value into u64: data stored after 8th byte");
+            }
+        }
+        u64::from_le_bytes(d)
+    }
+}
+
 impl MARFValue {
     /// Construct from a TRIEHASH_ENCODED_SIZE-length slice
     pub fn from_value_hash_bytes(h: &[u8; TRIEHASH_ENCODED_SIZE]) -> MARFValue {
@@ -173,7 +233,7 @@ pub enum Error {
     WriteNotBegunError,
     CursorError(node::CursorError),
     RestoreMarfBlockError(Box<Error>),
-    NonMatchingForks(usize, usize)
+    NonMatchingForks(BlockHeaderHash, BlockHeaderHash)
 }
 
 impl fmt::Display for Error {

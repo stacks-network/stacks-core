@@ -42,11 +42,6 @@ use chainstate::stacks::index::bits::{
     get_nodetype_hash_bytes,
 };
 
-use chainstate::stacks::index::fork_table::{
-    TrieForkPtr,
-    TrieForkTable
-};
-
 use chainstate::stacks::index::node::{
     clear_backptr,
     is_backptr,

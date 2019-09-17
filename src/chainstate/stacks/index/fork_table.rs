@@ -71,6 +71,10 @@ impl TrieForkPtr {
             parent_index
         }
     }
+
+    pub fn is_root(&self) -> bool {
+        self.fork_id == self.parent_fork_id && self.index == self.parent_index
+    }
 }
 
 /// Fork table for encoding parent/child relationships in the blockchain and identifying chain
@@ -255,7 +259,7 @@ impl TrieForkTable {
                     let parent_index = fork_ptr.parent_index;
                     let fork_column = &self.fork_table[parent_fork_id];
 
-                    if fork_ptr.fork_id == fork_ptr.parent_fork_id && fork_ptr.index == fork_ptr.parent_index {
+                    if fork_ptr.is_root() {
                         // at root
                         break;
                     }
