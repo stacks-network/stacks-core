@@ -450,10 +450,9 @@ impl <'a> GlobalContext<'a> {
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
 
-    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &str, transfered: i128) -> Result<()> {
-        let asset_name = String::from(asset_name).try_into().expect("Failed to get asset name");
+    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: i128) -> Result<()> {
         let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
-                                                 asset_name };
+                                                 asset_name: asset_name.clone() };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_token_transfer(sender, asset_identifier, transfered)
