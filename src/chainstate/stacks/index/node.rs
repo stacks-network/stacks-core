@@ -44,8 +44,11 @@ use chainstate::stacks::index::bits::{
     path_from_bytes,
     ptrs_from_bytes,
     get_ptrs_byte_len,
+    get_ptrs_consensus_byte_len,
     get_path_byte_len
 };
+
+use chainstate::stacks::index::storage::{BlockHashMap};
 
 use chainstate::stacks::index::{
     TrieHash,
@@ -162,14 +165,11 @@ pub trait TrieNode {
     /// Encode this node instance into a byte stream and write it to the given memory buffer.
     fn to_bytes(&self, buf: &mut Vec<u8>) -> ();
 
-    /// Encode the consensus-relevant bytes of this node and write it to the given memory buffer.
-    fn to_consensus_bytes(&self, &mut Vec<u8>) -> ();
-
-    /// Calculate how many bytes this node will take to encode.
-    fn byte_len(&self) -> usize;
-
     /// Get a reference to the children of this node.
     fn ptrs(&self) -> &[TriePtr];
+
+    /// Get a reference to the children of this node.
+    fn path(&self) -> &Vec<u8>;
 
     // this is a way to construct a TrieNodeType from an object that implements this trait
     // DO NOT USE DIRECTLY
@@ -178,6 +178,24 @@ pub trait TrieNode {
     fn try_as_node48(&self) -> Option<TrieNodeType>;
     fn try_as_node256(&self) -> Option<TrieNodeType>;
     fn try_as_leaf(&self) -> Option<TrieNodeType>;
+
+    /// Encode the consensus-relevant bytes of this node and write it to the given memory buffer.
+    fn to_consensus_bytes(&self, map: &BlockHashMap) -> Vec<u8> {
+        let mut r = Vec::with_capacity(self.consensus_byte_len());
+        let id = self.id();
+        ptrs_to_consensus_bytes(id, self.ptrs(), map, &mut r);
+        path_to_bytes(self.path(), &mut r);
+        r
+    }
+
+    /// Calculate how many bytes this node will take to encode.
+    fn byte_len(&self) -> usize {
+        get_ptrs_byte_len(self.ptrs()) + get_path_byte_len(self.path())
+    }
+
+    fn consensus_byte_len(&self) -> usize {
+        get_ptrs_consensus_byte_len(self.ptrs()) + get_path_byte_len(self.path())
+    }
 }
 
 /// Child pointer
@@ -272,23 +290,26 @@ impl TriePtr {
     }
 
     /// The parts of a child pointer that are relevant for consensus are only its ID, path
-    /// character, and back-block count.  The software doesn't care about the details of how/where
+    /// character, and referred-to block hash.  The software doesn't care about the details of how/where
     /// nodes are stored.
     #[inline]
-    pub fn to_consensus_bytes(&self, buf: &mut Vec<u8>) -> () {
+    pub fn to_consensus_bytes(&self, block_map: &BlockHashMap, buf: &mut Vec<u8>) -> () {
         // like to_bytes(), but without insertion-order
-        let back_block = self.back_block();
+        let back_block_bytes = if is_backptr(self.id()) {
+            block_map.get_block_header_hash(self.back_block())
+                .expect("Block identifier {} refered to an unknown block. Consensus failure.")
+                .as_bytes()
+        } else {
+            &[0; 32]
+        };
 
         let consensus_ptr_bytes = [
             self.id(),
-            self.chr(),
-            ((back_block & 0xff000000) >> 24) as u8,
-            ((back_block & 0x00ff0000) >> 16) as u8,
-            ((back_block & 0x0000ff00) >> 8) as u8,
-            ((back_block & 0x000000ff)) as u8
+            self.chr()
         ];
 
         fast_extend_from_slice(buf, &consensus_ptr_bytes);
+        fast_extend_from_slice(buf, back_block_bytes);
     }
 
     #[inline]
@@ -775,16 +796,6 @@ impl TrieNode for TrieNode4 {
         path_to_bytes(&self.path, ret);
     }
 
-    fn to_consensus_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_consensus_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-
-    fn byte_len(&self) -> usize {
-        get_ptrs_byte_len(&self.ptrs) + get_path_byte_len(&self.path)
-    }
-
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode4, Error> {
         let mut ptrs_slice = [TriePtr::default(); 4];
         ptrs_from_bytes(TrieNodeID::Node4, r, &mut ptrs_slice)?;
@@ -824,6 +835,10 @@ impl TrieNode for TrieNode4 {
         &self.ptrs
     }
 
+    fn path(&self) -> &Vec<u8> {
+        &self.path
+    }
+
     fn try_as_node4(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node4(self.clone())) }
     fn try_as_node16(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node16(TrieNode16::from_node4(&self))) }
     fn try_as_node48(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node48(TrieNode48::from_node16(&TrieNode16::from_node4(&self)))) }
@@ -856,16 +871,6 @@ impl TrieNode for TrieNode16 {
         let id = self.id();
         ptrs_to_bytes(id, &self.ptrs, ret);
         path_to_bytes(&self.path, ret);
-    }
-
-    fn to_consensus_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_consensus_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-    
-    fn byte_len(&self) -> usize {
-        get_ptrs_byte_len(&self.ptrs) + get_path_byte_len(&self.path)
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode16, Error> {
@@ -907,6 +912,10 @@ impl TrieNode for TrieNode16 {
     fn ptrs(&self) -> &[TriePtr] {
         &self.ptrs
     }
+
+    fn path(&self) -> &Vec<u8> {
+        &self.path
+    }
     
     fn try_as_node4(&self) -> Option<TrieNodeType> { None }
     fn try_as_node16(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node16(self.clone())) }
@@ -942,16 +951,22 @@ impl TrieNode for TrieNode48 {
         ret.extend(&mut self.indexes.iter().map(|i| { let j = *i as u8; j } ));
         path_to_bytes(&self.path, ret);
     }
-    
-    fn to_consensus_bytes(&self, ret: &mut Vec<u8>) -> () {
+
+    fn to_consensus_bytes(&self, map: &BlockHashMap) -> Vec<u8> {
+        let mut r = Vec::with_capacity(self.consensus_byte_len());
         let id = self.id();
-        ptrs_to_consensus_bytes(id, &self.ptrs, ret);
-        ret.extend(&mut self.indexes.iter().map(|i| { let j = *i as u8; j } ));
-        path_to_bytes(&self.path, ret);
+        ptrs_to_consensus_bytes(id, &self.ptrs, map, &mut r);
+        r.extend(&mut self.indexes.iter().map(|i| { let j = *i as u8; j } ));
+        path_to_bytes(&self.path, &mut r);
+        r
     }
     
     fn byte_len(&self) -> usize {
         get_ptrs_byte_len(&self.ptrs) + 256 + get_path_byte_len(&self.path)
+    }
+
+    fn consensus_byte_len(&self) -> usize {
+        get_ptrs_consensus_byte_len(&self.ptrs) + 256 + get_path_byte_len(&self.path)
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode48, Error> {
@@ -1028,6 +1043,10 @@ impl TrieNode for TrieNode48 {
     fn ptrs(&self) -> &[TriePtr] {
         &self.ptrs
     }
+
+    fn path(&self) -> &Vec<u8> {
+        &self.path
+    }
     
     fn try_as_node4(&self) -> Option<TrieNodeType> { None }
     fn try_as_node16(&self) -> Option<TrieNodeType> { None }
@@ -1059,16 +1078,6 @@ impl TrieNode for TrieNode256 {
         let id = self.id();
         ptrs_to_bytes(id, &self.ptrs, ret);
         path_to_bytes(&self.path, ret);
-    }
-
-    fn to_consensus_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_consensus_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-    
-    fn byte_len(&self) -> usize {
-        get_ptrs_byte_len(&self.ptrs) + get_path_byte_len(&self.path)
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode256, Error> {
@@ -1106,12 +1115,24 @@ impl TrieNode for TrieNode256 {
     fn ptrs(&self) -> &[TriePtr] {
         &self.ptrs
     }
+
+    fn path(&self) -> &Vec<u8> {
+        &self.path
+    }
     
     fn try_as_node4(&self) -> Option<TrieNodeType> { None }
     fn try_as_node16(&self) -> Option<TrieNodeType> { None }
     fn try_as_node48(&self) -> Option<TrieNodeType> { None }
     fn try_as_node256(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node256(self.clone())) }
     fn try_as_leaf(&self) -> Option<TrieNodeType> { None }
+}
+
+impl TrieLeaf {
+    pub fn to_consensus_bytes_leaf(&self) -> Vec<u8> {
+        let mut r = Vec::with_capacity(self.byte_len());
+        self.to_bytes(&mut r);
+        r
+    }
 }
 
 impl TrieNode for TrieLeaf {
@@ -1135,12 +1156,16 @@ impl TrieNode for TrieLeaf {
         ptrs_to_bytes(id, &[self.backptr], ret);
     }
 
-    fn to_consensus_bytes(&self, buf: &mut Vec<u8>) -> () {
-        self.to_bytes(buf)
+    fn to_consensus_bytes(&self, _map: &BlockHashMap) -> Vec<u8> {
+        self.to_consensus_bytes_leaf()
     }
     
     fn byte_len(&self) -> usize {
         1 + get_path_byte_len(&self.path) + self.data.len() + get_ptrs_byte_len(&[self.backptr])
+    }
+
+    fn consensus_byte_len(&self) -> usize {
+        self.byte_len()
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieLeaf, Error> {
@@ -1185,6 +1210,10 @@ impl TrieNode for TrieLeaf {
     
     fn ptrs(&self) -> &[TriePtr] {
         &[]
+    }
+
+    fn path(&self) -> &Vec<u8> {
+        &self.path
     }
     
     fn try_as_node4(&self) -> Option<TrieNodeType> { None }
@@ -1266,16 +1295,6 @@ impl TrieNodeType {
             TrieNodeType::Node48(ref data) => data.to_bytes(ret),
             TrieNodeType::Node256(ref data) => data.to_bytes(ret),
             TrieNodeType::Leaf(ref data) => data.to_bytes(ret),
-        }
-    }
-
-    pub fn to_consensus_bytes(&self, ret: &mut Vec<u8>) -> () {
-        match self {
-            TrieNodeType::Node4(ref data) => data.to_consensus_bytes(ret),
-            TrieNodeType::Node16(ref data) => data.to_consensus_bytes(ret),
-            TrieNodeType::Node48(ref data) => data.to_consensus_bytes(ret),
-            TrieNodeType::Node256(ref data) => data.to_consensus_bytes(ret),
-            TrieNodeType::Leaf(ref data) => data.to_consensus_bytes(ret),
         }
     }
 

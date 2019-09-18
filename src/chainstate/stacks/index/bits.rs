@@ -39,6 +39,8 @@ use chainstate::stacks::index::{
     fast_extend_from_slice
 };
 
+use chainstate::stacks::index::storage::{BlockHashMap};
+
 use chainstate::stacks::index::node::{
     clear_backptr,
     TrieNodeID,
@@ -150,6 +152,14 @@ pub fn get_ptrs_byte_len(ptrs: &[TriePtr]) -> usize {
     node_id_len + TRIEPTR_SIZE * ptrs.len()
 }
 
+/// Helper to determine how many bytes a Trie node's child pointers will take to encode for consensus.
+#[inline]
+pub fn get_ptrs_consensus_byte_len(ptrs: &[TriePtr]) -> usize {
+    let node_id_len = 1;
+    let consensus_trie_ptr_size = 2 + 32;// 2: id + chr, 32: block header hash
+    node_id_len + consensus_trie_ptr_size * ptrs.len()
+}
+
 /// Encode a Trie node's child pointers as a byte string by appending them to the given buffer.
 #[inline]
 pub fn ptrs_to_bytes(node_id: u8, ptrs: &[TriePtr], buf: &mut Vec<u8>) -> () {
@@ -168,7 +178,7 @@ pub fn ptrs_to_bytes(node_id: u8, ptrs: &[TriePtr], buf: &mut Vec<u8>) -> () {
 
 /// Encode only the consensus-relevant bits of a Trie node's child pointers to the given buffer.
 #[inline]
-pub fn ptrs_to_consensus_bytes(node_id: u8, ptrs: &[TriePtr], buf: &mut Vec<u8>) -> () {
+pub fn ptrs_to_consensus_bytes(node_id: u8, ptrs: &[TriePtr], map: &BlockHashMap, buf: &mut Vec<u8>) -> () {
     assert!(check_node_id(node_id));
 
     buf.push(node_id);
@@ -176,7 +186,7 @@ pub fn ptrs_to_consensus_bytes(node_id: u8, ptrs: &[TriePtr], buf: &mut Vec<u8>)
     // In benchmarks, this while() loop is noticeably faster than the more idiomatic "for ptr in ptrs.iter()"
     let mut i = 0;
     while i < ptrs.len() {
-        ptrs[i].to_consensus_bytes(buf);
+        ptrs[i].to_consensus_bytes(map, buf);
         i += 1;
     }
 }
@@ -231,52 +241,59 @@ pub fn ptrs_from_bytes<R: Read>(node_id: u8, r: &mut R, ptrs_buf: &mut [TriePtr]
     Ok(nid)
 }
 
-/// Calculate the hash of a TrieNode, given its childrens' hashes.
-pub fn get_node_hash<T: TrieNode + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>) -> TrieHash {
+fn compute_node_hash<F>(bytes: &Vec<u8>, f: F) -> TrieHash
+    where F: FnOnce(&mut TrieHasher) {
     let mut hasher = TrieHasher::new();
-    let mut buf = Vec::with_capacity(node.byte_len());
 
-    node.to_consensus_bytes(&mut buf);
-    hasher.input(&buf);
-    for child_hash in child_hashes {
-        hasher.input(&child_hash.as_bytes());
-    }
+    hasher.input(bytes);
+
+    f(&mut hasher);
     
     let mut res = [0u8; 32];
     res.copy_from_slice(hasher.result().as_slice());
 
-    let ret = TrieHash(res);
+    TrieHash(res)
+}
+
+/// Calculate the hash of a TrieNode, given its childrens' hashes.
+pub fn get_node_hash<T: TrieNode + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
+    let ret = compute_node_hash(&node.to_consensus_bytes(map), |hasher| {
+        for child_hash in child_hashes {
+            hasher.input(&child_hash.as_bytes());
+        }
+    });
+
     trace!("get_node_hash: hash {:?} = {:?} + {:?}", &ret, node, child_hashes);
+    ret
+}
+
+/// Calculate the hash of a TrieNode, given its childrens' hashes.
+pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
+    let ret = compute_node_hash(&node.to_consensus_bytes_leaf(), |_h| {});
+
+    trace!("get_node_hash: hash {:?} = {:?} + {:?}", &ret, node, vec![]);
     ret
 }
 
 /// Calculate the hash of a TrieNodeType, given its childrens' hashes.
 #[inline]
-pub fn get_nodetype_hash(node: &TrieNodeType, child_hashes: &Vec<TrieHash>) -> TrieHash {
+pub fn get_nodetype_hash(node: &TrieNodeType, child_hashes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
     match node {
-        TrieNodeType::Leaf(ref data) => get_node_hash(data, child_hashes),
-        TrieNodeType::Node4(ref data) => get_node_hash(data, child_hashes),
-        TrieNodeType::Node16(ref data) => get_node_hash(data, child_hashes),
-        TrieNodeType::Node48(ref data) => get_node_hash(data, child_hashes),
-        TrieNodeType::Node256(ref data) => get_node_hash(data, child_hashes)
+        TrieNodeType::Leaf(ref data) => get_node_hash(data, child_hashes, map),
+        TrieNodeType::Node4(ref data) => get_node_hash(data, child_hashes, map),
+        TrieNodeType::Node16(ref data) => get_node_hash(data, child_hashes, map),
+        TrieNodeType::Node48(ref data) => get_node_hash(data, child_hashes, map),
+        TrieNodeType::Node256(ref data) => get_node_hash(data, child_hashes, map)
     }
 }
 
 /// Calculate the hash of a TrieNode, given a byte buffer encoding all of its children's hashes.
-pub fn get_node_hash_bytes<T: TrieNode + std::fmt::Debug>(node: &T, child_hash_bytes: &Vec<u8>) -> TrieHash {
+pub fn get_node_hash_bytes<T: TrieNode + std::fmt::Debug>(node: &T, child_hash_bytes: &Vec<u8>, map: &BlockHashMap) -> TrieHash {
     assert_eq!(child_hash_bytes.len() % TRIEHASH_ENCODED_SIZE, 0);
 
-    let mut hasher = TrieHasher::new();
-    let mut buf = Vec::with_capacity(node.byte_len());
-
-    node.to_consensus_bytes(&mut buf);
-    hasher.input(&buf);
-    hasher.input(child_hash_bytes);
-    
-    let mut res = [0u8; 32];
-    res.copy_from_slice(hasher.result().as_slice());
-
-    let ret = TrieHash(res);
+    let ret = compute_node_hash(&node.to_consensus_bytes(map), |hasher| {
+        hasher.input(child_hash_bytes);
+    });
 
     if is_trace() {
         // not in prod -- can spend a few cycles on fancy debug output
@@ -298,13 +315,13 @@ pub fn get_node_hash_bytes<T: TrieNode + std::fmt::Debug>(node: &T, child_hash_b
 }
 
 #[inline]
-pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<u8>) -> TrieHash {
+pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<u8>, map: &BlockHashMap) -> TrieHash {
     match node {
-        TrieNodeType::Node4(ref data) => get_node_hash_bytes(data, child_hash_bytes),
-        TrieNodeType::Node16(ref data) => get_node_hash_bytes(data, child_hash_bytes),
-        TrieNodeType::Node48(ref data) => get_node_hash_bytes(data, child_hash_bytes),
-        TrieNodeType::Node256(ref data) => get_node_hash_bytes(data, child_hash_bytes),
-        TrieNodeType::Leaf(ref data) => get_node_hash_bytes(data, child_hash_bytes),
+        TrieNodeType::Node4(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
+        TrieNodeType::Node16(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
+        TrieNodeType::Node48(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
+        TrieNodeType::Node256(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
+        TrieNodeType::Leaf(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
     }
 }
 

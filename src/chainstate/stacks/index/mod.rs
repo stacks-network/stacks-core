@@ -220,6 +220,7 @@ impl MARFValue {
 
 #[derive(Debug)]
 pub enum Error {
+    NotOpenedError,
     IOError(io::Error),
     NotFoundError,
     BackptrNotFoundError,
@@ -259,6 +260,7 @@ impl error::Error for Error {
     fn description(&self) -> &str {
         match *self {
             Error::IOError(ref e) => e.description(),
+            Error::NotOpenedError => "Tried to read data from unopened storage",
             Error::NotFoundError => "Object not found",
             Error::BackptrNotFoundError => "Object not found from backptrs",
             Error::ExistsError => "Object exists",

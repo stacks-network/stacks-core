@@ -53,6 +53,7 @@ use chainstate::stacks::index::bits::{
     get_node_hash_bytes,
     get_nodetype_hash_bytes,
     get_node_hash,
+    get_leaf_hash,
     get_nodetype_hash,
     trie_hash_from_bytes
 };
@@ -84,7 +85,7 @@ use chainstate::stacks::index::{
 };
 
 use chainstate::stacks::index::storage::{
-    TrieFileStorage
+    TrieFileStorage, BlockHashMap
 };
 
 use chainstate::stacks::index::trie::{
@@ -345,7 +346,7 @@ impl TrieMerkleProof {
                     if root_node.is_node256() {
                         let mut root_hashes_bytes = Vec::with_capacity(256 * TRIEHASH_ENCODED_SIZE);
                         Trie::read_child_hashes_bytes(storage, root_node.ptrs(), &mut root_hashes_bytes)?;
-                        let root_hash = get_nodetype_hash_bytes(&root_node, &root_hashes_bytes);
+                        let root_hash = get_nodetype_hash_bytes(&root_node, &root_hashes_bytes, &storage.block_map);
                         root_hash
                     }
                     else {
@@ -565,10 +566,10 @@ impl TrieMerkleProof {
     /// Given a segment proof, the deepest node's hash, and the hash of the trie root, verify that
     /// the segment proof is well-formed.
     /// If so, calculate the root hash of the segment and return it.
-    fn verify_segment_proof(proof: &[TrieMerkleProofType], node_hash: &TrieHash) -> Option<TrieHash> {
+    fn verify_segment_proof(proof: &[TrieMerkleProofType], node_hash: &TrieHash, block_map: &BlockHashMap) -> Option<TrieHash> {
 
         /// Given a node in a segment proof, find the hash
-        fn get_segment_proof_hash<T: TrieNode + std::fmt::Debug>(node: &T, hash: &TrieHash, chr: u8, hashes: &[TrieHash], count: usize) -> Option<TrieHash> {
+        fn get_segment_proof_hash<T: TrieNode + std::fmt::Debug>(node: &T, hash: &TrieHash, chr: u8, hashes: &[TrieHash], count: usize, block_map: &BlockHashMap) -> Option<TrieHash> {
             let mut all_hashes = vec![];
             let mut ih = 0;
 
@@ -595,26 +596,26 @@ impl TrieMerkleProof {
                 return None
             }
 
-            Some(get_node_hash(node, &all_hashes))
+            Some(get_node_hash(node, &all_hashes, block_map))
         }
 
         let mut hash = node_hash.clone();
         for i in 0..proof.len() {
             let hash_opt = match proof[i] {
                 TrieMerkleProofType::Leaf((ref chr, ref node)) => {
-                    get_segment_proof_hash(node, &hash, *chr, &vec![], 0)
+                    get_segment_proof_hash(node, &hash, *chr, &vec![], 0, block_map)
                 },
                 TrieMerkleProofType::Node4((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 4)
+                    get_segment_proof_hash(node, &hash, *chr, hashes, 4, block_map)
                 },
                 TrieMerkleProofType::Node16((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 16)
+                    get_segment_proof_hash(node, &hash, *chr, hashes, 16, block_map)
                 },
                 TrieMerkleProofType::Node48((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 48)
+                    get_segment_proof_hash(node, &hash, *chr, hashes, 48, block_map)
                 },
                 TrieMerkleProofType::Node256((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 256)
+                    get_segment_proof_hash(node, &hash, *chr, hashes, 256, block_map)
                 },
                 _ => {
                     trace!("Invalid proof -- encountered a non-node proof type");
@@ -792,14 +793,14 @@ impl TrieMerkleProof {
     /// which block headers.  This can be calculated and verified independently from the blockchain
     /// headers.
     /// NOTE: Trie root hashes are globally unique by design, even if they represent the same contents, so the root_to_block map is bijective with high probability.
-    pub fn verify_proof(proof: &Vec<TrieMerkleProofType>, path: &TriePath, value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>) -> bool {
+    pub fn verify_proof(proof: &Vec<TrieMerkleProofType>, path: &TriePath, value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>, block_map: &BlockHashMap) -> bool {
         if !TrieMerkleProof::is_proof_well_formed(&proof, path) {
             return false;
         }
 
         let (mut node_hash, node_data) = match proof[0] {
             TrieMerkleProofType::Leaf((_, ref node)) => {
-                (get_node_hash(node, &vec![]), node.data.clone())
+                (get_leaf_hash(node), node.data.clone())
             },
             _ => {
                 unreachable!()
@@ -828,7 +829,7 @@ impl TrieMerkleProof {
         }
 
         trace!("verify segment proof in range {}..{}", i, j);
-        let node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash) {
+        let node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash, block_map) {
             Some(h) => {
                 h
             },
@@ -899,7 +900,7 @@ impl TrieMerkleProof {
             }
 
             trace!("verify segment proof in range {}..{}", i, j);
-            let next_node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash) {
+            let next_node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash, block_map) {
                 Some(h) => {
                     h
                 },
@@ -991,8 +992,8 @@ impl TrieMerkleProof {
     }
 
     /// Verify this proof
-    pub fn verify(&self, path: &TriePath, marf_value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>) -> bool {
-        TrieMerkleProof::verify_proof(&self.0, &path, &marf_value, root_hash, root_to_block)
+    pub fn verify(&self, path: &TriePath, marf_value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>, block_map: &BlockHashMap) -> bool {
+        TrieMerkleProof::verify_proof(&self.0, &path, &marf_value, root_hash, root_to_block, block_map)
     }
 
     /// Walk down the trie pointed to by s until we reach a backptr or a leaf

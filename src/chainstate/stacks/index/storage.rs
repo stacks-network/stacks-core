@@ -451,7 +451,7 @@ pub struct TrieFileStorage {
     write_leaf_count: u64,
 
     // map block identifiers to their parent identifiers
-    block_map: BlockHashMap,
+    pub block_map: BlockHashMap,
 
     // cache of block paths (they're surprisingly expensive to generate)
     block_path_cache: HashMap<BlockHeaderHash, PathBuf>,
@@ -635,9 +635,12 @@ impl TrieFileStorage {
                             Error::IOError(e)
                         }
                     })?;
+        TrieFileStorage::read_block_identifier_from_fd(&mut fd)
+    }
 
-        fseek(&mut fd, BLOCK_HEADER_HASH_ENCODED_SIZE as u64)?;
-        let bytes = read_4_bytes(&mut fd)?;
+    fn read_block_identifier_from_fd<F: Seek + Read>(fd: &mut F) -> Result<u32, Error> {
+        fseek(fd, BLOCK_HEADER_HASH_ENCODED_SIZE as u64)?;
+        let bytes = read_4_bytes(fd)?;
 
         Ok( u32::from_le_bytes(bytes) )
     }
@@ -964,6 +967,19 @@ impl TrieFileStorage {
         self.readonly = !readwrite;
         Ok(())
     }
+
+    pub fn get_cur_block_identifier(&mut self) -> Result<u32, Error> {
+        if Some(self.cur_block) == self.last_extended {
+            self.last_extended_trie
+                .as_ref()
+                .map(|trie_ram| trie_ram.identifier)
+                .ok_or_else(|| Error::CorruptionError(format!("last_extended is_some(), but last_extended_trie is none")))
+        } else if let Some(ref mut cur_block_fd) = self.cur_block_fd {
+            TrieFileStorage::read_block_identifier_from_fd(cur_block_fd)
+        } else {
+            Err(Error::NotOpenedError)
+        }
+    }
     
     pub fn get_cur_block(&self) -> BlockHeaderHash {
         self.cur_block.clone()
@@ -974,30 +990,6 @@ impl TrieFileStorage {
             .ok_or_else(|| Error::NotFoundError)
     }
 
-/*    
-    pub fn block_walk(&mut self, back_block: u32) -> Result<BlockHeaderHash, Error> {
-        trace!("block_walk from {:?} back {}", &self.cur_block, back_block);
-
-        let prev_block = match self.cur_block_fork_ptr {
-            Some(ref fork_ptr) => {
-                self.fork_table.walk_back_from(fork_ptr, &self.cur_block, back_block)?
-            },
-            None => {
-                let fork_ptr = self.fork_table.get_fork_ptr(&self.cur_block)?;
-                self.cur_block_fork_ptr = Some(fork_ptr.clone());
-                self.fork_table.walk_back_from(&fork_ptr, &self.cur_block, back_block)?
-            }
-        };
-        
-        if prev_block == TrieFileStorage::block_sentinel() {
-            trace!("Not found: {:?} back {}", &self.cur_block, back_block);
-            return Err(Error::NotFoundError);
-        }
-        
-        trace!("block_walk from {:?} back {} is {:?}", &self.cur_block, back_block, &prev_block);
-        Ok(prev_block)
-    }
-*/    
     pub fn root_ptr(&self) -> u32 {
         if Some(self.cur_block) == self.last_extended {
             0

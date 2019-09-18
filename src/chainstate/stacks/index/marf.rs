@@ -36,6 +36,7 @@ use sha2::Digest;
 use chainstate::burn::BlockHeaderHash;
 
 use chainstate::stacks::index::bits::{
+    get_leaf_hash,
     get_node_hash,
     get_nodetype_hash,
     get_nodetype_hash_bytes
@@ -117,32 +118,27 @@ impl MARF {
         }
     }
 
-    fn node_copy_update_ptrs(ptrs: &mut [TriePtr], node_dist: u32) -> () {
-        for i in 0..ptrs.len() {
-            if ptrs[i].id() == TrieNodeID::Empty {
+    fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) -> () {
+        for pointer in ptrs.iter_mut() {
+            // if the node is empty, do nothing, if it's a back pointer, 
+            if pointer.id() == TrieNodeID::Empty || is_backptr(pointer.id()) {
                 continue;
-            }
-            else if is_backptr(ptrs[i].id()) {
-                // increase depth
-                ptrs[i].back_block += node_dist;
-            }
-            else {
+            } else {
                 // make backptr
-                ptrs[i].back_block = node_dist;
-                ptrs[i].id = set_backptr(ptrs[i].id());
+                pointer.back_block = child_block_id;
+                pointer.id = set_backptr(pointer.id());
             }
         }
     }
    
-    fn node_copy_update(node: &mut TrieNodeType, node_dist: u32) -> Result<TrieHash, Error> {
-        let hash = 
-            if node.is_leaf() {
-                get_nodetype_hash_bytes(&node, &vec![])
-            }
-            else {
-                MARF::node_copy_update_ptrs(node.ptrs_mut(), node_dist);
+    fn node_copy_update(node: &mut TrieNodeType, child_block_id: u32) -> Result<TrieHash, Error> {
+        let hash = match node {
+            TrieNodeType::Leaf(leaf) => get_leaf_hash(leaf),
+            _ => {
+                MARF::node_copy_update_ptrs(node.ptrs_mut(), child_block_id);
                 TrieHash::from_data(&[])
-            };
+            }
+        };
         
         Ok(hash)
     }
@@ -156,10 +152,11 @@ impl MARF {
         let cur_block_hash = storage.get_cur_block();
         let (mut child_node, _, child_ptr, child_dist) = MARF::walk_backptr(storage, node, chr, cursor)?;
         let child_block_hash = storage.get_cur_block();
+        let child_block_identifier = storage.get_cur_block_identifier()?;
 
         // update child_node with new ptrs and hashes
         storage.open_block(&cur_block_hash, true)?;
-        let child_hash = MARF::node_copy_update(&mut child_node, child_dist)?;
+        let child_hash = MARF::node_copy_update(&mut child_node, child_block_identifier)?;
 
         // store it in this trie
         storage.open_block(&cur_block_hash, true)?;
@@ -176,9 +173,10 @@ impl MARF {
     fn root_copy(storage: &mut TrieFileStorage, prev_block_hash: &BlockHeaderHash) -> Result<(), Error> {
         let cur_block_hash = storage.get_cur_block();
         storage.open_block(prev_block_hash, false)?;
+        let prev_block_identifier = storage.get_cur_block_identifier()?;
         
         let (mut prev_root, _) = Trie::read_root(storage)?;
-        let new_root_hash = MARF::node_copy_update(&mut prev_root, 1)?;
+        let new_root_hash = MARF::node_copy_update(&mut prev_root, prev_block_identifier)?;
         
         storage.open_block(&cur_block_hash, true)?;
         
@@ -198,7 +196,7 @@ impl MARF {
             trace!("Brand new storage -- start with {:?}", new_bhh);
             storage.extend_to_block(new_bhh)?;
             let node = TrieNode256::new(&vec![]);
-            let hash = get_node_hash(&node, &vec![]);
+            let hash = get_node_hash(&node, &vec![], &storage.block_map);
             let root_ptr = storage.root_ptr();
             storage.write_nodetype(root_ptr, &TrieNodeType::Node256(node), hash)
         }
@@ -393,7 +391,7 @@ impl MARF {
         storage.format()?;
         storage.extend_to_block(first_block_hash)?;
         let node = TrieNodeType::Node256(TrieNode256::new(&vec![]));
-        let hash = get_nodetype_hash(&node, &vec![]);
+        let hash = get_nodetype_hash(&node, &vec![], &storage.block_map);
         let root_ptr = storage.root_ptr();
         storage.write_nodetype(root_ptr, &node, hash)
     }
