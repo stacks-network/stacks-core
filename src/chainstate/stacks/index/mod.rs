@@ -133,12 +133,12 @@ impl From<BlockHeaderHash> for MARFValue {
     }
 }
 
-impl From<u64> for MARFValue {
-    fn from(value: u64) -> MARFValue {
+impl From<u32> for MARFValue {
+    fn from(value: u32) -> MARFValue {
         let h = value.to_le_bytes();
         let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
         if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
-            panic!("Cannot convert a u64 into a MARF Value.");
+            panic!("Cannot convert a u32 into a MARF Value.");
         }
         for i in 0..h.len() {
             d[i] = h[i];
@@ -163,19 +163,19 @@ impl From<MARFValue> for BlockHeaderHash {
     }
 }
 
-impl From<MARFValue> for u64 {
-    fn from(m: MARFValue) -> u64 {
+impl From<MARFValue> for u32 {
+    fn from(m: MARFValue) -> u32 {
         let h = m.0;
-        let mut d = [0u8; 8];
-        for i in 0..8 {
+        let mut d = [0u8; 4];
+        for i in 0..4 {
             d[i] = h[i];
         }
-        for i in 8..h.len() {
+        for i in 4..h.len() {
             if h[i] != 0 {
-                panic!("Failed to convert MARF value into u64: data stored after 8th byte");
+                panic!("Failed to convert MARF value into u64: data stored after 4th byte");
             }
         }
-        u64::from_le_bytes(d)
+        u32::from_le_bytes(d)
     }
 }
 

@@ -45,6 +45,7 @@ use sha2::Sha512Trunc256 as TrieHasher;
 use sha2::Digest;
 
 use chainstate::burn::BlockHeaderHash;
+use chainstate::stacks::index::marf::MARF;
 
 use chainstate::stacks::index::bits::{
     read_root_hash,
@@ -72,11 +73,6 @@ use chainstate::stacks::index::node::{
     TrieNodeID,
     TriePtr,
     TriePath
-};
-
-use chainstate::stacks::index::fork_table::{
-    TrieForkPtr,
-    TrieForkTable
 };
 
 use chainstate::stacks::index::{
@@ -281,22 +277,26 @@ impl TrieMerkleProof {
 
         let mut proof = vec![];
         
-        let mut back_block = backptr.back_block();
         let mut block_header = storage.get_cur_block();
 
-        let ancestor_block_hash = storage.block_walk(back_block)?;
+        let ancestor_block_hash = storage.get_block_from_local_id(backptr.back_block())?.clone();
         storage.open_block(&ancestor_block_hash, false)?;
 
         let ancestor_root_hash = read_root_hash(storage)?;
 
         let mut found_backptr = false;
-        
+
+        let ancestor_height = MARF::get_block_height(storage, &ancestor_block_hash, &block_header)?
+            .ok_or_else(|| Error::CorruptionError(format!("Could not find block height of {}", &block_header)))?;
+        let mut current_height = MARF::get_block_height(storage, &block_header, &block_header)?
+            .ok_or_else(|| Error::CorruptionError(format!("Could not find block height of {}", &block_header)))?;
+
         // find last and intermediate entries in the shunt proof -- exclude the root hashes; just
         // include the ancestor hashes.
-        while back_block > 0 && !found_backptr {
+        while current_height > ancestor_height && !found_backptr {
             storage.open_block(&block_header, false)?;
             let cur_root_hash = read_root_hash(storage)?;
-            trace!("Shunt proof: walk back {} from {:?} ({:?})", back_block, &block_header, &cur_root_hash);
+            trace!("Shunt proof: walk heights {}->{} from {:?} ({:?})", current_height, ancestor_height, &block_header, &cur_root_hash);
 
             let mut ancestor_hash_buf = Vec::with_capacity(TRIEHASH_ENCODED_SIZE * 256);
             Trie::get_trie_ancestor_hashes_bytes(storage, &mut ancestor_hash_buf)?;
@@ -314,14 +314,16 @@ impl TrieMerkleProof {
 
             // what's the next block we'll shunt to?
             let mut idx = 0;
-            for i in 0..ancestor_hashes.len() {
-                if (1u32 << i) <= back_block {
-                    idx = i;
-                }
+            while current_height - (1u32 << idx) > ancestor_height {
+                idx += 1;
             }
+            idx -= 1;
 
-            back_block -= 1u32 << idx;
-            block_header = storage.block_walk(1u32 << idx)?;
+            current_height -= 1u32 << idx;
+
+            block_header = MARF::get_block_at_height(storage, current_height, &block_header)?
+                .ok_or_else(|| Error::CorruptionError(format!("Could not find block at height of {}", current_height)))?
+                .clone();
 
             let mut trimmed_ancestor_hashes = Vec::with_capacity(ancestor_hashes.len() - 1);
             for i in 0..ancestor_hashes.len() {
@@ -1120,7 +1122,7 @@ impl TrieMerkleProof {
             storage.open_block(&block_header, false)?;
 
             trace!("Walk back for {:?} from {:?}", &backptr, &storage.get_cur_block());
-            block_header = storage.block_walk(backptr.back_block())?;
+            block_header = storage.get_block_from_local_id(backptr.back_block())?.clone();
         }
 
         assert_eq!(shunt_proofs.len(), segment_proofs.len());

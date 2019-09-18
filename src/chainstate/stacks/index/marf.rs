@@ -90,7 +90,7 @@ pub struct MARF {
 
 struct WriteChainTip {
     block_hash: BlockHeaderHash,
-    height: u64
+    height: u32
 }
 
 impl MARF {
@@ -484,39 +484,43 @@ impl MARF {
 
     /// Resolve a key from the MARF to a MARFValue with respect to the given block height.
     pub fn get(&mut self, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
-        let cur_block_hash = self.storage.get_cur_block();
-        let cur_block_rw = self.storage.readwrite();
+        MARF::get_by_key(&mut self.storage, block_hash, key)
+    }
+
+    pub fn get_by_key(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, key: &str) -> Result<Option<MARFValue>, Error> {
+        let cur_block_hash = storage.get_cur_block();
+        let cur_block_rw = storage.readwrite();
 
         let path = TriePath::from_key(key);
 
-        let result = MARF::get_path(&mut self.storage, block_hash, &path);
+        let result = MARF::get_path(storage, block_hash, &path);
 
         // restore
         // Q: should this return on error? or return a corruption error?
-        self.storage.open_block(&cur_block_hash, cur_block_rw)?;
+        storage.open_block(&cur_block_hash, cur_block_rw)?;
 
-        result.map(|option_result| option_result.map(|leaf| leaf.data))
+        result.map(|option_result| option_result.map(|leaf| leaf.data))        
     }
 
-    pub fn get_block_height(&mut self, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u64>, Error> {
+    pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
 
-        self.get(current_block_hash, &hash_key)
+        MARF::get_by_key(storage, current_block_hash, &hash_key)
             .map(|option_result| {
-                option_result.map( |marf_value| { u64::from(marf_value) } )
+                option_result.map( |marf_value| { u32::from(marf_value) } )
             })
     }
 
-    pub fn get_block_at_height(&mut self, height: u64, current_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+    pub fn get_block_at_height(storage: &mut TrieFileStorage, height: u32, current_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
 
-        self.get(current_block_hash, &height_key)
+        MARF::get_by_key(storage, current_block_hash, &height_key)
             .map(|option_result| {
                 option_result.map( |marf_value| { BlockHeaderHash::from(marf_value) } )
             })
     }
 
-    pub fn set_block_height(&mut self, block_hash: &BlockHeaderHash, height: u64) -> Result<(), Error> {
+    pub fn set_block_height(&mut self, block_hash: &BlockHeaderHash, height: u32) -> Result<(), Error> {
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
 
@@ -615,7 +619,7 @@ impl MARF {
 
         let block_height = 
             if self.chain_tips().len() > 0 {
-                self.get_block_height(chain_tip, chain_tip)?
+                MARF::get_block_height(&mut self.storage, chain_tip, chain_tip)?
                     .ok_or_else(|| Error::CorruptionError(format!("Failed to find block height for `{:?}`", chain_tip)))?
                     .checked_add(1)
                     .expect("FAIL: Block height overflow!")
@@ -664,10 +668,10 @@ impl MARF {
         let cur_block_hash = self.storage.get_cur_block();
         let cur_block_rw = self.storage.readwrite();
 
-        let bhh_height = self.get_block_height(bhh, &cur_block_hash)?
+        let bhh_height = MARF::get_block_height(&mut self.storage, bhh, &cur_block_hash)?
             .ok_or_else(|| Error::NonMatchingForks(bhh.clone(), cur_block_hash.clone()))?;
 
-        let actual_block_at_height = self.get_block_at_height(bhh_height, &cur_block_hash)?
+        let actual_block_at_height = MARF::get_block_at_height(&mut self.storage, bhh_height, &cur_block_hash)?
             .ok_or_else(|| Error::CorruptionError(format!(
                 "ERROR: Could not find block for height {}, but it was returned by MARF::get_block_height()", bhh_height)))?;
 

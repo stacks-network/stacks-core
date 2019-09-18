@@ -328,6 +328,22 @@ pub fn read_hash_bytes<F: Read + Seek>(f: &mut F, buf: &mut Vec<u8>) -> Result<(
     Ok(())
 }
 
+pub fn read_4_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; 4], Error> {
+    let mut bytes = [0u8; 4];
+    f.read_exact(&mut bytes)
+        .map_err(|e| {
+            if e.kind() == ErrorKind::UnexpectedEof {
+                Error::CorruptionError(format!("Failed to read hash in full from {}", f.seek(SeekFrom::Current(0)).unwrap()))
+            }
+            else {
+                eprintln!("failed: {:?}", &e);
+                Error::IOError(e)
+            }
+        })?;
+    
+    Ok(bytes)
+}
+
 /// Low-level method for reading a node's hash bytes into a buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
 pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {

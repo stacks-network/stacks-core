@@ -63,6 +63,7 @@ use chainstate::stacks::index::bits::{
     get_node_byte_len,
     write_nodetype_bytes,
     read_hash_bytes,
+    read_4_bytes,
     read_node_hash_bytes,
     read_nodetype,
     get_node_hash,
@@ -85,11 +86,6 @@ use chainstate::stacks::index::node::{
     TrieNode
 };
 
-use chainstate::stacks::index::fork_table::{
-    TrieForkPtr,
-    TrieForkTable
-};
-
 use chainstate::stacks::index::Error as Error;
 
 use util::log;
@@ -109,6 +105,58 @@ pub fn fseek_end<F: Seek>(f: &mut F) -> Result<u64, Error> {
         .map_err(Error::IOError)
 }
 
+pub struct BlockHashMap {
+    next_identifier: u32,
+    map: Vec<BlockHeaderHash>
+}
+
+impl BlockHashMap {
+    pub fn new(initial_size: Option<u32>) -> BlockHashMap {
+        if let Some(initial_size) = initial_size {
+            let mut map = Vec::with_capacity(initial_size as usize);
+            map.resize(initial_size as usize, TrieFileStorage::block_sentinel());
+            BlockHashMap { next_identifier: initial_size,
+                           map }
+        } else {
+            BlockHashMap { next_identifier: 0,
+                           map: Vec::new() }
+        }
+    }
+
+    pub fn add_block(&mut self, block: &BlockHeaderHash) -> u32 {
+        let identifier = self.next_identifier;
+        self.map.push(block.clone());
+        if self.map.len() - 1 != (identifier as usize) {
+            panic!("BlockHashMap corruption!");
+        }
+        self.next_identifier = self.next_identifier.checked_add(1)
+            .expect("Block overflow -- MARF cannot track more than 2**31 - 1 blocks.");
+
+        identifier
+    }
+
+    pub fn set_block(&mut self, block: BlockHeaderHash, identifier: u32) {
+        if identifier >= self.next_identifier || (identifier as usize) >= self.map.len() {
+            panic!("BlockHashMap corruption. Attempted to set block {} to id {}, but map is only length {}.",
+                   &block, &identifier, self.map.len());
+        }
+        self.map[identifier as usize] = block;
+    }
+
+    pub fn get_block_header_hash(&self, identifier: u32) -> Option<&BlockHeaderHash> {
+        self.map.get(identifier as usize)
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn clear(&mut self) {
+        self.map.clear();
+        self.next_identifier = 0;
+    }
+}
+
 /// In-RAM trie storage.
 /// Used by TrieFileStorage to buffer the next trie being built.
 pub struct TrieRAM {
@@ -125,12 +173,15 @@ pub struct TrieRAM {
     write_node_count: u64,
     write_leaf_count: u64,
 
-    total_bytes: usize
+    total_bytes: usize,
+
+    identifier: u32,
+    parent: BlockHeaderHash
 }
 
 // Trie in RAM without the serialization overhead
 impl TrieRAM {
-    pub fn new(block_header: &BlockHeaderHash, capacity_hint: usize) -> TrieRAM {
+    pub fn new(block_header: &BlockHeaderHash, capacity_hint: usize, identifier: u32, parent: &BlockHeaderHash) -> TrieRAM {
         TrieRAM {
             data: Vec::with_capacity(capacity_hint),
             block_header: block_header.clone(),
@@ -145,7 +196,10 @@ impl TrieRAM {
             write_node_count: 0,
             write_leaf_count: 0,
 
-            total_bytes: 0
+            total_bytes: 0,
+
+            identifier: identifier,
+            parent: parent.clone(),
         }
     }
 
@@ -185,8 +239,30 @@ impl TrieRAM {
         (lr, lw)
     }
 
+    pub fn write_trie_file<F: Read + Write + Seek>(f: &mut F, node_data: &[(TrieNodeType, TrieHash)], offsets: &[u32],
+                                                   identifier: u32, parent_hash: &BlockHeaderHash) -> Result<(), Error> {
+        // write parent block ptr
+        fseek(f, 0)?;
+        f.write_all(parent_hash.as_bytes())
+            .map_err(|e| Error::IOError(e))?;
+        // write identifier
+        fseek(f, BLOCK_HEADER_HASH_ENCODED_SIZE as u64)?;
+        f.write_all(&identifier.to_le_bytes())
+            .map_err(|e| Error::IOError(e))?;
+
+        for i in 0..node_data.len() {
+            // dump the node to storage
+            write_nodetype_bytes(f, &node_data[i].0, node_data[i].1)?;
+            
+            // next node
+            fseek(f, offsets[i] as u64)?;
+        }
+
+        Ok(())
+    }
+
     /// Walk through the bufferred TrieNodes and dump them to f.
-    fn dump_traverse<F: Read + Write + Seek>(&mut self, f: &mut F, root: &TrieNodeType, hash: &TrieHash, parent_hash: &BlockHeaderHash) -> Result<u64, Error> {
+    fn dump_traverse<F: Read + Write + Seek>(&mut self, f: &mut F, root: &TrieNodeType, hash: &TrieHash) -> Result<u64, Error> {
         let mut frontier : VecDeque<(TrieNodeType, TrieHash)> = VecDeque::new();
 
         let mut node_data = vec![];
@@ -194,7 +270,10 @@ impl TrieRAM {
 
         frontier.push_back((root.clone(), hash.clone()));
 
-        let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64;       // first 32 bytes is reserved for the parent block hash
+        // first 32 bytes is reserved for the parent block hash
+        //    next 4 bytes is the local block identifier
+        let mut ptr = BLOCK_HEADER_HASH_ENCODED_SIZE as u64 +
+            4;
         
         // step 1: write out each node in breadth-first order to get their ptr offsets
         while frontier.len() > 0 {
@@ -244,27 +323,16 @@ impl TrieRAM {
         }
 
         // step 3: write out each node (now that they have the write ptrs)
-        // write parent block ptr
-        fseek(f, 0)?;
-        f.write_all(parent_hash.as_bytes())
-            .map_err(|e| Error::IOError(e))?;
-
-        for i in 0..node_data.len() {
-            // dump the node to storage
-            write_nodetype_bytes(f, &node_data[i].0, node_data[i].1)?;
-            
-            // next node
-            fseek(f, offsets[i] as u64)?;
-        }
+        TrieRAM::write_trie_file(f, node_data.as_slice(), offsets.as_slice(), self.identifier, &self.parent)?;
 
         Ok(ptr)
     }
 
     /// Dump ourself to f
-    pub fn dump<F: Read + Write + Seek>(&mut self, f: &mut F, bhh: &BlockHeaderHash, parent_bhh: &BlockHeaderHash) -> Result<u64, Error> {
+    pub fn dump<F: Read + Write + Seek>(&mut self, f: &mut F, bhh: &BlockHeaderHash) -> Result<u64, Error> {
         if self.block_header == *bhh {
             let (root, hash) = self.read_nodetype(&TriePtr::new(TrieNodeID::Node256, 0, 0))?;
-            self.dump_traverse(f, &root, &hash, parent_bhh)
+            self.dump_traverse(f, &root, &hash)
         }
         else {
             trace!("Failed to dump {:?}: not the current block", bhh);
@@ -372,7 +440,6 @@ pub struct TrieFileStorage {
     
     cur_block: BlockHeaderHash,
     cur_block_fd: Option<fs::File>,
-    cur_block_fork_ptr: Option<TrieForkPtr>,        // the fork_ptr in the fork_table where cur_block lives (it's unreasonably effective to cache this)
     
     read_count: u64,
     read_backptr_count: u64,
@@ -383,8 +450,8 @@ pub struct TrieFileStorage {
     write_node_count: u64,
     write_leaf_count: u64,
 
-    // map chain tips to the list of their ancestors
-    pub fork_table: TrieForkTable,
+    // map block identifiers to their parent identifiers
+    block_map: BlockHashMap,
 
     // cache of block paths (they're surprisingly expensive to generate)
     block_path_cache: HashMap<BlockHeaderHash, PathBuf>,
@@ -414,7 +481,7 @@ impl TrieFileStorage {
             return Err(Error::PartialWriteError);
         }
 
-        let fork_table = TrieFileStorage::read_fork_table(&dir_path, &TrieFileStorage::block_sentinel())?;
+        let block_map = TrieFileStorage::read_block_hash_map(&dir_path, &TrieFileStorage::block_sentinel())?;
 
         let ret = TrieFileStorage {
             dir_path,
@@ -425,7 +492,6 @@ impl TrieFileStorage {
 
             cur_block: TrieFileStorage::block_sentinel(),
             cur_block_fd: None,
-            cur_block_fork_ptr: None,
             
             read_count: 0,
             read_backptr_count: 0,
@@ -436,7 +502,8 @@ impl TrieFileStorage {
             write_node_count: 0,
             write_leaf_count: 0,
 
-            fork_table: fork_table,
+            block_map: block_map,
+
             block_path_cache: HashMap::new(),
         };
 
@@ -554,12 +621,11 @@ impl TrieFileStorage {
         p
     }
 
-    pub fn read_block_parent(dir_path: &String, bhh: &BlockHeaderHash) -> Result<BlockHeaderHash, Error> {
-        let block_path = TrieFileStorage::block_path(dir_path, bhh);
+    fn read_block_identifier(block_path: &PathBuf) -> Result<u32, Error> {
         let mut fd = fs::OpenOptions::new()
                     .read(true)
                     .write(false)
-                    .open(&block_path)
+                    .open(block_path)
                     .map_err(|e| {
                         if e.kind() == io::ErrorKind::NotFound {
                             error!("File not found: {:?}", &block_path);
@@ -570,21 +636,16 @@ impl TrieFileStorage {
                         }
                     })?;
 
-        let mut hashbuf = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
-        fseek(&mut fd, 0)?;
-        read_hash_bytes(&mut fd, &mut hashbuf)?;
+        fseek(&mut fd, BLOCK_HEADER_HASH_ENCODED_SIZE as u64)?;
+        let bytes = read_4_bytes(&mut fd)?;
 
-        let mut hashbuf_slice = [0u8; TRIEHASH_ENCODED_SIZE];
-        hashbuf_slice.copy_from_slice(&hashbuf[0..TRIEHASH_ENCODED_SIZE]);
-
-        Ok(BlockHeaderHash(hashbuf_slice))
+        Ok( u32::from_le_bytes(bytes) )
     }
 
-    /// Scan the block directory and get all child --> parent mappings
-    /// and parent --> [children] mappings
-    pub fn scan_blocks(dir_path: &String) -> Result<HashMap<BlockHeaderHash, Vec<BlockHeaderHash>>, Error> {
-        let mut parent_children : HashMap<BlockHeaderHash, Vec<BlockHeaderHash>> = HashMap::new();
-
+    /// Scan the block directory and get all block header hashes,
+    ///   invoking the passed closure on each block header hash.
+    fn scan_blocks <F> (dir_path: &String, mut f: F) -> Result<(), Error>
+        where F: FnMut(String, PathBuf) -> Result<(), Error> {
         for dir_1_res in fs::read_dir(dir_path).map_err(Error::IOError)? {
             let dir_1_entry = dir_1_res.map_err(Error::IOError)?;
             for dir_2_res in fs::read_dir(&dir_1_entry.path()).map_err(Error::IOError)? {
@@ -597,8 +658,7 @@ impl TrieFileStorage {
                     }
 
                     let block_path = block_file.path();
-                    let block_name_opt = block_path.file_name();
-                    let block_name = match block_name_opt {
+                    let block_name = match block_path.file_name() {
                         Some(name) => match name.to_str() {
                             Some(name_str) => name_str.to_string(),
                             None => {
@@ -612,33 +672,12 @@ impl TrieFileStorage {
                         }
                     };
 
-                    let bhh = match BlockHeaderHash::from_hex(&block_name) {
-                        Ok(h) => h,
-                        Err(_) => {
-                            trace!("Skip {:?}", &block_path);
-                            continue;
-                        }
-                    };
-
-                    let bhh_parent = TrieFileStorage::read_block_parent(dir_path, &bhh)?;
-                    if parent_children.contains_key(&bhh_parent) {
-                        match parent_children.get_mut(&bhh_parent) {
-                            Some(ref mut children) => {
-                                children.push(bhh);
-                            },
-                            None => {
-                                unreachable!();
-                            }
-                        }
-                    }
-                    else {
-                        parent_children.insert(bhh_parent, vec![bhh]);
-                    }
+                    f(block_name, block_path)?;
                 }
             }
         }
         
-        Ok(parent_children)
+        Ok(())
     }
 
     /// Find all partially-written files and return their list of paths
@@ -647,42 +686,14 @@ impl TrieFileStorage {
         let path_regex = Regex::new(r"^[0-9a-f]{64}.tmp$")
             .map_err(|e| panic!("Invalid regex"))?;
 
-        for dir_1_res in fs::read_dir(dir_path).map_err(Error::IOError)? {
-            let dir_1_entry = dir_1_res.map_err(Error::IOError)?;
-            for dir_2_res in fs::read_dir(&dir_1_entry.path()).map_err(Error::IOError)? {
-                let dir_2_entry = dir_2_res.map_err(Error::IOError)?;
-                for block_file_res in fs::read_dir(&dir_2_entry.path()).map_err(Error::IOError)? {
-                    let block_file = block_file_res.map_err(Error::IOError)?;
-                    if !block_file.path().is_file() {
-                        trace!("Skip {:?}", &block_file.path());
-                        continue;
-                    }
-
-                    let block_path = block_file.path();
-                    let block_name_opt = block_path.file_name();
-                    let block_name = match block_name_opt {
-                        Some(name) => match name.to_str() {
-                            Some(name_str) => name_str.to_string(),
-                            None => {
-                                trace!("Skip non-tmp file {:?}", &block_path);
-                                continue;
-                            }
-                        },
-                        None => {
-                            trace!("Skip non-tmp file {:?}", &block_path);
-                            continue;
-                        }
-                    };
-
-                    if !path_regex.is_match(&block_name) {
-                        trace!("Skip non-tmp file {:?}", &block_path);
-                        continue;
-                    }
-                    
-                    ret.push(block_path.clone());
-                }
+        TrieFileStorage::scan_blocks(dir_path, |block_name, block_path| {
+            if !path_regex.is_match(&block_name) {
+                trace!("Skip non-tmp file {:?}", &block_path);
+            } else {
+                ret.push(block_path);
             }
-        }
+            Ok(())
+        })?;
 
         Ok(ret)
     }
@@ -699,11 +710,33 @@ impl TrieFileStorage {
         Ok(())
     }
 
-    fn read_fork_table(dir_path: &String, root_hash: &BlockHeaderHash) -> Result<TrieForkTable, Error> {
-        // maps a block hash to its list of unique ancestors.
-        // has an entry for block hashes that are either chain tips, or parents of two or more forks.
-        let parent_children = TrieFileStorage::scan_blocks(dir_path)?;
-        TrieForkTable::new(root_hash, &parent_children)
+    fn read_block_hash_map(dir_path: &String, root_hash: &BlockHeaderHash) -> Result<BlockHashMap, Error> {
+        let mut blocks = vec![];
+
+        TrieFileStorage::scan_blocks(dir_path, |block_name, block_path| {
+            let bhh = match BlockHeaderHash::from_hex(&block_name) {
+                Ok(h) => h,
+                Err(_) => {
+                    trace!("Skip {:?}", &block_path);
+                    return Ok(());
+                }
+            };
+            let identifier = TrieFileStorage::read_block_identifier(&block_path)?;
+            blocks.push((bhh, identifier));
+            Ok(())
+        })?;
+
+        if blocks.len() > (u32::max_value() as usize) {
+            return Err(Error::CorruptionError("Too many blocks have been found.".to_string()));
+        }
+
+        let mut block_hash_map = BlockHashMap::new(Some(blocks.len() as u32));
+
+        for (bhh, identifier) in blocks.drain(..) {
+            block_hash_map.set_block(bhh, identifier);
+        }
+
+        Ok(block_hash_map)
     }
 
     /// Read the Trie root node's hash from the block file in the given path.
@@ -802,6 +835,7 @@ impl TrieFileStorage {
 
     /// Extend the forest of Tries to include a new block.
     pub fn extend_to_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+        /*
         if self.fork_table.size() > 0 {
             if !self.fork_table.contains(&self.cur_block) {
                 return Err(Error::CorruptionError(format!("Current block {:?} not in fork table", &self.cur_block)));
@@ -810,7 +844,7 @@ impl TrieFileStorage {
         if self.fork_table.contains(bhh) {
             trace!("Block {:?} is in the fork table already", bhh);
             return Err(Error::ExistsError);
-        }
+        }*/
         
         self.readonly = false;
         self.flush()?;
@@ -820,12 +854,15 @@ impl TrieFileStorage {
             None => (1024 * 1024)
         };
 
-        let trie_buf = TrieRAM::new(bhh, size_hint);
+        let identifier = self.block_map.add_block(bhh);
+
+        let trie_buf = TrieRAM::new(bhh, size_hint, identifier, &self.cur_block);
 
         // create an empty file for this block, so we can't extend to it again
         let block_dir = TrieFileStorage::block_dir(&self.dir_path, bhh);
         let block_path = TrieFileStorage::block_path(&self.dir_path, bhh);
         let block_path_tmp = TrieFileStorage::block_path_tmp(&self.dir_path, bhh);
+        // check if block_path exists
         match fs::metadata(&block_path) {
             Ok(_) => {
                 trace!("Block path exists: {:?}", &block_path);
@@ -835,52 +872,50 @@ impl TrieFileStorage {
                 if e.kind() != io::ErrorKind::NotFound {
                     return Err(Error::IOError(e));
                 }
-
-                match fs::metadata(&block_path_tmp) {
-                    Ok(_) => {
-                        error!("Tried to create index block {:?} twice", bhh);
-                        return Err(Error::ExistsError);
-                    },
-                    Err(e) => {
-                        if e.kind() != io::ErrorKind::NotFound {
-                            return Err(Error::IOError(e));
-                        }
-                    }
-                };
-
-                fs::create_dir_all(block_dir)
-                    .map_err(Error::IOError)?;
-
-                trace!("Extend from {:?} to {:?} in {:?}", &self.cur_block, bhh, &block_path_tmp);
-
-                // write the new file out and add its parent
-                let mut fd = fs::OpenOptions::new()
-                            .read(true)
-                            .write(true)
-                            .create_new(true)
-                            .open(&block_path_tmp)
-                            .map_err(|e| {
-                                if e.kind() == io::ErrorKind::NotFound {
-                                    error!("File not found: {:?}", &block_path_tmp);
-                                    Error::NotFoundError
-                                }
-                                else {
-                                    Error::IOError(e)
-                                }
-                            })?;
-
-                fd.write_all(self.cur_block.as_bytes())
-                    .map_err(|e| Error::IOError(e))?;
             }
-        }
+        };
+        // check if block_path_tmp exists
+        match fs::metadata(&block_path_tmp) {
+            Ok(_) => {
+                error!("Tried to create index block {:?} twice", bhh);
+                return Err(Error::ExistsError);
+            },
+            Err(e) => {
+                if e.kind() != io::ErrorKind::NotFound {
+                    return Err(Error::IOError(e));
+                }
+            }
+        };
 
-        // extend the fork table
-        self.fork_table.extend_to_block(&self.cur_block, bhh)?;
-       
+        fs::create_dir_all(block_dir)
+            .map_err(Error::IOError)?;
+
+        trace!("Extend from {:?} to {:?} in {:?}", &self.cur_block, bhh, &block_path_tmp);
+
+        // write the new file out and add its parent
+        let mut fd = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&block_path_tmp)
+            .map_err(|e| {
+                if e.kind() == io::ErrorKind::NotFound {
+                    error!("File not found: {:?}", &block_path_tmp);
+                    Error::NotFoundError
+                }
+                else {
+                    Error::IOError(e)
+                }
+            })?;
+
+        TrieRAM::write_trie_file(&mut fd, &[], &[], identifier, bhh)?;
+
+        fd.write_all(self.cur_block.as_bytes())
+            .map_err(|e| Error::IOError(e))?;
+
         // update internal structures
         self.cur_block = bhh.clone();
         self.cur_block_fd = None;
-        self.cur_block_fork_ptr = None;
 
         self.last_extended = Some(bhh.clone());
         self.last_extended_trie = Some(trie_buf);
@@ -890,14 +925,11 @@ impl TrieFileStorage {
     }
 
     pub fn open_block(&mut self, bhh: &BlockHeaderHash, readwrite: bool) -> Result<(), Error> {
-        let block_fork_ptr = self.fork_table.get_fork_ptr(bhh)?;
-
         let sentinel = TrieFileStorage::block_sentinel();
         if *bhh == sentinel {
             // just reset to newly opened state
             self.cur_block_fd = None;
             self.cur_block = sentinel;
-            self.cur_block_fork_ptr = None;
             self.readonly = !readwrite;
             return Ok(());
         }
@@ -907,7 +939,6 @@ impl TrieFileStorage {
             // just clear out.
             self.cur_block_fd = None;
             self.cur_block = bhh.clone();
-            self.cur_block_fork_ptr = Some(block_fork_ptr);
             self.readonly = !readwrite;
             return Ok(());
         }
@@ -930,7 +961,6 @@ impl TrieFileStorage {
 
         self.cur_block = bhh.clone();
         self.cur_block_fd = Some(fd);
-        self.cur_block_fork_ptr = Some(block_fork_ptr);
         self.readonly = !readwrite;
         Ok(())
     }
@@ -938,7 +968,13 @@ impl TrieFileStorage {
     pub fn get_cur_block(&self) -> BlockHeaderHash {
         self.cur_block.clone()
     }
-    
+
+    pub fn get_block_from_local_id(&self, local_id: u32) -> Result<&BlockHeaderHash, Error> {
+        self.block_map.get_block_header_hash(local_id)
+            .ok_or_else(|| Error::NotFoundError)
+    }
+
+/*    
     pub fn block_walk(&mut self, back_block: u32) -> Result<BlockHeaderHash, Error> {
         trace!("block_walk from {:?} back {}", &self.cur_block, back_block);
 
@@ -961,14 +997,15 @@ impl TrieFileStorage {
         trace!("block_walk from {:?} back {} is {:?}", &self.cur_block, back_block, &prev_block);
         Ok(prev_block)
     }
-    
+*/    
     pub fn root_ptr(&self) -> u32 {
         if Some(self.cur_block) == self.last_extended {
             0
         }
         else {
             // first 32 bytes are the block parent hash 
-            BLOCK_HEADER_HASH_ENCODED_SIZE as u32
+            //   next 4 are the identifier
+            (BLOCK_HEADER_HASH_ENCODED_SIZE as u32) + 4
         }
     }
 
@@ -1000,10 +1037,10 @@ impl TrieFileStorage {
 
         self.cur_block = TrieFileStorage::block_sentinel();
         self.cur_block_fd = None;
-        self.cur_block_fork_ptr = None;
         self.last_extended = None;
         self.last_extended_trie = None;
-        self.fork_table.clear();
+
+        self.block_map.clear();
         
         Ok(())
     }
@@ -1045,7 +1082,7 @@ impl TrieFileStorage {
             self.read_node_count += 1;
         }
         
-        let clear_ptr = TriePtr::new(clear_backptr(ptr.id()), ptr.chr(), ptr.ptr());
+        let clear_ptr = ptr.from_backptr();
 
         if Some(self.cur_block) == self.last_extended {
             // special case
@@ -1112,26 +1149,11 @@ impl TrieFileStorage {
         // Idempotent.
         // Panics on I/O error.
         match (self.last_extended.take(), self.last_extended_trie.take()) {
-            (Some(ref bhh), Some(ref mut trie_storage)) => {
+            (Some(ref bhh), Some(ref mut trie_ram)) => {
                 let block_path_tmp = TrieFileStorage::block_path_tmp(&self.dir_path, bhh);
                 let block_path = self.cached_block_path(bhh);
                 
                 trace!("Flush {:?} to {:?} and then rename to {:?}", bhh, &block_path_tmp, block_path);
-
-                let parent_bhh = match self.fork_table.get_parent(bhh) {
-                    Ok(parent) => {
-                        parent
-                    },
-                    Err(e) => {
-                        if self.fork_table.contains(bhh) {
-                            // first block ever dumped
-                            TrieFileStorage::block_sentinel()
-                        }
-                        else {
-                            return Err(e);
-                        }
-                    }
-                };
 
                 let mut fd = fs::OpenOptions::new()
                             .read(false)
@@ -1149,7 +1171,7 @@ impl TrieFileStorage {
                             })?;
 
                 trace!("Flush: parent of {:?} is {:?}", bhh, parent_bhh);
-                trie_storage.dump(&mut fd, bhh, &parent_bhh)?;
+                trie_ram.dump(&mut fd, bhh)?;
 
                 #[cfg(target_os = "unix")] {
                     let fsync_ret = unsafe {
@@ -1204,11 +1226,11 @@ impl TrieFileStorage {
     }
 
     pub fn num_blocks(&self) -> usize {
-        self.fork_table.size()
+        self.block_map.len()
     }
     
     pub fn chain_tips(&self) -> Vec<BlockHeaderHash> {
-        self.fork_table.chain_tips()
+        panic!("Not implemented.");
     }
 }
 
