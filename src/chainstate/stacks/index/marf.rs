@@ -708,7 +708,6 @@ mod test {
     use chainstate::stacks::index::test::*;
     
     use chainstate::stacks::index::bits::*;
-    use chainstate::stacks::index::fork_table::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
     use chainstate::stacks::index::proofs::*;

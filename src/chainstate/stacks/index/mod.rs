@@ -18,7 +18,6 @@
 */
 
 pub mod bits;
-pub mod fork_table;
 pub mod marf;
 pub mod node;
 pub mod proofs;
@@ -296,7 +295,6 @@ pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
 mod test {
     use super::*;
     use chainstate::stacks::index::bits::*;
-    use chainstate::stacks::index::fork_table::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
     use chainstate::stacks::index::proofs::*;
@@ -377,7 +375,9 @@ mod test {
 
         let proof = TrieMerkleProof::from_path(s, &triepath, &MARFValue(marf_value.clone()), &block_header).unwrap();
         let empty_root_to_block = HashMap::new();
-        assert!(proof.verify(&triepath, &MARFValue(marf_value.clone()), &root_hash, &empty_root_to_block));
+
+        let block_map = s.block_map.clone();
+        assert!(proof.verify(&triepath, &MARFValue(marf_value.clone()), &root_hash, &empty_root_to_block, &block_map));
     }
     
     pub fn merkle_test_marf(s: &mut TrieFileStorage, header: &BlockHeaderHash, path: &Vec<u8>, value: &Vec<u8>) -> () {
@@ -401,7 +401,8 @@ mod test {
         test_debug!("---------");
 
         let root_to_block = s.read_root_to_block_table().unwrap();
-        assert!(proof.verify(&triepath, &MARFValue(marf_value), &root_hash, &root_to_block));
+        let block_map = s.block_map.clone();
+        assert!(proof.verify(&triepath, &MARFValue(marf_value), &root_hash, &root_to_block, &block_map));
     }
     
     pub fn merkle_test_marf_key_value(s: &mut TrieFileStorage, header: &BlockHeaderHash, key: &String, value: &String) -> () {
@@ -422,7 +423,9 @@ mod test {
         let root_to_block = s.read_root_to_block_table().unwrap();
         let triepath = TriePath::from_key(key);
         let marf_value = MARFValue::from_value(value);
-        assert!(proof.verify(&triepath, &marf_value, &root_hash, &root_to_block));
+        let block_map = s.block_map.clone();
+
+        assert!(proof.verify(&triepath, &marf_value, &root_hash, &root_to_block, &block_map));
     }
     
     pub fn make_node_path(s: &mut TrieFileStorage, node_id: u8, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {

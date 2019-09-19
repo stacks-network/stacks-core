@@ -605,7 +605,8 @@ impl Trie {
             let root_ptr = storage.root_trieptr();
             storage.read_node_hash_bytes(&root_ptr, hash_buf)?;
 
-            trace!("Include root hash {:?} from block {:?} in ancestor #{}", &to_hex(&hash_buf[hash_buf.len() - TRIEHASH_ENCODED_SIZE..hash_buf.len()]), prev_block_header, 1u32 << depth);
+            trace!("Include root hash {:?} from block {:?} in ancestor #{}", 
+                   &to_hex(&hash_buf[hash_buf.len() - TRIEHASH_ENCODED_SIZE..hash_buf.len()]), prev_block_header, 1u32 << log_depth);
 
             log_depth += 1;
         }
@@ -792,7 +793,6 @@ mod test {
     use chainstate::stacks::index::test::*;
     
     use chainstate::stacks::index::bits::*;
-    use chainstate::stacks::index::fork_table::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
     use chainstate::stacks::index::proofs::*;

@@ -1392,7 +1392,6 @@ mod test {
     use chainstate::stacks::index::test::*;
     
     use chainstate::stacks::index::bits::*;
-    use chainstate::stacks::index::fork_table::*;
     use chainstate::stacks::index::marf::*;
     use chainstate::stacks::index::node::*;
     use chainstate::stacks::index::proofs::*;
@@ -1457,10 +1456,8 @@ mod test {
             // path 
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
-        let node4_stream = Cursor::new(node4_bytes.clone());
         
-        let mut buf = Vec::with_capacity(node4_bytes.len());
-        node4.to_consensus_bytes(&mut buf);
+        let buf = node4.to_consensus_bytes(&BlockHashMap::new(None));
         assert_eq!(buf, node4_bytes);
     }
     
@@ -1534,9 +1531,7 @@ mod test {
             // path 
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
-        let node16_stream = Cursor::new(node16_bytes.clone());
-        let mut buf = Vec::with_capacity(node16_bytes.len());
-        node16.to_consensus_bytes(&mut buf);
+        let buf = node16.to_consensus_bytes(&BlockHashMap::new(None));
         assert_eq!(buf, node16_bytes);
     }
 
@@ -1742,9 +1737,7 @@ mod test {
             // path 
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
-        let node48_stream = Cursor::new(node48_bytes.clone());
-        let mut buf = Vec::with_capacity(node48_bytes.len());
-        node48.to_consensus_bytes(&mut buf);
+        let buf = node48.to_consensus_bytes(&BlockHashMap::new(None));
         assert_eq!(buf, node48_bytes);
     }
     
@@ -1815,9 +1808,7 @@ mod test {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ]);
 
-        let node256_stream = Cursor::new(node256_bytes.clone());
-        let mut buf = Vec::with_capacity(node256_bytes.len());
-        node256.to_consensus_bytes(&mut buf);
+        let buf = node256.to_consensus_bytes(&BlockHashMap::new(None));
         assert_eq!(buf, node256_bytes);
     }
 
@@ -1959,7 +1950,7 @@ mod test {
         let mut child_hashes = vec![];
         for i in 0..3 {
             let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_node_hash(&child, &vec![]);
+            let mut child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 
@@ -1972,7 +1963,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node4_ptr = trie_io.last_ptr().unwrap();
-        let node4_hash = get_node_hash(&node4, &child_hashes);
+        let node4_hash = get_node_hash(&node4, &child_hashes, &trie_io.block_map);
         trie_io.write_node(node4_ptr, &node4, node4_hash).unwrap();
         
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node4(node4)).unwrap();
@@ -1991,7 +1982,7 @@ mod test {
         let mut child_hashes = vec![];
         for i in 0..15 {
             let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_node_hash(&child, &vec![]);
+            let mut child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 
@@ -2004,7 +1995,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node16_ptr = trie_io.last_ptr().unwrap();
-        let node16_hash = get_node_hash(&node16, &child_hashes);
+        let node16_hash = get_node_hash(&node16, &child_hashes, &trie_io.block_map);
         trie_io.write_node(node16_ptr, &node16, node16_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node16(node16)).unwrap();
@@ -2023,7 +2014,7 @@ mod test {
         let mut child_hashes = vec![];
         for i in 0..47 {
             let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_node_hash(&child, &vec![]);
+            let mut child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 
@@ -2036,7 +2027,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node48_ptr = trie_io.last_ptr().unwrap();
-        let node48_hash = get_node_hash(&node48, &child_hashes);
+        let node48_hash = get_node_hash(&node48, &child_hashes, &trie_io.block_map);
         trie_io.write_node(node48_ptr, &node48, node48_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node48(node48)).unwrap();
@@ -2055,7 +2046,7 @@ mod test {
         let mut child_hashes = vec![];
         for i in 0..255 {
             let mut child = TrieLeaf::new(&vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,i as u8], &vec![i as u8; 40]);
-            let mut child_hash = get_node_hash(&child, &vec![]);
+            let mut child_hash = get_leaf_hash(&child);
 
             child_hashes.push(child_hash.clone());
 
@@ -2068,7 +2059,7 @@ mod test {
         child_hashes.push(TrieHash::from_data(&[]));
         
         let node256_ptr = trie_io.last_ptr().unwrap();
-        let node256_hash = get_node_hash(&node256, &child_hashes);
+        let node256_hash = get_node_hash(&node256, &child_hashes, &trie_io.block_map);
         trie_io.write_node(node256_ptr, &node256, node256_hash).unwrap();
 
         let read_child_hashes = Trie::get_children_hashes(&mut trie_io, &TrieNodeType::Node256(node256)).unwrap();

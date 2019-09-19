@@ -105,6 +105,7 @@ pub fn fseek_end<F: Seek>(f: &mut F) -> Result<u64, Error> {
         .map_err(Error::IOError)
 }
 
+#[derive(Clone)]
 pub struct BlockHashMap {
     next_identifier: u32,
     map: Vec<BlockHeaderHash>
@@ -141,6 +142,10 @@ impl BlockHashMap {
                    &block, &identifier, self.map.len());
         }
         self.map[identifier as usize] = block;
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<BlockHeaderHash> {
+        self.map.iter()
     }
 
     pub fn get_block_header_hash(&self, identifier: u32) -> Option<&BlockHeaderHash> {
@@ -786,30 +791,29 @@ impl TrieFileStorage {
         let last_extended_opt = self.last_extended.clone();
 
         let mut ret = HashMap::new();
-        for fork_column in self.fork_table.fork_table.iter() {
-            for bhh in fork_column.iter() {
-                if let Some(ref last_extended) = last_extended_opt {
-                    if *last_extended == *bhh {
-                        // this hasn't been dumped yet
-                        continue;
-                    }
-                }
 
-                if *bhh == TrieFileStorage::block_sentinel() {
+        for bhh in self.block_map.iter() {
+            if let Some(ref last_extended) = last_extended_opt {
+                if *last_extended == *bhh {
+                    // this hasn't been dumped yet
                     continue;
                 }
-                let root_hash = match self.read_block_root_hash(bhh) {
-                    Ok(h) => {
-                        h
-                    },
-                    Err(e) => {
-                        let h = self.read_tmp_block_root_hash(bhh)?;
-                        trace!("Read {:?} from tmp file for {:?} instead", &h, bhh);
-                        h
-                    }
-                };
-                ret.insert(root_hash, bhh.clone());
             }
+
+            if *bhh == TrieFileStorage::block_sentinel() {
+                continue;
+            }
+            let root_hash = match self.read_block_root_hash(bhh) {
+                Ok(h) => {
+                    h
+                },
+                Err(e) => {
+                    let h = self.read_tmp_block_root_hash(bhh)?;
+                    trace!("Read {:?} from tmp file for {:?} instead", &h, bhh);
+                    h
+                }
+            };
+            ret.insert(root_hash, bhh.clone());
         }
 
         let (last_extended_opt, last_extended_trie_opt) = match (self.last_extended.take(), self.last_extended_trie.take()) {
@@ -839,15 +843,14 @@ impl TrieFileStorage {
     /// Extend the forest of Tries to include a new block.
     pub fn extend_to_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
         /*
-        if self.fork_table.size() > 0 {
-            if !self.fork_table.contains(&self.cur_block) {
-                return Err(Error::CorruptionError(format!("Current block {:?} not in fork table", &self.cur_block)));
-            }
-        }
-        if self.fork_table.contains(bhh) {
-            trace!("Block {:?} is in the fork table already", bhh);
-            return Err(Error::ExistsError);
-        }*/
+
+        TODO:
+          must test that:
+             * cur_block has an identifier.
+             * cur_block has written it's block height
+             * bhh doesn't already exist (maybe not -- it's tested later)
+        
+         */
         
         self.readonly = false;
         self.flush()?;
@@ -1162,7 +1165,7 @@ impl TrieFileStorage {
                                 }
                             })?;
 
-                trace!("Flush: parent of {:?} is {:?}", bhh, parent_bhh);
+                trace!("Flush: identifier of {:?} is {:?}", bhh, trie_ram.identifier);
                 trie_ram.dump(&mut fd, bhh)?;
 
                 #[cfg(target_os = "unix")] {

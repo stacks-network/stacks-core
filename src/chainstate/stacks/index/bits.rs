@@ -271,7 +271,7 @@ pub fn get_node_hash<T: TrieNode + std::fmt::Debug>(node: &T, child_hashes: &Vec
 pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     let ret = compute_node_hash(&node.to_consensus_bytes_leaf(), |_h| {});
 
-    trace!("get_node_hash: hash {:?} = {:?} + {:?}", &ret, node, vec![]);
+    trace!("get_leaf_hash: hash {:?} = {:?} + []", &ret, node);
     ret
 }
 
