@@ -37,8 +37,7 @@ pub fn temporary_marf() -> MarfedKV {
         .unwrap();
     let side_store = Box::new(HashMap::new());
 
-    let chain_tip = marf.chain_tips().get(0).cloned()
-        .unwrap_or_else(|| TrieFileStorage::block_sentinel());
+    let chain_tip = TrieFileStorage::block_sentinel();
 
     MarfedKV { chain_tip, marf, side_store }
 }

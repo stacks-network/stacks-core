@@ -460,7 +460,7 @@ impl TrieCursor {
         for i in 0..node_path.len() {
             if node_path[i] != path_bytes[self.index] {
                 // diverged
-                trace!("cursor: diverged({:?} != {:?}): i = {}, self.index = {}, self.node_path_index = {}", &node_path, &path_bytes, i, self.index, self.node_path_index);
+                eprintln!("cursor: diverged({} != {}): i = {}, self.index = {}, self.node_path_index = {}", to_hex(&node_path), to_hex(&path_bytes), i, self.index, self.node_path_index);
                 self.last_error = Some(CursorError::PathDiverged);
                 return Err(CursorError::PathDiverged);
             }

@@ -94,7 +94,27 @@ struct WriteChainTip {
     height: u32
 }
 
+#[cfg(not(test))]
+fn short_circuit_genesis_test(_s: &TrieFileStorage) -> Option<BlockHeaderHash> {
+    None
+}
+
+#[cfg(test)]
+fn short_circuit_genesis_test(s: &TrieFileStorage) -> Option<BlockHeaderHash> {
+    s.test_genesis_block.clone()
+}
+
 impl MARF {
+
+    #[cfg(test)]
+    pub fn from_storage_opened(storage: TrieFileStorage, opened_to: &BlockHeaderHash) -> MARF {
+        MARF {
+            storage,
+            open_chain_tip: Some(WriteChainTip { block_hash: opened_to.clone(),
+                                                 height: 0 })
+        }
+    }
+
     // helper method for walking a node's backpr
     fn walk_backptr(storage: &mut TrieFileStorage, start_node: &TrieNodeType, chr: u8, cursor: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr, u32), Error> {
         if start_node.is_leaf() {
@@ -240,6 +260,7 @@ impl MARF {
         let mut node_ptr = TriePtr::new(0,0,0);
 
         for _ in 0..(cursor.path.len()+1) {
+            eprintln!("Walking... node = {:?}", &node);
             match Trie::walk_from(storage, &node, &mut cursor) {
                 Ok(node_info_opt) => {
                     match node_info_opt {
@@ -270,13 +291,13 @@ impl MARF {
                                 CursorError::PathDiverged => {
                                     // we're done -- path diverged.  Will need to copy-on-write
                                     // some nodes over.
-                                    trace!("Path diverged -- we're done.");
+                                    eprintln!("Path diverged -- we're done.");
                                     storage.open_block(block_hash, true)?;
                                     return Ok(cursor);
                                 },
                                 CursorError::ChrNotFound => {
                                     // end-of-node-path but no such child -- not even a backptr.
-                                    trace!("ChrNotFound encountered at {:?} -- we're done (node not found)", storage.get_cur_block());
+                                    eprintln!("ChrNotFound encountered at {:?} -- we're done (node not found)", storage.get_cur_block());
                                     storage.open_block(block_hash, true)?;
                                     return Ok(cursor);
                                 },
@@ -502,6 +523,10 @@ impl MARF {
 
     pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
+        if short_circuit_genesis_test(storage).as_ref() == Some(current_block_hash) {
+            return Ok(Some(0))
+        }
+
 
         MARF::get_by_key(storage, current_block_hash, &hash_key)
             .map(|option_result| {
@@ -510,6 +535,13 @@ impl MARF {
     }
 
     pub fn get_block_at_height(storage: &mut TrieFileStorage, height: u32, current_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
+        if height == 0 {
+            match short_circuit_genesis_test(storage) {
+                Some(s) => return Ok(Some(s)),
+                _ => {}
+            }
+        }
+
         let height_key = format!("{}::{}", BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, height);
 
         MARF::get_by_key(storage, current_block_hash, &height_key)
@@ -526,10 +558,16 @@ impl MARF {
         self.insert(&height_key, MARFValue::from(block_hash.clone()))
     }
 
+    pub fn insert(&mut self, key: &str, value: MARFValue) -> Result<(), Error> {
+        let marf_leaf = TrieLeaf::from_value(&vec![], value);
+        let path = TriePath::from_key(key);
+        self.insert_raw(path, marf_leaf)
+    }
+
     /// Insert the given (key, value) pair into the MARF.  Inserting the same key twice silently
     /// overwrites the existing key.  Succeeds if there are no storage errors.
     /// Must be called after a call to .begin() (will fail otherwise)
-    pub fn insert(&mut self, key: &str, value: MARFValue) -> Result<(), Error> {
+    pub fn insert_raw(&mut self, path: TriePath, marf_leaf: TrieLeaf) -> Result<(), Error> {
         match self.open_chain_tip {
             None => {
                 Err(Error::WriteNotBegunError)
@@ -537,9 +575,6 @@ impl MARF {
             Some(WriteChainTip{ ref block_hash, .. }) => {
                 let cur_block_hash = self.storage.get_cur_block();
                 let cur_block_rw = self.storage.readwrite();
-
-                let marf_leaf = TrieLeaf::from_value(&vec![], value);
-                let path = TriePath::from_key(key);
 
                 let result = MARF::insert_leaf(&mut self.storage, block_hash, &path, &marf_leaf);
                 
@@ -610,13 +645,14 @@ impl MARF {
             return Err(Error::ExistsError);
         }
 
-        // current chain tip must exist
-        if self.chain_tips().len() > 0 {
+        // current chain tip must exist if it's not the "sentinel"
+        let is_parent_sentinel = chain_tip != &TrieFileStorage::block_sentinel();
+        if is_parent_sentinel {
             self.storage.open_block(chain_tip, false)?;
         }
 
         let block_height = 
-            if self.chain_tips().len() > 0 {
+            if is_parent_sentinel {
                 MARF::get_block_height(&mut self.storage, chain_tip, chain_tip)?
                     .ok_or_else(|| Error::CorruptionError(format!("Failed to find block height for `{:?}`", chain_tip)))?
                     .checked_add(1)

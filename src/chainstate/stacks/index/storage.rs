@@ -460,6 +460,8 @@ pub struct TrieFileStorage {
 
     // cache of block paths (they're surprisingly expensive to generate)
     block_path_cache: HashMap<BlockHeaderHash, PathBuf>,
+
+    pub test_genesis_block: Option<BlockHeaderHash>
 }
 
 impl TrieFileStorage {
@@ -510,6 +512,8 @@ impl TrieFileStorage {
             block_map: block_map,
 
             block_path_cache: HashMap::new(),
+
+            test_genesis_block: None
         };
 
         Ok(ret)
@@ -517,7 +521,7 @@ impl TrieFileStorage {
 
     /// Set up a new Trie forest on disk.  If there is data there already, obliterate it first.
     #[cfg(test)]
-    pub fn new_overwrite(dir_path: &String) -> Result<TrieFileStorage, Error> {
+    pub fn new_overwrite(dir_path: &str) -> Result<TrieFileStorage, Error> {
         match fs::metadata(dir_path) {
             Ok(_) => {
                 fs::remove_dir_all(dir_path).unwrap();

@@ -1091,6 +1091,7 @@ impl TrieMerkleProof {
             }
             else {
                 // make the shunt proof for the block that contains the non-backptr of this leaf.
+                eprintln!("backing it up2");
                 let first_shunt_proof = TrieMerkleProof::make_initial_shunt_proof(storage)?;
                 shunt_proofs.push(first_shunt_proof);
             }
