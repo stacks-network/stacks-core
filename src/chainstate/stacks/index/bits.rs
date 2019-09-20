@@ -328,7 +328,7 @@ pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<u8>, 
 
 /// Low-level method for reading a TrieHash into a byte buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
-pub fn read_hash_bytes<F: Read + Seek>(f: &mut F, buf: &mut Vec<u8>) -> Result<(), Error> {
+pub fn read_hash_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; 32], Error> {
     let mut hashbytes = [0u8; 32];
     f.read_exact(&mut hashbytes)
         .map_err(|e| {
@@ -341,8 +341,7 @@ pub fn read_hash_bytes<F: Read + Seek>(f: &mut F, buf: &mut Vec<u8>) -> Result<(
             }
         })?;
     
-    fast_extend_from_slice(buf, &hashbytes);
-    Ok(())
+    Ok(hashbytes)
 }
 
 pub fn read_4_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; 4], Error> {
@@ -365,7 +364,9 @@ pub fn read_4_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; 4], Error> {
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
 pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
     fseek(f, ptr.ptr() as u64)?;
-    read_hash_bytes(f, buf)
+    let hash_bytes = read_hash_bytes(f)?;
+    fast_extend_from_slice(buf, &hash_bytes);
+    Ok(())
 }
 
 /// Read the root hash from a TrieFileStorage instance

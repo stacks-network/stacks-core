@@ -31,7 +31,7 @@ use std::io::{
 use std::char::from_digit;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use std::collections::VecDeque;
 
 use std::fs;
@@ -41,6 +41,7 @@ use std::path::{
 };
 
 use std::os;
+use std::iter::FromIterator;
 
 #[cfg(target_os = "unix")]
 use std::os::unix::io::AsRawFd;
@@ -457,6 +458,7 @@ pub struct TrieFileStorage {
 
     // map block identifiers to their parent identifiers
     pub block_map: BlockHashMap,
+    chain_tips: HashSet<BlockHeaderHash>,
 
     // cache of block paths (they're surprisingly expensive to generate)
     block_path_cache: HashMap<BlockHeaderHash, PathBuf>,
@@ -488,7 +490,7 @@ impl TrieFileStorage {
             return Err(Error::PartialWriteError);
         }
 
-        let block_map = TrieFileStorage::read_block_hash_map(&dir_path, &TrieFileStorage::block_sentinel())?;
+        let (block_map, chain_tips) = TrieFileStorage::read_block_hash_map(&dir_path, &TrieFileStorage::block_sentinel())?;
 
         let ret = TrieFileStorage {
             dir_path,
@@ -510,6 +512,7 @@ impl TrieFileStorage {
             write_leaf_count: 0,
 
             block_map: block_map,
+            chain_tips: chain_tips,
 
             block_path_cache: HashMap::new(),
 
@@ -630,7 +633,7 @@ impl TrieFileStorage {
         p
     }
 
-    fn read_block_identifier(block_path: &PathBuf) -> Result<u32, Error> {
+    fn read_block_identifier_and_parent(block_path: &PathBuf) -> Result<(u32, BlockHeaderHash), Error> {
         let mut fd = fs::OpenOptions::new()
                     .read(true)
                     .write(false)
@@ -644,7 +647,10 @@ impl TrieFileStorage {
                             Error::IOError(e)
                         }
                     })?;
-        TrieFileStorage::read_block_identifier_from_fd(&mut fd)
+        let id = TrieFileStorage::read_block_identifier_from_fd(&mut fd)?;
+        fseek(&mut fd, 0)?;
+        let bytes = read_hash_bytes(&mut fd)?;
+        Ok((id, BlockHeaderHash(bytes)))
     }
 
     fn read_block_identifier_from_fd<F: Seek + Read>(fd: &mut F) -> Result<u32, Error> {
@@ -653,6 +659,7 @@ impl TrieFileStorage {
 
         Ok( u32::from_le_bytes(bytes) )
     }
+
 
     /// Scan the block directory and get all block header hashes,
     ///   invoking the passed closure on each block header hash.
@@ -722,8 +729,10 @@ impl TrieFileStorage {
         Ok(())
     }
 
-    fn read_block_hash_map(dir_path: &String, root_hash: &BlockHeaderHash) -> Result<BlockHashMap, Error> {
+    fn read_block_hash_map(dir_path: &String, root_hash: &BlockHeaderHash) -> Result<(BlockHashMap, HashSet<BlockHeaderHash>), Error> {
         let mut blocks = vec![];
+
+        let mut parents = HashSet::new();
 
         TrieFileStorage::scan_blocks(dir_path, |block_name, block_path| {
             let bhh = match BlockHeaderHash::from_hex(&block_name) {
@@ -733,8 +742,9 @@ impl TrieFileStorage {
                     return Ok(());
                 }
             };
-            let identifier = TrieFileStorage::read_block_identifier(&block_path)?;
+            let (identifier, parent) = TrieFileStorage::read_block_identifier_and_parent(&block_path)?;
             blocks.push((bhh, identifier));
+            parents.insert(parent);
             Ok(())
         })?;
 
@@ -743,12 +753,16 @@ impl TrieFileStorage {
         }
 
         let mut block_hash_map = BlockHashMap::new(Some(blocks.len() as u32));
+        let mut chain_tips = HashSet::new();
 
         for (bhh, identifier) in blocks.drain(..) {
+            if ! parents.contains(&bhh) {
+                chain_tips.insert(bhh.clone());
+            }
             block_hash_map.set_block(bhh, identifier);
         }
 
-        Ok(block_hash_map)
+        Ok((block_hash_map, chain_tips))
     }
 
     /// Read the Trie root node's hash from the block file in the given path.
@@ -848,10 +862,9 @@ impl TrieFileStorage {
         /*
 
         TODO:
-          must test that:
+          must still test that:
              * cur_block has an identifier.
              * cur_block has written it's block height
-             * bhh doesn't already exist (maybe not -- it's tested later)
         
          */
         
@@ -864,6 +877,15 @@ impl TrieFileStorage {
         };
 
         let identifier = self.block_map.add_block(bhh);
+        if self.chain_tips.contains(&self.cur_block) {
+            self.chain_tips.remove(&self.cur_block);
+        }
+        // this *requires* that bhh hasn't been the parent of any prior
+        //   extended blocks.
+        // this is currently enforced if you use the "public" interfaces
+        //   to marfs, but could definitely be violated via raw updates
+        //   to trie structures.
+        self.chain_tips.insert(bhh.clone());
 
         let trie_buf = TrieRAM::new(bhh, size_hint, identifier, &self.cur_block);
 
@@ -1039,6 +1061,7 @@ impl TrieFileStorage {
         self.last_extended_trie = None;
 
         self.block_map.clear();
+        self.chain_tips.clear();
         
         Ok(())
     }
@@ -1228,7 +1251,9 @@ impl TrieFileStorage {
     }
     
     pub fn chain_tips(&self) -> Vec<BlockHeaderHash> {
-        panic!("Not implemented.");
+        let mut r = Vec::with_capacity(self.chain_tips.len());
+        r.extend(self.chain_tips.iter());
+        r
     }
 }
 
