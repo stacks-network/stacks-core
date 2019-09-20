@@ -292,6 +292,11 @@ impl TrieMerkleProof {
         let mut current_height = MARF::get_block_height(storage, &block_header, &block_header)?
             .ok_or_else(|| Error::CorruptionError(format!("Could not find block height of {}", &block_header)))?;
 
+        if current_height == ancestor_height {
+            eprintln!("Already at the ancestor: {} =? {}, heights: {} =? {}", &ancestor_block_hash, &block_header,
+                      ancestor_height, current_height);
+        }
+
         // find last and intermediate entries in the shunt proof -- exclude the root hashes; just
         // include the ancestor hashes.
         while current_height > ancestor_height && !found_backptr {
@@ -306,19 +311,23 @@ impl TrieMerkleProof {
             trace!("Ancestors of {:?} ({:?}): {:?}", &block_header, &cur_root_hash, &ancestor_hashes);
 
             // did we reach the backptr's root hash?
-            for i in 0..ancestor_hashes.len() {
-                if ancestor_hashes[i] == ancestor_root_hash {
-                    found_backptr = true;
-                    break;
-                }
-            }
+            found_backptr = ancestor_hashes.contains(&ancestor_root_hash);
 
             // what's the next block we'll shunt to?
             let mut idx = 0;
-            while current_height - (1u32 << idx) > ancestor_height {
+            while (1u32 << idx) <= current_height && current_height - (1u32 << idx) >= ancestor_height {
                 idx += 1;
             }
+            if idx == 0 {
+                panic!("ancestor_height = {}, current_height = {}, but ancestor hash `{}` not found in: [{}]",
+                       ancestor_height, current_height, ancestor_root_hash.to_hex(),
+                       ancestor_hashes.iter().map(|x| format!("{}", x.to_hex())).collect::<Vec<_>>().join(", "))
+            }
             idx -= 1;
+
+            if found_backptr {
+                assert_eq!(&ancestor_hashes[idx], &ancestor_root_hash);
+            }
 
             current_height -= 1u32 << idx;
 
@@ -872,6 +881,7 @@ impl TrieMerkleProof {
             },
             None => {
                 trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
+                trace!("root-to-block map: {:?}", &root_to_block);
                 return false;
             }
         };
@@ -1091,7 +1101,6 @@ impl TrieMerkleProof {
             }
             else {
                 // make the shunt proof for the block that contains the non-backptr of this leaf.
-                eprintln!("backing it up2");
                 let first_shunt_proof = TrieMerkleProof::make_initial_shunt_proof(storage)?;
                 shunt_proofs.push(first_shunt_proof);
             }

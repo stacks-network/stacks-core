@@ -260,7 +260,6 @@ impl MARF {
         let mut node_ptr = TriePtr::new(0,0,0);
 
         for _ in 0..(cursor.path.len()+1) {
-            eprintln!("Walking... node = {:?}", &node);
             match Trie::walk_from(storage, &node, &mut cursor) {
                 Ok(node_info_opt) => {
                     match node_info_opt {
@@ -291,13 +290,13 @@ impl MARF {
                                 CursorError::PathDiverged => {
                                     // we're done -- path diverged.  Will need to copy-on-write
                                     // some nodes over.
-                                    eprintln!("Path diverged -- we're done.");
+                                    trace!("Path diverged -- we're done.");
                                     storage.open_block(block_hash, true)?;
                                     return Ok(cursor);
                                 },
                                 CursorError::ChrNotFound => {
                                     // end-of-node-path but no such child -- not even a backptr.
-                                    eprintln!("ChrNotFound encountered at {:?} -- we're done (node not found)", storage.get_cur_block());
+                                    trace!("ChrNotFound encountered at {:?} -- we're done (node not found)", storage.get_cur_block());
                                     storage.open_block(block_hash, true)?;
                                     return Ok(cursor);
                                 },
@@ -447,7 +446,7 @@ impl MARF {
     fn do_insert_leaf(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath, leaf_value: &TrieLeaf, update_skiplist: bool) -> Result<(), Error> {
         let mut value = leaf_value.clone();
         let mut cursor = MARF::walk_cow(storage, block_hash, path)?;
-        
+
         if cursor.block_hashes.len() + 1 != cursor.node_ptrs.len() {
             trace!("c.block_hashes = {:?}", &cursor.block_hashes);
             trace!("c.node_ptrs = {:?}", cursor.node_ptrs);
@@ -755,25 +754,20 @@ mod test {
 
     #[test]
     fn marf_insert_different_leaf_same_block_100() {
-        let path = "/tmp/rust_marf_insert_different_leaf_same_block_100".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let mut f = TrieFileStorage::new(&path).unwrap();
+        let filename = "/tmp/rust_marf_insert_different_leaf_same_block_100";
 
-        let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header_1).unwrap();
+        let f = TrieFileStorage::new_overwrite(filename).unwrap();
+
+        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+        let mut marf = MARF::from_storage(f);
+        marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
 
         let path_bytes = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
         let path = TriePath::from_bytes(&path_bytes).unwrap();
-        let block_header = BlockHeaderHash::from_bytes(&[0; 32]).unwrap();
 
         for i in 0..100 {
             let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            MARF::insert_leaf(&mut f, &block_header, &path, &value).unwrap();
+            marf.insert_raw(path.clone(), value).unwrap();
         }
         
         test_debug!("---------");
@@ -781,35 +775,33 @@ mod test {
         test_debug!("---------");
 
         let value = TrieLeaf::new(&vec![], &[99; 40].to_vec());
-        let leaf = MARF::get_path(&mut f, &block_header, &path).unwrap().unwrap();
+        let leaf = MARF::get_path(marf.borrow_storage_backend(), &block_header, &path).unwrap().unwrap();
 
         assert_eq!(leaf.data.to_vec(), [99; 40].to_vec());
-        assert_eq!(f.get_cur_block(), block_header);
+        assert_eq!(marf.borrow_storage_backend().get_cur_block(), block_header);
 
-        merkle_test_marf(&mut f, &block_header, &path_bytes.to_vec(), &[99; 40].to_vec());
+        merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path_bytes.to_vec(), &[99; 40].to_vec());
     }
     
     #[test]
     fn marf_insert_different_leaf_different_path_different_block_100() {
-        let path = "/tmp/rust_marf_insert_different_leaf_different_path_different_block_100".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let mut f = TrieFileStorage::new(&path).unwrap();
+        let filename = "/tmp/rust_marf_insert_different_leaf_different_path_different_block_100";
 
-        let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header_1).unwrap();
+        let f = TrieFileStorage::new_overwrite(filename).unwrap();
+
+        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+        let mut marf = MARF::from_storage(f);
+        marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
 
         for i in 0..100 {
             test_debug!("insert {}", i);
-            let block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
+            let block_header = BlockHeaderHash::from_bytes(&[i+1 as u8; 32]).unwrap();
             let path_bytes = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,i as u8];
+            marf.commit().unwrap();
+            marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
             let path = TriePath::from_bytes(&path_bytes).unwrap();
             let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            MARF::insert_leaf(&mut f, &block_header, &path, &value).unwrap();
+            marf.insert_raw(path, value).unwrap();
         }
         
         test_debug!("---------");
@@ -817,41 +809,41 @@ mod test {
         test_debug!("---------");
 
         for i in 0..100 {
-            let block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
+            let block_header = BlockHeaderHash::from_bytes(&[i+1 as u8; 32]).unwrap();
             let path_bytes = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,i as u8];
             let path = TriePath::from_bytes(&path_bytes).unwrap();
 
             let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            let leaf = MARF::get_path(&mut f, &block_header, &path).unwrap().unwrap();
+            let leaf = MARF::get_path(marf.borrow_storage_backend(), &block_header, &path).unwrap().unwrap();
 
             assert_eq!(leaf.data.to_vec(), [i as u8; 40].to_vec());
-            assert_eq!(f.get_cur_block(), block_header);
+            assert_eq!(marf.borrow_storage_backend().get_cur_block(), block_header);
 
-            merkle_test_marf(&mut f, &block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
+            merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
         }
     }
 
     #[test]
     fn marf_insert_same_leaf_different_block_100() {
-        let path = "/tmp/rust_marf_same_leaf_different_block_100".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let mut f = TrieFileStorage::new(&path).unwrap();
+        let path = "/tmp/rust_marf_same_leaf_different_block_100";
 
-        let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header_1).unwrap();
+        let f = TrieFileStorage::new_overwrite(path).unwrap();
+        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+        let mut marf = MARF::from_storage(f);
+        marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
+
 
         let path_bytes = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
         let path = TriePath::from_bytes(&path_bytes).unwrap();
 
         for i in 0..100 {
-            let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
+            let next_block_header = BlockHeaderHash::from_bytes(&[i+1 as u8; 32]).unwrap();
             let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            MARF::insert_leaf(&mut f, &next_block_header, &path, &value).unwrap();
+            marf.commit().unwrap();
+            marf.begin(&TrieFileStorage::block_sentinel(), &next_block_header).unwrap();
+            let path = TriePath::from_bytes(&path_bytes).unwrap();
+            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            marf.insert_raw(path, value).unwrap();
         }
         
         test_debug!("---------");
@@ -859,479 +851,348 @@ mod test {
         test_debug!("---------");
 
         for i in 0..100 {
-            let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
+            let next_block_header = BlockHeaderHash::from_bytes(&[i+1 as u8; 32]).unwrap();
             let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            let leaf = MARF::get_path(&mut f, &next_block_header, &path).unwrap().unwrap();
+            let leaf = MARF::get_path(marf.borrow_storage_backend(), &next_block_header, &path).unwrap().unwrap();
 
             assert_eq!(leaf.data.to_vec(), [i as u8; 40].to_vec());
-            assert_eq!(f.get_cur_block(), next_block_header);
+            assert_eq!(marf.borrow_storage_backend().get_cur_block(), next_block_header);
 
-            merkle_test_marf(&mut f, &next_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
+            merkle_test_marf(marf.borrow_storage_backend(), &next_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
         }
     }
+
     
     #[test]
     fn marf_insert_leaf_sequence_2() {
-        let path = "/tmp/rust_marf_insert_leaf_sequence_2".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let mut f = TrieFileStorage::new(&path).unwrap();
-
-        let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header_1).unwrap();
+        let path = "/tmp/rust_marf_insert_leaf_sequence_2";
+        let f = TrieFileStorage::new_overwrite(path).unwrap();
+        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+        let mut marf = MARF::from_storage(f);
+        marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
 
         for i in 0..2 {
             let path_bytes = [i as u8,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             let path = TriePath::from_bytes(&path_bytes).unwrap();
+            let prior_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
+            let next_block_header = BlockHeaderHash::from_bytes(&[i+1 as u8; 32]).unwrap();
+            marf.commit().unwrap();
+            marf.begin(&prior_block_header, &next_block_header).unwrap();
 
-            let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
             let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            MARF::insert_leaf(&mut f, &next_block_header, &path, &value).unwrap();
+            marf.insert_raw(path, value).unwrap();
         }
         
-        let last_block_header = BlockHeaderHash::from_bytes(&[1; 32]).unwrap();
+        marf.commit().unwrap();
+        let last_block_header = BlockHeaderHash::from_bytes(&[2; 32]).unwrap();
 
         test_debug!("---------");
         test_debug!("MARF gets");
         test_debug!("---------");
 
         for i in 0..2 {
-            let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
+            let next_block_header = BlockHeaderHash::from_bytes(&[i+1 as u8; 32]).unwrap();
             let path_bytes = [i as u8,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             let path = TriePath::from_bytes(&path_bytes).unwrap();
             
             let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            let leaf = MARF::get_path(&mut f, &last_block_header, &path).unwrap().unwrap();
+            let leaf = MARF::get_path(marf.borrow_storage_backend(), &last_block_header, &path).unwrap().unwrap();
 
             assert_eq!(leaf.data.to_vec(), [i as u8; 40].to_vec());
-            assert_eq!(f.get_cur_block(), next_block_header);
+            assert_eq!(marf.borrow_storage_backend().get_cur_block(), next_block_header);
 
-            merkle_test_marf(&mut f, &last_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
+            merkle_test_marf(marf.borrow_storage_backend(), &last_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
         }
     }
     
     #[test]
     fn marf_insert_leaf_sequence_100() {
-        let path = "/tmp/rust_marf_insert_leaf_sequence_100".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let mut f = TrieFileStorage::new(&path).unwrap();
+        let path = "/tmp/rust_marf_insert_leaf_sequence_100";
+        let f = TrieFileStorage::new_overwrite(path).unwrap();
+        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+        let mut marf = MARF::from_storage(f);
+        marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
 
-        let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header_1).unwrap();
+        let mut last_block_header = block_header.clone();
 
-        for i in 0..100 {
+        for i in 1..101 {
             let path_bytes = [i as u8,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             let path = TriePath::from_bytes(&path_bytes).unwrap();
 
+            marf.commit().unwrap();
             let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
+            marf.begin(&last_block_header, &next_block_header).unwrap();
+            last_block_header = next_block_header;
+
             let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            MARF::insert_leaf(&mut f, &next_block_header, &path, &value).unwrap();
+            marf.insert_raw(path, value).unwrap();
         }
         
-        let last_block_header = BlockHeaderHash::from_bytes(&[99; 32]).unwrap();
-
         test_debug!("---------");
         test_debug!("MARF gets");
         test_debug!("---------");
 
-        for i in 0..100 {
+        let f = marf.borrow_storage_backend();
+
+        for i in 1..101 {
             let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
             let path_bytes = [i as u8,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
             let path = TriePath::from_bytes(&path_bytes).unwrap();
             
             let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            let leaf = MARF::get_path(&mut f, &last_block_header, &path).unwrap().unwrap();
+            eprintln!("Finding value inserted at {}", &next_block_header);
+            let leaf = MARF::get_path(f, &last_block_header, &path).unwrap().unwrap();
 
             assert_eq!(leaf.data.to_vec(), [i as u8; 40].to_vec());
-            assert_eq!(f.get_cur_block(), next_block_header);
+            // NOTE: this assertion no longer holds, since the path prefix may now overlap 
+            //         with data related to block_height!
+            // assert_eq!(f.get_cur_block(), next_block_header);
 
-            merkle_test_marf(&mut f, &last_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
+            merkle_test_marf(f, &last_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
         }
     }
 
     #[test]
     fn marf_walk_cow_node4_20() {
-        let path = "/tmp/rust_marf_walk_cow_node4_20".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let mut f = TrieFileStorage::new(&path).unwrap();
-
-        let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header_1).unwrap();
-
-        // make a deep path
-        let path_segments = vec![
-            (vec![], 0),
-            (vec![], 1),
-            (vec![], 2),
-            (vec![], 3),
-            (vec![], 4),
-            (vec![], 5),
-            (vec![], 6),
-            (vec![], 7),
-            (vec![], 8),
-            (vec![], 9),
-            (vec![], 10),
-            (vec![], 11),
-            (vec![], 12),
-            (vec![], 13),
-            (vec![], 14),
-            (vec![], 15),
-            (vec![], 16),
-            (vec![], 17),
-            (vec![], 18),
-            (vec![], 19),
-            (vec![], 20),
-            (vec![], 21),
-            (vec![], 22),
-            (vec![], 23),
-            (vec![], 24),
-            (vec![], 25),
-            (vec![], 26),
-            (vec![], 27),
-            (vec![], 28),
-            (vec![], 29),
-            (vec![], 30),
-            (vec![], 31),
-        ];
-        let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
-
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
-        dump_trie(&mut f);
-
-        for i in 1..31 {
-            test_debug!("----------------");
-            test_debug!("i = {}", i);
-            test_debug!("----------------");
-
-            // switch to the next block
-            let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
-
-            // add a leaf at the end of the path
-            let mut next_path = path.clone();
-            next_path[i] = 32;
-            
-            let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            
-            test_debug!("----------------");
-            test_debug!("insert");
-            test_debug!("----------------");
-            MARF::insert_leaf(&mut f, &next_block_header, &triepath, &value).unwrap();
-
-            // verify that this leaf exists in _this_ Trie
-            test_debug!("----------------");
-            test_debug!("get");
-            test_debug!("----------------");
-            let read_value = MARF::get_path(&mut f, &next_block_header, &TriePath::from_bytes(&next_path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), [i as u8; 40].to_vec());
-            assert_eq!(read_value.path, next_path[i+1..].to_vec());
-            assert_eq!(f.get_cur_block(), next_block_header);
-
-            // can get all previous leaves from _this_ Trie
-            for j in 1..(i+1) {
-                test_debug!("----------------");
-                test_debug!("get-prev {} of {}", j, i);
-                test_debug!("----------------");
-
-                let mut prev_path = path.clone();
-                prev_path[j] = 32;
-            
-                let prev_block_header = BlockHeaderHash::from_bytes(&[j as u8; 32]).unwrap();
-
-                let read_value = MARF::get_path(&mut f, &next_block_header, &TriePath::from_bytes(&prev_path[..]).unwrap()).unwrap().unwrap();
-                assert_eq!(read_value.data.to_vec(), [j as u8; 40].to_vec());
-                assert_eq!(f.get_cur_block(), prev_block_header);
-            }
-
-            f.open_block(&next_block_header, false).unwrap();
-
-            dump_trie(&mut f);
-           
-            merkle_test_marf(&mut f, &next_block_header, &next_path, &[i as u8; 40].to_vec());
-        }
-
-        // all leaves are reachable from the last block 
-        let last_block_header = BlockHeaderHash::from_bytes(&[30u8; 32]).unwrap();
-        for i in 1..19 {
-            // add a leaf at the end of the path
-            let mut next_path = path.clone();
-            next_path[i] = 32;
-            
-            let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
-            let value = TrieLeaf::new(&next_path[i+1..].to_vec(), &[i as u8; 40].to_vec());
-
-            assert_eq!(MARF::get_path(&mut f, &last_block_header, &triepath).unwrap(), Some(value));
-            
-            merkle_test_marf(&mut f, &last_block_header, &next_path, &[i as u8; 40].to_vec());
-        }
+        marf_walk_cow_test("/tmp/rust_marf_walk_cow_node4_20", |s| {
+            // make a deep path
+            let path_segments = vec![
+                (vec![], 0),
+                (vec![], 1),
+                (vec![], 2),
+                (vec![], 3),
+                (vec![], 4),
+                (vec![], 5),
+                (vec![], 6),
+                (vec![], 7),
+                (vec![], 8),
+                (vec![], 9),
+                (vec![], 10),
+                (vec![], 11),
+                (vec![], 12),
+                (vec![], 13),
+                (vec![], 14),
+                (vec![], 15),
+                (vec![], 16),
+                (vec![], 17),
+                (vec![], 18),
+                (vec![], 19),
+                (vec![], 20),
+                (vec![], 21),
+                (vec![], 22),
+                (vec![], 23),
+                (vec![], 24),
+                (vec![], 25),
+                (vec![], 26),
+                (vec![], 27),
+                (vec![], 28),
+                (vec![], 29),
+                (vec![], 30),
+                (vec![], 31),
+            ];
+            make_node4_path(s, &path_segments, [31u8; 40].to_vec())
+        }, |i, mut p| {
+            p[i as usize] = 32;
+            p
+        });
     }
 
     #[test]
     fn marf_walk_cow_node4_20_reversed() {
-        let path = "/tmp/rust_marf_walk_cow_node4_20_reversed".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let mut f = TrieFileStorage::new(&path).unwrap();
-
-        let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header_1).unwrap();
-
-        // make a deep path
-        let path_segments = vec![
-            (vec![], 0),
-            (vec![], 1),
-            (vec![], 2),
-            (vec![], 3),
-            (vec![], 4),
-            (vec![], 5),
-            (vec![], 6),
-            (vec![], 7),
-            (vec![], 8),
-            (vec![], 9),
-            (vec![], 10),
-            (vec![], 11),
-            (vec![], 12),
-            (vec![], 13),
-            (vec![], 14),
-            (vec![], 15),
-            (vec![], 16),
-            (vec![], 17),
-            (vec![], 18),
-            (vec![], 19),
-            (vec![], 20),
-            (vec![], 21),
-            (vec![], 22),
-            (vec![], 23),
-            (vec![], 24),
-            (vec![], 25),
-            (vec![], 26),
-            (vec![], 27),
-            (vec![], 28),
-            (vec![], 29),
-            (vec![], 30),
-            (vec![], 31),
-        ];
-        let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
-
-        let (nodes, node_ptrs, hashes) = make_node4_path(&mut f, &path_segments, [31u8; 40].to_vec());
-        dump_trie(&mut f);
-
-        for i in 1..31 {
-            test_debug!("----------------");
-            test_debug!("i = {}", i);
-            test_debug!("----------------");
-
-            // switch to the next block
-            let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
-
-            // add a leaf at the end of the path
-            let mut next_path = path.clone();
-            next_path[31 - i] = 32;
-            
-            let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
-            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-            
-            test_debug!("----------------");
-            test_debug!("insert");
-            test_debug!("----------------");
-            MARF::insert_leaf(&mut f, &next_block_header, &triepath, &value).unwrap();
-
-            // verify that this leaf exists in _this_ Trie
-            test_debug!("----------------");
-            test_debug!("get");
-            test_debug!("----------------");
-            let read_value = MARF::get_path(&mut f, &next_block_header, &TriePath::from_bytes(&next_path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), [i as u8; 40].to_vec());
-            assert_eq!(read_value.path, next_path[31-i+1..].to_vec());
-            assert_eq!(f.get_cur_block(), next_block_header);
-
-            // can get all previous leaves from _this_ Trie
-            for j in 1..(i+1) {
-                test_debug!("----------------");
-                test_debug!("get-prev {} of {}", j, i);
-                test_debug!("----------------");
-
-                let mut prev_path = path.clone();
-                prev_path[31-j] = 32;
-            
-                let prev_block_header = BlockHeaderHash::from_bytes(&[j as u8; 32]).unwrap();
-
-                let read_value = MARF::get_path(&mut f, &next_block_header, &TriePath::from_bytes(&prev_path[..]).unwrap()).unwrap().unwrap();
-                assert_eq!(read_value.data.to_vec(), [j as u8; 40].to_vec());
-                assert_eq!(f.get_cur_block(), prev_block_header);
-            }
-
-            f.open_block(&next_block_header, false).unwrap();
-
-            dump_trie(&mut f);
-            
-            merkle_test_marf(&mut f, &next_block_header, &next_path, &[i as u8; 40].to_vec());
-        }
-
-        // all leaves are reachable from the last block 
-        let last_block_header = BlockHeaderHash::from_bytes(&[30u8; 32]).unwrap();
-        for i in 1..31 {
-            // add a leaf at the end of the path
-            let mut next_path = path.clone();
-            next_path[31-i] = 32;
-            
-            let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
-            let value = TrieLeaf::new(&next_path[31-i+1..].to_vec(), &[i as u8; 40].to_vec());
-
-            assert_eq!(MARF::get_path(&mut f, &last_block_header, &triepath).unwrap(), Some(value));
-            
-            merkle_test_marf(&mut f, &last_block_header, &next_path, &[i as u8; 40].to_vec());
-        }
+        marf_walk_cow_test("/tmp/rust_marf_walk_cow_node4_20_reversed", |s| {
+            // make a deep path
+            let path_segments = vec![
+                (vec![], 0),
+                (vec![], 1),
+                (vec![], 2),
+                (vec![], 3),
+                (vec![], 4),
+                (vec![], 5),
+                (vec![], 6),
+                (vec![], 7),
+                (vec![], 8),
+                (vec![], 9),
+                (vec![], 10),
+                (vec![], 11),
+                (vec![], 12),
+                (vec![], 13),
+                (vec![], 14),
+                (vec![], 15),
+                (vec![], 16),
+                (vec![], 17),
+                (vec![], 18),
+                (vec![], 19),
+                (vec![], 20),
+                (vec![], 21),
+                (vec![], 22),
+                (vec![], 23),
+                (vec![], 24),
+                (vec![], 25),
+                (vec![], 26),
+                (vec![], 27),
+                (vec![], 28),
+                (vec![], 29),
+                (vec![], 30),
+                (vec![], 31),
+            ];
+            make_node4_path(s, &path_segments, [31u8; 40].to_vec())
+        }, |i, mut p| {
+            p[31-i as usize] = 32;
+            p
+        });
     }
 
-    #[test]
-    fn marf_walk_cow_4() {
+    fn marf_walk_cow_4_test <F> (filename: &str, path_gen: F)
+    where F: Fn(u32, [u8; 32]) -> [u8; 32] {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
-            let path = format!("/tmp/rust_marf_walk_cow_node4_20_reversed-{}", node_id);
-            match fs::metadata(&path) {
-                Ok(_) => {
-                    fs::remove_dir_all(&path).unwrap();
-                },
-                Err(_) => {}
-            };
-            let mut f = TrieFileStorage::new(&path).unwrap();
-
-            let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-            MARF::format(&mut f, &block_header_1).unwrap();
+            let path = format!("{}-{}", filename, node_id);
 
             let path_segments = vec![
-                (vec![0,1,2,3], 4),
-                (vec![5,6,7,8], 9),
+                (vec![], 4),
+                (vec![0,1,2,3,5,6,7,8], 9),
                 (vec![10,11,12,13], 14),
                 (vec![15,16,17,18], 19),
                 (vec![20,21,22,23], 24),
                 (vec![25,26,27,28], 29),
                 (vec![30], 31),
             ];
-            let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
-            let (nodes, node_ptrs, hashes) = make_node_path(&mut f, *node_id, &path_segments, [31u8; 40].to_vec());
-            dump_trie(&mut f);
+            marf_walk_cow_test(&path, |s| {
+                make_node_path_sane_root(s, *node_id, &path_segments, [31u8; 40].to_vec())
+            }, |x,y| { path_gen(x, y) });
+        }
+    }
 
-            for i in 1..31 {
+    fn marf_walk_cow_test <F, G> (filename: &str, path_init: G, path_gen: F)
+    where F: Fn(u32, [u8; 32]) -> [u8; 32],
+          G: FnOnce(&mut TrieFileStorage) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
+        let mut f = TrieFileStorage::new_overwrite(filename).unwrap();
+        let mut last_block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+        MARF::format(&mut f, &last_block_header).unwrap();
+        f.test_genesis_block = Some(last_block_header.clone());
+
+        let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
+
+        let (nodes, node_ptrs, hashes) = path_init(&mut f);
+
+        let mut marf = MARF::from_storage(f);
+
+        for i in 1..31 {
+            test_debug!("----------------");
+            test_debug!("i = {}", i);
+            test_debug!("----------------");
+
+            // switch to the next block
+            let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
+            marf.commit().unwrap();
+            marf.begin(&last_block_header, &next_block_header).unwrap();
+            last_block_header = next_block_header;
+            // add a leaf at the end of the path
+            
+            let next_path = path_gen(i, path.clone());
+            
+            let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
+            let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+            
+            test_debug!("----------------");
+            test_debug!("insert");
+            test_debug!("----------------");
+            marf.insert_raw(triepath.clone(), value.clone()).unwrap();
+            
+            // verify that this leaf exists in _this_ Trie
+            test_debug!("----------------");
+            test_debug!("get");
+            test_debug!("----------------");
+            let read_value = MARF::get_path(marf.borrow_storage_backend(), &next_block_header, 
+                                            &TriePath::from_bytes(&next_path[..]).unwrap()).unwrap().unwrap();
+            assert_eq!(read_value.data.to_vec(), [i as u8; 40].to_vec());
+            // assertion is no longer necessarily true, because of block height data!
+            //
+            //   assert_eq!(read_value.path, next_path[i..].to_vec());
+            assert_eq!(marf.borrow_storage_backend().get_cur_block(), next_block_header);
+            
+            // can get all previous leaves from _this_ Trie
+            for j in 1..(i+1) {
                 test_debug!("----------------");
-                test_debug!("i = {}", i);
+                test_debug!("get-prev {} of {}", j, i);
                 test_debug!("----------------");
-
-                // switch to the next block
-                let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
-
-                // add a leaf at the end of the path
-                let mut next_path = path.clone();
-                next_path[i] = 32;
                 
-                let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
-                let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
+                let mut prev_path = path_gen(j, path.clone());
                 
-                test_debug!("----------------");
-                test_debug!("insert");
-                test_debug!("----------------");
-                MARF::insert_leaf(&mut f, &next_block_header, &triepath, &value).unwrap();
-
-                // verify that this leaf exists in _this_ Trie
-                test_debug!("----------------");
-                test_debug!("get");
-                test_debug!("----------------");
-                let read_value = MARF::get_path(&mut f, &next_block_header, &TriePath::from_bytes(&next_path[..]).unwrap()).unwrap().unwrap();
-                assert_eq!(read_value.data.to_vec(), [i as u8; 40].to_vec());
-                assert_eq!(read_value.path, next_path[i+1..].to_vec());
-                assert_eq!(f.get_cur_block(), next_block_header);
-
-                // can get all previous leaves from _this_ Trie
-                for j in 1..(i+1) {
-                    test_debug!("----------------");
-                    test_debug!("get-prev {} of {}", j, i);
-                    test_debug!("----------------");
-
-                    let mut prev_path = path.clone();
-                    prev_path[j] = 32;
+                let prev_block_header = BlockHeaderHash::from_bytes(&[j as u8; 32]).unwrap();
                 
-                    let prev_block_header = BlockHeaderHash::from_bytes(&[j as u8; 32]).unwrap();
-
-                    let read_value = MARF::get_path(&mut f, &next_block_header, &TriePath::from_bytes(&prev_path[..]).unwrap()).unwrap().unwrap();
-                    assert_eq!(read_value.data.to_vec(), [j as u8; 40].to_vec());
-                    assert_eq!(f.get_cur_block(), prev_block_header);
+                let read_value = MARF::get_path(marf.borrow_storage_backend(), &next_block_header, &TriePath::from_bytes(&prev_path[..]).unwrap()).unwrap().unwrap();
+                assert_eq!(read_value.data.to_vec(), [j as u8; 40].to_vec());
                 
-                    test_debug!("---------------------------------------");
-                    test_debug!("MARF verify {:?} {:?} from current block header {:?}", &prev_path, &[j as u8; 40].to_vec(), &next_block_header);
-                    test_debug!("----------------------------------------");
-                    merkle_test_marf(&mut f, &next_block_header, &prev_path, &[j as u8; 40].to_vec());
-                }
-
-                f.open_block(&next_block_header, false).unwrap();
-                dump_trie(&mut f);
-                
-                merkle_test_marf(&mut f, &next_block_header, &next_path, &[i as u8; 40].to_vec());
-            }
-
-            // all leaves are reachable from the last block 
-            let last_block_header = BlockHeaderHash::from_bytes(&[30u8; 32]).unwrap();
-            for i in 1..31 {
-                // add a leaf at the end of the path
-                let mut next_path = path.clone();
-                next_path[i] = 32;
-                
-                let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
-                let value = TrieLeaf::new(&next_path[i+1..].to_vec(), &[i as u8; 40].to_vec());
-
-                assert_eq!(MARF::get_path(&mut f, &last_block_header, &triepath).unwrap(), Some(value));
+                // assertion no longer true, because inserting the block height information
+                //   can cause a COW.
+                // assert_eq!(f.get_cur_block(), prev_block_header);
                 
                 test_debug!("---------------------------------------");
-                test_debug!("MARF verify {:?} {:?} from last block header {:?}", &next_path, &[i as u8; 40].to_vec(), &last_block_header);
+                test_debug!("MARF verify {:?} {:?} from current block header {:?}", &prev_path, &[j as u8; 40].to_vec(), &next_block_header);
                 test_debug!("----------------------------------------");
-                merkle_test_marf(&mut f, &last_block_header, &next_path, &[i as u8; 40].to_vec());
+                merkle_test_marf(marf.borrow_storage_backend(), &next_block_header, &prev_path.to_vec(), &[j as u8; 40].to_vec());
             }
+            
+            marf.borrow_storage_backend().open_block(&next_block_header, false).unwrap();
+            
+            merkle_test_marf(marf.borrow_storage_backend(), &next_block_header, &next_path.to_vec(), &[i as u8; 40].to_vec());
         }
+        
+        // all leaves are reachable from the last block 
+        for i in 1..31 {
+            // add a leaf at the end of the path
+            let next_path = path_gen(i, path.clone());
+            
+            let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
+            let value = MARFValue([i as u8; 40]);
+            
+            assert_eq!(MARF::get_path(marf.borrow_storage_backend(), &last_block_header, &triepath).unwrap().unwrap().data,
+                       value);
+            
+            test_debug!("---------------------------------------");
+            test_debug!("MARF verify {:?} {:?} from last block header {:?}", &next_path, &[i as u8; 40].to_vec(), &last_block_header);
+            test_debug!("----------------------------------------");
+                merkle_test_marf(marf.borrow_storage_backend(), &last_block_header, &next_path.to_vec(), &[i as u8; 40].to_vec());
+        }
+    }
+
+    #[test]
+    fn marf_walk_cow_4() {
+        marf_walk_cow_4_test("/tmp/rust_marf_walk_cow_node4_20", |i, mut p| {
+            p[i as usize] = 32;
+            p
+        })
+    }
+
+    #[test]
+    fn marf_walk_cow_4_reversed() {
+        marf_walk_cow_4_test("/tmp/rust_marf_walk_cow_node4_20_reversed", |i, mut p| {
+            p[31-i as usize] = 32;
+            p
+        })
     }
     
     #[test]
     fn marf_merkle_verify_backptrs() {
         for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
             let path = format!("/tmp/rust_marf_merkle_verify_backptrs-{}", node_id);
-            match fs::metadata(&path) {
-                Ok(_) => {
-                    fs::remove_dir_all(&path).unwrap();
-                },
-                Err(_) => {}
-            };
-            let mut f = TrieFileStorage::new(&path).unwrap();
+            let mut f = TrieFileStorage::new_overwrite(&path).unwrap();
 
             let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
             MARF::format(&mut f, &block_header_1).unwrap();
+            f.test_genesis_block = Some(block_header_1.clone());
 
             let path_segments = vec![
-                (vec![0,1,2,3,4,5,6,7,8,9,10,11], 12),
-                (vec![13,14,15,16,17,18,19,20,21,24], 25),
+                (vec![], 12),
+                (vec![0,1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,19,20,21,24], 25),
                 (vec![26,27,28,29,30], 31)
             ];
             
             let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
 
             let (nodes, node_ptrs, hashes) = make_node_path(&mut f, *node_id, &path_segments, [31u8; 40].to_vec());
-            dump_trie(&mut f);
+            let mut marf = MARF::from_storage(f);
 
             let block_header_2 = BlockHeaderHash::from_bytes(&[1u8; 32]).unwrap();
             let path_2 = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,32];
@@ -1340,8 +1201,10 @@ mod test {
             test_debug!("Extend to {:?}", block_header_2);
             test_debug!("----------------");
 
-            MARF::insert_leaf(&mut f, &block_header_2, &TriePath::from_bytes(&path_2[..]).unwrap(), &TrieLeaf::new(&vec![], &[20 as u8; 40].to_vec())).unwrap();
-            
+            marf.commit().unwrap();
+            marf.begin(&block_header_1, &block_header_2).unwrap();
+            marf.insert_raw(TriePath::from_bytes(&path_2[..]).unwrap(), TrieLeaf::new(&vec![], &[20 as u8; 40].to_vec())).unwrap();
+
             let block_header_3 = BlockHeaderHash::from_bytes(&[2u8; 32]).unwrap();
             let path_3 = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,33];
             
@@ -1349,240 +1212,103 @@ mod test {
             test_debug!("Extend to {:?}", block_header_3);
             test_debug!("----------------");
 
-            MARF::insert_leaf(&mut f, &block_header_3, &TriePath::from_bytes(&path_3[..]).unwrap(), &TrieLeaf::new(&vec![], &[21 as u8; 40].to_vec())).unwrap();
-
-            test_debug!("----------------");
-            test_debug!("MARF at {:?}", &block_header_1);
-            test_debug!("----------------");
-            f.open_block(&block_header_1, false).unwrap();
-            dump_trie(&mut f);
-
-            test_debug!("----------------");
-            test_debug!("MARF at {:?}", &block_header_2);
-            test_debug!("----------------");
-            f.open_block(&block_header_2, false).unwrap();
-            dump_trie(&mut f);
-
-
-            test_debug!("----------------");
-            test_debug!("MARF at {:?}", &block_header_3);
-            test_debug!("----------------");
-            f.open_block(&block_header_3, false).unwrap();
-            dump_trie(&mut f);
+            marf.commit().unwrap();
+            marf.begin(&block_header_2, &block_header_3).unwrap();
+            marf.insert_raw(TriePath::from_bytes(&path_3[..]).unwrap(), TrieLeaf::new(&vec![], &[21 as u8; 40].to_vec())).unwrap();
 
             test_debug!("----------------");
             test_debug!("Merkle verify {:?} from {:?}", &to_hex(&[21 as u8; 40]), block_header_3);
             test_debug!("----------------");
 
-            merkle_test_marf(&mut f, &block_header_3, &path_3, &[21 as u8; 40].to_vec());
+            merkle_test_marf(marf.borrow_storage_backend(), &block_header_3, 
+                             &path_3, &[21 as u8; 40].to_vec());
         }
     }
 
-    #[test]
-    fn marf_walk_cow_4_reversed() {
-        for node_id in [TrieNodeID::Node4, TrieNodeID::Node16, TrieNodeID::Node48, TrieNodeID::Node256].iter() {
-            let path = format!("/tmp/rust_marf_walk_cow_4_reversed-{}", node_id);
-            match fs::metadata(&path) {
-                Ok(_) => {
-                    fs::remove_dir_all(&path).unwrap();
-                },
-                Err(_) => {}
-            };
-            let mut f = TrieFileStorage::new(&path).unwrap();
+    fn marf_insert<F>(filename: &str, mut path_gen: F, count: u32) -> MARF
+        where F: FnMut(u32) -> ([u8; 32], Option<BlockHeaderHash>) {
 
-            let block_header_1 = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-            MARF::format(&mut f, &block_header_1).unwrap();
+        let f = TrieFileStorage::new_overwrite(filename).unwrap();
+        let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
+        let mut marf = MARF::from_storage(f);
+        marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
 
-            let path_segments = vec![
-                (vec![0,1,2,3], 4),
-                (vec![5,6,7,8], 9),
-                (vec![10,11,12,13], 14),
-                (vec![15,16,17,18], 19),
-                (vec![20,21,22,23], 24),
-                (vec![25,26,27,28], 29),
-                (vec![30], 31)
-            ];
-            let path = vec![0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31];
+        for i in 0..count {
+            let i0 = i / 256;
+            let i1 = i % 256;
 
-            let (nodes, node_ptrs, hashes) = make_node_path(&mut f, *node_id, &path_segments, [31u8; 40].to_vec());
-            dump_trie(&mut f);
+            let (path, next_block_header) = path_gen(i);
 
-            for i in 1..31 {
-                test_debug!("----------------");
-                test_debug!("i = {}", i);
-                test_debug!("----------------");
+            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
+            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
 
-                // switch to the next block
-                let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
-
-                // add a leaf at the end of the path
-                let mut next_path = path.clone();
-                next_path[31 - i] = 32;
-                
-                let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
-                let value = TrieLeaf::new(&vec![], &[i as u8; 40].to_vec());
-                
-                test_debug!("----------------");
-                test_debug!("insert");
-                test_debug!("----------------");
-                MARF::insert_leaf(&mut f, &next_block_header, &triepath, &value).unwrap();
-
-                // verify that this leaf exists in _this_ Trie
-                test_debug!("----------------");
-                test_debug!("get");
-                test_debug!("----------------");
-                let read_value = MARF::get_path(&mut f, &next_block_header, &TriePath::from_bytes(&next_path[..]).unwrap()).unwrap().unwrap();
-                assert_eq!(read_value.data.to_vec(), [i as u8; 40].to_vec());
-                assert_eq!(read_value.path, next_path[31-i+1..].to_vec());
-                assert_eq!(f.get_cur_block(), next_block_header);
-
-                // can get all previous leaves from _this_ Trie
-                for j in 1..(i+1) {
-                    test_debug!("----------------");
-                    test_debug!("get-prev {} of {}", j, i);
-                    test_debug!("----------------");
-
-                    let mut prev_path = path.clone();
-                    prev_path[31-j] = 32;
-                
-                    let prev_block_header = BlockHeaderHash::from_bytes(&[j as u8; 32]).unwrap();
-
-                    let read_value = MARF::get_path(&mut f, &next_block_header, &TriePath::from_bytes(&prev_path[..]).unwrap()).unwrap().unwrap();
-                    assert_eq!(read_value.data.to_vec(), [j as u8; 40].to_vec());
-                    assert_eq!(f.get_cur_block(), prev_block_header);
-                }
-
-                f.open_block(&next_block_header, false).unwrap();
-
-                dump_trie(&mut f);
-                
-                merkle_test_marf(&mut f, &next_block_header, &next_path, &[i as u8; 40].to_vec());
+            if let Some(next_block_header) = next_block_header {
+                marf.commit().unwrap();
+                marf.begin(&block_header, &next_block_header).unwrap();
+                block_header = next_block_header;
             }
 
-            // all leaves are reachable from the last block 
-            let last_block_header = BlockHeaderHash::from_bytes(&[30u8; 32]).unwrap();
-            for i in 1..31 {
-                // add a leaf at the end of the path
-                let mut next_path = path.clone();
-                next_path[31-i] = 32;
-                
-                let triepath = TriePath::from_bytes(&next_path[..]).unwrap();
-                let value = TrieLeaf::new(&next_path[31-i+1..].to_vec(), &[i as u8; 40].to_vec());
+            marf.insert_raw(triepath, value.clone()).unwrap();
+             
+            let read_value = MARF::get_path(marf.borrow_storage_backend(), &block_header, 
+                                            &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
+            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
+            assert_eq!(marf.borrow_storage_backend().get_cur_block(), block_header);
 
-                assert_eq!(MARF::get_path(&mut f, &last_block_header, &triepath).unwrap(), Some(value));
-                
-                test_debug!("---------------------------------------");
-                test_debug!("MARF verify {:?} {:?} from last block header {:?}", &next_path, &[i as u8; 40].to_vec(), &last_block_header);
-                test_debug!("----------------------------------------");
-                merkle_test_marf(&mut f, &last_block_header, &next_path, &[i as u8; 40].to_vec());
-            }
+            merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec());
         }
+
+        for i in 0..count {
+            let i0 = i / 256;
+            let i1 = i % 256;
+            let (path, _next_block_header) = path_gen(i);
+
+            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
+            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
+
+            let read_value = MARF::get_path(marf.borrow_storage_backend(), &block_header,
+                                            &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
+            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
+            
+            // can make a merkle proof to each one
+            merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec());
+        }
+
+        marf
     }
 
     // insert a range of 4096 consecutive keys (forcing node promotions) by varying the low-order bits.
     // every 128 keys, make a new trie
     #[test]
     fn marf_insert_4096_128_seq_low() {
-        let path = "/tmp/rust_marf_insert_4096_128_seq_low".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let mut f = TrieFileStorage::new(&path).unwrap();
-
-        let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header).unwrap();
-
-        for i in 0..4096 {
-            let i0 = i / 256;
-            let i1 = i % 256;
-            let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
-
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-
-            if (i + 1) % 128 == 0 {
+        marf_insert("/tmp/rust_marf_insert_4096_128_seq_low", |i| {
+            let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29, (i / 256) as u8, (i % 256) as u8];
+            let block_header = if (i + 1) % 128 == 0 {
                 // next block 
-                block_header = BlockHeaderHash::from_bytes(&[((i + 1) / 128) as u8; 32]).unwrap();
-            }
-
-            MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
-             
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            assert_eq!(f.get_cur_block(), block_header);
-        }
-
-        for i in 0..4096 {
-            // can read them all back
-            let i0 = i / 256;
-            let i1 = i % 256;
-            let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
-
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            
-            // can make a merkle proof to each one
-            merkle_test_marf(&mut f, &block_header, &path.to_vec(), &value.data.to_vec());
-        }
+                Some(BlockHeaderHash::from_bytes(&[((i + 1) / 128) as u8; 32]).unwrap())
+            } else {
+                None
+            };
+            (path, block_header)
+        }, 4096);
     }
 
     // insert a range of 4096 consecutive keys (forcing node promotions) by varying the high-order bits.
     // every 128 keys, make a new trie
     #[test]
     fn marf_insert_4096_128_seq_high() {
-        let path = "/tmp/rust_marf_insert_4096_128_seq_high".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let mut f = TrieFileStorage::new(&path).unwrap();
-
-        let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header).unwrap();
-
-        for i in 0..4096 {
+        marf_insert("/tmp/rust_marf_insert_4096_128_seq_high", |i| {
             let i0 = i / 256;
             let i1 = i % 256;
             let path = [i0 as u8, i1 as u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31];
-
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-
-            if (i + 1) % 128 == 0 {
+            let block_header = if (i + 1) % 128 == 0 {
                 // next block 
-                block_header = BlockHeaderHash::from_bytes(&[((i + 1) / 128) as u8; 32]).unwrap();
-            }
-
-            MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
-             
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            assert_eq!(f.get_cur_block(), block_header);
-        }
-
-        for i in 0..4096 {
-            // can read them all back
-            let i0 = i / 256;
-            let i1 = i % 256;
-            let path = [i0 as u8, i1 as u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31];
-
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            
-            // can make a merkle proof to each one
-            merkle_test_marf(&mut f, &block_header, &path.to_vec(), &value.data.to_vec());
-        }
+                Some(BlockHeaderHash::from_bytes(&[((i + 1) / 128) as u8; 32]).unwrap())
+            } else {
+                None
+            };
+            (path, block_header)
+        }, 4096);
     }
 
     // insert a leaf, open a new block, and attempt to split the leaf
@@ -1590,17 +1316,13 @@ mod test {
     // (since we have a different backptr copy routine there)
     #[test]
     fn marf_split_leaf_path() {
-        let path = "/tmp/rust_marf_insert_4096_128_seq_high".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let mut f = TrieFileStorage::new(&path).unwrap();
+        let path = "/tmp/rust_marf_split_leaf_path";
+        let f = TrieFileStorage::new_overwrite(&path).unwrap();
 
+        let mut marf = MARF::from_storage(f);
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header).unwrap();
+
+        marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
 
         let path = [0u8; 32];
         let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
@@ -1610,7 +1332,7 @@ mod test {
         test_debug!("insert ({:?}, {:?}) in {:?}", &triepath, &value, &block_header);
         test_debug!("----------------");
 
-        MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
+        marf.insert_raw(triepath.clone(), value.clone()).unwrap();
 
         // insert a leaf along the same path but in a different block
         let block_header_2 = BlockHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap();
@@ -1622,104 +1344,55 @@ mod test {
         test_debug!("insert ({:?}, {:?}) in {:?}", &triepath_2, &value_2, &block_header_2);
         test_debug!("----------------");
 
-        MARF::insert_leaf(&mut f, &block_header_2, &triepath_2, &value_2).unwrap();
+        marf.commit().unwrap();
+        marf.begin(&block_header, &block_header_2).unwrap();
+        marf.insert_raw(triepath_2.clone(), value_2.clone()).unwrap();
 
         test_debug!("----------------");
         test_debug!("get ({:?}, {:?}) in {:?}", &triepath, &value, &block_header_2);
         test_debug!("----------------");
 
-        let read_value = MARF::get_path(&mut f, &block_header_2, &triepath).unwrap().unwrap();
+        let read_value = MARF::get_path(marf.borrow_storage_backend(), &block_header_2, &triepath).unwrap().unwrap();
         assert_eq!(read_value.data.to_vec(), value.data.to_vec());
         
         test_debug!("----------------");
         test_debug!("get ({:?}, {:?}) in {:?}", &triepath_2, &value_2, &block_header_2);
         test_debug!("----------------");
 
-        let read_value_2 = MARF::get_path(&mut f, &block_header_2, &triepath_2).unwrap().unwrap();
+        let read_value_2 = MARF::get_path(marf.borrow_storage_backend(), &block_header_2, &triepath_2).unwrap().unwrap();
         assert_eq!(read_value_2.data.to_vec(), value_2.data.to_vec());
     }
 
     
-    // insert a random sequence of 65536 keys.  Every 2048 inserts, fork.
+    // insert a random sequence of 65536 keys.  Every 2048 inserts, start a new block.
+    //   *these aren't forks* `insert_leaf` on a non-existent bhh creates a block extension in
+    //   walk_cow via `MARF::extend_trie`.
+
     #[test]
     fn marf_insert_random_65536_2048() {
-        let path = "/tmp/rust_marf_insert_random_65536_2048".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let mut f = TrieFileStorage::new(&path).unwrap();
-
-        let mut block_header = BlockHeaderHash([0u8; 32]);
-        MARF::format(&mut f, &block_header).unwrap();
-        
+        let filename = "/tmp/rust_marf_insert_random_65536_2048";
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
-        let mut start_time = get_epoch_time_ms();
-        for i in 0..65536 {
-            let i0 = i / 256;
-            let i1 = i % 256;
-            
-            let path = TrieHash::from_data(&seed[..]).as_bytes()[0..32].to_vec();
-            seed = path.clone();
+        marf_insert(filename, |i| {
+            let mut path = [0; 32];
+            path.copy_from_slice(&
+                TrieHash::from_data(
+                    if i == 0 {
+                        &[]
+                    } else {
+                        seed.as_slice()
+                    }).as_bytes()[0..32]);
+            seed = path.to_vec();
 
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
+            let block_header = if (i + 1) % 2048 == 0 {
+                // next block 
+                Some(BlockHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,((i+1)/2048) as u8,((i+1)%2048) as u8])
+                     .unwrap())
+            } else {
+                None
+            };
+            (path, block_header)
+        }, 65536);
 
-            if (i + 1) % 2048 == 0 {
-                // next block
-                test_debug!("next block!");
-                block_header = BlockHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,((i+1)/2048) as u8,((i+1)%2048) as u8]).unwrap();
-            }
-
-            MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
-
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            assert_eq!(f.get_cur_block(), block_header);
-
-            if i % 128 == 0 {
-                let end_time = get_epoch_time_ms();
-                let (read_count, write_count) = f.stats();
-                let (node_reads, backptr_reads, node_writes) = f.node_stats();
-                let (leaf_reads, leaf_writes) = f.leaf_stats();
-                test_debug!("inserted {} in {} (1 insert = {} ms).  Read = {}, Write = {}, Node Reads = {}, Node Writes = {}, Backptr Reads = {}, Leaf Reads = {}, Leaf Writes = {}",
-                         i, end_time - start_time, ((end_time - start_time) as f64) / 128.0, read_count, write_count, node_reads, node_writes, backptr_reads, leaf_reads, leaf_writes);
-
-                start_time = get_epoch_time_ms();
-            }
-        }
-        
-        let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
-
-        start_time = get_epoch_time_ms();
-        for i in 0..65536 {
-            // can read them all back
-            let i0 = i / 256;
-            let i1 = i % 256;
-            
-            let path = TrieHash::from_data(&seed[..]).as_bytes()[0..32].to_vec();
-            seed = path.clone();
-
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            
-            // can make a merkle proof to each one
-            if i % 128 == 0 {
-                let end_time = get_epoch_time_ms();
-                let (read_count, write_count) = f.stats();
-                let (node_reads, backptr_reads, node_writes) = f.node_stats();
-                let (leaf_reads, leaf_writes) = f.leaf_stats();
-                test_debug!("Got {} in {} (1 get = {} ms).  Read = {}, Write = {}, Node Reads = {}, Node Writes = {}, Backptr Reads = {}, Leaf Reads = {}, Leaf Writes = {}",
-                         i, end_time - start_time, ((end_time - start_time) as f64) / 128.0, read_count, write_count, node_reads, node_writes, backptr_reads, leaf_reads, leaf_writes);
-                
-                start_time = get_epoch_time_ms();
-            }
-        }
     }
     
     // insert a random sequence of 1024 * 1024 * 10 keys.  Every 4096 inserts, fork.
@@ -1845,14 +1518,9 @@ mod test {
     // is inserted, and once all inserts complete.
     #[test]
     fn marf_insert_random_4096_128_file_storage_merkle_proof() {
-        let path = "/tmp/rust_marf_insert_random_4096_128_file_storage".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-        let f = TrieFileStorage::new(&path).unwrap();
+        let path = "/tmp/rust_marf_insert_4096_128_file_storage_merkle_proof";
+        let f = TrieFileStorage::new_overwrite(&path).unwrap();
+
         let mut m = MARF::from_storage(f);
 
         let mut block_header = TrieFileStorage::block_sentinel();
@@ -2003,75 +1671,25 @@ mod test {
     // Use the TrieFileStorage backend
     #[test]
     fn marf_insert_128_32_file_storage() {
-        let path = "/tmp/rust_marf_insert_128_32_file_storage".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-
-        let mut f = TrieFileStorage::new(&path).unwrap();
-
-        let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header).unwrap();
-
-        for i in 0..128 {
+        let mut marf = marf_insert("/tmp/rust_marf_insert_128_32_file_storage", |i| {
             let i0 = i / 256;
             let i1 = i % 256;
             let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
+            let block_header = if (i + 1) % 32 == 0 {
+                // next block 
+                Some(BlockHeaderHash::from_bytes(&[((i + 1) / 32) as u8; 32]).unwrap())
+            } else {
+                None
+            };
+            (path, block_header)
+        }, 128);
 
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-
-            if (i + 1) % 32 == 0 {
-                // next block
-                block_header = BlockHeaderHash::from_bytes(&[((i + 1) / 32) as u8; 32]).unwrap();
-                test_debug!("block header is now {:?}", &block_header);
-                f.flush().unwrap();
-            }
-
-            test_debug!("insert {}", i);
-            MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
-             
-            test_debug!("get {}", i);
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            assert_eq!(f.get_cur_block(), block_header);
-            
-            // can make a merkle proof to each one
-            merkle_test_marf(&mut f, &block_header, &path.to_vec(), &value.data.to_vec());
-        }
-        
-        f.flush().unwrap();
-
-        f.open_block(&block_header, false).unwrap();
-        dump_trie(&mut f);
-
-        test_debug!("------------");
-        test_debug!("get all and get merkle proofs");
-        test_debug!("------------");
-
-        for i in 0..128 {
-            // can read them all back
-            let i0 = i / 256;
-            let i1 = i % 256;
-            let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
-
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            
-            // can make a merkle proof to each one
-            merkle_test_marf(&mut f, &block_header, &path.to_vec(), &value.data.to_vec());
-        }
+        marf.commit().unwrap();
 
         for i in 0..(128/32) {
             let block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
-            f.open_block(&block_header, false).unwrap();
-            dump_trie(&mut f);
+            marf.borrow_storage_backend().open_block(&block_header, false).unwrap();
+            dump_trie(marf.borrow_storage_backend());
         }
     }
 
@@ -2080,72 +1698,25 @@ mod test {
     // Use the TrieFileStorage backend
     #[test]
     fn marf_insert_4096_128_file_storage() {
-        let path = "/tmp/rust_marf_insert_4096_128_file_storage".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-
-        let mut f = TrieFileStorage::new(&path).unwrap();
-
-        let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header).unwrap();
-
-        for i in 0..4096 {
+        let mut marf = marf_insert("/tmp/rust_marf_insert_4096_128_file_storage", |i| {
             let i0 = i / 256;
             let i1 = i % 256;
             let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
+            let block_header = if (i + 1) % 128 == 0 {
+                // next block 
+                Some(BlockHeaderHash::from_bytes(&[((i + 1) / 128) as u8; 32]).unwrap())
+            } else {
+                None
+            };
+            (path, block_header)
+        }, 4096);
 
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-
-            if (i + 1) % 128 == 0 {
-                // next block
-                block_header = BlockHeaderHash::from_bytes(&[((i + 1) / 128) as u8; 32]).unwrap();
-                test_debug!("block header is now {:?}", &block_header);
-                f.flush().unwrap();
-            }
-
-            test_debug!("insert {}", i);
-            MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
-             
-            test_debug!("get {}", i);
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            assert_eq!(f.get_cur_block(), block_header);
-            
-            // can make a merkle proof to each one
-            merkle_test_marf(&mut f, &block_header, &path.to_vec(), &value.data.to_vec());
-        }
-        
-        f.flush().unwrap();
-
-        test_debug!("------------");
-        test_debug!("get all and get merkle proofs");
-        test_debug!("------------");
-
-        for i in 0..4096 {
-            // can read them all back
-            let i0 = i / 256;
-            let i1 = i % 256;
-            let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
-
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            
-            // can make a merkle proof to each one
-            merkle_test_marf(&mut f, &block_header, &path.to_vec(), &value.data.to_vec());
-        }
+        marf.commit().unwrap();
 
         for i in 0..(4096/128) {
             let block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
-            f.open_block(&block_header, false).unwrap();
-            dump_trie(&mut f);
+            marf.borrow_storage_backend().open_block(&block_header, false).unwrap();
+            dump_trie(marf.borrow_storage_backend());
         }
     }
 
@@ -2154,72 +1725,25 @@ mod test {
     // Use the TrieFileStorage backend
     #[test]
     fn marf_insert_256_16_file_storage() {
-        let path = "/tmp/rust_marf_insert_256_16_file_storage".to_string();
-        match fs::metadata(&path) {
-            Ok(_) => {
-                fs::remove_dir_all(&path).unwrap();
-            },
-            Err(_) => {}
-        };
-
-        let mut f = TrieFileStorage::new(&path).unwrap();
-
-        let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        MARF::format(&mut f, &block_header).unwrap();
-
-        for i in 0..256 {
+        let mut marf = marf_insert("/tmp/rust_marf_insert_256_16_file_storage", |i| {
             let i0 = i / 256;
             let i1 = i % 256;
             let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
+            let block_header = if (i + 1) % 16 == 0 {
+                // next block 
+                Some(BlockHeaderHash::from_bytes(&[((i + 1) / 16) as u8; 32]).unwrap())
+            } else {
+                None
+            };
+            (path, block_header)
+        }, 256);
 
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-
-            if (i + 1) % 16 == 0 {
-                // next block
-                block_header = BlockHeaderHash::from_bytes(&[((i + 1) / 16) as u8; 32]).unwrap();
-                test_debug!("block header is now {:?}", &block_header);
-                f.flush().unwrap();
-            }
-
-            test_debug!("insert {}", i);
-            MARF::insert_leaf(&mut f, &block_header, &triepath, &value).unwrap();
-             
-            test_debug!("get {}", i);
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            assert_eq!(f.get_cur_block(), block_header);
-            
-            // can make a merkle proof to each one
-            merkle_test_marf(&mut f, &block_header, &path.to_vec(), &value.data.to_vec());
-        }
-        
-        f.flush().unwrap();
-
-        test_debug!("------------");
-        test_debug!("get all and get merkle proofs");
-        test_debug!("------------");
-
-        for i in 0..256 {
-            // can read them all back
-            let i0 = i / 256;
-            let i1 = i % 256;
-            let path = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,i0 as u8, i1 as u8];
-
-            let triepath = TriePath::from_bytes(&path[..]).unwrap(); 
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-
-            let read_value = MARF::get_path(&mut f, &block_header, &TriePath::from_bytes(&path[..]).unwrap()).unwrap().unwrap();
-            assert_eq!(read_value.data.to_vec(), value.data.to_vec());
-            
-            // can make a merkle proof to each one
-            merkle_test_marf(&mut f, &block_header, &path.to_vec(), &value.data.to_vec());
-        }
+        marf.commit().unwrap();
 
         for i in 0..(256/16) {
             let block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
-            f.open_block(&block_header, false).unwrap();
-            dump_trie(&mut f);
+            marf.borrow_storage_backend().open_block(&block_header, false).unwrap();
+            dump_trie(marf.borrow_storage_backend());
         }
     }
 
@@ -2282,24 +1806,26 @@ mod test {
             }
         }
 
-        let mut chain_tips = m.chain_tips();
-        chain_tips.sort();
-
         let mut expected_chain_tips = fork_headers[fork_headers.len() - 1].clone();
         expected_chain_tips.sort();
 
-        assert_eq!(chain_tips, expected_chain_tips);
+//   TODO:
+//     Chain tips is _not_ currently implemented.
+//     So we'll need that before we can test.
+//        let mut chain_tips = m.chain_tips();
+//        chain_tips.sort();
+//        assert_eq!(chain_tips, expected_chain_tips);
 
-        for k in 0..chain_tips.len() {
+        for k in 0..expected_chain_tips.len() {
             for l in 0..128 {
                 let raw_value = [7u8, (k/2) as u8, k as u8, l as u8, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0].to_vec();
                 let expected_value = to_hex(&raw_value);
                 let key = format!("{}-{}-{}-{}", 7, (k/2), k, l);
 
-                let marf_value = m.get(&chain_tips[k], &key).unwrap().unwrap();
+                let marf_value = m.get(&expected_chain_tips[k], &key).unwrap().unwrap();
                 assert_eq!(marf_value, MARFValue::from_value(&expected_value));
                 
-                merkle_test_marf_key_value(m.borrow_storage_backend(), &chain_tips[k], &key, &expected_value);
+                merkle_test_marf_key_value(m.borrow_storage_backend(), &expected_chain_tips[k], &key, &expected_value);
             }
         }
     }

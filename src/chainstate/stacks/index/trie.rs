@@ -141,6 +141,7 @@ impl Trie {
     /// found (it will _not_ be a back-pointer).
     pub fn walk_backptr(storage: &mut TrieFileStorage, ptr: &TriePtr, cursor: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr), Error> {
         if !is_backptr(ptr.id()) {
+            eprintln!("Walking to same block?");
             // child is in this block
             if ptr.id() == TrieNodeID::Empty {
                 // shouldn't happen
@@ -1720,7 +1721,7 @@ mod test {
         }
     }
 
-    fn insert_1024_test<F>(filename: &str, mut path_gen: F)
+    fn insert_n_test<F>(filename: &str, count: u32, mut path_gen: F)
         where F: FnMut(u32) -> [u8; 32] {
         let f = TrieFileStorage::new_overwrite(filename).unwrap();
 
@@ -1729,7 +1730,7 @@ mod test {
         marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
         MARF::get_block_height(marf.borrow_storage_backend() , &block_header, &block_header).unwrap().unwrap();
 
-        for i in 0..1024 {
+        for i in 0..count {
             eprintln!("{}", i);
             let path = path_gen(i);
             let triepath = TriePath::from_bytes(&path).unwrap();
@@ -1739,7 +1740,7 @@ mod test {
             merkle_test(marf.borrow_storage_backend(), &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
         }
 
-        for i in 0..1024 {
+        for i in 0..count {
             let path = path_gen(i);
             let triepath = TriePath::from_bytes(&path).unwrap();
             let value = MARF::get_path(marf.borrow_storage_backend(), &block_header, &triepath).unwrap().unwrap();
@@ -1752,7 +1753,7 @@ mod test {
 
     #[test]
     fn insert_1024_seq_low() {
-        insert_1024_test("/tmp/rust_marf_insert_1024_seq_low",
+        insert_n_test("/tmp/rust_marf_insert_1024_seq_low", 1024,
                          |i| {
                              [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29, (i / 256) as u8, (i % 256) as u8]
                          })
@@ -1760,7 +1761,7 @@ mod test {
     
     #[test]
     fn insert_1024_seq_high() {
-        insert_1024_test("/tmp/rust_marf_insert_1024_seq_high",
+        insert_n_test("/tmp/rust_marf_insert_1024_seq_high", 1024,
                          |i| {
                              [(i / 256) as u8, (i % 256) as u8, 2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
                          })
@@ -1768,7 +1769,7 @@ mod test {
     
     #[test]
     fn insert_1024_seq_mid() {
-        insert_1024_test("/tmp/rust_marf_insert_1024_seq_mid",
+        insert_n_test("/tmp/rust_marf_insert_1024_seq_mid", 1024,
                          |i| {
                              let i0 = i / 256;
                              let i1 = (i % 256) / 32;
@@ -1781,45 +1782,21 @@ mod test {
     #[test]
     fn insert_65536_random_deterministic() {
         // deterministic random insert of 65536 keys
-        let f = TrieFileStorage::new_overwrite(&"/tmp/rust_marf_insert_65536_random_deterministic".to_string()).unwrap();
-
-        let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
-        let mut marf = MARF::from_storage(f);
-        marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
-        MARF::get_block_height(marf.borrow_storage_backend() , &block_header, &block_header).unwrap().unwrap();
-
-
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
 
-        for i in 0..65536 {
-            let i0 = i / 256;
-            let i1 = i % 256;
-            let path = TrieHash::from_data(&seed[..]).as_bytes()[0..32].to_vec();
-            seed = path.clone();
-
-            let triepath = TriePath::from_bytes(&path[..]).unwrap();
-            let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-            marf.insert_raw(triepath, value).unwrap();
-            
-            merkle_test(marf.borrow_storage_backend(), &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-        }
-
-        seed = TrieHash::from_data(&[]).as_bytes().to_vec();
-
-        for i in 0..65536 {
-            let i0 = i / 256;
-            let i1 = i % 256;
-            let path = TrieHash::from_data(&seed[..]).as_bytes()[0..32].to_vec();
-            seed = path.clone();
-            
-            let triepath = TriePath::from_bytes(&path[..]).unwrap();
-            let value = MARF::get_path(marf.borrow_storage_backend(), &block_header, &triepath).unwrap().unwrap();
-            assert_eq!(value.data.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-            
-            merkle_test(marf.borrow_storage_backend(), &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i0 as u8, i1 as u8].to_vec());
-        }
-        
-        dump_trie(marf.borrow_storage_backend());
+        insert_n_test("/tmp/rust_marf_insert_65536_random_deterministic_merkle_proof", 65536, |i| {
+            let mut path = [0; 32];
+            path.copy_from_slice(&
+                TrieHash::from_data(
+                    if i == 0 {
+                        &[]
+                    } else {
+                        seed.as_slice()
+                    }).as_bytes()[0..32]);
+            seed = path.to_vec();
+            eprintln!("{}", to_hex(&path));
+            path
+        })
     }
     
     #[test]
@@ -1827,7 +1804,7 @@ mod test {
         // deterministic random insert of 1024 keys
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
 
-        insert_1024_test("/tmp/rust_marf_insert_65536_random_deterministic_merkle_proof", |i| {
+        insert_n_test("/tmp/rust_marf_insert_65536_random_deterministic_merkle_proof", 1024, |i| {
             let mut path = [0; 32];
             path.copy_from_slice(&
                 TrieHash::from_data(

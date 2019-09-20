@@ -33,7 +33,7 @@ pub fn temporary_marf() -> MarfedKV {
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
     path.push(to_hex(&random_bytes));
 
-    let mut marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"))
+    let marf = MARF::from_path(path.to_str().expect("Inexplicably non-UTF-8 character in filename"))
         .unwrap();
     let side_store = Box::new(HashMap::new());
 

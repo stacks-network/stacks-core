@@ -768,8 +768,7 @@ impl TrieFileStorage {
                         }
                     })?;
 
-        // NOTE: the trie root hash starts at byte 32
-        let root_hash_ptr = TriePtr::new(TrieNodeID::Node256, 0, BLOCK_HEADER_HASH_ENCODED_SIZE);
+        let root_hash_ptr = self.root_trieptr();
         let mut hash_buf = Vec::with_capacity(BLOCK_HEADER_HASH_ENCODED_SIZE as usize);
         read_node_hash_bytes(&mut fd, &root_hash_ptr, &mut hash_buf)?;
 

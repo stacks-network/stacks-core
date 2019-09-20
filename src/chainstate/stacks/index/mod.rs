@@ -504,6 +504,85 @@ mod test {
 
         (nodes, node_ptrs, hashes)
     }
+
+    pub fn make_node_path_sane_root(s: &mut TrieFileStorage, node_id: u8, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
+        // make a fully-fleshed-out path of node's to a leaf 
+        let root_ptr = s.root_ptr();
+        // having a _path_ in the root breaks the cursor COW behavior.
+        //   since it diverges _before_ ever taking a step.
+        let root = TrieNode256::new(&vec![]);
+        let root_hash = TrieHash::from_data(&[0u8; 32]);        // don't care about this in this test
+        s.write_node(root_ptr, &root, root_hash.clone()).unwrap();
+
+        let mut parent = TrieNodeType::Node256(root);
+        let mut parent_ptr = root_ptr;
+
+        let mut nodes = vec![];
+        let mut node_ptrs = vec![];
+        let mut hashes = vec![];
+        let mut seg_id = 0;
+
+        for i in 0..path_segments.len() - 1 {
+            let path_segment = &path_segments[i].0;
+            let chr = path_segments[i].1;
+            // let node_ptr = ftell(s).unwrap();
+            let node_ptr = s.last_ptr().unwrap();
+
+            let node = match node_id {
+                TrieNodeID::Node4 => TrieNodeType::Node4(TrieNode4::new(path_segment)),
+                TrieNodeID::Node16 => TrieNodeType::Node16(TrieNode16::new(path_segment)),
+                TrieNodeID::Node48 => TrieNodeType::Node48(TrieNode48::new(path_segment)),
+                TrieNodeID::Node256 => TrieNodeType::Node256(TrieNode256::new(path_segment)),
+                _ => panic!("invalid node ID")
+            };
+
+            s.write_nodetype(node_ptr, &node, TrieHash::from_data(&[(seg_id+1) as u8; 32])).unwrap();
+            
+            // update parent 
+            match parent {
+                TrieNodeType::Node256(ref mut data) => assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32))),
+                TrieNodeType::Node48(ref mut data) => assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32))),
+                TrieNodeType::Node16(ref mut data) => assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32))),
+                TrieNodeType::Node4(ref mut data) => assert!(data.insert(&TriePtr::new(node_id, chr, node_ptr as u32))),
+                TrieNodeType::Leaf(_) => panic!("can't insert into leaf"),
+            };
+
+            s.write_nodetype(parent_ptr, &parent, TrieHash::from_data(&[seg_id as u8; 32])).unwrap();
+            
+            nodes.push(parent.clone());
+            node_ptrs.push(TriePtr::new(node_id, chr, node_ptr as u32));
+            hashes.push(TrieHash::from_data(&[(seg_id+1) as u8; 32]));
+
+            parent = node;
+            parent_ptr = node_ptr;
+
+            seg_id += 1;
+        }
+
+        // add a leaf at the end 
+        let child = TrieLeaf::new(&path_segments[path_segments.len()-1].0, &leaf_data);
+        let child_chr = path_segments[path_segments.len()-1].1;
+        // let child_ptr = ftell(s).unwrap();
+        let child_ptr = s.last_ptr().unwrap();
+        s.write_node(child_ptr, &child, TrieHash::from_data(&[(seg_id+1) as u8; 32])).unwrap();
+
+        // update parent
+        match parent {
+            TrieNodeType::Node256(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32))),
+            TrieNodeType::Node48(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32))),
+            TrieNodeType::Node16(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32))),
+            TrieNodeType::Node4(ref mut data) => assert!(data.insert(&TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32))),
+            TrieNodeType::Leaf(_) => panic!("can't insert into leaf"),
+        };
+
+        s.write_nodetype(parent_ptr, &parent, TrieHash::from_data(&[(seg_id) as u8; 32])).unwrap();
+
+        nodes.push(parent.clone());
+        node_ptrs.push(TriePtr::new(TrieNodeID::Leaf, child_chr, child_ptr as u32));
+        hashes.push(TrieHash::from_data(&[(seg_id+1) as u8; 32]));
+
+        (nodes, node_ptrs, hashes)
+    }
     
     pub fn make_node4_path(s: &mut TrieFileStorage, path_segments: &Vec<(Vec<u8>, u8)>, leaf_data: Vec<u8>) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>) {
         make_node_path(s, TrieNodeID::Node4, path_segments, leaf_data)
