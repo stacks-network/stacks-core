@@ -68,7 +68,6 @@ use chainstate::stacks::index::storage::{
 use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
-    fast_extend_from_slice,
     MARFValue
 };
 

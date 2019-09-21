@@ -20,7 +20,7 @@ fn new_overwrite(dir_path: &str) -> TrieFileStorage {
     TrieFileStorage::new(dir_path).unwrap()
 }
 
-fn benchmark_marf_usage(filename: &str, blocks: u32, writes_per_block: u32, reads_per_block: u32) {
+fn benchmark_marf_usage(filename: &str, blocks: u32, writes_per_block: u32, reads_per_block: u32, batch: bool) {
     let f = new_overwrite(filename);
     let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
     let mut marf = MARF::from_storage(f);
@@ -31,14 +31,28 @@ fn benchmark_marf_usage(filename: &str, blocks: u32, writes_per_block: u32, read
     let mut values = vec![];
     
     for i in 0..blocks {
-        
-        for _k in 0..writes_per_block {
-            let key: u64 = rng.gen();
-            let key = key.to_string();
-            let mut value = [0u8; 40];
-            rng.fill_bytes(&mut value);
-            marf.insert(&key, MARFValue(value.clone())).unwrap();
-            values.push((key, MARFValue(value)));
+        if batch {
+            let mut batch_keys = Vec::new();
+            let mut batch_vals = Vec::new();
+            for _k in 0..writes_per_block {
+                let key: u64 = rng.gen();
+                let key = key.to_string();
+                let mut value = [0u8; 40];
+                rng.fill_bytes(&mut value);
+                batch_keys.push(key.clone());
+                batch_vals.push(MARFValue(value.clone()));
+                values.push((key, MARFValue(value)));
+            }
+            marf.insert_batch(&batch_keys, batch_vals).unwrap();
+        } else {
+            for _k in 0..writes_per_block {
+                let key: u64 = rng.gen();
+                let key = key.to_string();
+                let mut value = [0u8; 40];
+                rng.fill_bytes(&mut value);
+                marf.insert(&key, MARFValue(value.clone())).unwrap();
+                values.push((key, MARFValue(value)));
+            }
         }
         
         for _k in 0..reads_per_block {
@@ -58,7 +72,9 @@ fn benchmark_marf_usage(filename: &str, blocks: u32, writes_per_block: u32, read
 }
 
 pub fn basic_usage_benchmark(c: &mut Criterion) {
-    c.bench_function("marf_usage_10b_1kW_2kR", |b| b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z", 10, 1000, 2000)));
+    c.bench_function("marf_usage_10b_1kW_2kR", |b| b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z", 10, 1000, 2000, false)));
+    c.bench_function("marf_usage_100b_10kW_100kR", |b| b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z", 20, 5000, 20000, false)));
+    c.bench_function("marf_usage_batches_10b_1kW_2kR", |b| b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z", 10, 1000, 2000, true)));
 }
 
 pub fn scaling_read_ratio(_c: &mut Criterion) {

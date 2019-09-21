@@ -36,6 +36,7 @@ use std::io::{
 use sha2::Sha512Trunc256 as TrieHasher;
 use sha2::Digest;
 
+use std::hash::Hash;
 use chainstate::burn::BlockHeaderHash;
 
 use util::log;
@@ -48,19 +49,7 @@ use util::log;
 /// This method requires that target has enough space to store src, and will panic if not.
 #[inline]
 pub fn fast_extend_from_slice(target: &mut Vec<u8>, src: &[u8]) -> () {
-    if target.capacity() < target.len() + src.len() {
-        error!("target.capacity() ({}) < target.len() ({}) + src.len() ({})", target.capacity(), target.len(), src.len());
-        assert!(target.capacity() >= target.len() + src.len());
-    }
-    let target_len = target.len();
-    let src_len = src.len();
-    let new_len = target_len + src_len;
-    unsafe {
-        let target_ptr = target.as_mut_ptr().offset(target_len as isize);
-        let src_ptr = src.as_ptr();
-        ptr::copy_nonoverlapping(src_ptr, target_ptr, src_len);
-        target.set_len(new_len);
-    }
+    target.extend_from_slice(src);
 }
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
@@ -103,6 +92,22 @@ impl TrieHash {
         TrieHash(tmp)
     }
 
+    pub fn from_data_array<B: AsRef<[u8]>>(data: &[B]) -> TrieHash {
+        if data.len() == 0 {
+            return TrieHash::from_empty_data();
+        }
+        
+        let mut tmp = [0u8; 32];
+       
+        let mut hasher = TrieHasher::new();
+
+        for item in data.iter() {
+            hasher.input(item);
+        }
+        tmp.copy_from_slice(hasher.result().as_slice());
+        TrieHash(tmp)
+    }
+
     /// Convert to a String that can be used in e.g. sqlite
     pub fn to_string(&self) -> String {
         let s = format!("{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
@@ -115,6 +120,12 @@ impl TrieHash {
                           self.0[24],    self.0[25],      self.0[26],      self.0[27],
                           self.0[28],    self.0[29],      self.0[30],      self.0[31]);
         s
+    }
+}
+
+impl AsRef<[u8]> for TrieHash {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
     }
 }
 

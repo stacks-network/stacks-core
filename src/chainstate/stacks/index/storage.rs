@@ -361,15 +361,14 @@ impl TrieRAM {
         Ok(())
     }
 
-    pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
-        if (ptr.ptr() as u64) >= (self.data.len() as u64) {
-            trace!("TrieRAM: Failed to read node bytes: {} >= {}", ptr.ptr(), self.data.len());
-            Err(Error::NotFoundError)
-        }
-        else {
-            fast_extend_from_slice(buf, self.data[ptr.ptr() as usize].1.as_bytes());
-            Ok(())
-        }
+    pub fn read_node_hash(&mut self, ptr: &TriePtr) -> Result<TrieHash, Error> {
+        let (_, node_trie_hash) = self.data.get(ptr.ptr() as usize)
+            .ok_or_else(|| {
+                trace!("TrieRAM: Failed to read node bytes: {} >= {}", ptr.ptr(), self.data.len());
+                Error::NotFoundError
+            })?;
+
+        Ok(node_trie_hash.clone())
     }
 
     pub fn read_nodetype(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
@@ -461,10 +460,10 @@ impl FileStorageTypes {
         }
     }
 
-    pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
+    pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr) -> Result<[u8; 32], Error> {
         match self {
-            FileStorageTypes::BufferedReader(ref mut b) => read_node_hash_bytes(b, ptr, buf),
-            FileStorageTypes::File(ref mut b) => read_node_hash_bytes(b, ptr, buf)
+            FileStorageTypes::BufferedReader(ref mut b) => read_node_hash_bytes(b, ptr),
+            FileStorageTypes::File(ref mut b) => read_node_hash_bytes(b, ptr)
         }
     }
 }
@@ -498,7 +497,7 @@ pub struct TrieFileStorage {
     // cache of block paths (they're surprisingly expensive to generate)
     block_path_cache: HashMap<BlockHeaderHash, PathBuf>,
 
-    pub trie_ancestor_hash_bytes_cache: Option<(BlockHeaderHash, Vec<u8>)>,
+    pub trie_ancestor_hash_bytes_cache: Option<(BlockHeaderHash, Vec<TrieHash>)>,
 
     pub test_genesis_block: Option<BlockHeaderHash>,
 }
@@ -562,11 +561,11 @@ impl TrieFileStorage {
         Ok(ret)
     }
 
-    pub fn set_cached_ancestor_hashes_bytes(&mut self, bhh: &BlockHeaderHash, bytes: Vec<u8>) {
+    pub fn set_cached_ancestor_hashes_bytes(&mut self, bhh: &BlockHeaderHash, bytes: Vec<TrieHash>) {
         self.trie_ancestor_hash_bytes_cache = Some((bhh.clone(), bytes));
     }
 
-    pub fn check_cached_ancestor_hashes_bytes(&mut self, bhh: &BlockHeaderHash) -> Option<Vec<u8>> {
+    pub fn check_cached_ancestor_hashes_bytes(&mut self, bhh: &BlockHeaderHash) -> Option<Vec<TrieHash>> {
         if let Some((ref cached_bhh, ref cached_bytes)) = self.trie_ancestor_hash_bytes_cache {
             if cached_bhh == bhh {
                 return Some(cached_bytes.clone())
@@ -835,12 +834,11 @@ impl TrieFileStorage {
                         }
                     })?;
 
-        let root_hash_ptr = self.root_trieptr();
-        let mut hash_buf = Vec::with_capacity(BLOCK_HEADER_HASH_ENCODED_SIZE as usize);
-        read_node_hash_bytes(&mut fd, &root_hash_ptr, &mut hash_buf)?;
+        let root_hash_ptr =
+            TriePtr::new(TrieNodeID::Node256, 0, TrieFileStorage::root_ptr_disk());
+        let hash_buf = read_node_hash_bytes(&mut fd, &root_hash_ptr)?;
 
-        // safe because this is _also_ TRIEHASH_ENCODED_SIZE bytes long
-        Ok(trie_hash_from_bytes(&hash_buf))
+        Ok(TrieHash(hash_buf))
     }
 
     #[cfg(test)]
@@ -892,15 +890,11 @@ impl TrieFileStorage {
             (Some(bhh), Some(mut trie_ram)) => {
                 let ptr = TriePtr::new(set_backptr(TrieNodeID::Node256), 0, 0);
 
-                let mut root_hash_bytes = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
-                trie_ram.read_node_hash_bytes(&ptr, &mut root_hash_bytes)?;
+                let root_hash = trie_ram.read_node_hash(&ptr)?;
 
-                // safe because this is TRIEHASH_ENCODED_SIZE bytes long
-                let root_hash = trie_hash_from_bytes(&root_hash_bytes);
-                
                 ret.insert(root_hash.clone(), bhh.clone());
                 (Some(bhh), Some(trie_ram))
-            }
+            },
             (_, _) => {
                 (None, None)
             }
@@ -1086,14 +1080,18 @@ impl TrieFileStorage {
             0
         }
         else {
-            // first 32 bytes are the block parent hash 
-            //   next 4 are the identifier
-            (BLOCK_HEADER_HASH_ENCODED_SIZE as u32) + 4
+            TrieFileStorage::root_ptr_disk()
         }
     }
 
     pub fn root_trieptr(&self) -> TriePtr {
         TriePtr::new(TrieNodeID::Node256, 0, self.root_ptr())
+    }
+
+    pub fn root_ptr_disk() -> u32 {
+        // first 32 bytes are the block parent hash 
+        //   next 4 are the identifier
+        (BLOCK_HEADER_HASH_ENCODED_SIZE as u32) + 4
     }
 
     pub fn readwrite(&self) -> bool {
@@ -1129,18 +1127,17 @@ impl TrieFileStorage {
         Ok(())
     }
 
-    pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
+    pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr) -> Result<TrieHash, Error> {
         if Some(self.cur_block) == self.last_extended {
             // special case 
             let trie_ram = self.last_extended_trie.as_mut()
                 .expect("MARF CORRUPTION: last_extended is set, but last_extended_trie is None.");
-            return trie_ram.read_node_hash_bytes(ptr, buf)
+            return trie_ram.read_node_hash(ptr)
         }
         // some other block or ptr, or cache miss
         match self.cur_block_fd {
             Some(ref mut f) => {
-                f.read_node_hash_bytes(ptr, buf)?;
-                Ok(())
+                Ok(TrieHash(f.read_node_hash_bytes(ptr)?))
             },
             None => {
                 trace!("Not found (no file is open)");

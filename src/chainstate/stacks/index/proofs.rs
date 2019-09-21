@@ -246,9 +246,8 @@ impl TrieMerkleProof {
     /// This is a one-item list of a TrieMerkleProofType::Shunt proof entry.
     /// The storage handle must be opened to the block we care about.
     fn make_initial_shunt_proof(storage: &mut TrieFileStorage) -> Result<Vec<TrieMerkleProofType>, Error> {
-        let backptr_ancestor_hash_buf = Trie::get_trie_ancestor_hashes_bytes(storage)?;
+        let backptr_ancestor_hashes = Trie::get_trie_ancestor_hashes_bytes(storage)?;
         
-        let backptr_ancestor_hashes = hash_buf_to_trie_hashes(&backptr_ancestor_hash_buf);
         trace!("First shunt proof node: (0, {:?})", &backptr_ancestor_hashes);
 
         let backptr_proof = TrieMerkleProofType::Shunt((0, backptr_ancestor_hashes));
@@ -303,9 +302,8 @@ impl TrieMerkleProof {
             let cur_root_hash = read_root_hash(storage)?;
             trace!("Shunt proof: walk heights {}->{} from {:?} ({:?})", current_height, ancestor_height, &block_header, &cur_root_hash);
 
-            let ancestor_hash_buf = Trie::get_trie_ancestor_hashes_bytes(storage)?;
+            let ancestor_hashes = Trie::get_trie_ancestor_hashes_bytes(storage)?;
 
-            let ancestor_hashes = hash_buf_to_trie_hashes(&ancestor_hash_buf);
             trace!("Ancestors of {:?} ({:?}): {:?}", &block_header, &cur_root_hash, &ancestor_hashes);
 
             // did we reach the backptr's root hash?
@@ -351,9 +349,8 @@ impl TrieMerkleProof {
 
                 let root_hash = 
                     if root_node.is_node256() {
-                        let mut root_hashes_bytes = Vec::with_capacity(256 * TRIEHASH_ENCODED_SIZE);
-                        Trie::read_child_hashes_bytes(storage, root_node.ptrs(), &mut root_hashes_bytes)?;
-                        let root_hash = get_nodetype_hash_bytes(&root_node, &root_hashes_bytes, &storage.block_map);
+                        let child_hashes = Trie::get_children_hashes(storage, &root_node)?;
+                        let root_hash = get_nodetype_hash_bytes(&root_node, &child_hashes, &storage.block_map);
                         root_hash
                     }
                     else {

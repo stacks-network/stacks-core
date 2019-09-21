@@ -36,7 +36,6 @@ use sha2::Digest;
 use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
-    fast_extend_from_slice
 };
 
 use chainstate::stacks::index::storage::{BlockHashMap};
@@ -288,7 +287,7 @@ pub fn get_nodetype_hash(node: &TrieNodeType, child_hashes: &Vec<TrieHash>, map:
 }
 
 /// Calculate the hash of a TrieNode, given a byte buffer encoding all of its children's hashes.
-pub fn get_node_hash_bytes<T: TrieNode + std::fmt::Debug>(node: &T, child_hash_bytes: &Vec<u8>, map: &BlockHashMap) -> TrieHash {
+pub fn _get_node_hash_bytes<T: TrieNode + std::fmt::Debug>(node: &T, child_hash_bytes: &Vec<u8>, map: &BlockHashMap) -> TrieHash {
     assert_eq!(child_hash_bytes.len() % TRIEHASH_ENCODED_SIZE, 0);
 
     let ret = compute_node_hash(&node.to_consensus_bytes(map), |hasher| {
@@ -314,8 +313,23 @@ pub fn get_node_hash_bytes<T: TrieNode + std::fmt::Debug>(node: &T, child_hash_b
     ret
 }
 
+/// Calculate the hash of a TrieNode, given a byte buffer encoding all of its children's hashes.
+pub fn get_node_hash_bytes<T: TrieNode + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
+    let ret = compute_node_hash(&node.to_consensus_bytes(map), |hasher| {
+        for child_hash in child_hashes.iter() {
+            hasher.input(child_hash.0);
+        }
+    });
+
+    if is_trace() {
+        // not in prod -- can spend a few cycles on fancy debug output
+        trace!("get_node_hash_bytes: hash {:?} = {:?} + {:?}... ({})", &ret, node, &child_hashes, child_hashes.len());
+    }
+    ret
+}
+
 #[inline]
-pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<u8>, map: &BlockHashMap) -> TrieHash {
+pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
     match node {
         TrieNodeType::Node4(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
         TrieNodeType::Node16(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
@@ -324,7 +338,6 @@ pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<u8>, 
         TrieNodeType::Leaf(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
     }
 }
-
 
 /// Low-level method for reading a TrieHash into a byte buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
@@ -362,21 +375,15 @@ pub fn read_4_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; 4], Error> {
 
 /// Low-level method for reading a node's hash bytes into a buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
-pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
+pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<[u8; 32], Error> {
     fseek(f, ptr.ptr() as u64)?;
-    let hash_bytes = read_hash_bytes(f)?;
-    fast_extend_from_slice(buf, &hash_bytes);
-    Ok(())
+    read_hash_bytes(f)
 }
 
 /// Read the root hash from a TrieFileStorage instance
 pub fn read_root_hash(s: &mut TrieFileStorage) -> Result<TrieHash, Error> {
     let ptr = s.root_trieptr();
-    let mut hash_bytes = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
-    s.read_node_hash_bytes(&ptr, &mut hash_bytes)?;
-
-    // safe because this is TRIEHASH_ENCODED_SIZE bytes long
-    Ok(trie_hash_from_bytes(&hash_bytes))
+    Ok(s.read_node_hash_bytes(&ptr)?)
 }
 
 /// Converts a vec of bytes to a TrieHash.
@@ -423,8 +430,7 @@ pub fn hash_buf_to_trie_hashes(hashes_buf: &Vec<u8>) -> Vec<TrieHash> {
 /// Y is variable, but no more than TriePath::len()
 pub fn read_nodetype<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
     trace!("read_nodetype at {:?}", ptr);
-    let mut h_bytes = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
-    read_node_hash_bytes(f, ptr, &mut h_bytes)?;
+    let h = read_node_hash_bytes(f, ptr)?;
 
     let node = match ptr.id() {
         TrieNodeID::Node4 => {
@@ -452,8 +458,6 @@ pub fn read_nodetype<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNo
         }
     };
 
-    let mut h = [0u8; TRIEHASH_ENCODED_SIZE];
-    h.copy_from_slice(&h_bytes[0..TRIEHASH_ENCODED_SIZE]);
     Ok((node, TrieHash(h)))
 }
 
@@ -467,18 +471,17 @@ pub fn get_node_byte_len(node: &TrieNodeType) -> usize {
 /// write all the bytes for a node, including its hash, to the given Writeable object.
 /// Returns the number of bytes written.
 pub fn write_nodetype_bytes<F: Write + Seek>(f: &mut F, node: &TrieNodeType, hash: TrieHash) -> Result<usize, Error> {
-    let mut bytes = Vec::with_capacity(node.byte_len() + TRIEHASH_ENCODED_SIZE);
-    
-    fast_extend_from_slice(&mut bytes, hash.as_bytes());
+    let mut bytes = Vec::with_capacity(node.byte_len());
+
+    trace!("write_nodetype: {:?} {:?} at {}-{}", node, &hash, ftell(f)?, ftell(f)? + bytes.len() as u64);
+
+    f.write_all(hash.as_bytes())
+        .map_err(Error::IOError)?;
+
     node.to_bytes(&mut bytes);
     
-    assert_eq!(bytes.len(), node.byte_len() + TRIEHASH_ENCODED_SIZE);
-
-    let ptr = ftell(f)?;
-    trace!("write_nodetype: {:?} {:?} at {}-{}", node, &hash, ptr, ptr + bytes.len() as u64);
-
     f.write_all(&bytes[..])
         .map_err(|e| Error::IOError(e))?;
 
-    Ok(bytes.len())
+    Ok(bytes.len() + TRIEHASH_ENCODED_SIZE)
 }
