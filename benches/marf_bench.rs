@@ -37,7 +37,7 @@ fn benchmark_marf_usage(filename: &str, blocks: u32, writes_per_block: u32, read
             let key = key.to_string();
             let mut value = [0u8; 40];
             rng.fill_bytes(&mut value);
-            marf.insert(&key, MARFValue(value.clone()));
+            marf.insert(&key, MARFValue(value.clone())).unwrap();
             values.push((key, MARFValue(value)));
         }
         
@@ -57,9 +57,12 @@ fn benchmark_marf_usage(filename: &str, blocks: u32, writes_per_block: u32, read
     }
 }
 
-pub fn criterion_benchmark(c: &mut Criterion) {
+pub fn basic_usage_benchmark(c: &mut Criterion) {
     c.bench_function("marf_usage_10b_1kW_2kR", |b| b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z", 10, 1000, 2000)));
 }
 
-criterion_group!(benches, criterion_benchmark);
+pub fn scaling_read_ratio(_c: &mut Criterion) {
+}
+
+criterion_group!(benches, basic_usage_benchmark);
 criterion_main!(benches);

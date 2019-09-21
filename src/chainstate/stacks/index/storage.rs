@@ -1045,6 +1045,8 @@ impl TrieFileStorage {
                         }
                     })?;
 
+        // NOTE:
+        //   this doesn't really seem to improve performance.
         let filestore_type = if readwrite {
             FileStorageTypes::File(fd)
         } else {

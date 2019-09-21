@@ -1225,7 +1225,7 @@ mod test {
         }
     }
 
-    fn marf_insert<F>(filename: &str, mut path_gen: F, count: u32) -> MARF
+    fn marf_insert<F>(filename: &str, mut path_gen: F, count: u32, check_merkle_proof: bool) -> MARF
         where F: FnMut(u32) -> ([u8; 32], Option<BlockHeaderHash>) {
 
         let f = TrieFileStorage::new_overwrite(filename).unwrap();
@@ -1257,8 +1257,10 @@ mod test {
             assert_eq!(read_value.data.to_vec(), value.data.to_vec());
             assert_eq!(marf.borrow_storage_backend().get_cur_block(), block_header);
 
-            root_table_cache = Some(
-                merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec(), root_table_cache));
+            if check_merkle_proof{
+                root_table_cache = Some(
+                    merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec(), root_table_cache));
+            }
         }
 
         root_table_cache = None;
@@ -1276,8 +1278,10 @@ mod test {
             assert_eq!(read_value.data.to_vec(), value.data.to_vec());
             
             // can make a merkle proof to each one
-            root_table_cache = Some(
-                merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec(), root_table_cache));
+            if check_merkle_proof {
+                root_table_cache = Some(
+                    merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec(), root_table_cache));
+            }
         }
 
         marf
@@ -1296,7 +1300,7 @@ mod test {
                 None
             };
             (path, block_header)
-        }, 4096);
+        }, 4096, true);
     }
 
     // insert a range of 4096 consecutive keys (forcing node promotions) by varying the high-order bits.
@@ -1314,7 +1318,7 @@ mod test {
                 None
             };
             (path, block_header)
-        }, 4096);
+        }, 4096, true);
     }
 
     // insert a leaf, open a new block, and attempt to split the leaf
@@ -1397,34 +1401,7 @@ mod test {
                 None
             };
             (path, block_header)
-        }, 65536);
-
-    }
-
-    #[test]
-    fn marf_insert_random_15536_2048() {
-        let filename = "/tmp/rust_marf_insert_random_15536_2048";
-        let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
-        marf_insert(filename, |i| {
-            let mut path = [0; 32];
-            path.copy_from_slice(&
-                TrieHash::from_data(
-                    if i == 0 {
-                        &[]
-                    } else {
-                        seed.as_slice()
-                    }).as_bytes()[0..32]);
-            seed = path.to_vec();
-
-            let block_header = if (i + 1) % 2048 == 0 {
-                // next block 
-                Some(BlockHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,((i+1)/2048) as u8,((i+1)%2048) as u8])
-                     .unwrap())
-            } else {
-                None
-            };
-            (path, block_header)
-        }, 15536);
+        }, 65536, false);
 
     }
     
@@ -1717,7 +1694,7 @@ mod test {
                 None
             };
             (path, block_header)
-        }, 128);
+        }, 128, true);
 
         marf.commit().unwrap();
 
@@ -1744,7 +1721,7 @@ mod test {
                 None
             };
             (path, block_header)
-        }, 4096);
+        }, 4096, true);
 
         marf.commit().unwrap();
 
@@ -1771,7 +1748,7 @@ mod test {
                 None
             };
             (path, block_header)
-        }, 256);
+        }, 256, true);
 
         marf.commit().unwrap();
 
