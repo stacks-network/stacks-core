@@ -780,7 +780,7 @@ mod test {
         assert_eq!(leaf.data.to_vec(), [99; 40].to_vec());
         assert_eq!(marf.borrow_storage_backend().get_cur_block(), block_header);
 
-        merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path_bytes.to_vec(), &[99; 40].to_vec());
+        merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path_bytes.to_vec(), &[99; 40].to_vec(), None);
     }
     
     #[test]
@@ -819,7 +819,7 @@ mod test {
             assert_eq!(leaf.data.to_vec(), [i as u8; 40].to_vec());
             assert_eq!(marf.borrow_storage_backend().get_cur_block(), block_header);
 
-            merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
+            merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec(), None);
         }
     }
 
@@ -858,7 +858,7 @@ mod test {
             assert_eq!(leaf.data.to_vec(), [i as u8; 40].to_vec());
             assert_eq!(marf.borrow_storage_backend().get_cur_block(), next_block_header);
 
-            merkle_test_marf(marf.borrow_storage_backend(), &next_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
+            merkle_test_marf(marf.borrow_storage_backend(), &next_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec(), None);
         }
     }
 
@@ -901,7 +901,7 @@ mod test {
             assert_eq!(leaf.data.to_vec(), [i as u8; 40].to_vec());
             assert_eq!(marf.borrow_storage_backend().get_cur_block(), next_block_header);
 
-            merkle_test_marf(marf.borrow_storage_backend(), &last_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
+            merkle_test_marf(marf.borrow_storage_backend(), &last_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec(), None);
         }
     }
     
@@ -948,7 +948,7 @@ mod test {
             //         with data related to block_height!
             // assert_eq!(f.get_cur_block(), next_block_header);
 
-            merkle_test_marf(f, &last_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec());
+            merkle_test_marf(f, &last_block_header, &path_bytes.to_vec(), &[i as u8; 40].to_vec(), None);
         }
     }
 
@@ -1058,7 +1058,7 @@ mod test {
             ];
 
             marf_walk_cow_test(&path, |s| {
-                make_node_path_sane_root(s, *node_id, &path_segments, [31u8; 40].to_vec())
+                make_node_path(s, *node_id, &path_segments, [31u8; 40].to_vec())
             }, |x,y| { path_gen(x, y) });
         }
     }
@@ -1131,12 +1131,12 @@ mod test {
                 test_debug!("---------------------------------------");
                 test_debug!("MARF verify {:?} {:?} from current block header {:?}", &prev_path, &[j as u8; 40].to_vec(), &next_block_header);
                 test_debug!("----------------------------------------");
-                merkle_test_marf(marf.borrow_storage_backend(), &next_block_header, &prev_path.to_vec(), &[j as u8; 40].to_vec());
+                merkle_test_marf(marf.borrow_storage_backend(), &next_block_header, &prev_path.to_vec(), &[j as u8; 40].to_vec(), None);
             }
             
             marf.borrow_storage_backend().open_block(&next_block_header, false).unwrap();
             
-            merkle_test_marf(marf.borrow_storage_backend(), &next_block_header, &next_path.to_vec(), &[i as u8; 40].to_vec());
+            merkle_test_marf(marf.borrow_storage_backend(), &next_block_header, &next_path.to_vec(), &[i as u8; 40].to_vec(), None);
         }
         
         // all leaves are reachable from the last block 
@@ -1153,7 +1153,7 @@ mod test {
             test_debug!("---------------------------------------");
             test_debug!("MARF verify {:?} {:?} from last block header {:?}", &next_path, &[i as u8; 40].to_vec(), &last_block_header);
             test_debug!("----------------------------------------");
-                merkle_test_marf(marf.borrow_storage_backend(), &last_block_header, &next_path.to_vec(), &[i as u8; 40].to_vec());
+                merkle_test_marf(marf.borrow_storage_backend(), &last_block_header, &next_path.to_vec(), &[i as u8; 40].to_vec(), None);
         }
     }
 
@@ -1221,7 +1221,7 @@ mod test {
             test_debug!("----------------");
 
             merkle_test_marf(marf.borrow_storage_backend(), &block_header_3, 
-                             &path_3, &[21 as u8; 40].to_vec());
+                             &path_3, &[21 as u8; 40].to_vec(), None);
         }
     }
 
@@ -1232,6 +1232,8 @@ mod test {
         let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
         let mut marf = MARF::from_storage(f);
         marf.begin(&TrieFileStorage::block_sentinel(), &block_header).unwrap();
+
+        let mut root_table_cache = None;
 
         for i in 0..count {
             let i0 = i / 256;
@@ -1255,8 +1257,11 @@ mod test {
             assert_eq!(read_value.data.to_vec(), value.data.to_vec());
             assert_eq!(marf.borrow_storage_backend().get_cur_block(), block_header);
 
-            merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec());
+            root_table_cache = Some(
+                merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec(), root_table_cache));
         }
+
+        root_table_cache = None;
 
         for i in 0..count {
             let i0 = i / 256;
@@ -1271,7 +1276,8 @@ mod test {
             assert_eq!(read_value.data.to_vec(), value.data.to_vec());
             
             // can make a merkle proof to each one
-            merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec());
+            root_table_cache = Some(
+                merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec(), root_table_cache));
         }
 
         marf
@@ -1392,6 +1398,33 @@ mod test {
             };
             (path, block_header)
         }, 65536);
+
+    }
+
+    #[test]
+    fn marf_insert_random_15536_2048() {
+        let filename = "/tmp/rust_marf_insert_random_15536_2048";
+        let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
+        marf_insert(filename, |i| {
+            let mut path = [0; 32];
+            path.copy_from_slice(&
+                TrieHash::from_data(
+                    if i == 0 {
+                        &[]
+                    } else {
+                        seed.as_slice()
+                    }).as_bytes()[0..32]);
+            seed = path.to_vec();
+
+            let block_header = if (i + 1) % 2048 == 0 {
+                // next block 
+                Some(BlockHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,((i+1)/2048) as u8,((i+1)%2048) as u8])
+                     .unwrap())
+            } else {
+                None
+            };
+            (path, block_header)
+        }, 15536);
 
     }
     
@@ -1566,15 +1599,17 @@ mod test {
             m.insert_batch(&keys, marf_values).unwrap();
             m.commit().unwrap();
 
+            let mut block_table_cache = None;
             for j in 0..128 {
                 test_debug!("Prove {:?} == {:?}", &keys[j], &values[j]);
-                merkle_test_marf_key_value(m.borrow_storage_backend(), &block_header, &keys[j], &values[j]);
+                block_table_cache = Some(merkle_test_marf_key_value(m.borrow_storage_backend(), &block_header, &keys[j], &values[j], block_table_cache));
             }
         }
 
         i = 1;
         seed = TrieHash::from_data(&[]).as_bytes().to_vec();
 
+        let mut block_table_cache = None;
         while i <= 4096 {
             let mut keys = vec![];
             let mut values = vec![];
@@ -1604,7 +1639,7 @@ mod test {
                 assert_eq!(read_value, MARFValue::from_value(&values[j]));
                 
                 test_debug!("Get {:?}, should be {:?}", &keys[j], &values[j]);
-                merkle_test_marf_key_value(m.borrow_storage_backend(), &block_header, &keys[j], &values[j]);
+                block_table_cache = Some(merkle_test_marf_key_value(m.borrow_storage_backend(), &block_header, &keys[j], &values[j], block_table_cache));
             }
         }
     }
@@ -1652,7 +1687,7 @@ mod test {
             assert_eq!(read_value.data.to_vec(), value.data.to_vec());
             
             // can make a merkle proof to each one
-            // merkle_test_marf(&mut f, &block_header, &path.to_vec(), &value.data.to_vec());
+            // merkle_test_marf(&mut f, &block_header, &path.to_vec(), &value.data.to_vec(), None);
             if i % 128 == 0 {
                 let end_time = get_epoch_time_ms();
                 let (read_count, write_count) = f.stats();
@@ -1825,7 +1860,7 @@ mod test {
                 let marf_value = m.get(&expected_chain_tips[k], &key).unwrap().unwrap();
                 assert_eq!(marf_value, MARFValue::from_value(&expected_value));
                 
-                merkle_test_marf_key_value(m.borrow_storage_backend(), &expected_chain_tips[k], &key, &expected_value);
+                merkle_test_marf_key_value(m.borrow_storage_backend(), &expected_chain_tips[k], &key, &expected_value, None);
             }
         }
     }

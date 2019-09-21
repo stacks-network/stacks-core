@@ -1217,7 +1217,7 @@ mod test {
         
         let path = TriePath::from_key(&k1);
 
-        merkle_test_marf_key_value(m.borrow_storage_backend(), &block_2, &k1, &new_v);
+        merkle_test_marf_key_value(m.borrow_storage_backend(), &block_2, &k1, &new_v, None);
 
         let root_to_block = m.borrow_storage_backend().read_root_to_block_table().unwrap();
 

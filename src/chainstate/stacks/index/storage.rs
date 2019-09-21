@@ -25,7 +25,8 @@ use std::io::{
     Write,
     Seek,
     SeekFrom,
-    Cursor
+    Cursor,
+    BufReader
 };
 
 use std::char::from_digit;
@@ -433,6 +434,40 @@ impl TrieRAM {
     }
 }
 
+enum FileStorageTypes {
+    BufferedReader(BufReader<fs::File>),
+    File(fs::File)
+}
+
+impl FileStorageTypes {
+    pub fn read_block_identifier(&mut self) -> Result<u32, Error> {
+        match self {
+            FileStorageTypes::BufferedReader(ref mut b) => TrieFileStorage::read_block_identifier_from_fd(b),
+            FileStorageTypes::File(ref mut b) => TrieFileStorage::read_block_identifier_from_fd(b)
+        }
+    }
+
+    pub fn flush(&mut self) -> Result<(), Error> {
+        match self {
+            FileStorageTypes::BufferedReader(ref mut b) => Err(Error::ReadOnlyError),
+            FileStorageTypes::File(ref mut b) => b.flush().map_err(Error::IOError)
+        }
+    }
+
+    pub fn read_nodetype(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
+        match self {
+            FileStorageTypes::BufferedReader(ref mut b) => read_nodetype(b, ptr),
+            FileStorageTypes::File(ref mut b) => read_nodetype(b, ptr)
+        }
+    }
+
+    pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
+        match self {
+            FileStorageTypes::BufferedReader(ref mut b) => read_node_hash_bytes(b, ptr, buf),
+            FileStorageTypes::File(ref mut b) => read_node_hash_bytes(b, ptr, buf)
+        }
+    }
+}
 
 // disk-backed Trie.
 // Keeps the last-extended Trie in-RAM and flushes it to disk on either a call to flush() or a call
@@ -445,7 +480,7 @@ pub struct TrieFileStorage {
     last_extended_trie: Option<TrieRAM>,
     
     cur_block: BlockHeaderHash,
-    cur_block_fd: Option<fs::File>,
+    cur_block_fd: Option<FileStorageTypes>,
     
     read_count: u64,
     read_backptr_count: u64,
@@ -463,7 +498,7 @@ pub struct TrieFileStorage {
     // cache of block paths (they're surprisingly expensive to generate)
     block_path_cache: HashMap<BlockHeaderHash, PathBuf>,
 
-    pub test_genesis_block: Option<BlockHeaderHash>
+    pub test_genesis_block: Option<BlockHeaderHash>,
 }
 
 impl TrieFileStorage {
@@ -516,7 +551,8 @@ impl TrieFileStorage {
 
             block_path_cache: HashMap::new(),
 
-            test_genesis_block: None
+            // these are only ever used in testing, we should flag on cfg(test).
+            test_genesis_block: None,
         };
 
         Ok(ret)
@@ -820,6 +856,7 @@ impl TrieFileStorage {
             if *bhh == TrieFileStorage::block_sentinel() {
                 continue;
             }
+
             let root_hash = match self.read_block_root_hash(bhh) {
                 Ok(h) => {
                     h
@@ -830,7 +867,8 @@ impl TrieFileStorage {
                     h
                 }
             };
-            ret.insert(root_hash, bhh.clone());
+
+            ret.insert(root_hash.clone(), bhh.clone());
         }
 
         let (last_extended_opt, last_extended_trie_opt) = match (self.last_extended.take(), self.last_extended_trie.take()) {
@@ -843,7 +881,7 @@ impl TrieFileStorage {
                 // safe because this is TRIEHASH_ENCODED_SIZE bytes long
                 let root_hash = trie_hash_from_bytes(&root_hash_bytes);
                 
-                ret.insert(root_hash, bhh.clone());
+                ret.insert(root_hash.clone(), bhh.clone());
                 (Some(bhh), Some(trie_ram))
             }
             (_, _) => {
@@ -990,8 +1028,14 @@ impl TrieFileStorage {
                         }
                     })?;
 
+        let filestore_type = if readwrite {
+            FileStorageTypes::File(fd)
+        } else {
+            FileStorageTypes::BufferedReader(BufReader::new(fd))
+        };
+
         self.cur_block = bhh.clone();
-        self.cur_block_fd = Some(fd);
+        self.cur_block_fd = Some(filestore_type);
         self.readonly = !readwrite;
         Ok(())
     }
@@ -1003,7 +1047,7 @@ impl TrieFileStorage {
                 .map(|trie_ram| trie_ram.identifier)
                 .ok_or_else(|| Error::CorruptionError(format!("last_extended is_some(), but last_extended_trie is none")))
         } else if let Some(ref mut cur_block_fd) = self.cur_block_fd {
-            TrieFileStorage::read_block_identifier_from_fd(cur_block_fd)
+            cur_block_fd.read_block_identifier()
         } else {
             Err(Error::NotOpenedError)
         }
@@ -1062,23 +1106,21 @@ impl TrieFileStorage {
 
         self.block_map.clear();
         self.chain_tips.clear();
-        
+
         Ok(())
     }
 
     pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr, buf: &mut Vec<u8>) -> Result<(), Error> {
         if Some(self.cur_block) == self.last_extended {
             // special case 
-            assert!(self.last_extended_trie.is_some());
-            return match self.last_extended_trie {
-                Some(ref mut trie_storage) => trie_storage.read_node_hash_bytes(ptr, buf),
-                None => unreachable!()
-            };
+            let trie_ram = self.last_extended_trie.as_mut()
+                .expect("MARF CORRUPTION: last_extended is set, but last_extended_trie is None.");
+            return trie_ram.read_node_hash_bytes(ptr, buf)
         }
         // some other block or ptr, or cache miss
         match self.cur_block_fd {
             Some(ref mut f) => {
-                read_node_hash_bytes(f, ptr, buf)?;
+                f.read_node_hash_bytes(ptr, buf)?;
                 Ok(())
             },
             None => {
@@ -1116,7 +1158,7 @@ impl TrieFileStorage {
 
         // some other block
         match self.cur_block_fd {
-            Some(ref mut f) => read_nodetype(f, &clear_ptr),
+            Some(ref mut f) => f.read_nodetype(&clear_ptr),
             None => {
                 trace!("Not found (no file is open)");
                 Err(Error::NotFoundError)
@@ -1221,7 +1263,7 @@ impl TrieFileStorage {
 
         if !self.readonly {
             match self.cur_block_fd {
-                Some(ref mut f) => f.flush().map_err(Error::IOError)?,
+                Some(ref mut f) => f.flush()?,
                 None => {}
             };
         }

@@ -421,7 +421,7 @@ pub fn hash_buf_to_trie_hashes(hashes_buf: &Vec<u8>) -> Vec<TrieHash> {
 ///
 /// X is fixed and determined by the TrieNodeType variant.
 /// Y is variable, but no more than TriePath::len()
-pub fn read_nodetype<F: Read + Write + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
+pub fn read_nodetype<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
     trace!("read_nodetype at {:?}", ptr);
     let mut h_bytes = Vec::with_capacity(TRIEHASH_ENCODED_SIZE);
     read_node_hash_bytes(f, ptr, &mut h_bytes)?;
