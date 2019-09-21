@@ -246,8 +246,7 @@ impl TrieMerkleProof {
     /// This is a one-item list of a TrieMerkleProofType::Shunt proof entry.
     /// The storage handle must be opened to the block we care about.
     fn make_initial_shunt_proof(storage: &mut TrieFileStorage) -> Result<Vec<TrieMerkleProofType>, Error> {
-        let mut backptr_ancestor_hash_buf = Vec::with_capacity(TRIEHASH_ENCODED_SIZE * 256);
-        Trie::get_trie_ancestor_hashes_bytes(storage, &mut backptr_ancestor_hash_buf)?;
+        let backptr_ancestor_hash_buf = Trie::get_trie_ancestor_hashes_bytes(storage)?;
         
         let backptr_ancestor_hashes = hash_buf_to_trie_hashes(&backptr_ancestor_hash_buf);
         trace!("First shunt proof node: (0, {:?})", &backptr_ancestor_hashes);
@@ -304,8 +303,7 @@ impl TrieMerkleProof {
             let cur_root_hash = read_root_hash(storage)?;
             trace!("Shunt proof: walk heights {}->{} from {:?} ({:?})", current_height, ancestor_height, &block_header, &cur_root_hash);
 
-            let mut ancestor_hash_buf = Vec::with_capacity(TRIEHASH_ENCODED_SIZE * 256);
-            Trie::get_trie_ancestor_hashes_bytes(storage, &mut ancestor_hash_buf)?;
+            let ancestor_hash_buf = Trie::get_trie_ancestor_hashes_bytes(storage)?;
 
             let ancestor_hashes = hash_buf_to_trie_hashes(&ancestor_hash_buf);
             trace!("Ancestors of {:?} ({:?}): {:?}", &block_header, &cur_root_hash, &ancestor_hashes);

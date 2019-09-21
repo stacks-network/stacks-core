@@ -498,6 +498,8 @@ pub struct TrieFileStorage {
     // cache of block paths (they're surprisingly expensive to generate)
     block_path_cache: HashMap<BlockHeaderHash, PathBuf>,
 
+    pub trie_ancestor_hash_bytes_cache: Option<(BlockHeaderHash, Vec<u8>)>,
+
     pub test_genesis_block: Option<BlockHeaderHash>,
 }
 
@@ -550,12 +552,27 @@ impl TrieFileStorage {
             chain_tips: chain_tips,
 
             block_path_cache: HashMap::new(),
+            trie_ancestor_hash_bytes_cache: None,
+  
 
             // these are only ever used in testing, we should flag on cfg(test).
             test_genesis_block: None,
         };
 
         Ok(ret)
+    }
+
+    pub fn set_cached_ancestor_hashes_bytes(&mut self, bhh: &BlockHeaderHash, bytes: Vec<u8>) {
+        self.trie_ancestor_hash_bytes_cache = Some((bhh.clone(), bytes));
+    }
+
+    pub fn check_cached_ancestor_hashes_bytes(&mut self, bhh: &BlockHeaderHash) -> Option<Vec<u8>> {
+        if let Some((ref cached_bhh, ref cached_bytes)) = self.trie_ancestor_hash_bytes_cache {
+            if cached_bhh == bhh {
+                return Some(cached_bytes.clone())
+            }
+        }
+        None
     }
 
     /// Set up a new Trie forest on disk.  If there is data there already, obliterate it first.
@@ -1020,7 +1037,7 @@ impl TrieFileStorage {
                     .open(&block_path)
                     .map_err(|e| {
                         if e.kind() == io::ErrorKind::NotFound {
-                            error!("File not found: {:?}", &block_path);
+                            trace!("File not found: {:?}", &block_path);
                             Error::NotFoundError
                         }
                         else {

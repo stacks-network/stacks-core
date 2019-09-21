@@ -9,6 +9,10 @@ description = "Reference implementation of Blockstack Core"
 keywords = [ "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
 
+[lib]
+name = "blockstack_lib"
+path = "src/lib.rs"
+
 [[bin]]
 name = "blockstack-core"
 path = "src/main.rs"
@@ -17,6 +21,10 @@ path = "src/main.rs"
 name = "clarity-cli"
 test = false
 path = "src/clarity_cli.rs"
+
+[[bench]]
+name = "marf_bench"
+harness = false
 
 [features]
 developer-mode = []
@@ -59,3 +67,4 @@ features = ["asm"]
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
+criterion = "0.3"

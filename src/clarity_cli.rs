@@ -50,25 +50,10 @@ extern crate libc;
 extern crate assert_json_diff;
 
 #[macro_use]
-mod util;
+extern crate blockstack_lib;
 
-#[macro_use]
-mod chainstate;
-
-mod address;
-mod burnchains;
-mod core;
-mod deps;
-mod net;
-mod vm;
-
-mod clarity;
-
-use std::fs;
 use std::env;
-use std::process;
-
-use util::log;
+use blockstack_lib::{ util::log, clarity };
 
 fn main() {
     log::set_loglevel(log::LOG_DEBUG).unwrap();
