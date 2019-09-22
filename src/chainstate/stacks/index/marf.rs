@@ -1256,7 +1256,7 @@ mod test {
             assert_eq!(read_value.data.to_vec(), value.data.to_vec());
             assert_eq!(marf.borrow_storage_backend().get_cur_block(), block_header);
 
-            if check_merkle_proof{
+            if check_merkle_proof {
                 root_table_cache = Some(
                     merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec(), root_table_cache));
             }
@@ -1820,12 +1820,7 @@ mod test {
         let mut expected_chain_tips = fork_headers[fork_headers.len() - 1].clone();
         expected_chain_tips.sort();
 
-//   TODO:
-//     Chain tips is _not_ currently implemented.
-//     So we'll need that before we can test.
-//        let mut chain_tips = m.chain_tips();
-//        chain_tips.sort();
-//        assert_eq!(chain_tips, expected_chain_tips);
+        let mut block_table = None;
 
         for k in 0..expected_chain_tips.len() {
             for l in 0..128 {
@@ -1836,7 +1831,8 @@ mod test {
                 let marf_value = m.get(&expected_chain_tips[k], &key).unwrap().unwrap();
                 assert_eq!(marf_value, MARFValue::from_value(&expected_value));
                 
-                merkle_test_marf_key_value(m.borrow_storage_backend(), &expected_chain_tips[k], &key, &expected_value, None);
+                block_table = Some(
+                    merkle_test_marf_key_value(m.borrow_storage_backend(), &expected_chain_tips[k], &key, &expected_value, block_table));
             }
         }
     }

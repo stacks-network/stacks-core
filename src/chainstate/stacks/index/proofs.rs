@@ -980,6 +980,7 @@ impl TrieMerkleProof {
                 },
                 None => {
                     trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
+                    trace!("root-to-block map: {:?}", &root_to_block);
                     return false;
                 }
             };

@@ -258,7 +258,7 @@ fn compute_node_hash<F>(bytes: &Vec<u8>, f: F) -> TrieHash
 pub fn get_node_hash<T: TrieNode + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
     let ret = compute_node_hash(&node.to_consensus_bytes(map), |hasher| {
         for child_hash in child_hashes {
-            hasher.input(&child_hash.as_bytes());
+            hasher.input(child_hash.as_ref());
         }
     });
 

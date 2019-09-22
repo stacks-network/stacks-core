@@ -163,12 +163,16 @@ impl Trie {
         }
     }
  
-    /// Read a sequence of hashes given a node's ptrs.  This method is designed to only access
-    /// hashes that are either (1) in this Trie, or (2) in RAM already (i.e. as part of the fork
-    /// table).  This means that the hash of a node that is in a previous Trie will _not_ be its
+    /// Read a node's children's hashes as a vector of TrieHashes.
+    /// This only works for intermediate nodes and leafs (the latter of which have no children).
+    ///
+    /// This method is designed to only access hashes that are either (1) in this Trie, or (2) in
+    /// RAM already (i.e. as part of the block map)
+    ///
+    /// This means that the hash of a node that is in a previous Trie will _not_ be its
     /// hash (as that would require a disk access), but would instead be the root hash of the Trie
     /// that contains it.  While this makes the Merkle proof construction a bit more complicated,
-    /// it _significantly_ improves the performance of this method (which is crucial since it's on
+    /// it _significantly_ improves the performance of this method (which is crucial since this is on
     /// the write path, which must be as short as possible).
     ///
     /// Rules:
@@ -178,8 +182,9 @@ impl Trie {
     ///
     /// On err, S may point to a prior block.  The caller should call s.open(...) if an error
     /// occurs.
-    pub fn read_child_hashes_bytes(storage: &mut TrieFileStorage, ptrs: &[TriePtr]) -> Result<Vec<TrieHash>, Error> {
-        ptrs.iter().map(|ptr| {
+    pub fn get_children_hashes(storage: &mut TrieFileStorage, node: &TrieNodeType) -> Result<Vec<TrieHash>, Error> {
+        trace!("get_children_hashes_bytes for {:?}", node);
+        node.ptrs().iter().map(|ptr| {
             if ptr.id() == TrieNodeID::Empty {
                 // hash of empty string
                 Ok(TrieHash::from_data(&[]))
@@ -189,23 +194,15 @@ impl Trie {
                 storage.read_node_hash_bytes(ptr)
             }
             else {
+                // AARON:
+                //   I *think* this is no longer necessary in the fork-table-less construction.
+                //   the back_pointer's consensus bytes uses this block_hash instead of a back_block
+                //   integer. This means that it would _always_ be included the node's hash computation.
                 // hash of block that contains the Trie in which this node lives.
                 let block_hash = storage.get_block_from_local_id(ptr.back_block())?;
                 Ok(TrieHash(block_hash.0))
             }
         }).collect()
-    }
-
-    /// Read a node's children's hashes as a vector of TrieHashes.
-    /// This only works for intermediate nodes and leafs (the latter of which have no children).
-    pub fn get_children_hashes(storage: &mut TrieFileStorage, node: &TrieNodeType) -> Result<Vec<TrieHash>, Error> {
-        trace!("get_children_hashes_bytes for {:?}", node);
-        if node.is_leaf() {
-            Ok(vec![])
-        }
-        else {
-            Trie::read_child_hashes_bytes(storage, node.ptrs())
-        }
     }
 
     /// Given an existing leaf, replace it with the new leaf.
@@ -432,6 +429,7 @@ impl Trie {
 
         // append this leaf to the Trie
         let new_node_disk_ptr = storage.last_ptr()?;
+
         let ret = TriePtr::new(new_node.id(), node_ptr.chr(), new_node_disk_ptr as u32);
         storage.write_nodetype(new_node_disk_ptr, &new_node, new_node_hash)?;
 
@@ -631,7 +629,7 @@ impl Trie {
     pub fn get_trie_root_ancestor_hashes_bytes(storage: &mut TrieFileStorage, children_root_hash: &TrieHash) -> Result<Vec<TrieHash>, Error> {
         trace!("Calculate Trie hash from root node digest {:?}", children_root_hash);
         let mut ancestor_bytes = Trie::get_trie_ancestor_hashes_bytes(storage)?;
-        ancestor_bytes.push(children_root_hash.clone());
+        ancestor_bytes.insert(0, children_root_hash.clone());
 
         Ok(ancestor_bytes)
     }
@@ -640,10 +638,12 @@ impl Trie {
     /// digest of this Trie, as well as a geometric sequence of prior Trie root hashes as far back
     /// as we can go.
     pub fn get_trie_root_hash(storage: &mut TrieFileStorage, children_root_hash: &TrieHash) -> Result<TrieHash, Error> {
-        // a previous version of this did a test for buff len and return children_root_hash if empty,
-        //   _but_ that path would never occur, since get_trie_root_ancestor_hashes_bytes always appends children_root_hash.
         let hashes = Trie::get_trie_root_ancestor_hashes_bytes(storage, children_root_hash)?;
-        Ok(TrieHash::from_data_array(hashes.as_slice()))
+        if hashes.len() == 1 {
+            Ok(hashes[0])
+        } else {
+            Ok(TrieHash::from_data_array(hashes.as_slice()))
+        }
     }
 
     /// Unwind a TrieCursor to update the Merkle root of the trie.
@@ -1692,7 +1692,7 @@ mod test {
         }
     }
 
-    fn insert_n_test<F>(filename: &str, count: u32, mut path_gen: F)
+    fn insert_n_test<F>(filename: &str, merkle_check: bool, count: u32, mut path_gen: F)
         where F: FnMut(u32) -> [u8; 32] {
         let f = TrieFileStorage::new_overwrite(filename).unwrap();
 
@@ -1708,7 +1708,9 @@ mod test {
             let value = TrieLeaf::new(&vec![], &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
             marf.insert_raw(triepath, value).unwrap();
 
-            merkle_test(marf.borrow_storage_backend(), &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
+            if merkle_check {
+                merkle_test(marf.borrow_storage_backend(), &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
+            }
         }
 
         for i in 0..count {
@@ -1716,15 +1718,16 @@ mod test {
             let triepath = TriePath::from_bytes(&path).unwrap();
             let value = MARF::get_path(marf.borrow_storage_backend(), &block_header, &triepath).unwrap().unwrap();
             assert_eq!(value.data.to_vec(), [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
-            merkle_test(marf.borrow_storage_backend(), &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
+            if merkle_check {
+                merkle_test(marf.borrow_storage_backend(), &path.to_vec(), &[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, (i/256) as u8, (i % 256) as u8].to_vec());
+            }
         }
         
-        dump_trie(marf.borrow_storage_backend());
     }
 
     #[test]
     fn insert_1024_seq_low() {
-        insert_n_test("/tmp/rust_marf_insert_1024_seq_low", 1024,
+        insert_n_test("/tmp/rust_marf_insert_1024_seq_low", true, 1024,
                          |i| {
                              [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29, (i / 256) as u8, (i % 256) as u8]
                          })
@@ -1732,7 +1735,7 @@ mod test {
     
     #[test]
     fn insert_1024_seq_high() {
-        insert_n_test("/tmp/rust_marf_insert_1024_seq_high", 1024,
+        insert_n_test("/tmp/rust_marf_insert_1024_seq_high", true, 1024,
                          |i| {
                              [(i / 256) as u8, (i % 256) as u8, 2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
                          })
@@ -1740,7 +1743,7 @@ mod test {
     
     #[test]
     fn insert_1024_seq_mid() {
-        insert_n_test("/tmp/rust_marf_insert_1024_seq_mid", 1024,
+        insert_n_test("/tmp/rust_marf_insert_1024_seq_mid", true, 1024,
                          |i| {
                              let i0 = i / 256;
                              let i1 = (i % 256) / 32;
@@ -1755,7 +1758,7 @@ mod test {
         // deterministic random insert of 65536 keys
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
 
-        insert_n_test("/tmp/rust_marf_insert_65536_random_deterministic_merkle_proof", 65536, |i| {
+        insert_n_test("/tmp/rust_marf_insert_65536_random_deterministic", false, 65536, |i| {
             let mut path = [0; 32];
             path.copy_from_slice(&
                 TrieHash::from_data(
@@ -1775,7 +1778,7 @@ mod test {
         // deterministic random insert of 1024 keys
         let mut seed = TrieHash::from_data(&[]).as_bytes().to_vec();
 
-        insert_n_test("/tmp/rust_marf_insert_65536_random_deterministic_merkle_proof", 1024, |i| {
+        insert_n_test("/tmp/rust_marf_insert_1024_random_deterministic_merkle_proof", true, 1024, |i| {
             let mut path = [0; 32];
             path.copy_from_slice(&
                 TrieHash::from_data(
