@@ -32,33 +32,40 @@ jobs:
       - run:
           command: |
             echo "(get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)" | blockstack-core local eval tokens db
-  build:
+  cargo_tests:
     machine: true
     working_directory: ~/blockstack
     steps:
       - checkout
       - run:
-          name: Pull Cargo Tarpaulin Image
+          name: Fetch latest grcov
           command: |
-            docker pull xd009642/tarpaulin
+            curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
       - run:
-          name: Run tests in Cargo Tarpaulin Image
+          name: Pull Rust Nightly
           command: |
-            docker run --security-opt seccomp=unconfined -e RUST_BACKTRACE=1 -e BLOCKSTACK_DEBUG=1 \
-            -e RUSTFLAGS=-Clink-dead-code -v "$PWD:/volume" xd009642/tarpaulin cargo tarpaulin -t 300 -o Xml \
-            -- --test-threads 1
+            docker pull rustlang/rust:nightly-stretch
       - run:
-          name: Test that Cargo Tarpaulin Suceeded
-          command: test -e cobertura.xml
+          name: Build and Test
+          command: |
+            docker run -it --security-opt seccomp=unconfined -e RUST_BACKTRACE=1 -e BLOCKSTACK_DEBUG=1 -e CARGO_INCREMENTAL=0 \
+            -e RUSTFLAGS="$RUSTFLAGS" -v "$PWD:/blockstack" rustlang/rust:nightly-stretch \
+            bash -c "cd /blockstack && rustup override set nightly && cargo build --verbose && cargo test --bin blockstack-core -- --test-threads 1"
+          environment:
+            RUSTFLAGS: -Zprofile -Copt-level=2 -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads
+      - run:
+          name: Collect debug outputs
+          command: |
+            zip -0 ccov.zip `find . \( -name "blockstack_core*.gc*" \) -print` &&
+            ./grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore-dir "/*" -o lcov.info;
       - run:
           name: Upload to codecov.io
           command: |
-            bash <(curl -s https://codecov.io/bash)
-
+            bash <(curl -s https://codecov.io/bash) -f lcov.info;
 workflows:
   version: 2
   build-deploy:
     jobs:
-      - build
+      - cargo_tests
       - test_demo
       - deploy
