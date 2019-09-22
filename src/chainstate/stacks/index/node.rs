@@ -28,6 +28,8 @@ use std::io::{
     Cursor
 };
 
+use sha2::Digest;
+
 use std::char::from_digit;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
@@ -52,6 +54,7 @@ use chainstate::stacks::index::storage::{BlockHashMap};
 
 use chainstate::stacks::index::{
     TrieHash,
+    TrieHasher,
     TRIEHASH_ENCODED_SIZE,
     fast_extend_from_slice,
     slice_partialeq,
@@ -179,6 +182,13 @@ pub trait TrieNode {
     fn try_as_node256(&self) -> Option<TrieNodeType>;
     fn try_as_leaf(&self) -> Option<TrieNodeType>;
 
+    fn hash_consensus_bytes(&self, map: &BlockHashMap, hasher: &mut TrieHasher) {
+        hasher.input([self.id()]);
+        ptrs_consensus_hash(self.ptrs(), hasher, map);
+        hasher.input([self.path().len() as u8]);
+        hasher.input(self.path().as_slice());
+    }
+
     /// Encode the consensus-relevant bytes of this node and write it to the given memory buffer.
     fn to_consensus_bytes(&self, map: &BlockHashMap) -> Vec<u8> {
         let mut r = Vec::with_capacity(self.consensus_byte_len());
@@ -287,6 +297,19 @@ impl TriePtr {
         ];
 
         fast_extend_from_slice(buf, &ptr_bytes);
+    }
+
+    pub fn hash_consensus_bytes(&self, block_map: &BlockHashMap, hasher: &mut TrieHasher) {
+        hasher.input([self.id(), self.chr()]);
+
+        if is_backptr(self.id()) {
+            hasher.input(
+                block_map.get_block_header_hash(self.back_block())
+                    .expect("Block identifier {} refered to an unknown block. Consensus failure.")
+                    .as_bytes());
+        } else {
+            hasher.input(&[0; 32]);
+        };
     }
 
     /// The parts of a child pointer that are relevant for consensus are only its ID, path
@@ -580,18 +603,17 @@ impl TrieCursor {
 pub struct TrieLeaf {
     pub path: Vec<u8>,      // path to be lazily expanded
     pub data: MARFValue,    // the actual data
-    backptr: TriePtr        // pointer back to the previous version of this leaf
 }
 
 impl fmt::Debug for TrieLeaf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "TrieLeaf(path={} data={} backptr={:?})", &to_hex(&self.path), &to_hex(&self.data.to_vec()), &self.backptr)
+        write!(f, "TrieLeaf(path={} data={})", &to_hex(&self.path), &to_hex(&self.data.to_vec()))
     }
 }
 
 impl PartialEq for TrieLeaf {
     fn eq(&self, other: &TrieLeaf) -> bool {
-        self.path == other.path && slice_partialeq(self.data.as_bytes(), other.data.as_bytes()) && self.backptr == other.backptr
+        self.path == other.path && slice_partialeq(self.data.as_bytes(), other.data.as_bytes())
     }
 }
 
@@ -604,7 +626,6 @@ impl TrieLeaf {
         TrieLeaf {
             path: path.clone(),
             data: MARFValue(bytes),
-            backptr: TriePtr::default()
         }
     }
 
@@ -612,7 +633,6 @@ impl TrieLeaf {
         TrieLeaf {
             path: path.clone(),
             data: value,
-            backptr: TriePtr::default()
         }
     }
 }
@@ -914,6 +934,13 @@ impl TrieNode for TrieNode16 {
     fn try_as_leaf(&self) -> Option<TrieNodeType> { None }
 }
 
+fn ptrs_consensus_hash(ptrs: &[TriePtr], hasher: &mut TrieHasher, map: &BlockHashMap) -> () {
+    // In benchmarks, this while() loop is noticeably faster than the more idiomatic "for ptr in ptrs.iter()"
+    for ptr in ptrs.iter() {
+        ptr.hash_consensus_bytes(map, hasher);
+    }
+}
+
 impl TrieNode for TrieNode48 {
     fn id(&self) -> u8 {
         TrieNodeID::Node48
@@ -940,6 +967,16 @@ impl TrieNode for TrieNode48 {
         ptrs_to_bytes(id, &self.ptrs, ret);
         ret.extend(&mut self.indexes.iter().map(|i| { let j = *i as u8; j } ));
         path_to_bytes(&self.path, ret);
+    }
+
+    fn hash_consensus_bytes(&self, map: &BlockHashMap, hasher: &mut TrieHasher) {
+        hasher.input([self.id()]);
+        ptrs_consensus_hash(&self.ptrs, hasher, map);
+        for i in self.indexes.iter() {
+            hasher.input([*i as u8]);
+        }
+        hasher.input([self.path.len() as u8]);
+        hasher.input(self.path.as_slice());
     }
 
     fn to_consensus_bytes(&self, map: &BlockHashMap) -> Vec<u8> {
@@ -1123,6 +1160,13 @@ impl TrieLeaf {
         self.to_bytes(&mut r);
         r
     }
+
+    pub fn hash_consensus_bytes_leaf(&self, hasher: &mut TrieHasher) {
+        hasher.input([self.id(), self.path.len() as u8]);
+        hasher.input(self.path.as_slice());
+        hasher.input(&self.data.0[..]);
+    }
+
 }
 
 impl TrieNode for TrieLeaf {
@@ -1143,7 +1187,11 @@ impl TrieNode for TrieLeaf {
         ret.push(id);
         path_to_bytes(&self.path, ret);
         fast_extend_from_slice(ret, self.data.as_bytes());
-        ptrs_to_bytes(id, &[self.backptr], ret);
+//        ptrs_to_bytes(id, &[self.backptr], ret);
+    }
+
+    fn hash_consensus_bytes(&self, _map: &BlockHashMap, hasher: &mut TrieHasher) {
+        self.hash_consensus_bytes_leaf(hasher)
     }
 
     fn to_consensus_bytes(&self, _map: &BlockHashMap) -> Vec<u8> {
@@ -1151,7 +1199,7 @@ impl TrieNode for TrieLeaf {
     }
     
     fn byte_len(&self) -> usize {
-        1 + get_path_byte_len(&self.path) + self.data.len() + get_ptrs_byte_len(&[self.backptr])
+        1 + get_path_byte_len(&self.path) + self.data.len()
     }
 
     fn consensus_byte_len(&self) -> usize {
@@ -1180,13 +1228,9 @@ impl TrieNode for TrieLeaf {
             return Err(Error::CorruptionError(format!("Leaf: read only {} out of {} bytes", l_leaf_data, MARF_VALUE_ENCODED_SIZE)));
         }
         
-        let mut ptrs_slice = [TriePtr::default(); 1];
-        ptrs_from_bytes(TrieNodeID::Leaf, r, &mut ptrs_slice)?;
-
         Ok(TrieLeaf {
             path: path,
             data: MARFValue(leaf_data),
-            backptr: ptrs_slice[0]
         })
     }
 

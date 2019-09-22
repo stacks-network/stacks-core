@@ -58,7 +58,6 @@ use chainstate::burn::BLOCK_HEADER_HASH_ENCODED_SIZE;
 use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
-    fast_extend_from_slice,
 };
 
 use chainstate::stacks::index::bits::{

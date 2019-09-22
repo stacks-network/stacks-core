@@ -49,6 +49,19 @@ use util::log;
 /// This method requires that target has enough space to store src, and will panic if not.
 #[inline]
 pub fn fast_extend_from_slice(target: &mut Vec<u8>, src: &[u8]) -> () {
+/*    if target.capacity() < target.len() + src.len() {
+        error!("target.capacity() ({}) < target.len() ({}) + src.len() ({})", target.capacity(), target.len(), src.len());
+        assert!(target.capacity() >= target.len() + src.len());
+    }
+    let target_len = target.len();
+    let src_len = src.len();
+    let new_len = target_len + src_len;
+    unsafe {
+        let target_ptr = target.as_mut_ptr().offset(target_len as isize);
+        let src_ptr = src.as_ptr();
+        ptr::copy_nonoverlapping(src_ptr, target_ptr, src_len);
+        target.set_len(new_len);
+    }*/
     target.extend_from_slice(src);
 }
 

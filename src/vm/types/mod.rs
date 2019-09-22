@@ -377,6 +377,11 @@ mod test {
                 vec![0; (MAX_VALUE_SIZE+1) as usize]),
             Err(CheckErrors::ValueTooLarge.into()));
 
+        if std::env::var("CIRCLE_TESTING") == Ok("1".to_string()) {
+            println!("Skipping allocation test on Circle");
+            return;
+        }
+
         // on 32-bit archs, this error cannot even happen, so don't test (and cause an overflow panic)
         if (u32::max_value() as usize) < usize::max_value() {
             assert_eq!(

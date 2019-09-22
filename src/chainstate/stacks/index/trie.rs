@@ -71,7 +71,6 @@ use chainstate::stacks::index::marf::{
 use chainstate::stacks::index::{
     TrieHash,
     TRIEHASH_ENCODED_SIZE,
-    fast_extend_from_slice
 };
 
 use chainstate::stacks::index::Error as Error;
