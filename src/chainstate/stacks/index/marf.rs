@@ -306,7 +306,7 @@ impl MARF {
                                     let (next_node, _, next_node_ptr, next_node_block_hash) = MARF::node_child_copy(storage, &node, ptr.chr(), &mut cursor)?;
 
                                     // finish taking the step
-                                    cursor.repair_backptr_finish(&next_node_ptr, &next_node_block_hash);
+                                    cursor.repair_backptr_finish(&next_node_ptr, next_node_block_hash);
                                     
                                     // keep walking
                                     node = next_node;
@@ -384,7 +384,7 @@ impl MARF {
                                     let (next_node, _, next_node_ptr, _) = MARF::walk_backptr(storage, &node, ptr.chr(), &mut cursor)?;
                                    
                                     // finish taking the step
-                                    cursor.repair_backptr_finish(&next_node_ptr, &storage.get_cur_block());
+                                    cursor.repair_backptr_finish(&next_node_ptr, storage.get_cur_block());
 
                                     // keep going
                                     node = next_node;

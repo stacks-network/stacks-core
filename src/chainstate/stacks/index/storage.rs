@@ -361,7 +361,7 @@ impl TrieRAM {
         Ok(())
     }
 
-    pub fn read_node_hash(&mut self, ptr: &TriePtr) -> Result<TrieHash, Error> {
+    pub fn read_node_hash(&self, ptr: &TriePtr) -> Result<TrieHash, Error> {
         let (_, node_trie_hash) = self.data.get(ptr.ptr() as usize)
             .ok_or_else(|| {
                 trace!("TrieRAM: Failed to read node bytes: {} >= {}", ptr.ptr(), self.data.len());

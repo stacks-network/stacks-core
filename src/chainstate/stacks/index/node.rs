@@ -440,15 +440,9 @@ impl TrieCursor {
             return Ok(None);
         }
 
-        let node_path = match node {
-            TrieNodeType::Leaf(ref data) => data.path.clone(),
-            TrieNodeType::Node4(ref data) => data.path.clone(),
-            TrieNodeType::Node16(ref data) => data.path.clone(),
-            TrieNodeType::Node48(ref data) => data.path.clone(),
-            TrieNodeType::Node256(ref data) => data.path.clone(),
-        };
+        let node_path = node.path_bytes();
 
-        let path_bytes = self.path.as_bytes().clone();
+        let path_bytes = self.path.as_bytes();
 
         assert!(self.index + node_path.len() <= self.path.len());
 
@@ -460,7 +454,7 @@ impl TrieCursor {
         for i in 0..node_path.len() {
             if node_path[i] != path_bytes[self.index] {
                 // diverged
-                trace!("cursor: diverged({} != {}): i = {}, self.index = {}, self.node_path_index = {}", to_hex(&node_path), to_hex(&path_bytes), i, self.index, self.node_path_index);
+                trace!("cursor: diverged({} != {}): i = {}, self.index = {}, self.node_path_index = {}", to_hex(&node_path), to_hex(path_bytes), i, self.index, self.node_path_index);
                 self.last_error = Some(CursorError::PathDiverged);
                 return Err(CursorError::PathDiverged);
             }
@@ -473,19 +467,13 @@ impl TrieCursor {
         if self.index < self.path.len() {
             let chr = path_bytes[self.index];
             self.index += 1;
-            let mut ptr_opt = match node {
-                TrieNodeType::Node4(ref node4) => node4.walk(chr),
-                TrieNodeType::Node16(ref node16) => node16.walk(chr),
-                TrieNodeType::Node48(ref node48) => node48.walk(chr),
-                TrieNodeType::Node256(ref node256) => node256.walk(chr),
-                _ => None
-            };
+            let mut ptr_opt = node.walk(chr);
             
             let do_walk = match ptr_opt {
-                Some(ref ptr) => {
+                Some(ptr) => {
                     if !is_backptr(ptr.id()) {
                         // not going to follow a back-pointer
-                        self.node_ptrs.push(ptr.clone());
+                        self.node_ptrs.push(ptr);
                         self.block_hashes.push(block_hash.clone());
                         true
                     }
@@ -493,7 +481,7 @@ impl TrieCursor {
                         // the caller will need to follow the backptr, and call
                         // repair_backptr_step_backptr() for each node visited, and then repair_backptr_finish()
                         // once the final ptr and block_hash are discovered.
-                        self.last_error = Some(CursorError::BackptrEncountered(ptr.clone()));
+                        self.last_error = Some(CursorError::BackptrEncountered(ptr));
                         false
                     }
                 },
@@ -548,7 +536,7 @@ impl TrieCursor {
     /// next_node should be the node walked to.
     /// ptr is the ptr we'll be walking from, off of next_node.
     /// block_hash is the block where next_node came from.
-    pub fn repair_backptr_step_backptr(&mut self, next_node: &TrieNodeType, ptr: &TriePtr, block_hash: &BlockHeaderHash) -> () {
+    pub fn repair_backptr_step_backptr(&mut self, next_node: &TrieNodeType, ptr: &TriePtr, block_hash: BlockHeaderHash) -> () {
         // this can only be called if we walked to a backptr.
         // If it's anything else, we're in trouble.
         if Some(CursorError::ChrNotFound) == self.last_error || Some(CursorError::PathDiverged) == self.last_error {
@@ -556,17 +544,18 @@ impl TrieCursor {
             panic!();
         }
 
+        trace!("Cursor: repair_backptr_step_backptr ptr={:?} block_hash={:?} next_node={:?}", ptr, &block_hash, next_node);
+
         let backptr = TriePtr::new(set_backptr(ptr.id()), ptr.chr(), ptr.ptr());        // set_backptr() informs update_root_hash() to skip this node
         self.node_ptrs.push(backptr);
-        self.block_hashes.push(block_hash.clone());
+        self.block_hashes.push(block_hash);
         
         self.nodes.push(next_node.clone());
-        trace!("Cursor: repair_backptr_step_backptr ptr={:?} block_hash={:?} next_node={:?}", ptr, block_hash, next_node);
     }
     
     /// Record that we landed on a non-backptr from a backptr.
     /// ptr is a non-backptr that refers to the node we landed on.
-    pub fn repair_backptr_finish(&mut self, ptr: &TriePtr, block_hash: &BlockHeaderHash) -> () {
+    pub fn repair_backptr_finish(&mut self, ptr: &TriePtr, block_hash: BlockHeaderHash) -> () {
         // this can only be called if we walked to a backptr.
         // If it's anything else, we're in trouble.
         if Some(CursorError::ChrNotFound) == self.last_error || Some(CursorError::PathDiverged) == self.last_error {
@@ -575,12 +564,13 @@ impl TrieCursor {
         }
         assert!(!is_backptr(ptr.id()));
 
+        trace!("Cursor: repair_backptr_finish ptr={:?} block_hash={:?}", &ptr, &block_hash);
+
         self.node_ptrs.push(ptr.clone());
-        self.block_hashes.push(block_hash.clone());
+        self.block_hashes.push(block_hash);
         
         self.last_error = None;
 
-        trace!("Cursor: repair_backptr_finish ptr={:?} block_hash={:?}", ptr, block_hash);
     }
 }
 

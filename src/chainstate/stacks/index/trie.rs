@@ -158,7 +158,7 @@ impl Trie {
             let backptr = ptr.from_backptr();
             let (node, node_hash) = storage.read_nodetype(&backptr)?;
 
-            cursor.repair_backptr_step_backptr(&node, &backptr, &storage.get_cur_block());
+            cursor.repair_backptr_step_backptr(&node, &backptr, storage.get_cur_block());
             Ok((node, node_hash, backptr))
         }
     }
@@ -179,8 +179,6 @@ impl Trie {
     /// On err, S may point to a prior block.  The caller should call s.open(...) if an error
     /// occurs.
     pub fn read_child_hashes_bytes(storage: &mut TrieFileStorage, ptrs: &[TriePtr]) -> Result<Vec<TrieHash>, Error> {
-        // "for ptr in ptrs.iter()" and "for i in 0..ptrs.len()" are both pretty slow since
-        // they create iterators internally, so do a while-loop instead.
         ptrs.iter().map(|ptr| {
             if ptr.id() == TrieNodeID::Empty {
                 // hash of empty string
