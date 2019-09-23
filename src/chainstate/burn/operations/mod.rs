@@ -25,6 +25,8 @@ pub mod user_burn_support;
 
 use std::fmt;
 use std::error;
+use std::io;
+use std::fs;
 
 use util::db::DBConn;
 use util::db::DBTx;
@@ -34,7 +36,9 @@ use burnchains::Burnchain;
 use burnchains::Txid;
 use chainstate::burn::ConsensusHash;
 use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::db::burndb::BurnDBTx;
 use util::hash::Hash160;
+use util::hash::Sha512_256;
 use burnchains::{
     BurnchainSigner,
     BurnchainRecipient,
@@ -46,7 +50,9 @@ use burnchains::BurnchainBlockHeader;
 use chainstate::burn::Opcodes;
 use chainstate::burn::VRFSeed;
 use chainstate::stacks::StacksAddress;
+use chainstate::stacks::index::TrieHash;
 
+use util::secp256k1::MessageSignature;
 use util::vrf::VRFPublicKey;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -156,7 +162,6 @@ pub struct LeaderBlockCommitOp {
     pub vtxindex: u32,                      // index in the block where this tx occurs
     pub block_height: u64,                  // block height at which this tx occurs
     pub burn_header_hash: BurnchainHeaderHash,      // hash of the burn chain block header
-    pub fork_segment_id: u64,                       // internal ID of the burn chain fork this is on
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]
@@ -171,7 +176,6 @@ pub struct LeaderKeyRegisterOp {
     pub vtxindex: u32,                      // index in the block where this tx occurs
     pub block_height: u64,                  // block height at which this tx occurs
     pub burn_header_hash: BurnchainHeaderHash,    // hash of burn chain block 
-    pub fork_segment_id: u64,                       // internal ID of the burn chain fork this is on
 }
 
 #[derive(Debug, PartialEq, Clone, Eq)]
@@ -189,11 +193,10 @@ pub struct UserBurnSupportOp {
     pub vtxindex: u32,                      // index in the block where this tx occurs
     pub block_height: u64,                  // block height at which this tx occurs
     pub burn_header_hash: BurnchainHeaderHash,   // hash of burnchain block with this tx
-    pub fork_segment_id: u64,                       // internal ID of the burn chain fork this is on
 }
 
 pub trait BlockstackOperation {
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut DBTx<'a>) -> Result<(), Error>;
+    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), Error>;
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<Self, Error>
         where Self: Sized;
 }
@@ -243,14 +246,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderKeyRegister(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::UserBurnSupport(ref data) => data.burn_header_hash.clone()
-        }
-    }
-
-    pub fn fork_segment_id(&self) -> u64 {
-        match *self {
-            BlockstackOperationType::LeaderKeyRegister(ref data) => data.fork_segment_id,
-            BlockstackOperationType::LeaderBlockCommit(ref data) => data.fork_segment_id,
-            BlockstackOperationType::UserBurnSupport(ref data) => data.fork_segment_id
         }
     }
 }

@@ -24,6 +24,8 @@ use chainstate::burn::Opcodes;
 use chainstate::burn::{BlockHeaderHash, VRFSeed};
 
 use chainstate::burn::db::burndb::BurnDB;
+use chainstate::burn::db::burndb::BurnDBTx;
+use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::{
     LeaderBlockCommitOp,
@@ -91,7 +93,6 @@ impl LeaderBlockCommitOp {
             txid: Txid([0u8; 32]),
             vtxindex: 0,
             burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-            fork_segment_id: 0
         }
     }
 
@@ -114,8 +115,6 @@ impl LeaderBlockCommitOp {
             vtxindex: 0,
             block_height: 0,
             burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-
-            fork_segment_id: 0,
         }
     }
 
@@ -177,7 +176,7 @@ impl LeaderBlockCommitOp {
         })
     }
 
-    fn parse_from_tx(block_height: u64, fork_segment_id: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction) -> Result<LeaderBlockCommitOp, op_error> {
+    fn parse_from_tx(block_height: u64, block_hash: &BurnchainHeaderHash, tx: &BurnchainTransaction) -> Result<LeaderBlockCommitOp, op_error> {
         // can't be too careful...
         let inputs = tx.get_signers();
         let outputs = tx.get_recipients();
@@ -266,18 +265,16 @@ impl LeaderBlockCommitOp {
             vtxindex: tx.vtxindex(),
             block_height: block_height,
             burn_header_hash: block_hash.clone(),
-
-            fork_segment_id: fork_segment_id
         })
     }
 }
 
 impl BlockstackOperation for LeaderBlockCommitOp {
     fn from_tx(block_header: &BurnchainBlockHeader, tx: &BurnchainTransaction) -> Result<LeaderBlockCommitOp, op_error> {
-        LeaderBlockCommitOp::parse_from_tx(block_header.block_height, block_header.fork_segment_id, &block_header.block_hash, tx)
+        LeaderBlockCommitOp::parse_from_tx(block_header.block_height, &block_header.block_hash, tx)
     }
         
-    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut DBTx<'a>) -> Result<(), op_error> {
+    fn check<'a>(&self, burnchain: &Burnchain, block_header: &BurnchainBlockHeader, tx: &mut BurnDBTx<'a>) -> Result<(), op_error> {
         let leader_key_block_height = self.block_height - (self.key_block_backptr as u64);
         let parent_block_height = self.block_height - (self.parent_block_backptr as u64);
 
@@ -321,22 +318,22 @@ impl BlockstackOperation for LeaderBlockCommitOp {
             .expect("FATAL: failed to query parent block snapshot")
             .expect("FATAL: no parent snapshot in the DB");
 
-        let register_key = match BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), chain_tip.fork_segment_id)
+        let register_key = match BurnDB::get_leader_key_at(tx, leader_key_block_height, self.key_vtxindex.into(), &chain_tip.index_root)
             .expect("Sqlite failure while getting a prior leader VRF key") {
             Some(key) => {
                 key
             },
             None => {
-                warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, chain_tip.fork_segment_id);
+                warn!("Invalid block commit: no corresponding leader key at {},{} in fork {}", leader_key_block_height, self.key_vtxindex, chain_tip.index_root.to_hex());
                 return Err(op_error::BlockCommitNoLeaderKey);
             }
         };
 
-        let is_key_consumed = BurnDB::is_leader_key_consumed(tx, chain_tip.block_height, &register_key, chain_tip.fork_segment_id)
+        let is_key_consumed = BurnDB::is_leader_key_consumed(tx, &register_key, &chain_tip.index_root)
             .expect("Sqlite failure while verifying that a leader VRF key is not consumed");
 
         if is_key_consumed {
-            warn!("Invalid block commit: leader key at ({},{}) is already used as of {} in fork {}", register_key.block_height, register_key.vtxindex, chain_tip.block_height, chain_tip.fork_segment_id);
+            warn!("Invalid block commit: leader key at ({},{}) is already used as of {} in fork {}", register_key.block_height, register_key.vtxindex, chain_tip.block_height, chain_tip.index_root.to_hex());
             return Err(op_error::BlockCommitLeaderKeyAlreadyUsed);
         }
 
@@ -354,11 +351,11 @@ impl BlockstackOperation for LeaderBlockCommitOp {
         }
         else if self.parent_block_backptr != 0 || self.parent_vtxindex != 0 {
             // not building off of genesis, so the parent block must exist
-            match BurnDB::get_block_commit_at(tx, parent_block_height, self.parent_vtxindex.into(), chain_tip.fork_segment_id)
+            match BurnDB::get_block_commit_parent(tx, parent_block_height, self.parent_vtxindex.into(), &chain_tip.index_root)
                 .expect("Sqlite failure while verifying that this block commitment is new") {
                 Some(_) => {},
                 None => {
-                    warn!("Invalid block commit: no parent block in this fork segment");
+                    warn!("Invalid block commit: no parent block in this fork");
                     return Err(op_error::BlockCommitNoParent);
                 }
             }
@@ -478,7 +475,6 @@ mod tests {
                     vtxindex: vtxindex,
                     block_height: block_height,
                     burn_header_hash: burn_header_hash,
-                    fork_segment_id: 0,
                 })
             },
             OpFixture {
@@ -509,10 +505,7 @@ mod tests {
                         block_hash: op.burn_header_hash.clone(),
                         parent_block_hash: op.burn_header_hash.clone(),
                         num_txs: 1,
-                        fork_segment_id: op.fork_segment_id,
-                        parent_fork_segment_id: op.fork_segment_id,
-                        fork_segment_length: 1,
-                        fork_length: 1,
+                        parent_index_root: TrieHash::from_empty_data()
                     }
                 },
                 None => {
@@ -521,10 +514,7 @@ mod tests {
                         block_hash: BurnchainHeaderHash([0u8; 32]),
                         parent_block_hash: BurnchainHeaderHash([0u8; 32]),
                         num_txs: 0,
-                        fork_segment_id: 0,
-                        parent_fork_segment_id: 0,
-                        fork_segment_length: 0,
-                        fork_length: 0,
+                        parent_index_root: TrieHash::from_empty_data()
                     }
                 }
             };
@@ -579,36 +569,6 @@ mod tests {
             first_block_hash: first_burn_hash.clone()
         };
         
-        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
-
-        {
-            let mut tx = db.tx_begin().unwrap();
-            let mut prev_snapshot = BurnDB::get_first_block_snapshot(&mut tx).unwrap();
-            for i in 0..block_header_hashes.len() {
-                let snapshot_row = BlockSnapshot {
-                    block_height: (i + 1 + first_block_height as usize) as u64,
-                    burn_header_hash: block_header_hashes[i].clone(),
-                    parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
-                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    total_burn: i as u64,
-                    sortition: true,
-                    sortition_hash: SortitionHash::initial(),
-                    winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-
-                    fork_segment_id: 0,
-                    parent_fork_segment_id: 0,
-                    fork_segment_length: (i + 1) as u64,
-                    fork_length: (i + 1) as u64
-                };
-                BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row).unwrap();
-                prev_snapshot = snapshot_row;
-            }
-            
-            tx.commit().unwrap();
-        }
-
         let leader_key_1 = LeaderKeyRegisterOp { 
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
@@ -619,7 +579,6 @@ mod tests {
             vtxindex: 456,
             block_height: 124,
             burn_header_hash: block_124_hash.clone(),
-            fork_segment_id: 0,
         };
         
         let leader_key_2 = LeaderKeyRegisterOp { 
@@ -632,7 +591,6 @@ mod tests {
             vtxindex: 457,
             block_height: 124,
             burn_header_hash: block_124_hash.clone(),
-            fork_segment_id: 0,
         };
 
         // consumes leader_key_1
@@ -659,16 +617,68 @@ mod tests {
             vtxindex: 444,
             block_height: 125,
             burn_header_hash: block_125_hash.clone(),
-            fork_segment_id: 0,
         };
 
-        {
+        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
+        let block_ops = vec![
+            // 122
+            vec![],
+            // 123
+            vec![],
+            // 124
+            vec![
+                BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
+                BlockstackOperationType::LeaderKeyRegister(leader_key_2.clone()),
+            ],
+            // 125
+            vec![
+                BlockstackOperationType::LeaderBlockCommit(block_commit_1.clone())
+            ],
+            // 126
+            vec![]
+        ];
+
+        let consumed_leader_keys = vec![
+            // 122
+            vec![],
+            // 123
+            vec![],
+            // 124 
+            vec![],
+            // 125
+            vec![
+                leader_key_1.clone()
+            ],
+            // 126
+            vec![]
+        ];
+
+        let tip_index_root = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_leader_key(&mut tx, &leader_key_1).unwrap();
-            BurnDB::insert_leader_key(&mut tx, &leader_key_2).unwrap();
-            BurnDB::insert_block_commit(&mut tx, &block_commit_1).unwrap();
+            let mut prev_snapshot = BurnDB::get_first_block_snapshot(&mut tx).unwrap();
+            for i in 0..block_header_hashes.len() {
+                let mut snapshot_row = BlockSnapshot {
+                    block_height: (i + 1 + first_block_height as usize) as u64,
+                    burn_header_hash: block_header_hashes[i].clone(),
+                    parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
+                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    total_burn: i as u64,
+                    sortition: true,
+                    sortition_hash: SortitionHash::initial(),
+                    winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                    winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
+                    index_root: TrieHash::from_empty_data()
+                };
+                let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &snapshot_row, &block_ops[i], &consumed_leader_keys[i]).unwrap();
+                
+                snapshot_row.index_root = next_index_root;
+                prev_snapshot = snapshot_row;
+            }
+            
             tx.commit().unwrap();
-        }
+            prev_snapshot.index_root.clone()
+        };
         
         let block_height = 124;
 
@@ -698,7 +708,6 @@ mod tests {
                     vtxindex: 444,
                     block_height: 80,
                     burn_header_hash: block_126_hash.clone(),
-                    fork_segment_id: 0,
                 },
                 res: Err(op_error::BlockCommitPredatesGenesis),
             },
@@ -727,7 +736,6 @@ mod tests {
                     vtxindex: 444,
                     block_height: 126,
                     burn_header_hash: block_126_hash.clone(),
-                    fork_segment_id: 0,
                 },
                 res: Err(op_error::BlockCommitBadEpoch),
             },
@@ -756,7 +764,6 @@ mod tests {
                     vtxindex: 444,
                     block_height: 126,
                     burn_header_hash: block_126_hash.clone(),
-                    fork_segment_id: 0,
                 },
                 res: Err(op_error::BlockCommitNoLeaderKey),
             },
@@ -785,7 +792,6 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_header_hash: block_126_hash.clone(),
-                    fork_segment_id: 0,
                 },
                 res: Err(op_error::BlockCommitLeaderKeyAlreadyUsed),
             },
@@ -814,7 +820,6 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_header_hash: block_126_hash.clone(),
-                    fork_segment_id: 0,
                 },
                 res: Err(op_error::BlockCommitNoParent),
             },
@@ -843,7 +848,6 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_header_hash: block_126_hash.clone(),
-                    fork_segment_id: 0,
                 },
                 res: Err(op_error::BlockCommitNoParent),
             },
@@ -872,7 +876,6 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_header_hash: block_126_hash.clone(),
-                    fork_segment_id: 0,
                 },
                 res: Err(op_error::BlockCommitBadInput),
             },
@@ -901,7 +904,6 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_header_hash: block_126_hash.clone(),
-                    fork_segment_id: 0,
                 },
                 res: Err(op_error::BlockCommitBadInput)
             },
@@ -930,36 +932,6 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_header_hash: block_126_hash.clone(),
-                    fork_segment_id: 0,
-                },
-                res: Ok(())
-            },
-            CheckFixture {
-                // accept -- consumes leader_key_2 and starts a new fork segment
-                op: LeaderBlockCommitOp {
-                    block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
-                    new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                    parent_block_backptr: 1,
-                    parent_vtxindex: 444,
-                    key_block_backptr: 2,
-                    key_vtxindex: 457,
-                    epoch_num: (126 - first_block_height) as u32,
-                    memo: vec![0x80],
-
-                    burn_fee: 12345,
-                    input: BurnchainSigner {
-                        public_keys: vec![
-                            StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                        ],
-                        num_sigs: 1,
-                        hash_mode: AddressHashMode::SerializeP2PKH
-                    },
-
-                    txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
-                    vtxindex: 445,
-                    block_height: 126,
-                    burn_header_hash: block_126_hash.clone(),
-                    fork_segment_id: 1,
                 },
                 res: Ok(())
             },
@@ -988,7 +960,6 @@ mod tests {
                     vtxindex: 445,
                     block_height: 126,
                     burn_header_hash: block_126_hash.clone(),
-                    fork_segment_id: 0,
                 },
                 res: Ok(())
             }
@@ -1001,10 +972,7 @@ mod tests {
                 block_hash: fixture.op.burn_header_hash.clone(),
                 parent_block_hash: fixture.op.burn_header_hash.clone(),
                 num_txs: 1,
-                fork_segment_id: fixture.op.fork_segment_id,
-                parent_fork_segment_id: fixture.op.fork_segment_id,
-                fork_segment_length: 1,
-                fork_length: 1,
+                parent_index_root: tip_index_root.clone()
             };
             assert_eq!(fixture.res, fixture.op.check(&burnchain, &header, &mut tx));
         }
