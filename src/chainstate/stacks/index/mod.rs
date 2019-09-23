@@ -260,6 +260,12 @@ pub enum Error {
     NonMatchingForks(BlockHeaderHash, BlockHeaderHash)
 }
 
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Error::IOError(err)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {

@@ -40,9 +40,6 @@ use std::collections::HashSet;
 use chainstate::burn::BlockHeaderHash;
 
 use chainstate::stacks::index::bits::{
-    ptrs_to_bytes,
-    path_to_bytes,
-    ptrs_to_consensus_bytes,
     path_from_bytes,
     ptrs_from_bytes,
     get_ptrs_byte_len,
@@ -125,6 +122,29 @@ pub fn clear_backptr(id: u8) -> u8 {
     id & 0x7f
 }
 
+// Byte writing operations for pointer lists, paths.
+
+fn write_ptrs_to_bytes<W: Write>(ptrs: &[TriePtr], w: &mut W) -> Result<(), Error> {
+    for ptr in ptrs.iter() {
+        ptr.write_bytes(w)?;
+    }
+    Ok(())
+}
+
+
+fn ptrs_consensus_hash<W: Write>(ptrs: &[TriePtr], map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+    for ptr in ptrs.iter() {
+        ptr.write_consensus_bytes(map, w)?;
+    }
+    Ok(())
+}
+
+fn write_path_to_bytes<W: Write>(path: &[u8], w: &mut W) -> Result<(), Error> {
+    w.write_all(&[path.len() as u8])?;
+    w.write_all(path)?;
+    Ok(())
+}
+
 /// A path in the Trie is the SHA2-512/256 hash of its key.
 pub struct TriePath([u8; 32]);
 impl_array_newtype!(TriePath, u8, 32);
@@ -165,9 +185,6 @@ pub trait TrieNode {
     fn from_bytes<R: Read>(r: &mut R) -> Result<Self, Error>
         where Self: std::marker::Sized;
 
-    /// Encode this node instance into a byte stream and write it to the given memory buffer.
-    fn to_bytes(&self, buf: &mut Vec<u8>) -> ();
-
     /// Get a reference to the children of this node.
     fn ptrs(&self) -> &[TriePtr];
 
@@ -182,19 +199,32 @@ pub trait TrieNode {
     fn try_as_node256(&self) -> Option<TrieNodeType>;
     fn try_as_leaf(&self) -> Option<TrieNodeType>;
 
-    fn hash_consensus_bytes(&self, map: &BlockHashMap, hasher: &mut TrieHasher) {
-        hasher.input([self.id()]);
-        ptrs_consensus_hash(self.ptrs(), hasher, map);
-        hasher.input([self.path().len() as u8]);
-        hasher.input(self.path().as_slice());
+    /// Encode this node instance into a byte stream and write it to w.
+    fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id()])?;
+        write_ptrs_to_bytes(self.ptrs(), w)?;
+        write_path_to_bytes(self.path().as_slice(), w)
     }
 
-    /// Encode the consensus-relevant bytes of this node and write it to the given memory buffer.
+    #[cfg(test)]
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut r = Vec::new();
+        self.write_bytes(&mut r)
+            .expect("Failed to write to byte buffer");
+        r
+    }
+
+    /// Encode the consensus-relevant bytes of this node and write it to w.
+    fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id()])?;
+        ptrs_consensus_hash(self.ptrs(), map, w)?;
+        write_path_to_bytes(self.path().as_slice(), w)
+    }
+    
     fn to_consensus_bytes(&self, map: &BlockHashMap) -> Vec<u8> {
         let mut r = Vec::with_capacity(self.consensus_byte_len());
-        let id = self.id();
-        ptrs_to_consensus_bytes(id, self.ptrs(), map, &mut r);
-        path_to_bytes(self.path(), &mut r);
+        self.write_consensus_bytes(map, &mut r)
+            .expect("Failed to write to byte buffer");
         r
     }
 
@@ -279,60 +309,29 @@ impl TriePtr {
     }
 
     #[inline]
-    pub fn to_bytes(&self, buf: &mut Vec<u8>) -> () {
-        let ptr = self.ptr();
-        let back_block = self.back_block();
-
-        let ptr_bytes = [
-            self.id(),
-            self.chr(),
-            ((ptr & 0xff000000) >> 24) as u8,
-            ((ptr & 0x00ff0000) >> 16) as u8,
-            ((ptr & 0x0000ff00) >> 8) as u8,
-            ((ptr & 0x000000ff)) as u8,
-            ((back_block & 0xff000000) >> 24) as u8,
-            ((back_block & 0x00ff0000) >> 16) as u8,
-            ((back_block & 0x0000ff00) >> 8) as u8,
-            ((back_block & 0x000000ff)) as u8
-        ];
-
-        fast_extend_from_slice(buf, &ptr_bytes);
+    pub fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id(), self.chr()])?;
+        w.write_all(&self.ptr().to_be_bytes())?;
+        w.write_all(&self.back_block().to_be_bytes())?;
+        Ok(())
     }
 
-    pub fn hash_consensus_bytes(&self, block_map: &BlockHashMap, hasher: &mut TrieHasher) {
-        hasher.input([self.id(), self.chr()]);
-
-        if is_backptr(self.id()) {
-            hasher.input(
-                block_map.get_block_header_hash(self.back_block())
-                    .expect("Block identifier {} refered to an unknown block. Consensus failure.")
-                    .as_bytes());
-        } else {
-            hasher.input(&[0; 32]);
-        };
-    }
 
     /// The parts of a child pointer that are relevant for consensus are only its ID, path
     /// character, and referred-to block hash.  The software doesn't care about the details of how/where
     /// nodes are stored.
-    #[inline]
-    pub fn to_consensus_bytes(&self, block_map: &BlockHashMap, buf: &mut Vec<u8>) -> () {
-        // like to_bytes(), but without insertion-order
-        let back_block_bytes = if is_backptr(self.id()) {
-            block_map.get_block_header_hash(self.back_block())
-                .expect("Block identifier {} refered to an unknown block. Consensus failure.")
-                .as_bytes()
+    pub fn write_consensus_bytes<W: Write>(&self, block_map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id(), self.chr()])?;
+
+        if is_backptr(self.id()) {
+            w.write_all(
+                block_map.get_block_header_hash(self.back_block())
+                    .expect("Block identifier {} refered to an unknown block. Consensus failure.")
+                    .as_bytes())?;
         } else {
-            &[0; 32]
-        };
-
-        let consensus_ptr_bytes = [
-            self.id(),
-            self.chr()
-        ];
-
-        fast_extend_from_slice(buf, &consensus_ptr_bytes);
-        fast_extend_from_slice(buf, back_block_bytes);
+            w.write_all(&[0; 32])?;
+        }
+        Ok(())
     }
 
     #[inline]
@@ -340,16 +339,8 @@ impl TriePtr {
         assert!(bytes.len() >= TRIEPTR_SIZE);
         let id = bytes[0];
         let chr = bytes[1];
-        let ptr =
-            (bytes[2] as u32) << 24 |
-            (bytes[3] as u32) << 16 |
-            (bytes[4] as u32) << 8 |
-            (bytes[5] as u32);
-        let back_block =
-            (bytes[6] as u32) << 24 |
-            (bytes[7] as u32) << 16 |
-            (bytes[8] as u32) << 8 |
-            (bytes[9] as u32);
+        let ptr = u32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]);
+        let back_block = u32::from_be_bytes([bytes[6], bytes[7], bytes[8], bytes[9]]);
 
         TriePtr {
             id: id,
@@ -800,12 +791,6 @@ impl TrieNode for TrieNode4 {
         return None;
     }
 
-    fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode4, Error> {
         let mut ptrs_slice = [TriePtr::default(); 4];
         ptrs_from_bytes(TrieNodeID::Node4, r, &mut ptrs_slice)?;
@@ -877,12 +862,6 @@ impl TrieNode for TrieNode16 {
         return None;
     }
 
-    fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode16, Error> {
         let mut ptrs_slice = [TriePtr::default(); 16];
         ptrs_from_bytes(TrieNodeID::Node16, r, &mut ptrs_slice)?;
@@ -934,13 +913,6 @@ impl TrieNode for TrieNode16 {
     fn try_as_leaf(&self) -> Option<TrieNodeType> { None }
 }
 
-fn ptrs_consensus_hash(ptrs: &[TriePtr], hasher: &mut TrieHasher, map: &BlockHashMap) -> () {
-    // In benchmarks, this while() loop is noticeably faster than the more idiomatic "for ptr in ptrs.iter()"
-    for ptr in ptrs.iter() {
-        ptr.hash_consensus_bytes(map, hasher);
-    }
-}
-
 impl TrieNode for TrieNode48 {
     fn id(&self) -> u8 {
         TrieNodeID::Node48
@@ -962,30 +934,26 @@ impl TrieNode for TrieNode48 {
         return None;
     }
 
-    fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_bytes(id, &self.ptrs, ret);
-        ret.extend(&mut self.indexes.iter().map(|i| { let j = *i as u8; j } ));
-        path_to_bytes(&self.path, ret);
-    }
+    fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id()])?;
+        write_ptrs_to_bytes(self.ptrs(), w)?;
 
-    fn hash_consensus_bytes(&self, map: &BlockHashMap, hasher: &mut TrieHasher) {
-        hasher.input([self.id()]);
-        ptrs_consensus_hash(&self.ptrs, hasher, map);
         for i in self.indexes.iter() {
-            hasher.input([*i as u8]);
+            w.write_all(&[*i as u8])?;
         }
-        hasher.input([self.path.len() as u8]);
-        hasher.input(self.path.as_slice());
+
+        write_path_to_bytes(self.path().as_slice(), w)
     }
 
-    fn to_consensus_bytes(&self, map: &BlockHashMap) -> Vec<u8> {
-        let mut r = Vec::with_capacity(self.consensus_byte_len());
-        let id = self.id();
-        ptrs_to_consensus_bytes(id, &self.ptrs, map, &mut r);
-        r.extend(&mut self.indexes.iter().map(|i| { let j = *i as u8; j } ));
-        path_to_bytes(&self.path, &mut r);
-        r
+    fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id()])?;
+        ptrs_consensus_hash(self.ptrs(), map, w)?;
+
+        for i in self.indexes.iter() {
+            w.write_all(&[*i as u8])?;
+        }
+
+        write_path_to_bytes(self.path().as_slice(), w)
     }
     
     fn byte_len(&self) -> usize {
@@ -1101,12 +1069,6 @@ impl TrieNode for TrieNode256 {
         return None;
     }
 
-    fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ptrs_to_bytes(id, &self.ptrs, ret);
-        path_to_bytes(&self.path, ret);
-    }
-
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode256, Error> {
         let mut ptrs_slice = [TriePtr::default(); 256];
         ptrs_from_bytes(TrieNodeID::Node256, r, &mut ptrs_slice)?;
@@ -1155,16 +1117,8 @@ impl TrieNode for TrieNode256 {
 }
 
 impl TrieLeaf {
-    pub fn to_consensus_bytes_leaf(&self) -> Vec<u8> {
-        let mut r = Vec::with_capacity(self.byte_len());
-        self.to_bytes(&mut r);
-        r
-    }
-
-    pub fn hash_consensus_bytes_leaf(&self, hasher: &mut TrieHasher) {
-        hasher.input([self.id(), self.path.len() as u8]);
-        hasher.input(self.path.as_slice());
-        hasher.input(&self.data.0[..]);
+    pub fn write_consensus_bytes_leaf<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        self.write_bytes(w)
     }
 
 }
@@ -1182,22 +1136,17 @@ impl TrieNode for TrieLeaf {
         None
     }
 
-    fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
-        let id = self.id();
-        ret.push(id);
-        path_to_bytes(&self.path, ret);
-        fast_extend_from_slice(ret, self.data.as_bytes());
-//        ptrs_to_bytes(id, &[self.backptr], ret);
+    fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id()])?;
+        write_path_to_bytes(&self.path, w)?;
+        w.write_all(&self.data.0[..])?;
+        Ok(())
     }
 
-    fn hash_consensus_bytes(&self, _map: &BlockHashMap, hasher: &mut TrieHasher) {
-        self.hash_consensus_bytes_leaf(hasher)
+    fn write_consensus_bytes<W: Write>(&self, _map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+        self.write_consensus_bytes_leaf(w)
     }
 
-    fn to_consensus_bytes(&self, _map: &BlockHashMap) -> Vec<u8> {
-        self.to_consensus_bytes_leaf()
-    }
-    
     fn byte_len(&self) -> usize {
         1 + get_path_byte_len(&self.path) + self.data.len()
     }
@@ -1322,13 +1271,13 @@ impl TrieNodeType {
         }
     }
 
-    pub fn to_bytes(&self, ret: &mut Vec<u8>) -> () {
+    pub fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
         match self {
-            TrieNodeType::Node4(ref data) => data.to_bytes(ret),
-            TrieNodeType::Node16(ref data) => data.to_bytes(ret),
-            TrieNodeType::Node48(ref data) => data.to_bytes(ret),
-            TrieNodeType::Node256(ref data) => data.to_bytes(ret),
-            TrieNodeType::Leaf(ref data) => data.to_bytes(ret),
+            TrieNodeType::Node4(ref data) => data.write_bytes(w),
+            TrieNodeType::Node16(ref data) => data.write_bytes(w),
+            TrieNodeType::Node48(ref data) => data.write_bytes(w),
+            TrieNodeType::Node256(ref data) => data.write_bytes(w),
+            TrieNodeType::Leaf(ref data) => data.write_bytes(w),
         }
     }
 
@@ -1438,8 +1387,9 @@ mod test {
         t.back_block = 0x778899aa;
 
         let t_bytes = vec![0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa];
-        let mut buf = Vec::with_capacity(TRIEPTR_SIZE);
-        t.to_bytes(&mut buf);
+
+        let mut buf = Vec::new();
+        t.write_bytes(&mut buf).unwrap();
         assert_eq!(buf, t_bytes);
         assert_eq!(TriePtr::from_bytes(&t_bytes[..]), t);
     }
@@ -1464,8 +1414,7 @@ mod test {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
         let mut node4_stream = Cursor::new(node4_bytes.clone());
-        let mut buf = Vec::with_capacity(node4_bytes.len());
-        node4.to_bytes(&mut buf);
+        let buf = node4.to_bytes();
         assert_eq!(buf, node4_bytes);
         assert_eq!(node4.byte_len(), node4_bytes.len());
         assert_eq!(TrieNode4::from_bytes(&mut node4_stream).unwrap(), node4);
@@ -1534,8 +1483,7 @@ mod test {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13
         ];
         let mut node16_stream = Cursor::new(node16_bytes.clone());
-        let mut buf = Vec::with_capacity(node16_bytes.len());
-        node16.to_bytes(&mut buf);
+        let buf = node16.to_bytes();
         assert_eq!(buf, node16_bytes);
         assert_eq!(node16.byte_len(), node16_bytes.len());
         assert_eq!(TrieNode16::from_bytes(&mut node16_stream).unwrap(), node16);
@@ -1668,8 +1616,7 @@ mod test {
         ];
         let mut node48_stream = Cursor::new(node48_bytes.clone());
 
-        let mut buf = Vec::with_capacity(node48_bytes.len());
-        node48.to_bytes(&mut buf);
+        let buf = node48.to_bytes();
         assert_eq!(buf, node48_bytes);
         assert_eq!(node48.byte_len(), node48_bytes.len());
         assert_eq!(TrieNode48::from_bytes(&mut node48_stream).unwrap(), node48);
@@ -1768,8 +1715,7 @@ mod test {
 
         let mut node256_stream = Cursor::new(node256_bytes.clone());
 
-        let mut buf = Vec::with_capacity(node256_bytes.len());
-        node256.to_bytes(&mut buf);
+        let buf = node256.to_bytes();
         assert_eq!(buf, node256_bytes);
         assert_eq!(node256.byte_len(), node256_bytes.len());
         assert_eq!(TrieNode256::from_bytes(&mut node256_stream).unwrap(), node256);
@@ -1825,8 +1771,7 @@ mod test {
                 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,
             ];
 
-        let mut buf = Vec::with_capacity(leaf_bytes.len());
-        leaf.to_bytes(&mut buf);
+        let buf = leaf.to_bytes();
 
         assert_eq!(buf, leaf_bytes);
         assert_eq!(leaf.byte_len(), buf.len());

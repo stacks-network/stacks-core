@@ -26,7 +26,8 @@ use std::io::{
     Seek,
     SeekFrom,
     Cursor,
-    BufReader
+    BufReader,
+    BufWriter,
 };
 
 use std::char::from_digit;
@@ -245,7 +246,7 @@ impl TrieRAM {
         (lr, lw)
     }
 
-    pub fn write_trie_file<F: Read + Write + Seek>(f: &mut F, node_data: &[(TrieNodeType, TrieHash)], offsets: &[u32],
+    pub fn write_trie_file<F: Write + Seek>(f: &mut F, node_data: &[(TrieNodeType, TrieHash)], offsets: &[u32],
                                                    identifier: u32, parent_hash: &BlockHeaderHash) -> Result<(), Error> {
         // write parent block ptr
         fseek(f, 0)?;
@@ -268,7 +269,7 @@ impl TrieRAM {
     }
 
     /// Walk through the bufferred TrieNodes and dump them to f.
-    fn dump_traverse<F: Read + Write + Seek>(&mut self, f: &mut F, root: &TrieNodeType, hash: &TrieHash) -> Result<u64, Error> {
+    fn dump_traverse<F: Write + Seek>(&mut self, f: &mut F, root: &TrieNodeType, hash: &TrieHash) -> Result<u64, Error> {
         let mut frontier : VecDeque<(TrieNodeType, TrieHash)> = VecDeque::new();
 
         let mut node_data = vec![];
@@ -335,7 +336,7 @@ impl TrieRAM {
     }
 
     /// Dump ourself to f
-    pub fn dump<F: Read + Write + Seek>(&mut self, f: &mut F, bhh: &BlockHeaderHash) -> Result<u64, Error> {
+    pub fn dump<F: Write + Seek>(&mut self, f: &mut F, bhh: &BlockHeaderHash) -> Result<u64, Error> {
         if self.block_header == *bhh {
             let (root, hash) = self.read_nodetype(&TriePtr::new(TrieNodeID::Node256, 0, 0))?;
             self.dump_traverse(f, &root, &hash)
@@ -754,7 +755,7 @@ impl TrieFileStorage {
     pub fn scan_tmp_blocks(dir_path: &String) -> Result<Vec<PathBuf>, Error> {
         let mut ret = vec![];
         let path_regex = Regex::new(r"^[0-9a-f]{64}.tmp$")
-            .map_err(|e| panic!("Invalid regex"))?;
+            .expect("Invalid regex");
 
         TrieFileStorage::scan_blocks(dir_path, |block_name, block_path| {
             if !path_regex.is_match(&block_name) {
@@ -1233,7 +1234,11 @@ impl TrieFileStorage {
                 
                 trace!("Flush {:?} to {:?} and then rename to {:?}", bhh, &block_path_tmp, block_path);
 
-                let mut fd = fs::OpenOptions::new()
+                // wrap in context to force the FD to _close_ before we execute
+                //   a rename. would never be an issue in linux, but might cause problems
+                //   in Windows.
+                {
+                    let mut writer = BufWriter::new(fs::OpenOptions::new()
                             .read(false)
                             .write(true)
                             .truncate(true)
@@ -1246,28 +1251,23 @@ impl TrieFileStorage {
                                 else {
                                     Error::IOError(e)
                                 }
-                            })?;
+                            })?);
 
-                trace!("Flush: identifier of {:?} is {:?}", bhh, trie_ram.identifier);
-                trie_ram.dump(&mut fd, bhh)?;
+                    trace!("Flush: identifier of {:?} is {:?}", bhh, trie_ram.identifier);
+                    trie_ram.dump(&mut writer, bhh)?;
 
-                #[cfg(target_os = "unix")] {
-                    let fsync_ret = unsafe {
-                        libc::fsync(fd.as_raw_fd())
-                    };
-
-                    if fsync_ret != 0 {
-                        let last_errno = std::io::Error::last_os_error().raw_os_error();
-                        panic!("Failed to fsync() on file descriptor for {:?}: error {:?}", &block_path_tmp, last_errno);
-                    }
+                    // this OS-generic fsync's.
+                    let fd = writer.into_inner()
+                        .map_err(|e| { io::Error::from(e) })?;
+                    fd.sync_all()?;
                 }
 
-                // TODO: I don't know if there's a way to do the above in Windows
+                
 
                 // atomically put this trie file in place
                 trace!("Rename {:?} to {:?}", &block_path_tmp, &block_path);
                 fs::rename(&block_path_tmp, &block_path)
-                    .map_err(|e| panic!("Failed to rename {:?} to {:?}", &block_path_tmp, &block_path))?;
+                    .unwrap_or_else(|_| panic!("Failed to rename {:?} to {:?}", &block_path_tmp, &block_path));
             },
             (None, None) => {},
             (_, _) => {

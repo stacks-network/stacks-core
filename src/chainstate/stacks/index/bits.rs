@@ -77,14 +77,6 @@ pub fn get_path_byte_len(p: &Vec<u8>) -> usize {
     path_len_byte_len + p.len()
 }
 
-/// Encode a Trie path to a byte buffer.
-pub fn path_to_bytes(p: &Vec<u8>, buf: &mut Vec<u8>) -> () {
-    // always true by construction
-    assert!(p.len() < 256);
-    buf.push(p.len() as u8);
-    buf.append(&mut p.clone());
-}
-
 /// Decode a trie path from a Readable object.
 /// Returns Error::CorruptionError if the path doens't decode.
 pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
@@ -159,31 +151,6 @@ pub fn get_ptrs_consensus_byte_len(ptrs: &[TriePtr]) -> usize {
     node_id_len + consensus_trie_ptr_size * ptrs.len()
 }
 
-/// Encode a Trie node's child pointers as a byte string by appending them to the given buffer.
-#[inline]
-pub fn ptrs_to_bytes(node_id: u8, ptrs: &[TriePtr], buf: &mut Vec<u8>) -> () {
-    assert!(check_node_id(node_id));
-    assert_eq!(node_id_to_ptr_count(node_id), ptrs.len());
-
-    buf.push(node_id);
-
-    for ptr in ptrs.iter() {
-        ptr.to_bytes(buf);
-    }
-}
-
-/// Encode only the consensus-relevant bits of a Trie node's child pointers to the given buffer.
-#[inline]
-pub fn ptrs_to_consensus_bytes(node_id: u8, ptrs: &[TriePtr], map: &BlockHashMap, buf: &mut Vec<u8>) -> () {
-    assert!(check_node_id(node_id));
-
-    buf.push(node_id);
-    
-    for ptr in ptrs.iter() {
-        ptr.to_consensus_bytes(map, buf);
-    }
-}
-
 /// Read a Trie node's children from a Readable object, and write them to the given ptrs_buf slice.
 /// Returns the Trie node ID detected.
 #[inline]
@@ -238,7 +205,8 @@ pub fn ptrs_from_bytes<R: Read>(node_id: u8, r: &mut R, ptrs_buf: &mut [TriePtr]
 pub fn get_node_hash<T: TrieNode + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
     let mut hasher = TrieHasher::new();
 
-    node.hash_consensus_bytes(map, &mut hasher);
+    node.write_consensus_bytes(map, &mut hasher)
+        .expect("IO Failure pushing to hasher.");
 
     for child_hash in child_hashes {
         hasher.input(child_hash.as_ref());
@@ -256,7 +224,8 @@ pub fn get_node_hash<T: TrieNode + std::fmt::Debug>(node: &T, child_hashes: &Vec
 /// Calculate the hash of a TrieNode, given its childrens' hashes.
 pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     let mut hasher = TrieHasher::new();
-    node.hash_consensus_bytes_leaf(&mut hasher);
+    node.write_consensus_bytes_leaf(&mut hasher)
+        .expect("IO Failure pushing to hasher.");
 
     let mut res = [0u8; 32];
     res.copy_from_slice(hasher.result().as_slice());
@@ -427,17 +396,13 @@ pub fn get_node_byte_len(node: &TrieNodeType) -> usize {
 /// write all the bytes for a node, including its hash, to the given Writeable object.
 /// Returns the number of bytes written.
 pub fn write_nodetype_bytes<F: Write + Seek>(f: &mut F, node: &TrieNodeType, hash: TrieHash) -> Result<usize, Error> {
-    let mut bytes = Vec::with_capacity(node.byte_len());
+    let start = ftell(f)?;
 
-    trace!("write_nodetype: {:?} {:?} at {}-{}", node, &hash, ftell(f)?, ftell(f)? + bytes.len() as u64);
+    f.write_all(hash.as_bytes())?;
+    node.write_bytes(f)?;
 
-    f.write_all(hash.as_bytes())
-        .map_err(Error::IOError)?;
+    let end = ftell(f)?;
+    trace!("write_nodetype: {:?} {:?} at {}-{}", node, &hash, start, end);
 
-    node.to_bytes(&mut bytes);
-    
-    f.write_all(&bytes[..])
-        .map_err(|e| Error::IOError(e))?;
-
-    Ok(bytes.len() + TRIEHASH_ENCODED_SIZE)
+    Ok((end - start) as usize)
 }

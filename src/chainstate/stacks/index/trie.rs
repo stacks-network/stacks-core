@@ -344,6 +344,7 @@ impl Trie {
     /// Return None if there's no space, or if the leaf doesn't share its full path prefix with the
     /// given node.
     ///
+    /// ```text
     /// before:
     ///                          [00]nodeY[path=112233] ...
     ///                         /
@@ -356,7 +357,7 @@ impl Trie {
     /// nodeX[path=aabbccddeeff]
     ///                         \
     ///                          [99]leaf[path=887766]=123456
-    ///
+    /// ```
     fn try_attach_leaf(storage: &mut TrieFileStorage, cursor: &mut TrieCursor, leaf: &mut TrieLeaf, node: &mut TrieNodeType) -> Result<Option<TriePtr>, Error> {
         // can only do this if we're at the end of the node's path
         if !cursor.eonp(node) {
@@ -442,6 +443,7 @@ impl Trie {
     /// prefix and the node- and leaf-specific segments, and add a Node4 at the break with the
     /// leaf.  Updates the given node and leaf, and returns the node4's ptr and hash.
     ///
+    /// ```text
     /// before:
     ///                                        [00]nodeY[path=112233]...
     ///                                       /
@@ -459,6 +461,7 @@ impl Trie {
     ///                                                        \
     ///                                                         [99]nodeZ[path=887766]...
     ///
+    /// ```
     /// (if nodeX was the root, then there is no parent, and the resulting node will be a node256
     /// instead of a node4).
     ///
