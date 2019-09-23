@@ -781,7 +781,7 @@ impl PeerNetwork {
     /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations, as well as the set of
     /// unsolicited messages grouped by event_id.
-    fn process_ready_sockets(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, burndb_conn: &DBConn, poll_state: &mut NetworkPollState) -> (Vec<usize>, HashMap<usize, Vec<StacksMessage>>) {
+    fn process_ready_sockets(&mut self, local_peer: &LocalPeer, chain_view: &BurnchainView, poll_state: &mut NetworkPollState) -> (Vec<usize>, HashMap<usize, Vec<StacksMessage>>) {
         let mut to_remove = vec![];
         let mut unsolicited = HashMap::new();
 
@@ -822,7 +822,7 @@ impl PeerNetwork {
             }
         
             // react to inbound messages -- do we need to send something out?
-            let mut chat_res = convo.chat(local_peer, burndb_conn, chain_view);
+            let mut chat_res = convo.chat(local_peer, chain_view);
             match chat_res {
                 Err(e) => {
                     debug!("Failed to converse on event {} (socket {:?}): {:?}", event_id, &client_sock, &e);
@@ -1195,7 +1195,7 @@ impl PeerNetwork {
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
     /// Returns the list of unsolicited peer messages
-    fn dispatch_network(&mut self, burndb_conn: &DBConn, chain_view: &BurnchainView, mut poll_state: NetworkPollState) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    fn dispatch_network(&mut self, chain_view: &BurnchainView, mut poll_state: NetworkPollState) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         if self.network.is_none() {
             return Err(net_error::NotConnected);
         }
@@ -1210,7 +1210,7 @@ impl PeerNetwork {
         self.process_new_sockets(&local_peer, &chain_view, &mut poll_state);
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
-        let (error_events, unsolicited_messages) = self.process_ready_sockets(&local_peer, &chain_view, burndb_conn, &mut poll_state);
+        let (error_events, unsolicited_messages) = self.process_ready_sockets(&local_peer, &chain_view, &mut poll_state);
         for error_event in error_events {
             let _ = self.reregister_if_outbound(&local_peer, &chain_view, error_event)
                 .map_err(|e| {
@@ -1277,7 +1277,7 @@ impl PeerNetwork {
     /// -- carries out network conversations
     /// -- receives and dispatches requests from other threads
     /// Returns the list of unsolicited network messages to be acted upon.
-    pub fn run(&mut self, burndb_conn: &DBConn, burnchain_snapshot: &BurnchainView, poll_timeout: u64) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    pub fn run(&mut self, burnchain_snapshot: &BurnchainView, poll_timeout: u64) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
         let poll_state = match self.network {
             None => {
                 Err(net_error::NotConnected)
@@ -1287,7 +1287,7 @@ impl PeerNetwork {
             }
         }?;
 
-        let unsolicited_messages = self.dispatch_network(burndb_conn, burnchain_snapshot, poll_state)?;
+        let unsolicited_messages = self.dispatch_network(burnchain_snapshot, poll_state)?;
         Ok(unsolicited_messages)
     }
 }
@@ -1343,12 +1343,14 @@ mod test {
             first_block_hash: first_burn_hash.clone(),
         };
 
-        let burnchain_view = BurnchainView {
+        let mut burnchain_view = BurnchainView {
             burn_block_height: 12345,
             burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
             burn_stable_block_height: 12339,
             burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
         };
+        burnchain_view.make_test_data();
 
         let ping = StacksMessage::new(0x12345678, 0x9abcdef0,
                                       burnchain_view.burn_block_height,
