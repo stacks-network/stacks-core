@@ -280,8 +280,7 @@ fn special_as_contract(args: &[SymbolicExpression], env: &mut Environment, conte
     check_argument_count(1, args)?;
 
     // nest an environment.
-    let contract_principal = Value::Principal(PrincipalData::ContractPrincipal(
-        env.contract_context.name.clone()));
+    let contract_principal = Value::Principal(PrincipalData::Contract(env.contract_context.contract_identifier.clone()));
     let mut nested_env = env.nest_as_principal(contract_principal);
 
     eval(&args[0], &mut nested_env, context)

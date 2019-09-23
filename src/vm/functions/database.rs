@@ -4,9 +4,8 @@ use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
 
 use vm::types::{Value, OptionalData, BuffData, PrincipalData, BlockInfoProperty, TypeSignature};
-use vm::representations::{SymbolicExpression};
-use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterResult as Result,
-                 check_argument_count, check_arguments_at_least};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::errors::{CheckErrors, InterpreterError, RuntimeErrorType, InterpreterResult as Result, check_argument_count, check_arguments_at_least};
 use vm::{eval, LocalContext, Environment};
 
 pub fn special_contract_call(args: &[SymbolicExpression],
@@ -14,8 +13,10 @@ pub fn special_contract_call(args: &[SymbolicExpression],
                              context: &LocalContext) -> Result<Value> {
     check_arguments_at_least(2, args)?;
 
-    let contract_name = args[0].match_atom()
-        .ok_or(CheckErrors::ExpectedName)?;
+    let contract_identifier = match args[0].expr {
+        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
+        _ => return Err(CheckErrors::ContractCallExpectName.into())
+    };
 
     let function_name = args[1].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
@@ -26,11 +27,13 @@ pub fn special_contract_call(args: &[SymbolicExpression],
     let mut rest_args = rest_args?;
     let rest_args: Vec<_> = rest_args.drain(..).map(|x| { SymbolicExpression::atom_value(x) }).collect();
 
-    let contract_principal = Value::from(PrincipalData::ContractPrincipal(env.contract_context.name.clone()));
+    let contract_principal = Value::Principal(PrincipalData::Contract(
+        env.contract_context.contract_identifier.clone()));
     let mut nested_env = env.nest_with_caller(contract_principal);
 
-    nested_env.execute_contract(
-        contract_name, function_name, &rest_args)
+    nested_env.execute_contract(&contract_identifier, 
+                                function_name, 
+                                &rest_args)
 }
 
 pub fn special_fetch_variable(args: &[SymbolicExpression],
@@ -41,7 +44,7 @@ pub fn special_fetch_variable(args: &[SymbolicExpression],
     let var_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    env.global_context.database.lookup_variable(&env.contract_context.name, var_name)
+    env.global_context.database.lookup_variable(&env.contract_context.contract_identifier, var_name)
 }
 
 pub fn special_set_variable(args: &[SymbolicExpression],
@@ -58,7 +61,7 @@ pub fn special_set_variable(args: &[SymbolicExpression],
     let var_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    env.global_context.database.set_variable(&env.contract_context.name, var_name, value)
+    env.global_context.database.set_variable(&env.contract_context.contract_identifier, var_name, value)
 }
 
 pub fn special_fetch_entry(args: &[SymbolicExpression],
@@ -74,7 +77,7 @@ pub fn special_fetch_entry(args: &[SymbolicExpression],
         Explicit => eval(&args[1], env, &context)?
     };
 
-    env.global_context.database.fetch_entry(&env.contract_context.name, map_name, &key)
+    env.global_context.database.fetch_entry(&env.contract_context.contract_identifier, map_name, &key)
 }
 
 
@@ -83,8 +86,11 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
                                     context: &LocalContext) -> Result<Value> {
     check_argument_count(3, args)?;
 
-    let contract_name = args[0].match_atom()
-        .ok_or(CheckErrors::ExpectedName)?;
+    let contract_identifier = match args[0].expr {
+        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
+        _ => return Err(CheckErrors::ContractCallExpectName.into())
+    };
+
     let map_name = args[1].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
@@ -93,7 +99,7 @@ pub fn special_fetch_contract_entry(args: &[SymbolicExpression],
         Explicit => eval(&args[2], env, &context)?
     };
 
-    env.global_context.database.fetch_entry(contract_name, map_name, &key)
+    env.global_context.database.fetch_entry(&contract_identifier, map_name, &key)
 }
 
 pub fn special_set_entry(args: &[SymbolicExpression],
@@ -118,7 +124,7 @@ pub fn special_set_entry(args: &[SymbolicExpression],
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    env.global_context.database.set_entry(&env.contract_context.name, map_name, key, value)
+    env.global_context.database.set_entry(&env.contract_context.contract_identifier, map_name, key, value)
 }
 
 pub fn special_insert_entry(args: &[SymbolicExpression],
@@ -143,7 +149,7 @@ pub fn special_insert_entry(args: &[SymbolicExpression],
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    env.global_context.database.insert_entry(&env.contract_context.name, map_name, key, value)
+    env.global_context.database.insert_entry(&env.contract_context.contract_identifier, map_name, key, value)
 }
 
 pub fn special_delete_entry(args: &[SymbolicExpression],
@@ -163,7 +169,7 @@ pub fn special_delete_entry(args: &[SymbolicExpression],
     let map_name = args[0].match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    env.global_context.database.delete_entry(&env.contract_context.name, map_name, &key)
+    env.global_context.database.delete_entry(&env.contract_context.contract_identifier, map_name, &key)
 }
 
 pub fn special_get_block_info(args: &[SymbolicExpression], 

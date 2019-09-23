@@ -1,5 +1,5 @@
-use vm::representations::{SymbolicExpression};
-use vm::types::{ TypeSignature};
+use vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use vm::types::{TypeSignature, Value, PrincipalData};
 
 use vm::functions::tuples;
 use vm::functions::tuples::TupleDefinitionType::{Implicit, Explicit};
@@ -38,9 +38,12 @@ pub fn check_special_fetch_entry(checker: &mut TypeChecker, args: &[SymbolicExpr
 pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(3, args)?;
     
-    let contract_name = args[0].match_atom()
-        .ok_or(CheckErrors::ContractCallExpectName)?;
-    
+
+    let contract_identifier = match args[0].expr {
+        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
+        _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
+    };
+
     let map_name = args[1].match_atom()
         .ok_or(CheckErrors::BadMapName)?;
     
@@ -52,7 +55,7 @@ pub fn check_special_fetch_contract_entry(checker: &mut TypeChecker, args: &[Sym
         Explicit => checker.type_check(&args[2], context)?
     };
     
-    let (expected_key_type, value_type) = checker.db.get_map_type(contract_name, map_name)?;
+    let (expected_key_type, value_type) = checker.db.get_map_type(&contract_identifier, map_name)?;
 
     let option_type = TypeSignature::new_option(value_type);
     

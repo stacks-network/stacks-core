@@ -1,5 +1,5 @@
 use vm::representations::SymbolicExpression;
-use vm::analysis::diagnostic::{Diagnostic, DiagnosableError};
+use vm::diagnostic::{Diagnostic, DiagnosableError};
 use vm::types::{TypeSignature, TupleTypeSignature, Value};
 use std::error;
 use std::fmt;
@@ -244,9 +244,9 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::PublicFunctionMustReturnResponse(found_type) => format!("public functions must return an expression of type 'response', found '{}'", found_type),
             CheckErrors::DefineVariableBadSignature => format!("invalid variable definition"),
             CheckErrors::ReturnTypesMustMatch(type_1, type_2) => format!("detected two execution paths, returning two different expression types (got '{}' and '{}')", type_1, type_2),
-            CheckErrors::NoSuchContract(contract_name) => format!("use of unresolved contract '{}'", contract_name),
-            CheckErrors::NoSuchPublicFunction(contract_name, function_name) => format!("contract '{}' has no public function '{}'", contract_name, function_name),
-            CheckErrors::ContractAlreadyExists(contract_name) => format!("contract name '{}' conflicts with existing contract", contract_name),
+            CheckErrors::NoSuchContract(contract_identifier) => format!("use of unresolved contract '{}'", contract_identifier),
+            CheckErrors::NoSuchPublicFunction(contract_identifier, function_name) => format!("contract '{}' has no public function '{}'", contract_identifier, function_name),
+            CheckErrors::ContractAlreadyExists(contract_identifier) => format!("contract name '{}' conflicts with existing contract", contract_identifier),
             CheckErrors::ContractCallExpectName => format!("missing contract name for call"),
             CheckErrors::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{}'", property_name),
             CheckErrors::GetBlockInfoExpectPropertyName => format!("missing property name for block info introspection"),

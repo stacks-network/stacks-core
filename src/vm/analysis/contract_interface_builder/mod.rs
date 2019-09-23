@@ -17,6 +17,7 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         non_fungible_tokens,
         top_level_expression_sorting: _,
         expressions: _,
+        contract_identifier: _,
         type_map: _,
     } = contract_analysis;
 

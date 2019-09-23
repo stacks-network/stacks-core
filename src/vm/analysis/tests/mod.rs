@@ -1,4 +1,4 @@
-use vm::parser::parse;
+use vm::ast::parse;
 use vm::analysis::{AnalysisDatabase, mem_type_check};
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{ContractAnalysis, type_check};
@@ -158,9 +158,9 @@ fn test_return_types_must_match() {
 
 #[test]
 fn test_no_such_contract() {
-    let snippet = "(contract-map-get unicorn map ((value 0)))";
+    let snippet = "(contract-map-get .unicorn map ((value 0)))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("use of unresolved contract 'unicorn'"));
+    assert!(format!("{}", err.diagnostic).contains("use of unresolved contract"));
 }
 
 #[test]

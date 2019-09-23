@@ -1,8 +1,7 @@
 use vm::errors::{Error as InterpError, RuntimeErrorType};
 use vm::functions::NativeFunctions;
-use vm::{ClarityName, SymbolicExpression};
-use vm::types::{BUFF_32, BUFF_20, BUFF_64, TypeSignature, TupleTypeSignature, BlockInfoProperty,
-                MAX_VALUE_SIZE, FunctionArg, FunctionType, FixedFunction};
+use vm::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use vm::types::{BUFF_32, BUFF_20, BUFF_64, TypeSignature, TupleTypeSignature, BlockInfoProperty, Value, PrincipalData, MAX_VALUE_SIZE, FunctionArg, FunctionType, FixedFunction};
 use super::{TypeChecker, TypingContext, TypeResult, no_type, check_argument_count, check_arguments_at_least}; 
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use std::convert::TryFrom;
@@ -210,20 +209,23 @@ fn check_special_if(checker: &mut TypeChecker, args: &[SymbolicExpression], cont
 
 fn check_contract_call(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
     check_arguments_at_least(2, args)?;
-    let contract_name = args[0].match_atom()
-        .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
+    let contract_identifier = match args[0].expr {
+        SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
+        _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
+    };
+
     let function_name = args[1].match_atom()
         .ok_or(CheckError::new(CheckErrors::ContractCallExpectName))?;
     checker.type_map.set_type(&args[0], no_type())?;
     checker.type_map.set_type(&args[1], no_type())?;
 
     let contract_call_function_type = {
-        if let Some(function_type) = checker.db.get_public_function_type(contract_name, function_name)? {
+        if let Some(function_type) = checker.db.get_public_function_type(&contract_identifier, function_name)? {
             Ok(function_type)
-        } else if let Some(function_type) = checker.db.get_read_only_function_type(contract_name, function_name)? {
+        } else if let Some(function_type) = checker.db.get_read_only_function_type(&contract_identifier, function_name)? {
             Ok(function_type)
         } else {
-            Err(CheckError::new(CheckErrors::NoSuchPublicFunction(contract_name.to_string(),
+            Err(CheckError::new(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(),
                                                                   function_name.to_string())))
         }
     }?;
