@@ -515,8 +515,9 @@ pub struct BlocksInvData {
 }
 
 pub struct MicroblocksInvData {
-    /// The sequence of microblock hashes.
-    pub hashes: Vec<BlockHeaderHash>
+    // the "tail" of the last anchored block's microblock stream
+    pub last_microblock_hash: BlockHeaderHash,
+    pub last_sequence: u8
 }
 ```
 
@@ -524,7 +525,7 @@ Notes:
 
 * `BlocksInvData.bitlen` will never exceed 4096
 * `BlocksInvData.bitvec` will have length `ceil(BlocksInvData.bitlen / 8)`
-* `MicroblocksInvData.hashes` will never have more than 4096 elements.
+* `BlocksInvData.microblocks_inventory` will never have more than 256 elements.
 
 **GetBlocks**
 
