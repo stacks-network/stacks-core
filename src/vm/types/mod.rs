@@ -40,7 +40,7 @@ pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
 impl StandardPrincipalData {
 
-    pub fn transient() -> Self {
+    pub fn transient() -> StandardPrincipalData {
         Self(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])
     }
 }
@@ -53,16 +53,16 @@ pub struct QualifiedContractIdentifier {
 
 impl QualifiedContractIdentifier {
 
-    pub fn new(issuer: StandardPrincipalData, name: ContractName) -> Self {
+    pub fn new(issuer: StandardPrincipalData, name: ContractName) -> QualifiedContractIdentifier {
         Self { issuer, name }
     }
 
-    pub fn local(name: &str) -> Result<Self> {
+    pub fn local(name: &str) -> Result<QualifiedContractIdentifier> {
         let name = name.to_string().try_into()?;
         Ok(Self::new(StandardPrincipalData::transient(), name))
     }
 
-    pub fn transient() -> Self {
+    pub fn transient() -> QualifiedContractIdentifier {
         let name = String::from("__transient").try_into().unwrap();
         Self { 
             issuer: StandardPrincipalData::transient(), 
@@ -70,7 +70,7 @@ impl QualifiedContractIdentifier {
         }
     }
 
-    pub fn parse(literal: &str) -> Result<Self> {
+    pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier> {
         let split: Vec<_> = literal.splitn(2, ".").collect();
         if split.len() != 2 {
             return Err(RuntimeErrorType::ParseError(
