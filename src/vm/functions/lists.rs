@@ -1,5 +1,5 @@
-use vm::errors::{UncheckedError, InterpreterResult as Result, check_argument_count};
-use vm::types::Value;
+use vm::errors::{CheckErrors, InterpreterResult as Result, check_argument_count};
+use vm::types::{Value, TypeSignature::BoolType};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::{LocalContext, Environment, eval, apply, lookup_function};
 
@@ -11,7 +11,7 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
     check_argument_count(2, args)?;
 
     let function_name = args[0].match_atom()
-        .ok_or(UncheckedError::ExpectedFunctionName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     let function = lookup_function(&function_name, env)?;
     let list = eval(&args[1], env, context)?;
@@ -25,12 +25,12 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
                     output.push(x);
                 } // else, filter out.
             } else {
-                return Err(UncheckedError::TypeError("Bool".to_string(), filter_eval).into())
+                return Err(CheckErrors::TypeValueError(BoolType, filter_eval).into())
             }
         }
         Value::list_with_type(output, list_data.type_signature)
     } else {
-        Err(UncheckedError::TypeError("List".to_string(), list).into())
+        Err(CheckErrors::ExpectedListApplication.into())
     }
 }
 
@@ -38,7 +38,7 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &L
     check_argument_count(3, args)?;
 
     let function_name = args[0].match_atom()
-        .ok_or(UncheckedError::ExpectedFunctionName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
 
     let function = lookup_function(&function_name, env)?;
     let list = eval(&args[1], env, context)?;
@@ -52,7 +52,7 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &L
                 apply(&function, &argument, env, context)
             })
     } else {
-        Err(UncheckedError::TypeError("List".to_string(), list).into())
+        Err(CheckErrors::ExpectedListApplication.into())
     }
 }
 
@@ -60,7 +60,7 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
     check_argument_count(2, args)?;
 
     let function_name = args[0].match_atom()
-        .ok_or(UncheckedError::ExpectedFunctionName)?;
+        .ok_or(CheckErrors::ExpectedName)?;
     let function = lookup_function(&function_name, env)?;
 
     let list = eval(&args[1], env, context)?;
@@ -71,6 +71,6 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
         }).collect();
         Value::list_from(mapped_vec?)
     } else {
-        Err(UncheckedError::TypeError("List".to_string(), list).into())
+        Err(CheckErrors::ExpectedListApplication.into())
     }
 }

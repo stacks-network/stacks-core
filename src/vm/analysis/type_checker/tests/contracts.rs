@@ -1,11 +1,12 @@
 use assert_json_diff;
 use serde_json;
 
-use vm::parser::parse;
+use vm::ast::parse;
 use vm::analysis::errors::CheckErrors;
-use vm::analysis::{AnalysisDatabase, build_contract_interface::build_contract_interface};
+use vm::analysis::{AnalysisDatabase, contract_interface_builder::build_contract_interface};
 use vm::analysis::mem_type_check;
 use vm::analysis::type_check;
+use vm::types::QualifiedContractIdentifier;
 
 const SIMPLE_TOKENS: &str =
         "(define-map tokens ((account principal)) ((balance int)))
@@ -47,12 +48,12 @@ const SIMPLE_NAMES: &str =
          (define-private (check-balance)
            (default-to 0 
              (get balance (contract-map-get
-              tokens tokens (tuple (account tx-sender))))))
+              .tokens tokens (tuple (account tx-sender))))))
 
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
-           (let ((xfer-result (contract-call! tokens token-transfer
+           (let ((xfer-result (contract-call! .tokens token-transfer
                                   burn-address name-price)))
             (if (is-ok? xfer-result)
                (if
@@ -115,7 +116,7 @@ fn test_names_tokens_contracts_interface() {
         (define-private (f02 (a1 principal)) 'true)
         (define-private (f03 (a1 (buff 54))) 'true)
         (define-private (f04 (a1 (tuple (t-name1 bool) (t-name2 int)))) 'true)
-        (define-private (f05 (a1 (list 7 6 int))) 'true)
+        (define-private (f05 (a1 (list 7 (list 3 int)))) 'true)
 
         (define-private (f06) 1)
         (define-private (f07) 'true)
@@ -176,7 +177,7 @@ fn test_names_tokens_contracts_interface() {
             },
             { "name": "f05",
                 "access": "private",
-                "args": [{ "name": "a1", "type": { "list": { "type": "int128", "length": 7, "dimension": 6 } } }],
+                "args": [{ "name": "a1", "type": { "list": { "type": { "list": { "type": "int128", "length": 3 } }, "length": 7 } } }],
                 "outputs": { "type": "bool" } 
             },
             { "name": "f06",
@@ -234,12 +235,20 @@ fn test_names_tokens_contracts_interface() {
             { "name": "f15",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "list": { "type": "int128", "length": 3, "dimension": 1 } } }
+                "outputs": { "type": { "list": { "type": "int128", "length": 3 } } }
             },
             { "name": "f16",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "list": { "type": "int128", "length": 2, "dimension": 3 } } }
+                "outputs": {
+                  "type": { "list": {
+                      "type": { "list": {
+                            "type": { "list": { "type": "int128", "length": 1 } },
+                            "length": 1 }
+                              },
+                      "length": 2 }
+                          }
+                }
             },
             { "name": "pub-f01",
                 "access": "public",
@@ -339,6 +348,8 @@ fn test_names_tokens_contracts_interface() {
         "non_fungible_tokens": []
     }"#).unwrap();
 
+    eprintln!("{}", test_contract_json_str);
+
     assert_json_eq!(test_contract_json, test_contract_json_expected);
 
 }
@@ -346,13 +357,16 @@ fn test_names_tokens_contracts_interface() {
 
 #[test]
 fn test_names_tokens_contracts() {
-    let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
-    let mut names_contract = parse(SIMPLE_NAMES).unwrap();
+    let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+    let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
+
+    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
+    let mut names_contract = parse(&names_contract_id, SIMPLE_NAMES).unwrap();
     let mut db = AnalysisDatabase::memory();
 
     db.execute(|db| {
-        type_check(&"tokens", &mut tokens_contract, db, true)?;
-        type_check(&"names", &mut names_contract, db, true)
+        type_check(&tokens_contract_id, &mut tokens_contract, db, true)?;
+        type_check(&names_contract_id, &mut names_contract, db, true)
     }).unwrap();
 }
 
@@ -360,7 +374,7 @@ fn test_names_tokens_contracts() {
 fn test_names_tokens_contracts_bad() {
     let broken_public = "
          (define-public (broken-cross-contract (name-hash (buff 20)) (name-price int))
-           (if (is-ok? (contract-call! tokens token-transfer
+           (if (is-ok? (contract-call! .tokens token-transfer
                  burn-address 'true))
                (begin (map-insert! preorder-map
                  (tuple (name-hash name-hash))
@@ -372,12 +386,15 @@ fn test_names_tokens_contracts_bad() {
         format!("{}
                  {}", SIMPLE_NAMES, broken_public);
 
-    let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
-    let mut names_contract = parse(&names_contract).unwrap();
-    let mut db = AnalysisDatabase::memory();
-    db.execute(|db| type_check(&"tokens", &mut tokens_contract, db, true)).unwrap();
+    let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+    let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
 
-    let err = db.execute(|db| type_check(&"names", &mut names_contract, db, true)).unwrap_err();
+    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
+    let mut names_contract = parse(&names_contract_id, &names_contract).unwrap();
+    let mut db = AnalysisDatabase::memory();
+    db.execute(|db| type_check(&tokens_contract_id, &mut tokens_contract, db, true)).unwrap();
+
+    let err = db.execute(|db| type_check(&names_contract_id, &mut names_contract, db, true)).unwrap_err();
     assert!(match &err.err {
             &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
                 eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
@@ -393,19 +410,22 @@ fn test_names_tokens_contracts_bad_fetch_contract_entry() {
          (define-private (check-balance)
            (default-to 0 
              (get balance (contract-map-get
-              tokens tokens (tuple (accnt tx-sender)))))) ;; should be a non-admissable tuple!
+              .tokens tokens (tuple (accnt tx-sender)))))) ;; should be a non-admissable tuple!
     ";
 
     let names_contract =
         format!("{}
                  {}", SIMPLE_NAMES, broken_public);
 
-    let mut tokens_contract = parse(SIMPLE_TOKENS).unwrap();
-    let mut names_contract = parse(&names_contract).unwrap();
-    let mut db = AnalysisDatabase::memory();
-    db.execute(|db| type_check(&"tokens", &mut tokens_contract, db, true)).unwrap();
+    let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+    let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
 
-    let err = db.execute(|db| type_check(&"names", &mut names_contract, db, true)).unwrap_err();
+    let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS).unwrap();
+    let mut names_contract = parse(&names_contract_id, &names_contract).unwrap();
+    let mut db = AnalysisDatabase::memory();
+    db.execute(|db| type_check(&tokens_contract_id, &mut tokens_contract, db, true)).unwrap();
+
+    let err = db.execute(|db| type_check(&names_contract_id, &mut names_contract, db, true)).unwrap_err();
     assert!(match &err.err {
             &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
                 eprintln!("Received TypeError on: {} {}", expected_type, actual_type);

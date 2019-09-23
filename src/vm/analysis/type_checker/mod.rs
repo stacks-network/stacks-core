@@ -3,9 +3,9 @@ pub mod contexts;
 pub mod natives;
 
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{AtomTypeIdentifier, TypeSignature, TupleTypeSignature, FunctionArg,
-                FunctionType, FixedFunction, INT_TYPE, UINT_TYPE, parse_name_type_pairs};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+use vm::types::{TypeSignature, TupleTypeSignature, FunctionArg,
+                FunctionType, FixedFunction, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::variables::NativeVariables;
@@ -98,9 +98,9 @@ impl FunctionType {
                 let (first, rest) = args.split_first()
                     .ok_or(CheckErrors::RequiresAtLeastArguments(1, args.len()))?;
                 let return_type = match first {
-                    TypeSignature::Atom(AtomTypeIdentifier::IntType) => Ok(AtomTypeIdentifier::IntType.into()),
-                    TypeSignature::Atom(AtomTypeIdentifier::UIntType) => Ok(AtomTypeIdentifier::UIntType.into()),
-                    _ => Err(CheckErrors::UnionTypeError(vec![AtomTypeIdentifier::IntType.into(), AtomTypeIdentifier::UIntType.into()],
+                    TypeSignature::IntType => Ok(TypeSignature::IntType),
+                    TypeSignature::UIntType => Ok(TypeSignature::UIntType),
+                    _ => Err(CheckErrors::UnionTypeError(vec![TypeSignature::IntType, TypeSignature::UIntType],
                                                          first.clone()))
                 }?;
                 for found_type in rest.iter() {
@@ -113,15 +113,15 @@ impl FunctionType {
             FunctionType::ArithmeticComparison => {
                 check_argument_count(2, args)?;
                 let (first, second) = (&args[0], &args[1]);
-                if first != &INT_TYPE && first != &UINT_TYPE {
+                if first != &TypeSignature::IntType && first != &TypeSignature::UIntType {
                     return Err(CheckErrors::UnionTypeError(
-                        vec![AtomTypeIdentifier::IntType.into(), AtomTypeIdentifier::UIntType.into()],
+                        vec![TypeSignature::IntType, TypeSignature::UIntType],
                         first.clone()).into())
                 }
                 if first != second {
                     return Err(CheckErrors::TypeError(first.clone(), second.clone()).into())
                 }
-                Ok(AtomTypeIdentifier::BoolType.into())
+                Ok(TypeSignature::BoolType)
             },
         }
     }
@@ -132,11 +132,11 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
     if let Some(variable) = NativeVariables::lookup_by_name(variable_name) {
         use vm::variables::NativeVariables::*;
         let var_type = match variable {
-            TxSender => AtomTypeIdentifier::PrincipalType.into(),
-            ContractCaller => AtomTypeIdentifier::PrincipalType.into(),
-            BlockHeight => AtomTypeIdentifier::IntType.into(),
-            BurnBlockHeight => AtomTypeIdentifier::IntType.into(),
-            NativeNone => AtomTypeIdentifier::OptionalType(Box::new(no_type())).into(),
+            TxSender => TypeSignature::PrincipalType,
+            ContractCaller => TypeSignature::PrincipalType,
+            BlockHeight => TypeSignature::IntType,
+            BurnBlockHeight => TypeSignature::IntType,
+            NativeNone => TypeSignature::new_option(no_type()),
         };
         Some(var_type)
     } else {
@@ -145,7 +145,7 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
 }
 
 pub fn no_type() -> TypeSignature {
-    AtomTypeIdentifier::NoType.into()
+    TypeSignature::NoType
 }
 
 impl <'a, 'b> TypeChecker <'a, 'b> {
@@ -168,8 +168,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             Some(ref mut tracker) => {
                 let new_type = match tracker.take() {
                     Some(expected_type) => {
-                        TypeSignature::most_admissive(expected_type, return_type)
-                            .map_err(|(expected_type, return_type)| CheckErrors::ReturnTypesMustMatch(expected_type, return_type))?
+                        TypeSignature::least_supertype(&expected_type, &return_type)
+                            .map_err(|_| CheckErrors::ReturnTypesMustMatch(expected_type, return_type))?
                     },
                     None => return_type
                 };
@@ -293,8 +293,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                     if let Some(Some(ref expected)) = self.function_return_tracker {
                         // check if the computed return type matches the return type
                         //   of any early exits from the call graph (e.g., (expects ...) calls)
-                        TypeSignature::most_admissive(expected.clone(), return_type)
-                            .map_err(|(expected, return_type)| CheckErrors::ReturnTypesMustMatch(expected, return_type))?
+                        TypeSignature::least_supertype(expected, &return_type)
+                            .map_err(|_| CheckErrors::ReturnTypesMustMatch(expected.clone(), return_type))?
                     } else {
                         return_type
                     }
@@ -324,15 +324,12 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         let key_type = &args[1];
         let value_type = &args[2];
 
-        let key_type = TypeSignature::new_tuple(
+        let key_type = TypeSignature::from(
             TupleTypeSignature::parse_name_type_pair_list(key_type)
-                .map_err(|_| { CheckErrors::BadMapTypeDefinition })?)
-            .map_err(|_| { CheckErrors::BadMapTypeDefinition })?;
-        let value_type = TypeSignature::new_tuple(
+                .map_err(|_| { CheckErrors::BadMapTypeDefinition })?);
+        let value_type = TypeSignature::from(
             TupleTypeSignature::parse_name_type_pair_list(value_type)
-                .map_err(|_| { CheckErrors::BadMapTypeDefinition })?)
-            .map_err(|_| { CheckErrors::BadMapTypeDefinition })?;
-
+                .map_err(|_| { CheckErrors::BadMapTypeDefinition })?);
 
         Ok((map_name.clone(), (key_type, value_type)))
     }
@@ -372,13 +369,13 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         } else if let Some(type_result) = context.lookup_variable_type(name) {
             Ok(type_result.clone())
         } else {
-            Err(CheckError::new(CheckErrors::UnboundVariable(name.to_string())))
+            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
     }
 
     fn inner_type_check(&mut self, expr: &SymbolicExpression, context: &TypingContext) -> TypeResult {
         let type_sig = match expr.expr {
-            AtomValue(ref value) => {
+            AtomValue(ref value) | LiteralValue(ref value) => {
                 TypeSignature::type_of(value)
             },
             Atom(ref name) => {
@@ -408,7 +405,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             .ok_or(CheckErrors::DefineVariableBadSignature)?
             .clone();
 
-        let expected_type = TypeSignature::parse_type_repr(&args[1], true)
+        let expected_type = TypeSignature::parse_type_repr(&args[1])
             .map_err(|e| CheckErrors::DefineVariableBadSignature)?;
 
         self.type_check_expects(&args[2], context, &expected_type)?;
@@ -422,7 +419,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
 
         if args.len() == 2 {
-            self.type_check_expects(&args[1], context, &AtomTypeIdentifier::IntType.into())?;
+            self.type_check_expects(&args[1], context, &TypeSignature::IntType)?;
         }
 
         let token_name = args[0].match_atom()
@@ -439,7 +436,7 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             .ok_or(CheckErrors::DefineNFTBadSignature)?
             .clone();
 
-        let asset_type = TypeSignature::parse_type_repr(&args[1], true)
+        let asset_type = TypeSignature::parse_type_repr(&args[1])
             .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
 
         Ok((asset_name, asset_type))
@@ -460,10 +457,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                 },
                 PublicFunction => {
                     let (f_name, f_type) = self.type_check_define_function(args, context)?;
-                    let return_type = f_type.returns.match_atomic()
-                        .ok_or_else(|| CheckError::new(CheckErrors::PublicFunctionMustReturnResponse(f_type.returns.clone())))?
-                        .clone();
-                    if let AtomTypeIdentifier::ResponseType(_) = return_type {
+                    let return_type = f_type.returns.clone();
+                    if let TypeSignature::ResponseType(_) = return_type {
                         self.contract_context.add_public_function_type(f_name, FunctionType::Fixed(f_type))?;
                         return Ok(Some(()));
                     } else {

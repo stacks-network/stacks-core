@@ -2,13 +2,14 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::convert::TryInto;
 
-use vm::errors::{InterpreterError, UncheckedError, RuntimeErrorType, InterpreterResult as Result};
-use vm::types::{Value, AssetIdentifier, PrincipalData};
+use vm::errors::{InterpreterError, CheckErrors, RuntimeErrorType, InterpreterResult as Result};
+use vm::types::{Value, AssetIdentifier, PrincipalData, QualifiedContractIdentifier, TypeSignature};
 use vm::callables::{DefinedFunction, FunctionIdentifier};
 use vm::database::{ClarityDatabase, memory_db};
 use vm::representations::{SymbolicExpression, ClarityName, ContractName};
 use vm::contracts::Contract;
-use vm::{parser, eval};
+use vm::ast;
+use vm::eval;
 
 use chainstate::burn::{VRFSeed, BlockHeaderHash};
 use burnchains::BurnchainHeaderHash;
@@ -62,7 +63,7 @@ pub struct GlobalContext<'a> {
 
 #[derive(Serialize, Deserialize)]
 pub struct ContractContext {
-    pub name: ContractName,
+    pub contract_identifier: QualifiedContractIdentifier,
     pub variables: HashMap<ClarityName, Value>,
     pub functions: HashMap<ClarityName, DefinedFunction>,
 }
@@ -232,7 +233,7 @@ impl <'a> OwnedEnvironment <'a> {
     pub fn new(database: ClarityDatabase<'a>) -> OwnedEnvironment <'a> {
         OwnedEnvironment {
             context: GlobalContext::new(database),
-            default_contract: ContractContext::new_transient(),
+            default_contract: ContractContext::new(QualifiedContractIdentifier::transient()),
             call_stack: CallStack::new()
         }
     }
@@ -248,18 +249,18 @@ impl <'a> OwnedEnvironment <'a> {
                          sender.clone(), sender)
     }
 
-    pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
+    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
         let mut exec_env = self.get_exec_environment(None);
-        exec_env.initialize_contract(contract_name, contract_content)
+        exec_env.initialize_contract(contract_identifier, contract_content)
     }
 
-    pub fn execute_transaction(&mut self, sender: Value, contract_name: &str, 
+    pub fn execute_transaction(&mut self, sender: Value, contract_identifier: QualifiedContractIdentifier, 
                                tx_name: &str, args: &[SymbolicExpression]) -> Result<(Value, AssetMap)> {
         assert!(self.context.is_top_level());
         self.begin();
         let return_value = {
             let mut exec_env = self.get_exec_environment(Some(sender));
-            exec_env.execute_contract(contract_name, tx_name, args)
+            exec_env.execute_contract(&contract_identifier, tx_name, args)
         }?;
         let asset_map = self.commit()?;
         Ok((return_value, asset_map))
@@ -319,15 +320,15 @@ impl <'a,'b> Environment <'a,'b> {
                          self.sender.clone(), Some(caller))
     }
 
-    pub fn eval_read_only(&mut self, contract_name: &str, program: &str) -> Result<Value> {
-        let parsed = parser::parse(program)?;
+    pub fn eval_read_only(&mut self, contract_identifier: &QualifiedContractIdentifier, program: &str) -> Result<Value> {
+        let parsed = ast::parse(contract_identifier, program)?;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }
 
         self.global_context.begin();
 
-        let contract = self.global_context.database.get_contract(contract_name)?;
+        let contract = self.global_context.database.get_contract(contract_identifier)?;
 
         let result = {
             let mut nested_env = Environment::new(&mut self.global_context, &contract.contract_context,
@@ -342,7 +343,9 @@ impl <'a,'b> Environment <'a,'b> {
     }
     
     pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
-        let parsed = parser::parse(program)?;
+        let contract_id = QualifiedContractIdentifier::transient();
+
+        let parsed = ast::parse(&contract_id, program)?;
         if parsed.len() < 1 {
             return Err(RuntimeErrorType::ParseError("Expected a program of at least length 1".to_string()).into())
         }
@@ -353,14 +356,14 @@ impl <'a,'b> Environment <'a,'b> {
         result
     }
 
-    pub fn execute_contract(&mut self, contract_name: &str, 
+    pub fn execute_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, 
                             tx_name: &str, args: &[SymbolicExpression]) -> Result<Value> {
-        let contract = self.global_context.database.get_contract(contract_name)?;
+        let contract = self.global_context.database.get_contract(contract_identifier)?;
 
         let func = contract.contract_context.lookup_function(tx_name)
-            .ok_or_else(|| { UncheckedError::UndefinedFunction(tx_name.to_string()) })?;
+            .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
         if !func.is_public() {
-            return Err(UncheckedError::NonPublicFunction(tx_name.to_string()).into());
+            return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
         }
 
         let args: Result<Vec<Value>> = args.iter()
@@ -404,13 +407,14 @@ impl <'a,'b> Environment <'a,'b> {
         }
     }
 
-    pub fn initialize_contract(&mut self, contract_name: &str, contract_content: &str) -> Result<()> {
+    pub fn initialize_contract(&mut self, contract_identifier: QualifiedContractIdentifier, contract_content: &str) -> Result<()> {
         self.global_context.begin();
-        let result = Contract::initialize(contract_name, contract_content,
+        let result = Contract::initialize(contract_identifier.clone(), 
+                                          contract_content,
                                           &mut self.global_context);
         match result {
             Ok(contract) => {
-                self.global_context.database.insert_contract(contract_name, contract);
+                self.global_context.database.insert_contract(&contract_identifier, contract);
                 self.global_context.commit()?;
                 Ok(())
             },
@@ -437,16 +441,16 @@ impl <'a> GlobalContext<'a> {
         self.asset_maps.len() == 0
     }
 
-    pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_name: &ContractName, asset_name: &ClarityName, transfered: Value) {
-        let asset_identifier = AssetIdentifier { contract_name: contract_name.clone(),
+    pub fn log_asset_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: Value) {
+        let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
                                                  asset_name: asset_name.clone() };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
             .add_asset_transfer(sender, asset_identifier, transfered)
     }
 
-    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_name: &ContractName, asset_name: &ClarityName, transfered: i128) -> Result<()> {
-        let asset_identifier = AssetIdentifier { contract_name: contract_name.clone(),
+    pub fn log_token_transfer(&mut self, sender: &PrincipalData, contract_identifier: &QualifiedContractIdentifier, asset_name: &ClarityName, transfered: i128) -> Result<()> {
+        let asset_identifier = AssetIdentifier { contract_identifier: contract_identifier.clone(),
                                                  asset_name: asset_name.clone() };
         self.asset_maps.last_mut()
             .expect("Failed to obtain asset map")
@@ -523,7 +527,7 @@ impl <'a> GlobalContext<'a> {
                 }
                 Ok(Value::Response(data))
             } else {
-                Err(UncheckedError::ContractMustReturnBoolean.into())
+                Err(CheckErrors::PublicFunctionMustReturnResponse(TypeSignature::type_of(&result)).into())
             }
         } else {
             self.roll_back();
@@ -533,18 +537,12 @@ impl <'a> GlobalContext<'a> {
 }
 
 impl ContractContext {
-    pub fn new(name: ContractName) -> ContractContext {
-        ContractContext {
-            name,
+    pub fn new(contract_identifier: QualifiedContractIdentifier) -> Self {
+        Self {
+            contract_identifier,
             variables: HashMap::new(),
             functions: HashMap::new()
         }
-    }
-
-    pub fn new_transient() -> ContractContext {
-        Self::new(
-            TRANSIENT_CONTRACT_NAME
-                .to_string().try_into().expect("FAIL: BAD TRANSIENT CONTRACT NAME"))
     }
 
     pub fn lookup_variable(&self, name: &str) -> Option<Value> {
@@ -644,11 +642,14 @@ mod test {
 
     #[test]
     fn test_asset_map_abort() {
-        let p1 = PrincipalData::ContractPrincipal("a".into());
-        let p2 = PrincipalData::ContractPrincipal("b".into());
+        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
+        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
 
-        let t1 = AssetIdentifier { contract_name: "a".into(), asset_name: "a".into() };
-        let t2 = AssetIdentifier { contract_name: "b".into(), asset_name: "a".into() };
+        let p1 = PrincipalData::Contract(a_contract_id.clone());
+        let p2 = PrincipalData::Contract(b_contract_id.clone());
+
+        let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
+        let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();
@@ -668,15 +669,23 @@ mod test {
 
     #[test]
     fn test_asset_map_combinations() {
-        let p1 = PrincipalData::ContractPrincipal("a".into());
-        let p2 = PrincipalData::ContractPrincipal("b".into());
-        let p3 = PrincipalData::ContractPrincipal("c".into());
+        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
+        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
+        let c_contract_id = QualifiedContractIdentifier::local("c").unwrap();
+        let d_contract_id = QualifiedContractIdentifier::local("d").unwrap();
+        let e_contract_id = QualifiedContractIdentifier::local("e").unwrap();
 
-        let t1 = AssetIdentifier { contract_name: "a".into(), asset_name: "a".into() };
-        let t2 = AssetIdentifier { contract_name: "b".into(), asset_name: "a".into() };
-        let t3 = AssetIdentifier { contract_name: "c".into(), asset_name: "a".into() };
-        let t4 = AssetIdentifier { contract_name: "d".into(), asset_name: "a".into() };
-        let t5 = AssetIdentifier { contract_name: "e".into(), asset_name: "a".into() };
+        let p1 = PrincipalData::Contract(a_contract_id.clone());
+        let p2 = PrincipalData::Contract(b_contract_id.clone());
+        let p3 = PrincipalData::Contract(c_contract_id.clone());
+        let p4 = PrincipalData::Contract(d_contract_id.clone());
+        let p5 = PrincipalData::Contract(e_contract_id.clone());
+
+        let t1 = AssetIdentifier { contract_identifier: a_contract_id.clone(), asset_name: "a".into() };
+        let t2 = AssetIdentifier { contract_identifier: b_contract_id.clone(), asset_name: "a".into() };
+        let t3 = AssetIdentifier { contract_identifier: c_contract_id.clone(), asset_name: "a".into() };
+        let t4 = AssetIdentifier { contract_identifier: d_contract_id.clone(), asset_name: "a".into() };
+        let t5 = AssetIdentifier { contract_identifier: e_contract_id.clone(), asset_name: "a".into() };
 
         let mut am1 = AssetMap::new();
         let mut am2 = AssetMap::new();

@@ -440,13 +440,13 @@ If a value did not exist for this key in the data map, the function returns `fal
 const FETCH_CONTRACT_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, MapName, tuple",
     output_type: "(optional (tuple))",
-    signature: "(contract-map-get contract-name map-name key-tuple)",
+    signature: "(contract-map-get .contract-name map-name key-tuple)",
     description: "The `contract-map-get` function looks up and returns an entry from a
 contract other than the current contract's data map. The value is looked up using `key-tuple`.
 If there is no value associated with that key in the data map, the function returns a (none) option. Otherwise,
 it returns (some value).",
-    example: "(expects! (contract-map-get names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
-(expects! (contract-map-get names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
+    example: "(expects! (contract-map-get .names-contract names-map (tuple (name \"blockstack\")) (err 1))) ;; Returns (tuple (id 1337))
+(expects! (contract-map-get .names-contract names-map ((name \"blockstack\")) (err 1)));; Same command, using a shorthand for constructing the tuple
 ",
 };
 
@@ -494,6 +494,27 @@ integer.",
     example: "(sha256 0) ;; Returns 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb"
 };
 
+const SHA512_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|int",
+    output_type: "(buff 64)",
+    signature: "(sha512 value)",
+    description: "The `sha512` function computes `SHA512(x)` of the inputted value.
+If an integer (128 bit) is supplied the hash is computed over the little-endian representation of the
+integer.",
+    example: "(sha512 1) ;; Returns 0x6fcee9a7b7a7b821d241c03c82377928bc6882e7a08c78a4221199bfa220cdc55212273018ee613317c8293bb8d1ce08d1e017508e94e06ab85a734c99c7cc34",
+};
+
+const SHA512T256_API: SpecialAPI = SpecialAPI {
+    input_type: "buff|int",
+    output_type: "(buff 32)",
+    signature: "(sha512/256 value)",
+    description: "The `sha512/256` function computes `SHA512/256(x)` (the SHA512 algorithm with the 512/256 initialization vector, truncated
+to 256 bits) of the inputted value.
+If an integer (128 bit) is supplied the hash is computed over the little-endian representation of the
+integer.",
+    example: "(sha512/256 1) ;; Returns 0x515a7e92e7c60522db968d81ff70b80818fc17aeabbec36baf0dda2812e94a86",
+};
+
 const KECCAK256_API: SpecialAPI = SpecialAPI {
     input_type: "buff|int",
     output_type: "(buff 32)",
@@ -507,12 +528,12 @@ is supplied the hash is computed over the little-endian representation of the in
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     output_type: "(response A B)",
-    signature: "(contract-call! contract-name function-name arg0 arg1 ...)",
+    signature: "(contract-call! .contract-name function-name arg0 arg1 ...)",
     description: "The `contract-call!` function executes the given public function of the given contract.
 You _may not_ this function to call a public function defined in the current contract. If the public
 function returns _err_, any database changes resulting from calling `contract-call!` are aborted.
 If the function returns _ok_, database changes occurred.",
-    example: "(contract-call! tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns (ok 1)"
+    example: "(contract-call! .tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns (ok 1)"
 };
 
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
@@ -939,6 +960,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         Begin => make_for_special(&BEGIN_API, name),
         Hash160 => make_for_special(&HASH160_API, name),
         Sha256 => make_for_special(&SHA256_API, name),
+        Sha512 => make_for_special(&SHA512_API, name),
+        Sha512Trunc256 => make_for_special(&SHA512T256_API, name),
         Keccak256 => make_for_special(&KECCAK256_API, name),
         Print => make_for_special(&PRINT_API, name),
         ContractCall => make_for_special(&CONTRACT_CALL_API, name),

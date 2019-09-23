@@ -1,5 +1,6 @@
-use vm::parser::parse;
+use vm::ast::parse;
 use vm::analysis::{type_check, mem_type_check, CheckError, CheckErrors, AnalysisDatabase};
+use vm::types::QualifiedContractIdentifier;
 
 #[test]
 fn test_simple_read_only_violations() {
@@ -76,21 +77,25 @@ fn test_contract_call_read_only_violations() {
               (ok 1)))";
     let bad_caller = 
         "(define-read-only (not-reading-only)
-            (contract-call! contract1 mint))";
+            (contract-call! .contract1 mint))";
     let ok_caller =
         "(define-read-only (is-reading-only)
-            (eq? 0 (expects! (contract-call! contract1 get-token-balance) 'false)))";
+            (eq? 0 (expects! (contract-call! .contract1 get-token-balance) 'false)))";
 
-    let mut contract1 = parse(contract1).unwrap();
-    let mut bad_caller = parse(bad_caller).unwrap();
-    let mut ok_caller = parse(ok_caller).unwrap();
+    let contract_1_id = QualifiedContractIdentifier::local("contract1").unwrap();
+    let contract_bad_caller_id = QualifiedContractIdentifier::local("bad_caller").unwrap();
+    let contract_ok_caller_id = QualifiedContractIdentifier::local("ok_caller").unwrap();
+
+    let mut contract1 = parse(&contract_1_id, contract1).unwrap();
+    let mut bad_caller = parse(&contract_bad_caller_id, bad_caller).unwrap();
+    let mut ok_caller = parse(&contract_ok_caller_id, ok_caller).unwrap();
 
     let mut db = AnalysisDatabase::memory();
-    db.execute(|db| type_check(&"contract1", &mut contract1, db, true)).unwrap();
+    db.execute(|db| type_check(&contract_1_id, &mut contract1, db, true)).unwrap();
 
-    let err = db.execute(|db| type_check(&"bad_caller", &mut bad_caller, db, true)).unwrap_err();
+    let err = db.execute(|db| type_check(&contract_bad_caller_id, &mut bad_caller, db, true)).unwrap_err();
     assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
 
-    db.execute(|db| type_check(&"ok_caller", &mut ok_caller, db, true)).unwrap();
+    db.execute(|db| type_check(&contract_ok_caller_id, &mut ok_caller, db, true)).unwrap();
 
 }

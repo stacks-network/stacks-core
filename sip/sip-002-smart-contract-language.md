@@ -86,9 +86,8 @@ any type.
 
 ## List Operations
 
-* Lists may be multi-dimensional. However, note that runtime admission checks
-  on typed function-parameters and data-map functions like `set-entry!` will
-  be charged based on the _maximal_ size of the multi-dimensional list.
+* Lists may be multi-dimensional (i.e., lists may contain other lists), however each
+  entry of this list must be of the same type.
 * `filter` `map` and `fold` functions may only be called with user-defined functions
   (i.e., functions defined with `(define ...)`, `(define-read-only ...)`, or
   `(define-public ...)`) or simple native functions (e.g., `+`, `-`, `not`).
@@ -527,6 +526,77 @@ operation entry, the corresponding transaction identifier. This will
 be expanded in a future SIP to require the database to store enough
 information to reconstruct each block, such that the blocks can be
 relayed to bootstrapping peers.
+
+# Clarity Type System
+
+## Types
+
+The Clarity language uses a strong static type system. Function arguments
+and database schemas require specified types, and use of types is checked
+during contract launch. The type system does _not_ have a universal
+super type. The type system contains the following types:
+
+* `(tuple (key-name-0 key-type-0) (key-name-1 key-type-1) ...)` -
+  a typed tuple with named fields.
+* `(list max-len entry-type)` - a list of maximum length `max-len`, with
+  entries of type `entry-type`
+* `(response ok-type err-type)` - object used by public functions to commit
+  their changes or abort. May be returned or used by other functions as
+  well, however, only public functions have the commit/abort behavior.
+* `(optional some-type)` - an option type for objects that can either be
+  `(some value)` or `none`
+* `(buff max-len)` := byte buffer or maximum length `max-len`.
+* `principal` := object representing a principal (whether a contract principal
+  or standard principal).
+* `bool` := boolean value (`'true` or `'false`)
+* `int`  := signed 128-bit integer
+* `uint` := unsigned 128-bit integer
+
+## Type Admission
+
+**UnknownType**. The Clarity type system does not allow for specifying
+an "unknown" type, however, in type analysis, unknown types may be
+constructed and used by the analyzer. Such unknown types are used
+_only_ in the admission rules for `response` and `optional` types
+(i.e., the variant types).
+
+Type admission in Clarity follows the following rules:
+
+* Types will only admit objects of the same type, i.e., lists will only
+admit lists, tuples only admit tuples, bools only admit bools.
+* A tuple type `A` admits another tuple type `B` iff they have the exact same
+  key names, and every key type of `A` admits the corresponding key type of `B`.
+* A list type `A` admits another list type `B` iff `A.max-len >= B.max-len` and
+  `A.entry-type` admits `B.entry-type`.
+* A buffer type `A` admits another buffer type `B` iff `A.max-len >= B.max-len`.
+* An optional type `A` admits another optional type `B` iff:
+  * `A.some-type` admits `B.some-type` _OR_ `B.some-type` is an unknown type:
+    this is the case if `B` only ever corresponds to `none`
+* A response type `A` admits another response type `B` if one of the following is true:
+  * `A.ok-type` admits `B.ok-type` _AND_ `A.err-type` admits `B.err-type`
+  * `B.ok-type` is unknown _AND_ `A.err-type` admits `B.err-type`
+  * `B.err-type` is unknown _AND_ `A.ok-type` admits `B.ok-type`
+* Principals, bools, ints, and uints only admit types of the exact same type.
+
+Type admission is used for determining whether an object is a legal argument for
+a function, or for insertion into the database. Type admission is _also_ used
+during type analysis to determine the return types of functions. In particular,
+a function's return type is the least common supertype of each type returned from any
+control path in the function. For example:
+
+```
+(define-private (if-types (input bool))
+  (if input
+     (ok 1)
+     (err 'false)))
+```
+
+The return type of `if-types` is the least common supertype of `(ok
+1)` and `(err false)` (i.e., the most restrictive type that contains
+all returns). In this case, that type `(response int bool)`. Because
+Clarity _does not_ have a universal supertype, it may be impossible to
+determine such a type. In these cases, the functions are illegal, and
+will be rejected during type analysis.
 
 # Measuring Transaction Costs for Fee Collection
 

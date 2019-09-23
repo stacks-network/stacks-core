@@ -1,12 +1,13 @@
 extern crate regex;
 
 pub mod errors;
+pub mod diagnostic;
 pub mod types;
 
 pub mod contracts;
 
 mod representations;
-pub mod parser;
+pub mod ast;
 pub mod contexts;
 pub mod database;
 
@@ -25,8 +26,9 @@ use vm::callables::CallableType;
 use vm::contexts::{ContractContext, LocalContext, Environment, CallStack};
 use vm::contexts::{GlobalContext};
 use vm::functions::define::DefineResult;
-use vm::errors::{Error, InterpreterError, RuntimeErrorType, UncheckedError, InterpreterResult as Result};
+use vm::errors::{Error, InterpreterError, RuntimeErrorType, CheckErrors, InterpreterResult as Result};
 use vm::database::{memory_db};
+use vm::types::QualifiedContractIdentifier;
 
 pub use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 
@@ -43,7 +45,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
         } else if let Some(value) = env.contract_context.lookup_variable(name) {
             Ok(value)
         } else {
-            Err(UncheckedError::UndefinedVariable(name.to_string()).into())
+            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
         }
     }
 }
@@ -53,7 +55,7 @@ pub fn lookup_function(name: &str, env: &Environment)-> Result<CallableType> {
         Ok(result)
     } else {
         let user_function = env.contract_context.lookup_function(name).ok_or(
-            UncheckedError::UndefinedFunction(name.to_string()))?;
+            CheckErrors::UndefinedFunction(name.to_string()))?;
         Ok(CallableType::UserFunction(user_function))
     }
 }
@@ -79,7 +81,7 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
     };
 
     if track_recursion && env.call_stack.contains(&identifier) {
-        return Err(UncheckedError::RecursionDetected.into())
+        return Err(CheckErrors::CircularReference(vec![identifier.to_string()]).into())
     }
 
     if env.call_stack.depth() >= MAX_CALL_STACK_DEPTH {
@@ -106,26 +108,21 @@ pub fn apply(function: &CallableType, args: &[SymbolicExpression],
         env.call_stack.remove(&identifier, track_recursion)?;
         resp
     }
-            
 }
 
 pub fn eval <'a> (exp: &SymbolicExpression, env: &'a mut Environment, context: &LocalContext) -> Result<Value> {
-    use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+    use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 
     match exp.expr {
-        AtomValue(ref value) => Ok(value.clone()),
+        AtomValue(ref value) | LiteralValue(ref value) => Ok(value.clone()),
         Atom(ref value) => lookup_variable(&value, context, env),
         List(ref children) => {
             let (function_variable, rest) = children.split_first()
-                .ok_or(UncheckedError::InvalidArguments(
-                    "List expressions (...) are function applications, and must be supplied with function names to apply.".to_string()))?;
-            match function_variable.expr {
-                Atom(ref value) => {
-                    let f = lookup_function(&value, env)?;
-                    apply(&f, &rest, env, context)
-                },
-                _ => Err(UncheckedError::TryEvalToFunction.into())
-            }
+                .ok_or(CheckErrors::NonFunctionApplication)?;
+            let function_name = function_variable.match_atom()
+                .ok_or(CheckErrors::BadFunctionName)?;
+            let f = lookup_function(&function_name, env)?;
+            apply(&f, &rest, env, context)
         }
     }
 }
@@ -167,17 +164,17 @@ fn eval_all (expressions: &[SymbolicExpression],
                 contract_context.functions.insert(name, value);
             },
             DefineResult::PersistedVariable(name, value_type, value) => {
-                global_context.database.create_variable(&contract_context.name, &name, value_type);
-                global_context.database.set_variable(&contract_context.name, &name, value)?;
+                global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
+                global_context.database.set_variable(&contract_context.contract_identifier, &name, value)?;
             },
             DefineResult::Map(name, key_type, value_type) => {
-                global_context.database.create_map(&contract_context.name, &name, key_type, value_type);
+                global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type);
             },
             DefineResult::FungibleToken(name, total_supply) => {
-                global_context.database.create_fungible_token(&contract_context.name, &name, &total_supply);
+                global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply);
             },
             DefineResult::NonFungibleAsset(name, asset_type) => {
-                global_context.database.create_non_fungible_token(&contract_context.name, &name, &asset_type);
+                global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
             },
             DefineResult::NoDefine => {
                 // not a define function, evaluate normally.
@@ -201,11 +198,12 @@ fn eval_all (expressions: &[SymbolicExpression],
  *  database.
  */
 pub fn execute(program: &str) -> Result<Option<Value>> {
-    let mut contract_context = ContractContext::new_transient();
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract_context = ContractContext::new(contract_id.clone());
     let conn = memory_db();
     let mut global_context = GlobalContext::new(conn);
     global_context.execute(|g| {
-        let parsed = parser::parse(program)?;
+        let parsed = ast::parse(&contract_id, program)?;
         eval_all(&parsed, &mut contract_context, g)
     })
 }
@@ -215,7 +213,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 mod test {
     use vm::database::memory_db;
     use vm::{Value, LocalContext, GlobalContext, ContractContext, Environment, SymbolicExpression, CallStack};
-    use vm::types::{TypeSignature, AtomTypeIdentifier};
+    use vm::types::{TypeSignature, QualifiedContractIdentifier};
     use vm::callables::{DefinedFunction, DefineType};
     use vm::eval;
 
@@ -236,12 +234,12 @@ mod test {
                        SymbolicExpression::atom_value(Value::Int(5)),
                        SymbolicExpression::atom("x".into())]));
 
-        let func_args = vec![("x".into(), AtomTypeIdentifier::IntType.into())];
+        let func_args = vec![("x".into(), TypeSignature::IntType)];
         let user_function = DefinedFunction::new(func_args, func_body, DefineType::Private,
                                                  &"do_work".into(), &"");
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new_transient();
+        let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut global_context = GlobalContext::new(memory_db());
 
         contract_context.variables.insert("a".into(), Value::Int(59));

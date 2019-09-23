@@ -1,6 +1,6 @@
 use vm::functions::NativeFunctions;
 use vm::representations::{SymbolicExpression};
-use vm::types::{AtomTypeIdentifier, TypeSignature, FunctionType, BOOL_TYPE};
+use vm::types::{ TypeSignature, FunctionType };
 
 use vm::analysis::type_checker::{
     TypeResult, TypingContext, CheckResult, check_argument_count, CheckErrors, no_type, TypeChecker};
@@ -32,11 +32,10 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
     
     let argument_type = checker.type_check(&args[1], context)?;
     
-    let argument_length = argument_type.list_max_len()
-        .ok_or(CheckErrors::ExpectedListApplication)?;
-    
-    let argument_items_type = argument_type.get_list_item_type()
-        .ok_or(CheckErrors::ExpectedListApplication)?;
+    let (argument_items_type, argument_length) = match argument_type {
+        TypeSignature::ListType(list_data) => Ok(list_data.destruct()),
+        _ => Err(CheckErrors::ExpectedListApplication)
+    }?;
     
     let mapped_type = function_type.check_args(&[argument_items_type])?;
     
@@ -56,17 +55,18 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
     checker.type_map.set_type(&args[0], no_type())?;
     
     let argument_type = checker.type_check(&args[1], context)?;
-    
-    let argument_length = argument_type.list_max_len()
-        .ok_or(CheckErrors::ExpectedListApplication)?;
-    
-    let argument_items_type = argument_type.get_list_item_type()
-        .ok_or(CheckErrors::ExpectedListApplication)?;
-    
-    let filter_type = function_type.check_args(&[argument_items_type])?;
 
-    if BOOL_TYPE != filter_type {
-        return Err(CheckErrors::TypeError(AtomTypeIdentifier::BoolType.into(), filter_type).into())
+    {
+        let argument_items_type = match &argument_type {
+            TypeSignature::ListType(list_data) => Ok(list_data.get_list_item_type()),
+            _ => Err(CheckErrors::ExpectedListApplication)
+        }?;
+    
+        let filter_type = function_type.check_args(&[argument_items_type.clone()])?;
+
+        if TypeSignature::BoolType != filter_type {
+            return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into())
+        }
     }
 
     Ok(argument_type)
@@ -85,8 +85,10 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     
     let list_argument_type = checker.type_check(&args[1], context)?;
 
-    let list_items_type = list_argument_type.get_list_item_type()
-        .ok_or(CheckErrors::ExpectedListApplication)?;
+    let list_items_type = match list_argument_type {
+        TypeSignature::ListType(list_data) => Ok(list_data.destruct().0),
+        _ => Err(CheckErrors::ExpectedListApplication)
+    }?;
 
     let initial_value_type = checker.type_check(&args[2], context)?;
 

@@ -1,8 +1,8 @@
 use vm::execute;
-use vm::errors::{UncheckedError, RuntimeErrorType, Error};
-use vm::types::Value;
+use vm::errors::{CheckErrors, RuntimeErrorType, Error};
+use vm::types::{Value, TypeSignature};
 
-fn assert_eq_err(e1: UncheckedError, e2: Error) {
+fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();
     assert_eq!(e1, e2)
 }
@@ -34,7 +34,8 @@ fn test_accept_options() {
     let expectations: &[Result<_, Error>] = &[
         Ok(Some(Value::Int(0))),
         Ok(Some(Value::Int(10))),
-        Err(UncheckedError::TypeError("(optional int)".to_string(), Value::some(Value::Bool(true))).into()),
+        Err(CheckErrors::TypeValueError(TypeSignature::from("(optional int)"),
+                                        Value::some(Value::Bool(true))).into()),
     ];
     
     for (test, expect) in tests.iter().zip(expectations.iter()) {
@@ -43,8 +44,8 @@ fn test_accept_options() {
 
     let bad_defun =
         "(define-private (f (b (optional int int))) (* 10 (default-to 0 b)))";
-    assert_eq!(Error::Runtime(RuntimeErrorType::InvalidTypeDescription, None),
-               execute(bad_defun).unwrap_err());
+    assert_eq!(execute(bad_defun).unwrap_err(),
+               CheckErrors::InvalidTypeDescription.into());
 }
 
 #[test]
@@ -63,11 +64,10 @@ fn test_bad_define_names() {
          (define-constant foo 2)
          (+ foo foo)";
 
-    assert_eq_err(UncheckedError::ReservedName("tx-sender".to_string()), execute(&test0).unwrap_err());
-    assert_eq_err(UncheckedError::ReservedName("*".to_string()), execute(&test1).unwrap_err());
-    assert_eq_err(UncheckedError::InvalidArguments("Illegal operation: expects a variable name as the first argument.".to_string()),
-                   execute(&test2).unwrap_err());
-    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("foo".to_string()),
+    assert_eq_err(CheckErrors::NameAlreadyUsed("tx-sender".to_string()), execute(&test0).unwrap_err());
+    assert_eq_err(CheckErrors::NameAlreadyUsed("*".to_string()), execute(&test1).unwrap_err());
+    assert_eq_err(CheckErrors::ExpectedName, execute(&test2).unwrap_err());
+    assert_eq_err(CheckErrors::NameAlreadyUsed("foo".to_string()),
                    execute(&test3).unwrap_err());
 }
 
@@ -87,14 +87,14 @@ fn test_expects() {
         "(define-private (foo) (expects-err! (err 1))) (foo)";
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
-    assert_eq_err(UncheckedError::IncorrectArgumentCount(2,1),
+    assert_eq_err(CheckErrors::IncorrectArgumentCount(2,1),
                   execute(&test1).unwrap_err());
-    assert_eq_err(UncheckedError::TypeError("OptionalType|ResponseType".to_string(), Value::Int(1)),
+    assert_eq_err(CheckErrors::ExpectedResponseValue(Value::Int(1)),
                   execute(&test2).unwrap_err());
-    assert_eq_err(UncheckedError::TypeError("ResponseType".to_string(), Value::Int(1)),
+    assert_eq_err(CheckErrors::ExpectedResponseValue(Value::Int(1)),
                   execute(&test3).unwrap_err());
     assert_eq!(Ok(Some(Value::Int(1))), execute(&test4));
-    assert_eq_err(UncheckedError::IncorrectArgumentCount(2, 1),
+    assert_eq_err(CheckErrors::IncorrectArgumentCount(2, 1),
                   execute(&test5).unwrap_err());
 }
 
@@ -110,9 +110,9 @@ fn test_define_read_only() {
         "(define-read-only (silly) (map-set! map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
 
     assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
-    assert_eq_err(UncheckedError::WriteFromReadOnlyContext, execute(&test1).unwrap_err());
-    assert_eq_err(UncheckedError::WriteFromReadOnlyContext, execute(&test2).unwrap_err());
-    assert_eq_err(UncheckedError::WriteFromReadOnlyContext, execute(&test3).unwrap_err());
+    assert_eq_err(CheckErrors::WriteAttemptedInReadOnly, execute(&test1).unwrap_err());
+    assert_eq_err(CheckErrors::WriteAttemptedInReadOnly, execute(&test2).unwrap_err());
+    assert_eq_err(CheckErrors::WriteAttemptedInReadOnly, execute(&test3).unwrap_err());
 }
 
 #[test]
@@ -148,28 +148,27 @@ fn test_recursive_panic() {
               (* a (factorial (- a 1)))))
          (factorial 10)";
 
-    assert_eq_err(UncheckedError::RecursionDetected, execute(&tests).unwrap_err());
+    assert_eq_err(CheckErrors::CircularReference(vec!["'S1G2081040G2081040G2081040G208105NK8PE5.__transient:factorial".into()]), execute(&tests).unwrap_err());
 }
 
 #[test]
 fn test_bad_variables() {
     let test0 = "(+ a 1)";
-    let expected = UncheckedError::UndefinedVariable("a".to_string());
+    let expected = CheckErrors::UndefinedVariable("a".to_string());
     assert_eq_err(expected, execute(&test0).unwrap_err());
 
 
     let test1 = "(foo 2 1)";
-    let expected = UncheckedError::UndefinedFunction("foo".to_string());
+    let expected = CheckErrors::UndefinedFunction("foo".to_string());
     assert_eq_err(expected, execute(&test1).unwrap_err());
 
 
     let test2 = "((lambda (x y) 1) 2 1)";
-    let expected = UncheckedError::TryEvalToFunction;
+    let expected = CheckErrors::BadFunctionName;
     assert_eq_err(expected, execute(&test2).unwrap_err());
 
     let test4 = "()";
-    let expected = UncheckedError::InvalidArguments(
-        "List expressions (...) are function applications, and must be supplied with function names to apply.".to_string());
+    let expected = CheckErrors::NonFunctionApplication;
     assert_eq_err(expected, execute(&test4).unwrap_err());
 }
 
@@ -196,16 +195,16 @@ fn test_variable_shadowing() {
             cursor)
         "#;
 
-    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test0).unwrap_err());
-    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test1).unwrap_err());
-    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test2).unwrap_err());
-    assert_eq_err(UncheckedError::VariableDefinedMultipleTimes("cursor".to_string()), execute(&test3).unwrap_err());
+    assert_eq_err(CheckErrors::NameAlreadyUsed("cursor".to_string()), execute(&test0).unwrap_err());
+    assert_eq_err(CheckErrors::NameAlreadyUsed("cursor".to_string()), execute(&test1).unwrap_err());
+    assert_eq_err(CheckErrors::NameAlreadyUsed("cursor".to_string()), execute(&test2).unwrap_err());
+    assert_eq_err(CheckErrors::NameAlreadyUsed("cursor".to_string()), execute(&test3).unwrap_err());
 }
 
 #[test]
 fn test_define_parse_panic() {
     let tests = "(define-private () 1)";
-    let expected = UncheckedError::InvalidArguments("Must supply atleast a name argument to define a function".to_string());
+    let expected = CheckErrors::DefineFunctionBadSignature;
     assert_eq_err(expected, execute(&tests).unwrap_err());
 }
 
@@ -213,7 +212,7 @@ fn test_define_parse_panic() {
 fn test_define_parse_panic_2() {
     let tests = "(define-private (a b (d)) 1)";
     assert_eq_err(
-        UncheckedError::ExpectedListPairs,
+        CheckErrors::BadSyntaxExpectedListOfPairs,
         execute(&tests).unwrap_err());
 }
 
