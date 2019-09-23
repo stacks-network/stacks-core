@@ -19,6 +19,7 @@
 
 use std::fmt;
 use std::error;
+use std::io::Error as IOError;
 
 use rusqlite::Error as sqlite_error;
 use rusqlite::Connection;
@@ -49,8 +50,14 @@ pub enum Error {
     ParseError,
     /// Operation would overflow 
     Overflow,
+    /// Data not found
+    NotFoundError,
+    /// Data already exists
+    ExistsError,
     /// Sqlite3 error
-    SqliteError(sqlite_error)
+    SqliteError(sqlite_error),
+    /// I/O error
+    IOError(IOError)
 }
 
 impl fmt::Display for Error {
@@ -64,6 +71,9 @@ impl fmt::Display for Error {
             Error::SerializationError(ref e) => fmt::Display::fmt(e, f),
             Error::ParseError => f.write_str(error::Error::description(self)),
             Error::Overflow => f.write_str(error::Error::description(self)),
+            Error::NotFoundError => f.write_str(error::Error::description(self)),
+            Error::ExistsError => f.write_str(error::Error::description(self)),
+            Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::SqliteError(ref e) => fmt::Display::fmt(e, f)
         }
     }
@@ -80,7 +90,10 @@ impl error::Error for Error {
             Error::SerializationError(ref e) => Some(e),
             Error::ParseError => None,
             Error::Overflow => None,
-            Error::SqliteError(ref e) => Some(e)
+            Error::NotFoundError => None,
+            Error::ExistsError => None,
+            Error::SqliteError(ref e) => Some(e),
+            Error::IOError(ref e) => Some(e),
         }
     }
 
@@ -94,7 +107,10 @@ impl error::Error for Error {
             Error::SerializationError(ref e) => e.description(),
             Error::ParseError => "Parse error",
             Error::Overflow => "Numeric overflow",
-            Error::SqliteError(ref e) => e.description()
+            Error::NotFoundError => "Not found",
+            Error::ExistsError => "Already exists",
+            Error::SqliteError(ref e) => e.description(),
+            Error::IOError(ref e) => e.description()
         }
     }
 }
@@ -169,4 +185,37 @@ where
         .expect("FATAL: failed to query Sqlite row");
 
     Ok(count)
+}
+
+/// Set up an on-disk database with a MARF index
+/// Returns (db path, MARF path)
+pub fn db_mkdirs(path_str: &str) -> Result<(String, String), Error> {
+    let mut path = PathBuf::from(path_str);
+    match fs::metadata(path) {
+        Ok(md) => {
+            if !md.is_dir() {
+                error!("Not a directory: {}", db_path);
+                return Err(Error::ExistsError);
+            }
+        },
+        Err(e) => {
+            if e.kind() != io::ErrorKind::NotFound {
+                return Err(Error::IOError(e));
+            }
+            fs::create_dir_all(path).map_err(Error::IOError)?;
+        }
+    }
+
+    path.push("marf");
+    let marf_path = path.to_str()
+        .ok_or_else(|| Error::ParseError)
+        .to_string();
+
+    path.pop();
+    path.push("data.sqlite");
+    let data_path = path.to_str()
+        .ok_or_else(|| Error::ParseError)
+        .to_string();
+   
+    Ok((db_path, marf_path))
 }
