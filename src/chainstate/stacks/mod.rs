@@ -25,13 +25,16 @@ pub mod transaction;
 
 use std::fmt;
 use std::error;
+use std::ops::Deref;
+use std::ops::DerefMut;
+use std::convert::From;
 
 use util::secp256k1;
+use util::db::Error as db_error;
 use util::hash::Hash160;
 use util::vrf::VRFProof;
 use util::hash::Sha512_256;
 use util::hash::HASH160_ENCODED_SIZE;
-
 use util::strings::StacksString;
 use util::secp256k1::MessageSignature;
 
@@ -45,6 +48,9 @@ use chainstate::stacks::index::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use net::StacksMessageCodec;
 use net::codec::{read_next, write_next};
 use net::Error as net_error;
+
+use vm::errors::Error as clarity_error;
+use vm::database::marf::MarfedKV;
 
 pub type StacksPublicKey = secp256k1::Secp256k1PublicKey;
 pub type StacksPrivateKey = secp256k1::Secp256k1PrivateKey;
@@ -78,13 +84,19 @@ impl AddressHashMode {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
-    InvalidFee
+    InvalidFee,
+    ClarityError(clarity_error),
+    DBError(db_error),
+    NetError(net_error)
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::InvalidFee => f.write_str(error::Error::description(self)),
+            Error::ClarityError(ref e) => fmt::Display::fmt(e, f),
+            Error::DBError(ref e) => fmt::Display::fmt(e, f),
+            Error::NetError(ref e) => fmt::Display::fmt(e, f)
         }
     }
 }
@@ -93,12 +105,18 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&error::Error> {
         match *self {
             Error::InvalidFee => None,
+            Error::ClarityError(ref e) => Some(e),
+            Error::DBError(ref e) => Some(e),
+            Error::NetError(ref e) => Some(e)
         }
     }
 
     fn description(&self) -> &str {
         match *self {
-            Error::InvalidFee => "Invalid fee"
+            Error::InvalidFee => "Invalid fee",
+            Error::ClarityError(ref e) => e.description(),
+            Error::DBError(ref e) => e.description(),
+            Error::NetError(ref e) => e.description()
         }
     }
 }
@@ -514,41 +532,41 @@ pub struct StacksWorkScore {
 /// The header for an on-chain-anchored Stacks block
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksBlockHeader {
-    version: u8,
-    total_work: StacksWorkScore,            // NOTE: this is the work done on the chain tip this block builds on (i.e. take this from the parent)
-    proof: VRFProof,
-    parent_block: BlockHeaderHash,
-    parent_microblock: BlockHeaderHash,
-    parent_microblock_sequence: u8,         // highest sequence number of the microblock stream that is the parent of this block (0 if no stream)
-    tx_merkle_root: Sha512_256,
-    state_index_root: TrieHash,
-    microblock_pubkey_hash: Hash160,        // we'll get the public key back from the first signature
+    pub version: u8,
+    pub total_work: StacksWorkScore,            // NOTE: this is the work done on the chain tip this block builds on (i.e. take this from the parent)
+    pub proof: VRFProof,
+    pub parent_block: BlockHeaderHash,
+    pub parent_microblock: BlockHeaderHash,
+    pub parent_microblock_sequence: u8,         // highest sequence number of the microblock stream that is the parent of this block (0 if no stream)
+    pub tx_merkle_root: Sha512_256,
+    pub state_index_root: TrieHash,
+    pub microblock_pubkey_hash: Hash160,        // we'll get the public key back from the first signature
 }
 
 /// A block that contains blockchain-anchored data 
 /// (corresponding to a LeaderBlockCommitOp)
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksBlock {
-    header: StacksBlockHeader,
-    txs: Vec<StacksTransaction>
+    pub header: StacksBlockHeader,
+    pub txs: Vec<StacksTransaction>
 }
 
 /// Header structure for a microblock
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksMicroblockHeader {
-    version: u8,
-    sequence: u8,       // you can send 1 microblock on average once every 2.34 seconds, if there's a 600-second block time
-    prev_block: BlockHeaderHash,
-    tx_merkle_root: Sha512_256,
-    signature: MessageSignature
+    pub version: u8,
+    pub sequence: u8,       // you can send 1 microblock on average once every 2.34 seconds, if there's a 600-second block time
+    pub prev_block: BlockHeaderHash,
+    pub tx_merkle_root: Sha512_256,
+    pub signature: MessageSignature
 }
 
 /// A microblock that contains non-blockchain-anchored data,
 /// but is tied to an on-chain block 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksMicroblock {
-    header: StacksMicroblockHeader,
-    txs: Vec<StacksTransaction>
+    pub header: StacksMicroblockHeader,
+    pub txs: Vec<StacksTransaction>
 }
 
 // maximum amount of data a leader can send during its epoch (2MB)
@@ -560,3 +578,10 @@ pub const MAX_BLOCK_SIZE : u32 = 1048576;
 // maximum microblock size is 64KB, but note that the current leader has a space budget of
 // $MAX_EPOCH_SIZE bytes (so the average microblock size needs to be 4kb if there are 256 of them)
 pub const MAX_MICROBLOCK_SIZE : u32 = 65536;
+
+/// Top-level chain state itself
+#[derive(Debug, Clone, PartialEq)]
+pub struct StacksChainState {
+    pub chain_storage: MarfedKV,
+    pub blocks_path: String
+}
