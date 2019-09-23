@@ -1,0 +1,60 @@
+{
+  "name": "@blockstack/core-contracts",
+  "version": "1.0.0-alpha.0",
+  "description": "Core contracts",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "repository": "blockstack/blockstack-core",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "clean": "shx rm -rf ./lib tsconfig.build.tsbuildinfo",
+    "compile": "tsc --build tsconfig.build.json",
+    "prepublishOnly": "npm run build",
+    "lint": "tslint -p tsconfig.json 'src/**/*.ts' 'test/**/*.ts'",
+    "lint-fix": "tslint --fix -p tsconfig.json 'src/**/*.ts' 'test/**/*.ts'",
+    "test": "npm run build && nyc mocha"
+  },
+  "engines": {
+    "node": ">=10"
+  },
+  "files": [
+    "/src",
+    "/test",
+    "/lib",
+    "/contracts"
+  ],
+  "dependencies": {
+    "@blockstack/clarity": "^0.1.9-alpha.0",
+    "@blockstack/clarity-native-bin": "^0.1.9-alpha.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.1.7",
+    "@types/mocha": "^5.2.7",
+    "@types/node": "^10",
+    "chai": "^4.2.0",
+    "mocha": "^6.1.4",
+    "nyc": "^14.1.1",
+    "shx": "^0.3.2",
+    "source-map-support": "^0.5.12",
+    "ts-node": "^8.2.0",
+    "tslint": "^5.17.0",
+    "typescript": "^3.5.1"
+  },
+  "nyc": {
+    "all": true,
+    "cache": false,
+    "extension": [
+      ".ts"
+    ],
+    "include": [
+      "src"
+    ],
+    "reporter": [
+      "text",
+      "lcov"
+    ]
+  }
+}
