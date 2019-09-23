@@ -28,6 +28,8 @@ use std::error;
 use std::io;
 use std::default::Default;
 
+use std::collections::HashMap;
+
 use self::bitcoin::Error as btc_error;
 
 use self::bitcoin::{
@@ -55,10 +57,17 @@ use chainstate::burn::ConsensusHash;
 
 use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey; 
+use chainstate::stacks::index::TrieHash;
 
 use chainstate::burn::operations::BlockstackOperationType;
 
+use chainstate::burn::distribution::BurnSamplePoint;
+
+use chainstate::burn::operations::LeaderKeyRegisterOp;
+
 use address::AddressHashMode;
+
+use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 
 use util::hash::Hash160;
 use util::db::Error as db_error;
@@ -231,11 +240,8 @@ pub struct BurnchainBlockHeader {
     pub block_height: u64,
     pub block_hash: BurnchainHeaderHash,
     pub parent_block_hash: BurnchainHeaderHash,
+    pub parent_index_root: TrieHash,
     pub num_txs: u64,
-    pub fork_segment_id: u64,
-    pub parent_fork_segment_id: u64,
-    pub fork_segment_length: u64,
-    pub fork_length: u64
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -258,6 +264,17 @@ pub struct BurnchainView {
     pub burn_consensus_hash: ConsensusHash,         // consensus hash at block_height
     pub burn_stable_block_height: u64,              // latest stable block height (e.g. chain tip minus 7)
     pub burn_stable_consensus_hash: ConsensusHash,  // consensus hash for burn_stable_block_height
+    pub last_consensus_hashes: HashMap<u64, ConsensusHash>,     // map all block heights from burn_block_height back to the oldest one we'll take for considering the peer a neighbor
+}
+
+/// The burnchain block's encoded state transition:
+/// -- the new burn distribution
+/// -- the sequence of valid blockstack operations that went into it
+/// -- the set of previously-accepted leader VRF keys consumed
+pub struct BurnchainStateTransition {
+    pub burn_dist: Vec<BurnSamplePoint>,
+    pub accepted_ops: Vec<BlockstackOperationType>,
+    pub consumed_leader_keys: Vec<LeaderKeyRegisterOp>
 }
 
 #[derive(Debug)]
@@ -333,6 +350,34 @@ impl error::Error for Error {
     }
 }
 
+impl BurnchainView {
+    #[cfg(test)]
+    pub fn make_test_data(&mut self) {
+        let oldest_height = 
+            if self.burn_stable_block_height < MAX_NEIGHBOR_BLOCK_DELAY {
+                0
+            }
+            else {
+                self.burn_stable_block_height - MAX_NEIGHBOR_BLOCK_DELAY
+            };
+
+        let mut ret = HashMap::new();
+        for i in oldest_height..self.burn_block_height+1 {
+            if i == self.burn_stable_block_height {
+                ret.insert(i, self.burn_stable_consensus_hash.clone());
+            }
+            else if i == self.burn_block_height {
+                ret.insert(i, self.burn_consensus_hash.clone());
+            }
+            else {
+                ret.insert(i, ConsensusHash::from_data(&i.to_le_bytes()));
+            }
+        }
+        self.last_consensus_hashes = ret;
+    }
+}  
+
+
 #[cfg(test)]
 pub mod test {
     use super::*;
@@ -369,10 +414,10 @@ pub mod test {
     }
 
     impl BurnchainHeaderHash {
-        pub fn from_test_data(block_height: u64, fork_segment_id: u64) -> BurnchainHeaderHash {
+        pub fn from_test_data(block_height: u64, index_root: &TrieHash) -> BurnchainHeaderHash {
             let mut bytes = vec![];
             bytes.extend_from_slice(&block_height.to_be_bytes());
-            bytes.extend_from_slice(&fork_segment_id.to_be_bytes());
+            bytes.extend_from_slice(index_root.as_bytes());
             let h = DoubleSha256::from_data(&bytes[..]);
             let mut hb = [0u8; 32];
             hb.copy_from_slice(h.as_bytes());
@@ -384,27 +429,22 @@ pub mod test {
     pub struct TestBurnchainBlock {
         pub block_height: u64,
         pub parent_block_hash: BurnchainHeaderHash,
-        pub fork_segment_id: u64,
-        pub parent_fork_segment_id: u64,
+        pub parent_index_root: TrieHash,
         pub parent_consensus_hash: ConsensusHash,
         pub txs: Vec<BlockstackOperationType>
     }
 
     pub struct TestBurnchainFork {
-        pub fork_segment_id: u64,
-        pub parent_fork_segment_id: u64,
-        pub fork_segment_length: u64,
-        pub fork_length: u64,
         pub start_height: u64,
+        pub mined: u64,
+        pub tip_index_root: TrieHash,
         pub pending_blocks: Vec<TestBurnchainBlock>,
         pub blocks: Vec<TestBurnchainBlock>
     }
 
     pub struct TestBurnchainNode {
         pub burndb: BurnDB,
-        pub next_fork_segment_id: u64,
         pub dirty: bool,
-        pub forks: HashMap<u64, TestBurnchainFork>,
         pub burnchain: Burnchain
     }
 
@@ -479,17 +519,15 @@ pub mod test {
             }
 
             test_debug!("New miner: {:?} {}:{:?}", &hash_mode, num_sigs, &keys);
-
             TestMiner::new(burnchain, &keys, num_sigs, &hash_mode)
         }
     }
 
     impl TestBurnchainBlock {
-        pub fn new(height: u64, fork_segment_id: u64, parent_fork_segment_id: u64, parent_block_hash: &BurnchainHeaderHash, parent_consensus_hash: &ConsensusHash) -> TestBurnchainBlock {
+        pub fn new(height: u64, parent_block_hash: &BurnchainHeaderHash, parent_index_root: &TrieHash, parent_consensus_hash: &ConsensusHash) -> TestBurnchainBlock {
             TestBurnchainBlock {
                 block_height: height,
-                fork_segment_id,
-                parent_fork_segment_id,
+                parent_index_root: parent_index_root.clone(),
                 parent_block_hash: parent_block_hash.clone(),
                 txs: vec![],
                 parent_consensus_hash: parent_consensus_hash.clone()
@@ -502,8 +540,7 @@ pub mod test {
             
             txop.vtxindex = self.txs.len() as u32;
             txop.block_height = self.block_height;
-            txop.fork_segment_id = self.fork_segment_id;
-            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(txop.block_height, txop.fork_segment_id);
+            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(txop.block_height, &self.parent_index_root);
             txop.txid = Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash);
             txop.consensus_hash = self.parent_consensus_hash.clone();
 
@@ -512,7 +549,7 @@ pub mod test {
             txop
         }
 
-        pub fn add_leader_block_commit<'a>(&mut self, tx: &mut DBTx<'a>, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_fee: u64, leader_key: &LeaderKeyRegisterOp) -> LeaderBlockCommitOp {
+        pub fn add_leader_block_commit<'a>(&mut self, tx: &mut BurnDBTx<'a>, miner: &mut TestMiner, block_hash: &BlockHeaderHash, burn_fee: u64, leader_key: &LeaderKeyRegisterOp) -> LeaderBlockCommitOp {
             let prover_key = miner.vrf_key_map.get(&leader_key.public_key).expect(&format!("FATAL: no private key for {}", leader_key.public_key.to_hex())).clone();
             let pubks = miner.privks.iter().map(|ref pk| StacksPublicKey::from_private(pk)).collect();
             let input = BurnchainSigner {
@@ -521,8 +558,8 @@ pub mod test {
                 public_keys: pubks
             };
             
-            let last_snapshot = BurnDB::get_last_snapshot_with_sortition(tx, self.block_height, self.fork_segment_id).expect("FATAL: failed to read last snapshot with sortition");
-            let mut txop = match BurnDB::get_block_commit(tx, &last_snapshot.winning_block_txid, &last_snapshot.burn_header_hash, last_snapshot.fork_segment_id)
+            let last_snapshot = BurnDB::get_last_snapshot_with_sortition(tx, self.block_height - 1, &self.parent_index_root).expect("FATAL: failed to read last snapshot with sortition");
+            let mut txop = match BurnDB::get_block_commit(tx, &last_snapshot.winning_block_txid, &last_snapshot.burn_header_hash)
                 .expect("FATAL: failed to read block commit") {
                 Some(parent) => {
                     let prover_pubk = VRFPublicKey::from_private(&prover_key);
@@ -544,8 +581,7 @@ pub mod test {
             txop.epoch_num = (self.block_height - miner.burnchain.first_block_height) as u32;
             txop.block_height = self.block_height;
             txop.vtxindex = self.txs.len() as u32;
-            txop.fork_segment_id = self.fork_segment_id;
-            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(txop.block_height, txop.fork_segment_id);
+            txop.burn_header_hash = BurnchainHeaderHash::from_test_data(txop.block_height, &self.parent_index_root);
             txop.txid = Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash);
 
             self.txs.push(BlockstackOperationType::LeaderBlockCommit(txop.clone()));
@@ -578,8 +614,8 @@ pub mod test {
             }
         }
 
-        pub fn mine<'a>(&self, tx: &mut DBTx<'a>, burnchain: &Burnchain) -> BlockSnapshot {
-            let block_hash = BurnchainHeaderHash::from_test_data(self.block_height, self.fork_segment_id);
+        pub fn mine<'a>(&self, tx: &mut BurnDBTx<'a>, burnchain: &Burnchain) -> BlockSnapshot {
+            let block_hash = BurnchainHeaderHash::from_test_data(self.block_height, &self.parent_index_root);
             let mock_bitcoin_block = BitcoinBlock::new(self.block_height, &block_hash, &self.parent_block_hash, &vec![]);
             let block = BurnchainBlock::Bitcoin(mock_bitcoin_block);
             
@@ -598,13 +634,11 @@ pub mod test {
     }
 
     impl TestBurnchainFork {
-        fn new(fork_segment_id: u64, parent_fork_segment_id: u64, fork_length: u64, start_height: u64) -> TestBurnchainFork {
+        fn new(start_height: u64, start_index_hash: &TrieHash) -> TestBurnchainFork {
             TestBurnchainFork {
-                fork_segment_id,
-                parent_fork_segment_id,
-                fork_segment_length: 0,
-                fork_length,
                 start_height,
+                mined: 0,
+                tip_index_root: start_index_hash.clone(),
                 blocks: vec![],
                 pending_blocks: vec![]
             }
@@ -614,25 +648,14 @@ pub mod test {
             self.pending_blocks.push(b);
         }
 
-        pub fn get_tip<'a>(&mut self, tx: &mut DBTx<'a>) -> BlockSnapshot {
-            let fork_tip = match BurnDB::get_fork_segment_tail(tx, self.fork_segment_id).unwrap() {
-               Some(tip) => {
-                   tip
-               },
-               None => {
-                    // first-ever block in this fork
-                    BurnDB::get_block_snapshot_in_fork_segment(tx, self.start_height, self.parent_fork_segment_id).unwrap().expect("FATAL: no parent fork segment")
-               }
-            };
-            fork_tip
+        pub fn get_tip<'a>(&mut self, tx: &mut BurnDBTx<'a>) -> BlockSnapshot {
+            test_debug!("Get tip snapshot at {}", &self.tip_index_root.to_hex());
+            BurnDB::get_block_snapshot_at(tx, &self.tip_index_root).unwrap().unwrap()
         }
 
-        pub fn next_block<'a>(&mut self, tx: &mut DBTx<'a>) -> TestBurnchainBlock {
+        pub fn next_block<'a>(&mut self, tx: &mut BurnDBTx<'a>) -> TestBurnchainBlock {
             let fork_tip = self.get_tip(tx);
-            self.fork_length += 1;
-            self.fork_segment_length += 1;
-
-            TestBurnchainBlock::new(self.fork_segment_length + self.start_height, self.fork_segment_id, self.parent_fork_segment_id, &fork_tip.burn_header_hash, &fork_tip.consensus_hash)
+            TestBurnchainBlock::new(fork_tip.block_height + self.pending_blocks.len() as u64 + 1, &fork_tip.burn_header_hash, &fork_tip.index_root, &fork_tip.consensus_hash)
         }
 
         pub fn mine_pending_blocks(&mut self, db: &mut BurnDB, burnchain: &Burnchain) -> BlockSnapshot {
@@ -651,6 +674,8 @@ pub mod test {
                 tx.commit().unwrap();
 
                 self.blocks.push(block);
+                self.mined += 1;
+                self.tip_index_root = snapshot.index_root;
             }
 
             // give back the new chain tip
@@ -665,64 +690,13 @@ pub mod test {
             let db = BurnDB::connect_memory(first_block_height, &first_block_hash).unwrap();
             TestBurnchainNode {
                 burndb: db,
-                next_fork_segment_id: 0,
                 dirty: false,
                 burnchain: Burnchain::default_unittest(first_block_height, &first_block_hash),
-                forks: HashMap::new()
             }
-        }
-
-        pub fn next_fork(&mut self, parent_fork_segment_id: u64) -> TestBurnchainFork {
-            self.next_fork_segment_id = 
-                if !self.dirty {
-                    let mut tx = self.burndb.tx_begin().unwrap();
-                    BurnDB::next_unused_fork_segment_id(&mut tx).unwrap()
-                }
-                else {
-                    self.next_fork_segment_id + 1
-                };
-
-            self.dirty = true;
-
-            let parent_tip = {
-                let mut tx = self.burndb.tx_begin().unwrap();
-                BurnDB::get_fork_segment_tail(&mut tx, self.next_fork_segment_id).unwrap().expect("FATAL: no parent fork segment")
-            };
-
-            TestBurnchainFork::new(self.next_fork_segment_id, parent_tip.fork_segment_id, parent_tip.fork_length, parent_tip.block_height)
-        }
-
-        pub fn get_fork(&mut self, fork_segment_id: u64) -> Option<TestBurnchainFork> {
-            let parent_tip = { 
-                let mut tx = self.burndb.tx_begin().unwrap();
-                match BurnDB::get_fork_segment_tail(&mut tx, fork_segment_id).unwrap() {
-                    Some(tip) => {
-                        tip
-                    },
-                    None => {
-                        return None
-                    }
-                }
-            };
-            Some(TestBurnchainFork::new(fork_segment_id, parent_tip.fork_segment_id, parent_tip.fork_length, parent_tip.block_height))
-        }
-
-        pub fn attach_fork(&mut self, fork: TestBurnchainFork) -> () {
-            self.forks.insert(fork.fork_segment_id, fork);
         }
 
         pub fn mine_fork(&mut self, fork: &mut TestBurnchainFork) -> () {
-            test_debug!("Mine fork {}", fork.fork_segment_id);
             fork.mine_pending_blocks(&mut self.burndb, &self.burnchain);
-        }
-
-        pub fn mine_all(&mut self) -> () {
-            for (_, mut fork) in self.forks.iter_mut() {
-                test_debug!("Mine fork {}", fork.fork_segment_id);
-                fork.mine_pending_blocks(&mut self.burndb, &self.burnchain);
-            }
-
-            self.dirty = false;
         }
     }
 
@@ -736,7 +710,8 @@ pub mod test {
             miners.push(miner_factory.next_miner(&node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH));
         }
 
-        let mut fork = node.get_fork(0).unwrap();
+        let first_snapshot = BurnDB::get_first_block_snapshot(node.burndb.conn()).unwrap();
+        let mut fork = TestBurnchainFork::new(first_snapshot.block_height, &first_snapshot.index_root);
         let mut prev_keys = vec![];
 
         for i in 0..10 {
