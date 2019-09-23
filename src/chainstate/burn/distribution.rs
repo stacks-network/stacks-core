@@ -326,8 +326,6 @@ mod tests {
             vtxindex: 456,
             block_height: 123,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
-
-            fork_segment_id: 0,
         };
         
         let leader_key_2 = LeaderKeyRegisterOp { 
@@ -340,8 +338,6 @@ mod tests {
             vtxindex: 457,
             block_height: 122,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap(),
-
-            fork_segment_id: 0,
         };
 
         let leader_key_3 = LeaderKeyRegisterOp { 
@@ -354,8 +350,6 @@ mod tests {
             vtxindex: 10,
             block_height: 121,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000012").unwrap(),
-
-            fork_segment_id: 0,
         };
 
         let user_burn_noblock = UserBurnSupportOp {
@@ -371,8 +365,6 @@ mod tests {
             vtxindex: 12,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
-
-            fork_segment_id: 0,
         };
 
         let user_burn_1 = UserBurnSupportOp {
@@ -388,8 +380,6 @@ mod tests {
             vtxindex: 13,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
-
-            fork_segment_id: 0,
         };
         
         let user_burn_1_2 = UserBurnSupportOp {
@@ -405,8 +395,6 @@ mod tests {
             vtxindex: 14,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
-
-            fork_segment_id: 0,
         };
 
         let user_burn_2 = UserBurnSupportOp {
@@ -422,8 +410,6 @@ mod tests {
             vtxindex: 14,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
-
-            fork_segment_id: 0,
         };
         
         let user_burn_2_2 = UserBurnSupportOp {
@@ -439,8 +425,6 @@ mod tests {
             vtxindex: 15,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
-
-            fork_segment_id: 0,
         };
 
         let user_burn_nokey = UserBurnSupportOp {
@@ -456,8 +440,6 @@ mod tests {
             vtxindex: 15,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
-
-            fork_segment_id: 0,
         };
 
         let block_commit_1 = LeaderBlockCommitOp {
@@ -483,8 +465,6 @@ mod tests {
             vtxindex: 444,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
-
-            fork_segment_id: 0,
         };        
         
         let block_commit_2 = LeaderBlockCommitOp {
@@ -510,8 +490,6 @@ mod tests {
             vtxindex: 445,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
-
-            fork_segment_id: 0,
         };        
         
         let block_commit_3 = LeaderBlockCommitOp {
@@ -537,8 +515,6 @@ mod tests {
             vtxindex: 445,
             block_height: 124,
             burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000004").unwrap(),
-
-            fork_segment_id: 0,
         };
 
         /*
