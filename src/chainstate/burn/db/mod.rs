@@ -43,7 +43,8 @@ use util::db::Error as db_error;
 
 use chainstate::stacks::index::TrieHash;
 use chainstate::stacks::StacksPublicKey;
-use net::MessageSignature;
+
+use util::secp256k1::MessageSignature;
 
 impl_byte_array_from_row!(Txid);
 impl_byte_array_from_row!(ConsensusHash);
@@ -56,7 +57,6 @@ impl_byte_array_from_row!(SortitionHash);
 impl_byte_array_from_row!(Sha512_256);
 impl_byte_array_from_row!(VRFProof);
 impl_byte_array_from_row!(TrieHash);
-impl_byte_array_from_row!(StacksPublicKey);
 impl_byte_array_from_row!(MessageSignature);
 
 impl FromRow<VRFPublicKey> for VRFPublicKey {
@@ -78,4 +78,3 @@ impl<A: Address> FromRow<A> for A {
         }
     }
 }
-
