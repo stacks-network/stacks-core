@@ -71,3 +71,8 @@ node_modules
 tarpaulin-report.html
 osxcross
 osxcross*.tar.xz
+core-contracts/.nyc_output
+core-contracts/coverage
+core-contracts/lib
+*.tsbuildinfo
+.DS_Store
