@@ -481,19 +481,22 @@ impl StacksMessageCodec for GetBlocksData {
 impl StacksMessageCodec for MicroblocksInvData {
     fn serialize(&self) -> Vec<u8> {
         let mut ret = vec![];
-        write_next(&mut ret, &self.hashes);
+        write_next(&mut ret, &self.last_microblock_hash);
+        write_next(&mut ret, &self.last_sequence);
         ret
     }
 
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<MicroblocksInvData, net_error> {
         let mut index = *index_ptr;
 
-        let hashes : Vec<BlockHeaderHash> = read_next_at_most::<BlockHeaderHash>(buf, &mut index, max_size, MICROBLOCKS_INV_DATA_MAX_HASHES)?;
+        let last_microblock_hash : BlockHeaderHash = read_next(buf, &mut index, max_size)?;
+        let last_sequence : u8 = read_next(buf, &mut index, max_size)?;
 
         *index_ptr = index;
 
         Ok(MicroblocksInvData {
-            hashes
+            last_microblock_hash,
+            last_sequence
         })
     }
 }
@@ -1563,63 +1566,17 @@ pub mod test {
 
     #[test]
     fn codec_MicroblocksInvData() {
-        let mut maximal_microblock_hashes : Vec<BlockHeaderHash> = vec![];
-        for i in 0..MICROBLOCKS_INV_DATA_MAX_HASHES {
-            maximal_microblock_hashes.push(BlockHeaderHash::from_bytes(&hex_bytes("6666666666666666666666666666666666666666666666666666666666666666").unwrap()).unwrap());
-        }
-
-        let mut too_big_microblock_hashes = maximal_microblock_hashes.clone();
-        too_big_microblock_hashes.push(BlockHeaderHash::from_bytes(&hex_bytes("6666666666666666666666666666666666666666666666666666666666666666").unwrap()).unwrap());
-
         let data = MicroblocksInvData {
-            hashes: maximal_microblock_hashes.clone()
+            last_microblock_hash: BlockHeaderHash([0x66; 32]),
+            last_sequence: 1
         };
-
-        let mut bytes : Vec<u8> = vec![
-            // microblock hashes length 
-            0x00, 0x00, 0x10, 0x00,
+        let bytes : Vec<u8> = vec![
+            // hash
+            0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+            // seq
+            0x01
         ];
-        for h in &maximal_microblock_hashes {
-            bytes.append(&mut h.as_bytes().to_vec().clone());
-        }
-
         check_codec_and_corruption::<MicroblocksInvData>(&data, &bytes);
-
-        // empty 
-        let empty_data = MicroblocksInvData {
-            hashes: vec![]
-        };
-        let empty_bytes : Vec<u8> = vec![
-            // hashes len
-            0x00, 0x00, 0x00, 0x00,
-        ];
-
-        check_codec_and_corruption::<MicroblocksInvData>(&empty_data, &empty_bytes);
-
-        // one entry 
-        let one_block = MicroblocksInvData {
-            hashes: vec![
-                BlockHeaderHash::from_bytes(&hex_bytes("6666666666666666666666666666666666666666666666666666666666666666").unwrap()).unwrap()
-            ]
-        };
-        let one_block_bytes : Vec<u8> = vec![
-            // microblock hashes len 
-            0x00, 0x00, 0x00, 0x01,
-            // single hash
-            0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66
-        ];
-
-        check_codec_and_corruption::<MicroblocksInvData>(&one_block, &one_block_bytes);
-
-        // should fail to decode if its too big 
-        let too_big = MicroblocksInvData {
-            hashes: too_big_microblock_hashes.clone()
-        };
-        let too_big_bytes = too_big.serialize();
-
-        let mut index = 0;
-        assert_eq!(MicroblocksInvData::deserialize(&too_big_bytes, &mut index, too_big_bytes.len() as u32), Err(net_error::DeserializeError));
-        assert_eq!(index, 0);
     }
 
     #[test]
@@ -1636,20 +1593,17 @@ pub mod test {
 
         // must get the message down to 32 MB
         for _i in 0..31 {
-            let mut hashes = vec![];
-            // for _j in 0..MICROBLOCKS_INV_DATA_MAX_HASHES {
-            for _j in 0..1 {
-                hashes.push(BlockHeaderHash::from_bytes(&hex_bytes("7777777777777777777777777777777777777777777777777777777777777777").unwrap()).unwrap());
-            }
             let microblock_inv = MicroblocksInvData {
-                hashes
+                last_microblock_hash: BlockHeaderHash([0x01; 32]),
+                last_sequence: _i
             };
             maximal_microblocks_inventory.push(microblock_inv.clone());
             too_big_microblocks_inventory.push(microblock_inv);
         }
 
         too_big_microblocks_inventory.push(MicroblocksInvData {
-            hashes: vec![]
+            last_microblock_hash: BlockHeaderHash([0xff; 32]),
+            last_sequence: 0xff
         });
 
         let maximal_blocksinvdata = BlocksInvData {
@@ -1691,10 +1645,12 @@ pub mod test {
             bitvec: vec![0xff, 0x01],
             microblocks_inventory: vec![
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x01; 32]),
+                    last_sequence: 1,
                 },
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x02; 32]),
+                    last_sequence: 2,
                 },
             ]
         };
@@ -1708,31 +1664,40 @@ pub mod test {
             bitvec: vec![0xff],
             microblocks_inventory: vec![
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x01; 32]),
+                    last_sequence: 1,
                 },
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x02; 32]),
+                    last_sequence: 2,
                 },
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x03; 32]),
+                    last_sequence: 3,
                 },
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x04; 32]),
+                    last_sequence: 4,
                 },
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x05; 32]),
+                    last_sequence: 5,
                 },
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x06; 32]),
+                    last_sequence: 6,
                 },
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x07; 32]),
+                    last_sequence: 7,
                 },
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x08; 32]),
+                    last_sequence: 8,
                 },
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x09; 32]),
+                    last_sequence: 9,
                 },
             ]
         };
@@ -1747,7 +1712,8 @@ pub mod test {
             bitvec: vec![0x03],
             microblocks_inventory: vec![
                 MicroblocksInvData {
-                    hashes: vec![]
+                    last_microblock_hash: BlockHeaderHash([0x09; 32]),
+                    last_sequence: 9,
                 },
             ]
         };
@@ -1997,10 +1963,12 @@ pub mod test {
                 bitvec: vec![0x03],
                 microblocks_inventory: vec![
                     MicroblocksInvData {
-                        hashes: vec![]
+                        last_microblock_hash: BlockHeaderHash([0xa3; 32]),
+                        last_sequence: 0xa3,
                     },
                     MicroblocksInvData {
-                        hashes: vec![]
+                        last_microblock_hash: BlockHeaderHash([0xa4; 32]),
+                        last_sequence: 0xa4,
                     },
                 ]
             }),

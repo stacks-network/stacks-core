@@ -113,6 +113,8 @@ pub enum Error {
     InvalidHandle,
     /// Invalid handshake 
     InvalidHandshake,
+    /// Stale neighbor
+    StaleNeighbor,
     /// No such neighbor 
     NoSuchNeighbor,
     /// Failed to bind
@@ -161,6 +163,7 @@ impl fmt::Display for Error {
             Error::InvalidMessage => f.write_str(error::Error::description(self)),
             Error::InvalidHandle => f.write_str(error::Error::description(self)),
             Error::InvalidHandshake => f.write_str(error::Error::description(self)),
+            Error::StaleNeighbor => f.write_str(error::Error::description(self)),
             Error::NoSuchNeighbor => f.write_str(error::Error::description(self)),
             Error::BindError => f.write_str(error::Error::description(self)),
             Error::PollError => f.write_str(error::Error::description(self)),
@@ -201,6 +204,7 @@ impl error::Error for Error {
             Error::InvalidMessage => None,
             Error::InvalidHandle => None,
             Error::InvalidHandshake => None,
+            Error::StaleNeighbor => None,
             Error::NoSuchNeighbor => None,
             Error::BindError => None,
             Error::PollError => None,
@@ -240,6 +244,7 @@ impl error::Error for Error {
             Error::InvalidMessage => "invalid message (malformed or bad signature)",
             Error::InvalidHandle => "invalid network handle",
             Error::InvalidHandshake => "invalid handshake from remote peer",
+            Error::StaleNeighbor => "neighbor is too far behind the chain tip",
             Error::NoSuchNeighbor => "no such neighbor",
             Error::BindError => "Failed to bind to the given address",
             Error::PollError => "Failed to poll",
@@ -400,16 +405,15 @@ pub struct GetBlocksData {
     pub burn_header_hash_end: BurnchainHeaderHash
 }
 
-/// A sequence of microblocks, relative to the block commit to which it was appended.
+/// The "stream tip" information about a block's trailer microblocks.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MicroblocksInvData {
-    // note -- this has to be list of hashes, since unlike chain-anchored Stacks blocks, 
-    // the peer node doesn't yet know the microblock header hashes.
-    hashes: Vec<BlockHeaderHash>
+    pub last_microblock_hash: BlockHeaderHash,
+    pub last_sequence: u8
 }
 
-/// A bit vector that describes which on-chain blocks this node has data for in a given block
-/// range.  Sent in reply to a GetBlocksData.
+/// A bit vector that describes which block and microblock data node has data for in a given burn
+/// chain block range.  Sent in reply to a GetBlocksData.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksInvData {
     pub bitlen: u16,                            // number of bits represented in bitvec (not to exceed BLOCKS_INV_DATA_MAX_BITLEN)
@@ -908,8 +912,6 @@ mod test {
                     let mut next_snapshot = prev_snapshot.clone();
 
                     next_snapshot.block_height += 1;
-                    next_snapshot.fork_segment_length += 1;
-                    next_snapshot.fork_length += 1;
                     
                     let big_i = Uint256::from_u64(i as u64);
                     let mut big_i_bytes_32 = [0u8; 32];
@@ -924,8 +926,8 @@ mod test {
                     next_snapshot.sortition = true;
                     next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
 
-                    BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &next_snapshot).unwrap();
-
+                    let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+                    next_snapshot.index_root = next_index_root;
                     prev_snapshot = next_snapshot;
                 }
                 tx.commit().unwrap();
@@ -976,7 +978,7 @@ mod test {
                 let mut tx = burndb.tx_begin().unwrap();
                 BurnDB::get_burnchain_view(&mut tx, &self.config.burnchain).unwrap()
             };
-            let ret = self.network.run(burndb.conn(), &burnchain_snapshot, 1);
+            let ret = self.network.run(&burnchain_snapshot, 1);
             self.burndb = Some(burndb);
             ret
         }
@@ -1005,6 +1007,18 @@ mod test {
             let mut burndb = self.burndb.take().unwrap();
             Burnchain::process_block(&mut burndb, &self.config.burnchain, block).unwrap();
             self.burndb = Some(burndb);
+        }
+
+        pub fn add_empty_burnchain_block(&mut self) -> u64 {
+            let empty_block = {
+                let mut burndb = self.burndb.take().unwrap();
+                let sn = BurnDB::get_canonical_chain_tip(burndb.conn()).unwrap();
+                let empty_block = self.empty_burnchain_block(sn.block_height);
+                self.burndb = Some(burndb);
+                empty_block
+            };
+            self.next_burnchain_block(&empty_block);
+            empty_block.block_height()
         }
 
         pub fn to_neighbor(&self) -> Neighbor {
