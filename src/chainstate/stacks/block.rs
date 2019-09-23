@@ -26,17 +26,22 @@ use net::StacksMessageCodec;
 use net::Error as net_error;
 use net::codec::{read_next, write_next};
 
-use util::vrf::{
-    VRFProof,
-    VRF_PROOF_ENCODED_SIZE
-};
-
 use util::hash::MerkleTree;
 use util::hash::Sha512_256;
 use util::secp256k1::MessageSignature;
 
+use net::StacksPublicKeyBuffer;
+
 use sha2::Sha512Trunc256;
 use sha2::Digest;
+
+use chainstate::burn::*;
+use chainstate::burn::operations::*;
+
+use burnchains::PrivateKey;
+use burnchains::PublicKey;
+
+use util::vrf::*;
 
 impl StacksMessageCodec for VRFProof {
     fn serialize(&self) -> Vec<u8> {
@@ -56,7 +61,7 @@ impl StacksMessageCodec for VRFProof {
             return Err(net_error::UnderflowError);
         }
         let res = VRFProof::from_slice(&buf[(index as usize)..((index+VRF_PROOF_ENCODED_SIZE) as usize)])
-            .map_err(|_e| net_error::DeserializeError)?;
+            .ok_or(net_error::DeserializeError)?;
             
         *index_ptr += VRF_PROOF_ENCODED_SIZE;
         Ok(res)
@@ -85,7 +90,7 @@ impl StacksWorkScore {
     pub fn initial() -> StacksWorkScore {
         StacksWorkScore {
             burn: 0,
-            wrk: 0
+            work: 0
         }
     }
 
@@ -132,7 +137,7 @@ impl StacksMessageCodec for StacksBlockHeader {
             parent_microblock_sequence,
             tx_merkle_root,
             state_index_root,
-            microblock_pubkey_hash
+            microblock_pubkey_hash: pubkey_hash_buf
         })
     }
 }
@@ -182,29 +187,38 @@ impl StacksBlockHeader {
     // TODO: consider putting the winning VRF key, winning seed, and parent seed into the snapshot
     pub fn validate_burnchain(&self, snapshot: &BlockSnapshot, leader_key: &LeaderKeyRegisterOp, block_commit: &LeaderBlockCommitOp, parent_snapshot: &BlockSnapshot, parent_block_commit: &LeaderBlockCommitOp) -> bool {
         if self.block_hash() != snapshot.winning_stacks_block_hash {
-            test_debug!("Invalid Stacks block header {}: invalid commit: {} != {}", self.block_hash().to_hex(), self.block_hash.to_hex(), snapshot.winning_stacks_block_hash.to_hex());
+            test_debug!("Invalid Stacks block header {}: invalid commit: {} != {}", self.block_hash().to_hex(), self.block_hash().to_hex(), snapshot.winning_stacks_block_hash.to_hex());
             return false;
         }
 
         if self.parent_block != parent_snapshot.winning_stacks_block_hash {
-            test_debug!("Invalid Stacks block header {}: invalid parent hash: {} != {}", self.block_hash.to_hex(), self.parent_block.to_hex(), parent_snapshot.winning_stacks_block_hash.to_hex());
+            test_debug!("Invalid Stacks block header {}: invalid parent hash: {} != {}", self.block_hash().to_hex(), self.parent_block.to_hex(), parent_snapshot.winning_stacks_block_hash.to_hex());
             return false;
         }
         
         if !parent_block_commit.new_seed.is_from_proof(&self.proof) {
-            test_debug!("Invalid Stacks block header {}: invalid VRF proof: hash({}) != {} (but {})", self.block_hash.to_hex(), self.proof.to_hex(), parent_block_commit.new_seed.to_hex(), VRFSeed::from_proof(&self.proof));
+            test_debug!("Invalid Stacks block header {}: invalid VRF proof: hash({}) != {} (but {})", self.block_hash().to_hex(), self.proof.to_hex(), parent_block_commit.new_seed.to_hex(), VRFSeed::from_proof(&self.proof).to_hex());
             return false;
         }
 
-        if self.total_work.burns != parent_snapshot.total_burn {
-            test_debug!("Invalid Stacks block header {}: invalid total burns: {} != {}", self.block_hash().to_hex(), self.total_work.burns, parent_snapshot.total_burn);
+        if self.total_work.burn != parent_snapshot.total_burn {
+            test_debug!("Invalid Stacks block header {}: invalid total burns: {} != {}", self.block_hash().to_hex(), self.total_work.burn, parent_snapshot.total_burn);
             return false;
         }
 
         // TODO: work score?
 
-        if !VRF::verify(&leader_key.public_key, &self.proof, &parent_block_commit.new_seed.as_bytes().to_vec()) {
-            test_debug!("Invalid Stacks block header {}: leader VRF key {} did not produce proof {}", self.block_hash.to_hex(), leader_key.public_key.to_hex(), self.proof.to_hex());
+        let valid = match VRF::verify(&leader_key.public_key, &self.proof, &parent_block_commit.new_seed.as_bytes().to_vec()) {
+            Ok(v) => {
+                v
+            },
+            Err(e) => {
+                false
+            }
+        };
+
+        if !valid {
+            test_debug!("Invalid Stacks block header {}: leader VRF key {} did not produce a valid proof {}", self.block_hash().to_hex(), leader_key.public_key.to_hex(), self.proof.to_hex());
             return false;
         }
 
@@ -218,8 +232,8 @@ impl StacksBlockHeader {
     /// Validate this block header against its parent block header.
     /// Call after validate_burnchain()
     pub fn validate_parent(&self, parent: &StacksBlockHeader, microblock_parent_opt: Option<&StacksMicroblockHeader>) -> bool {
-        if parent.block_hash() != self.parent_block_hash {
-            test_debug!("Invalid Stacks block header {}: parent {} != {}", self.block_hash().to_hex(), parent.block_hash().to_hex(), self.parent_block_hash.to_hex());
+        if parent.block_hash() != self.parent_block {
+            test_debug!("Invalid Stacks block header {}: parent {} != {}", self.block_hash().to_hex(), parent.block_hash().to_hex(), self.parent_block.to_hex());
             return false;
         }
 
@@ -230,8 +244,8 @@ impl StacksBlockHeader {
                 return false;
             }
 
-            if microblock_parent.block_hash() != self.parent_microblock_hash {
-                test_debug!("Invalid Stacks block header {}: parent microblock {} != {}", self.block_hash().to_hex(), microblock_parent.block_hash().to_hex(), self.parent_microblock_hash.to_hex());
+            if microblock_parent.block_hash() != self.parent_microblock {
+                test_debug!("Invalid Stacks block header {}: parent microblock {} != {}", self.block_hash().to_hex(), microblock_parent.block_hash().to_hex(), self.parent_microblock.to_hex());
                 return false;
             }
 
@@ -247,8 +261,8 @@ impl StacksBlockHeader {
                 return false;
             }
 
-            if self.parent_microblock_hash != BlockHeaderHash([0u8; 32]) {
-                test_debug!("Invalid Stacks block header {}: parent microblock {} != {}", self.block_hash().to_hex(), microblock_parent.block_hash, BlockHeaderHash([0u8; 32]).to_hex());
+            if self.parent_microblock != BlockHeaderHash([0u8; 32]) {
+                test_debug!("Invalid Stacks block header {}: parent microblock {} != {}", self.block_hash().to_hex(), self.parent_microblock.to_hex(), BlockHeaderHash([0u8; 32]).to_hex());
                 return false;
             }
         }
@@ -309,7 +323,7 @@ impl StacksMessageCodec for StacksBlock {
 
 impl StacksBlock {
     pub fn initial(txs: Vec<StacksTransaction>, state_index_root: &TrieHash, microblock_pubkey_hash: &Hash160) -> StacksBlock {
-        let txids = txs.iter().map(|ref tx| tx.txid()).collect();
+        let txids = txs.iter().map(|ref tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512_256>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksBlockHeader::initial(&tx_merkle_root, state_index_root, microblock_pubkey_hash);
@@ -320,10 +334,10 @@ impl StacksBlock {
     }
 
     pub fn from_parent(parent_header: &StacksBlockHeader, parent_microblock_header: &StacksMicroblockHeader, txs: Vec<StacksTransaction>, work_delta: &StacksWorkScore, proof: &VRFProof, state_index_root: &TrieHash, microblock_pubkey_hash: &Hash160) -> StacksBlock {
-        let txids = txs.iter().map(|ref tx| tx.txid()).collect();
+        let txids = txs.iter().map(|ref tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512_256>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
-        let header = StacksBlockHeader(parent_header, parent_microblock_header, proof, &tx_merkle_root, state_index_root, microblock_pubkey_hash);
+        let header = StacksBlockHeader::from_parent(parent_header, parent_microblock_header, work_delta, proof, &tx_merkle_root, state_index_root, microblock_pubkey_hash);
         StacksBlock {
             header, 
             txs
@@ -352,19 +366,21 @@ impl StacksBlock {
 
             for i in 1..parent_microblock_stream.len() {
                 // parent stream must all be contiguous and valid
-                if !parent_microblock_stream[i].validate(&parent_microblock_stream[i-1].block_hash(), Some(parent_microblock_stream[i-1].sequence), &parent_header.microblock_pubkey_hash) {
+                if !parent_microblock_stream[i].validate(&parent_microblock_stream[i-1].block_hash(), Some(parent_microblock_stream[i-1].header.sequence), &parent_header.microblock_pubkey_hash) {
                     test_debug!("Invalid Stacks block {}: parent microblock stream entry {} is invalid", self.block_hash().to_hex(), i);
                     return false;
                 }
             }
             
-            if !self.header.validate_parent(parent_header, Some(&parent_microblock_stream[parent_microblock_stream.len()-1])) {
+            if !self.header.validate_parent(parent_header, Some(&parent_microblock_stream[parent_microblock_stream.len()-1].header)) {
                 test_debug!("Invalid Stacks block {}: header does not match parent or microblock parent", self.block_hash().to_hex());
                 return false;
             }
         }
 
         // apply all of this parent stream's transactions and this block's transactions.
+        // TODO
+        panic!("Not implemented");
     }
 }
 
@@ -411,7 +427,7 @@ impl StacksMicroblockHeader {
         sha2.input(&bytes[..]);
         digest_bits.copy_from_slice(sha2.result().as_slice());
 
-        let sig = privkey.sign(&digest_bits)
+        let sig = privk.sign(&digest_bits)
             .map_err(|se| net_error::SigningError(se.to_string()))?;
 
         self.signature = sig;
@@ -434,7 +450,7 @@ impl StacksMicroblockHeader {
             .map_err(|_ve| net_error::VerifyingError("Failed to verify signature: failed to recover public key".to_string()))?;
         
         if StacksBlockHeader::pubkey_hash(&pubk) != *pubk_hash {
-            return Err(net_error::VerifyingError("Failed to verify signature: public key did not recover to expected hash"));
+            return Err(net_error::VerifyingError("Failed to verify signature: public key did not recover to expected hash".to_string()));
         }
 
         Ok(())
@@ -442,7 +458,7 @@ impl StacksMicroblockHeader {
 
     pub fn block_hash(&self) -> BlockHeaderHash {
         let bytes = self.serialize();
-        BlockHeaderHash::from_data(&bytes[..])
+        BlockHeaderHash::from_serialized_header(&bytes[..])
     }
 
     /// Create the first microblock header in a microblock stream.
@@ -461,34 +477,34 @@ impl StacksMicroblockHeader {
     /// Return an error on overflow
     pub fn from_parent_unsigned(parent_header: &StacksMicroblockHeader, tx_merkle_root: &Sha512_256) -> Option<StacksMicroblockHeader> {
         let next_sequence = match parent_header.sequence.checked_add(1) {
-            Ok(next) => {
+            Some(next) => {
                 next
             },
-            Err(_) => {
+            None => {
                 return None;
             }
         };
 
-        StacksMicroblockHeader {
+        Some(StacksMicroblockHeader {
             version: 0,
             sequence: next_sequence,
             prev_block: parent_header.block_hash(),
             tx_merkle_root: tx_merkle_root.clone(),
             signature: MessageSignature::empty()
-        }
+        })
     }
 
     pub fn validate_parent(&self, parent_hash: &BlockHeaderHash, parent_sequence: Option<u8>, parent_pubkey_hash: &Hash160) -> bool {
         match parent_sequence {
             Some(seq) => {
                 match seq.checked_add(1) {
-                    Ok(my_seq) => {
+                    Some(my_seq) => {
                         if self.sequence != my_seq {
                             test_debug!("Invalid microblock {}: sequence {} != {}", self.block_hash().to_hex(), self.sequence, my_seq);
                             return false;
                         }
                     },
-                    Err(_) => {
+                    None => {
                         // parent sequence is the largest sequence, so this block cannot be valid.
                         // A subsequent leader can declare this microblock as a duplicate, and
                         // steal this block's miner's coinbase.
@@ -505,13 +521,13 @@ impl StacksMicroblockHeader {
             }
         }
 
-        if self.parent_hash != parent_hash {
-            test_debug!("Invalid microblock {}: parent hash {} != {}", self.block_hash().to_hex(), self.sequence);
+        if self.prev_block != *parent_hash {
+            test_debug!("Invalid microblock {}: parent hash {} != {}", self.block_hash().to_hex(), self.prev_block.to_hex(), parent_hash.to_hex());
             return false;
         }
 
         let mut dup = self.clone();
-        if dup.verify(parent_pubkey).is_err() {
+        if dup.verify(parent_pubkey_hash).is_err() {
             test_debug!("Invalid microblock {}: failed to verify", self.block_hash().to_hex());
             return false;
         }
@@ -530,7 +546,7 @@ impl StacksMessageCodec for StacksMicroblock {
     }
 
     fn deserialize(buf: &Vec<u8>, index_ptr: &mut u32, max_size: u32) -> Result<StacksMicroblock, net_error> {
-        // no matter what, do not allow us to parse a block bigger than 1MB
+        // no matter what, do not allow us to parse a block bigger than the maximal size
         let index = *index_ptr;
         if index > u32::max_value() - MAX_MICROBLOCK_SIZE {
             return Err(net_error::OverflowError);
@@ -576,7 +592,7 @@ impl StacksMessageCodec for StacksMicroblock {
 
 impl StacksMicroblock {
     pub fn initial_unsigned(parent_block_hash: &BlockHeaderHash, txs: Vec<StacksTransaction>) -> StacksMicroblock {
-        let txids = txs.iter().map(|ref tx| tx.txid()).collect();
+        let txids = txs.iter().map(|ref tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512_256>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksMicroblockHeader::initial_unsigned(parent_block_hash, &tx_merkle_root);
@@ -586,15 +602,23 @@ impl StacksMicroblock {
         }
     }
 
-    pub fn from_parent_unsigned(parent_header: &StacksMicroblockHeader, txs: Vec<StacksTransaction>) -> StacksMicroblock {
-        let txids = txs.iter().map(|ref tx| tx.txid()).collect();
+    pub fn from_parent_unsigned(parent_header: &StacksMicroblockHeader, txs: Vec<StacksTransaction>) -> Option<StacksMicroblock> {
+        let txids = txs.iter().map(|ref tx| tx.txid().as_bytes().to_vec()).collect();
         let merkle_tree = MerkleTree::<Sha512_256>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
-        let header = StacksMicroblockHeader::from_parent_unsigned(parent_header, &tx_merkle_root);
-        StacksMicroblock {
+        let header = match StacksMicroblockHeader::from_parent_unsigned(parent_header, &tx_merkle_root) {
+            Some(h) => {
+                h
+            },
+            None => {
+                return None;
+            }
+        };
+
+        Some(StacksMicroblock {
             header: header,
             txs: txs
-        }
+        })
     }
 
     pub fn sign(&mut self, privk: &StacksPrivateKey) -> Result<(), net_error> {
@@ -610,7 +634,7 @@ impl StacksMicroblock {
     }
 
     pub fn validate(&self, parent_hash: &BlockHeaderHash, parent_sequence: Option<u8>, parent_pubkey_hash: &Hash160) -> bool {
-        self.header.validate(parent_hash, parent_sequence, parent_pubkey_hash)
+        self.header.validate_parent(parent_hash, parent_sequence, parent_pubkey_hash)
     }
 }
 
