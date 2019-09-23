@@ -38,8 +38,6 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::bits::{
     get_leaf_hash,
     get_node_hash,
-    get_nodetype_hash,
-    get_nodetype_hash_bytes
 };
 
 use chainstate::stacks::index::node::{
@@ -409,10 +407,11 @@ impl MARF {
     pub fn format(storage: &mut TrieFileStorage, first_block_hash: &BlockHeaderHash) -> Result<(), Error> {
         storage.format()?;
         storage.extend_to_block(first_block_hash)?;
-        let node = TrieNodeType::Node256(TrieNode256::new(&vec![]));
-        let hash = get_nodetype_hash(&node, &vec![], &storage.block_map);
+        let node = TrieNode256::new(&vec![]);
+        let hash = get_node_hash(&node, &vec![], &storage.block_map);
         let root_ptr = storage.root_ptr();
-        storage.write_nodetype(root_ptr, &node, hash)
+        let node_type = TrieNodeType::Node256(node);
+        storage.write_nodetype(root_ptr, &node_type, hash)
     }
 
     pub fn get_path(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, path: &TriePath) -> Result<Option<TrieLeaf>, Error> {

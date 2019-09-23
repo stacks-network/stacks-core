@@ -41,30 +41,6 @@ use chainstate::burn::BlockHeaderHash;
 
 use util::log;
 
-/// Fast extend-from-slice for bytes.  Basically, this is memcpy(3).
-/// This is similar to the private append_elements() method in the Vec struct,
-/// but noticeably faster in that it requires that target already have sufficient capacity.
-/// Based on https://doc.rust-lang.org/std/ptr/fn.copy_nonoverlapping.html
-///
-/// This method requires that target has enough space to store src, and will panic if not.
-#[inline]
-pub fn fast_extend_from_slice(target: &mut Vec<u8>, src: &[u8]) -> () {
-/*    if target.capacity() < target.len() + src.len() {
-        error!("target.capacity() ({}) < target.len() ({}) + src.len() ({})", target.capacity(), target.len(), src.len());
-        assert!(target.capacity() >= target.len() + src.len());
-    }
-    let target_len = target.len();
-    let src_len = src.len();
-    let new_len = target_len + src_len;
-    unsafe {
-        let target_ptr = target.as_mut_ptr().offset(target_len as isize);
-        let src_ptr = src.as_ptr();
-        ptr::copy_nonoverlapping(src_ptr, target_ptr, src_len);
-        target.set_len(new_len);
-    }*/
-    target.extend_from_slice(src);
-}
-
 /// Hash of a Trie node.  This is a SHA2-512/256.
 pub struct TrieHash(pub [u8; 32]);
 impl_array_newtype!(TrieHash, u8, 32);
@@ -83,7 +59,6 @@ pub const MARF_VALUE_ENCODED_SIZE : u32 = 40;
 
 impl TrieHash {
     /// TrieHash of zero bytes
-    #[inline]
     fn from_empty_data() -> TrieHash {
         // sha2-512/256 hash of empty string.
         // this is used so frequently it helps performance if we just have a constant for it.

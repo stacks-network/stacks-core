@@ -36,10 +36,8 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::BLOCK_HEADER_HASH_ENCODED_SIZE;
 
 use chainstate::stacks::index::bits::{
-    hash_buf_to_trie_hashes,
     get_leaf_hash,
     get_node_hash,
-    get_nodetype_hash,
     get_nodetype_hash_bytes,
 };
 
@@ -301,15 +299,16 @@ impl Trie {
         storage.write_node(new_leaf_disk_ptr, new_leaf_data, new_leaf_hash.clone())?;
 
         // append the Node4 that points to both of them, and put it after the new leaf
-        let node4_data = TrieNode4::new(&node4_path);
-        let mut node4 = TrieNodeType::Node4(node4_data);
+        let mut node4_data = TrieNode4::new(&node4_path);
 
-        assert!(node4.insert(&cur_leaf_new_ptr));
-        assert!(node4.insert(&new_leaf_ptr));
+        assert!(node4_data.insert(&cur_leaf_new_ptr));
+        assert!(node4_data.insert(&new_leaf_ptr));
 
-        let node4_hash = get_nodetype_hash(&node4,
-                                           &vec![cur_leaf_hash, new_leaf_hash, TrieHash::from_data(&[]), TrieHash::from_data(&[])],
-                                           &storage.block_map);
+        let node4_hash = get_node_hash(&node4_data,
+                                       &vec![cur_leaf_hash, new_leaf_hash, TrieHash::from_data(&[]), TrieHash::from_data(&[])],
+                                       &storage.block_map);
+
+        let node4 = TrieNodeType::Node4(node4_data);
 
         // append the node4 to the end of the trie
         let node4_disk_ptr = storage.last_ptr()?;

@@ -53,7 +53,6 @@ use chainstate::stacks::index::{
     TrieHash,
     TrieHasher,
     TRIEHASH_ENCODED_SIZE,
-    fast_extend_from_slice,
     slice_partialeq,
     MARFValue, 
     MARF_VALUE_ENCODED_SIZE,

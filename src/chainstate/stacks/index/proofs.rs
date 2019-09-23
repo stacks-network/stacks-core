@@ -49,13 +49,8 @@ use chainstate::stacks::index::marf::MARF;
 
 use chainstate::stacks::index::bits::{
     read_root_hash,
-    hash_buf_to_trie_hashes,
-    get_node_hash_bytes,
-    get_nodetype_hash_bytes,
     get_node_hash,
     get_leaf_hash,
-    get_nodetype_hash,
-    trie_hash_from_bytes
 };
 
 use chainstate::stacks::index::node::{
@@ -80,7 +75,6 @@ use chainstate::stacks::index::{
     TrieHash,
     MARFValue,
     TRIEHASH_ENCODED_SIZE,
-    fast_extend_from_slice,
     slice_partialeq
 };
 
@@ -348,9 +342,9 @@ impl TrieMerkleProof {
                 let (root_node, _) = storage.read_nodetype(&root_ptr)?;
 
                 let root_hash = 
-                    if root_node.is_node256() {
+                    if let TrieNodeType::Node256(ref node256) = root_node {
                         let child_hashes = Trie::get_children_hashes(storage, &root_node)?;
-                        let root_hash = get_nodetype_hash_bytes(&root_node, &child_hashes, &storage.block_map);
+                        let root_hash = get_node_hash(node256, &child_hashes, &storage.block_map);
                         root_hash
                     }
                     else {
@@ -383,14 +377,6 @@ impl TrieMerkleProof {
         Ok(proof)
     }
     
-    fn get_shunt_proof_node_hash(hashes: &[TrieHash]) -> TrieHash {
-        let mut hash_buf = Vec::with_capacity(TRIEHASH_ENCODED_SIZE * hashes.len());
-        for i in 0..hashes.len() {
-            fast_extend_from_slice(&mut hash_buf, hashes[i].as_bytes());
-        }
-        TrieHash::from_data(&hash_buf[..])
-    }
-
     fn next_shunt_hash(hash: &TrieHash, idx: i64, hashes: &[TrieHash]) -> Option<TrieHash> {
         let mut all_hashes = Vec::with_capacity(hashes.len() + 1);
         let mut hash_idx = 0;
@@ -413,7 +399,7 @@ impl TrieMerkleProof {
             }
         }
         trace!("Shunt proof node: idx={}, all_hashes={:?}", idx, all_hashes);
-        let next_hash = TrieMerkleProof::get_shunt_proof_node_hash(&all_hashes[..]);
+        let next_hash = TrieHash::from_data_array(&all_hashes);
         Some(next_hash)
     }
 
@@ -439,7 +425,7 @@ impl TrieMerkleProof {
                     for h in hashes {
                         all_hashes.push(h.clone());
                     }
-                    let ret = TrieMerkleProof::get_shunt_proof_node_hash(&all_hashes[..]);
+                    let ret = TrieHash::from_data_array(&all_hashes);
                     trace!("Shunt proof head: hash = {:?}, all_hashes = {:?}", &ret, &all_hashes);
                     ret
                 }
@@ -521,7 +507,7 @@ impl TrieMerkleProof {
                
                 trace!("idx = {}, hashes = {:?}, penultimate = {:?}, node root = {:?}", *idx, hashes, penultimate_trie_hash, node_root_hash);
                 trace!("Shunt proof junction: all_hashes = {:?}", &all_hashes);
-                TrieMerkleProof::get_shunt_proof_node_hash(&all_hashes[..])
+                TrieHash::from_data_array(&all_hashes)
             },
             _ => {
                 trace!("Shunt proof junction is not a shunt proof node");
@@ -872,7 +858,7 @@ impl TrieMerkleProof {
                 trace!("Block hash for {:?} is {:?}", &trie_hash, bhh);
 
                 // safe because block header hashes are 32 bytes long
-                trie_hash_from_bytes(&bhh.as_bytes().to_vec())
+                TrieHash(bhh.0)
             },
             None => {
                 trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);
@@ -976,7 +962,7 @@ impl TrieMerkleProof {
                     trace!("Block hash for {:?} is {:?}", &trie_hash, bhh);
 
                     // safe because block header hashes are 32 bytes long
-                    trie_hash_from_bytes(&bhh.as_bytes().to_vec())
+                    TrieHash(bhh.0)
                 },
                 None => {
                     trace!("Trie hash not found in root-to-block map: {:?}", &trie_hash);

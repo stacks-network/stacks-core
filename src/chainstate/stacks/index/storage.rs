@@ -69,7 +69,6 @@ use chainstate::stacks::index::bits::{
     read_node_hash_bytes,
     read_nodetype,
     get_node_hash,
-    trie_hash_from_bytes
 };
 
 use chainstate::stacks::index::node::{

@@ -236,31 +236,14 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     ret
 }
 
-/// Calculate the hash of a TrieNodeType, given its childrens' hashes.
-#[inline]
-pub fn get_nodetype_hash(node: &TrieNodeType, child_hashes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
-    match node {
-        TrieNodeType::Leaf(ref data) => get_node_hash(data, child_hashes, map),
-        TrieNodeType::Node4(ref data) => get_node_hash(data, child_hashes, map),
-        TrieNodeType::Node16(ref data) => get_node_hash(data, child_hashes, map),
-        TrieNodeType::Node48(ref data) => get_node_hash(data, child_hashes, map),
-        TrieNodeType::Node256(ref data) => get_node_hash(data, child_hashes, map)
-    }
-}
-
-/// Calculate the hash of a TrieNode, given a byte buffer encoding all of its children's hashes.
-pub fn get_node_hash_bytes<T: TrieNode + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
-    get_node_hash(node, child_hashes, map)
-}
-
 #[inline]
 pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
     match node {
-        TrieNodeType::Node4(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
-        TrieNodeType::Node16(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
-        TrieNodeType::Node48(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
-        TrieNodeType::Node256(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
-        TrieNodeType::Leaf(ref data) => get_node_hash_bytes(data, child_hash_bytes, map),
+        TrieNodeType::Node4(ref data) => get_node_hash(data, child_hash_bytes, map),
+        TrieNodeType::Node16(ref data) => get_node_hash(data, child_hash_bytes, map),
+        TrieNodeType::Node48(ref data) => get_node_hash(data, child_hash_bytes, map),
+        TrieNodeType::Node256(ref data) => get_node_hash(data, child_hash_bytes, map),
+        TrieNodeType::Leaf(ref data) => get_node_hash(data, child_hash_bytes, map),
     }
 }
 
@@ -311,14 +294,6 @@ pub fn read_root_hash(s: &mut TrieFileStorage) -> Result<TrieHash, Error> {
     Ok(s.read_node_hash_bytes(&ptr)?)
 }
 
-/// Converts a vec of bytes to a TrieHash.
-/// Panics if the vec isn't TRIEHASH_ENCODED_SIZE bytes long
-#[inline]
-pub fn trie_hash_from_bytes(v: &Vec<u8>) -> TrieHash {
-    assert_eq!(v.len(), TRIEHASH_ENCODED_SIZE);
-    TrieHash::from_bytes(&v[..]).unwrap()
-}
-
 /// count the number of allocated children in a list of a node's children pointers.
 pub fn count_children(children: &[TriePtr]) -> usize {
     let mut cnt = 0;
@@ -328,21 +303,6 @@ pub fn count_children(children: &[TriePtr]) -> usize {
         }
     }
     cnt
-}
-
-/// Convert a buffer of hash data into a list of TrieHashes.
-/// Used for proof generation and for debugging/testing purposes.
-pub fn hash_buf_to_trie_hashes(hashes_buf: &Vec<u8>) -> Vec<TrieHash> {
-    assert_eq!(hashes_buf.len() % TRIEHASH_ENCODED_SIZE, 0);
-
-    // extract individual hashes
-    let mut all_hashes = Vec::with_capacity(hashes_buf.len() / TRIEHASH_ENCODED_SIZE);
-    for i in 0..hashes_buf.len() / TRIEHASH_ENCODED_SIZE {
-        let mut h_slice = [0u8; TRIEHASH_ENCODED_SIZE];
-        h_slice.copy_from_slice(&hashes_buf[TRIEHASH_ENCODED_SIZE*i..TRIEHASH_ENCODED_SIZE*(i+1)]);
-        all_hashes.push(TrieHash(h_slice))
-    }
-    all_hashes
 }
 
 /// Deserialize a node.
