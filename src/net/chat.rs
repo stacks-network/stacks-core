@@ -36,6 +36,8 @@ use net::connection::NetworkReplyHandle;
 use net::poll::NetworkState;
 use net::poll::NetworkPollState;
 
+use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+
 use net::p2p::PeerNetwork;
 use net::p2p::NetworkHandle;
 
@@ -177,6 +179,10 @@ pub struct Conversation {
     pub peer_port: u16,
     pub peer_heartbeat: u32,                    // how often do we need to ping the remote peer?
     pub peer_expire_block_height: u64,          // when does the peer's key expire?
+
+    // highest block height and consensus hash this peer has seen
+    pub burnchain_tip_height: u64,
+    pub burnchain_tip_consensus_hash: ConsensusHash,
 
     pub stats: NeighborStats
 }
@@ -323,6 +329,9 @@ impl Conversation {
             peer_services: 0,
             peer_expire_block_height: 0,
 
+            burnchain_tip_height: 0,
+            burnchain_tip_consensus_hash: ConsensusHash([0x00; 20]),
+
             stats: NeighborStats::new(outbound)
         }
     }
@@ -345,6 +354,9 @@ impl Conversation {
             peer_heartbeat: convo.peer_heartbeat,
             peer_services: convo.peer_services,
             peer_expire_block_height: convo.peer_expire_block_height,
+
+            burnchain_tip_height: convo.burnchain_tip_height,
+            burnchain_tip_consensus_hash: convo.burnchain_tip_consensus_hash.clone(),
             
             stats: NeighborStats {
                 peer_resets: convo.stats.peer_resets + 1,
@@ -363,31 +375,20 @@ impl Conversation {
         }
     }
     
-    fn check_consensus_hash(block_height: u64, their_consensus_hash: &ConsensusHash, burndb_conn: &DBConn) -> Result<bool, net_error> {
-        // only proceed if our latest consensus hash matches 
-        let our_consensus_hash_opt = BurnDB::get_canonical_consensus_hash(burndb_conn, block_height)
-            .map_err(|e| {
-                error!("Failed to read burnchain DB consensus hash at {}: {:?}", block_height, e);
-                net_error::DBError
-            })?;
-
-        match our_consensus_hash_opt {
-            Some(our_consensus_hash) => {
-                if our_consensus_hash != *their_consensus_hash {
-                    // remote peer is on a different burnchain fork than us
-                    test_debug!("{}: our {:?} != their {:?}", block_height, &our_consensus_hash, their_consensus_hash);
-                    Ok(false)
-                }
-                else {
-                    Ok(true)
-                }
+    /// Determine whether or not a given (height, consensus_hash) pair _disagrees_ with our
+    /// burnchain view.  If it does, return true.  If it doesn't (including if the given pair is
+    /// simply absent from the chain_view), then return False.
+    fn check_consensus_hash_disagreement(block_height: u64, their_consensus_hash: &ConsensusHash, chain_view: &BurnchainView) -> bool {
+        let ch = match chain_view.last_consensus_hashes.get(&block_height) {
+            Some(ref ch) => {
+                ch.clone()
             },
             None => {
-                // we don't know about this consensus hash
-                test_debug!("{}: unknown consensus hash {:?}", block_height, their_consensus_hash);
-                Ok(false)
+                // not present; can't prove disagreement
+                return false;
             }
-        }
+        };
+        *ch != *their_consensus_hash
     }
 
     /// Validate an inbound message's preamble against our knowledge of the burn chain.
@@ -395,7 +396,7 @@ impl Conversation {
     /// Return Ok(false) if we can't proceed, but the remote peer is not in violation of the protocol 
     /// Return Err(net_error::InvalidMessage) if the remote peer returns an invalid message in
     ///     violation of the protocol
-    pub fn is_preamble_valid(&self, msg: &StacksMessage, burndb_conn: &DBConn) -> Result<bool, net_error> {
+    pub fn is_preamble_valid(&self, msg: &StacksMessage, chain_view: &BurnchainView) -> Result<bool, net_error> {
         if msg.preamble.network_id != self.burnchain.network_id {
             // not on our network -- potentially blacklist this peer
             test_debug!("wrong network ID: {:x} != {:x}", msg.preamble.network_id, self.burnchain.network_id);
@@ -412,32 +413,24 @@ impl Conversation {
             return Err(net_error::InvalidMessage);
         }
 
-        let chain_tip = BurnDB::get_canonical_chain_tip(burndb_conn)
-            .map_err(|e| {
-                error!("Failed to read burnchain DB: {:?}", e);
-                net_error::DBError
-            })?;
-
-        let block_height = chain_tip.block_height;
-
-        if msg.preamble.burn_stable_block_height > block_height {
+        if msg.preamble.burn_stable_block_height > chain_view.burn_block_height + MAX_NEIGHBOR_BLOCK_DELAY {
             // this node is too far ahead of us, but otherwise still potentially valid 
-            test_debug!("remote peer is too far ahead of us: {} > {}", msg.preamble.burn_stable_block_height, block_height);
+            test_debug!("remote peer is too far ahead of us: {} > {}", msg.preamble.burn_stable_block_height, chain_view.burn_block_height);
             return Ok(false);
         }
         else {
-            // remote node's unstable burn block height is behind ours.
-            // only proceed if our latest consensus hash matches theirs.
-            let res = Conversation::check_consensus_hash(msg.preamble.burn_block_height, &msg.preamble.burn_consensus_hash, burndb_conn)?;
-            if !res {
+            // remote node's unstable burn block height is at or behind ours.
+            // if their view is sufficiently fresh, make sure their consensus hash matches our view.
+            let res = Conversation::check_consensus_hash_disagreement(msg.preamble.burn_block_height, &msg.preamble.burn_consensus_hash, chain_view);
+            if res {
                 // our chain tip disagrees with their chain tip -- don't engage
                 return Ok(false);
             }
         }
 
         // must agree on stable consensus hash
-        let rules_agree = Conversation::check_consensus_hash(msg.preamble.burn_stable_block_height, &msg.preamble.burn_stable_consensus_hash, burndb_conn)?;
-        if !rules_agree {
+        let rules_disagree = Conversation::check_consensus_hash_disagreement(msg.preamble.burn_stable_block_height, &msg.preamble.burn_stable_consensus_hash, chain_view);
+        if rules_disagree {
             // remote peer disagrees on stable consensus hash -- follows different rules than us
             test_debug!("Consensus hash mismatch in preamble");
             return Err(net_error::InvalidMessage);
@@ -657,7 +650,7 @@ impl Conversation {
     /// peer.
     /// If the peer violates the protocol, returns net_error::InvalidMessage. The caller should
     /// cease talking to this peer.
-    pub fn chat(&mut self, local_peer: &LocalPeer, burndb_conn: &DBConn, burnchain_view: &BurnchainView) -> Result<Vec<StacksMessage>, net_error> {
+    pub fn chat(&mut self, local_peer: &LocalPeer, burnchain_view: &BurnchainView) -> Result<Vec<StacksMessage>, net_error> {
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} messages pending", &self, num_inbound);
 
@@ -672,7 +665,7 @@ impl Conversation {
             let mut consume_unsolicited = false;
 
             // validate message preamble
-            match self.is_preamble_valid(&msg, burndb_conn) {
+            match self.is_preamble_valid(&msg, burnchain_view) {
                 Ok(res) => {
                     if !res {
                         info!("{:?}: Received message with stale preamble; ignoring", &self);
@@ -934,9 +927,6 @@ mod test {
             let mut next_snapshot = prev_snapshot.clone();
 
             next_snapshot.block_height += 1;
-            next_snapshot.fork_segment_length += 1;
-            next_snapshot.fork_length += 1;
-
             if i > chain_view.burn_stable_block_height {
                 next_snapshot.consensus_hash = chain_view.burn_consensus_hash.clone();
             }
@@ -955,7 +945,8 @@ mod test {
             next_snapshot.sortition = true;
             next_snapshot.sortition_hash = next_snapshot.sortition_hash.mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
 
-            BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &next_snapshot).unwrap();
+            let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &prev_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
+            next_snapshot.index_root = next_index_root;
 
             test_debug!("i = {}, chain_view.burn_block_height = {}, ch = {}", i, chain_view.burn_block_height, next_snapshot.consensus_hash.to_hex());
             
@@ -984,12 +975,14 @@ mod test {
             first_block_hash: first_burn_hash.clone(),
         };
 
-        let chain_view = BurnchainView {
+        let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
             burn_stable_block_height: 12341,
-            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
+            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
         };
+        chain_view.make_test_data();
 
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
@@ -1018,11 +1011,11 @@ mod test {
         // convo_2 receives it and processes it, and since no one is waiting for it, will forward
         // it along to the chat caller (us)
         convo_recv(&mut convo_2, convo_send(&mut convo_1));
-        let unhandled_2 = convo_2.chat(&local_peer_2, burndb_2.conn(), &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &chain_view).unwrap();
 
         // convo_1 has a handshakeaccept 
         convo_recv(&mut convo_1, convo_send(&mut convo_2));
-        let unhandled_1 = convo_1.chat(&local_peer_1, burndb_1.conn(), &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -1083,12 +1076,14 @@ mod test {
             first_block_hash: first_burn_hash.clone(),
         };
 
-        let chain_view = BurnchainView {
+        let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
             burn_stable_block_height: 12341,
-            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
+            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
         };
+        chain_view.make_test_data();
         
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         let mut peerdb_2 = PeerDB::connect_memory(0x9abcdef0, 12351, &vec![], &vec![]).unwrap();
@@ -1119,11 +1114,11 @@ mod test {
         // convo_2 receives it and processes it, and since no one is waiting for it, will forward
         // it along to the chat caller (us)
         convo_recv(&mut convo_2, convo_send(&mut convo_1));
-        let unhandled_2 = convo_2.chat(&local_peer_2, burndb_2.conn(), &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &chain_view).unwrap();
 
         // convo_1 has a handshakreject
         convo_recv(&mut convo_1, convo_send(&mut convo_2));
-        let unhandled_1 = convo_1.chat(&local_peer_1, burndb_1.conn(), &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &chain_view).unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
 
@@ -1173,12 +1168,14 @@ mod test {
             first_block_hash: first_burn_hash.clone(),
         };
 
-        let chain_view = BurnchainView {
+        let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
             burn_stable_block_height: 12341,
-            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
+            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
         };
+        chain_view.make_test_data();
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
@@ -1215,11 +1212,11 @@ mod test {
 
         // convo_2 receives it and processes it, and barfs
         convo_recv(&mut convo_2, convo_send(&mut convo_1));
-        let unhandled_2_err = convo_2.chat(&local_peer_2, burndb_2.conn(), &chain_view);
+        let unhandled_2_err = convo_2.chat(&local_peer_2, &chain_view);
 
         // convo_1 gets a nack and consumes it
         convo_recv(&mut convo_1, convo_send(&mut convo_2));
-        let unhandled_1 = convo_1.chat(&local_peer_1, burndb_1.conn(), &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &chain_view).unwrap();
 
         // the waiting reply aborts on disconnect
         let reply_1_err = rh_1.recv(0);
@@ -1254,12 +1251,14 @@ mod test {
             first_block_hash: first_burn_hash.clone(),
         };
 
-        let chain_view = BurnchainView {
+        let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
             burn_stable_block_height: 12341,
-            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
+            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
         };
+        chain_view.make_test_data();
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
@@ -1289,11 +1288,11 @@ mod test {
 
         // convo_2 receives it and processes it, and give back a handshake reject
         convo_recv(&mut convo_2, convo_send(&mut convo_1));
-        let unhandled_2 = convo_2.chat(&local_peer_2, burndb_2.conn(), &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &chain_view).unwrap();
 
         // convo_1 gets a handshake reject and consumes it
         convo_recv(&mut convo_1, convo_send(&mut convo_2));
-        let unhandled_1 = convo_1.chat(&local_peer_1, burndb_1.conn(), &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &chain_view).unwrap();
 
         // get back handshake reject
         let reply_1 = rh_1.recv(0).unwrap();
@@ -1344,12 +1343,14 @@ mod test {
             first_block_hash: first_burn_hash.clone(),
         };
 
-        let chain_view = BurnchainView {
+        let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
             burn_stable_block_height: 12341,
-            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
+            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
         };
+        chain_view.make_test_data();
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
@@ -1381,11 +1382,11 @@ mod test {
         // convo_2 receives the handshake and ping and processes both, and since no one is waiting for the handshake, will forward
         // it along to the chat caller (us)
         convo_recv(&mut convo_2, convo_send(&mut convo_1));
-        let unhandled_2 = convo_2.chat(&local_peer_2, burndb_2.conn(), &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &chain_view).unwrap();
 
         // convo_1 has a handshakeaccept 
         convo_recv(&mut convo_1, convo_send(&mut convo_2));
-        let unhandled_1 = convo_1.chat(&local_peer_1, burndb_1.conn(), &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &chain_view).unwrap();
 
         let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
         let reply_ping_1 = rh_ping_1.recv(0).unwrap();
@@ -1434,12 +1435,14 @@ mod test {
             first_block_hash: first_burn_hash.clone(),
         };
 
-        let chain_view = BurnchainView {
+        let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
             burn_stable_block_height: 12341,
-            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
+            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
         };
+        chain_view.make_test_data();
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
@@ -1475,11 +1478,11 @@ mod test {
             // convo_2 receives the handshake and ping and processes both, and since no one is waiting for the handshake, will forward
             // it along to the chat caller (us)
             convo_recv(&mut convo_2, convo_send(&mut convo_1));
-            let unhandled_2 = convo_2.chat(&local_peer_2, burndb_2.conn(), &chain_view).unwrap();
+            let unhandled_2 = convo_2.chat(&local_peer_2, &chain_view).unwrap();
 
             // convo_1 has a handshakeaccept 
             convo_recv(&mut convo_1, convo_send(&mut convo_2));
-            let unhandled_1 = convo_1.chat(&local_peer_1, burndb_1.conn(), &chain_view).unwrap();
+            let unhandled_1 = convo_1.chat(&local_peer_1, &chain_view).unwrap();
 
             let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
             let reply_ping_1 = rh_ping_1.recv(0).unwrap();
@@ -1574,12 +1577,14 @@ mod test {
             first_block_hash: first_burn_hash.clone(),
         };
 
-        let chain_view = BurnchainView {
+        let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
             burn_stable_block_height: 12341,
-            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
+            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
         };
+        chain_view.make_test_data();
         
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
@@ -1609,11 +1614,11 @@ mod test {
 
         // convo_2 will reply with a nack since peer_1 hasn't authenticated yet
         convo_recv(&mut convo_2, convo_send(&mut convo_1));
-        let unhandled_2 = convo_2.chat(&local_peer_2, burndb_2.conn(), &chain_view).unwrap();
+        let unhandled_2 = convo_2.chat(&local_peer_2, &chain_view).unwrap();
 
         // convo_1 has a nack 
         convo_recv(&mut convo_1, convo_send(&mut convo_2));
-        let unhandled_1 = convo_1.chat(&local_peer_1, burndb_1.conn(), &chain_view).unwrap();
+        let unhandled_1 = convo_1.chat(&local_peer_1, &chain_view).unwrap();
 
         let reply_1 = rh_ping_1.recv(0).unwrap();
        
@@ -1660,12 +1665,14 @@ mod test {
             first_block_hash: first_burn_hash.clone(),
         };
 
-        let chain_view = BurnchainView {
+        let mut chain_view = BurnchainView {
             burn_block_height: 12348,
             burn_consensus_hash: ConsensusHash::from_hex("1111111111111111111111111111111111111111").unwrap(),
             burn_stable_block_height: 12341,
-            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap()
+            burn_stable_consensus_hash: ConsensusHash::from_hex("2222222222222222222222222222222222222222").unwrap(),
+            last_consensus_hashes: HashMap::new()
         };
+        chain_view.make_test_data();
 
         let mut peerdb_1 = PeerDB::connect_memory(0x9abcdef0, 12350, &vec![], &vec![]).unwrap();
         let mut burndb_1 = BurnDB::connect_memory(12300, &first_burn_hash).unwrap();
@@ -1684,7 +1691,7 @@ mod test {
             let ping_bad = convo_bad.sign_message(&chain_view, &local_peer_1.private_key, StacksMessageType::Ping(ping_data.clone())).unwrap();
             convo_bad.burnchain.network_id -= 1;
 
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, burndb_1.conn()), Err(net_error::InvalidMessage));
+            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Err(net_error::InvalidMessage));
         }
 
         // stable block height check
@@ -1698,7 +1705,7 @@ mod test {
 
             let ping_bad = convo_bad.sign_message(&chain_view_bad, &local_peer_1.private_key, StacksMessageType::Ping(ping_data.clone())).unwrap();
 
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, burndb_1.conn()), Err(net_error::InvalidMessage));
+            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Err(net_error::InvalidMessage));
         }
 
         // node is too far ahead of us
@@ -1708,17 +1715,17 @@ mod test {
             let ping_data = PingData::new();
             
             let mut chain_view_bad = chain_view.clone();
-            chain_view_bad.burn_stable_block_height += 1 + burnchain.stable_confirmations as u64;
-            chain_view_bad.burn_block_height += 1 + burnchain.stable_confirmations as u64;
+            chain_view_bad.burn_stable_block_height += MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
+            chain_view_bad.burn_block_height += MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
 
             let ping_bad = convo_bad.sign_message(&chain_view_bad, &local_peer_1.private_key, StacksMessageType::Ping(ping_data.clone())).unwrap();
             
-            chain_view_bad.burn_stable_block_height -= 1 + burnchain.stable_confirmations as u64;
-            chain_view_bad.burn_block_height -= 1 + burnchain.stable_confirmations as u64;
+            chain_view_bad.burn_stable_block_height -= MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
+            chain_view_bad.burn_block_height -= MAX_NEIGHBOR_BLOCK_DELAY + 1 + burnchain.stable_confirmations as u64;
             
             db_setup(&mut peerdb_1, &mut burndb_2, &socketaddr_2, &chain_view_bad);
             
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, burndb_2.conn()), Ok(false));
+            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(false));
         }
 
         // unstable consensus hash mismatch
@@ -1730,10 +1737,11 @@ mod test {
             let mut chain_view_bad = chain_view.clone();
             let old = chain_view_bad.burn_consensus_hash.clone();
             chain_view_bad.burn_consensus_hash = ConsensusHash::from_hex("3333333333333333333333333333333333333333").unwrap();
+            chain_view_bad.last_consensus_hashes.insert(chain_view_bad.burn_block_height, chain_view_bad.burn_consensus_hash.clone());
 
             let ping_bad = convo_bad.sign_message(&chain_view_bad, &local_peer_1.private_key, StacksMessageType::Ping(ping_data.clone())).unwrap();
             
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, burndb_2.conn()), Ok(false));
+            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(false));
         }
 
         // stable consensus hash mismatch 
@@ -1745,10 +1753,11 @@ mod test {
             let mut chain_view_bad = chain_view.clone();
             let old = chain_view_bad.burn_stable_consensus_hash.clone();
             chain_view_bad.burn_stable_consensus_hash = ConsensusHash::from_hex("1111111111111111111111111111111111111112").unwrap();
+            chain_view_bad.last_consensus_hashes.insert(chain_view_bad.burn_stable_block_height, chain_view_bad.burn_stable_consensus_hash.clone());
 
             let ping_bad = convo_bad.sign_message(&chain_view_bad, &local_peer_1.private_key, StacksMessageType::Ping(ping_data.clone())).unwrap();
             
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, burndb_2.conn()), Err(net_error::InvalidMessage));
+            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Err(net_error::InvalidMessage));
         }
     }
 }
