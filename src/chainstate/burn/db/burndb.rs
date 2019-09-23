@@ -22,8 +22,14 @@ use rusqlite::types::ToSql;
 use rusqlite::Row;
 use rusqlite::Transaction;
 
+use rand;
+use rand::RngCore;
+
 use std::fs;
+use std::io;
 use std::convert::From;
+use std::ops::Deref;
+use std::ops::DerefMut;
 
 use util::db::{FromRow, RowOrder, query_rows, query_count};
 use util::db::Error as db_error;
@@ -56,22 +62,30 @@ use chainstate::stacks::StacksAddress;
 use chainstate::stacks::StacksPublicKey;
 use chainstate::stacks::StacksBlockHeader;
 use chainstate::stacks::StacksMicroblockHeader;
+use chainstate::stacks::*;
 use chainstate::stacks::index::TrieHash;
+use chainstate::stacks::index::storage::TrieFileStorage;
+use chainstate::stacks::index::marf::MARF;
+use chainstate::stacks::index::MARFValue;
+use chainstate::stacks::index::Error as MARFError;
 
 use address::AddressHashMode;
 
 use util::log;
 use util::vrf::*;
-use util::hash::{to_hex, hex_bytes, Hash160};
+use util::secp256k1::MessageSignature;
+use util::hash::{to_hex, hex_bytes, Hash160, Sha512_256};
+
+use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+
+use std::collections::HashMap;
 
 const BLOCK_HEIGHT_MAX : u64 = ((1 as u64) << 63) - 1; 
-const FORK_SEGMENT_ID_MAX : u64 = ((1 as u64) << 63) - 1;
 const SQLITE_ERROR_MSG : &'static str = "FATAL: failed to exeucte Sqlite database operation.  Aborting...";
 
 impl RowOrder for BlockSnapshot {
     fn row_order() -> Vec<&'static str> {
-        vec!["block_height","burn_header_hash","parent_burn_header_hash","consensus_hash","ops_hash","total_burn","sortition","sortition_hash","winning_block_txid","winning_stacks_block_hash",
-             "fork_segment_id","parent_fork_segment_id","fork_length","fork_segment_length"]
+        vec!["block_height","burn_header_hash","parent_burn_header_hash","consensus_hash","ops_hash","total_burn","sortition","sortition_hash","winning_block_txid","winning_stacks_block_hash","index_root"]
     }
 }
 
@@ -87,28 +101,9 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let sortition_hash = SortitionHash::from_row(row, 7 + index)?;
         let winning_block_txid = Txid::from_row(row, 8 + index)?;
         let winning_stacks_block_hash = BlockHeaderHash::from_row(row, 9 + index)?;
-        let fork_segment_id_i64 : i64 = row.get(10 + index);
-        let parent_fork_segment_id_i64 : i64 = row.get(11 + index);
-        let fork_length_i64 : i64 = row.get(12 + index);
-        let fork_segment_length_i64 : i64 = row.get(13 + index);
+        let index_root = TrieHash::from_row(row, 10 + index)?;
 
         if block_height_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-
-        if fork_segment_id_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-
-        if fork_length_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-        
-        if fork_segment_length_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
-
-        if parent_fork_segment_id_i64 < 0 {
             return Err(db_error::ParseError);
         }
 
@@ -126,10 +121,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             sortition_hash: sortition_hash,
             winning_block_txid: winning_block_txid,
             winning_stacks_block_hash: winning_stacks_block_hash,
-            fork_segment_id: fork_segment_id_i64 as u64,
-            parent_fork_segment_id: parent_fork_segment_id_i64 as u64,
-            fork_length: fork_length_i64 as u64,
-            fork_segment_length: fork_segment_length_i64 as u64
+            index_root: index_root
         };
         Ok(snapshot)
     }
@@ -137,7 +129,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
 
 impl RowOrder for LeaderKeyRegisterOp {
     fn row_order() -> Vec<&'static str> {
-        vec!["txid","vtxindex","block_height","burn_header_hash","consensus_hash","public_key","memo","address","fork_segment_id"]
+        vec!["txid","vtxindex","block_height","burn_header_hash","consensus_hash","public_key","memo","address","index_root"]
     }
 }
 
@@ -151,7 +143,8 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
         let public_key = VRFPublicKey::from_row(row, 5 + index)?;
         let memo_hex : String = row.get(6 + index);
         let address = StacksAddress::from_row(row, 7 + index)?;
-        let fork_segment_id_i64 : i64 = row.get(8 + index);
+        
+        let index_root = TrieHash::from_row(row, 8 + index)?;      // checked but not used
 
         let memo_bytes = hex_bytes(&memo_hex)
             .map_err(|_e| db_error::ParseError)?;
@@ -159,10 +152,6 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
         let memo = memo_bytes.to_vec();
 
         if block_height < 0 {
-            return Err(db_error::ParseError);
-        }
-
-        if fork_segment_id_i64 < 0 {
             return Err(db_error::ParseError);
         }
 
@@ -176,8 +165,6 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
             public_key: public_key,
             memo: memo, 
             address: address,
-
-            fork_segment_id: fork_segment_id_i64 as u64
         };
 
         Ok(leader_key_row)
@@ -188,7 +175,7 @@ impl RowOrder for LeaderBlockCommitOp {
     fn row_order() -> Vec<&'static str> {
         vec!["txid","vtxindex","block_height","burn_header_hash","block_header_hash","new_seed",
              "parent_block_backptr","parent_vtxindex","key_block_backptr","key_vtxindex",
-             "epoch_num","memo","burn_fee","input","fork_segment_id"]
+             "epoch_num","memo","burn_fee","input","index_root"]
     }
 }
 
@@ -208,7 +195,8 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
         let memo_hex : String = row.get(11 + index);
         let burn_fee_str : String = row.get(12 + index);
         let input_json : String = row.get(13 + index);
-        let fork_segment_id_i64 : i64 = row.get(14 + index);
+        
+        let index_root = TrieHash::from_row(row, 14 + index)?;      // checked but not used
 
         let memo_bytes = hex_bytes(&memo_hex)
             .map_err(|_e| db_error::ParseError)?;
@@ -222,10 +210,6 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             .map_err(|_e| db_error::ParseError)?;
 
         if block_height < 0 {
-            return Err(db_error::ParseError);
-        }
-
-        if fork_segment_id_i64 < 0 {
             return Err(db_error::ParseError);
         }
 
@@ -246,8 +230,6 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             vtxindex: vtxindex,
             block_height: block_height as u64,
             burn_header_hash: burn_header_hash,
-
-            fork_segment_id: fork_segment_id_i64 as u64
         };
         Ok(block_commit)
     }
@@ -255,7 +237,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 
 impl RowOrder for UserBurnSupportOp {
     fn row_order() -> Vec<&'static str> {
-        vec!["txid","vtxindex","block_height","burn_header_hash","consensus_hash","public_key","key_block_backptr","key_vtxindex","block_header_hash_160","memo","burn_fee","fork_segment_id"]
+        vec!["txid","vtxindex","block_height","burn_header_hash","consensus_hash","public_key","key_block_backptr","key_vtxindex","block_header_hash_160","memo","burn_fee","index_root"]
     }
 }
 
@@ -274,8 +256,8 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
         let memo_hex : String = row.get(9 + index);
 
         let burn_fee_str : String = row.get(10 + index);
-
-        let fork_segment_id_i64 : i64 = row.get(11 + index);
+        
+        let index_root = TrieHash::from_row(row, 11 + index)?;      // checked but not used
         
         let memo_bytes = hex_bytes(&memo_hex)
             .map_err(|_e| db_error::ParseError)?;
@@ -286,10 +268,6 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
             .map_err(|_e| db_error::ParseError)?;
 
         if block_height < 0 {
-            return Err(db_error::ParseError);
-        }
-
-        if fork_segment_id_i64 < 0 {
             return Err(db_error::ParseError);
         }
 
@@ -305,9 +283,7 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
             txid: txid,
             vtxindex: vtxindex,
             block_height: block_height as u64,
-            burn_header_hash: burn_header_hash,
-
-            fork_segment_id: fork_segment_id_i64 as u64
+            burn_header_hash: burn_header_hash
         };
         Ok(user_burn)
     }
@@ -315,7 +291,7 @@ impl FromRow<UserBurnSupportOp> for UserBurnSupportOp {
 
 impl RowOrder for StacksBlockHeader {
     fn row_order() -> Vec<&'static str> {
-        vec!["version", "total_burn", "total_work", "proof", "parent_block", "parent_microblock", "parent_microblock_sequence", "tx_merkle_root", "state_index_root", "microblock_pubkey", "block_hash", "block_height", "fork_segment_id"]
+        vec!["version", "total_burn", "total_work", "proof", "parent_block", "parent_microblock", "parent_microblock_sequence", "tx_merkle_root", "state_index_root", "microblock_pubkey_hash", "block_hash", "block_height", "index_root"]
     }
 }
 
@@ -327,22 +303,17 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
         let proof : VRFProof = VRFProof::from_row(row, 3 + index)?;
         let parent_block = BlockHeaderHash::from_row(row, 4 + index)?;
         let parent_microblock = BlockHeaderHash::from_row(row, 5 + index)?;
-        let parent_microblock_sequence = BlockHeaderHash::from_row(row, 6 + index)?;
+        let parent_microblock_sequence : u8 = row.get(6 + index);
         let tx_merkle_root = Sha512_256::from_row(row, 7 + index)?;
         let state_index_root = TrieHash::from_row(row, 8 + index)?;
-        let microblock_pubkey = StacksPublicKey::from_row(row, 9 + index)?;
+        let microblock_pubkey_hash = Hash160::from_row(row, 9 + index)?;
 
         let block_hash = BlockHeaderHash::from_row(row, 10 + index)?;
         let block_height_i64 : i64 = row.get(11 + index);
-        let fork_segment_id_i64 : i64 = row.get(12 + index);
+        let index_root = TrieHash::from_row(row, 12 + index)?;      // checked but not used
 
         let total_burn = total_burn_str.parse::<u64>().map_err(|e| db_error::ParseError)?;
         let total_work = total_work_str.parse::<u64>().map_err(|e| db_error::ParseError)?;
-
-        // checked but not used
-        if fork_segment_id_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
 
         // checked but not used
         if block_height_i64 < 0 {
@@ -358,7 +329,7 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
             parent_microblock_sequence,
             tx_merkle_root,
             state_index_root,
-            microblock_pubkey
+            microblock_pubkey_hash
         };
 
         if header.block_hash() != block_hash {
@@ -371,7 +342,7 @@ impl FromRow<StacksBlockHeader> for StacksBlockHeader {
 
 impl RowOrder for StacksMicroblockHeader {
     fn row_order() -> Vec<&'static str> {
-        vec!["version", "sequence", "prev_block", "tx_merkle_root", "signature", "microblock_hash", "parent_block_hash", "block_height", "fork_segment_id"]
+        vec!["version", "sequence", "prev_block", "tx_merkle_root", "signature", "microblock_hash", "parent_block_hash", "block_height", "index_root"]
     }
 }
 
@@ -379,19 +350,14 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
     fn from_row<'a>(row: &'a Row, index: usize) -> Result<StacksMicroblockHeader, db_error> {
         let version : u8 = row.get(0 + index);
         let sequence : u8 = row.get(1 + index);
-        let prev_block = BlockHeaderHash::from_row(2 + index)?;
-        let tx_merkle_root = Sha512_256::from_row(3 + index)?;
-        let signature = MessageSignature::from_row(4 + index)?;
+        let prev_block = BlockHeaderHash::from_row(row, 2 + index)?;
+        let tx_merkle_root = Sha512_256::from_row(row, 3 + index)?;
+        let signature = MessageSignature::from_row(row, 4 + index)?;
 
-        let microblock_hash = BlockHeaderHash::from_row(5 + index)?;
-        let parent_block_hash = BlockHeaderHash::from_row(6 + index)?;
+        let microblock_hash = BlockHeaderHash::from_row(row, 5 + index)?;
+        let parent_block_hash = BlockHeaderHash::from_row(row, 6 + index)?;
         let block_height_i64 : i64 = row.get(7 + index);
-        let fork_segment_id_i64 : i64 = row.get(8 + index);
-        
-        // checked but not used
-        if fork_segment_id_i64 < 0 {
-            return Err(db_error::ParseError);
-        }
+        let index_root = TrieHash::from_row(row, 8 + index);    // checked but not used
 
         // checked but not used
         if block_height_i64 < 0 {
@@ -432,15 +398,12 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         sortition_hash TEXT NOT NULL,
         winning_block_txid TEXT NOT NULL,
         winning_stacks_block_hash TEXT NOT NULL,
+        index_root TEXT UNIQUE NOT NULL,
 
-        fork_segment_id INTEGER NOT NULL,
-        parent_fork_segment_id INTEGER NOT NULL,
-        fork_length INTEGER NOT NULL,           -- total fork length inductively calculated as more snapshots are appended
-        fork_segment_length INTEGER NOT NULL,   -- length of this fork segment's "run", also calculated inductively
-        PRIMARY KEY(block_height,fork_segment_id)
+        PRIMARY KEY(burn_header_hash,index_root)
     );"#,
     r#"
-    CREATE UNIQUE INDEX snapshots_block_hashes(block_height,fork_segment_id,winning_stacks_block_hash);
+    CREATE UNIQUE INDEX snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);
     "#,
     r#"
     -- all leader keys registered in the blockchain.
@@ -456,12 +419,11 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         memo TEXT,
         address TEXT NOT NULL,
 
-        fork_segment_id INTEGER NOT NULL,
+        -- internal use
+        index_root TEXT NOT NULL,
 
-        PRIMARY KEY(txid,burn_header_hash,fork_segment_id),
-
-        -- deferred foreign key to snapshots so updating these values is efficient and fork table compression is possible
-        FOREIGN KEY(block_height,fork_segment_id) REFERENCES snapshots(block_height,fork_segment_id) DEFERRABLE INITIALLY DEFERRED
+        PRIMARY KEY(txid,burn_header_hash),
+        FOREIGN KEY(burn_header_hash,index_root) REFERENCES snapshots(burn_header_hash,index_root)
     );"#,
     r#"
     CREATE TABLE block_commits(
@@ -482,12 +444,11 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         burn_fee TEXT NOT NULL,     -- use text to encode really big numbers
         input TEXT NOT NULL,        -- must match `address` in leader_keys
 
-        fork_segment_id INTEGER NOT NULL,
+        -- internal use
+        index_root TEXT NOT NULL,
 
-        PRIMARY KEY(txid,burn_header_hash,fork_segment_id),
-        
-        -- deferred foreign key to snapshots so updating these values is efficient and fork table compression is possible
-        FOREIGN KEY(block_height,fork_segment_id) REFERENCES snapshots(block_height,fork_segment_id) DEFERRABLE INITIALLY DEFERRED
+        PRIMARY KEY(txid,burn_header_hash),
+        FOREIGN KEY(burn_header_hash,index_root) REFERENCES snapshots(burn_header_hash,index_root)
     );"#,
     r#"
     CREATE TABLE user_burn_support(
@@ -505,12 +466,11 @@ const BURNDB_SETUP : &'static [&'static str]= &[
 
         burn_fee TEXT NOT NULL,
 
-        fork_segment_id INTEGER NOT NULL,
+        -- internal use
+        index_root TEXT NOT NULL,
 
-        PRIMARY KEY(txid,burn_header_hash,fork_segment_id),
-        
-        -- deferred foreign key to snapshots so updating these values is efficient and fork table compression is possible
-        FOREIGN KEY(block_height,fork_segment_id) REFERENCES snapshots(block_height,fork_segment_id) DEFERRABLE INITIALLY DEFERRED
+        PRIMARY KEY(txid,burn_header_hash),
+        FOREIGN KEY(burn_header_hash,index_root) REFERENCES snapshots(burn_header_hash,index_root)
     );"#,
     r#"
     -- Stacks block headers
@@ -523,22 +483,20 @@ const BURNDB_SETUP : &'static [&'static str]= &[
         parent_microblock TEXT NOT NULL,
         tx_merkle_root TEXT NOT NULL,
         state_index_root TEXT NOT NULL,
-        microblock_pubkey TEXT NOT NULL,
+        microblock_pubkey_hash TEXT NOT NULL,
         
         -- NOTE: this is derived from the above
         block_hash TEXT NOT NULL,
 
         -- internal use only
         block_height INTEGER NOT NULL,
-        fork_segment_id INTEGER NOT NULL,
+        index_root TEXT NOT NULL,
 
         PRIMARY KEY(block_hash),
-
-        -- deferred foreign key to snapshots so updating this value is efficient and fork table compression is possible
-        FOREIGN KEY(block_height,fork_segment_id,block_hash) REFERENCES snapshots(block_height,fork_segment_id,winning_stacks_block_hash) DEFERRABLE INITIALLY DEFERRED
+        FOREIGN KEY(block_height,block_hash) REFERENCES snapshots(block_height,winning_stacks_block_hash)
     );"#,
     r#"
-    CREATE INDEX block_headers_hash_index on block_headers(block_hash,block_height,fork_segment_id);
+    CREATE INDEX block_headers_hash_index on block_headers(block_hash,block_height);
     "#,
     r#"
     -- microblock headers
@@ -554,44 +512,95 @@ const BURNDB_SETUP : &'static [&'static str]= &[
 
         -- internal use only
         block_height INTEGER NOT NULL,
-        fork_segment_id INTEGER NOT NULL,
         parent_block_hash TEXT NOT NULL,    -- matches the block header (and by extension, snapshot and block commit) to which this stream is appended
         
         PRIMARY KEY(microblock_hash),
-        
-        -- deferred foreign key to snapshots so updating this value is efficient and fork table compression is possible
-        FOREIGN KEY(block_height,fork_segment_id,parent_block_hash) REFERENCES snapshots(block_height,fork_segment_id,winning_stacks_block_hash) DEFERRABLE INITIALLY DEFERRED
+        FOREIGN KEY(block_height,parent_block_hash) REFERENCES snapshots(block_height,winning_stacks_block_hash)
     );"#,
     r#"
-    CREATE TABLE db_version(version TEXT NOT NULL);
+    CREATE INDEX microblock_headers_hash ON microblock_headers(microblock_hash,block_height,parent_block_hash);
+    "#,
+    r#"
+    -- fork-specific key/value storage, indexed via a MARF.
+    -- each row is guaranteed to be unique
+    CREATE TABLE fork_storage(
+        value_hash TEXT NOT NULL,
+        value TEXT NOT NULL,
+
+        PRIMARY KEY(value_hash)
+    );"#,
+    r#"
+    CREATE TABLE db_config(
+        version TEXT NOT NULL,
+        index_root_dir TEXT NOT NULL
+    );
     "#
 ];
 
 pub struct BurnDB {
     pub conn: Connection,
     pub readwrite: bool,
+    pub marf: MARF,
     pub first_block_height: u64,
     pub first_burn_header_hash: BurnchainHeaderHash,
 }
 
+pub struct BurnDBTx<'a> {
+    pub tx: Transaction<'a>,
+    pub index: &'a mut MARF
+}
+
+impl<'a> Deref for BurnDBTx<'a> {
+    type Target = Transaction<'a>;
+    fn deref(&self) -> &Transaction<'a> {
+        &self.tx
+    }
+}
+
+impl<'a> DerefMut for BurnDBTx<'a> {
+    fn deref_mut(&mut self) -> &mut Transaction<'a> {
+        &mut self.tx
+    }
+}
+
+impl<'a> BurnDBTx<'a> {
+    pub fn commit(self) -> Result<(), db_error> {
+        self.tx.commit().map_err(db_error::SqliteError)
+    }
+}
+
 impl BurnDB {
-    fn instantiate(&mut self) -> Result<(), db_error> {
+    fn instantiate(conn: &mut Connection, index_root_dir: &String, first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash) -> Result<(), db_error> {
+        let mut tx = conn.transaction().map_err(db_error::SqliteError)?;
+
         // create first (sentinel) snapshot
-        let first_snapshot = BlockSnapshot::initial(self.first_block_height, &self.first_burn_header_hash);
-        let mut tx = self.tx_begin()?;
+        let mut first_snapshot = BlockSnapshot::initial(first_block_height, first_burn_header_hash);
+        
+        assert!(first_snapshot.parent_burn_header_hash != first_snapshot.burn_header_hash);
+        assert_eq!(first_snapshot.parent_burn_header_hash.as_bytes(), TrieFileStorage::block_sentinel().as_bytes());
 
         for row_text in BURNDB_SETUP {
-            tx.execute(row_text, NO_PARAMS)
-                .expect(SQLITE_ERROR_MSG);
+            tx.execute(row_text, NO_PARAMS).map_err(db_error::SqliteError)?;
         }
 
-        tx.execute("INSERT INTO db_version (version) VALUES (?1)", &[&CHAINSTATE_VERSION])
-            .expect(SQLITE_ERROR_MSG);
+        tx.execute("INSERT INTO db_config (version, index_root_dir) VALUES (?1,?2)", &[&CHAINSTATE_VERSION, index_root_dir.as_str()]).map_err(db_error::SqliteError)?;
+        
+        let mut marf = BurnDB::open_index(&mut tx)?;
+        let mut burndbtx = BurnDBTx {
+            tx: tx,
+            index: &mut marf
+        };
+        
+        let index_root = BurnDB::index_add_fork_info(&mut burndbtx, &first_snapshot, &first_snapshot, &vec![], &vec![])?;
+        first_snapshot.index_root = index_root;
 
-        BurnDB::insert_block_snapshot(&mut tx, &first_snapshot)?;
-        tx.commit()
-            .expect(SQLITE_ERROR_MSG);
-
+        burndbtx.tx.execute("INSERT INTO snapshots \
+                   (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                   &[&(first_snapshot.block_height as i64) as &ToSql, &first_snapshot.burn_header_hash.to_hex(), &first_snapshot.parent_burn_header_hash.to_hex(), &first_snapshot.consensus_hash.to_hex(), &first_snapshot.ops_hash.to_hex(), &"0".to_string(),
+                     &first_snapshot.sortition as &ToSql, &first_snapshot.sortition_hash.to_hex(), &first_snapshot.winning_block_txid.to_hex(), &first_snapshot.winning_stacks_block_hash.to_hex(), &first_snapshot.index_root.to_hex()])?;
+       
+        burndbtx.commit()?;
         Ok(())
     }
 
@@ -620,23 +629,16 @@ impl BurnDB {
                 }
             };
 
-        let conn = Connection::open_with_flags(path, open_flags)
-            .expect(SQLITE_ERROR_MSG);
-
-        let mut db = BurnDB {
-            conn: conn,
-            readwrite: readwrite,
-            first_block_height: first_block_height,
-            first_burn_header_hash: first_burn_hash.clone(),
-        };
+        let (db_path, index_path) = db_mkdirs(path)?;
+        let mut conn = Connection::open_with_flags(&db_path, open_flags).map_err(db_error::SqliteError)?;
 
         if create_flag {
             // instantiate!
-            db.instantiate()?;
+            BurnDB::instantiate(&mut conn, &index_path, first_block_height, first_burn_hash)?;
         }
         else {
             // validate -- must contain the given first block and first block hash 
-            let snapshot_opt = BurnDB::get_block_snapshot(&db.conn, first_burn_hash)?;
+            let snapshot_opt = BurnDB::get_block_snapshot(&conn, first_burn_hash)?;
             match snapshot_opt {
                 None => {
                     error!("No snapshot for block {}", first_block_height);
@@ -651,23 +653,43 @@ impl BurnDB {
             };
         }
 
+        let marf = BurnDB::open_index(&conn)?;
+
+        let db = BurnDB {
+            conn: conn,
+            marf: marf,
+            readwrite: readwrite,
+            first_block_height: first_block_height,
+            first_burn_header_hash: first_burn_hash.clone(),
+        };
+
         Ok(db)
     }
 
     /// Open a burn database in memory (used for testing)
     #[cfg(test)]
     pub fn connect_memory(first_block_height: u64, first_burn_hash: &BurnchainHeaderHash) -> Result<BurnDB, db_error> {
-        let conn = Connection::open_in_memory()
-            .expect(SQLITE_ERROR_MSG);
+        let mut conn = Connection::open_in_memory().map_err(db_error::SqliteError)?;
+        
+        let mut rng = rand::thread_rng();
+        let mut buf = [0u8; 32];
+        rng.fill_bytes(&mut buf);
+        let db_path_dir = format!("/tmp/test-blockstack-burndb-{}", to_hex(&buf));
+        let (db_path, index_path) = db_mkdirs(&db_path_dir)?;
 
-        let mut db = BurnDB {
+        BurnDB::instantiate(&mut conn, &index_path, first_block_height, first_burn_hash)?;
+
+        let marf = BurnDB::open_index(&conn)?;
+
+        let db = BurnDB {
             conn: conn,
+            marf: marf,
             readwrite: true,
             first_block_height: first_block_height,
             first_burn_header_hash: first_burn_hash.clone(),
         };
 
-        db.instantiate()?;
+        
         Ok(db)
     }
 
@@ -683,13 +705,13 @@ impl BurnDB {
                 OpenFlags::SQLITE_OPEN_READ_ONLY
             };
 
-        let conn = Connection::open_with_flags(path, open_flags)
-            .expect(SQLITE_ERROR_MSG);
-
+        let conn = Connection::open_with_flags(path, open_flags).map_err(db_error::SqliteError)?;
+        let marf = BurnDB::open_index(&conn)?;
         let first_snapshot = BurnDB::get_first_block_snapshot(&conn)?;
 
         let db = BurnDB {
             conn: conn,
+            marf: marf,
             readwrite: readwrite,
             first_block_height: first_snapshot.block_height,
             first_burn_header_hash: first_snapshot.burn_header_hash.clone(),
@@ -701,475 +723,336 @@ impl BurnDB {
         &self.conn
     }
 
+    pub fn read_index_root_dir(dbconn: &Connection) -> Result<String, db_error> {
+        let mut stmt = dbconn.prepare("SELECT index_root_dir FROM db_config").map_err(db_error::SqliteError)?;
+        let mut rows = stmt.query(NO_PARAMS).map_err(db_error::SqliteError)?;
+
+        while let Some(row_res) = rows.next() {
+            match row_res {
+                Ok(row) => {
+                    let index_root_dir : String = row.get(0);
+                    return Ok(index_root_dir);
+                },
+                Err(e) => {
+                    return Err(db_error::SqliteError(e));
+                }
+            };
+        }
+
+        return Err(db_error::NotFoundError);
+    }
+
+    pub fn open_index(dbconn: &Connection) -> Result<MARF, db_error> {
+        let index_root = BurnDB::read_index_root_dir(dbconn)?;
+        test_debug!("Open index at {}", index_root);
+        let marf = MARF::from_path(&index_root).map_err(|_e| db_error::Corruption)?;
+        Ok(marf)
+    }
+
     /// Get a particular chain tip's snapshot if the arguments here actually correspond to a chain
     /// tip.  If not, then return None.
     /// Insert a snapshots row from a block's-worth of operations. 
     /// Do not call directly -- use append_chain_tip_snapshot to preserve the fork table structure.
-    fn insert_block_snapshot<'a>(tx: &mut Transaction<'a>, snapshot: &BlockSnapshot) -> Result<(), db_error> {
+    fn insert_block_snapshot<'a>(tx: &mut BurnDBTx<'a>, snapshot: &BlockSnapshot) -> Result<(), db_error> {
         assert!(snapshot.block_height < BLOCK_HEIGHT_MAX);
-        assert!(snapshot.fork_segment_id < FORK_SEGMENT_ID_MAX);
 
-        test_debug!("Insert block snapshot on fork segment {} parent {} for block {} ({},{})", snapshot.fork_segment_id, snapshot.parent_fork_segment_id, snapshot.block_height,
+        test_debug!("Insert block snapshot state {} for block {} ({},{})", snapshot.index_root.to_hex(), snapshot.block_height,
                     snapshot.burn_header_hash.to_hex(), snapshot.parent_burn_header_hash.to_hex());        
 
         let total_burn_str = format!("{}", snapshot.total_burn);
 
         tx.execute("INSERT INTO snapshots \
-                   (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, fork_segment_id, parent_fork_segment_id, fork_length, fork_segment_length) \
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                   (block_height, burn_header_hash, parent_burn_header_hash, consensus_hash, ops_hash, total_burn, sortition, sortition_hash, winning_block_txid, winning_stacks_block_hash, index_root) \
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                    &[&(snapshot.block_height as i64) as &ToSql, &snapshot.burn_header_hash.to_hex(), &snapshot.parent_burn_header_hash.to_hex(), &snapshot.consensus_hash.to_hex(), &snapshot.ops_hash.to_hex(), &total_burn_str,
-                     &snapshot.sortition as &ToSql, &snapshot.sortition_hash.to_hex(), &snapshot.winning_block_txid.to_hex(), &snapshot.winning_stacks_block_hash.to_hex(), &(snapshot.fork_segment_id as i64) as &ToSql,
-                     &(snapshot.parent_fork_segment_id as i64) as &ToSql, &(snapshot.fork_length as i64) as &ToSql, &(snapshot.fork_segment_length as i64) as &ToSql])
-            .expect(SQLITE_ERROR_MSG);
+                     &snapshot.sortition as &ToSql, &snapshot.sortition_hash.to_hex(), &snapshot.winning_block_txid.to_hex(), &snapshot.winning_stacks_block_hash.to_hex(), &snapshot.index_root.to_hex()])?;
 
         Ok(())
     }
-    
-    /// Get the list of children blocks from a given header hash
-    fn get_block_children<'a>(tx: &mut Transaction<'a>, parent_header_hash: &BurnchainHeaderHash) -> Result<Vec<BlockSnapshot>, db_error> {
-        let row_order = BlockSnapshot::row_order().join(",");
-        let qry = format!("SELECT {} FROM snapshots WHERE parent_burn_header_hash = ?1 ORDER BY fork_segment_id ASC", row_order);
-        let rows = query_rows::<BlockSnapshot, _>(tx, &qry, &[&parent_header_hash.to_hex()])
-            .expect(SQLITE_ERROR_MSG);
 
-        Ok(rows)
+    /// Store a blockstack burnchain operation
+    fn store_burnchain_transaction<'a>(tx: &mut BurnDBTx<'a>, blockstack_op: &BlockstackOperationType, index_root: &TrieHash) -> Result<(), db_error> {
+        match blockstack_op {
+            BlockstackOperationType::LeaderKeyRegister(ref op) => {
+                info!("ACCEPTED({}) leader key register {} at {},{}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex);
+                BurnDB::insert_leader_key(tx, op, index_root)
+                    .expect("FATAL: failed to store leader key to Sqlite");
+            },
+            BlockstackOperationType::LeaderBlockCommit(ref op) => {
+                info!("ACCEPTED({}) leader block commit {} at {},{}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex);
+                BurnDB::insert_block_commit(tx, op, index_root)
+                    .expect("FATAL: failed to store leader block commit to Sqlite");
+            },
+            BlockstackOperationType::UserBurnSupport(ref op) => {
+                info!("ACCEPTED({}) user burn support {} at {},{}", op.block_height, &op.txid.to_hex(), op.block_height, op.vtxindex);
+                BurnDB::insert_user_burn(tx, op, index_root)
+                    .expect("FATAL: failed to store user burn support to Sqlite");
+            }
+        }
+        Ok(())
     }
 
-    /// Compactify the fork table after appending a block.
-    /// Returns the fork segment it is ultimately assigned to
-    fn compactify_fork_table<'a>(tx: &mut Transaction<'a>, appended_snapshot: &BlockSnapshot) -> Result<u64, db_error> {
-        let mut snapshot = appended_snapshot.clone();
+    /// Store some data to the index storage for the _next_ chain tip
+    fn index_data_store<'a>(tx: &mut BurnDBTx<'a>, tip_header_hash: &BurnchainHeaderHash, key: &String, value: &String) -> Result<MARFValue, db_error> {
+        let marf_value = MARFValue::from_value(value);
+        trace!("Put '{}' off of {}: {} ({})", key, &tip_header_hash.to_hex(), value, &to_hex(&marf_value.to_vec()));
+        tx.execute("INSERT OR REPLACE INTO fork_storage (value_hash, value) VALUES (?1, ?2)", &[&to_hex(&marf_value.to_vec()), value])?;
+        Ok(marf_value)
+    }
 
-        loop {
+    /// Load some index data
+    fn index_data_load(conn: &Connection, tip_block_header: &BurnchainHeaderHash, key: &String, marf_value: &MARFValue) -> Result<Option<String>, db_error> {
+        let mut stmt = conn.prepare("SELECT value FROM fork_storage WHERE value_hash = ?1 LIMIT 2")?;
+        let mut rows = stmt.query(&[&to_hex(&marf_value.to_vec())])?;
+        let mut all_values = vec![];
+        while let Some(row_res) = rows.next() {
+            match row_res {
+                Ok(row) => {
+                    let value_str : String = row.get(0);
+                    all_values.push(value_str);
+                },
+                Err(e) => {
+                    panic!("FATAL: Failed to read row from Sqlite");
+                }
+            };
+        }
 
-            /*
-            #[cfg(test)]
-            {
-                test_debug!("Before compaction:");
-                let max_fork_id = BurnDB::next_unused_fork_segment_id(tx).expect(SQLITE_ERROR_MSG);
-                for cur_fork_segment_id in 0..max_fork_id {
-                    test_debug!("snapshots in fork {}:", cur_fork_segment_id);
-                    let snapshots = BurnDB::get_block_snapshots_in_fork_segment(tx, cur_fork_segment_id).unwrap();
-                    for sn in snapshots {
-                        test_debug!("block {}: hash={},parent={}, fid: {}, pfid: {}", sn.block_height, sn.burn_header_hash.to_hex(), sn.parent_burn_header_hash.to_hex(), sn.fork_segment_id, sn.parent_fork_segment_id);
+        match all_values.len() {
+            0 => {
+                return Ok(None);
+            }
+            1 => {
+                return Ok(Some(all_values[0].clone()));
+            }
+            _ => {
+                // should be impossible
+                panic!("FATAL: two or more values for {},{}", &tip_block_header.to_hex(), &to_hex(&marf_value.to_vec()));
+            }
+        }
+    }
+
+    /// Get a value from the fork index
+    fn index_value_get<'a>(tx: &mut BurnDBTx<'a>, burn_header_hash: &BurnchainHeaderHash, key: &String) -> Result<Option<String>, db_error> {
+        let mut header_hash_bytes = [0u8; 32];
+        header_hash_bytes.copy_from_slice(burn_header_hash.as_bytes());
+        let header_hash = BlockHeaderHash(header_hash_bytes);
+
+        let parent_index_root = match tx.index.get_root_hash_at(&header_hash) {
+            Ok(root) => {
+                root
+            },
+            Err(e) => {
+                match e {
+                    MARFError::NotFoundError => {
+                        test_debug!("Not found: Get '{}' off of {} (parent index root for {} not found)", key, burn_header_hash.to_hex(), header_hash.to_hex());
+                        return Ok(None);
+                    },
+                    _ => {
+                        error!("Failed to get root hash of {}: {:?}", &header_hash.to_hex, &e);
+                        return Err(db_error::Corruption);
                     }
                 }
             }
-            */
-
-            test_debug!("Find sibling-parent {} from {}", snapshot.parent_fork_segment_id, snapshot.fork_segment_id);
-
-            // find sibling branch that descends from the parent
-            let sibling_snapshot = BurnDB::get_fork_segment_tail(tx, snapshot.parent_fork_segment_id)
-                .expect(SQLITE_ERROR_MSG)
-                .expect("FATAL: no parent block snapshot");
-
-            // has this fork segment outgrown its parent? if so, make it the parent, and make
-            // the part of the parent that it conflicts with into its sibling segment.
-            if sibling_snapshot.block_height < snapshot.block_height {
-                let snapshot_head = BurnDB::get_fork_segment_head(tx, snapshot.fork_segment_id)
-                    .expect(SQLITE_ERROR_MSG)
-                    .expect("FATAL: no sibling head block snapshot");
-                
-                test_debug!("Exchange sibling-parent {} with {} starting at {} (fork segment head is {},{})",
-                            snapshot.parent_fork_segment_id, snapshot.fork_segment_id, snapshot_head.block_height,
-                            sibling_snapshot.burn_header_hash.to_hex(), sibling_snapshot.parent_burn_header_hash.to_hex());
-
-                // switch the fork segment IDs and parent fork segment IDs of all descendents of the parent after this
-                // snapshot's head.  The fork segment ID of the snapshot we're storing will
-                // merge with its parent, and the sibling snapshots previously in the parent
-                // segment will receive the old fork segment ID.
-                // how it works:
-                // notation:
-                //              ${height}${hash}${parent}(${fid}${pfid})- ...
-                //              where
-                //                  ${height} == block height
-                //                  ${hash}   == burn block header hash
-                //                  ${parent} == parent burn block header hash
-                //                  ${fid}    == fork segment ID
-                //                  ${pfid}   == parent fork segment ID
-                //
-                //      example: 100ab(3,4)
-                //                  height: 100
-                //                  hash:   a
-                //                  parent: b
-                //                  fid:    3
-                //                  pfid:   4
-                //
-                // Suppose we append to fork segment 2, below (block 112__(2,0))
-                // before:
-                // * the canonical fork is fork segment 2, which is connected to fork segment 0
-                // goal:
-                // * merge fork segments 0 and 2 so that fork segment 0 is canonical
-                //
-                //                                  103kh(3,2)-104lk(3,2)-105ml(3,2)-106__(3,2)-107__(3,2)-108__(3,2)-109__(3,2)
-                //                                 /
-                //                       102hb(2,0)-103ih(2,0)-104ji(2,0)-105__(2,0)-106__(2,0)-107__(2,0)-108__(2,0)-109__(2,0)-110__(2,0)-111__(2,0)-112__(2,0)
-                //                      /
-                // 100aa(0,0)-101ba(0,0)-102cb(0,0)-103dc(0,0)-104__(0,0)-105__(0,0)-106__(0,0)-107__(0,0)-108__(0,0)-109__(0,0)-110__(0,0)-111__(0,0)
-                //           \
-                //            101ea(1,0)-102fe(1,0)-103gf(1,0)-104__(1,0)-105__(1,0)-106__(1,0)-107__(1,0)-108__(1,0)-109__(1,0)-110__(1,0)
-                //
-                //
-                // after fork_segment_rename 
-                // - rename 0 to 10 after 102
-                // - rename 2 to 0 after 102
-                // - rename 10 to 2 after 102
-                //
-                //                                  103kh(3,2)-104lk(3,2)-105ml(3,2)-106__(3,2)-107__(3,2)-108__(3,2)-109__(3,2)
-                //                                 /
-                //                       102cb(2,0)-103dc(2,0)-104__(2,0)-105__(2,0)-106__(2,0)-107__(2,0)-108__(2,0)-109__(2,0)-110__(2,0)-111__(2,0)
-                //                      /
-                // 100aa(0,0)-101ba(0,0)-102hb(0,0)-103ih(0,0)-104ji(0,0)-105__(0,0)-106__(0,0)-107__(0,0)-108__(0,0)-109__(0,0)-110__(0,0)-111__(0,0)-112__(0,0)
-                //           \
-                //            101ea(1,0)-102fe(1,0)-103gf(1,0)-104__(1,0)-105__(1,0)-106__(1,0)-107__(1,0)-108__(1,0)-109__(1,0)-110__(1,0)
-                //
-                // after parent_fork_segment_rename 
-                // - rename parent 0 to 10, ignoring if fork is 0 or 2 and only if the segment starts after 102
-                // - rename parent 2 to 0   ignoring if fork is 0 or 2 and only if the segment starts after 102
-                // - rename parent 10 to 2  ignoring if fork is 0 or 2 and only if the segment starts after 102
-                //
-                //                       102cb(2,0)-103dc(2,0)-104__(2,0)-105__(2,0)-106__(2,0)-107__(2,0)-108__(2,0)-109__(2,0)-110__(2,0)-111__(2,0)
-                //                      /
-                //                      |           103kh(3,0)-104lk(3,0)-105ml(3,0)-106__(3,0)-107__(3,0)-108__(3,0)-109__(3,0)
-                //                      |          /
-                // 100aa(0,0)-101ba(0,0)-102hb(0,0)-103ih(0,0)-104ji(0,0)-105__(0,0)-106__(0,0)-107__(0,0)-108__(0,0)-109__(0,0)-110__(0,0)-111__(0,0)-112__(0,0)
-                //           \
-                //            101ea(1,0)-102fe(1,0)-103gf(1,0)-104__(1,0)-105__(1,0)-106__(1,0)-107__(1,0)-108__(1,0)-109__(1,0)-110__(1,0)
-                //
-                // Now, fork segment 0 is the longest (canonical) fork, and the fork segments are
-                // all well-formed again.
-
-                let tmp_fork_segment_id = BurnDB::next_unused_fork_segment_id(tx).expect(SQLITE_ERROR_MSG);
-                
-                // sibling-in-parent --> tmp
-                BurnDB::fork_segment_rename(tx, snapshot_head.block_height, sibling_snapshot.fork_segment_id, tmp_fork_segment_id, snapshot.fork_segment_id)
-                    .expect(SQLITE_ERROR_MSG);
-                
-                // sibling --> sibling-in-parent
-                BurnDB::fork_segment_rename(tx, snapshot_head.block_height, snapshot.fork_segment_id, sibling_snapshot.fork_segment_id, sibling_snapshot.parent_fork_segment_id)
-                    .expect(SQLITE_ERROR_MSG);
-                
-                // tmp --> sibling
-                BurnDB::fork_segment_rename(tx, snapshot_head.block_height, tmp_fork_segment_id, snapshot.fork_segment_id, snapshot.parent_fork_segment_id)
-                    .expect(SQLITE_ERROR_MSG);
-
-                // anyone that had the now-merged snapshot fork segment as its parent needs to be updated
-                BurnDB::parent_fork_segment_rename(tx, snapshot_head.block_height, snapshot.fork_segment_id, sibling_snapshot.fork_segment_id, sibling_snapshot.fork_segment_id, tmp_fork_segment_id)
-                    .expect(SQLITE_ERROR_MSG);
-
-                BurnDB::parent_fork_segment_rename(tx, snapshot_head.block_height, snapshot.fork_segment_id, sibling_snapshot.fork_segment_id, snapshot.fork_segment_id, sibling_snapshot.fork_segment_id)
-                    .expect(SQLITE_ERROR_MSG);
-
-                BurnDB::parent_fork_segment_rename(tx, snapshot_head.block_height, snapshot.fork_segment_id, sibling_snapshot.fork_segment_id, tmp_fork_segment_id, snapshot.fork_segment_id)
-                    .expect(SQLITE_ERROR_MSG);
-
-                // compactify sibling
-                snapshot = BurnDB::get_fork_segment_tail(tx, sibling_snapshot.fork_segment_id)
-                    .expect(SQLITE_ERROR_MSG)
-                    .expect("FATAL: no parent block snapshot");
-                
-                continue;
-            }
-            else {
-                test_debug!("Fork segment {} is at least as long ({}) as its sibling-parent {} ({})", snapshot.fork_segment_id, snapshot.block_height, sibling_snapshot.fork_segment_id, sibling_snapshot.block_height);
-                return Ok(snapshot.fork_segment_id);
-            }
-        }
-    }
-
-    /// Append a snapshot to a chain tip, and update various chain tip statistics.
-    /// Returns the fork segment ID to which the snapshot was appended (post-compaction)
-    pub fn append_chain_tip_snapshot<'a>(tx: &mut Transaction<'a>, parent_snapshot: &BlockSnapshot, snapshot: &BlockSnapshot) -> Result<u64, db_error> {
-        let appended_fork_segment_id =
-            if parent_snapshot.fork_segment_id == snapshot.fork_segment_id {
-                // building onto an existing chain tip
-                test_debug!("Append to existing chain fork segment {} at block {} (on parent block {})", snapshot.fork_segment_id, snapshot.block_height, parent_snapshot.block_height);
-
-                assert_eq!(parent_snapshot.block_height + 1, snapshot.block_height);
-                assert_eq!(parent_snapshot.fork_segment_length + 1, snapshot.fork_segment_length);
-                assert_eq!(parent_snapshot.fork_length + 1, snapshot.fork_length);
-                assert_eq!(parent_snapshot.burn_header_hash, snapshot.parent_burn_header_hash);
-
-                BurnDB::insert_block_snapshot(tx, &snapshot).expect(SQLITE_ERROR_MSG);
-                BurnDB::compactify_fork_table(tx, &snapshot).expect(SQLITE_ERROR_MSG)
-            }
-            else {
-                // building a new chain tip
-                test_debug!("Begin new chain fork segment {} at {} (parent fork segment {} height {})", snapshot.fork_segment_id, snapshot.block_height, parent_snapshot.fork_segment_id, parent_snapshot.block_height);
-               
-                assert_eq!(parent_snapshot.block_height + 1, snapshot.block_height);
-                assert_eq!(snapshot.fork_segment_length, 1);
-                assert_eq!(parent_snapshot.fork_length + 1, snapshot.fork_length);
-                assert_eq!(parent_snapshot.burn_header_hash, snapshot.parent_burn_header_hash);
-                
-                BurnDB::insert_block_snapshot(tx, &snapshot).expect(SQLITE_ERROR_MSG);
-
-                snapshot.fork_segment_id
-            };
-
-        Ok(appended_fork_segment_id)
-    }
-
-    /// Change the fork segment ID in some snapshots in fork segment, i.e. to handle reorgs.
-    /// Updates the various blockstack ops tables as well due to foreign key constraint.
-    fn fork_segment_rename<'a>(tx: &mut Transaction<'a>, block_height: u64, fork_segment_id: u64, new_fork_segment_id: u64, new_parent_fork_segment_id: u64) -> Result<(), db_error> {
-        assert!(block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-        assert!(new_fork_segment_id < FORK_SEGMENT_ID_MAX);
-        assert!(new_parent_fork_segment_id < FORK_SEGMENT_ID_MAX);
-
-        test_debug!("Rename fork segment {} to {} (parent {}) starting at block {}", fork_segment_id, new_fork_segment_id, new_parent_fork_segment_id, block_height);
-
-        let snapshot_qry = "UPDATE snapshots SET fork_segment_id = ?1, parent_fork_segment_id = ?2 WHERE fork_segment_id = ?3 AND block_height >= ?4";
-        let snapshot_args = [&(new_fork_segment_id as i64) as &ToSql, &(new_parent_fork_segment_id as i64) as &ToSql, &(fork_segment_id as i64) as &ToSql, &(block_height as i64) as &ToSql];
-
-        if fork_segment_id != new_fork_segment_id {
-            let op_update_template = "UPDATE {} SET fork_segment_id = ?1 WHERE fork_segment_id = ?2 AND block_height >= ?3";
-            let op_update_args = [&(new_fork_segment_id as i64) as &ToSql, &(fork_segment_id as i64) as &ToSql, &(block_height as i64) as &ToSql];
-
-            tx.execute(&snapshot_qry.to_string(), &snapshot_args).expect(SQLITE_ERROR_MSG);
-            tx.execute("UPDATE leader_keys SET fork_segment_id = ?1 WHERE fork_segment_id = ?2 AND block_height >= ?3", &op_update_args).expect(SQLITE_ERROR_MSG);
-            tx.execute("UPDATE block_commits SET fork_segment_id = ?1 WHERE fork_segment_id = ?2 AND block_height >= ?3", &op_update_args).expect(SQLITE_ERROR_MSG);
-            tx.execute("UPDATE user_burn_support SET fork_segment_id = ?1 WHERE fork_segment_id = ?2 AND block_height >= ?3", &op_update_args).expect(SQLITE_ERROR_MSG);
-            tx.execute("UPDATE block_headers SET fork_segment_id = ?1 WHERE fork_segment_id = ?2 AND block_height >= ?3", &op_update_args).expect(SQLITE_ERROR_MSG);
-            tx.execute("UPDATE microblock_headers SET fork_segment_id = ?1 WHERE fork_segment_id = ?2 AND block_height >= ?3", &op_update_args).expect(SQLITE_ERROR_MSG);
-        }
-
-        Ok(())
-    }
-
-    /// Rename a set of snapshots' parent fork IDs
-    fn parent_fork_segment_rename<'a>(tx: &mut Transaction<'a>, head_block_height: u64, fork_segment_id: u64, sibling_fork_segment_id: u64, parent_fork_segment_id: u64, new_parent_fork_segment_id: u64) -> Result<(), db_error> {
-        assert!(parent_fork_segment_id < FORK_SEGMENT_ID_MAX);
-        assert!(new_parent_fork_segment_id < FORK_SEGMENT_ID_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-        assert!(sibling_fork_segment_id < FORK_SEGMENT_ID_MAX);
-        assert!(head_block_height < BLOCK_HEIGHT_MAX);
-
-        test_debug!("Rename parent fork segment {} to {} if it joins at or after {}, ignoring {} and {}", parent_fork_segment_id, new_parent_fork_segment_id, head_block_height, fork_segment_id, sibling_fork_segment_id);
-
-        let snapshot_qry = "UPDATE snapshots SET parent_fork_segment_id = ?1 WHERE parent_fork_segment_id = ?2 AND fork_segment_id != ?3 AND fork_segment_id != ?4 AND \
-                           0 == (SELECT COUNT(*) FROM snapshots WHERE block_height <= ?5 AND parent_fork_segment_id = ?6)";
-        let snapshot_args = [&(new_parent_fork_segment_id as i64) as &ToSql, &(parent_fork_segment_id as i64) as &ToSql, &(fork_segment_id as i64) as &ToSql, &(sibling_fork_segment_id as i64) as &ToSql,
-                             &(head_block_height as i64) as &ToSql, &(parent_fork_segment_id as i64) as &ToSql];
+        };
         
-        tx.execute(&snapshot_qry.to_string(), &snapshot_args).expect(SQLITE_ERROR_MSG);
-        Ok(())
+        trace!("Get '{}' off of {} (index root {})", key, header_hash.to_hex(), parent_index_root.to_hex());
+
+        match tx.index.get(&header_hash, key) {
+            Ok(marf_value_opt) => { 
+                match marf_value_opt {
+                    Some(marf_value) => {
+                        let value = BurnDB::index_data_load(tx, &burn_header_hash, key, &marf_value)?
+                            .expect(&format!("FATAL: corrupt index: key '{}' from {} (root index {}) is present in the index but missing a value in the DB", &key, &header_hash.to_hex(), &parent_index_root.to_hex()));
+
+                        return Ok(Some(value));
+                    },
+                    None => {
+                        return Ok(None);
+                    }
+                }
+            },
+            Err(e) => {
+                match e {
+                    MARFError::NotFoundError => {
+                        return Ok(None);
+                    },
+                    _ => {
+                        error!("Failed to fetch '{}' off of {}: {:?}", key, &header_hash.to_hex(), &e);
+                        return Err(db_error::Corruption);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Record fork information to the index and calculate the new fork index root hash.
+    /// * burndb:block_hash:${BURN_BLOCK_HEIGHT} --> BURN_BLOCK_HASH
+    /// * burndb:block_height:${BURN_BLOCK_HASH} --> BURN_BLOCK_HEIGHT
+    /// * burndb:vrf:${VRF_PUBLIC_KEY} --> 0 or 1 (1 if available, 0 if consumed), for each VRF public key we process
+    /// * burndb:last_sortition --> BURN_BLOCK_HASH, for each block that had a sortition
+    /// * burndb:sortition:${BURN_BLOCK_HASH} --> 0 or 1 (0 if no sortition, 1 if sortition)
+    fn index_add_fork_info<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>) -> Result<TrieHash, db_error> {
+        if !snapshot.is_initial() {
+            assert_eq!(snapshot.parent_burn_header_hash, parent_snapshot.burn_header_hash);
+        }
+
+        // convert from burn header hash to block header hash (it's safe since theyr'e both
+        // 32-byte hashes)
+        let mut parent_header_bytes = [0u8; 32];
+        parent_header_bytes.copy_from_slice(snapshot.parent_burn_header_hash.as_bytes());
+        let parent_header = BlockHeaderHash(parent_header_bytes);
+
+        let mut header_bytes = [0u8; 32];
+        header_bytes.copy_from_slice(snapshot.burn_header_hash.as_bytes());
+        let header = BlockHeaderHash(header_bytes);
+
+        // data we want to store
+        let mut keys = vec![];
+        let mut values = vec![];
+        let mut marf_values = vec![];
+
+        // store absolute height --> hash
+        keys.push(format!("burndb:block_hash:{}", snapshot.block_height));
+        values.push(header.to_hex());
+
+        // store hash --> absolute height
+        keys.push(format!("burndb:block_height:{}", header.to_hex()));
+        values.push(format!("{}", snapshot.block_height));
+        
+        // record each new VRF key, and each consumed VRF key
+        for block_op in block_ops {
+            match block_op {
+                BlockstackOperationType::LeaderKeyRegister(ref data) => {
+                    keys.push(format!("burndb:vrf:{}", &data.public_key.to_hex()));
+                    values.push("1".to_string());       // indicates "available"
+                },
+                _ => {}
+            }
+        }
+
+        // record each consumed VRF key as consumed
+        for consumed_leader_key in consumed_leader_keys {
+            keys.push(format!("burndb:vrf:{}", &consumed_leader_key.public_key.to_hex()));
+            values.push("0".to_string());
+        }
+
+        // if this commit has a sortition, record its block hash
+        if snapshot.sortition {
+            keys.push("burndb:last_sortition".to_string());
+            values.push(snapshot.burn_header_hash.to_hex());
+
+            keys.push(format!("burndb:sortition:{}", snapshot.burn_header_hash.to_hex()));
+            values.push("1".to_string());
+        }
+        else {
+            keys.push(format!("burndb:sortition:{}", snapshot.burn_header_hash.to_hex()));
+            values.push("1".to_string());
+        }
+
+        // store each indexed field
+        assert_eq!(keys.len(), values.len());
+        for i in 0..values.len() {
+            let marf_value = BurnDB::index_data_store(tx, &parent_snapshot.burn_header_hash, &keys[i], &values[i])?;
+            marf_values.push(marf_value);
+        }
+
+        tx.index.begin(&parent_header, &header).map_err(|_e| db_error::Corruption)?;
+        tx.index.insert_batch(&keys, marf_values).map_err(|_e| db_error::Corruption)?;
+        
+        let root_hash = tx.index.get_root_hash().map_err(|_e| db_error::Corruption)?;
+
+        tx.index.commit().map_err(|_e| db_error::Corruption)?;
+        Ok(root_hash)
+    }
+    
+    /// Append a snapshot to a chain tip, and update various chain tip statistics.
+    /// Returns the new state root of this fork.
+    pub fn append_chain_tip_snapshot<'a>(tx: &mut BurnDBTx<'a>, parent_snapshot: &BlockSnapshot, snapshot: &BlockSnapshot, block_ops: &Vec<BlockstackOperationType>, consumed_leader_keys: &Vec<LeaderKeyRegisterOp>) -> Result<TrieHash, db_error> {
+        assert_eq!(snapshot.parent_burn_header_hash, parent_snapshot.burn_header_hash);
+        assert_eq!(parent_snapshot.block_height + 1, snapshot.block_height);
+
+        let root_hash = BurnDB::index_add_fork_info(tx, parent_snapshot, snapshot, block_ops, consumed_leader_keys)?;
+        
+        let mut sn = snapshot.clone();
+        sn.index_root = root_hash.clone();
+
+        BurnDB::insert_block_snapshot(tx, &sn)?;
+
+        for block_op in block_ops {
+            BurnDB::store_burnchain_transaction(tx, block_op, &root_hash)?;
+        }
+
+        Ok(root_hash)
     }
 
     /// Get the canonical chain tips -- the longest chain tip we know about.
+    /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
-        // break ties in block height by building on the longer fork.
-        // break ties in forks of the same length by building on the longer segment
-        // break ties in forks of the same length and segment length arbitrarily -- i.e. by fork ID
         let row_order = BlockSnapshot::row_order().join(",");
-        let sql_qry = format!("SELECT {} FROM snapshots ORDER BY block_height DESC, fork_length DESC, fork_segment_length DESC, fork_segment_id DESC LIMIT 1", row_order);
-        let rows = query_rows::<BlockSnapshot, _>(conn, &sql_qry.to_string(), NO_PARAMS)
-            .expect(SQLITE_ERROR_MSG);
-
-        match rows.len() {
-            1 => Ok(rows[0].clone()),
-            _ => {
-                // should never happen 
-                panic!("FATAL: could not get a chain tip, or got duplicate chain tip");
-            }
-        }
+        let qry = format!("SELECT {} FROM snapshots ORDER BY block_height DESC, burn_header_hash ASC LIMIT 1", row_order);
+        let rows = query_rows::<BlockSnapshot, _>(conn, &qry, NO_PARAMS)?;
+        assert!(rows.len() > 0);
+        Ok(rows[0].clone())
     }
 
-    /// Get the next unallocated fork segment ID
-    pub fn next_unused_fork_segment_id<'a>(tx: &mut Transaction<'a>) -> Result<u64, db_error> {
-        let qry = "SELECT MAX(fork_segment_id) FROM snapshots";
-        let mut stmt = tx.prepare(qry).expect(SQLITE_ERROR_MSG);
-
-        let m = stmt.query_row(NO_PARAMS,
-            |row| {
-                let res : i64 = row.get(0);
-                res
-            })
-            .expect(SQLITE_ERROR_MSG);
-
-        Ok((m as u64) + 1)
-    }
-
-    /// Get the fork segment ID that will contain the given a block with the given parent, if we
-    /// were to insert a snapshot for it.
-    pub fn get_next_fork_segment_id<'a>(tx: &mut Transaction<'a>, parent_snapshot: &BlockSnapshot) -> Result<Option<u64>, db_error> {
-        let child_qry = "SELECT COUNT(*) FROM snapshots WHERE parent_burn_header_hash = ?1".to_string();
-        let child_count = query_count(tx, &child_qry.to_string(), &[&parent_snapshot.burn_header_hash.to_hex() as &ToSql])
-            .expect(SQLITE_ERROR_MSG);
-
-        if child_count == 0 || (child_count == 1 && parent_snapshot.is_initial()) {
-            // this is the chain tip -- append to this parent
-            test_debug!("Snapshot {} is the chain tip (fork segment {})", parent_snapshot.burn_header_hash.to_hex(), parent_snapshot.fork_segment_id);
-            Ok(Some(parent_snapshot.fork_segment_id))
-        }
-        else {
-            // this is not the chain tip.  Find the next fork segment
-            test_debug!("Snapshot {} is NOT the chain tip -- has {} children", parent_snapshot.burn_header_hash.to_hex(), child_count);
-            let fork_segment_id = BurnDB::next_unused_fork_segment_id(tx).expect(SQLITE_ERROR_MSG);
-            Ok(Some(fork_segment_id))
-        }
-    }
-
-
-    /// Get the sequence of fork segments that are parent/children of one another.
-    /// The nth fork segment ID is the child of the n+1th.
-    /// The last fork segment is the genesis block's segment.
-    fn get_ancestor_fork_segments(conn: &Connection, fork_segment_id: u64) -> Result<Vec<u64>, db_error> {
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-
-        // TODO: this information can be cached in RAM
-        let qry = "SELECT parent_fork_segment_id FROM snapshots WHERE fork_segment_id = ?1 ORDER BY block_height ASC LIMIT 1";
-        let mut ret = vec![];
-
-        ret.push(fork_segment_id);
-
-        let mut next_fork_segment_id = fork_segment_id;
-
-        loop {
-            let mut stmt = conn.prepare(qry).expect(SQLITE_ERROR_MSG);
-
-            let mut rows = stmt.query(&[&(next_fork_segment_id as i64) as &ToSql])
-                .expect(SQLITE_ERROR_MSG);
-           
-            // expect this array to be 0 or 1 items
-            let mut parent_fork_ids = vec![];
-
-            while let Some(row_res) = rows.next() {
-                let row = row_res.expect(SQLITE_ERROR_MSG);
-                if parent_fork_ids.len() > 1 {
-                    panic!("FATAL: database inconsistent; multiple snapshots with same fork segment ID and parent fork segment ID");
-                }
-                let fid : i64 = row.get(0);
-                if fid < 0 {
-                    panic!("FATAL: database returned a negative fork segment ID");
-                }
-                parent_fork_ids.push(fid as u64);
-            }
-
-            if parent_fork_ids.len() == 0 || parent_fork_ids[0] == next_fork_segment_id {
-                // finished
-                break;
-            }
-
-            next_fork_segment_id = parent_fork_ids[0];
-            ret.push(parent_fork_ids[0] as u64);
-        }
-
-        Ok(ret)
-    }
-
-    /// Given a fork segment ID of a chain tip, and a block height that is an ancestor of the last
-    /// block in this fork segment, find the fork segment ID that contains the block of that height.
-    fn get_ancestor_snapshot<'a>(tx: &mut Transaction<'a>, ancestor_block_height: u64, tip_fork_segment_id: u64) -> Result<Option<BlockSnapshot>, db_error> {
+    /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
+    /// block in this fork, find the snapshot of the block at that height.
+    fn get_ancestor_snapshot<'a>(tx: &mut BurnDBTx<'a>, ancestor_block_height: u64, tip_index_root: &TrieHash) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(ancestor_block_height < BLOCK_HEIGHT_MAX);
-        assert!(tip_fork_segment_id < FORK_SEGMENT_ID_MAX);
-
-        // Common case -- this ancestor is in this fork segment.
-        // If tip_fork_segment_id is the canonical chain, this should always return Some(...)
-        match BurnDB::get_block_snapshot_in_fork_segment(tx, ancestor_block_height, tip_fork_segment_id).expect(SQLITE_ERROR_MSG) {
-            Some(snapshot) => {
-                test_debug!("Snapshot for block {} is in the tip fork segment {}", ancestor_block_height, tip_fork_segment_id);
-                return Ok(Some(snapshot));
+        let tip_snapshot = match BurnDB::get_block_snapshot_at(tx, tip_index_root)? {
+            None => {
+                return Ok(None);
             }
-            None => {}
-        }
-
-        // Uncommon case -- the ancestor is in a different fork segment (tip_fork_segment_id is not
-        // the canonical chain fork).
-        // Continue to walk through fork segments until we find the one that contains the ancestor
-        // block height.
-        let mut cur_fork_segment_id = tip_fork_segment_id;
-        loop {
-            let ancestor_snapshot = match BurnDB::get_fork_segment_head(tx, cur_fork_segment_id).expect(SQLITE_ERROR_MSG) {
-                Some(snapshot) => {
-                    snapshot
-                },
-                None => {
-                    // this ancestor block was not processed
-                    test_debug!("No ancestor snapshot for block {} from tip fork segment {}", ancestor_block_height, tip_fork_segment_id);
-                    return Ok(None);
-                }
-            };
-
-            if ancestor_snapshot.block_height == ancestor_block_height {
-                // lucky guess
-                test_debug!("Ancestor snapshot at {} is in fork segment {}", ancestor_block_height, ancestor_snapshot.fork_segment_id);
-                return Ok(Some(ancestor_snapshot));
+            Some(sn) => {
+                sn
             }
-            else if ancestor_snapshot.block_height < ancestor_block_height {
-                // this fork segment ought to contain this ancestor block
-                match BurnDB::get_block_snapshot_in_fork_segment(tx, ancestor_block_height, ancestor_snapshot.fork_segment_id).expect(SQLITE_ERROR_MSG) {
-                    Some(snapshot) => {
-                        test_debug!("Ancestor snapshot at {} is in fork segment {}", ancestor_block_height, snapshot.fork_segment_id);
-                        return Ok(Some(snapshot));
-                    },
-                    None => {
-                        // implies discontinuity, or that this block is too far in the future
-                        let ancestor_tail = BurnDB::get_fork_segment_tail(tx, cur_fork_segment_id)
-                            .expect(SQLITE_ERROR_MSG)
-                            .expect(&format!("FATAL: no fork segment tail for {}, but there is a head", cur_fork_segment_id));
-
-                        if ancestor_tail.block_height < ancestor_block_height {
-                            // too far in the future
-                            test_debug!("Block {} is too far in the future", ancestor_block_height);
-                            return Ok(None);
-                        }
-
-                        // should be unreachable
-                        panic!("FATAL: burn DB is dicontinuous in fork segment {} between blocks {} and {}", ancestor_snapshot.fork_segment_id, ancestor_snapshot.block_height, ancestor_block_height);
-                    }
-                }
+        };
+        
+        let ancestor_hash = match BurnDB::index_value_get(tx, &tip_snapshot.burn_header_hash, &format!("burndb:block_hash:{}", ancestor_block_height))? {
+            Some(hex_str) => {
+                BurnchainHeaderHash::from_hex(&hex_str).expect(&format!("FATAL: corrupt database: failed to parse {} into a hex string", &hex_str))
+            },
+            None => {
+                return Ok(None);
             }
-            else {
-                // keep walking back segments, while we can
-                test_debug!("Walk back from fork segment {} to fork segment {}", cur_fork_segment_id, ancestor_snapshot.parent_fork_segment_id);
-                if cur_fork_segment_id == 0 && ancestor_snapshot.parent_fork_segment_id == 0 {
-                    // at the end
-                    return Ok(None);
-                }
+        };
 
-                cur_fork_segment_id = ancestor_snapshot.parent_fork_segment_id;
-                continue;
-            }
-        }
+        BurnDB::get_block_snapshot(tx, &ancestor_hash)
     }
 
     /// Get consensus hash from a particular chain tip's history
-    pub fn get_consensus_at<'a>(tx: &mut Transaction<'a>, block_height: u64, tip_fork_segment_id: u64) -> Result<Option<ConsensusHash>, db_error> {
+    pub fn get_consensus_at<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_index_root: &TrieHash) -> Result<Option<ConsensusHash>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        match BurnDB::get_ancestor_snapshot(tx, block_height, tip_fork_segment_id).expect(SQLITE_ERROR_MSG) {
+        match BurnDB::get_ancestor_snapshot(tx, block_height, tip_index_root)? {
             Some(sn) => Ok(Some(sn.consensus_hash)),
             None => Ok(None)
         }
     }
 
     /// Begin a transaction.
-    pub fn tx_begin<'a>(&'a mut self) -> Result<Transaction<'a>, db_error> {
+    pub fn tx_begin<'a>(&'a mut self) -> Result<BurnDBTx<'a>, db_error> {
         if !self.readwrite {
             return Err(db_error::ReadOnly);
         }
 
-        let tx = self.conn.transaction()
-            .expect(SQLITE_ERROR_MSG);
+        let tx = self.conn.transaction().map_err(db_error::SqliteError)?;
 
-        Ok(tx)
+        Ok(BurnDBTx {
+            tx: tx,
+            index: &mut self.marf
+        })
     }
 
     /// Insert a leader key registration.
     /// No validity checking will be done, beyond what is encoded in the leader_keys table
     /// constraints.  That is, type mismatches and serialization issues will be caught, but nothing else.
     /// The corresponding snapshot must already be inserted
-    pub fn insert_leader_key<'a>(tx: &mut Transaction<'a>, leader_key: &LeaderKeyRegisterOp) -> Result<(), db_error> {
+    pub fn insert_leader_key<'a>(tx: &mut BurnDBTx<'a>, leader_key: &LeaderKeyRegisterOp, tip_index_root: &TrieHash) -> Result<(), db_error> {
         assert!(leader_key.block_height < BLOCK_HEIGHT_MAX);
-        assert!(leader_key.fork_segment_id < FORK_SEGMENT_ID_MAX);
 
-        tx.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, address, fork_segment_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        tx.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, address, index_root) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                    &[&leader_key.txid.to_hex(), &leader_key.vtxindex as &ToSql, &(leader_key.block_height as i64) as &ToSql, &leader_key.burn_header_hash.to_hex(),
-                   &leader_key.consensus_hash.to_hex(), &leader_key.public_key.to_hex(), &to_hex(&leader_key.memo), &leader_key.address.to_string(), &(leader_key.fork_segment_id as i64) as &ToSql])
-            .expect(SQLITE_ERROR_MSG);
-
+                   &leader_key.consensus_hash.to_hex(), &leader_key.public_key.to_hex(), &to_hex(&leader_key.memo), &leader_key.address.to_string(), &tip_index_root.to_hex()])?;
         Ok(())
     }
     
@@ -1177,9 +1060,8 @@ impl BurnDB {
     /// No validity checking will be done, beyond what is encoded in the block_commits table
     /// constraints.  That is, type mismatches and serialization issues will be caught, but nothing else.
     /// The corresponding snapshot must already be inserted
-    pub fn insert_block_commit<'a>(tx: &mut Transaction<'a>, block_commit: &LeaderBlockCommitOp) -> Result<(), db_error> {
+    pub fn insert_block_commit<'a>(tx: &mut BurnDBTx<'a>, block_commit: &LeaderBlockCommitOp, tip_index_root: &TrieHash) -> Result<(), db_error> {
         assert!(block_commit.block_height < BLOCK_HEIGHT_MAX);
-        assert!(block_commit.fork_segment_id < FORK_SEGMENT_ID_MAX);
 
         // serialize tx input to JSON
         let tx_input_str = serde_json::to_string(&block_commit.input)
@@ -1188,14 +1070,12 @@ impl BurnDB {
         // represent burn fee as TEXT 
         let burn_fee_str = format!("{}", block_commit.burn_fee);
 
-        tx.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, epoch_num, memo, burn_fee, input, fork_segment_id) \
+        tx.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_backptr, parent_vtxindex, key_block_backptr, key_vtxindex, epoch_num, memo, burn_fee, input, index_root) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                     &[&block_commit.txid.to_hex(), &block_commit.vtxindex as &ToSql, &(block_commit.block_height as i64) as &ToSql, &block_commit.burn_header_hash.to_hex(), 
                     &block_commit.block_header_hash.to_hex(), &block_commit.new_seed.to_hex(), &block_commit.parent_block_backptr as &ToSql, &block_commit.parent_vtxindex as &ToSql,
                     &block_commit.key_block_backptr as &ToSql, &block_commit.key_vtxindex as &ToSql, &block_commit.epoch_num as &ToSql, &to_hex(&block_commit.memo[..]), 
-                    &burn_fee_str, &tx_input_str, &(block_commit.fork_segment_id as i64) as &ToSql])
-            .expect(SQLITE_ERROR_MSG);
-
+                    &burn_fee_str, &tx_input_str, &tip_index_root.to_hex()])?;
         Ok(())
     }
 
@@ -1204,69 +1084,72 @@ impl BurnDB {
     /// constraints.  That is, type mismatches and serialization errors will be caught, but nothing
     /// else.
     /// The corresponding snapshot must already be inserted
-    pub fn insert_user_burn<'a>(tx: &mut Transaction<'a>, user_burn: &UserBurnSupportOp) -> Result<(), db_error> {
+    pub fn insert_user_burn<'a>(tx: &mut BurnDBTx<'a>, user_burn: &UserBurnSupportOp, tip_index_root: &TrieHash) -> Result<(), db_error> {
         assert!(user_burn.block_height < BLOCK_HEIGHT_MAX);
-        assert!(user_burn.fork_segment_id < FORK_SEGMENT_ID_MAX);
 
         // represent burn fee as TEXT 
         let burn_fee_str = format!("{}", user_burn.burn_fee);
 
-        tx.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, key_block_backptr, key_vtxindex, block_header_hash_160, memo, burn_fee, fork_segment_id) \
+        tx.execute("INSERT INTO user_burn_support (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, key_block_backptr, key_vtxindex, block_header_hash_160, memo, burn_fee, index_root) \
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                    &[&user_burn.txid.to_hex(), &user_burn.vtxindex as &ToSql, &(user_burn.block_height as i64) as &ToSql, &user_burn.burn_header_hash.to_hex(), &user_burn.consensus_hash.to_hex(),
                    &user_burn.public_key.to_hex(), &user_burn.key_block_backptr as &ToSql, &user_burn.key_vtxindex as &ToSql, &user_burn.block_header_hash_160.to_hex(), &to_hex(&user_burn.memo[..]),
-                   &burn_fee_str, &(user_burn.fork_segment_id as i64) as &ToSql])
-            .expect(SQLITE_ERROR_MSG);
-
+                   &burn_fee_str, &tip_index_root.to_hex()])?;
         Ok(())
     }
     
     /// Insert a block header that is paired with an already-existing block commit and snapshot
-    pub fn insert_block_header<'a>(tx: &mut Transaction<'a>, header: &StacksBlockHeader, block_height: u64, fork_segment_id: u64) -> Result<(), db_error> {
+    pub fn insert_stacks_block_header<'a>(tx: &mut BurnDBTx<'a>, header: &StacksBlockHeader, block_height: u64, index_root: &TrieHash) -> Result<(), db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
 
         let total_work_str = format!("{}", header.total_work.work);
         let total_burn_str = format!("{}", header.total_work.burn);
         let block_hash = header.block_hash();
 
         tx.execute("INSERT INTO block_headers \
-                    (version, total_burn, total_work, proof, parent_block, parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, microblock_pubkey, block_hash, block_height, fork_segment_id) \
+                    (version, total_burn, total_work, proof, parent_block, parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, microblock_pubkey_hash, block_hash, block_height, index_root) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                     &[&header.version as &ToSql, &total_burn_str, &total_work_str, &header.proof.to_hex(), &header.parent_block.to_hex(), &header.parent_microblock.to_hex(), &header.parent_microblock_sequence, 
-                      &header.tx_merkle_root.to_hex(), &header.microblock_pubkey.to_hex(), &block_hash.to_hex(), &(block_height as i64) as &ToSql, &(fork_segment_id as i64) as &ToSql])
-            .expect(SQLITE_ERROR_MSG);
-
+                      &header.tx_merkle_root.to_hex(), &header.microblock_pubkey_hash.to_hex(), &block_hash.to_hex(), &(block_height as i64) as &ToSql, &index_root.to_hex()])?;
         Ok(())
     }
    
     /// Insert a microblock header that is paired with an already-existing block header
-    pub fn insert_microblock_header<'a>(tx: &mut Transaction<'a>, microblock_header: &StacksMicroblockHeader, parent_block_hash: &BlockHeaderHash, block_height: u64, fork_segment_id: u64) -> Result<(), db_error> {
+    pub fn insert_stacks_microblock_header<'a>(tx: &mut BurnDBTx<'a>, microblock_header: &StacksMicroblockHeader, parent_block_hash: &BlockHeaderHash, block_height: u64, index_root: &TrieHash) -> Result<(), db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
 
         let microblock_hash = microblock_header.block_hash();
 
-        tx.execute("INSERT INTO microblock_headers \
-                    (version, sequence, prev_block, tx_merkle_root, signature, microblock_hash, parent_block_hash, block_height, fork_segment_id) \
+        tx.execute("INSERT OR REPLACE INTO microblock_headers \
+                    (version, sequence, prev_block, tx_merkle_root, signature, microblock_hash, parent_block_hash, block_height, index_root) \
                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                    &[&header.version as &ToSql, &header.sequence as &ToSql, &microblock.prev_block.to_hex(), &microblock.tx_merkle_root.to_hex(), &microblock.signature.to_hex(), &microblock_hash.to_hex(),
-                      parent_block_hash.to_hex(), &(block_height as i64) as &ToSql, &(fork_segment_id as i64) as &ToSql])
-            .expect(SQLITE_ERROR_MSG);
+                    &[&microblock_header.version as &ToSql, &microblock_header.sequence as &ToSql, &microblock_header.prev_block.to_hex(),
+                    &microblock_header.tx_merkle_root.to_hex(), &microblock_header.signature.to_hex(), &microblock_header.block_hash().to_hex(),
+                    &parent_block_hash.to_hex(), &(block_height as i64) as &ToSql, &index_root.to_hex()])?;
+        Ok(())
+    }
+
+    /// Compress a microblock stream -- drops all headers not equal to the given sequence number.
+    /// Only call after we receive and accept the next anchored block.
+    pub fn trim_stacks_microblock_stream<'a>(tx: &mut BurnDBTx<'a>, parent_block_hash: &BlockHeaderHash, sequence: u8) -> Result<(), db_error> {
+        tx.execute("DELETE FROM microblock_headers WHERE sequence != ?1", &[&sequence])?;
         Ok(())
     }
 
     /// Get the first snapshot 
     pub fn get_first_block_snapshot(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let row_order = BlockSnapshot::row_order().join(",");
-        let qry = format!("SELECT {} FROM snapshots WHERE fork_segment_id = 0 AND parent_fork_segment_id = 0 AND fork_length = 0 AND fork_segment_length = 0 ORDER BY block_height LIMIT 1", row_order);
-        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), NO_PARAMS)?;
-
+        let qry = format!("SELECT {} FROM snapshots WHERE consensus_hash = ?1", row_order);
+        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &[&ConsensusHash([0u8; 20]).to_hex()])?;
         match rows.len() {
+            0 => {
+                // should never happen
+                panic!("FATAL: no first snapshot");
+            },
             1 => Ok(rows[0].clone()),
             _ => {
                 // should never happen 
-                panic!("FATAL: multiple first-block snapshots")
+                panic!("FATAL: multiple first-block snapshots");
             }
         }
     }
@@ -1276,9 +1159,7 @@ impl BurnDB {
         let row_order = BlockSnapshot::row_order().join(",");
         let qry = format!("SELECT {} FROM snapshots WHERE burn_header_hash = ?1", row_order);
         let args = [&burn_hash.to_hex()];
-        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)
-            .expect(SQLITE_ERROR_MSG);
-
+        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
         match rows.len() {
             0 => Ok(None),
             1 => Ok(Some(rows[0].clone())),
@@ -1289,17 +1170,38 @@ impl BurnDB {
         }
     }
     
+    /// Get a snapshot for an existing block given its state index
+    pub fn get_block_snapshot_at(conn: &Connection, index_root: &TrieHash) -> Result<Option<BlockSnapshot>, db_error> {
+        let row_order = BlockSnapshot::row_order().join(",");
+        let qry = format!("SELECT {} FROM snapshots WHERE index_root = ?1", row_order);
+        let args = [&index_root.to_hex()];
+        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)?;
+        match rows.len() {
+            0 => Ok(None),
+            1 => Ok(Some(rows[0].clone())),
+            _ => {
+                // should never happen 
+                panic!("FATAL: multiple block snapshots for the same block {}", index_root.to_hex());
+            }
+        }
+    }
+    
     /// Get a snapshot for an existing block in a particular fork segment
-    pub fn get_block_snapshot_in_fork_segment(conn: &Connection, block_height: u64, fork_segment_id: u64) -> Result<Option<BlockSnapshot>, db_error> {
+    pub fn get_block_snapshot_in_fork<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, index_root: &TrieHash) -> Result<Option<BlockSnapshot>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, block_height, index_root)? {
+            Some(sn) => {
+                sn
+            },
+            None => {
+                return Ok(None);
+            }
+        };
 
         let row_order = BlockSnapshot::row_order().join(",");
-        let qry = format!("SELECT {} FROM snapshots WHERE fork_segment_id = ?1 AND block_height = ?2", row_order);
-        let args = [&(fork_segment_id as i64) as &ToSql, &(block_height as i64) as &ToSql];
-        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)
-            .expect(SQLITE_ERROR_MSG);
-
+        let qry = format!("SELECT {} FROM snapshots WHERE index_root = ?1 AND block_height = ?2", row_order);
+        let args = [&ancestor_snapshot.index_root.to_hex() as &ToSql, &(block_height as i64) as &ToSql];
+        let rows = query_rows::<BlockSnapshot, _>(tx, &qry.to_string(), &args)?;
         match rows.len() {
             0 => Ok(None),
             1 => Ok(Some(rows[0].clone())),
@@ -1310,141 +1212,128 @@ impl BurnDB {
         }
     }
     
-    /// Get all snapshots in a fork segment
-    #[cfg(test)]
-    fn get_block_snapshots_in_fork_segment(conn: &Connection, fork_segment_id: u64) -> Result<Vec<BlockSnapshot>, db_error> {
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-
-        let row_order = BlockSnapshot::row_order().join(",");
-        let qry = format!("SELECT {} FROM snapshots WHERE fork_segment_id = ?1 ORDER BY block_height ASC", row_order);
-        let args = [&(fork_segment_id as i64) as &ToSql];
-        let rows = query_rows::<BlockSnapshot, _>(conn, &qry.to_string(), &args)
-            .expect(SQLITE_ERROR_MSG);
-
-        Ok(rows)
-    }
-
-    /// Get the first snapshot in a fork segment
-    fn get_fork_segment_head<'a>(tx: &mut Transaction<'a>, fork_segment_id: u64) -> Result<Option<BlockSnapshot>, db_error> {
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-
-        let row_order = BlockSnapshot::row_order().join(",");
-        let qry = format!("SELECT {} FROM snapshots WHERE fork_segment_id = ?1 ORDER BY block_height ASC LIMIT 1", row_order);
-        let rows = query_rows::<BlockSnapshot, _>(tx, &qry, &[&(fork_segment_id as i64) as &ToSql])
-            .expect(SQLITE_ERROR_MSG);
-
-        match rows.len() {
-            0 => {
-                Ok(None)
-            },
-            _ => {
-                Ok(Some(rows[0].clone()))
-            }
-        }
-    }
-
-    /// Get the last snapshot in a fork segment
-    pub fn get_fork_segment_tail<'a>(tx: &mut Transaction<'a>, fork_segment_id: u64) -> Result<Option<BlockSnapshot>, db_error> {
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-
-        let row_order = BlockSnapshot::row_order().join(",");
-        let qry = format!("SELECT {} FROM snapshots WHERE fork_segment_id = ?1 ORDER BY block_height DESC LIMIT 1", row_order);
-        let rows = query_rows::<BlockSnapshot, _>(tx, &qry, &[&(fork_segment_id as i64) as &ToSql])
-            .expect(SQLITE_ERROR_MSG);
-
-        match rows.len() {
-            0 => {
-                Ok(None)
-            },
-            _ => {
-                Ok(Some(rows[0].clone()))
-            }
-        }
-    }
-    
     /// Get a leader key at a specific location in the burn chain's fork history, given the
-    /// matching block commit's fork segment ID (block_height and vtxindex are the leader's
+    /// matching block commit's fork index root (block_height and vtxindex are the leader's
     /// calculated location in this fork).
     /// Returns None if there is no leader key at this location.
-    pub fn get_leader_key_at<'a>(tx: &mut Transaction<'a>, key_block_height: u64, key_vtxindex: u32, fork_segment_id: u64) -> Result<Option<LeaderKeyRegisterOp>, db_error> {
+    pub fn get_leader_key_at<'a>(tx: &mut BurnDBTx<'a>, key_block_height: u64, key_vtxindex: u32, tip_index_root: &TrieHash) -> Result<Option<LeaderKeyRegisterOp>, db_error> {
         assert!(key_block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-
-        let leader_snapshot = match BurnDB::get_ancestor_snapshot(tx, key_block_height, fork_segment_id).expect(SQLITE_ERROR_MSG) {
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, key_block_height, tip_index_root)? {
             Some(sn) => {
                 sn
             },
             None => {
-                // no such leader key
                 return Ok(None);
             }
         };
 
         let row_order = LeaderKeyRegisterOp::row_order().join(",");
-
-        let qry = format!("SELECT {} FROM leader_keys WHERE fork_segment_id = ?1 AND block_height = ?2 AND vtxindex = ?3", row_order);
-        let args = [&(leader_snapshot.fork_segment_id as i64) as &ToSql, &(key_block_height as i64) as &ToSql, &key_vtxindex as &ToSql];
-        let rows = query_rows::<LeaderKeyRegisterOp, _>(tx, &qry.to_string(), &args)?;
-
+        let qry = format!("SELECT {} FROM leader_keys WHERE index_root = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2", row_order);
+        let args = [&ancestor_snapshot.index_root.to_hex(), &(key_block_height as i64) as &ToSql, &key_vtxindex as &ToSql];
+        let rows = query_rows::<LeaderKeyRegisterOp, _>(tx, &qry, &args)?;
         match rows.len() {
-            0 => Ok(None),
-            1 => Ok(Some(rows[0].clone())),
+            0 => {
+                return Ok(None);
+            },
+            1 => {
+                return Ok(Some(rows[0].clone()));
+            },
             _ => {
-                // should never happen 
-                panic!("FATAL: multiple leader keys at block {} vtxindex {}", key_block_height, key_vtxindex);
+                panic!("Multiple keys at {},{} in {}", key_block_height, key_vtxindex, tip_index_root.to_hex());
             }
         }
     }
+    
+    /// Find the VRF public keys consumed by each block candidate in the given list.
+    /// The burn DB should have a key for each candidate; otherwise the candidate would not have
+    /// been accepted.
+    pub fn get_consumed_leader_keys<'a>(tx: &mut BurnDBTx<'a>, parent_tip_index_root: &TrieHash, block_candidates: &Vec<LeaderBlockCommitOp>) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
+        // get the set of VRF keys consumed by these commits 
+        let mut leader_keys = vec![];
+        for i in 0..block_candidates.len() {
+            let leader_key_block_height = block_candidates[i].block_height - (block_candidates[i].key_block_backptr as u64);
+            let leader_key_vtxindex = block_candidates[i].key_vtxindex as u32;
+            let leader_key = BurnDB::get_leader_key_at(tx, leader_key_block_height, leader_key_vtxindex, parent_tip_index_root)?
+                .expect(&format!("FATAL: no leader key for accepted block commit {} (at {},{})", &block_candidates[i].txid.to_hex(), leader_key_block_height, leader_key_vtxindex));
+                    
+            leader_keys.push(leader_key);
+        }
 
-    /// Get all leader keys registered in a block on the burn chain's history in this fork segment.
-    /// Returns the list of block commits in order by vtxindex.
-    pub fn get_leader_keys_by_block(conn: &Connection, block_height: u64, fork_segment_id: u64) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
+        Ok(leader_keys)
+    }
+
+    /// Get all leader keys registered in a block on the burn chain's history in this fork.
+    /// Returns the list of leader keys in order by vtxindex.
+    pub fn get_leader_keys_by_block<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_index_root: &TrieHash) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, block_height, tip_index_root)?
+            Some(sn) => {
+                sn
+            },
+            None => {
+                error!("No ancestor snapshot at {} from {}", block_height, tip_index_root.to_hex());
+                return Err(db_error::NotFoundError);
+            }
+        };
 
         let row_order = LeaderKeyRegisterOp::row_order().join(",");
 
-        let qry = format!("SELECT {} FROM leader_keys WHERE fork_segment_id = ?1 AND block_height = ?2 ORDER BY vtxindex ASC", row_order);
-        let args = [&(fork_segment_id as i64) as &ToSql, &(block_height as i64) as &ToSql];
+        let qry = format!("SELECT {} FROM leader_keys WHERE index_root = ?1 AND block_height = ?2 ORDER BY vtxindex ASC", row_order);
+        let args = [&ancestor_snapshot.index_root.to_hex() as &ToSql, &(block_height as i64) as &ToSql];
 
-        query_rows::<LeaderKeyRegisterOp, _>(conn, &qry.to_string(), &args)
+        query_rows::<LeaderKeyRegisterOp, _>(tx, &qry.to_string(), &args)
     }
 
-    /// Get all block commitments registered in a block on the burn chain's history in this fork segment.
+    /// Get all block commitments registered in a block on the burn chain's history in this fork.
     /// Returns the list of block commits in order by vtxindex.
-    pub fn get_block_commits_by_block(conn: &Connection, block_height: u64, fork_segment_id: u64) -> Result<Vec<LeaderBlockCommitOp>, db_error> {
+    pub fn get_block_commits_by_block<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_index_root: &TrieHash) -> Result<Vec<LeaderBlockCommitOp>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, block_height, tip_index_root)? {
+            Some(sn) => {
+                sn
+            },
+            None => {
+                error!("No ancestor snapshot at {} from {}", block_height, tip_index_root.to_hex());
+                return Err(db_error::NotFoundError);
+            }
+        };
 
         let row_order = LeaderBlockCommitOp::row_order().join(",");
 
-        let qry = format!("SELECT {} FROM block_commits WHERE fork_segment_id = ?1 AND block_height = ?2 ORDER BY vtxindex ASC", row_order);
-        let args = [&(fork_segment_id as i64) as &ToSql, &(block_height as i64) as &ToSql];
+        let qry = format!("SELECT {} FROM block_commits WHERE index_root = ?1 AND block_height = ?2 ORDER BY vtxindex ASC", row_order);
+        let args = [&ancestor_snapshot.index_root.to_hex() as &ToSql, &(block_height as i64) as &ToSql];
 
-        query_rows::<LeaderBlockCommitOp, _>(conn, &qry.to_string(), &args)
+        query_rows::<LeaderBlockCommitOp, _>(tx, &qry.to_string(), &args)
     }
 
-    /// Get all user burns registered in a block on is fork segment.
+    /// Get all user burns registered in a block on is fork.
     /// Returns list of user burns in order by vtxindex.
-    pub fn get_user_burns_by_block(conn: &Connection, block_height: u64, fork_segment_id: u64) -> Result<Vec<UserBurnSupportOp>, db_error> {
+    pub fn get_user_burns_by_block<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_index_root: &TrieHash) -> Result<Vec<UserBurnSupportOp>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, block_height, tip_index_root)? {
+            Some(sn) => {
+                sn
+            },
+            None => {
+                error!("No ancestor snapshot at {} from {}", block_height, tip_index_root.to_hex());
+                return Err(db_error::NotFoundError);
+            }
+        };
+        
         let row_order = UserBurnSupportOp::row_order().join(",");
 
-        let qry = format!("SELECT {} FROM user_burn_support WHERE fork_segment_id = ?1 AND block_height = ?2 ORDER BY vtxindex ASC", row_order);
-        let args = [&(fork_segment_id as i64) as &ToSql, &(block_height as i64) as &ToSql];
+        let qry = format!("SELECT {} FROM user_burn_support WHERE index_root = ?1 AND block_height = ?2 ORDER BY vtxindex ASC", row_order);
+        let args = [&ancestor_snapshot.index_root.to_hex() as &ToSql, &(block_height as i64) as &ToSql];
 
-        query_rows::<UserBurnSupportOp, _>(conn, &qry.to_string(), &args)
+        query_rows::<UserBurnSupportOp, _>(tx, &qry.to_string(), &args)
     }
 
-    /// Find out how any burn tokens were destroyed in a given block and fork segment.
-    pub fn get_block_burn_amount<'a>(tx: &mut Transaction<'a>, block_height: u64, fork_segment_id: u64) -> Result<u128, db_error> {
+    /// Find out how any burn tokens were destroyed in a given block on a given fork.
+    pub fn get_block_burn_amount<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, tip_index_root: &TrieHash) -> Result<u128, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
 
-        let user_burns = BurnDB::get_user_burns_by_block(tx, block_height, fork_segment_id)?;
-        let block_commits = BurnDB::get_block_commits_by_block(tx, block_height, fork_segment_id)?;
+        let user_burns = BurnDB::get_user_burns_by_block(tx, block_height, tip_index_root)?;
+        let block_commits = BurnDB::get_block_commits_by_block(tx, block_height, tip_index_root)?;
         let mut burn_total : u128 = 0;
 
         for i in 0..user_burns.len() {
@@ -1455,40 +1344,47 @@ impl BurnDB {
         }
         Ok(burn_total)
     }
-
-    /// Get a block commit at a specific location in the burn chain on a particular fork segment.
+    
+    /// Get a parent block commit at a specific location in the burn chain on a particular fork.
     /// Returns None if there is no block commit at this location.
-    pub fn get_block_commit_at(conn: &Connection, block_height: u64, vtxindex: u32, fork_segment_id: u64) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+    pub fn get_block_commit_parent<'a>(tx: &mut BurnDBTx<'a>, block_height: u64, vtxindex: u32, index_root: &TrieHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-        
-        let row_order_list : Vec<String> = LeaderBlockCommitOp::row_order().iter().map(|r| format!("block_commits.{}", r)).collect();
-        let row_order = row_order_list.join(",");
+        let ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, block_height, index_root)? {
+            Some(sn) => {
+                sn
+            },
+            None => {
+                return Ok(None);
+            }
+        };
 
-        let qry = format!("SELECT {} FROM block_commits WHERE block_commits.fork_segment_id = ?1 AND block_commits.block_height = ?2 AND block_commits.vtxindex = ?3", row_order);
-        let args = [&(fork_segment_id as i64) as &ToSql, &(block_height as i64) as &ToSql, &vtxindex as &ToSql];
-        let rows = query_rows::<LeaderBlockCommitOp, _>(conn, &qry.to_string(), &args)?;
+        let row_order = LeaderBlockCommitOp::row_order().join(",");
+        let qry = format!("SELECT {} FROM block_commits WHERE index_root = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2", row_order);
+        let args = [&ancestor_snapshot.index_root.to_hex(), &(block_height as i64) as &ToSql, &vtxindex as &ToSql];
+        let rows = query_rows::<LeaderBlockCommitOp, _>(tx, &qry, &args)?;
 
         match rows.len() {
-            0 => Ok(None),
-            1 => Ok(Some(rows[0].clone())),
+            0 => {
+                return Ok(None);
+            },
+            1 => {
+                return Ok(Some(rows[0].clone()));
+            },
             _ => {
-                // should never happen 
-                panic!("FATAL: multiple block commits at block {} vtxindex {}", block_height, vtxindex);
+                panic!("Multiple parent blocks at {},{} in {}", block_height, vtxindex, index_root.to_hex());
             }
         }
     }
 
-    /// Get a block commit by its content-addressed location in the given fork segment.
-    /// Returns None if there is no block commit with this key that is on this fork 
-    pub fn get_block_commit(conn: &Connection, txid: &Txid, burn_header_hash: &BurnchainHeaderHash, fork_segment_id: u64) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-
+    /// Get a block commit by its content-addressed location.  Note that burn_header_hash is enough
+    /// to identify the fork we're on, since block hashes are globally-unique (w.h.p.) by
+    /// construction.
+    pub fn get_block_commit(conn: &Connection, txid: &Txid, burn_header_hash: &BurnchainHeaderHash) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         let row_order_list : Vec<String> = LeaderBlockCommitOp::row_order().iter().map(|r| format!("block_commits.{}", r)).collect();
         let row_order = row_order_list.join(",");
 
-        let qry = format!("SELECT {} FROM block_commits WHERE block_commits.fork_segment_id = ?1 AND block_commits.txid = ?2 AND block_commits.burn_header_hash = ?3", row_order);
-        let args = [&(fork_segment_id as i64) as &ToSql, &txid.to_hex(), &burn_header_hash.to_hex()];
+        let qry = format!("SELECT {} FROM block_commits WHERE block_commits.txid = ?1 AND block_commits.burn_header_hash = ?2", row_order);
+        let args = [&txid.to_hex(), &burn_header_hash.to_hex()];
         let rows = query_rows::<LeaderBlockCommitOp, _>(conn, &qry.to_string(), &args)?;
 
         match rows.len() {
@@ -1502,141 +1398,166 @@ impl BurnDB {
     }
 
     /// Find out whether or not a particular VRF key was used before in this fork segment's history.
-    pub fn has_VRF_public_key<'a>(tx: &mut Transaction<'a>, key: &VRFPublicKey, fork_segment_id: u64) -> Result<bool, db_error> {
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-
-        let qry = "SELECT COUNT(leader_keys.public_key) FROM leader_keys WHERE public_key = ?1 AND fork_segment_id = ?2".to_string();
-        let ancestor_fork_segments = BurnDB::get_ancestor_fork_segments(tx, fork_segment_id).expect(SQLITE_ERROR_MSG);
-        for ancestor_fork_id in ancestor_fork_segments {
-            let args = [&key.to_hex(), &(ancestor_fork_id as i64) as &ToSql];
-            let count = query_count(tx, &qry, &args).expect(SQLITE_ERROR_MSG);
-            if count != 0 {
-                return Ok(true)
+    pub fn has_VRF_public_key<'a>(tx: &mut BurnDBTx<'a>, key: &VRFPublicKey, tip_index_root: &TrieHash) -> Result<bool, db_error> {
+        let tip_snapshot = match BurnDB::get_block_snapshot_at(tx, tip_index_root)? {
+            None => {
+                error!("No tip with index root {}", tip_index_root.to_hex());
+                return Err(db_error::NotFoundError);
             }
-        }
+            Some(sn) => {
+                sn
+            }
+        };
 
-        Ok(false)
+        let key_status = match BurnDB::index_value_get(tx, &tip_snapshot.burn_header_hash, &format!("burndb:vrf:{}", key.to_hex()))? {
+            Some(status_str) => {
+                // key was seen before
+                true
+            },
+            None => {
+                // never before seen
+                false
+            }
+        };
+
+        Ok(key_status)
     }
 
-    /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork
-    pub fn is_fresh_consensus_hash<'a>(tx: &mut Transaction<'a>, current_block_height: u64, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash, fork_segment_id: u64) -> Result<bool, db_error> {
+    /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
+    /// The fork must exist.
+    pub fn is_fresh_consensus_hash<'a>(tx: &mut BurnDBTx<'a>, current_block_height: u64, consensus_hash_lifetime: u64, consensus_hash: &ConsensusHash, tip_index_root: &TrieHash) -> Result<bool, db_error> {
         assert!(current_block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
+        let first_snapshot = BurnDB::get_first_block_snapshot(tx)?;
+        let tip_snapshot = match BurnDB::get_block_snapshot_at(tx, tip_index_root)? {
+            None => {
+                return Err(db_error::NotFoundError);
+            }
+            Some(sn) => {
+                sn
+            }
+        };
 
-        let oldest_block_height =
-            if current_block_height <= (consensus_hash_lifetime as u64) {
+        let mut oldest_height = 
+            if current_block_height < consensus_hash_lifetime {
                 0
             }
             else {
-                current_block_height - (consensus_hash_lifetime as u64)
+                current_block_height - consensus_hash_lifetime
             };
 
-        let row_order = BlockSnapshot::row_order().join(",");
-        let qry = format!("SELECT {} FROM snapshots WHERE fork_segment_id = ?1 AND block_height >= ?2 AND block_height <= ?3 ORDER BY block_height DESC", row_order); 
+        if oldest_height < first_snapshot.block_height {
+            oldest_height = first_snapshot.block_height;
+        }
 
-        let ancestor_fork_segments = BurnDB::get_ancestor_fork_segments(tx, fork_segment_id).expect(SQLITE_ERROR_MSG);
-        
-        for fork_segment in ancestor_fork_segments {
-            let args = [&(fork_segment as i64) as &ToSql, &(oldest_block_height as i64) as &ToSql, &(current_block_height as i64) as &ToSql];
-            let rows = query_rows::<BlockSnapshot, _>(tx, &qry, &args).expect(SQLITE_ERROR_MSG);
-
-            if rows.len() == 0 {
-                break;
-            }
-
-            for row in rows {
-                if row.consensus_hash == *consensus_hash {
-                    return Ok(true);
+        for i in oldest_height..current_block_height+1 {
+            // all of these values should exist
+            let block_hash = match BurnDB::index_value_get(tx, &tip_snapshot.burn_header_hash, &format!("burndb:block_hash:{}", i))? {
+                Some(hex_str) => {
+                    BurnchainHeaderHash::from_hex(&hex_str).expect(&format!("FATAL: corrupt block header hash at {}", i))
                 }
+                None => {
+                    panic!("Discontiguous index: missing block {}", i);
+                }
+            };
+
+            let ancestor_snapshot = match BurnDB::get_block_snapshot(tx, &block_hash)? {
+                Some(sn) => {
+                    sn
+                },
+                None => {
+                    panic!("Discontiguous index: missing block {}", block_hash.to_hex());
+                }
+            };
+
+            if ancestor_snapshot.consensus_hash == *consensus_hash {
+                // found!
+                return Ok(true);
             }
         }
 
-        Ok(false)
+        return Ok(false);
     }
 
     /// Determine whether or not a leader key has been consumed by a subsequent block commitment in
     /// this fork's history.
     /// Will return false if the leader key does not exist.
-    pub fn is_leader_key_consumed<'a>(tx: &mut Transaction<'a>, tip_block_height: u64, leader_key: &LeaderKeyRegisterOp, tip_fork_segment_id: u64) -> Result<bool, db_error> {
+    pub fn is_leader_key_consumed<'a>(tx: &mut BurnDBTx<'a>, leader_key: &LeaderKeyRegisterOp, tip_index_root: &TrieHash) -> Result<bool, db_error> {
         assert!(leader_key.block_height < BLOCK_HEIGHT_MAX);
-        assert!(leader_key.fork_segment_id < FORK_SEGMENT_ID_MAX);
-        assert!(tip_block_height < BLOCK_HEIGHT_MAX);
-
-        let qry = "SELECT COUNT(*) FROM block_commits WHERE fork_segment_id = ?1 AND block_height <= ?2 AND key_vtxindex = ?3 AND block_height - key_block_backptr = ?4".to_string();
-        let ancestor_fork_segments = BurnDB::get_ancestor_fork_segments(tx, tip_fork_segment_id).expect(SQLITE_ERROR_MSG);
-        for fork_segment in ancestor_fork_segments {
-            let args = [&(fork_segment as i64) as &ToSql, &(tip_block_height as i64) as &ToSql, &leader_key.vtxindex as &ToSql, &(leader_key.block_height as i64) as &ToSql];
-            let count = query_count(tx, &qry, &args).expect(SQLITE_ERROR_MSG);
-            if count != 0 {
-                // found
-                return Ok(true);
+        
+        let tip_snapshot = match BurnDB::get_block_snapshot_at(tx, tip_index_root)? { 
+            None => {
+                error!("No tip with index root {}", tip_index_root.to_hex());
+                return Err(db_error::NotFoundError);
             }
-        }
+            Some(sn) => {
+                sn
+            }
+        };
 
-        Ok(false)
+        let key_status = match BurnDB::index_value_get(tx, &tip_snapshot.burn_header_hash, &format!("burndb:vrf:{}", leader_key.public_key.to_hex()))? {
+            Some(status_str) => {
+                if status_str == "1" {
+                    // key is still available
+                    false
+                }
+                else if status_str == "0" {
+                    // key is consumed
+                    true
+                }
+                else {
+                    panic!("Invalid key status string {}", status_str);
+                }
+            },
+            None => {
+                // never before seen
+                false
+            }
+        };
+
+        Ok(key_status)
     }
 
     /// Get the latest block snapshot on this fork where a sortition occured.
     /// Search snapshots up to (but excluding) the given block height.
     /// Will always return a snapshot -- even if it's the initial sentinel snapshot.
-    /// NOTE: the search will include burn_block_height.  burn_block_height and fork_segment_id
-    /// identify the chain tip.
-    pub fn get_last_snapshot_with_sortition<'a>(tx: &mut Transaction<'a>, burn_block_height: u64, fork_segment_id: u64) -> Result<BlockSnapshot, db_error> {
+    pub fn get_last_snapshot_with_sortition<'a>(tx: &mut BurnDBTx<'a>, burn_block_height: u64, tip_index_root: &TrieHash) -> Result<BlockSnapshot, db_error> {
         assert!(burn_block_height < BLOCK_HEIGHT_MAX);
-        assert!(fork_segment_id < FORK_SEGMENT_ID_MAX);
-
-        let row_order = BlockSnapshot::row_order().join(",");
-        let qry = format!("SELECT {} FROM snapshots WHERE snapshots.sortition = 1 AND snapshots.block_height <= ?1 AND fork_segment_id = ?2 ORDER BY snapshots.block_height DESC LIMIT 1", row_order);
-        let ancestor_fork_segments = BurnDB::get_ancestor_fork_segments(tx, fork_segment_id).expect(SQLITE_ERROR_MSG);
-        for fork_segment in ancestor_fork_segments {
-            let args = [&(burn_block_height as i64) as &ToSql, &(fork_segment as i64) as &ToSql];
-            let rows = query_rows::<BlockSnapshot, _>(tx, &qry, &args)?;
-
-            if rows.len() == 0 {
-                continue;
+        test_debug!("Get snapshot with index root {}, expect height {}", tip_index_root.to_hex(), burn_block_height);
+        let tip_snapshot = match BurnDB::get_block_snapshot_at(tx, tip_index_root)? {
+            None => {
+                error!("No tip with index root {}", tip_index_root.to_hex());
+                return Err(db_error::NotFoundError);
             }
-            else if rows.len() == 1 {
-                return Ok(rows[0].clone());
-            }
-            else {
-                // should never happen -- there is always a last-block-with-sortition.  Even the sentinel initial snapshot has a sortition.
-                panic!("Found more than one last canonical block snapshot with sortition");
-            }
-        }
-        
-        // should never happen -- implies discontinuity in the burn db
-        panic!("No initial snapshot with sortition (disconnected block {} fork segment {})", burn_block_height, fork_segment_id);
-    }
-
-    /// Get a consensus hash at a particular block height, or if that block height is too far in the
-    /// past or too far in the future, return None.
-    /// Due to the way we construct the fork segments, the canonical fork is the longest fork, and we
-    /// can avoid the expensive get_consensus_at() function in favor of select the snapshot on the
-    /// canonical fork segment at the given block height.
-    /// NOTE: not for use with consensus-critical code, hence not a transaction.
-    pub fn get_canonical_consensus_hash(conn: &Connection, block_height: u64) -> Result<Option<ConsensusHash>, db_error> {
-        assert!(block_height < BLOCK_HEIGHT_MAX);
-
-        let chain_tip = BurnDB::get_canonical_chain_tip(conn)?;
-        if chain_tip.block_height < block_height {
-            return Ok(None);
-        }
-
-        let snapshot = match BurnDB::get_block_snapshot_in_fork_segment(conn, block_height, chain_tip.fork_segment_id).expect(SQLITE_ERROR_MSG) {
             Some(sn) => {
                 sn
-            },
-            None => { 
-                return Ok(None);
             }
         };
 
-        Ok(Some(snapshot.consensus_hash))
+        assert_eq!(tip_snapshot.block_height, burn_block_height);
+
+        let ancestor_hash = match BurnDB::index_value_get(tx, &tip_snapshot.burn_header_hash, &"burndb:last_sortition".to_string())? {
+            Some(hex_str) => {
+                BurnchainHeaderHash::from_hex(&hex_str).expect(&format!("FATAL: corrupt database: failed to parse {} into a hex string", &hex_str))
+            },
+            None => {
+                // no prior sortitions, so get the first
+                return BurnDB::get_first_block_snapshot(tx);
+            }
+        };
+
+        match BurnDB::get_block_snapshot(tx, &ancestor_hash) {
+            Ok(snapshot_opt) => {
+                Ok(snapshot_opt.expect(&format!("FATAL: corrupt index: no snapshot {}", ancestor_hash.to_hex())))
+            },
+            Err(e) => {
+                Err(e)
+            }
+        }
     }
 
     /// Get a burn blockchain snapshot, given a burnchain configuration struct.
     /// Used mainly by the network code to determine what the chain tip currently looks like.
-    pub fn get_burnchain_view<'a>(tx: &mut Transaction<'a>, burnchain: &Burnchain) -> Result<BurnchainView, db_error> {
+    pub fn get_burnchain_view<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain) -> Result<BurnchainView, db_error> {
         let chain_tip = BurnDB::get_canonical_chain_tip(tx)?;
         if chain_tip.block_height < burnchain.first_block_height {
             // should never happen, but don't panic since this is network-callable code
@@ -1658,87 +1579,122 @@ impl BurnDB {
                 chain_tip.block_height - (burnchain.stable_confirmations as u64)
             };
 
-        let stable_snapshot = match BurnDB::get_block_snapshot_in_fork_segment(tx, stable_block_height, chain_tip.fork_segment_id).expect(SQLITE_ERROR_MSG) {
+        let stable_snapshot = match BurnDB::get_block_snapshot_in_fork(tx, stable_block_height, &chain_tip.index_root)? {
             Some(sn) => {
                 sn
             },
             None => {
                 // shouldn't be possible, but don't panic since this is network-callable code
-                error!("Failed to load snapshot for block {} from fork segment {}", stable_block_height, chain_tip.fork_segment_id);
+                error!("Failed to load snapshot for block {} from fork {}", stable_block_height, &chain_tip.index_root.to_hex());
                 return Err(db_error::Corruption);
             }
         };
+
+        // get all consensus hashes between the chain tip, and the stable height back
+        // MAX_NEIGHBOR_BLOCK_DELAY
+        let oldest_height = 
+            if stable_snapshot.block_height < MAX_NEIGHBOR_BLOCK_DELAY {
+                0
+            }
+            else {
+                stable_snapshot.block_height - MAX_NEIGHBOR_BLOCK_DELAY
+            };
+
+        let mut last_consensus_hashes = HashMap::new();
+        for height in oldest_height..chain_tip.block_height {
+            let ch = match BurnDB::get_consensus_at(tx, height, &chain_tip.index_root)? {
+                Some(ch) => {
+                    ch
+                },
+                None => {
+                    continue;
+                }
+            };
+            last_consensus_hashes.insert(height, ch);
+        }
 
         test_debug!("Chain view: {},{}-{},{}", chain_tip.block_height, chain_tip.consensus_hash.to_hex(), stable_block_height, stable_snapshot.consensus_hash.to_hex());
         Ok(BurnchainView {
             burn_block_height: chain_tip.block_height, 
             burn_consensus_hash: chain_tip.consensus_hash,
             burn_stable_block_height: stable_block_height,
-            burn_stable_consensus_hash: stable_snapshot.consensus_hash
+            burn_stable_consensus_hash: stable_snapshot.consensus_hash,
+            last_consensus_hashes: last_consensus_hashes
         })
     }
 
-    /// Get the header inventory information over a range.
-    /// Returns at most 2000 entries, ending at the given chain tip.
-    pub fn get_stacks_block_headers<'a>(tx: &mut Transaction<'a>, tip_block_height: u64, tip_fork_segment_id: u64) -> Result<Vec<(BlockHeaderHash, Option<StacksBlockHeader>)>, db_error> {
+    /// Get a single stacks block header
+    pub fn get_stacks_block_header(conn: &Connection, block_hash: &BlockHeaderHash) -> Result<Option<StacksBlockHeader>, db_error> {
+        let row_order = StacksBlockHeader::row_order().join(",");
+        let sql = format!("SELECT {} FROM block_headers WHERE block_hash = ?1", &row_order);
+        let rows = query_rows::<StacksBlockHeader, _>(tx, &sql, &[&block_hash.to_hex()])?;
+        match rows.len() {
+            0 => Ok(None),
+            1 => Ok(rows[0].clone()),
+            _ => panic!("FATAL: multiple rows for the same block hash");
+        }
+    }
+    
+    /// Get the tail of a block's microblock stream
+    pub fn get_stacks_microblock_stream_tail(conn: &DBConn, parent_block_hash: &BlockHeaderHash) -> Result<Option<StacksBlockHeader>, db_error> {
+        let row_order = StacksMicroblockHeader.row_order().join(",");
+        let sql = format!("SELECT {} FROM microblock_headers WHERE parent_block_hash = ?1 ORDER BY sequence DESC LIMIT 1", &row_order);
+        let rows = query_rows::<StacksMicroblockHeader, >(conn, &sql, &[parent_block_hash.to_hex()])?;
+        match rows.len() {
+            0 => Ok(None),
+            1 => Ok(Some(rows[0].clone())),
+            _ => panic!("FATAL: DB returned multiple microblock headers for the same block")
+        }
+    }
+
+    /// Get the sequence of stacks block headers and microblock stream tails over a given burnchain
+    /// range.  Returns (Some(BlockHeaderHash), ...) if there was a sortition in block
+    /// tail_block_height - i; returns (None, None, None) if not.
+    pub fn get_stacks_block_headers<'a>(tx: &mut BurnDBTx<'a>, count: u64, tail_block_height: u64, tip_index_root: &TrieHash) -> Result<Vec<(Option<BlockHeaderHash>, Option<StacksBlockHeader>, Option<StacksMicroblockHeader>)>, db_error> {
         assert!(tip_block_height < BLOCK_HEIGHT_MAX);
-        assert!(tip_fork_segment_id < FORK_SEGMENT_ID_MAX);
-
-        let count = 2000u64;
-
-        let header_row_order = StacksBlockHeader::row_order().iter().map(|s| format!("block_header.{}", s)).collect().join(",");
-        let snapshot_row_order = BlockSnapshot::row_order().iter().map(|s| format!("snapshots.{}", s)).collect().join(",");
-        let header_row_offset = BlockSnapshot::row_order().len();
-
-        let qry = format!("SELECT {},{} FROM snapshots LEFT JOIN block_headers \
-                          ON block_headers.block_height = snapshots.block_height AND block_headers.fork_segment_id = snapshots.fork_segment_id AND block_headers.block_hash = snapshots.winning_stacks_block_hash \
-                          WHERE fork_segment_id = ?1 AND block_height > ?2 AND block_height <= ?3 ORDER BY block_height DESC LIMIT {}", snapshots_row_order, header_row_order count);
-
-        let mut block_inventory = Vec::with_capacity(count as usize);
-        let mut cur_block_height = tip_block_height;
-
-        // get as many as we can, up to $count
-        let fork_segments = BurnDB::get_ancestor_fork_segments(tx, tip_fork_segment_id).expect(SQLITE_ERROR_MSG);
-        for fork_segment in fork_segments {
-            let next_block_height = 
-                if cur_block_height < count {
-                    0
-                }
-                else {
-                    cur_block_height - count
-                };
-       
-            let mut stmt = conn.prepare(qry).expect(SQLITE_ERROR_MSG);
-            let mut rows = stmt.query(sql_args).expect(SQLITE_ERROR_MSG);
-            while let Some(row_res) = rows.next() {
-                let row = row_res.expect(SQLITE_ERROR_MSG);
-                let next_snapshot = BlockSnapshot::from_row(&row, 0)?;
-                let next_header_opt =
-                    if next_snapshot.sortition {
-                        let next_header = StacksBlockHeader::from_row(&row, header_row_offset)?;
-                        Some(next_header)
-                    }
-                    else {
-                        None
-                    };
-
-                block_inventory.push((next_snapshot, next_header_opt));
-                if block_inventory.len() >= count as usize {
-                    break;
-                }
+        let tail_ancestor_snapshot = match BurnDB::get_ancestor_snapshot(tx, tail_block_height, tip_index_root)? {
+            Some(sn) => {
+                sn
+            },
+            None => {
+                error!("No such block {} from {}", tail_block_height, tip_root_index.to_hex());
+                return Err(db_error::NotFoundError);
             }
+        };
 
-            if block_inventory.len() >= count as usize {
-                break;
+        let start_height = 
+            if tail_block_height < count {
+                0
             }
+            else {
+                tail_block_height - count
+            };
 
-            if cur_block_height > 0 {
-                cur_block_height -= 1;
+        let mut ret = vec![];
+
+        for height in start_height..tail_block_height {
+            let snapshot = match BurnDB::get_ancestor_snapshot(tx, height, tip_index_root)? {
+                Some(sn) => {
+                    sn
+                },
+                None => {
+                    error!("No such block {} from {}", tail_block_height, tip_root_index.to_hex());
+                    return Err(db_error::NotFoundError);
+                }
+            };
+
+            if snapshot.sortition {
+                let block_commit = BurnDB::get_block_commit(tx, &sortition.winning_block_txid, &sortition.burn_header_hash)?;
+                let stacks_block_header_opt = BurnDB::get_stacks_block_header(tx, &block_commit.stacks_block_header)?;
+                let stacks_microblock_header_opt = BurnDB::get_stacks_microblock_stream_tail(tx, &block_commit.stacks_block_header)?;
+                ret.push((Some(block_commit.block_header_hash), stacks_block_header_opt, stacks_microblock_header_opt));
+            }
+            else {
+                ret.push((None, None, None));
             }
         }
 
-        block_inventory.reverse();
-        Ok(block_inventory)
+        Ok(ret)
     }
 }
 
@@ -1803,34 +1759,59 @@ mod tests {
 
             txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
             vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            
-            fork_segment_id: 0,
+            block_height: block_height + 1,
+            burn_header_hash: BurnchainHeaderHash([0x01; 32])
         };
 
         let mut db = BurnDB::connect_memory(block_height, &first_burn_hash).unwrap();
 
-        {   // force the tx to go out of scope when we commit
+        let (index_root, parent_index_root) = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_leader_key(&mut tx, &leader_key).unwrap();
+            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
+            sn.block_height += 1;
+
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
+            
             tx.commit().unwrap();
+
+            (index_root, sn.index_root.clone())
+        };
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let leader_key_opt = BurnDB::get_leader_key_at(&mut tx, block_height + 1, vtxindex, &index_root).unwrap();
+            assert!(leader_key_opt.is_some());
+            assert_eq!(leader_key_opt.unwrap(), leader_key);
         }
 
-        let res_leader_keys = BurnDB::get_leader_keys_by_block(db.conn(), block_height, 0).unwrap();
-        assert_eq!(res_leader_keys.len(), 1);
-        assert_eq!(res_leader_keys[0], leader_key);
+        let new_index_root = {
+            let mut tx = db.tx_begin().unwrap();
+            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
 
-        let no_leader_keys = BurnDB::get_leader_keys_by_block(db.conn(), block_height+1, 0).unwrap();
-        assert_eq!(no_leader_keys.len(), 0);
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x02; 32]);
+            sn.block_height += 1;
 
-        let mut tx = db.tx_begin().unwrap();
-        let leader_key_opt = BurnDB::get_leader_key_at(&mut tx, block_height, vtxindex, 0).unwrap();
-        assert!(leader_key_opt.is_some());
-        assert_eq!(leader_key_opt.unwrap(), leader_key);
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
+            
+            tx.commit().unwrap();
+            index_root
+        };
 
-        let leader_key_none = BurnDB::get_leader_key_at(&mut tx, block_height, vtxindex+1, 0).unwrap();
-        assert!(leader_key_none.is_none());
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let leader_key_opt = BurnDB::get_leader_key_at(&mut tx, block_height + 1, vtxindex, &new_index_root).unwrap();
+            assert!(leader_key_opt.is_some());
+            assert_eq!(leader_key_opt.unwrap(), leader_key);
+            
+            let leader_key_none = BurnDB::get_leader_key_at(&mut tx, block_height + 1, vtxindex+1, &new_index_root).unwrap();
+            assert!(leader_key_none.is_none());
+        }
     }
 
     #[test]
@@ -1839,13 +1820,25 @@ mod tests {
         let vtxindex = 456;
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
+        let leader_key = LeaderKeyRegisterOp { 
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
+
+            txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+            vtxindex: vtxindex,
+            block_height: block_height + 1,
+            burn_header_hash: BurnchainHeaderHash([0x01; 32])
+        };
+
         let block_commit = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
             parent_block_backptr: 0x4140,
             parent_vtxindex: 0x4342,
-            key_block_backptr: 0x5150,
-            key_vtxindex: 0x6160,
+            key_block_backptr: 1,
+            key_vtxindex: vtxindex as u16,
             epoch_num: 0x71706362,
             memo: vec![0x80],
 
@@ -1860,63 +1853,239 @@ mod tests {
 
             txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
             vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            
-            fork_segment_id: 0,
+            block_height: block_height + 2,
+            burn_header_hash: BurnchainHeaderHash([0x03; 32])
         };
 
         let mut db = BurnDB::connect_memory(block_height, &first_burn_hash).unwrap();
+
+        let (key_index_root, key_parent_index_root) = {
+            let mut tx = db.tx_begin().unwrap();
+            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
+            sn.block_height += 1;
+
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
+            
+            tx.commit().unwrap();
+
+            (index_root, sn.index_root.clone())
+        };
+
+        // test get_consumed_leader_keys()
         {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_block_commit(&mut tx, &block_commit).unwrap();
-            tx.commit().unwrap();
+            let keys = BurnDB::get_consumed_leader_keys(&mut tx, &key_index_root, &vec![block_commit.clone()]).unwrap();
+            assert_eq!(keys, vec![leader_key.clone()]);
         }
 
-        let res_block_commits = BurnDB::get_block_commits_by_block(db.conn(), block_height, 0).unwrap();
-        assert_eq!(res_block_commits.len(), 1);
-        assert_eq!(res_block_commits[0], block_commit);
+        // test is_leader_key_consumed()
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let is_consumed = BurnDB::is_leader_key_consumed(&mut tx, &leader_key, &key_index_root).unwrap();
+            assert!(!is_consumed);
+        }
+        
+        let (commit_index_root, commit_parent_index_root) = {
+            let mut tx = db.tx_begin().unwrap();
+            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
+            sn.block_height += 1;
 
-        let no_block_commits = BurnDB::get_leader_keys_by_block(db.conn(), block_height+1, 0).unwrap();
-        assert_eq!(no_block_commits.len(), 0);
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone())], &vec![leader_key.clone()]).unwrap();
+            
+            tx.commit().unwrap();
+
+            (index_root, sn.index_root.clone())
+        };
+
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let res_block_commits = BurnDB::get_block_commits_by_block(&mut tx, block_height+2, &commit_index_root).unwrap();
+            assert_eq!(res_block_commits.len(), 1);
+            assert_eq!(res_block_commits[0], block_commit);
+
+            let no_block_commits = BurnDB::get_block_commits_by_block(&mut tx, block_height+1, &commit_index_root).unwrap();
+            assert_eq!(no_block_commits.len(), 0);
+        }
+        
+        // test is_leader_key_consumed() now that the commit exists
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let is_consumed = BurnDB::is_leader_key_consumed(&mut tx, &leader_key, &commit_index_root).unwrap();
+            assert!(is_consumed);
+        }
+
+        // advance and get parent
+        let (empty_index_root, empty_parent_index_root) = {
+            let mut tx = db.tx_begin().unwrap();
+            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x05; 32]);
+            sn.block_height += 1;
+
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
+            
+            tx.commit().unwrap();
+
+            (index_root, sn.index_root.clone())
+        };
+        
+        // test get_block_commit_parent()
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let parent = BurnDB::get_block_commit_parent(&mut tx, block_height + 2, block_commit.vtxindex, &empty_index_root).unwrap();
+            assert!(parent.is_some());
+            assert_eq!(parent.unwrap(), block_commit);
+
+            let parent = BurnDB::get_block_commit_parent(&mut tx, block_height + 3, block_commit.vtxindex, &empty_index_root).unwrap();
+            assert!(parent.is_none());
+            
+            let parent = BurnDB::get_block_commit_parent(&mut tx, block_height + 2, block_commit.vtxindex + 1, &empty_index_root).unwrap();
+            assert!(parent.is_none());
+        }
+
+        // test get_block_commit()
+        {
+            let commit = BurnDB::get_block_commit(db.conn(), &block_commit.txid, &block_commit.burn_header_hash).unwrap();
+            assert!(commit.is_some());
+            assert_eq!(commit.unwrap(), block_commit);
+
+            let bad_txid = Txid::from_bytes_be(&hex_bytes("4c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap();
+            let commit = BurnDB::get_block_commit(db.conn(), &bad_txid, &block_commit.burn_header_hash).unwrap();
+            assert!(commit.is_none());
+        }
+        
+        // test get_consumed_leader_keys() (should be doable at any subsequent index root)
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let keys = BurnDB::get_consumed_leader_keys(&mut tx, &empty_index_root, &vec![block_commit.clone()]).unwrap();
+            assert_eq!(keys, vec![leader_key.clone()]);
+        }
+        
+        // test is_leader_key_consumed() (should be duable at any subsequent index root)
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let is_consumed = BurnDB::is_leader_key_consumed(&mut tx, &leader_key, &empty_index_root).unwrap();
+            assert!(is_consumed);
+            
+            let is_consumed = BurnDB::is_leader_key_consumed(&mut tx, &leader_key, &key_index_root).unwrap();
+            assert!(!is_consumed);
+        }
+
+        // make a fork between the leader key and block commit, and verify that the key is
+        // unconsumed
+        let (fork_commit_root, parent_fork_commit_root) = {
+            let mut tx = db.tx_begin().unwrap();
+            let mut sn = BurnDB::get_block_snapshot(&tx, &BurnchainHeaderHash([0x01; 32])).unwrap().unwrap();
+
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x13; 32]);
+            sn.block_height += 1;
+
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
+            
+            tx.commit().unwrap();
+
+            (index_root, sn.index_root.clone())
+        };
+
+        // test get_consumed_leader_keys() and is_leader_key_consumed() against this new fork
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let keys = BurnDB::get_consumed_leader_keys(&mut tx, &fork_commit_root, &vec![block_commit.clone()]).unwrap();
+            assert_eq!(keys, vec![leader_key.clone()]);
+
+            let is_consumed = BurnDB::is_leader_key_consumed(&mut tx, &leader_key, &fork_commit_root).unwrap();
+            assert!(!is_consumed);
+        }
     }
-
+    
     #[test]
     fn test_insert_user_burn() {
         let block_height = 123;
         let vtxindex = 456;
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
+        let leader_key = LeaderKeyRegisterOp { 
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
+
+            txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+            vtxindex: vtxindex,
+            block_height: block_height + 1,
+            burn_header_hash: BurnchainHeaderHash([0x01; 32])
+        };
+
         let user_burn = UserBurnSupportOp {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
             public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
             block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
-            key_block_backptr: 258,
-            key_vtxindex: 772,
+            key_block_backptr: 1,
+            key_vtxindex: vtxindex as u16,
             memo: vec![0x05],
             burn_fee: 12345,
 
             txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
             vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            
-            fork_segment_id: 0,
+            block_height: block_height + 2,
+            burn_header_hash: BurnchainHeaderHash([0x03; 32])
         };
 
         let mut db = BurnDB::connect_memory(block_height, &first_burn_hash).unwrap();
+        
+        let (key_index_root, key_parent_index_root) = {
+            let mut tx = db.tx_begin().unwrap();
+            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
+            sn.block_height += 1;
+
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
+            
+            tx.commit().unwrap();
+
+            (index_root, sn.index_root.clone())
+        };
+        
+        let (user_burn_index_root, user_burn_parent_index_root) = {
+            let mut tx = db.tx_begin().unwrap();
+            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
+            sn.block_height += 1;
+
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![]).unwrap();
+            
+            tx.commit().unwrap();
+
+            (index_root, sn.index_root.clone())
+        };
+
         {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_user_burn(&mut tx, &user_burn).unwrap();
-            tx.commit().unwrap();
+            let res_user_burns = BurnDB::get_user_burns_by_block(&mut tx, block_height+2, &user_burn_index_root).unwrap();
+            assert_eq!(res_user_burns.len(), 1);
+            assert_eq!(res_user_burns[0], user_burn);
+
+            let no_user_burns = BurnDB::get_user_burns_by_block(&mut tx, block_height+1, &user_burn_index_root).unwrap();
+            assert_eq!(no_user_burns.len(), 0);
         }
-
-        let res_user_burns = BurnDB::get_user_burns_by_block(db.conn(), block_height, 0).unwrap();
-        assert_eq!(res_user_burns.len(), 1);
-        assert_eq!(res_user_burns[0], user_burn);
-
-        let no_user_burns = BurnDB::get_user_burns_by_block(db.conn(), block_height+1, 0).unwrap();
-        assert_eq!(no_user_burns.len(), 0);
     }
 
     #[test]
@@ -1934,30 +2103,54 @@ mod tests {
 
             txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
             vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            
-            fork_segment_id: 0,
+            block_height: block_height + 2,
+            burn_header_hash: BurnchainHeaderHash([0x03; 32])
         };
 
         let mut db = BurnDB::connect_memory(block_height, &first_burn_hash).unwrap();
         
+        let (no_key_index_root, no_key_parent_index_root) = {
+            let mut tx = db.tx_begin().unwrap();
+            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
+            sn.block_height += 1;
+
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![], &vec![]).unwrap();
+            
+            tx.commit().unwrap();
+
+            (index_root, sn.index_root.clone())
+        };
+
         let has_key_before = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::has_VRF_public_key(&mut tx, &public_key, 0).unwrap()
+            BurnDB::has_VRF_public_key(&mut tx, &public_key, &no_key_index_root).unwrap()
         };
 
         assert!(!has_key_before);
 
-        {
+        let (key_index_root, key_parent_index_root) = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_leader_key(&mut tx, &leader_key).unwrap();
+            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
+            sn.block_height += 1;
+
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
+            
             tx.commit().unwrap();
-        }
+
+            (index_root, sn.index_root.clone())
+        };
 
         let has_key_after = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::has_VRF_public_key(&mut tx, &public_key, 0).unwrap()
+            BurnDB::has_VRF_public_key(&mut tx, &public_key, &key_index_root).unwrap()
         };
 
         assert!(has_key_after);
@@ -1966,33 +2159,34 @@ mod tests {
     #[test]
     fn is_fresh_consensus_hash() {
         let consensus_hash_lifetime = 24;
-        let first_burn_hash = BurnchainHeaderHash::from_hex("1000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let first_burn_hash = BurnchainHeaderHash::from_hex("10000000000000000000000000000000000000000000000000000000000000ff").unwrap();
         let mut db = BurnDB::connect_memory(0, &first_burn_hash).unwrap();
         {
             let mut tx = db.tx_begin().unwrap();
-            for i in 0..256 {
+            let mut last_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
+            for i in 0..255 {
                 let snapshot_row = BlockSnapshot {
                     block_height: i+1,
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
-                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
+                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
+                    consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
                     sortition: true,
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            
-                    fork_segment_id: 0,
-                    parent_fork_segment_id: 0,
-                    fork_segment_length: i+1,
-                    fork_length: i+1
+                    index_root: TrieHash::from_empty_data(),
                 };
-                BurnDB::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
+                let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
+                last_snapshot = snapshot_row;
+                last_snapshot.index_root = index_root;
             }
 
             tx.commit().unwrap();
         }
+
+        let tip = BurnDB::get_canonical_chain_tip(db.conn()).unwrap();
 
         let ch_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255]).unwrap();
         let ch_oldest_fresh = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(255 - consensus_hash_lifetime) as u8]).unwrap();
@@ -2001,28 +2195,28 @@ mod tests {
 
         let fresh_check = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_fresh_consensus_hash(&mut tx, 256, consensus_hash_lifetime, &ch_fresh, 0).unwrap()
+            BurnDB::is_fresh_consensus_hash(&mut tx, 255, consensus_hash_lifetime, &ch_fresh, &tip.index_root).unwrap()
         };
 
         assert!(fresh_check);
 
         let oldest_fresh_check = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_fresh_consensus_hash(&mut tx, 256, consensus_hash_lifetime, &ch_oldest_fresh, 0).unwrap()
+            BurnDB::is_fresh_consensus_hash(&mut tx, 255, consensus_hash_lifetime, &ch_oldest_fresh, &tip.index_root).unwrap()
         };
 
         assert!(oldest_fresh_check);
 
         let newest_stale_check = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_fresh_consensus_hash(&mut tx, 256, consensus_hash_lifetime, &ch_newest_stale, 0).unwrap()
+            BurnDB::is_fresh_consensus_hash(&mut tx, 255, consensus_hash_lifetime, &ch_newest_stale, &tip.index_root).unwrap()
         };
 
         assert!(!newest_stale_check);
 
         let missing_check = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_fresh_consensus_hash(&mut tx, 256, consensus_hash_lifetime, &ch_missing, 0).unwrap()
+            BurnDB::is_fresh_consensus_hash(&mut tx, 255, consensus_hash_lifetime, &ch_missing, &tip.index_root).unwrap()
         };
 
         assert!(!missing_check);
@@ -2030,15 +2224,16 @@ mod tests {
 
     #[test]
     fn get_consensus_at() {
-        let first_burn_hash = BurnchainHeaderHash::from_hex("1000000000000000000000000000000000000000000000000000000000000000").unwrap();
+        let first_burn_hash = BurnchainHeaderHash::from_hex("10000000000000000000000000000000000000000000000000000000000000ff").unwrap();
         let mut db = BurnDB::connect_memory(0, &first_burn_hash).unwrap();
         {
             let mut tx = db.tx_begin().unwrap();
+            let mut last_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
             for i in 0..256 {
                 let snapshot_row = BlockSnapshot {
                     block_height: i+1,
                     burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
-                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
+                    parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[(if i == 0 { 0x10 } else { 0 }) as u8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(if i == 0 { 0xff } else { i - 1 }) as u8]).unwrap(),
                     consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap(),
                     total_burn: i,
@@ -2046,28 +2241,28 @@ mod tests {
                     sortition_hash: SortitionHash::initial(),
                     winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
                     winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-                    
-                    fork_segment_id: 0,
-                    parent_fork_segment_id: 0,
-                    fork_segment_length: i+1,
-                    fork_length: i+1
+                    index_root: TrieHash::from_empty_data(), 
                 };
-                BurnDB::insert_block_snapshot(&mut tx, &snapshot_row).unwrap();
+                let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &snapshot_row, &vec![], &vec![]).unwrap();
+                last_snapshot = snapshot_row;
+                last_snapshot.index_root = index_root;
 
                 // should succeed within the tx 
-                let ch_opt = BurnDB::get_consensus_at(&mut tx, i+1, 0).unwrap();
+                let ch_opt = BurnDB::get_consensus_at(&mut tx, i+1, &last_snapshot.index_root).unwrap();
                 let ch = ch_opt.unwrap();
-                assert_eq!(ch, snapshot_row.consensus_hash);
+                assert_eq!(ch, last_snapshot.consensus_hash);
             }
 
             tx.commit().unwrap();
         }
 
+        let tip = BurnDB::get_canonical_chain_tip(db.conn()).unwrap();
+
         for i in 0..256 {
             // should succeed within the conn
             let mut tx = db.tx_begin().unwrap();
             let expected_ch = ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8]).unwrap();
-            let ch_opt = BurnDB::get_consensus_at(&mut tx, i+1, 0).unwrap();
+            let ch_opt = BurnDB::get_consensus_at(&mut tx, i+1, &tip.index_root).unwrap();
             let ch = ch_opt.unwrap();
             assert_eq!(ch, expected_ch);
         }
@@ -2075,154 +2270,29 @@ mod tests {
 
     #[test]
     fn get_block_burn_amount() {
-        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        let fork_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap();
-        let block_height = 123;
-
-        let mut db = BurnDB::connect_memory(block_height, &first_burn_hash).unwrap();
-        {
-            let mut tx = db.tx_begin().unwrap();
-
-            // make a non-canonical snapshot
-            let mut fork_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
-            fork_snapshot.fork_segment_id = 1;
-            fork_snapshot.burn_header_hash = fork_burn_hash;
-            BurnDB::insert_block_snapshot(&mut tx, &fork_snapshot).unwrap();
-        
-            let block_commit = LeaderBlockCommitOp {
-                block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
-                new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                parent_block_backptr: 0x4140,
-                parent_vtxindex: 0x4342,
-                key_block_backptr: 0x5150,
-                key_vtxindex: 0x6160,
-                epoch_num: 0x71706362,
-                memo: vec![0x80],
-
-                burn_fee: 1,
-                input: BurnchainSigner {
-                    public_keys: vec![
-                        StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                    ],
-                    num_sigs: 1,
-                    hash_mode: AddressHashMode::SerializeP2PKH
-                },
-
-                txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
-                vtxindex: 0,
-                block_height: block_height,
-                burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-
-                fork_segment_id: 0,
-            };
-            
-            let block_commit_noncanonical = LeaderBlockCommitOp {
-                block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222223").unwrap()).unwrap(),
-                new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-                parent_block_backptr: 0x4140,
-                parent_vtxindex: 0x4342,
-                key_block_backptr: 0x5150,
-                key_vtxindex: 0x6160,
-                epoch_num: 0x71706362,
-                memo: vec![0x80],
-
-                burn_fee: 10,
-                input: BurnchainSigner {
-                    public_keys: vec![
-                        StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                    ],
-                    num_sigs: 1,
-                    hash_mode: AddressHashMode::SerializeP2PKH
-                },
-
-                txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
-                vtxindex: 0,
-                block_height: block_height,
-                burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-
-                fork_segment_id: 1
-            };
-        
-            let user_burn = UserBurnSupportOp {
-                consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
-                public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
-                block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
-                key_block_backptr: 258,
-                key_vtxindex: 772,
-                memo: vec![0x05],
-                burn_fee: 2,
-
-                txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
-                vtxindex: 1,
-                block_height: block_height,
-                burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
-
-                fork_segment_id: 0
-            };
-            
-            let user_burn_noncanonical = UserBurnSupportOp {
-                consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
-                public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
-                block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
-                key_block_backptr: 258,
-                key_vtxindex: 772,
-                memo: vec![0x05],
-                burn_fee: 20,
-
-                txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
-                vtxindex: 1,
-                block_height: block_height,
-                burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
-
-                fork_segment_id: 1
-            };
-
-            BurnDB::insert_block_commit(&mut tx, &block_commit_noncanonical).unwrap();
-            BurnDB::insert_user_burn(&mut tx, &user_burn_noncanonical).unwrap();
-
-            // TODO: repair this
-           
-            /*
-            let burn_amount_noncanonical = BurnDB::get_block_burn_amount(&mut tx, block_height, 1).unwrap();
-            assert_eq!(burn_amount_noncanonical, 30);
-            
-            assert_eq!(BurnDB::get_block_burn_amount(&mut tx, block_height - 1, 0).unwrap(), 0);
-            assert_eq!(BurnDB::get_block_burn_amount(&mut tx, block_height + 1, 0).unwrap(), 0);
-
-            let burn_amount_postreorg = BurnDB::get_block_burn_amount(&mut tx, block_height).unwrap();
-            assert_eq!(burn_amount_postreorg, 0);
-            
-            assert_eq!(BurnDB::get_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
-            assert_eq!(BurnDB::get_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
-
-            BurnDB::insert_block_commit(&mut tx, &block_commit).unwrap();
-            BurnDB::insert_user_burn(&mut tx, &user_burn).unwrap();
-        
-            // only the canonical ops should show up 
-            let burn_amount = BurnDB::get_block_burn_amount(&mut tx, block_height).unwrap();
-            assert_eq!(burn_amount, 3);
-            
-            assert_eq!(BurnDB::get_block_burn_amount(&mut tx, block_height - 1).unwrap(), 0);
-            assert_eq!(BurnDB::get_block_burn_amount(&mut tx, block_height + 1).unwrap(), 0);
-
-            tx.commit().unwrap();
-            */
-        }
-    }
-
-    #[test]
-    fn get_block_commit_at() {
         let block_height = 123;
         let vtxindex = 456;
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let leader_key = LeaderKeyRegisterOp { 
+            consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            memo: vec![01, 02, 03, 04, 05],
+            address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
+
+            txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
+            vtxindex: vtxindex,
+            block_height: block_height + 1,
+            burn_header_hash: BurnchainHeaderHash([0x01; 32])
+        };
 
         let block_commit = LeaderBlockCommitOp {
             block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
             new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
             parent_block_backptr: 0x4140,
             parent_vtxindex: 0x4342,
-            key_block_backptr: 0x5150,
-            key_vtxindex: 0x6160,
+            key_block_backptr: 1,
+            key_vtxindex: vtxindex as u16,
             epoch_num: 0x71706362,
             memo: vec![0x80],
 
@@ -2231,286 +2301,75 @@ mod tests {
                 public_keys: vec![
                     StacksPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
                 ],
-                num_sigs: 1,
+                num_sigs: 1, 
                 hash_mode: AddressHashMode::SerializeP2PKH
             },
 
             txid: Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap(),
             vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-
-            fork_segment_id: 0,
+            block_height: block_height + 2,
+            burn_header_hash: BurnchainHeaderHash([0x03; 32])
         };
 
-        let mut db = BurnDB::connect_memory(block_height, &first_burn_hash).unwrap();
-        let block_commit_before = BurnDB::get_block_commit_at(db.conn(), block_height, vtxindex, 0).unwrap();
-        assert!(block_commit_before.is_none());
-        {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_block_commit(&mut tx, &block_commit).unwrap();
-            tx.commit().unwrap();
-        }
-
-        let block_commit_after = BurnDB::get_block_commit_at(db.conn(), block_height, vtxindex, 0).unwrap();
-        assert!(block_commit_after.unwrap() == block_commit);
-    }
-
-    #[test]
-    fn get_block_commit() {
-        let block_height = 123;
-        let vtxindex = 456;
-        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-
-        let txid = Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap();
-        let burn_header_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-
-        let block_commit = LeaderBlockCommitOp {
-            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
-            new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-            parent_block_backptr: 0x4140,
-            parent_vtxindex: 0x4342,
-            key_block_backptr: 0x5150,
-            key_vtxindex: 0x6160,
-            epoch_num: 0x71706362,
-            memo: vec![0x80],
-
-            burn_fee: 12345,
-            input: BurnchainSigner {
-                public_keys: vec![
-                    BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                ],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH
-            },
-
-            txid: txid.clone(),
-            vtxindex: vtxindex,
-            block_height: block_height,
-            burn_header_hash: burn_header_hash.clone(),
-            
-            fork_segment_id: 0,
-        };
-
-        let mut db = BurnDB::connect_memory(block_height, &first_burn_hash).unwrap();
-        let block_commit_before = BurnDB::get_block_commit(db.conn(), &txid, &burn_header_hash, 0).unwrap();
-        assert!(block_commit_before.is_none());
-        {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_block_commit(&mut tx, &block_commit).unwrap();
-            tx.commit().unwrap();
-        }
-
-        let block_commit_after = BurnDB::get_block_commit(db.conn(), &txid, &burn_header_hash, 0).unwrap();
-        assert!(block_commit_after.unwrap() == block_commit);
-    }
-
-    #[test]
-    fn is_leader_key_consumed() {
-        let first_block_height = 100;
-        let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
-        let public_key = VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap();
-
-        let leader_block_height = 100;
-        let leader_vtxindex = 200;
-        let leader_txid = Txid::from_bytes_be(&hex_bytes("5fb4ba1a651bae8057ec6b5cdafc93fa7e0b7d944d6f02a4b751de4e15464def").unwrap()).unwrap();
-        let leader_burn_header_hash = Txid::from_bytes_be(&hex_bytes("9469d78e2a826a45f7adfae5437382fe7fd739d1b65faa8152eb7d4f0efc4d37").unwrap()).unwrap();
-
-        let commit_block_height = 101;
-        let commit_vtxindex = 456;
-        let commit_vtxindex_2 = 457;
-        let commit_txid = Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf").unwrap()).unwrap();
-        let commit_txid_2 = Txid::from_bytes_be(&hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27d0").unwrap()).unwrap();
-        let commit_burn_header_hash = BurnchainHeaderHash::from_hex("6bd41cec6aa0973a6b586934d870b1e9340918bf05d8fefcba337c8fecb3fdeb").unwrap();
-
-        let leader_key = LeaderKeyRegisterOp { 
+        let user_burn = UserBurnSupportOp {
             consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
-            public_key: public_key,
-            memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
-
-            txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
-            vtxindex: leader_vtxindex,
-            block_height: leader_block_height,
-            burn_header_hash: BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            
-            fork_segment_id: 0,
-        };
-
-        let nonmatching_block_commit = LeaderBlockCommitOp {
-            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
-            new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-            parent_block_backptr: 1,
-            parent_vtxindex: 1,
-            key_block_backptr: (commit_block_height - leader_block_height) as u16,
-            key_vtxindex: (leader_vtxindex + 1) as u16,
-            epoch_num: 50,
-            memo: vec![0x80],
-
+            public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
+            block_header_hash_160: Hash160::from_bytes(&hex_bytes("3333333333333333333333333333333333333333").unwrap()).unwrap(),
+            key_block_backptr: 1,
+            key_vtxindex: vtxindex as u16,
+            memo: vec![0x05],
             burn_fee: 12345,
-            input: BurnchainSigner {
-                public_keys: vec![
-                    BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                ],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH
-            },
 
-            txid: commit_txid.clone(),
-            vtxindex: commit_vtxindex,
-            block_height: commit_block_height,
-            burn_header_hash: commit_burn_header_hash.clone(),
+            txid: Txid::from_bytes_be(&hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap()).unwrap(),
+            vtxindex: vtxindex + 1,
+            block_height: block_height + 2,
+            burn_header_hash: BurnchainHeaderHash([0x03; 32])
+        };
+
+        let mut db = BurnDB::connect_memory(block_height, &first_burn_hash).unwrap();
+
+        let (key_index_root, key_parent_index_root) = {
+            let mut tx = db.tx_begin().unwrap();
+            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
             
-            fork_segment_id: 0,
-        };
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x01; 32]);
+            sn.block_height += 1;
 
-        let matching_block_commit = LeaderBlockCommitOp {
-            block_header_hash: BlockHeaderHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap()).unwrap(),
-            new_seed: VRFSeed::from_bytes(&hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap()).unwrap(),
-            parent_block_backptr: 1,
-            parent_vtxindex: 1,
-            key_block_backptr: (commit_block_height - leader_block_height) as u16,
-            key_vtxindex: leader_vtxindex as u16,
-            epoch_num: 50,
-            memo: vec![0x80],
-
-            burn_fee: 12345,
-            input: BurnchainSigner {
-                public_keys: vec![
-                    BitcoinPublicKey::from_hex("02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0").unwrap(),
-                ],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH
-            },
-
-            txid: commit_txid_2.clone(),
-            vtxindex: commit_vtxindex_2,
-            block_height: commit_block_height,
-            burn_header_hash: commit_burn_header_hash.clone(),
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderKeyRegister(leader_key.clone())], &vec![]).unwrap();
             
-            fork_segment_id: 0,
-        };
-
-        let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
-
-        // make snapshots
-        {
-            let mut tx = db.tx_begin().unwrap();
-            let mut commit_snapshot = BurnDB::get_first_block_snapshot(&tx).unwrap();
-            commit_snapshot.fork_segment_length += 1;
-            commit_snapshot.fork_length += 1;
-            commit_snapshot.block_height = commit_block_height;
-            commit_snapshot.burn_header_hash = commit_burn_header_hash.clone();
-            BurnDB::insert_block_snapshot(&mut tx, &commit_snapshot).unwrap();
             tx.commit().unwrap();
-        }
 
-        let is_consumed_before = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_leader_key_consumed(&mut tx, 102, &leader_key, 0).unwrap()
+            (index_root, sn.index_root.clone())
         };
-
-        assert!(!is_consumed_before);      // doesn't exist in the DB yet, so not consumed
-
-        {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_leader_key(&mut tx, &leader_key).unwrap();
-            tx.commit().unwrap();
-        }
-
-        let is_consumed_after_insert = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_leader_key_consumed(&mut tx, 102, &leader_key, 0).unwrap()
-        };
-
-        assert!(!is_consumed_after_insert);     // exists, but not consumed yet 
-
-        {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_block_commit(&mut tx, &nonmatching_block_commit).unwrap();
-            tx.commit().unwrap();
-        }
-
-        let is_consumed_after_nonmatching = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_leader_key_consumed(&mut tx, 102, &leader_key, 0).unwrap()
-        };
-
-        assert!(!is_consumed_after_nonmatching);       // not consumed -- existing block commit doesn't match this leader key
-
-        {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_block_commit(&mut tx, &matching_block_commit).unwrap();
-            tx.commit().unwrap();
-        }
-
-        let is_consumed = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_leader_key_consumed(&mut tx, 102, &leader_key, 0).unwrap()
-        };
-
-        assert!(is_consumed);       // consumed now that a matching block commit has been added 
-
-        // try to reorg at the block commit height
-        {
-            let mut tx = db.tx_begin().unwrap();
-            let commit_snapshot = BurnDB::get_block_snapshot(&tx, &commit_burn_header_hash).unwrap().unwrap();
-            let mut last_snapshot = BurnDB::get_block_snapshot(&tx, &commit_snapshot.parent_burn_header_hash).unwrap().unwrap();
-
-            let initial_block_height = last_snapshot.block_height;
-            let initial_fork_length = last_snapshot.fork_length;
-            let mut fork_segment_id = 1;
-
-            for i in 0..3 {
-                let mut next_snapshot = last_snapshot.clone();
-               
-                next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
-                next_snapshot.burn_header_hash = BurnchainHeaderHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 100]);
-                next_snapshot.fork_segment_id = fork_segment_id;
-                next_snapshot.fork_segment_length = (i as u64) + 1; 
-                next_snapshot.fork_length = initial_fork_length + (i as u64) + 1;
-                next_snapshot.block_height = initial_block_height + (i as u64) + 1;
-                next_snapshot.parent_fork_segment_id = 0;
-
-                let next_fork_segment_id = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot).unwrap();
-                if next_fork_segment_id != fork_segment_id {
-                    // did a compactification
-                    test_debug!("Switch fork segment from {} to {}", fork_segment_id, next_fork_segment_id);
-                    fork_segment_id = next_fork_segment_id;
         
-                    let canonical_chain_tip = BurnDB::get_canonical_chain_tip(&tx).unwrap();
-                    assert_eq!(canonical_chain_tip.fork_segment_id, next_fork_segment_id);
-                    assert_eq!(canonical_chain_tip.block_height, next_snapshot.block_height);
+        let (commit_index_root, commit_parent_index_root) = {
+            let mut tx = db.tx_begin().unwrap();
+            let mut sn = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            
+            let sn_parent = sn.clone();
+            sn.parent_burn_header_hash = sn.burn_header_hash.clone();
+            sn.burn_header_hash = BurnchainHeaderHash([0x03; 32]);
+            sn.block_height += 1;
 
-                    next_snapshot.fork_segment_id = next_fork_segment_id;
-                }
-
-                last_snapshot = next_snapshot;
-            }
+            let index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &sn_parent, &sn, &vec![BlockstackOperationType::LeaderBlockCommit(block_commit.clone()), BlockstackOperationType::UserBurnSupport(user_burn.clone())], &vec![leader_key.clone()]).unwrap();
             
             tx.commit().unwrap();
+
+            (index_root, sn.index_root.clone())
+        };
+    
+        {
+            let mut tx = db.tx_begin().unwrap();
+            let burn_amt = BurnDB::get_block_burn_amount(&mut tx, block_height + 2, &commit_index_root).unwrap();
+            assert_eq!(burn_amt, (block_commit.burn_fee + user_burn.burn_fee) as u128);
+
+            let no_burn_amt = BurnDB::get_block_burn_amount(&mut tx, block_height + 1, &commit_index_root).unwrap();
+            assert_eq!(no_burn_amt, 0);
         }
-
-        let canonical_chain_tip = BurnDB::get_canonical_chain_tip(db.conn()).unwrap();
-        assert_eq!(canonical_chain_tip.fork_segment_id, 0);
-       
-        // leader key is now available -- the block commit that consumed it is no longer on this
-        // fork segment
-        let is_consumed_after_reorg = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_leader_key_consumed(&mut tx, 105, &leader_key, 0).unwrap()
-        };
-
-        assert!(!is_consumed_after_reorg);
-        
-        let is_consumed_on_orphan_chain_tip = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::is_leader_key_consumed(&mut tx, 105, &leader_key, 1).unwrap()
-        };
-
-        assert!(is_consumed_on_orphan_chain_tip);
     }
-
+   
     #[test]
     fn get_last_snapshot_with_sortition() {
         let block_height = 123;
@@ -2518,10 +2377,10 @@ mod tests {
         let total_burn_no_sortition = 200;
         let first_burn_hash = BurnchainHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap();
 
-        let first_snapshot = BlockSnapshot {
+        let mut first_snapshot = BlockSnapshot {
             block_height: block_height - 2,
             burn_header_hash: first_burn_hash.clone(),
-            parent_burn_header_hash: first_burn_hash.clone(),
+            parent_burn_header_hash: BurnchainHeaderHash([0xff; 32]),
             consensus_hash: ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
             ops_hash: OpsHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             total_burn: 0,
@@ -2529,17 +2388,13 @@ mod tests {
             sortition_hash: SortitionHash::initial(),
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            
-            fork_segment_id: 0,
-            parent_fork_segment_id: 0,
-            fork_segment_length: 0,
-            fork_length: 0
+            index_root: TrieHash([0u8; 32]),
         };
 
-        let snapshot_with_sortition = BlockSnapshot {
+        let mut snapshot_with_sortition = BlockSnapshot {
             block_height: block_height,
-            burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
-            parent_burn_header_hash: first_burn_hash.clone(),
+            burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
+            parent_burn_header_hash:  BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
             consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
             ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
             total_burn: total_burn_sortition,
@@ -2547,17 +2402,13 @@ mod tests {
             sortition_hash: SortitionHash::initial(),
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap(),
-            
-            fork_segment_id: 0,
-            parent_fork_segment_id: 0,
-            fork_segment_length: 1,
-            fork_length: 1
+            index_root: TrieHash([1u8; 32])
         };
 
         let snapshot_without_sortition = BlockSnapshot {
             block_height: block_height - 1,
-            burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
-            parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
+            burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]).unwrap(),
+            parent_burn_header_hash: BurnchainHeaderHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]).unwrap(),
             consensus_hash: ConsensusHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
             ops_hash: OpsHash::from_bytes(&[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2]).unwrap(),
             total_burn: total_burn_no_sortition,
@@ -2565,103 +2416,87 @@ mod tests {
             sortition_hash: SortitionHash::initial(),
             winning_block_txid: Txid::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap(),
             winning_stacks_block_hash: BlockHeaderHash::from_hex("0000000000000000000000000000000000000000000000000000000000000002").unwrap(),
-            
-            fork_segment_id: 0,
-            parent_fork_segment_id: 0,
-            fork_segment_length: 2,
-            fork_length: 2
+            index_root: TrieHash([2u8; 32])
         };
 
         let mut db = BurnDB::connect_memory(block_height - 2, &first_burn_hash).unwrap();
 
-        let initial_snapshot = {
+        let chain_tip = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_last_snapshot_with_sortition(&mut tx, block_height, 0).unwrap()
+            BurnDB::get_canonical_chain_tip(&mut tx).unwrap()
         };
 
+        let initial_snapshot = {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::get_last_snapshot_with_sortition(&mut tx, block_height - 2, &chain_tip.index_root).unwrap()
+        };
+
+        first_snapshot.index_root = initial_snapshot.index_root.clone();
         assert_eq!(initial_snapshot, first_snapshot);
 
         {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_block_snapshot(&mut tx, &snapshot_without_sortition).unwrap();
+            let chain_tip = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            BurnDB::append_chain_tip_snapshot(&mut tx, &chain_tip, &snapshot_without_sortition, &vec![], &vec![]).unwrap();
             tx.commit().unwrap();
         }
-
-        let next_snapshot = {
+        
+        let chain_tip = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_last_snapshot_with_sortition(&mut tx, block_height, 0).unwrap()
+            BurnDB::get_canonical_chain_tip(&mut tx).unwrap()
         };
 
+        let mut next_snapshot = {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::get_last_snapshot_with_sortition(&mut tx, block_height - 1, &chain_tip.index_root).unwrap()
+        };
+
+        next_snapshot.index_root = initial_snapshot.index_root.clone();
         assert_eq!(initial_snapshot, next_snapshot);
 
         {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::insert_block_snapshot(&mut tx, &snapshot_with_sortition).unwrap();
+            let chain_tip = BurnDB::get_canonical_chain_tip(&mut tx).unwrap();
+            BurnDB::append_chain_tip_snapshot(&mut tx, &chain_tip, &snapshot_with_sortition, &vec![], &vec![]).unwrap();
             tx.commit().unwrap();
         }
+        
+        let chain_tip = {
+            let mut tx = db.tx_begin().unwrap();
+            BurnDB::get_canonical_chain_tip(&mut tx).unwrap()
+        };
 
         let next_snapshot_2 = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_last_snapshot_with_sortition(&mut tx, block_height, 0).unwrap()
+            BurnDB::get_last_snapshot_with_sortition(&mut tx, block_height, &chain_tip.index_root).unwrap()
         };
 
+        snapshot_with_sortition.index_root = next_snapshot_2.index_root.clone();
         assert_eq!(snapshot_with_sortition, next_snapshot_2);
-
-        // test inequality
-        let next_snapshot_3 = {
-            let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_last_snapshot_with_sortition(&mut tx, block_height + 1, 0).unwrap()
-        };
-
-        assert_eq!(snapshot_with_sortition, next_snapshot_3);
     }
 
-    /// Verify that the snapshots in a fork segemnt are well-formed -- i.e. the block heights are
+    /// Verify that the snapshots in a fork are well-formed -- i.e. the block heights are
     /// sequential and the parent block hash of the ith block is equal to the block hash of the
     /// (i-1)th block.
-    fn verify_fork_integrity(db: &mut BurnDB, fork_segment_id: u64) {
+    fn verify_fork_integrity(db: &mut BurnDB, tip_index_root: &TrieHash) {
         let mut child = {
             let mut tx = db.tx_begin().unwrap();
-            BurnDB::get_fork_segment_tail(&mut tx, fork_segment_id).unwrap().unwrap()
+            BurnDB::get_block_snapshot_at(&mut tx, tip_index_root).unwrap().unwrap()
         };
 
         let initial = BurnDB::get_first_block_snapshot(db.conn()).unwrap();
-
-        for cur_fork_segment_id in 0..fork_segment_id+1 {
-            test_debug!("snapshots in fork {}:", cur_fork_segment_id);
-            let snapshots = BurnDB::get_block_snapshots_in_fork_segment(db.conn(), cur_fork_segment_id).unwrap();
-            for sn in snapshots {
-                test_debug!("block {}: hash={},parent={}", sn.block_height, sn.burn_header_hash.to_hex(), sn.parent_burn_header_hash.to_hex());
-            }
-        }
        
-        test_debug!("Verify from {},hash={},parent={},fid={},pfid={} back to {},hash={},parent={},fid={},pfid={}",
-                    child.block_height, child.burn_header_hash.to_hex(), child.parent_burn_header_hash.to_hex(), child.fork_segment_id, child.parent_fork_segment_id,
-                    initial.block_height, initial.burn_header_hash.to_hex(), initial.parent_burn_header_hash.to_hex(), initial.fork_segment_id, initial.parent_fork_segment_id);
+        test_debug!("Verify from {},hash={},parent={} back to {},hash={},parent={}",
+                    child.block_height, child.burn_header_hash.to_hex(), child.parent_burn_header_hash.to_hex(),
+                    initial.block_height, initial.burn_header_hash.to_hex(), initial.parent_burn_header_hash.to_hex());
 
         while child.block_height > initial.block_height {
             let parent = {
                 let mut tx = db.tx_begin().unwrap();
-                let next_parent = match BurnDB::get_block_snapshot_in_fork_segment(&mut tx, child.block_height - 1, child.fork_segment_id).unwrap() {
-                    Some(sn) => {
-                        sn
-                    },
-                    None => {
-                        match BurnDB::get_block_snapshot_in_fork_segment(&mut tx, child.block_height - 1, child.parent_fork_segment_id).unwrap() {
-                            Some(sn) => {
-                                sn
-                            },
-                            None => {
-                                panic!("No snapshot {} in parent fork {} at height {}", child.parent_burn_header_hash.to_hex(), child.parent_fork_segment_id, child.block_height - 1);
-                            }
-                        }
-                    }
-                };
-                next_parent
+                BurnDB::get_block_snapshot_in_fork(&mut tx, child.block_height - 1, &child.index_root).unwrap().unwrap()
             };
 
-            test_debug!("Verify for {},{}: {} == {} - 1 and hash={},parent_hash={} == parent={}",
-                        parent.fork_segment_id, child.fork_segment_id,
+            test_debug!("Verify {} == {} - 1 and hash={},parent_hash={} == parent={}",
                         parent.block_height, child.block_height,
                         child.burn_header_hash.to_hex(), parent.burn_header_hash.to_hex(), child.parent_burn_header_hash.to_hex());
 
@@ -2692,7 +2527,7 @@ mod tests {
         // Append 3 blocks to fork 7, and confirm that it switches places with fork 0.
         // ... etc.
         //
-        let first_burn_hash = BurnchainHeaderHash([0xff; 32]);
+        let first_burn_hash = BurnchainHeaderHash([0x00; 32]);
         let first_block_height = 100;
 
         let mut db = BurnDB::connect_memory(first_block_height, &first_burn_hash).unwrap();
@@ -2703,18 +2538,14 @@ mod tests {
         for i in 0..10 {
             let mut next_snapshot = last_snapshot.clone();
 
-            next_snapshot.fork_segment_length += 1;
-            next_snapshot.fork_length += 1;
             next_snapshot.block_height += 1; 
             next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
-            next_snapshot.burn_header_hash = BurnchainHeaderHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i]);
+            next_snapshot.burn_header_hash = BurnchainHeaderHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
+            next_snapshot.consensus_hash = ConsensusHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i + 1]);
             
             let mut tx = db.tx_begin().unwrap();
-            let next_fork_segment_id = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot).unwrap();
+            BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
             tx.commit().unwrap();
-
-            // no compactification should happen, yet
-            assert_eq!(next_fork_segment_id, 0);
 
             last_snapshot = next_snapshot.clone();
         }
@@ -2725,10 +2556,10 @@ mod tests {
         for i in 0..9 { 
             let mut parent_block_hash =
                 if i == 0 {
-                    [0xff; 32]
+                    [0u8; 32]
                 }
                 else {
-                    let mut tmp = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,i as u8];
+                    let mut tmp = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(i+1) as u8];
                     tmp[i-1] = 1;
                     tmp
                 };
@@ -2738,54 +2569,38 @@ mod tests {
 
             let mut last_snapshot = BurnDB::get_block_snapshot(db.conn(), &parent_block).unwrap().unwrap();
 
-            let initial_fork_length = last_snapshot.fork_length;
             let initial_block_height = last_snapshot.block_height;
 
             let mut next_snapshot = last_snapshot.clone();
 
             for j in (i+1)..10 {
             
-                let mut block_hash = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8];
+                let mut block_hash = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,(j+1) as u8];
                 block_hash[i] = (j - i) as u8;
 
-                next_snapshot.fork_segment_id = (i+1) as u64;
-                next_snapshot.fork_segment_length = (j - i) as u64;
-                next_snapshot.fork_length = initial_fork_length + (j - i) as u64;
                 next_snapshot.block_height = initial_block_height + (j - i) as u64;
-                next_snapshot.parent_fork_segment_id = i as u64;
                 next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(block_hash);
+                next_snapshot.consensus_hash = ConsensusHash([1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
 
                 let mut tx = db.tx_begin().unwrap();
-                let next_fork_segment_id = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot).unwrap();
+                let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
                 tx.commit().unwrap();
 
-                // no compactification should happen (yet)
-                assert_eq!(next_fork_segment_id, next_snapshot.fork_segment_id);
-
+                next_snapshot.index_root = next_index_root;
                 last_snapshot = next_snapshot.clone();
             }
         
             test_debug!("----- made fork {} (i = {}) -----", &next_snapshot.burn_header_hash.to_hex(), i);
-
-            let ancestor_fork_segments = BurnDB::get_ancestor_fork_segments(db.conn(), (i+1) as u64).unwrap();
-            let mut expected_fork_segments : Vec<u64> = vec![];
-            for j in 0..(i+1) {
-                expected_fork_segments.push((i-j+1) as u64);
-            }
-            expected_fork_segments.push(0);
-            assert_eq!(ancestor_fork_segments, expected_fork_segments);
-
-            for fid in expected_fork_segments {
-                verify_fork_integrity(&mut db, fid);
-            }
         }
 
         test_debug!("----- grow forks -----");
 
+        let mut all_chain_tips = vec![];
+
         // grow each fork so it overtakes the currently-canonical fork
         for i in 0..9 {
-            let mut last_block_hash = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9];
+            let mut last_block_hash = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,10];
             last_block_hash[i] = (9 - i) as u8;
             let last_block = BurnchainHeaderHash(last_block_hash);
             
@@ -2793,12 +2608,7 @@ mod tests {
 
             let mut last_snapshot = BurnDB::get_block_snapshot(db.conn(), &last_block).unwrap().unwrap();
            
-            let initial_fork_segment = last_snapshot.fork_segment_id;
-            let initial_parent_fork_segment = last_snapshot.parent_fork_segment_id;
-            let initial_fork_length = last_snapshot.fork_length;
             let initial_block_height = last_snapshot.block_height;
-            let initial_fork_segment_length = last_snapshot.fork_segment_length;
-
             let mut next_snapshot = last_snapshot.clone();
 
             // grow the fork up to the length of the previous fork
@@ -2810,17 +2620,17 @@ mod tests {
                 let mut next_block_hash = [0u8; 32];
                 next_block_hash.copy_from_slice(&next_block_hash_vec[..]);
 
-                next_snapshot.fork_length = last_snapshot.fork_length + 1;
                 next_snapshot.block_height = last_snapshot.block_height + 1;
-                next_snapshot.fork_segment_length = last_snapshot.fork_segment_length + 1;
                 next_snapshot.parent_burn_header_hash = last_snapshot.burn_header_hash.clone();
                 next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
+                next_snapshot.consensus_hash = ConsensusHash([2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,j as u8,(i + 1) as u8]);
 
-                {
+                let next_index_root = {
                     let mut tx = db.tx_begin().unwrap();
-                    let next_fork_segment_id = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot).unwrap();
+                    let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
                     tx.commit().unwrap();
-                }
+                    next_index_root
+                };
 
                 last_snapshot = BurnDB::get_block_snapshot(db.conn(), &next_snapshot.burn_header_hash).unwrap().unwrap();
             }
@@ -2833,40 +2643,31 @@ mod tests {
             let mut next_block_hash = [0u8; 32];
             next_block_hash.copy_from_slice(&next_block_hash_vec[..]);
 
-            next_snapshot.fork_length += 1;
             next_snapshot.block_height += 1;
-            next_snapshot.fork_segment_length += 1;
             next_snapshot.parent_burn_header_hash = next_snapshot.burn_header_hash.clone();
             next_snapshot.burn_header_hash = BurnchainHeaderHash(next_block_hash);
 
-            let next_fork_segment_id = {
+            let next_index_root = {
                 let mut tx = db.tx_begin().unwrap();
-                let next_fork_segment_id = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot).unwrap();
+                let next_index_root = BurnDB::append_chain_tip_snapshot(&mut tx, &last_snapshot, &next_snapshot, &vec![], &vec![]).unwrap();
                 tx.commit().unwrap();
-                next_fork_segment_id
+                next_index_root
             };
             
-            assert_eq!(next_fork_segment_id, 0);
+            next_snapshot.index_root = next_index_root;
 
             let mut expected_tip = next_snapshot.clone();
-            expected_tip.fork_segment_id = 0;
-            expected_tip.parent_fork_segment_id = 0;
+            expected_tip.index_root = next_index_root;
 
             let canonical_tip = BurnDB::get_canonical_chain_tip(db.conn()).unwrap();
             assert_eq!(canonical_tip, expected_tip);
 
-            let ancestor_fork_segments = BurnDB::get_ancestor_fork_segments(db.conn(), (i+1) as u64).unwrap();
-            let mut expected_fork_segments = vec![];
-            for j in 0..(i+1) {
-                expected_fork_segments.push((i+1-j) as u64);
-            }
-            expected_fork_segments.push(0);
+            verify_fork_integrity(&mut db, &canonical_tip.index_root);
+            all_chain_tips.push(canonical_tip.index_root.clone());
+        }
 
-            // assert_eq!(expected_fork_segments, ancestor_fork_segments);
-            
-            for fid in 0..10 {
-                verify_fork_integrity(&mut db, fid);
-            }
+        for tip_index_root in all_chain_tips.iter() {
+            verify_fork_integrity(&mut db, tip_index_root);
         }
     }
 }
