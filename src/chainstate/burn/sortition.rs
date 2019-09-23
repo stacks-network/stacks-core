@@ -19,7 +19,6 @@
 
 use std::collections::BTreeMap;
 
-use rusqlite::Transaction;
 use rusqlite::Connection;
 
 use chainstate::burn::{
@@ -35,6 +34,7 @@ use util::db::Error as db_error;
 
 use chainstate::burn::BlockHeaderHash;
 use chainstate::burn::db::burndb::BurnDB;
+use chainstate::burn::db::burndb::BurnDBTx;
 use chainstate::burn::BlockSnapshot;
 use chainstate::burn::distribution::BurnSamplePoint;
 use chainstate::burn::operations::{
@@ -44,6 +44,8 @@ use chainstate::burn::operations::{
     BlockstackOperation,
     BlockstackOperationType,
 };
+
+use chainstate::stacks::index::storage::TrieFileStorage;
 
 use burnchains::Address;
 use burnchains::PublicKey;
@@ -56,15 +58,20 @@ use util::uint::Uint256;
 use util::uint::Uint512;
 use util::uint::BitArray;
 
+use chainstate::stacks::index::TrieHash;
+
 use util::log;
 
 impl BlockSnapshot {
     /// Create the sentinel block snapshot -- the first one
     pub fn initial(first_block_height: u64, first_burn_header_hash: &BurnchainHeaderHash) -> BlockSnapshot {
+        let mut parent_hash_bytes = [0u8; 32];
+        parent_hash_bytes.copy_from_slice(TrieFileStorage::block_sentinel().as_bytes());
+
         BlockSnapshot {
             block_height: first_block_height,
             burn_header_hash: first_burn_header_hash.clone(),
-            parent_burn_header_hash: first_burn_header_hash.clone(),
+            parent_burn_header_hash: BurnchainHeaderHash(parent_hash_bytes),
             consensus_hash: ConsensusHash([0u8; 20]),
             ops_hash: OpsHash([0u8; 32]),
             total_burn: 0,
@@ -72,22 +79,20 @@ impl BlockSnapshot {
             sortition_hash: SortitionHash::initial(),
             winning_block_txid: Txid([0u8; 32]),
             winning_stacks_block_hash: BlockHeaderHash([0u8; 32]),
-            fork_segment_id: 0,
-            parent_fork_segment_id: 0,
-            fork_segment_length: 0,
-            fork_length: 0
+            index_root: TrieHash::from_empty_data()
         }
     }
 
     pub fn is_initial(&self) -> bool {
-        self.burn_header_hash == self.parent_burn_header_hash &&
+        let mut parent_hash_bytes = [0u8; 32];
+        parent_hash_bytes.copy_from_slice(TrieFileStorage::block_sentinel().as_bytes());
+
+        self.parent_burn_header_hash == BurnchainHeaderHash(parent_hash_bytes) &&
         self.total_burn == 0 &&
         self.consensus_hash == ConsensusHash([0u8; 20]) &&
-        self.ops_hash == OpsHash([0u8; 32]) && 
-        self.parent_fork_segment_id == 0 &&
-        self.fork_segment_id == 0 &&
-        self.fork_length == 0 &&
-        self.fork_segment_length == 0
+        self.ops_hash == OpsHash([0u8; 32]) &&
+        self.sortition_hash == SortitionHash::initial() &&
+        self.winning_stacks_block_hash == BlockHeaderHash([0u8; 32])
     }
 
     /// Given the weighted burns, VRF seed of the last winner, and sortition hash, pick the next
@@ -125,11 +130,11 @@ impl BlockSnapshot {
     /// Note that the VRF seed is not guaranteed to be the hash of a valid VRF
     /// proof.  Miners would only build off of leader block commits for which they
     /// (1) have the associated block data and (2) the proof in that block is valid.
-    fn select_winning_block<'a>(tx: &mut Transaction<'a>, block_header: &BurnchainBlockHeader, sortition_hash: &SortitionHash, burn_dist: &Vec<BurnSamplePoint>) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+    fn select_winning_block<'a>(tx: &mut BurnDBTx<'a>, block_header: &BurnchainBlockHeader, sortition_hash: &SortitionHash, burn_dist: &Vec<BurnSamplePoint>) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         let burn_block_height = block_header.block_height;
 
         // get the last winner's VRF seed in this block's fork
-        let last_sortition_snapshot = BurnDB::get_last_snapshot_with_sortition(tx, burn_block_height - 1, block_header.parent_fork_segment_id)
+        let last_sortition_snapshot = BurnDB::get_last_snapshot_with_sortition(tx, burn_block_height - 1, &block_header.parent_index_root)
             .expect("FATAL: failed to query last snapshot with sortition");
 
         let VRF_seed =
@@ -139,7 +144,7 @@ impl BlockSnapshot {
             }
             else {
                 // there may have been a prior winning block commit.  Use its VRF seed if possible
-                BurnDB::get_block_commit(tx, &last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.burn_header_hash, last_sortition_snapshot.fork_segment_id)?
+                BurnDB::get_block_commit(tx, &last_sortition_snapshot.winning_block_txid, &last_sortition_snapshot.burn_header_hash)?
                     .expect("FATAL ERROR: no winning block commits in database (indicates corruption)")
                     .new_seed.clone()
             };
@@ -159,7 +164,7 @@ impl BlockSnapshot {
     }
 
     /// Make the snapshot struct for the case where _no sortition_ takes place
-    fn make_snapshot_no_sortition<'a>(tx: &mut Transaction<'a>, block_header: &BurnchainBlockHeader, first_block_height: u64, burn_total: u64, sortition_hash: &SortitionHash, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
+    fn make_snapshot_no_sortition<'a>(tx: &mut BurnDBTx<'a>, block_header: &BurnchainBlockHeader, first_block_height: u64, burn_total: u64, sortition_hash: &SortitionHash, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
         let block_height = block_header.block_height;
         let block_hash = block_header.block_hash.clone();
         let parent_block_hash = block_header.parent_block_hash.clone();
@@ -168,7 +173,7 @@ impl BlockSnapshot {
         let non_winning_block_hash = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
 
         let ops_hash = OpsHash::from_txids(txids);
-        let ch = ConsensusHash::from_parent_block_data(tx, &ops_hash, block_height - 1, first_block_height, block_header.parent_fork_segment_id, burn_total)?;
+        let ch = ConsensusHash::from_parent_block_data(tx, &ops_hash, block_height - 1, first_block_height, &block_header.parent_index_root, burn_total)?;
 
         info!("SORTITION({}): NO BLOCK CHOSEN", block_height);
 
@@ -183,11 +188,7 @@ impl BlockSnapshot {
             sortition_hash: sortition_hash.clone(),
             winning_block_txid: non_winning_block_txid,
             winning_stacks_block_hash: non_winning_block_hash,
-
-            fork_segment_id: block_header.fork_segment_id,
-            parent_fork_segment_id: block_header.parent_fork_segment_id,
-            fork_length: block_header.fork_length,
-            fork_segment_length: block_header.fork_segment_length
+            index_root: TrieHash::from_empty_data()     // will be overwritten
         })
     }
     
@@ -202,7 +203,7 @@ impl BlockSnapshot {
     /// All of this is rolled into the BlockSnapshot struct.
     /// 
     /// Call this *after* you store all of the block's transactions to the burn db.
-    pub fn make_snapshot<'a>(tx: &mut Transaction<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, burn_dist: &Vec<BurnSamplePoint>, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
+    pub fn make_snapshot<'a>(tx: &mut BurnDBTx<'a>, burnchain: &Burnchain, parent_snapshot: &BlockSnapshot, block_header: &BurnchainBlockHeader, burn_dist: &Vec<BurnSamplePoint>, txids: &Vec<Txid>) -> Result<BlockSnapshot, db_error> {
         assert_eq!(parent_snapshot.burn_header_hash, block_header.parent_block_hash);
         assert_eq!(parent_snapshot.block_height + 1, block_header.block_height);
 
@@ -271,7 +272,7 @@ impl BlockSnapshot {
         };
         
         let next_ops_hash = OpsHash::from_txids(&txids);
-        let next_ch = ConsensusHash::from_parent_block_data(tx, &next_ops_hash, block_height - 1, first_block_height, block_header.parent_fork_segment_id, next_burn_total)?;
+        let next_ch = ConsensusHash::from_parent_block_data(tx, &next_ops_hash, block_height - 1, first_block_height, &block_header.parent_index_root, next_burn_total)?;
 
         info!("SORTITION({}): WINNER IS {:?} (from {:?})", block_height, winning_block_hash, winning_txid);
 
@@ -286,11 +287,7 @@ impl BlockSnapshot {
             sortition_hash: next_sortition_hash,
             winning_block_txid: winning_txid,
             winning_stacks_block_hash: winning_block_hash,
-            
-            fork_segment_id: block_header.fork_segment_id,
-            parent_fork_segment_id: block_header.parent_fork_segment_id,
-            fork_segment_length: block_header.fork_segment_length,
-            fork_length: block_header.fork_length
+            index_root: TrieHash::from_empty_data()     // will be overwritten
         })
     }
 }
@@ -338,10 +335,7 @@ mod test {
             block_hash: BurnchainHeaderHash([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0x01,0x24]),
             parent_block_hash: first_burn_hash.clone(),
             num_txs: 0,
-            fork_segment_id: 0,
-            parent_fork_segment_id: 0,
-            fork_length: 1,
-            fork_segment_length: 1
+            parent_index_root: TrieHash::from_empty_data()
         };
         
         let initial_snapshot = BurnDB::get_first_block_snapshot(db.conn()).unwrap();
