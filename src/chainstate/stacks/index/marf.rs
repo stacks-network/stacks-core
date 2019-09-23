@@ -38,7 +38,8 @@ use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::bits::{
     get_node_hash,
     get_nodetype_hash,
-    get_nodetype_hash_bytes
+    get_nodetype_hash_bytes,
+    read_root_hash
 };
 
 use chainstate::stacks::index::node::{
@@ -610,6 +611,24 @@ impl MARF {
     #[cfg(test)]
     pub fn borrow_storage_backend(&mut self) -> &mut TrieFileStorage {
         &mut self.storage
+    }
+
+    /// Get the current root trie hash
+    pub fn get_root_hash(&mut self) -> Result<TrieHash, Error> {
+        read_root_hash(&mut self.storage)
+    }
+    
+    /// Get the root trie hash at a particular block
+    pub fn get_root_hash_at(&mut self, block_hash: &BlockHeaderHash) -> Result<TrieHash, Error> {
+        let cur_block_hash = self.storage.get_cur_block();
+        let cur_block_rw = self.storage.readwrite();
+
+        self.storage.open_block(block_hash, false)?;
+        let root_hash = read_root_hash(&mut self.storage)?;
+
+        // restore
+        self.storage.open_block(&cur_block_hash, cur_block_rw)?;
+        Ok(root_hash)
     }
 }
 
