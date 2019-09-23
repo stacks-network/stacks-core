@@ -292,7 +292,7 @@ impl VRFProof {
     }
 
     pub fn empty() -> VRFProof {
-        VRFProof::from_slice(&[0u8; 80])
+        VRFProof::from_slice(&[0u8; 80]).unwrap()
     }
 
     pub fn new(Gamma: RistrettoPoint, c: ed25519_Scalar, s: ed25519_Scalar) -> Result<VRFProof, Error> {
@@ -307,7 +307,7 @@ impl VRFProof {
         })
     }
 
-    pub fn from_slice(bytes: &[u8]) -> Result<VRFProof, Error> {
+    pub fn from_slice(bytes: &[u8]) -> Option<VRFProof> {
         match bytes.len() {
             80 => {
                 // format:
@@ -316,7 +316,7 @@ impl VRFProof {
                 //      Gamma point               c scalar   s scalar
                 let gamma_opt = CompressedRistretto::from_slice(&bytes[0..32]).decompress();
                 if gamma_opt.is_none() {
-                    return Err(Error::InvalidDataError);
+                    return None;
                 }
 
                 let mut c_buf = [0u8; 32];
@@ -332,27 +332,27 @@ impl VRFProof {
                 let c = ed25519_Scalar::from_bits(c_buf);
                 let s = ed25519_Scalar::from_bits(s_buf);
                 
-                Ok(VRFProof {
+                Some(VRFProof {
                     Gamma: gamma_opt.unwrap(),
                     c: c,
                     s: s
                 })
             },
-            _ => Err(Error::InvalidDataError)
+            _ => None
         }
     }
 
-    pub fn from_bytes(bytes: &Vec<u8>) -> Result<VRFProof, Error> {
+    pub fn from_bytes(bytes: &Vec<u8>) -> Option<VRFProof> {
         VRFProof::from_slice(&bytes[..])
     }
 
-    pub fn from_hex(hex_str: &String) -> Result<VRFProof, Error> {
+    pub fn from_hex(hex_str: &String) -> Option<VRFProof> {
         match hex_bytes(hex_str) {
             Ok(b) => {
                 VRFProof::from_slice(&b[..])
             },
             Err(_) => {
-                Err(Error::InvalidDataError)
+                None
             }
         }
     }
@@ -771,13 +771,13 @@ mod tests {
             let proof_res = VRFProof::from_bytes(&proof_fixture.proof);
             if proof_fixture.result {
                 // should decode 
-                assert!(!proof_res.is_err());
+                assert!(!proof_res.is_none());
                 
                 // should re-encode
                 assert!(proof_res.unwrap().to_bytes().to_vec() == proof_fixture.proof.to_vec());
             }
             else {
-                assert!(proof_res.is_err());
+                assert!(proof_res.is_none());
             }
         }
     }
