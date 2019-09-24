@@ -72,8 +72,9 @@ fn benchmark_marf_usage(filename: &str, blocks: u32, writes_per_block: u32, read
 }
 
 pub fn basic_usage_benchmark(c: &mut Criterion) {
+    c.bench_function("marf_usage_1b_10kW_0kR", |b| b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z", 1, 10000, 0, false)));
     c.bench_function("marf_usage_10b_1kW_2kR", |b| b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z", 10, 1000, 2000, false)));
-    c.bench_function("marf_usage_100b_10kW_100kR", |b| b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z", 20, 5000, 20000, false)));
+    c.bench_function("marf_usage_100b_5kW_20kR", |b| b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z", 20, 5000, 20000, false)));
     c.bench_function("marf_usage_batches_10b_1kW_2kR", |b| b.iter(|| benchmark_marf_usage("/tmp/foo.bar.z", 10, 1000, 2000, true)));
 }
 

@@ -643,13 +643,13 @@ impl MARF {
         }
 
         // current chain tip must exist if it's not the "sentinel"
-        let is_parent_sentinel = chain_tip != &TrieFileStorage::block_sentinel();
-        if is_parent_sentinel {
+        let is_parent_sentinel = chain_tip == &TrieFileStorage::block_sentinel();
+        if !is_parent_sentinel {
             self.storage.open_block(chain_tip, false)?;
         }
 
         let block_height = 
-            if is_parent_sentinel {
+            if !is_parent_sentinel {
                 MARF::get_block_height(&mut self.storage, chain_tip, chain_tip)?
                     .ok_or_else(|| Error::CorruptionError(format!("Failed to find block height for `{:?}`", chain_tip)))?
                     .checked_add(1)

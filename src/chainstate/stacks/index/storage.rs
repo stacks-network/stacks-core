@@ -1149,7 +1149,7 @@ impl TrieFileStorage {
         Ok(())
     }
 
-    /// Read a node's children's hashes as a vector of TrieHashes.
+    /// Read a node's children's hashes into the provided <Write> implementation.
     /// This only works for intermediate nodes and leafs (the latter of which have no children).
     ///
     /// This method is designed to only access hashes that are either (1) in this Trie, or (2) in
