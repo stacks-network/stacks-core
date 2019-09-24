@@ -545,7 +545,8 @@ block indicated by the _block-hash_ argument. The `expr` closure must be read-on
 
 The function returns the result of evaluating `expr`.
 ",
-    example: "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 (var-get data))"
+    example: "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 (var-get data))
+(at-block (get-block-info header-hash (- block-height 10)) (var-get data))"
 };
         
 
