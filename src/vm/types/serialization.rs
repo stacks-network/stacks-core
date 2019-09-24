@@ -1,5 +1,5 @@
 use vm::errors::{RuntimeErrorType, InterpreterResult, InterpreterError};
-use vm::types::{Value, OptionalData, PrincipalData, TypeSignature, TupleData};
+use vm::types::{Value, OptionalData, PrincipalData, TypeSignature, TupleData, QualifiedContractIdentifier};
 use vm::database::{ClaritySerializable, ClarityDeserializable};
 use vm::representations::ClarityName;
 
@@ -121,20 +121,13 @@ impl ClaritySerializable for Value {
                 };
                 json_recursive_object(TYPE_BOOL, str_value)
             },
-            Principal(StandardPrincipal(data)) => {
+            Principal(Standard(data)) => {
                 json_simple_object(TYPE_STANDARD_PRINCIPAL, &data.to_address())
             },
-            Principal(ContractPrincipal(simple_name)) => {
-                // NOTE: this should eventually panic, since "unresolved" contract principals
-                //       should never be materialized to the database.
-                format!(
-                    r#"{{ "type": "{}", "issuer": ":none:", "name": "{}" }}"#,
-                    TYPE_CONTRACT_PRINCIPAL, &**simple_name)
-            },
-            Principal(QualifiedContractPrincipal{ sender, name }) => {
+            Principal(Contract(contract_identifier)) => {
                 format!(
                     r#"{{ "type": "{}", "issuer": "{}", "name": "{}" }}"#,
-                    TYPE_CONTRACT_PRINCIPAL, sender.to_address(), &**name)
+                    TYPE_CONTRACT_PRINCIPAL, contract_identifier.issuer.to_address(), contract_identifier.name.to_string())
             },
             Response(response) => {
                 let type_name = if response.committed {
@@ -342,15 +335,10 @@ impl Value {
                 }
                 check_match!(expected_type, TypeSignature::PrincipalType)?;
                 let name = name.try_into()?;
-                Ok(Value::from(
-                    if issuer == ":none:" {
-                        PrincipalData::ContractPrincipal(name)
-                    } else {
-                        PrincipalData::QualifiedContractPrincipal {
-                            sender: PrincipalData::parse_standard_principal(&issuer)?,
-                            name }
-                    }
-                ))
+                let issuer = PrincipalData::parse_standard_principal(&issuer)?;
+                let contract_identifier = QualifiedContractIdentifier::new(issuer, name);
+
+                Ok(Value::from(PrincipalData::Contract(contract_identifier)))
             }
         }
     }
@@ -850,14 +838,13 @@ mod tests {
 
     #[test]
     fn test_principals() {
-        let standard_p = Value::from(PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap());
-        let contract_p1 = Value::from(PrincipalData::ContractPrincipal("foo".into()));
-        let contract_p2 = Value::from(PrincipalData::QualifiedContractPrincipal{
-            sender: PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap(),
-            name: "foo".into()});
+        let issuer = PrincipalData::parse_standard_principal("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G").unwrap();
+        let standard_p = Value::from(issuer.clone());
+
+        let contract_identifier = QualifiedContractIdentifier::new(issuer, "foo".into());
+        let contract_p2 = Value::from(PrincipalData::Contract(contract_identifier));
 
         assert_eq!(standard_p.serialize(), r#"{ "type": "principal", "value": "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G" }"#);
-        assert_eq!(contract_p1.serialize(), r#"{ "type": "contract_principal", "issuer": ":none:", "name": "foo" }"#);
         assert_eq!(contract_p2.serialize(), r#"{ "type": "contract_principal", "issuer": "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G", "name": "foo" }"#);
         
         assert!(match Value::try_deserialize(
@@ -911,12 +898,6 @@ mod tests {
             &contract_p2);
 
         assert_eq!(
-            &(Value::try_deserialize(
-                r#"{ "type": "contract_principal", "issuer": ":none:", "name": "foo" }"#,
-                &TypeSignature::PrincipalType).unwrap()),
-            &contract_p1);
-
-        assert_eq!(
             Value::try_deserialize_untyped(
                 r#"{ "type": "principal", "value": "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G" }"#).unwrap(),
             standard_p);
@@ -925,11 +906,6 @@ mod tests {
             Value::try_deserialize_untyped(
                 r#"{ "type": "contract_principal", "issuer": "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G", "name": "foo" }"#).unwrap(),
             contract_p2);
-
-        assert_eq!(
-            Value::try_deserialize_untyped(
-                r#"{ "type": "contract_principal", "issuer": ":none:", "name": "foo" }"#).unwrap(),
-            contract_p1);
     }
 
 }

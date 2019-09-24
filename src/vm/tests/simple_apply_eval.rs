@@ -4,8 +4,8 @@ use vm::errors::{CheckErrors, RuntimeErrorType, Error};
 use vm::{Value, LocalContext, ContractContext, GlobalContext, Environment, CallStack};
 use vm::contexts::{OwnedEnvironment};
 use vm::callables::DefinedFunction;
-use vm::types::{TypeSignature, BuffData};
-use vm::parser::parse;
+use vm::types::{TypeSignature, BuffData, QualifiedContractIdentifier};
+use vm::ast::parse;
 use util::hash::{hex_bytes, to_hex};
 
 use vm::tests::{execute};
@@ -26,8 +26,8 @@ fn test_simple_let() {
                         (let ((z 3))
                              (+ z y))
                         x))";
-
-    if let Ok(parsed_program) = parse(&program) {
+    let contract_id = QualifiedContractIdentifier::transient();
+    if let Ok(parsed_program) = parse(&contract_id, &program) {
         let context = LocalContext::new();
         let mut env = OwnedEnvironment::memory();
 
@@ -175,12 +175,16 @@ fn test_simple_if_functions() {
 
     use vm::callables::DefineType::Private;
 
-    let evals = parse(&
+    let contract_id = QualifiedContractIdentifier::transient();
+
+    let evals = parse(&contract_id, &
         "(with_else 5)
          (without_else 3)
          (with_else 3)");
 
-    let function_bodies = parse(&"(if (eq? 5 x) 1 0)
+    let contract_id = QualifiedContractIdentifier::transient();
+
+    let function_bodies = parse(&contract_id, &"(if (eq? 5 x) 1 0)
                                   (if (eq? 5 x) 1 3)");
 
     if let Ok(parsed_bodies) = function_bodies {
@@ -193,7 +197,7 @@ fn test_simple_if_functions() {
             func_args2, parsed_bodies[1].clone(), Private, &"without_else".into(), &"");
 
         let context = LocalContext::new();
-        let mut contract_context = ContractContext::new_transient();
+        let mut contract_context = ContractContext::new(QualifiedContractIdentifier::transient());
         let mut global_context = GlobalContext::new(memory_db());
 
         contract_context.functions.insert("with_else".into(), user_function1);

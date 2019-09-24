@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
-use vm::errors::{Error, RuntimeErrorType, ShortReturnType, CheckErrors};
-use vm::types::{Value, StandardPrincipalData, TupleData, ListData, TypeSignature, TupleTypeSignature};
+use vm::errors::{Error, CheckErrors, RuntimeErrorType, ShortReturnType};
+use vm::types::{Value, TupleData, TypeSignature, QualifiedContractIdentifier, StandardPrincipalData, ListData, TupleTypeSignature};
 use vm::contexts::{OwnedEnvironment};
 use vm::execute;
 
@@ -185,26 +185,29 @@ fn test_fetch_contract_entry() {
 
     let proxy_src = r#"
         (define-private (fetch-via-conntract-call)
-            (contract-call! kv-store-contract kv-get 42))
+            (contract-call! .kv-store-contract kv-get 42))
         (define-private (fetch-via-contract-map-get-using-explicit-tuple)
-            (expects! (get value (contract-map-get kv-store-contract kv-store (tuple (key 42)))) 0))
+            (expects! (get value (contract-map-get .kv-store-contract kv-store (tuple (key 42)))) 0))
         (define-private (fetch-via-contract-map-get-using-implicit-tuple)
-            (expects! (get value (contract-map-get kv-store-contract kv-store ((key 42)))) 0))
+            (expects! (get value (contract-map-get .kv-store-contract kv-store ((key 42)))) 0))
         (define-private (fetch-via-contract-map-get-using-bound-tuple)
             (let ((t (tuple (key 42))))
-            (expects! (get value (contract-map-get kv-store-contract kv-store t)) 0)))"#;
+            (expects! (get value (contract-map-get .kv-store-contract kv-store t)) 0)))"#;
 
     let mut owned_env = OwnedEnvironment::memory();
 
-    let mut env = owned_env.get_exec_environment(None);
-    let r = env.initialize_contract("kv-store-contract", kv_store_contract_src).unwrap();
-    env.initialize_contract("proxy-contract", proxy_src).unwrap();
-    env.sender = Some(StandardPrincipalData(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]).into());
+    let sender = StandardPrincipalData::transient().into();
+    let mut env = owned_env.get_exec_environment(Some(sender));
+    let kv_contract_identifier = QualifiedContractIdentifier::local("kv-store-contract").unwrap();
+    let r = env.initialize_contract(kv_contract_identifier, kv_store_contract_src).unwrap();
 
-    assert_eq!(Value::Int(42), env.eval_read_only("proxy-contract", "(fetch-via-conntract-call)").unwrap());
-    assert_eq!(Value::Int(42), env.eval_read_only("proxy-contract", "(fetch-via-contract-map-get-using-implicit-tuple)").unwrap());
-    assert_eq!(Value::Int(42), env.eval_read_only("proxy-contract", "(fetch-via-contract-map-get-using-explicit-tuple)").unwrap());
-    assert_eq!(Value::Int(42), env.eval_read_only("proxy-contract", "(fetch-via-contract-map-get-using-bound-tuple)").unwrap());
+    let contract_identifier = QualifiedContractIdentifier::local("proxy-contract").unwrap();
+    env.initialize_contract(contract_identifier.clone(), proxy_src).unwrap();
+
+    assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-conntract-call)").unwrap());
+    assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-contract-map-get-using-implicit-tuple)").unwrap());
+    assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-contract-map-get-using-explicit-tuple)").unwrap());
+    assert_eq!(Value::Int(42), env.eval_read_only(&contract_identifier, "(fetch-via-contract-map-get-using-bound-tuple)").unwrap());
 }
 
 #[test]

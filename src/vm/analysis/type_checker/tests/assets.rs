@@ -1,5 +1,5 @@
-use vm::types::{ TypeSignature};
-use vm::parser::parse;
+use vm::types::{TypeSignature, QualifiedContractIdentifier};
+use vm::ast::parse;
 use vm::analysis::errors::CheckErrors;
 use vm::analysis::{AnalysisDatabase, mem_type_check};
 use std::convert::TryInto;
@@ -24,7 +24,7 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
                (err 8)))
          (begin (ft-mint! stackaroos 10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
                 (ft-mint! stackaroos 200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
-                (ft-mint! stackaroos 4   'CTtokens))";
+                (ft-mint! stackaroos 4 .tokens))";
 
 const ASSET_NAMES: &str =
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
@@ -39,7 +39,7 @@ const ASSET_NAMES: &str =
          (define-public (preorder 
                         (name-hash (buff 20))
                         (name-price int))
-           (let ((xfer-result (contract-call! tokens my-token-transfer
+           (let ((xfer-result (contract-call! .tokens my-token-transfer
                                 burn-address name-price)))
             (if (is-ok? xfer-result)
                (if
@@ -81,13 +81,16 @@ const ASSET_NAMES: &str =
 fn test_names_tokens_contracts() {
     use vm::analysis::type_check;
 
-    let mut tokens_contract = parse(FIRST_CLASS_TOKENS).unwrap();
-    let mut names_contract = parse(ASSET_NAMES).unwrap();
+    let tokens_contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
+    let names_contract_id = QualifiedContractIdentifier::local("names").unwrap();
+
+    let mut tokens_contract = parse(&tokens_contract_id, FIRST_CLASS_TOKENS).unwrap();
+    let mut names_contract = parse(&names_contract_id, ASSET_NAMES).unwrap();
     let mut db = AnalysisDatabase::memory();
 
     db.execute(|db| {
-        type_check(&"tokens", &mut tokens_contract, db, true)?;
-        type_check(&"names", &mut names_contract, db, true)
+        type_check(&tokens_contract_id, &mut tokens_contract, db, true)?;
+        type_check(&names_contract_id, &mut names_contract, db, true)
     }).unwrap();
 }
 

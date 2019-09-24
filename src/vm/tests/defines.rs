@@ -148,7 +148,7 @@ fn test_recursive_panic() {
               (* a (factorial (- a 1)))))
          (factorial 10)";
 
-    assert_eq_err(CheckErrors::CircularReference(vec!["__transient:factorial".into()]), execute(&tests).unwrap_err());
+    assert_eq_err(CheckErrors::CircularReference(vec!["'S1G2081040G2081040G2081040G208105NK8PE5.__transient:factorial".into()]), execute(&tests).unwrap_err());
 }
 
 #[test]

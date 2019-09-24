@@ -1,13 +1,12 @@
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctions;
 use vm::analysis::types::{ContractAnalysis, AnalysisPass};
-
+use vm::analysis::errors::{CheckResult, CheckError, CheckErrors};
 use super::AnalysisDatabase;
-use super::errors::{CheckResult, CheckError, CheckErrors};
 
 #[cfg(test)]
 mod tests;
@@ -35,7 +34,7 @@ impl <'a> DefinitionSorter {
         }
     }
 
-    pub fn run(&mut self, contract_analysis: &'a mut ContractAnalysis) -> CheckResult<()> {
+    pub fn run(&mut self, contract_analysis: &mut ContractAnalysis) -> CheckResult<()> {
 
         let exprs = contract_analysis.expressions[..].to_vec();
         for (expr_index, expr) in exprs.iter().enumerate() {
@@ -76,7 +75,7 @@ impl <'a> DefinitionSorter {
 
     fn probe_for_dependencies(&mut self, expr: &SymbolicExpression, tle_index: usize) -> CheckResult<()> {
         match expr.expr {
-            AtomValue(_) => Ok(()),
+            AtomValue(_)  | LiteralValue(_) => Ok(()),
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
@@ -192,7 +191,6 @@ impl <'a> DefinitionSorter {
         }
         Ok(())
     }
-
 
     fn find_expression_definition<'b>(&mut self, exp: &'b SymbolicExpression) -> Option<(ClarityName, u64, &'b SymbolicExpression)> {
         let (_define_type, args) = DefineFunctions::try_parse(exp)?;

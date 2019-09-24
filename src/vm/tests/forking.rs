@@ -5,6 +5,7 @@ use vm::contexts::{OwnedEnvironment};
 use vm::representations::SymbolicExpression;
 use vm::database::marf::temporary_marf;
 use vm::database::ClarityDatabase;
+use vm::types::{QualifiedContractIdentifier, PrincipalData};
 
 use vm::tests::{symbols_from_values, execute, is_err_code, is_committed};
 
@@ -24,7 +25,9 @@ fn test_forking_simple() {
 
 #[test]
 fn test_at_block_good() {
+
     fn initialize(owned_env: &mut OwnedEnvironment) {
+        let c = QualifiedContractIdentifier::local("contract").unwrap();
         let contract =
             "(define-data-var datum int 1)
              (define-public (reset)
@@ -40,23 +43,24 @@ fn test_at_block_good() {
 
         eprintln!("Initializing contract...");
         owned_env.begin();
-        owned_env.initialize_contract("contract", &contract).unwrap();
+        owned_env.initialize_contract(c.clone(), &contract).unwrap();
         owned_env.commit().unwrap();
     }
 
 
     fn branch(owned_env: &mut OwnedEnvironment, expected_value: i128, to_exec: &str) -> Result<Value> {
+        let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str);
         eprintln!("Branched execution...");
 
         {
             let mut env = owned_env.get_exec_environment(None);
             let command = format!("(var-get datum)");
-            let value = env.eval_read_only("contract", &command).unwrap();
+            let value = env.eval_read_only(&c, &command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
         
-        owned_env.execute_transaction(p1, "contract", to_exec, &vec![])
+        owned_env.execute_transaction(p1, c, to_exec, &vec![])
             .map(|(x, _)| x)
     }
 
@@ -84,6 +88,9 @@ fn test_at_block_good() {
 #[test]
 fn test_at_block_missing_defines() {
     fn initialize_1(owned_env: &mut OwnedEnvironment) {
+        let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
+        let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
+
         let contract =
             "(define-map datum ((id bool)) ((value int)))
              
@@ -94,36 +101,42 @@ fn test_at_block_missing_defines() {
 
         eprintln!("Initializing contract...");
         owned_env.begin();
-        owned_env.initialize_contract("contract_a", &contract).unwrap();
+        owned_env.initialize_contract(c_a.clone(), &contract).unwrap();
         owned_env.commit().unwrap();
     }
 
     fn initialize_2(owned_env: &mut OwnedEnvironment) -> Error {
+        let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
+        let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
+
         let contract =
             "(define-private (problematic-cc)
                (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
-                 (contract-call! contract_a flip)))
+                 (contract-call! .contract-a flip)))
              (problematic-cc)
             ";
 
         eprintln!("Initializing contract...");
         owned_env.begin();
-        let e = owned_env.initialize_contract("contract_b", &contract).unwrap_err();
+        let e = owned_env.initialize_contract(c_b.clone(), &contract).unwrap_err();
         owned_env.commit().unwrap();
         e
     }
 
     fn initialize_3(owned_env: &mut OwnedEnvironment) -> Error {
+        let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
+        let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
+
         let contract =
             "(define-private (problematic-fetch-entry)
                (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
-                 (contract-map-get contract_a datum ((id 'true)))))
+                 (contract-map-get .contract-a datum ((id 'true)))))
              (problematic-fetch-entry)
             ";
 
         eprintln!("Initializing contract...");
         owned_env.begin();
-        let e = owned_env.initialize_contract("contract_b", &contract).unwrap_err();
+        let e = owned_env.initialize_contract(c_b.clone(), &contract).unwrap_err();
         owned_env.commit().unwrap();
         e
     }
@@ -134,7 +147,7 @@ fn test_at_block_missing_defines() {
         |_| {},
         |env| {
             let err = initialize_2(env);
-            assert_eq!(err, CheckErrors::NoSuchContract("contract_a".into()).into());
+            assert_eq!(err, CheckErrors::NoSuchContract("'S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()).into());
         });
 
     with_separate_forks_environment(
@@ -222,6 +235,13 @@ where F0: FnOnce(&mut OwnedEnvironment),
 }
 
 fn initialize_contract(owned_env: &mut OwnedEnvironment) {
+    let p1_address = {
+        if let Value::Principal(PrincipalData::Standard(address)) = execute(p1_str) {
+            address
+        } else {
+            panic!();
+        }
+    };
     let contract = format!(
         "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-fungible-token stackaroos)
@@ -235,18 +255,29 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
 
     eprintln!("Initializing contract...");
     owned_env.begin();
-    owned_env.initialize_contract("tokens", &contract).unwrap();
+
+    let contract_identifier = QualifiedContractIdentifier::new(p1_address, "tokens".into());
+    owned_env.initialize_contract(contract_identifier, &contract).unwrap();
     owned_env.commit().unwrap();
 }
 
 fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
-    let p1 = execute(p1_str);
+    let p1_address = {
+        if let Value::Principal(PrincipalData::Standard(address)) = execute(p1_str) {
+            address
+        } else {
+            panic!();
+        }
+    };
+    let contract_identifier = QualifiedContractIdentifier::new(p1_address.clone(), "tokens".into());
+
     eprintln!("Branched execution...");
 
     {
         let mut env = owned_env.get_exec_environment(None);
         let command = format!("(get-balance {})", p1_str);
-        let balance = env.eval_read_only("tokens", &command).unwrap();
+        let balance = env.eval_read_only(&contract_identifier, 
+                                         &command).unwrap();
         let expected = if expect_success {
             10
         } else {
@@ -255,7 +286,9 @@ fn branched_execution(owned_env: &mut OwnedEnvironment, expect_success: bool) {
         assert_eq!(balance, Value::Int(expected));
     }
 
-    let (result, _) = owned_env.execute_transaction(p1, "tokens", "destroy",
+    let (result, _) = owned_env.execute_transaction(Value::Principal(PrincipalData::Standard(p1_address)),
+                                                    contract_identifier, 
+                                                    "destroy",
                                                     &symbols_from_values(vec![Value::Int(10)])).unwrap();
 
     if expect_success {

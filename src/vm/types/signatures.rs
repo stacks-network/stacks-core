@@ -5,7 +5,7 @@ use std::convert::TryFrom;
 use std::collections::BTreeMap;
 
 use address::c32;
-use vm::types::{Value, MAX_VALUE_SIZE};
+use vm::types::{Value, MAX_VALUE_SIZE, QualifiedContractIdentifier};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType, ClarityName, ContractName};
 use vm::errors::{RuntimeErrorType, CheckErrors, IncomparableError, Error as VMError};
 use util::hash;
@@ -14,7 +14,7 @@ type Result <R> = std::result::Result<R, CheckErrors>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct AssetIdentifier {
-    pub contract_name: ContractName,
+    pub contract_identifier: QualifiedContractIdentifier,
     pub asset_name: ClarityName
 }
 
@@ -84,8 +84,8 @@ pub struct FunctionArg {
 #[cfg(test)]
 impl From<&str> for TypeSignature {
     fn from(val: &str) -> Self {
-        use vm::parser;
-        let expr = &parser::parse(val).unwrap()[0];
+        use vm::ast::parse;
+        let expr = &parse(&QualifiedContractIdentifier::transient(), val).unwrap()[0];
         TypeSignature::parse_type_repr(expr).unwrap()
     }
 }
@@ -520,7 +520,7 @@ impl TypeSignature {
             return Err(CheckErrors::InvalidTypeDescription);
         }
 
-        if let SymbolicExpressionType::AtomValue(Value::Int(max_len)) = &type_args[0].expr {            
+        if let SymbolicExpressionType::LiteralValue(Value::Int(max_len)) = &type_args[0].expr {            
             let atomic_type_arg = &type_args[type_args.len()-1];
             let entry_type = TypeSignature::parse_type_repr(atomic_type_arg)?;
             let max_len = u32::try_from(*max_len)
@@ -545,7 +545,7 @@ impl TypeSignature {
         if type_args.len() != 1 {
             return Err(CheckErrors::InvalidTypeDescription)
         }
-        if let SymbolicExpressionType::AtomValue(Value::Int(buff_len)) = &type_args[0].expr {
+        if let SymbolicExpressionType::LiteralValue(Value::Int(buff_len)) = &type_args[0].expr {
             BufferLength::try_from(*buff_len)
                 .map(|buff_len| TypeSignature::BufferType(buff_len))
         } else {
@@ -781,7 +781,7 @@ impl fmt::Display for TupleTypeSignature {
 
 impl fmt::Display for AssetIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}::{}", &*self.contract_name, &*self.asset_name)
+        write!(f, "{}::{}", &*self.contract_identifier.to_string(), &*self.asset_name)
     }
 }
 
@@ -821,8 +821,8 @@ mod test {
     use super::CheckErrors::*;
 
     fn fail_parse(val: &str) -> CheckErrors {
-        use vm::parser;
-        let expr = &parser::parse(val).unwrap()[0];
+        use vm::ast::parse;
+        let expr = &parse(&QualifiedContractIdentifier::transient(), val).unwrap()[0];
         TypeSignature::parse_type_repr(expr).unwrap_err()
     }
 
