@@ -112,6 +112,10 @@ pub struct BlockHashMap {
     map: Vec<BlockHeaderHash>
 }
 
+trait NodeHashReader {
+    fn write_node_hash<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error>;
+}
+
 impl BlockHashMap {
     pub fn new(initial_size: Option<u32>) -> BlockHashMap {
         if let Some(initial_size) = initial_size {
@@ -432,6 +436,18 @@ impl TrieRAM {
     }
 }
 
+impl NodeHashReader for TrieRAM {
+    fn write_node_hash<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
+        let (_, node_trie_hash) = self.data.get(ptr.ptr() as usize)
+            .ok_or_else(|| {
+                trace!("TrieRAM: Failed to read node bytes: {} >= {}", ptr.ptr(), self.data.len());
+                Error::NotFoundError
+            })?;
+        w.write_all(node_trie_hash.as_bytes())?;
+        Ok(())
+    }
+}
+
 enum FileStorageTypes {
     BufferedReader(BufReader<fs::File>),
     File(fs::File)
@@ -459,11 +475,18 @@ impl FileStorageTypes {
         }
     }
 
-    pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr) -> Result<[u8; 32], Error> {
+    pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr) -> Result<TrieHash, Error> {
         match self {
             FileStorageTypes::BufferedReader(ref mut b) => read_node_hash_bytes(b, ptr),
             FileStorageTypes::File(ref mut b) => read_node_hash_bytes(b, ptr)
-        }
+        }.map(|x| TrieHash(x))
+    }
+}
+
+impl NodeHashReader for FileStorageTypes {
+    fn write_node_hash<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
+        w.write_all(self.read_node_hash_bytes(ptr)?.as_bytes())?;
+        Ok(())
     }
 }
 
@@ -835,9 +858,9 @@ impl TrieFileStorage {
 
         let root_hash_ptr =
             TriePtr::new(TrieNodeID::Node256, 0, TrieFileStorage::root_ptr_disk());
-        let hash_buf = read_node_hash_bytes(&mut fd, &root_hash_ptr)?;
+        let hash = read_node_hash_bytes(&mut fd, &root_hash_ptr)?;
 
-        Ok(TrieHash(hash_buf))
+        Ok(TrieHash(hash))
     }
 
     #[cfg(test)]
@@ -1126,6 +1149,66 @@ impl TrieFileStorage {
         Ok(())
     }
 
+    /// Read a node's children's hashes as a vector of TrieHashes.
+    /// This only works for intermediate nodes and leafs (the latter of which have no children).
+    ///
+    /// This method is designed to only access hashes that are either (1) in this Trie, or (2) in
+    /// RAM already (i.e. as part of the block map)
+    ///
+    /// This means that the hash of a node that is in a previous Trie will _not_ be its
+    /// hash (as that would require a disk access), but would instead be the root hash of the Trie
+    /// that contains it.  While this makes the Merkle proof construction a bit more complicated,
+    /// it _significantly_ improves the performance of this method (which is crucial since this is on
+    /// the write path, which must be as short as possible).
+    ///
+    /// Rules:
+    /// If a node is empty, pass in an empty hash.
+    /// If a node is in this Trie, pass its hash.
+    /// If a node is in a previous Trie, pass the root hash of its Trie.
+    ///
+    /// On err, S may point to a prior block.  The caller should call s.open(...) if an error
+    /// occurs.
+    pub fn write_children_hashes<W: Write>(&mut self, node: &TrieNodeType, w: &mut W) -> Result<(), Error> {
+        trace!("get_children_hashes_bytes for {:?}", node);
+
+        let block_map = &self.block_map;
+
+        if Some(self.cur_block) == self.last_extended {
+            let hash_reader = self.last_extended_trie.as_mut()
+                .expect("MARF CORRUPTION: last_extended is set, but last_extended_trie is None.");
+            TrieFileStorage::inner_write_children_hashes(hash_reader, block_map, node, w)
+        } else {
+            let hash_reader = self.cur_block_fd.as_mut()
+                .ok_or(Error::NotFoundError)?;
+            TrieFileStorage::inner_write_children_hashes(hash_reader, block_map, node, w)
+        }
+    }
+
+    fn inner_write_children_hashes<W: Write, H: NodeHashReader>(
+        hash_reader: &mut H, block_map: &BlockHashMap, node: &TrieNodeType, w: &mut W) -> Result<(), Error> {
+        for ptr in node.ptrs().iter() {
+            if ptr.id() == TrieNodeID::Empty {
+                // hash of empty string
+                w.write_all(TrieHash::from_data(&[]).as_bytes())?;
+            }
+            else if !is_backptr(ptr.id()) {
+                // hash is in the same block as this node
+                hash_reader.write_node_hash(ptr, w)?;
+            }
+            else {
+                // AARON:
+                //   I *think* this is no longer necessary in the fork-table-less construction.
+                //   the back_pointer's consensus bytes uses this block_hash instead of a back_block
+                //   integer. This means that it would _always_ be included the node's hash computation.
+                let block_hash = block_map.get_block_header_hash(ptr.back_block())
+                    .ok_or_else(|| Error::NotFoundError)?;
+                w.write_all(block_hash.as_bytes())?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr) -> Result<TrieHash, Error> {
         if Some(self.cur_block) == self.last_extended {
             // special case 
@@ -1136,7 +1219,7 @@ impl TrieFileStorage {
         // some other block or ptr, or cache miss
         match self.cur_block_fd {
             Some(ref mut f) => {
-                Ok(TrieHash(f.read_node_hash_bytes(ptr)?))
+                f.read_node_hash_bytes(ptr)
             },
             None => {
                 trace!("Not found (no file is open)");

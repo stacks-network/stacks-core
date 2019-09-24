@@ -1280,6 +1280,16 @@ impl TrieNodeType {
         }
     }
 
+    pub fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+        match self {
+            TrieNodeType::Node4(ref data) => data.write_consensus_bytes(map, w),
+            TrieNodeType::Node16(ref data) => data.write_consensus_bytes(map, w),
+            TrieNodeType::Node48(ref data) => data.write_consensus_bytes(map, w),
+            TrieNodeType::Node256(ref data) => data.write_consensus_bytes(map, w),
+            TrieNodeType::Leaf(ref data) => data.write_consensus_bytes(map, w),
+        }
+    }
+
     pub fn byte_len(&self) -> usize {
         match self {
             TrieNodeType::Node4(ref data) => data.byte_len(),

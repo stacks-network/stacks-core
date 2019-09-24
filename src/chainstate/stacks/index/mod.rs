@@ -40,6 +40,7 @@ use std::hash::Hash;
 use chainstate::burn::BlockHeaderHash;
 
 use util::log;
+use util::hash::to_hex;
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
 pub struct TrieHash(pub [u8; 32]);
@@ -108,6 +109,13 @@ impl TrieHash {
                           self.0[24],    self.0[25],      self.0[26],      self.0[27],
                           self.0[28],    self.0[29],      self.0[30],      self.0[31]);
         s
+    }
+}
+
+
+impl fmt::Display for TrieHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", to_hex(&self.0))
     }
 }
 

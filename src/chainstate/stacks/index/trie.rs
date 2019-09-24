@@ -67,12 +67,13 @@ use chainstate::stacks::index::marf::{
 };
 
 use chainstate::stacks::index::{
-    TrieHash,
+    TrieHash, TrieHasher,
     TRIEHASH_ENCODED_SIZE,
 };
 
 use chainstate::stacks::index::Error as Error;
 
+use sha2::Digest;
 use util::log;
 use util::hash::to_hex;
 use util::macros::is_trace;
@@ -80,6 +81,26 @@ use util::macros::is_trace;
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
 /// storage implementation.
 pub struct Trie {}
+
+/// Fetch children hashes and compute the node's hash
+fn get_nodetype_hash(storage: &mut TrieFileStorage, node: &TrieNodeType) -> Result<TrieHash, Error> {
+    let mut hasher = TrieHasher::new();
+
+    node.write_consensus_bytes(&storage.block_map, &mut hasher)
+        .expect("IO Failure pushing to hasher.");
+
+    storage.write_children_hashes(node, &mut hasher)?;
+
+    let mut res = [0u8; 32];
+    res.copy_from_slice(hasher.result().as_slice());
+
+    let ret = TrieHash(res);
+
+    trace!("get_node_hash: hash {:?} = {:?} + ::children::", &ret, node);
+    Ok(ret)
+}
+
+
 
 impl Trie {
 
@@ -163,43 +184,18 @@ impl Trie {
     /// Read a node's children's hashes as a vector of TrieHashes.
     /// This only works for intermediate nodes and leafs (the latter of which have no children).
     ///
-    /// This method is designed to only access hashes that are either (1) in this Trie, or (2) in
-    /// RAM already (i.e. as part of the block map)
-    ///
-    /// This means that the hash of a node that is in a previous Trie will _not_ be its
-    /// hash (as that would require a disk access), but would instead be the root hash of the Trie
-    /// that contains it.  While this makes the Merkle proof construction a bit more complicated,
-    /// it _significantly_ improves the performance of this method (which is crucial since this is on
-    /// the write path, which must be as short as possible).
-    ///
-    /// Rules:
-    /// If a node is empty, pass in an empty hash.
-    /// If a node is in this Trie, pass its hash.
-    /// If a node is in a previous Trie, pass the root hash of its Trie.
-    ///
-    /// On err, S may point to a prior block.  The caller should call s.open(...) if an error
-    /// occurs.
+    /// See: TrieFileStorage::write_children_hashes for more information on the hash contents.
     pub fn get_children_hashes(storage: &mut TrieFileStorage, node: &TrieNodeType) -> Result<Vec<TrieHash>, Error> {
-        trace!("get_children_hashes_bytes for {:?}", node);
-        node.ptrs().iter().map(|ptr| {
-            if ptr.id() == TrieNodeID::Empty {
-                // hash of empty string
-                Ok(TrieHash::from_data(&[]))
-            }
-            else if !is_backptr(ptr.id()) {
-                // hash is in the same block as this node
-                storage.read_node_hash_bytes(ptr)
-            }
-            else {
-                // AARON:
-                //   I *think* this is no longer necessary in the fork-table-less construction.
-                //   the back_pointer's consensus bytes uses this block_hash instead of a back_block
-                //   integer. This means that it would _always_ be included the node's hash computation.
-                // hash of block that contains the Trie in which this node lives.
-                let block_hash = storage.get_block_from_local_id(ptr.back_block())?;
-                Ok(TrieHash(block_hash.0))
-            }
-        }).collect()
+        let mut buffer = Vec::with_capacity(node.ptrs().len() * TRIEHASH_ENCODED_SIZE);
+        storage.write_children_hashes(node, &mut buffer)?;
+        assert_eq!(buffer.len() % TRIEHASH_ENCODED_SIZE, 0);
+
+        let trie_hashes: Vec<_> = buffer.chunks_exact(TRIEHASH_ENCODED_SIZE)
+            .map(|x| TrieHash::from_bytes(x)
+                 .expect("Failed to re-encode TrieHash from byte buffer"))
+            .collect();
+
+        Ok(trie_hashes)
     }
 
     /// Given an existing leaf, replace it with the new leaf.
@@ -378,8 +374,7 @@ impl Trie {
 
         assert!(inserted);
 
-        let child_hashes = Trie::get_children_hashes(storage, &node)?;
-        let new_node_hash = get_nodetype_hash_bytes(node, &child_hashes, &storage.block_map);
+        let new_node_hash = get_nodetype_hash(storage, node)?;
 
         storage.write_nodetype(cursor.ptr().ptr(), node, new_node_hash)?;
         
@@ -423,8 +418,7 @@ impl Trie {
         let inserted = new_node.insert(&leaf_ptr);
         assert!(inserted);
     
-        let child_hashes = Trie::get_children_hashes(storage, &new_node)?;
-        let new_node_hash = get_nodetype_hash_bytes(&new_node, &child_hashes, &storage.block_map);
+        let new_node_hash = get_nodetype_hash(storage, &new_node)?;
 
         // append this leaf to the Trie
         let new_node_disk_ptr = storage.last_ptr()?;
@@ -489,10 +483,9 @@ impl Trie {
         let new_cur_node_disk_ptr = storage.last_ptr()?;
         let new_cur_node_ptr = TriePtr::new(cur_node_cur_ptr.id(), new_cur_node_chr, new_cur_node_disk_ptr as u32);
 
-        let children_hashes = Trie::get_children_hashes(storage, &node)?;
-
         node.set_path(new_cur_node_path);
-        let new_cur_node_hash = get_nodetype_hash_bytes(node, &children_hashes, &storage.block_map);
+
+        let new_cur_node_hash = get_nodetype_hash(storage, &node)?;
 
         let mut new_node4 = TrieNode4::new(&shared_path_prefix);
         new_node4.insert(&leaf_ptr);
@@ -670,10 +663,8 @@ impl Trie {
             if child_ptr != storage.root_trieptr() {
                 return Err(Error::CorruptionError("Only ptr is not the root".to_string()));
             }
-            
-            let children_hashes = Trie::get_children_hashes(storage, &node)?;
 
-            let my_hash = get_nodetype_hash_bytes(&node, &children_hashes, &storage.block_map);
+            let my_hash = get_nodetype_hash(storage, &node)?;
 
             let h = 
                 if update_skiplist {
@@ -687,7 +678,7 @@ impl Trie {
 
             // for debug purposes
             if is_trace() {
-                let node_hash = get_nodetype_hash_bytes(&node, &children_hashes, &storage.block_map);
+                let node_hash = my_hash.clone();
                 let hs = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)?;
                 trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?} + {:?} = {:?} (fixed root)", &node, &child_ptr, &cur_hash, &node_hash, &hs[1..].to_vec(), &h);
             }
@@ -712,7 +703,7 @@ impl Trie {
                     assert!(updated);
                 }
 
-                let children_hashes = Trie::get_children_hashes(storage, &node)?;
+                let content_hash = get_nodetype_hash(storage, &node)?;
 
                 // flush the current node to storage --
                 //  necessary because computing ancestor hashes requires that the trie's pointers
@@ -721,13 +712,12 @@ impl Trie {
                 storage.write_nodetype(ptr.ptr(), &node, TrieHash([0; 32]))?;
 
                 if !node.is_node256() {
-                    let h = get_nodetype_hash_bytes(&node, &children_hashes, &storage.block_map);
+                    let h = content_hash;
                     trace!("update_root_hash: Updated {:?} with {:?} from {:?} to {:?}", node, &child_ptr, &cur_hash, &h);
                     storage.write_nodetype(ptr.ptr(), &node, h)?;
                 }
                 else {
                     let root_ptr = storage.root_trieptr();
-                    let content_hash = get_nodetype_hash_bytes(&node, &children_hashes, &storage.block_map);                                    
                     let node_hash = 
                         if ptr == root_ptr {
                             let h = Trie::get_trie_root_hash(storage, &content_hash)?;
