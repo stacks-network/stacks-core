@@ -1,6 +1,6 @@
-use vm::representations::{SymbolicExpression, ClarityName};
-use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List};
-use vm::types::{TypeSignature, TupleTypeSignature, parse_name_type_pairs};
+use vm::representations::{SymbolicExpressionType, SymbolicExpression, ClarityName};
+use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, LiteralValue};
+use vm::types::{TypeSignature, TupleTypeSignature, Value, PrincipalData, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
 use vm::functions::define::DefineFunctionsParsed;
 use vm::functions::tuples;
@@ -11,7 +11,7 @@ use vm::variables::NativeVariables;
 use std::collections::HashMap;
 
 use super::AnalysisDatabase;
-pub use super::errors::{CheckResult, CheckErrors, check_argument_count, check_arguments_at_least};
+pub use super::errors::{CheckResult, CheckError, CheckErrors, check_argument_count, check_arguments_at_least};
 
 #[cfg(test)]
 mod tests;
@@ -108,7 +108,7 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
     /// Note that because of (1), this function _cannot_ short-circuit on read-only.
     fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
         match expr.expr {
-            AtomValue(_) => {
+            AtomValue(_) | LiteralValue(_) => {
                 Ok(true)
             },
             Atom(_) => {
@@ -257,12 +257,15 @@ impl <'a, 'b> ReadOnlyChecker <'a, 'b> {
             },
             ContractCall => {
                 check_arguments_at_least(2, args)?;
-                let contract_name = args[0].match_atom()
-                    .ok_or(CheckErrors::ContractCallExpectName)?;
+                let contract_identifier = match args[0].expr {
+                    SymbolicExpressionType::LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))) => contract_identifier,
+                    _ => return Err(CheckError::new(CheckErrors::ContractCallExpectName))
+                };
+
                 let function_name = args[1].match_atom()
                     .ok_or(CheckErrors::ContractCallExpectName)?;
 
-                let is_function_read_only = self.db.get_read_only_function_type(contract_name, function_name)?.is_some();
+                let is_function_read_only = self.db.get_read_only_function_type(&contract_identifier, function_name)?.is_some();
                 self.check_all_read_only(&args[2..])
                     .map(|args_read_only| args_read_only && is_function_read_only)
             }

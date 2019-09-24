@@ -35,16 +35,72 @@ pub struct ListData {
     pub type_signature: ListTypeData
 }
 
-// a standard principal is a version byte + hash160 (20 bytes)
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
+impl StandardPrincipalData {
+
+    pub fn transient() -> StandardPrincipalData {
+        Self(1, [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct QualifiedContractIdentifier {
+    pub issuer: StandardPrincipalData,
+    pub name: ContractName
+}
+
+impl QualifiedContractIdentifier {
+
+    pub fn new(issuer: StandardPrincipalData, name: ContractName) -> QualifiedContractIdentifier {
+        Self { issuer, name }
+    }
+
+    pub fn local(name: &str) -> Result<QualifiedContractIdentifier> {
+        let name = name.to_string().try_into()?;
+        Ok(Self::new(StandardPrincipalData::transient(), name))
+    }
+
+    pub fn transient() -> QualifiedContractIdentifier {
+        let name = String::from("__transient").try_into().unwrap();
+        Self { 
+            issuer: StandardPrincipalData::transient(), 
+            name
+        }
+    }
+
+    pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier> {
+        let split: Vec<_> = literal.splitn(2, ".").collect();
+        if split.len() != 2 {
+            return Err(RuntimeErrorType::ParseError(
+                "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
+        }
+        let sender = PrincipalData::parse_standard_principal(split[0])?;
+        let name = split[1].to_string().try_into()?;
+        Ok(QualifiedContractIdentifier::new(sender, name))
+    }
+
+    pub fn to_string(&self) -> String {
+        format!("'{}.{}", self.issuer, self.name.to_string())
+    }
+}
+
+impl fmt::Display for QualifiedContractIdentifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum PrincipalData {
-    StandardPrincipal(StandardPrincipalData),
-    ContractPrincipal(ContractName),
-    QualifiedContractPrincipal { sender: StandardPrincipalData,
-                                 name: ContractName },
+    Standard(StandardPrincipalData),
+    Contract(QualifiedContractIdentifier),
+}
+
+pub enum ContractIdentifier {
+    Relative(ContractName),
+    Qualified(QualifiedContractIdentifier)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -232,15 +288,8 @@ impl fmt::Display for Value {
 
 impl PrincipalData {
     pub fn parse_qualified_contract_principal(literal: &str) -> Result<PrincipalData> {
-        let split: Vec<_> = literal.splitn(2, ".").collect();
-        if split.len() != 2 {
-            return Err(RuntimeErrorType::ParseError(
-                "Invalid principal literal: expected a `.` in a qualified contract name".to_string()).into());
-        }
-        let sender = Self::parse_standard_principal(split[0])?;
-        let name = split[1].to_string().try_into()?;
-        
-        Ok(PrincipalData::QualifiedContractPrincipal { sender, name })
+        let contract_id = QualifiedContractIdentifier::parse(literal)?;
+        Ok(PrincipalData::Contract(contract_id))
     }
 
     pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
@@ -263,19 +312,21 @@ impl StandardPrincipalData {
     }
 }
 
+impl fmt::Display for StandardPrincipalData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let c32_str = self.to_address();
+        write!(f, "{}", c32_str)
+    }
+}
+
 impl fmt::Display for PrincipalData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PrincipalData::StandardPrincipal(sender) => {
-                let c32_str = sender.to_address();
-                write!(f, "'{}", c32_str)                
+            PrincipalData::Standard(sender) => {
+                write!(f, "'{}", sender)                
             },
-            PrincipalData::ContractPrincipal(contract_name) => {
-                write!(f, "'CT{}", &**contract_name)
-            },
-            PrincipalData::QualifiedContractPrincipal { sender, name } => {
-                let c32_str = sender.to_address();
-                write!(f, "'CT{}.{}", c32_str, &**name)
+            PrincipalData::Contract(contract_identifier) => {
+                write!(f, "'{}.{}", contract_identifier.issuer, contract_identifier.name.to_string())
             }
         }
     }
@@ -295,7 +346,7 @@ impl From<PrincipalData> for Value {
 
 impl From<StandardPrincipalData> for PrincipalData {
     fn from(p: StandardPrincipalData) -> Self {
-        PrincipalData::StandardPrincipal(p)
+        PrincipalData::Standard(p)
     }
 }
 

@@ -1,6 +1,5 @@
 use vm::representations::{Span};
 use std::fmt;
-use vm::analysis::{CheckErrors};
 
 /// In a near future, we can go further in our static analysis and provide different levels 
 /// of diagnostics, such as warnings, hints, best practices, etc.

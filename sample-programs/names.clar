@@ -11,7 +11,7 @@
 (define-public (preorder 
                 (name-hash (buff 20))
                 (name-price int))
-  (if (is-ok? (contract-call! tokens token-transfer
+  (if (is-ok? (contract-call! .tokens token-transfer
                 burn-address name-price))
       (begin (map-insert! preorder-map
                      (tuple (name-hash name-hash))

@@ -80,7 +80,7 @@ fn handle_define_function(signature: &[SymbolicExpression],
         expression.clone(),
         define_type,
         function_name,
-        &env.contract_context.name);
+        &env.contract_context.contract_identifier.to_string());
 
     Ok(DefineResult::Function(function_name.clone(), function))
 }
