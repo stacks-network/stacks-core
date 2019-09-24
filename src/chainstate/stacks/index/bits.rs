@@ -66,6 +66,8 @@ use chainstate::stacks::index::node::{
 
 use chainstate::stacks::index::Error;
 
+use chainstate::burn::BLOCK_HEADER_HASH_ENCODED_SIZE;
+
 use util::log;
 use util::macros::is_trace;
 
@@ -147,7 +149,7 @@ pub fn get_ptrs_byte_len(ptrs: &[TriePtr]) -> usize {
 #[inline]
 pub fn get_ptrs_consensus_byte_len(ptrs: &[TriePtr]) -> usize {
     let node_id_len = 1;
-    let consensus_trie_ptr_size = 2 + 32;// 2: id + chr, 32: block header hash
+    let consensus_trie_ptr_size = 2 + BLOCK_HEADER_HASH_ENCODED_SIZE;// 2: id + chr, 32: block header hash
     node_id_len + consensus_trie_ptr_size * ptrs.len()
 }
 
@@ -249,7 +251,7 @@ pub fn get_nodetype_hash_bytes(node: &TrieNodeType, child_hash_bytes: &Vec<TrieH
 
 /// Low-level method for reading a TrieHash into a byte buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
-pub fn read_hash_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; 32], Error> {
+pub fn read_hash_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
     let mut hashbytes = [0u8; 32];
     f.read_exact(&mut hashbytes)
         .map_err(|e| {
@@ -283,7 +285,7 @@ pub fn read_4_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; 4], Error> {
 
 /// Low-level method for reading a node's hash bytes into a buffer from a Read-able and Seek-able struct.
 /// The byte buffer must have sufficient space to hold the hash, or this program panics.
-pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<[u8; 32], Error> {
+pub fn read_node_hash_bytes<F: Read + Seek>(f: &mut F, ptr: &TriePtr) -> Result<[u8; TRIEHASH_ENCODED_SIZE], Error> {
     fseek(f, ptr.ptr() as u64)?;
     read_hash_bytes(f)
 }

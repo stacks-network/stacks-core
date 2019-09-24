@@ -37,7 +37,7 @@ use hashbrown::HashMap;
 use std::collections::VecDeque;
 use std::collections::HashSet;
 
-use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::{BlockHeaderHash, BLOCK_HEADER_HASH_ENCODED_SIZE};
 
 use chainstate::stacks::index::bits::{
     path_from_bytes,
@@ -328,7 +328,7 @@ impl TriePtr {
                     .expect("Block identifier {} refered to an unknown block. Consensus failure.")
                     .as_bytes())?;
         } else {
-            w.write_all(&[0; 32])?;
+            w.write_all(&[0; BLOCK_HEADER_HASH_ENCODED_SIZE])?;
         }
         Ok(())
     }
