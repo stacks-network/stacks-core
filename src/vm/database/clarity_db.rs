@@ -69,6 +69,10 @@ impl <'a> ClarityDatabase <'a> {
         self.store.rollback();
     }
 
+    pub fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+        self.store.set_block_hash(bhh)
+    }
+
     fn put(&mut self, key: &str, value: &ClaritySerializable) {
         self.store.put(&key, &value.serialize());
     }

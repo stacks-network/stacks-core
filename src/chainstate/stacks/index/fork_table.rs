@@ -56,7 +56,7 @@ use util::log;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrieForkPtr {
-    fork_id: usize,
+    pub fork_id: usize,
     index: usize,
     parent_fork_id: usize,
     parent_index: usize
@@ -70,6 +70,10 @@ impl TrieForkPtr {
             parent_fork_id,
             parent_index
         }
+    }
+
+    pub fn is_root(&self) -> bool {
+        self.fork_id == self.parent_fork_id && self.index == self.parent_index
     }
 }
 
@@ -255,7 +259,7 @@ impl TrieForkTable {
                     let parent_index = fork_ptr.parent_index;
                     let fork_column = &self.fork_table[parent_fork_id];
 
-                    if fork_ptr.fork_id == fork_ptr.parent_fork_id && fork_ptr.index == fork_ptr.parent_index {
+                    if fork_ptr.is_root() {
                         // at root
                         break;
                     }

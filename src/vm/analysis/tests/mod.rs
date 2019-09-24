@@ -60,9 +60,20 @@ fn test_could_not_determine_response_err_type() {
 
 #[test]
 fn test_bad_tuple_field_name() {
-    let snippet = "(get 1 ((value 100)))";
+    let snippet = "(get 1 (tuple (value 100)))";
     let err = mem_type_check(snippet).unwrap_err();
     assert!(format!("{}", err.diagnostic).contains("invalid tuple field name"));
+}
+
+#[test]
+fn test_bad_function_name_2() {
+    // outside of the legal "implicit" tuple structures,
+    //    things that look like ((value 100)) are evaluated as
+    //    _function applications_, so this should error, since (value 100) isn't a function.
+    let snippet = "(get 1 ((value 100)))";
+    let err = mem_type_check(snippet).unwrap_err();
+    println!("{}", err.diagnostic);
+    assert!(format!("{}", err.diagnostic).contains("expecting expression of type function"));
 }
 
 #[test]
@@ -104,7 +115,7 @@ fn test_no_such_variable() {
 fn test_bad_map_name() {
     let snippet = "(define-map 1 ((key int)) ((value int)))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid map name"));
+    assert!(format!("{}", err.diagnostic).contains("expected a name argument"));
 }
 
 #[test]
@@ -146,7 +157,7 @@ fn test_public_function_must_return_response() {
 fn test_define_variable_bad_signature() {
     let snippet = "(define-data-var 1 int 0)";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid variable definition"));
+    assert!(format!("{}", err.diagnostic).contains("expected a name argument"));
 }
 
 #[test]

@@ -1,3 +1,5 @@
+use vm::errors::{ InterpreterResult as Result };
+use chainstate::burn::BlockHeaderHash;
 use std::collections::{HashMap};
 
 // These functions _do not_ return errors, rather, any errors in the underlying storage
@@ -7,6 +9,11 @@ pub trait KeyValueStorage {
     fn put(&mut self, key: &str, value: &str);
     fn get(&mut self, key: &str) -> Option<String>;
     fn has_entry(&mut self, key: &str) -> bool;
+
+    /// returns the previous block header hash on success
+    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+        panic!("Attempted to evaluate changed block height with a generic backend");
+    } 
 
     fn put_all(&mut self, mut items: Vec<(String, String)>) {
         for (key, value) in items.drain(..) {
@@ -123,6 +130,10 @@ impl <'a> KeyValueStorage for RollbackWrapper <'a> {
         key_edit_deque.push(value.to_string());
 
         current.edits.push((key.to_string(), value.to_string()));
+    }
+
+    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+        self.store.set_block_hash(bhh)
     }
 
     fn get(&mut self, key: &str) -> Option<String> {

@@ -4,6 +4,7 @@ pub use vm::analysis::errors::{CheckErrors};
 pub use vm::analysis::errors::{check_argument_count, check_arguments_at_least};
 use vm::types::{Value, TypeSignature};
 use vm::contexts::StackTrace;
+use chainstate::burn::BlockHeaderHash;
 use chainstate::stacks::index::{Error as MarfError};
 
 use serde_json::Error as SerdeJSONErr;
@@ -68,7 +69,9 @@ pub enum RuntimeErrorType {
     NonPositiveTokenSupply,
     JSONParseError(IncomparableError<SerdeJSONErr>),
     AttemptToFetchInTransientContext,
-    BadNameValue(&'static str, String)
+    BadNameValue(&'static str, String),
+    UnknownBlockHeaderHash(BlockHeaderHash),
+    BadBlockHash(Vec<u8>)
 }
 
 #[derive(Debug, PartialEq)]

@@ -536,6 +536,20 @@ If the function returns _ok_, database changes occurred.",
     example: "(contract-call! .tokens transfer 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 19) ;; Returns (ok 1)"
 };
 
+const AT_BLOCK: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), A",
+    output_type: "A",
+    signature: "(at-block block-hash expr)",
+    description: "The `at-block` function evaluates the expression `expr` _as if_ it were evaluated at the end of the
+block indicated by the _block-hash_ argument. The `expr` closure must be read-only.
+
+The function returns the result of evaluating `expr`.
+",
+    example: "(at-block 0x0000000000000000000000000000000000000000000000000000000000000000 (var-get data))
+(at-block (get-block-info header-hash (- block-height 10)) (var-get data))"
+};
+        
+
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
     input_type: "A",
     output_type: "A",
@@ -980,7 +994,8 @@ fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         GetTokenBalance => make_for_special(&GET_BALANCE, name),
         GetAssetOwner => make_for_special(&GET_OWNER, name),
         TransferToken => make_for_special(&TOKEN_TRANSFER, name),
-        TransferAsset => make_for_special(&ASSET_TRANSFER, name)
+        TransferAsset => make_for_special(&ASSET_TRANSFER, name),
+        AtBlock => make_for_special(&AT_BLOCK, name),
     }
 }
 

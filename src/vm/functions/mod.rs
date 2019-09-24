@@ -57,6 +57,7 @@ define_named_enum!(NativeFunctions {
     Print("print"),
     ContractCall("contract-call!"),
     AsContract("as-contract"),
+    AtBlock("at-block"),
     GetBlockInfo("get-block-info"),
     ConsError("err"),
     ConsOkay("ok"),
@@ -135,6 +136,7 @@ pub fn lookup_reserved_functions(name: &str) -> Option<CallableType> {
             TransferToken => CallableType::SpecialFunction("special_transfer_token", &assets::special_transfer_token),
             GetTokenBalance => CallableType::SpecialFunction("special_get_balance", &assets::special_get_balance),
             GetAssetOwner => CallableType::SpecialFunction("special_get_owner", &assets::special_get_owner),
+            AtBlock => CallableType::SpecialFunction("special_at_block", &database::special_at_block),
         };
         Some(callable)
     } else {

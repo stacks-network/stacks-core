@@ -119,6 +119,66 @@ impl TrieHash {
     }
 }
 
+impl From<BlockHeaderHash> for MARFValue {
+    fn from(bhh: BlockHeaderHash) -> MARFValue {
+        let h = bhh.0;
+        let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
+        if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
+            panic!("Cannot convert a BHH into a MARF Value.");
+        }
+        for i in 0..h.len() {
+            d[i] = h[i];
+        }
+        MARFValue(d)
+    }
+}
+
+impl From<u64> for MARFValue {
+    fn from(value: u64) -> MARFValue {
+        let h = value.to_le_bytes();
+        let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
+        if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
+            panic!("Cannot convert a u64 into a MARF Value.");
+        }
+        for i in 0..h.len() {
+            d[i] = h[i];
+        }
+        MARFValue(d)
+    }
+}
+
+impl From<MARFValue> for BlockHeaderHash {
+    fn from(m: MARFValue) -> BlockHeaderHash {
+        let h = m.0;
+        let mut d = [0u8; 32];
+        for i in 0..32 {
+            d[i] = h[i];
+        }
+        for i in 32..h.len() {
+            if h[i] != 0 {
+                panic!("Failed to convert MARF value into BHH: data stored after 32nd byte");
+            }
+        }
+        BlockHeaderHash(d)
+    }
+}
+
+impl From<MARFValue> for u64 {
+    fn from(m: MARFValue) -> u64 {
+        let h = m.0;
+        let mut d = [0u8; 8];
+        for i in 0..8 {
+            d[i] = h[i];
+        }
+        for i in 8..h.len() {
+            if h[i] != 0 {
+                panic!("Failed to convert MARF value into u64: data stored after 8th byte");
+            }
+        }
+        u64::from_le_bytes(d)
+    }
+}
+
 impl MARFValue {
     /// Construct from a TRIEHASH_ENCODED_SIZE-length slice
     pub fn from_value_hash_bytes(h: &[u8; TRIEHASH_ENCODED_SIZE]) -> MARFValue {
@@ -171,24 +231,18 @@ pub enum Error {
     PartialWriteError,
     InProgressError,
     WriteNotBegunError,
-    CursorError(node::CursorError)
+    CursorError(node::CursorError),
+    RestoreMarfBlockError(Box<Error>),
+    NonMatchingForks(BlockHeaderHash, BlockHeaderHash)
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
-            Error::NotFoundError => f.write_str(error::Error::description(self)),
-            Error::BackptrNotFoundError => f.write_str(error::Error::description(self)),
-            Error::ExistsError => f.write_str(error::Error::description(self)),
-            Error::BadSeekValue => f.write_str(error::Error::description(self)),
             Error::CorruptionError(ref s) => fmt::Display::fmt(s, f),
-            Error::ReadOnlyError => f.write_str(error::Error::description(self)),
-            Error::NotDirectoryError => f.write_str(error::Error::description(self)),
-            Error::PartialWriteError => f.write_str(error::Error::description(self)),
-            Error::InProgressError => f.write_str(error::Error::description(self)),
-            Error::WriteNotBegunError => f.write_str(error::Error::description(self)),
-            Error::CursorError(ref e) => fmt::Display::fmt(e, f)
+            Error::CursorError(ref e) => fmt::Display::fmt(e, f),
+            _ => f.write_str(error::Error::description(self)),
         }
     }
 }
@@ -197,17 +251,8 @@ impl error::Error for Error {
     fn cause(&self) -> Option<&error::Error> {
         match *self {
             Error::IOError(ref e) => Some(e),
-            Error::NotFoundError => None,
-            Error::BackptrNotFoundError => None,
-            Error::ExistsError => None,
-            Error::BadSeekValue => None,
-            Error::CorruptionError(ref _s) => None,
-            Error::ReadOnlyError => None,
-            Error::NotDirectoryError => None,
-            Error::PartialWriteError => None,
-            Error::InProgressError => None,
-            Error::WriteNotBegunError => None,
-            Error::CursorError(ref e) => None,
+            Error::RestoreMarfBlockError(ref e) => Some(e),
+            _ => None
         }
     }
 
@@ -224,7 +269,9 @@ impl error::Error for Error {
             Error::PartialWriteError => "Data is partially written and not yet recovered",
             Error::InProgressError => "Write was in progress",
             Error::WriteNotBegunError => "Write has not begun",
-            Error::CursorError(ref e) => e.description()
+            Error::CursorError(ref e) => e.description(),
+            Error::RestoreMarfBlockError(ref _e) => "Failed to restore previous open block during block header check",
+            Error::NonMatchingForks(ref a, ref b) => "The supplied blocks are not in the same fork",
         }
     }
 }

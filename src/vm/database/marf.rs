@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use vm::errors::{ InterpreterError, InterpreterResult as Result, IncomparableError };
+use vm::errors::{ InterpreterError, InterpreterResult as Result, IncomparableError, RuntimeErrorType };
 use vm::database::{KeyValueStorage, SqliteConnection};
 use chainstate::stacks::index::marf::MARF;
 use chainstate::stacks::index::{MARFValue, Error as MarfError};
@@ -95,6 +95,22 @@ impl MarfedKV {
 }
 
 impl KeyValueStorage for &mut MarfedKV {
+    /// returns the previous block header hash
+    fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
+        self.marf.check_block_hash(&bhh).map_err(|e| {
+            match e {
+                MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
+                MarfError::NonMatchingForks(_,_) => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
+                _ => panic!("ERROR: Unexpected MARF failure: {}", e)
+            }
+        })?;
+
+        let result = Ok(self.chain_tip);
+        self.chain_tip = bhh;
+
+        result
+    } 
+
     fn put(&mut self, key: &str, value: &str) {
         let marf_value = MARFValue::from_value(value);
 

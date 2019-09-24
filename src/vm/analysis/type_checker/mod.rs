@@ -7,7 +7,7 @@ use vm::representations::SymbolicExpressionType::{AtomValue, Atom, List, Literal
 use vm::types::{TypeSignature, TupleTypeSignature, FunctionArg,
                 FunctionType, FixedFunction, parse_name_type_pairs};
 use vm::functions::NativeFunctions;
-use vm::functions::define::DefineFunctions;
+use vm::functions::define::DefineFunctionsParsed;
 use vm::variables::NativeVariables;
 
 use super::AnalysisDatabase;
@@ -249,16 +249,8 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
             .cloned()
     }
 
-    fn type_check_define_function(&mut self, args: &[SymbolicExpression],
+    fn type_check_define_function(&mut self, signature: &[SymbolicExpression], body: &SymbolicExpression,
                                   context: &TypingContext) -> CheckResult<(ClarityName, FixedFunction)> {
-        check_argument_count(2, &args)?;
-
-        self.type_map.set_type(&args[0], no_type())?;
-
-        let signature = args[0].match_list()
-            .ok_or(CheckErrors::DefineFunctionBadSignature)?;
-        let body = &args[1];
-
         let (function_name, args) = signature.split_first()
             .ok_or(CheckErrors::RequiresAtLeastArguments(1, 0))?;
         let function_name = function_name.match_atom()
@@ -310,19 +302,11 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         }
     }
 
-    fn type_check_define_map(&mut self, args: &[SymbolicExpression],
-                                 _context: &TypingContext) -> CheckResult<(ClarityName, (TypeSignature, TypeSignature))> {
-        check_argument_count(3, &args)?;
-
-        self.type_map.set_type(&args[0], no_type())?;
-        self.type_map.set_type(&args[1], no_type())?;
-        self.type_map.set_type(&args[2], no_type())?;
+    fn type_check_define_map(&mut self, map_name: &ClarityName, key_type: &SymbolicExpression,
+                             value_type: &SymbolicExpression) -> CheckResult<(ClarityName, (TypeSignature, TypeSignature))> {
+        self.type_map.set_type(key_type, no_type())?;
+        self.type_map.set_type(value_type, no_type())?;
         // should we set the type of the subexpressions of the signature to no-type as well?
-
-        let map_name = args[0].match_atom()
-            .ok_or(CheckErrors::BadMapName)?;
-        let key_type = &args[1];
-        let value_type = &args[2];
 
         let key_type = TypeSignature::from(
             TupleTypeSignature::parse_name_type_pair_list(key_type)
@@ -390,73 +374,49 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
         Ok(type_sig)
     }
 
-    fn type_check_define_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
-        check_argument_count(2, args)?;
-        let var_name = args[0].match_atom()
-            .ok_or(CheckErrors::DefineVariableBadSignature)?
-            .clone();
-        let var_type = self.type_check(&args[1], context)?;
-        Ok((var_name, var_type))
+    fn type_check_define_variable(&mut self, var_name: &ClarityName, var_type: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
+        let var_type = self.type_check(var_type, context)?;
+        Ok((var_name.clone(), var_type))
     }
 
-    fn type_check_define_persisted_variable(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
-        check_argument_count(3, args)?;
-        let var_name = args[0].match_atom()
-            .ok_or(CheckErrors::DefineVariableBadSignature)?
-            .clone();
-
-        let expected_type = TypeSignature::parse_type_repr(&args[1])
+    fn type_check_define_persisted_variable(&mut self, var_name: &ClarityName, var_type: &SymbolicExpression, initial: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
+        let expected_type = TypeSignature::parse_type_repr(var_type)
             .map_err(|e| CheckErrors::DefineVariableBadSignature)?;
 
-        self.type_check_expects(&args[2], context, &expected_type)?;
+        self.type_check_expects(initial, context, &expected_type)?;
 
-        Ok((var_name, expected_type))
+        Ok((var_name.clone(), expected_type))
     }
 
-    fn type_check_define_ft(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<ClarityName> {
-        if args.len() != 1 && args.len() != 2 {
-            return Err(CheckErrors::IncorrectArgumentCount(2, args.len()).into())
+    fn type_check_define_ft(&mut self, token_name: &ClarityName, bound: Option<&SymbolicExpression>, context: &mut TypingContext) -> CheckResult<ClarityName> {
+        if let Some(bound) = bound {
+            self.type_check_expects(bound, context, &TypeSignature::IntType)?;
         }
 
-        if args.len() == 2 {
-            self.type_check_expects(&args[1], context, &TypeSignature::IntType)?;
-        }
-
-        let token_name = args[0].match_atom()
-            .ok_or(CheckErrors::DefineFTBadSignature)?
-            .clone();
-
-        Ok(token_name)
+        Ok(token_name.clone())
     }
 
-    fn type_check_define_nft(&mut self, args: &[SymbolicExpression], context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
-        check_argument_count(2, args)?;
-
-        let asset_name = args[0].match_atom()
-            .ok_or(CheckErrors::DefineNFTBadSignature)?
-            .clone();
-
-        let asset_type = TypeSignature::parse_type_repr(&args[1])
+    fn type_check_define_nft(&mut self, asset_name: &ClarityName, nft_type: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<(ClarityName, TypeSignature)> {
+        let asset_type = TypeSignature::parse_type_repr(&nft_type)
             .or_else(|_| Err(CheckErrors::DefineNFTBadSignature))?;
 
-        Ok((asset_name, asset_type))
+        Ok((asset_name.clone(), asset_type))
     }
-
+    
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
     fn try_type_check_define(&mut self, expression: &SymbolicExpression, context: &mut TypingContext) -> CheckResult<Option<()>> {
-        use vm::functions::define::DefineFunctions::*;
-        if let Some((define_type, args)) = DefineFunctions::try_parse(expression) {
+        if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
             match define_type {
-                Constant => {
-                    let (v_name, v_type) = self.type_check_define_variable(args, context)?;
+                DefineFunctionsParsed::Constant { name, value } => {
+                    let (v_name, v_type) = self.type_check_define_variable(name, value, context)?;
                     self.contract_context.add_variable_type(v_name, v_type)?;
                 },
-                PrivateFunction => {
-                    let (f_name, f_type) = self.type_check_define_function(args, context)?;
+                DefineFunctionsParsed::PrivateFunction { signature, body } => {
+                    let (f_name, f_type) = self.type_check_define_function(signature, body, context)?;
                     self.contract_context.add_private_function_type(f_name, FunctionType::Fixed(f_type))?;
                 },
-                PublicFunction => {
-                    let (f_name, f_type) = self.type_check_define_function(args, context)?;
+                DefineFunctionsParsed::PublicFunction { signature, body } => {
+                    let (f_name, f_type) = self.type_check_define_function(signature, body, context)?;
                     let return_type = f_type.returns.clone();
                     if let TypeSignature::ResponseType(_) = return_type {
                         self.contract_context.add_public_function_type(f_name, FunctionType::Fixed(f_type))?;
@@ -465,24 +425,28 @@ impl <'a, 'b> TypeChecker <'a, 'b> {
                         return Err(CheckErrors::PublicFunctionMustReturnResponse(f_type.returns).into());
                     }
                 },
-                ReadOnlyFunction => {
-                    let (f_name, f_type) = self.type_check_define_function(args, context)?;
+                DefineFunctionsParsed::ReadOnlyFunction { signature, body } => {
+                    let (f_name, f_type) = self.type_check_define_function(signature, body, context)?;
                     self.contract_context.add_read_only_function_type(f_name, FunctionType::Fixed(f_type))?;
                 },
-                Map => {
-                    let (f_name, f_type) = self.type_check_define_map(args, context)?;
+                DefineFunctionsParsed::Map { name, key_type, value_type } => {
+                    let (f_name, f_type) = self.type_check_define_map(name, key_type, value_type)?;
                     self.contract_context.add_map_type(f_name, f_type)?;
                 },
-                PersistedVariable => {
-                    let (v_name, v_type) = self.type_check_define_persisted_variable(args, context)?;
+                DefineFunctionsParsed::PersistedVariable { name, data_type, initial } => {
+                    let (v_name, v_type) = self.type_check_define_persisted_variable(name, data_type, initial, context)?;
                     self.contract_context.add_persisted_variable_type(v_name, v_type)?;
                 },
-                FungibleToken => {
-                    let token_name = self.type_check_define_ft(args, context)?;
+                DefineFunctionsParsed::BoundedFungibleToken { name, max_supply } => {
+                    let token_name = self.type_check_define_ft(name, Some(max_supply), context)?;
                     self.contract_context.add_ft(token_name)?;
                 },
-                NonFungibleToken => {
-                    let (token_name, token_type) = self.type_check_define_nft(args, context)?;
+                DefineFunctionsParsed::UnboundedFungibleToken { name } => {
+                    let token_name = self.type_check_define_ft(name, None, context)?;
+                    self.contract_context.add_ft(token_name)?;
+                },
+                DefineFunctionsParsed::NonFungibleToken { name, nft_type } => {
+                    let (token_name, token_type) = self.type_check_define_nft(name, nft_type, context)?;
                     self.contract_context.add_nft(token_name, token_type)?;
                 }
             };
