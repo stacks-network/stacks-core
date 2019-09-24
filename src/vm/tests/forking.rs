@@ -25,7 +25,9 @@ fn test_forking_simple() {
 
 #[test]
 fn test_at_block_good() {
+
     fn initialize(owned_env: &mut OwnedEnvironment) {
+        let c = QualifiedContractIdentifier::local("contract").unwrap();
         let contract =
             "(define-data-var datum int 1)
              (define-public (reset)
@@ -41,23 +43,24 @@ fn test_at_block_good() {
 
         eprintln!("Initializing contract...");
         owned_env.begin();
-        owned_env.initialize_contract("contract", &contract).unwrap();
+        owned_env.initialize_contract(c.clone(), &contract).unwrap();
         owned_env.commit().unwrap();
     }
 
 
     fn branch(owned_env: &mut OwnedEnvironment, expected_value: i128, to_exec: &str) -> Result<Value> {
+        let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str);
         eprintln!("Branched execution...");
 
         {
             let mut env = owned_env.get_exec_environment(None);
             let command = format!("(var-get datum)");
-            let value = env.eval_read_only("contract", &command).unwrap();
+            let value = env.eval_read_only(&c, &command).unwrap();
             assert_eq!(value, Value::Int(expected_value));
         }
         
-        owned_env.execute_transaction(p1, "contract", to_exec, &vec![])
+        owned_env.execute_transaction(p1, c, to_exec, &vec![])
             .map(|(x, _)| x)
     }
 
@@ -85,6 +88,9 @@ fn test_at_block_good() {
 #[test]
 fn test_at_block_missing_defines() {
     fn initialize_1(owned_env: &mut OwnedEnvironment) {
+        let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
+        let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
+
         let contract =
             "(define-map datum ((id bool)) ((value int)))
              
@@ -95,36 +101,42 @@ fn test_at_block_missing_defines() {
 
         eprintln!("Initializing contract...");
         owned_env.begin();
-        owned_env.initialize_contract("contract_a", &contract).unwrap();
+        owned_env.initialize_contract(c_a.clone(), &contract).unwrap();
         owned_env.commit().unwrap();
     }
 
     fn initialize_2(owned_env: &mut OwnedEnvironment) -> Error {
+        let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
+        let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
+
         let contract =
             "(define-private (problematic-cc)
                (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
-                 (contract-call! contract_a flip)))
+                 (contract-call! .contract-a flip)))
              (problematic-cc)
             ";
 
         eprintln!("Initializing contract...");
         owned_env.begin();
-        let e = owned_env.initialize_contract("contract_b", &contract).unwrap_err();
+        let e = owned_env.initialize_contract(c_b.clone(), &contract).unwrap_err();
         owned_env.commit().unwrap();
         e
     }
 
     fn initialize_3(owned_env: &mut OwnedEnvironment) -> Error {
+        let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
+        let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
+
         let contract =
             "(define-private (problematic-fetch-entry)
                (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
-                 (contract-map-get contract_a datum ((id 'true)))))
+                 (contract-map-get .contract-a datum ((id 'true)))))
              (problematic-fetch-entry)
             ";
 
         eprintln!("Initializing contract...");
         owned_env.begin();
-        let e = owned_env.initialize_contract("contract_b", &contract).unwrap_err();
+        let e = owned_env.initialize_contract(c_b.clone(), &contract).unwrap_err();
         owned_env.commit().unwrap();
         e
     }
@@ -135,7 +147,7 @@ fn test_at_block_missing_defines() {
         |_| {},
         |env| {
             let err = initialize_2(env);
-            assert_eq!(err, CheckErrors::NoSuchContract("contract_a".into()).into());
+            assert_eq!(err, CheckErrors::NoSuchContract("'S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()).into());
         });
 
     with_separate_forks_environment(

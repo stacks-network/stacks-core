@@ -622,7 +622,7 @@ fn test_at_unknown_block() {
                         (at-block 0x0202020202020202020202020202020202020202020202020202020202020202
                           (+ 1 2))";
         owned_env.begin();
-        let err = owned_env.initialize_contract("contract", &contract).unwrap_err();
+        let err = owned_env.initialize_contract(QualifiedContractIdentifier::local("contract").unwrap(), &contract).unwrap_err();
         eprintln!("{}", err);
         match err {
             Error::Runtime(x, _) =>
