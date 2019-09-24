@@ -12,6 +12,7 @@
 (define-constant err-namespace-launchability-expired 1010)
 (define-constant err-namespace-operation-unauthorized 1011)
 (define-constant err-namespace-stx-burnt-insufficient 1012)
+(define-constant err-namespace-blank 1013)
 
 (define-constant err-name-preorder-not-found 2001)
 (define-constant err-name-preorder-expired 2002)
@@ -22,15 +23,60 @@
 (define-constant err-name-stx-burnt-insufficient 2007)
 (define-constant err-name-expired 2008)
 (define-constant err-name-grace-period 2009)
+(define-constant err-name-blank 2010)
 
 (define-constant err-principal-already-associated 3001)
 (define-constant err-not-implemented 0)
 
 ;;;; Constants
+
+;; TTL
 ;; todo(ludo): add real values
 (define-constant namespace-preorder-claimability-ttl 10)
 (define-constant namespace-launchability-ttl 10)
 (define-constant name-preorder-claimability-ttl 10)
+
+;; Price tables
+;; todo(ludo): how do we adjust stx-price?
+(define-constant stx-to-usd-cents 15)
+(define-constant stx-to-micro-stx 1000000)
+(define-constant namespace-1-char (/ (* 96000 stx-to-micro-stx) stx-to-usd-cents))
+(define-constant namespace-2-to-3-char (/ (* 9600 stx-to-micro-stx) stx-to-usd-cents))
+(define-constant namespace-4-to-7-char (/ (* 960 stx-to-micro-stx) stx-to-usd-cents))
+(define-constant namespace-8-to-20-char (/ (* 96 stx-to-micro-stx) stx-to-usd-cents))
+(define-constant namespace-price-table (list
+  namespace-1-char
+  namespace-2-to-3-char
+  namespace-2-to-3-char
+  namespace-4-to-7-char
+  namespace-4-to-7-char
+  namespace-4-to-7-char
+  namespace-4-to-7-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char
+  namespace-8-to-20-char))
+;; todo(ludo): "a" vs "A"?
+(define-constant discounted-vowels (list
+  "a" "e" "i" "o" "u" "y"))
+(define-constant discounted-non-alpha-chars (list
+  "0" "1" "2" "3" "4" "5" "6" "7" "8" "9" "-" "_"))
+
+;; todo(ludo): feature request?
+;; (define-type price-function-type (tuple (buckets (list 16 uint))
+;;                                         (base uint)
+;;                                         (coeff uint)
+;;                                         (nonalpha-discount uint)
+;;                                         (no-voyel-discount uint)))
 
 ;;;; Data
 (define-map namespaces
@@ -42,24 +88,17 @@
    (renewal-rule uint)
    (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint)))))
 
-;; todo(ludo): feature request?
-;; (define-type price-function-type (tuple (buckets (list 16 uint))
-;;                                         (base uint)
-;;                                         (coeff uint)
-;;                                         (nonalpha-discount uint)
-;;                                         (no-voyel-discount uint)))
-
 (define-map namespace-preorders
   ((hashed-namespace (buff 20)) (buyer principal))
   ((created-at uint) (claimed bool) (stx-burned uint)))
 
 ;; todo(ludo): fix name and namespace sizes.
 ;; according https://docs.blockstack.org/core/wire-format.html
-;; I think total "name.namespace" = 37, but repartition unclear.
-(define-non-fungible-token names ((name (buff 20)) (namespace (buff 20))))
+;; "namespace" = 20, "name" = 16? what about subdomains/sponsored names?
+(define-non-fungible-token names ((name (buff 16)) (namespace (buff 20))))
 
 (define-map name-properties
-  ((name (buff 20)) (namespace (buff 20)))
+  ((name (buff 16)) (namespace (buff 20)))
   ((registered-at (optional uint))
    (imported-at (optional uint))
    (revoked-at (optional uint))))
@@ -69,7 +108,7 @@
   ((created-at uint) (claimed bool) (stx-burned uint)))
 
 (define-map zonefiles
-  ((name (buff 20)) (namespace (buff 20)))
+  ((name (buff 16)) (namespace (buff 20)))
   ((content (buff 40960))))
 
 ;; todo(ludo): implement sponsored names, but need a back and forth with the team on the strategy:
@@ -78,20 +117,40 @@
 ;;   ((name (buff 20)) (namespace (buff 20)))
 ;;   ((content (buff 40960))))
 
-;; todo(ludo): to implement - dependency on our ability to loop on buffers
+(define-private (increment-len (byte (buff 1)) 
+                               (acc uint))
+  (if (not (eql? byte "0"))
+    (+ acc 1)
+    (acc)))
+
 (define-private (compute-namespace-price (namespace (buff 20)))
-  (err err-not-implemented))
+  (let ((namespace-len (fold increment-len namespace 0)))
+    (asserts 
+      (> namespace-len 0)
+      (err err-namespace-blank))
+    ;; todo(ludo): feature request?
+    (get-i namespace-len namespace-price-table)))
+
+
 
 ;; todo(ludo): to implement - dependency on our ability to loop on buffers
-(define-private (compute-name-price (namespace (buff 20)) (name (buff 20)))
+(define-private (compute-name-price (name (buff 16))
+                                    (price-function (tuple (buckets (list 16 uint)) (base uint) (coeff uint) (nonalpha-discount uint) (no-voyel-discount uint))))
+  (let ((name-len (fold increment-len name 0)))
+    (asserts 
+      (> name-len 0)
+      (err err-name-blank))
+    ;; todo(ludo): feature request?
+    ;; Check for vowels discounts
+    ;; Check for non-alpha-discounts
+    (get-i name-len buckets)))
+
+;; todo(ludo): to implement
+(define-private (has-name-expired (namespace (buff 20)) (name (buff 16)))
   (err err-not-implemented))
 
 ;; todo(ludo): to implement
-(define-private (has-name-expired (namespace (buff 20)) (name (buff 20)))
-  (err err-not-implemented))
-
-;; todo(ludo): to implement
-(define-private (is-name-in-grace-period (namespace (buff 20)) (name (buff 20)))
+(define-private (is-name-in-grace-period (namespace (buff 20)) (name (buff 16)))
   (err err-not-implemented))
 
 ;;;; NAMESPACES
@@ -162,7 +221,7 @@
 ;; Once a namespace is revealed, the user has the option to populate it with a set of names. Each imported name is given
 ;; both an owner and some off-chain state. This step is optional; Namespace creators are not required to import names.
 (define-public (name-import (namespace (buff 20))
-                            (name (buff 20))
+                            (name (buff 16))
                             (zonefile-content (buff 40960)))
   (let ((namespace-props
         (expects!
@@ -246,7 +305,7 @@
 ;; This is the second transaction to be sent. It reveals the salt and the name to all BNS nodes,
 ;; and assigns the name an initial public key hash and zone file hash
 (define-public (name-register (namespace (buff 20))
-                              (name (buff 20))
+                              (name (buff 16))
                               (zonefile-content (buff 40960)))
   (let (
         (hashed-fqn (hash160 (buffer-concat name "." namespace))) ;; todo(ludo): buffer-concat
@@ -276,7 +335,7 @@
       (err err-name-claimability-expired))
     ;; The amount burnt must be equal to or greater than the cost of the namespace
     (asserts!
-      (> (get stx-burned preorder) (compute-name-price namespace name))
+      (> (get stx-burned preorder) (compute-name-price name (get price-function namespace-props)))
       (err err-name-stx-burnt-insufficient))
     ;; The principal does not yet own a name
     (asserts!
@@ -298,7 +357,7 @@
 
 ;; NAME_UPDATE
 (define-public (name-update (namespace (buff 20))
-                            (name (buff 20))
+                            (name (buff 16))
                             (zonefile-content (buff 40960)))
   (let (
     (owner
@@ -333,7 +392,7 @@
 
 ;; NAME_TRANSFER
 (define-public (name-transfer (namespace (buff 20))
-                              (name (buff 20))
+                              (name (buff 16))
                               (new-owner principal)
                               (zonefile-content (optional (buff 40960))))
   (let (
@@ -384,7 +443,7 @@
 
 ;; NAME_REVOKE
 (define-public (name-revoke (namespace (buff 20))
-                            (name (buff 20)))
+                            (name (buff 16)))
   (let (
     (owner
     (expects!
@@ -419,7 +478,7 @@
 
 ;; NAME_RENEWAL
 (define-public (name-renewal (namespace (buff 20))
-                             (name (buff 20))
+                             (name (buff 16))
                              (stx-to-burn uint)
                              (new-owner (optional principal))
                              (zonefile-content (optional (buff 40960))))
