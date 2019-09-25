@@ -691,7 +691,7 @@ impl MARF {
     ///   it's a known block, the storage system isn't issueing IOErrors, _and_ it's in the same fork
     ///   as the current block
     /// The MARF _must_ be open to a valid block for this check to be evaluated.
-    pub fn check_block_hash(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
+    pub fn is_ancestor_block_hash(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
         let cur_block_hash = self.storage.get_cur_block();
 
         let bhh_height = MARF::get_block_height(&mut self.storage, bhh, &cur_block_hash)?
