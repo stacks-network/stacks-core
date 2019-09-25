@@ -253,7 +253,7 @@ fn check_get_block_info(checker: &mut TypeChecker, args: &[SymbolicExpression], 
     let block_info_prop = BlockInfoProperty::lookup_by_name(block_info_prop_str)
         .ok_or(CheckError::new(CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string())))?;
 
-    checker.type_check_expects(&args[1], &context, &TypeSignature::IntType)?;
+    checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
         
     Ok(block_info_prop.type_result())
 }
@@ -300,27 +300,27 @@ impl TypedNativeFunction {
             Hash160 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![TypeSignature::max_buffer(),
-                         TypeSignature::IntType],
+                         TypeSignature::UIntType],
                     BUFF_20.clone()))),
             Sha256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![TypeSignature::max_buffer(),
-                         TypeSignature::IntType],
+                         TypeSignature::UIntType],
                     BUFF_32.clone()))),
             Sha512Trunc256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![TypeSignature::max_buffer(),
-                         TypeSignature::IntType],
+                         TypeSignature::UIntType],
                     BUFF_32.clone()))),
             Sha512 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![TypeSignature::max_buffer(),
-                         TypeSignature::IntType],
+                         TypeSignature::UIntType],
                     BUFF_64.clone()))),
             Keccak256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![TypeSignature::max_buffer(),
-                         TypeSignature::IntType],
+                         TypeSignature::UIntType],
                     BUFF_32.clone()))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),

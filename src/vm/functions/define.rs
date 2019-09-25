@@ -117,7 +117,7 @@ fn handle_define_fungible_token(asset_name: &ClarityName, total_supply: Option<&
                 Ok(DefineResult::FungibleToken(asset_name.to_string(), Some(total_supply_int)))
             }
         } else {
-            Err(CheckErrors::TypeValueError(TypeSignature::IntType, total_supply_value).into())
+            Err(CheckErrors::TypeValueError(TypeSignature::UIntType, total_supply_value).into())
         }
     } else {
         Ok(DefineResult::FungibleToken(asset_name.to_string(), None))

@@ -211,7 +211,7 @@ pub fn special_get_block_info(args: &[SymbolicExpression],
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::Int(result) => Ok(result),
-        x => Err(CheckErrors::TypeValueError(TypeSignature::IntType, x))
+        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x))
     }?;
 
     let height_value = match u64::try_from(height_value) {
