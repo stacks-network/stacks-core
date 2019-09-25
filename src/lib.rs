@@ -1,5 +1,5 @@
 /*
- copyright: (c) 2013-2018 by Blockstack PBC, a public benefit corporation.
+ copyright: (c) 2013-2019 by Blockstack PBC, a public benefit corporation.
 
  This file is part of Blockstack.
 
