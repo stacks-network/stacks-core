@@ -511,7 +511,6 @@ impl MARF {
         let result = MARF::get_path(storage, block_hash, &path);
 
         // restore
-        // Q: should this return on error? or return a corruption error?
         storage.open_block(&cur_block_hash)?;
 
         result.map(|option_result| option_result.map(|leaf| leaf.data))        
