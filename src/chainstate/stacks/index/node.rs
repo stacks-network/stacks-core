@@ -43,8 +43,8 @@ use chainstate::stacks::index::bits::{
     path_from_bytes,
     ptrs_from_bytes,
     get_ptrs_byte_len,
-    get_ptrs_consensus_byte_len,
-    get_path_byte_len
+    get_path_byte_len,
+    write_path_to_bytes
 };
 
 use chainstate::stacks::index::storage::{BlockHashMap};
@@ -138,12 +138,6 @@ fn ptrs_consensus_hash<W: Write>(ptrs: &[TriePtr], map: &BlockHashMap, w: &mut W
     Ok(())
 }
 
-fn write_path_to_bytes<W: Write>(path: &[u8], w: &mut W) -> Result<(), Error> {
-    w.write_all(&[path.len() as u8])?;
-    w.write_all(path)?;
-    Ok(())
-}
-
 /// A path in the Trie is the SHA2-512/256 hash of its key.
 pub struct TriePath([u8; 32]);
 impl_array_newtype!(TriePath, u8, 32);
@@ -213,27 +207,31 @@ pub trait TrieNode {
         r
     }
 
-    /// Encode the consensus-relevant bytes of this node and write it to w.
-    fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
-        w.write_all(&[self.id()])?;
-        ptrs_consensus_hash(self.ptrs(), map, w)?;
-        write_path_to_bytes(self.path().as_slice(), w)
-    }
-    
-    fn to_consensus_bytes(&self, map: &BlockHashMap) -> Vec<u8> {
-        let mut r = Vec::with_capacity(self.consensus_byte_len());
-        self.write_consensus_bytes(map, &mut r)
-            .expect("Failed to write to byte buffer");
-        r
-    }
-
     /// Calculate how many bytes this node will take to encode.
     fn byte_len(&self) -> usize {
         get_ptrs_byte_len(self.ptrs()) + get_path_byte_len(self.path())
     }
+}
 
-    fn consensus_byte_len(&self) -> usize {
-        get_ptrs_consensus_byte_len(self.ptrs()) + get_path_byte_len(self.path())
+/// Trait for types that can serialize to consensus bytes
+pub trait ConsensusSerializable <M> {
+    /// Encode the consensus-relevant bytes of this node and write it to w.
+    fn write_consensus_bytes<W: Write>(&self, additional_data: &M, w: &mut W) -> Result<(), Error>;
+
+    #[cfg(test)]
+    fn to_consensus_bytes(&self, additional_data: &M) -> Vec<u8> {
+        let mut r = Vec::new();
+        self.write_consensus_bytes(additional_data, &mut r)
+            .expect("Failed to write to byte buffer");
+        r
+    }
+}
+
+impl <T: TrieNode> ConsensusSerializable<BlockHashMap> for T {
+    fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id()])?;
+        ptrs_consensus_hash(self.ptrs(), map, w)?;
+        write_path_to_bytes(self.path().as_slice(), w)        
     }
 }
 
@@ -944,23 +942,8 @@ impl TrieNode for TrieNode48 {
         write_path_to_bytes(self.path().as_slice(), w)
     }
 
-    fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
-        w.write_all(&[self.id()])?;
-        ptrs_consensus_hash(self.ptrs(), map, w)?;
-
-        for i in self.indexes.iter() {
-            w.write_all(&[*i as u8])?;
-        }
-
-        write_path_to_bytes(self.path().as_slice(), w)
-    }
-    
     fn byte_len(&self) -> usize {
         get_ptrs_byte_len(&self.ptrs) + 256 + get_path_byte_len(&self.path)
-    }
-
-    fn consensus_byte_len(&self) -> usize {
-        get_ptrs_consensus_byte_len(&self.ptrs) + 256 + get_path_byte_len(&self.path)
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode48, Error> {
@@ -1122,6 +1105,12 @@ impl TrieLeaf {
 
 }
 
+impl ConsensusSerializable<()> for TrieLeaf {
+    fn write_consensus_bytes<W: Write>(&self, _unused_data: &(), w: &mut W) -> Result<(), Error> {
+        self.write_consensus_bytes_leaf(w)
+    }
+}
+
 impl TrieNode for TrieLeaf {
     fn id(&self) -> u8 {
         TrieNodeID::Leaf
@@ -1142,16 +1131,8 @@ impl TrieNode for TrieLeaf {
         Ok(())
     }
 
-    fn write_consensus_bytes<W: Write>(&self, _map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
-        self.write_consensus_bytes_leaf(w)
-    }
-
     fn byte_len(&self) -> usize {
         1 + get_path_byte_len(&self.path) + self.data.len()
-    }
-
-    fn consensus_byte_len(&self) -> usize {
-        self.byte_len()
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieLeaf, Error> {
@@ -1214,6 +1195,18 @@ pub enum TrieNodeType {
     Leaf(TrieLeaf),
 }
 
+macro_rules! with_node {
+    ($self: expr, $pat:pat, $s:expr) => {
+        match $self {
+            TrieNodeType::Node4($pat) => $s,
+            TrieNodeType::Node16($pat) => $s,
+            TrieNodeType::Node48($pat) => $s,
+            TrieNodeType::Node256($pat) => $s,
+            TrieNodeType::Leaf($pat) => $s,
+        }
+    }
+}
+
 impl TrieNodeType {
     pub fn is_leaf(&self) -> bool {
         match self {
@@ -1251,83 +1244,35 @@ impl TrieNodeType {
     }
 
     pub fn id(&self) -> u8 {
-        match self {
-            TrieNodeType::Node4(ref data) => data.id(),
-            TrieNodeType::Node16(ref data) => data.id(),
-            TrieNodeType::Node48(ref data) => data.id(),
-            TrieNodeType::Node256(ref data) => data.id(),
-            TrieNodeType::Leaf(ref data) => data.id(),
-        }
+        with_node!(self, ref data, data.id())
     }
 
     pub fn walk(&self, chr: u8) -> Option<TriePtr> {
-        match self {
-            TrieNodeType::Node4(ref data) => data.walk(chr),
-            TrieNodeType::Node16(ref data) => data.walk(chr),
-            TrieNodeType::Node48(ref data) => data.walk(chr),
-            TrieNodeType::Node256(ref data) => data.walk(chr),
-            TrieNodeType::Leaf(ref data) => data.walk(chr)
-        }
+        with_node!(self, ref data, data.walk(chr))
     }
 
     pub fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
-        match self {
-            TrieNodeType::Node4(ref data) => data.write_bytes(w),
-            TrieNodeType::Node16(ref data) => data.write_bytes(w),
-            TrieNodeType::Node48(ref data) => data.write_bytes(w),
-            TrieNodeType::Node256(ref data) => data.write_bytes(w),
-            TrieNodeType::Leaf(ref data) => data.write_bytes(w),
-        }
+        with_node!(self, ref data, data.write_bytes(w))
     }
 
     pub fn write_consensus_bytes<W: Write>(&self, map: &BlockHashMap, w: &mut W) -> Result<(), Error> {
-        match self {
-            TrieNodeType::Node4(ref data) => data.write_consensus_bytes(map, w),
-            TrieNodeType::Node16(ref data) => data.write_consensus_bytes(map, w),
-            TrieNodeType::Node48(ref data) => data.write_consensus_bytes(map, w),
-            TrieNodeType::Node256(ref data) => data.write_consensus_bytes(map, w),
-            TrieNodeType::Leaf(ref data) => data.write_consensus_bytes(map, w),
-        }
+        with_node!(self, ref data, data.write_consensus_bytes(map, w))
     }
 
     pub fn byte_len(&self) -> usize {
-        match self {
-            TrieNodeType::Node4(ref data) => data.byte_len(),
-            TrieNodeType::Node16(ref data) => data.byte_len(),
-            TrieNodeType::Node48(ref data) => data.byte_len(),
-            TrieNodeType::Node256(ref data) => data.byte_len(),
-            TrieNodeType::Leaf(ref data) => data.byte_len()
-        }
+        with_node!(self, ref data, data.byte_len())
     }
 
     pub fn insert(&mut self, ptr: &TriePtr) -> bool {
-        match self {
-            TrieNodeType::Node4(ref mut data) => data.insert(ptr),
-            TrieNodeType::Node16(ref mut data) => data.insert(ptr),
-            TrieNodeType::Node48(ref mut data) => data.insert(ptr),
-            TrieNodeType::Node256(ref mut data) => data.insert(ptr),
-            TrieNodeType::Leaf(ref mut data) => data.insert(ptr)
-        }
+        with_node!(self, ref mut data, data.insert(ptr))
     }
 
     pub fn replace(&mut self, ptr: &TriePtr) -> bool {
-        match self {
-            TrieNodeType::Node4(ref mut data) => data.replace(ptr),
-            TrieNodeType::Node16(ref mut data) => data.replace(ptr),
-            TrieNodeType::Node48(ref mut data) => data.replace(ptr),
-            TrieNodeType::Node256(ref mut data) => data.replace(ptr),
-            TrieNodeType::Leaf(ref mut data) => data.replace(ptr)
-        }
+        with_node!(self, ref mut data, data.replace(ptr))
     }
 
     pub fn ptrs(&self) -> &[TriePtr] {
-        match self {
-            TrieNodeType::Node4(ref data) => data.ptrs(),
-            TrieNodeType::Node16(ref data) => data.ptrs(),
-            TrieNodeType::Node48(ref data) => data.ptrs(),
-            TrieNodeType::Node256(ref data) => data.ptrs(),
-            TrieNodeType::Leaf(ref data) => data.ptrs()
-        }
+        with_node!(self, ref data, data.ptrs())
     }
     
     pub fn ptrs_mut(&mut self) -> &mut [TriePtr] {
@@ -1351,23 +1296,11 @@ impl TrieNodeType {
     }
 
     pub fn path_bytes(&self) -> &Vec<u8> {
-        match self {
-            TrieNodeType::Node4(ref data) => &data.path,
-            TrieNodeType::Node16(ref data) => &data.path,
-            TrieNodeType::Node48(ref data) => &data.path,
-            TrieNodeType::Node256(ref data) => &data.path,
-            TrieNodeType::Leaf(ref data) => &data.path
-        }
+        with_node!(self, ref data, &data.path)
     }
 
     pub fn set_path(&mut self, new_path: Vec<u8>) -> () {
-        match self {
-            TrieNodeType::Node4(ref mut data) => data.path = new_path,
-            TrieNodeType::Node16(ref mut data) => data.path = new_path,
-            TrieNodeType::Node48(ref mut data) => data.path = new_path,
-            TrieNodeType::Node256(ref mut data) => data.path = new_path,
-            TrieNodeType::Leaf(ref mut data) => data.path = new_path
-        }
+        with_node!(self, ref mut data, data.path = new_path)
     }
 }
 
@@ -1688,39 +1621,6 @@ mod test {
             TrieNodeID::Node256, 0x2e, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             TrieNodeID::Node256, 0x2f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             TrieNodeID::Empty, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            // indexes (256)
-            255,  0,  1,  2,  3,  4,  5,  6,
-             7,  8,  9, 10, 11, 12, 13, 14,
-            15, 16, 17, 18, 19, 20, 21, 22,
-            23, 24, 25, 26, 27, 28, 29, 30,
-            31, 32, 33, 34, 35, 36, 37, 38,
-            39, 40, 41, 42, 43, 44, 45, 46,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
-            255, 255, 255, 255, 255, 255, 255, 255,
             // path len
             0x14,
             // path 

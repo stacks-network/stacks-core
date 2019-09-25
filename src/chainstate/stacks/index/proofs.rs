@@ -44,13 +44,18 @@ use std::path::{
 use sha2::Sha512Trunc256 as TrieHasher;
 use sha2::Digest;
 
-use chainstate::burn::BlockHeaderHash;
+use chainstate::burn::{
+    BlockHeaderHash,
+    BLOCK_HEADER_HASH_ENCODED_SIZE
+};
+
 use chainstate::stacks::index::marf::MARF;
 
 use chainstate::stacks::index::bits::{
     read_root_hash,
     get_node_hash,
     get_leaf_hash,
+    write_path_to_bytes,
 };
 
 use chainstate::stacks::index::node::{
@@ -68,7 +73,8 @@ use chainstate::stacks::index::node::{
     CursorError,
     TrieNodeID,
     TriePtr,
-    TriePath
+    TriePath,
+    ConsensusSerializable,
 };
 
 use chainstate::stacks::index::{
@@ -90,12 +96,71 @@ use chainstate::stacks::index::Error as Error;
 
 use util::log;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProofTriePtr {
+    pub id: u8,
+    pub chr: u8,
+    pub back_block: BlockHeaderHash
+}
+
+/// Merkle Proof Trie Pointers have a different structure
+///   than the runtime representation --- the proof includes
+///   the block header hash for back pointers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProofTrieNode {
+    pub id: u8,
+    pub path: Vec<u8>,
+    pub ptrs: Vec<ProofTriePtr>
+}
+
+impl ConsensusSerializable<()> for ProofTrieNode {
+    fn write_consensus_bytes<W: Write>(&self, _additional_data: &(), w: &mut W) -> Result<(), Error> {
+        w.write_all(&[self.id])?;
+        for ptr in self.ptrs.iter() {
+            w.write_all(&[ptr.id, ptr.chr])?;
+            w.write_all(ptr.back_block.as_bytes())?;
+        }
+        write_path_to_bytes(&self.path, w)
+    }
+}
+
+impl ProofTriePtr {
+    fn try_from_trie_ptr(other: &TriePtr, block_map: &BlockHashMap) -> Result<ProofTriePtr, Error> {
+        let id = other.id;
+        let chr = other.chr;
+        let back_block = if is_backptr(id) {
+            block_map.get_block_header_hash(other.back_block)
+                .ok_or(Error::NotFoundError)?
+                .clone()
+        } else {
+            BlockHeaderHash(
+                [0; BLOCK_HEADER_HASH_ENCODED_SIZE])
+        };
+        Ok(ProofTriePtr { id, chr, back_block })
+    }
+}
+
+impl ProofTrieNode {
+    fn ptrs(&self) -> &[ProofTriePtr] {
+        &self.ptrs
+    }
+
+    fn try_from_trie_node<T: TrieNode>(other: &T, block_map: &BlockHashMap) -> Result<ProofTrieNode, Error> {
+        let id = other.id();
+        let path = other.path().clone();
+        let ptrs: Result<Vec<_>, Error> = other.ptrs().iter()
+            .map(|trie_ptr| ProofTriePtr::try_from_trie_ptr(trie_ptr, block_map))
+            .collect();
+        Ok(ProofTrieNode { id, path, ptrs: ptrs? })
+    }
+}
+
 #[derive(Clone)]
 pub enum TrieMerkleProofType {
-    Node4((u8, TrieNode4, [TrieHash; 3])),
-    Node16((u8, TrieNode16, [TrieHash; 15])),
-    Node48((u8, TrieNode48, [TrieHash; 47])),
-    Node256((u8, TrieNode256, [TrieHash; 255])),
+    Node4((u8, ProofTrieNode, [TrieHash; 3])),
+    Node16((u8, ProofTrieNode, [TrieHash; 15])),
+    Node48((u8, ProofTrieNode, [TrieHash; 47])),
+    Node256((u8, ProofTrieNode, [TrieHash; 255])),
     Leaf((u8, TrieLeaf)),
     Shunt((i64, Vec<TrieHash>))
 }
@@ -203,7 +268,9 @@ impl TrieMerkleProof {
             else {
                 TrieMerkleProof::make_proof_hashes(&node, &all_hashes, prev_chr)?
             };
-    
+
+        let block_map = &storage.block_map;
+ 
         let proof_node = match node {
             TrieNodeType::Leaf(ref data) => {
                 TrieMerkleProofType::Leaf((prev_chr, data.clone()))
@@ -212,25 +279,29 @@ impl TrieMerkleProof {
                 let mut hash_slice = [TrieHash::from_data(&[]); 3];
                 hash_slice.copy_from_slice(&hashes[0..3]);
 
-                TrieMerkleProofType::Node4((prev_chr, data.clone(), hash_slice))
+                TrieMerkleProofType::Node4(
+                    (prev_chr, ProofTrieNode::try_from_trie_node(data, block_map)?, hash_slice))
             },
             TrieNodeType::Node16(ref data) => {
                 let mut hash_slice = [TrieHash::from_data(&[]); 15];
                 hash_slice.copy_from_slice(&hashes[0..15]);
 
-                TrieMerkleProofType::Node16((prev_chr, data.clone(), hash_slice))
+                TrieMerkleProofType::Node16(
+                    (prev_chr, ProofTrieNode::try_from_trie_node(data, block_map)?, hash_slice))
             },
             TrieNodeType::Node48(ref data) => {
                 let mut hash_slice = [TrieHash::from_data(&[]); 47];
                 hash_slice.copy_from_slice(&hashes[0..47]);
 
-                TrieMerkleProofType::Node48((prev_chr, data.clone(), hash_slice))
+                TrieMerkleProofType::Node48(
+                    (prev_chr, ProofTrieNode::try_from_trie_node(data, block_map)?, hash_slice))
             },
             TrieNodeType::Node256(ref data) => {
                 let mut hash_slice = [TrieHash::from_data(&[]); 255];
                 hash_slice.copy_from_slice(&hashes[0..255]);
 
-                TrieMerkleProofType::Node256((prev_chr, data.clone(), hash_slice))      // ancestor hashes to be filled in later
+                TrieMerkleProofType::Node256(      // ancestor hashes to be filled in later
+                    (prev_chr, ProofTrieNode::try_from_trie_node(data, block_map)?, hash_slice))
             }
         };
         Ok(proof_node)
@@ -556,18 +627,18 @@ impl TrieMerkleProof {
     /// Given a segment proof, the deepest node's hash, and the hash of the trie root, verify that
     /// the segment proof is well-formed.
     /// If so, calculate the root hash of the segment and return it.
-    fn verify_segment_proof(proof: &[TrieMerkleProofType], node_hash: &TrieHash, block_map: &BlockHashMap) -> Option<TrieHash> {
+    fn verify_segment_proof(proof: &[TrieMerkleProofType], node_hash: &TrieHash) -> Option<TrieHash> {
 
         /// Given a node in a segment proof, find the hash
-        fn get_segment_proof_hash<T: TrieNode + std::fmt::Debug>(node: &T, hash: &TrieHash, chr: u8, hashes: &[TrieHash], count: usize, block_map: &BlockHashMap) -> Option<TrieHash> {
+        fn get_segment_proof_hash(node: &ProofTrieNode, hash: &TrieHash, chr: u8, hashes: &[TrieHash], count: usize) -> Option<TrieHash> {
             let mut all_hashes = vec![];
             let mut ih = 0;
 
             assert!(node.ptrs().len() == count);
-            assert!(hashes.len() == 0 || (count > 0 && hashes.len() == count - 1));
+            assert!(count > 0 && hashes.len() == count - 1);
 
-            for i in 0..count {
-                if node.ptrs()[i].id() != TrieNodeID::Empty && node.ptrs()[i].chr() == chr {
+            for child_ptr in node.ptrs() {
+                if child_ptr.id != TrieNodeID::Empty && child_ptr.chr == chr {
                     all_hashes.push(hash.clone());
                 }
                 else {
@@ -586,40 +657,40 @@ impl TrieMerkleProof {
                 return None
             }
 
-            Some(get_node_hash(node, &all_hashes, block_map))
+            Some(get_node_hash(node, &all_hashes, &()))
         }
 
         let mut hash = node_hash.clone();
         for i in 0..proof.len() {
             let hash_opt = match proof[i] {
                 TrieMerkleProofType::Leaf((ref chr, ref node)) => {
-                    get_segment_proof_hash(node, &hash, *chr, &vec![], 0, block_map)
+                    // special case the leaf hash -- it doesn't
+                    //   have any child hashes to check.
+                    Some(get_leaf_hash(node))
                 },
                 TrieMerkleProofType::Node4((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 4, block_map)
+                    get_segment_proof_hash(node, &hash, *chr, hashes, 4)
                 },
                 TrieMerkleProofType::Node16((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 16, block_map)
+                    get_segment_proof_hash(node, &hash, *chr, hashes, 16)
                 },
                 TrieMerkleProofType::Node48((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 48, block_map)
+                    get_segment_proof_hash(node, &hash, *chr, hashes, 48)
                 },
                 TrieMerkleProofType::Node256((ref chr, ref node, ref hashes)) => {
-                    get_segment_proof_hash(node, &hash, *chr, hashes, 256, block_map)
+                    get_segment_proof_hash(node, &hash, *chr, hashes, 256)
                 },
                 _ => {
                     trace!("Invalid proof -- encountered a non-node proof type");
                     return None;
                 }
             };
-            let mut next_hash = match hash_opt {
+            hash = match hash_opt {
                 None => {
                     return None;
                 }
-                Some(h) => h.clone()
+                Some(h) => h
             };
-
-            hash = next_hash;
         }
 
         trace!("verify segment: calculated root hash = {:?}", hash);
@@ -783,7 +854,7 @@ impl TrieMerkleProof {
     /// which block headers.  This can be calculated and verified independently from the blockchain
     /// headers.
     /// NOTE: Trie root hashes are globally unique by design, even if they represent the same contents, so the root_to_block map is bijective with high probability.
-    pub fn verify_proof(proof: &Vec<TrieMerkleProofType>, path: &TriePath, value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>, block_map: &BlockHashMap) -> bool {
+    pub fn verify_proof(proof: &Vec<TrieMerkleProofType>, path: &TriePath, value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>) -> bool {
         if !TrieMerkleProof::is_proof_well_formed(&proof, path) {
             return false;
         }
@@ -819,7 +890,7 @@ impl TrieMerkleProof {
         }
 
         trace!("verify segment proof in range {}..{}", i, j);
-        let node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash, block_map) {
+        let node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash) {
             Some(h) => {
                 h
             },
@@ -891,7 +962,7 @@ impl TrieMerkleProof {
             }
 
             trace!("verify segment proof in range {}..{}", i, j);
-            let next_node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash, block_map) {
+            let next_node_root_hash = match TrieMerkleProof::verify_segment_proof(&proof[i..j], &node_hash) {
                 Some(h) => {
                     h
                 },
@@ -984,8 +1055,8 @@ impl TrieMerkleProof {
     }
 
     /// Verify this proof
-    pub fn verify(&self, path: &TriePath, marf_value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>, block_map: &BlockHashMap) -> bool {
-        TrieMerkleProof::verify_proof(&self.0, &path, &marf_value, root_hash, root_to_block, block_map)
+    pub fn verify(&self, path: &TriePath, marf_value: &MARFValue, root_hash: &TrieHash, root_to_block: &HashMap<TrieHash, BlockHeaderHash>) -> bool {
+        TrieMerkleProof::verify_proof(&self.0, &path, &marf_value, root_hash, root_to_block)
     }
 
     /// Walk down the trie pointed to by s until we reach a backptr or a leaf
@@ -1211,7 +1282,7 @@ mod test {
         let triepath_2 = TriePath::from_key(&k1);
         let marf_value_2 = MARFValue::from_value(&old_v);
         let block_map = m.borrow_storage_backend().block_map.clone();
-        assert!(!proof_2.verify(&triepath_2, &marf_value_2, &root_hash_2, &root_to_block, &block_map));
+        assert!(!proof_2.verify(&triepath_2, &marf_value_2, &root_hash_2, &root_to_block));
         
         // create a proof from the previous block to the old value.
         // It should succeed
@@ -1221,6 +1292,6 @@ mod test {
         let triepath_1 = TriePath::from_key(&k1);
         let marf_value_1 = MARFValue::from_value(&old_v);
         let block_map = m.borrow_storage_backend().block_map.clone();
-        assert!(proof_1.verify(&triepath_1, &marf_value_1, &root_hash_1, &root_to_block, &block_map));
+        assert!(proof_1.verify(&triepath_1, &marf_value_1, &root_hash_1, &root_to_block));
     }
 }

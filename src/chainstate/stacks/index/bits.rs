@@ -50,7 +50,8 @@ use chainstate::stacks::index::node::{
     TrieNode256,
     TrieLeaf,
     TriePtr,
-    TRIEPTR_SIZE
+    TRIEPTR_SIZE,
+    ConsensusSerializable
 };
 
 use chainstate::stacks::index::storage::{
@@ -145,14 +146,6 @@ pub fn get_ptrs_byte_len(ptrs: &[TriePtr]) -> usize {
     node_id_len + TRIEPTR_SIZE * ptrs.len()
 }
 
-/// Helper to determine how many bytes a Trie node's child pointers will take to encode for consensus.
-#[inline]
-pub fn get_ptrs_consensus_byte_len(ptrs: &[TriePtr]) -> usize {
-    let node_id_len = 1;
-    let consensus_trie_ptr_size = 2 + BLOCK_HEADER_HASH_ENCODED_SIZE;// 2: id + chr, 32: block header hash
-    node_id_len + consensus_trie_ptr_size * ptrs.len()
-}
-
 /// Read a Trie node's children from a Readable object, and write them to the given ptrs_buf slice.
 /// Returns the Trie node ID detected.
 #[inline]
@@ -204,7 +197,7 @@ pub fn ptrs_from_bytes<R: Read>(node_id: u8, r: &mut R, ptrs_buf: &mut [TriePtr]
 }
 
 /// Calculate the hash of a TrieNode, given its childrens' hashes.
-pub fn get_node_hash<T: TrieNode + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &BlockHashMap) -> TrieHash {
+pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(node: &T, child_hashes: &Vec<TrieHash>, map: &M) -> TrieHash {
     let mut hasher = TrieHasher::new();
 
     node.write_consensus_bytes(map, &mut hasher)
@@ -362,5 +355,11 @@ pub fn write_nodetype_bytes<F: Write + Seek>(f: &mut F, node: &TrieNodeType, has
     node.write_bytes(f)?;
     trace!("write_nodetype: {:?} {:?} at {}", node, &hash, ftell(f)?);
 
+    Ok(())
+}
+
+pub fn write_path_to_bytes<W: Write>(path: &[u8], w: &mut W) -> Result<(), Error> {
+    w.write_all(&[path.len() as u8])?;
+    w.write_all(path)?;
     Ok(())
 }

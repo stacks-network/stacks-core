@@ -26,7 +26,6 @@ use std::io::{
     Seek,
     SeekFrom,
     Cursor,
-    BufReader,
     BufWriter,
 };
 
@@ -113,7 +112,7 @@ pub struct BlockHashMap {
 }
 
 trait NodeHashReader {
-    fn write_node_hash<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error>;
+    fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error>;
 }
 
 impl BlockHashMap {
@@ -437,7 +436,7 @@ impl TrieRAM {
 }
 
 impl NodeHashReader for TrieRAM {
-    fn write_node_hash<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
+    fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
         let (_, node_trie_hash) = self.data.get(ptr.ptr() as usize)
             .ok_or_else(|| {
                 trace!("TrieRAM: Failed to read node bytes: {} >= {}", ptr.ptr(), self.data.len());
@@ -448,44 +447,9 @@ impl NodeHashReader for TrieRAM {
     }
 }
 
-enum FileStorageTypes {
-    BufferedReader(BufReader<fs::File>),
-    File(fs::File)
-}
-
-impl FileStorageTypes {
-    pub fn read_block_identifier(&mut self) -> Result<u32, Error> {
-        match self {
-            FileStorageTypes::BufferedReader(ref mut b) => TrieFileStorage::read_block_identifier_from_fd(b),
-            FileStorageTypes::File(ref mut b) => TrieFileStorage::read_block_identifier_from_fd(b)
-        }
-    }
-
-    pub fn flush(&mut self) -> Result<(), Error> {
-        match self {
-            FileStorageTypes::BufferedReader(ref mut b) => Err(Error::ReadOnlyError),
-            FileStorageTypes::File(ref mut b) => b.flush().map_err(Error::IOError)
-        }
-    }
-
-    pub fn read_nodetype(&mut self, ptr: &TriePtr) -> Result<(TrieNodeType, TrieHash), Error> {
-        match self {
-            FileStorageTypes::BufferedReader(ref mut b) => read_nodetype(b, ptr),
-            FileStorageTypes::File(ref mut b) => read_nodetype(b, ptr)
-        }
-    }
-
-    pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        match self {
-            FileStorageTypes::BufferedReader(ref mut b) => read_node_hash_bytes(b, ptr),
-            FileStorageTypes::File(ref mut b) => read_node_hash_bytes(b, ptr)
-        }.map(|x| TrieHash(x))
-    }
-}
-
-impl NodeHashReader for FileStorageTypes {
-    fn write_node_hash<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
-        w.write_all(self.read_node_hash_bytes(ptr)?.as_bytes())?;
+impl NodeHashReader for fs::File {
+    fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error> {
+        w.write_all(&read_node_hash_bytes(self, ptr)?)?;
         Ok(())
     }
 }
@@ -501,7 +465,7 @@ pub struct TrieFileStorage {
     last_extended_trie: Option<TrieRAM>,
     
     cur_block: BlockHeaderHash,
-    cur_block_fd: Option<FileStorageTypes>,
+    cur_block_fd: Option<fs::File>,
     
     read_count: u64,
     read_backptr_count: u64,
@@ -1061,16 +1025,8 @@ impl TrieFileStorage {
                         }
                     })?;
 
-        // NOTE:
-        //   this doesn't really seem to improve performance.
-        let filestore_type = if readwrite {
-            FileStorageTypes::File(fd)
-        } else {
-            FileStorageTypes::BufferedReader(BufReader::new(fd))
-        };
-
         self.cur_block = bhh.clone();
-        self.cur_block_fd = Some(filestore_type);
+        self.cur_block_fd = Some(fd);
         self.readonly = !readwrite;
         Ok(())
     }
@@ -1082,7 +1038,7 @@ impl TrieFileStorage {
                 .map(|trie_ram| trie_ram.identifier)
                 .ok_or_else(|| Error::CorruptionError(format!("last_extended is_some(), but last_extended_trie is none")))
         } else if let Some(ref mut cur_block_fd) = self.cur_block_fd {
-            cur_block_fd.read_block_identifier()
+            TrieFileStorage::read_block_identifier_from_fd(cur_block_fd)
         } else {
             Err(Error::NotOpenedError)
         }
@@ -1193,7 +1149,7 @@ impl TrieFileStorage {
             }
             else if !is_backptr(ptr.id()) {
                 // hash is in the same block as this node
-                hash_reader.write_node_hash(ptr, w)?;
+                hash_reader.read_node_hash_bytes(ptr, w)?;
             }
             else {
                 // AARON:
@@ -1219,7 +1175,8 @@ impl TrieFileStorage {
         // some other block or ptr, or cache miss
         match self.cur_block_fd {
             Some(ref mut f) => {
-                f.read_node_hash_bytes(ptr)
+                read_node_hash_bytes(f, ptr)
+                    .map(TrieHash)
             },
             None => {
                 trace!("Not found (no file is open)");
@@ -1256,7 +1213,7 @@ impl TrieFileStorage {
 
         // some other block
         match self.cur_block_fd {
-            Some(ref mut f) => f.read_nodetype(&clear_ptr),
+            Some(ref mut f) => read_nodetype(f, &clear_ptr),
             None => {
                 trace!("Not found (no file is open)");
                 Err(Error::NotFoundError)

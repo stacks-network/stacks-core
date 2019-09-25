@@ -389,8 +389,7 @@ mod test {
         let proof = TrieMerkleProof::from_path(s, &triepath, &MARFValue(marf_value.clone()), &block_header).unwrap();
         let empty_root_to_block = HashMap::new();
 
-        let block_map = s.block_map.clone();
-        assert!(proof.verify(&triepath, &MARFValue(marf_value.clone()), &root_hash, &empty_root_to_block, &block_map));
+        assert!(proof.verify(&triepath, &MARFValue(marf_value.clone()), &root_hash, &empty_root_to_block));
     }
     
     pub fn merkle_test_marf(s: &mut TrieFileStorage, header: &BlockHeaderHash, path: &Vec<u8>, value: &Vec<u8>, root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>) -> HashMap<TrieHash, BlockHeaderHash> {
@@ -417,8 +416,7 @@ mod test {
             s.read_root_to_block_table().unwrap()
         });
 
-        let block_map = s.block_map.clone();
-        assert!(proof.verify(&triepath, &MARFValue(marf_value), &root_hash, &root_to_block, &block_map));
+        assert!(proof.verify(&triepath, &MARFValue(marf_value), &root_hash, &root_to_block));
 
         root_to_block
     }
@@ -443,9 +441,8 @@ mod test {
         });
         let triepath = TriePath::from_key(key);
         let marf_value = MARFValue::from_value(value);
-        let block_map = s.block_map.clone();
 
-        assert!(proof.verify(&triepath, &marf_value, &root_hash, &root_to_block, &block_map));
+        assert!(proof.verify(&triepath, &marf_value, &root_hash, &root_to_block));
 
         root_to_block
     }
