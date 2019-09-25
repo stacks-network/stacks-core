@@ -350,7 +350,9 @@ impl TrieRAM {
     }
 
     fn size_hint(&self) -> usize {
-        self.total_bytes
+        self.write_count as usize
+        // the size hint is used for a capacity guess on the data vec, which is _nodes_
+        //  NOT bytes. this led to enormous over-allocations
     }
 
     pub fn format(&mut self) -> Result<(), Error> {
@@ -899,8 +901,8 @@ impl TrieFileStorage {
         self.flush()?;
 
         let size_hint = match self.last_extended {
-            Some((_, ref trie_storage)) => trie_storage.size_hint() * 2,
-            None => (1024 * 1024)
+            Some((_, ref trie_storage)) => 2*trie_storage.size_hint(),
+            None => (1024) // don't try to guess _byte_ allocation here.
         };
 
         let identifier = self.block_map.add_block(bhh);
