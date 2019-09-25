@@ -479,6 +479,6 @@ mod test {
                                  "sample-programs/names.clar".to_string(), db_name.clone()]);
         invoke_command("test", &["execute".to_string(), db_name.clone(), "S1G2081040G2081040G2081040G208105NK8PE5.tokens".to_string(),
                                  "mint!".to_string(), "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR".to_string(),
-                                 "1000".to_string()]);
+                                 "u1000".to_string()]);
     }
 }
