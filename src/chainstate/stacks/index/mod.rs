@@ -381,7 +381,7 @@ mod test {
         let triepath = TriePath::from_bytes(&path[..]).unwrap();
 
         let block_header = BlockHeaderHash([0u8; 32]);
-        s.open_block(&block_header, false).unwrap();
+        s.open_block(&block_header).unwrap();
 
         let mut marf_value = [0u8; 40];
         marf_value.copy_from_slice(&value[0..40]);
@@ -397,7 +397,7 @@ mod test {
         test_debug!("MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?", header, path, value);
         test_debug!("---------");
 
-        s.open_block(header, false).unwrap();
+        s.open_block(header).unwrap();
         let (_, root_hash) = Trie::read_root(s).unwrap();
         let triepath = TriePath::from_bytes(&path[..]).unwrap();
 
@@ -426,7 +426,7 @@ mod test {
         test_debug!("MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?", header, key, value);
         test_debug!("---------");
 
-        s.open_block(header, false).unwrap();
+        s.open_block(header).unwrap();
         let (_, root_hash) = Trie::read_root(s).unwrap();
         let proof = TrieMerkleProof::from_entry(s, key, value, &header).unwrap();
 

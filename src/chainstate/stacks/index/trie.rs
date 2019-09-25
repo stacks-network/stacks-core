@@ -171,7 +171,7 @@ impl Trie {
         else {
             // ptr is a backptr -- find the block
             let back_block_hash = storage.get_block_from_local_id(ptr.back_block())?.clone();
-            storage.open_block(&back_block_hash, false)?;
+            storage.open_block(&back_block_hash)?;
 
             let backptr = ptr.from_backptr();
             let (node, node_hash) = storage.read_nodetype(&backptr)?;
@@ -583,7 +583,7 @@ impl Trie {
                 .ok_or_else(|| Error::CorruptionError(format!("Could not obtain block hash at block height {}",
                                                               cur_block_height - (1u32 << log_depth))))?;
 
-            storage.open_block(&prev_block_header, false)?;
+            storage.open_block(&prev_block_header)?;
             
             let root_ptr = storage.root_trieptr();
 
@@ -603,7 +603,6 @@ impl Trie {
     /// s must point to the block that contains the trie's root.
     pub fn get_trie_ancestor_hashes_bytes(storage: &mut TrieFileStorage) -> Result<Vec<TrieHash>, Error> {        
         let cur_block_header = storage.get_cur_block();
-        let cur_block_rw = storage.readwrite();
 
         if let Some(cached_ancestor_hashes_bytes) = storage.check_cached_ancestor_hashes_bytes(&cur_block_header) {
             Ok(cached_ancestor_hashes_bytes)
@@ -613,7 +612,7 @@ impl Trie {
                 storage.set_cached_ancestor_hashes_bytes(&cur_block_header, result.clone());
             }
             // restore
-            storage.open_block(&cur_block_header, cur_block_rw)?;
+            storage.open_block(&cur_block_header)?;
             result
         }
     }
@@ -867,7 +866,7 @@ mod test {
 
                 // end of path -- cursor points to the insertion point.
                 // all nodes have space, 
-                f.open_block(&block_header, true).unwrap();
+                f.open_block(&block_header).unwrap();
                 let ptr_opt_res = Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[i as u8; 40].to_vec()), &mut node);
                 assert!(ptr_opt_res.is_ok());
 
@@ -953,7 +952,7 @@ mod test {
         
         let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-        f.open_block(&block_header, true).unwrap();
+        f.open_block(&block_header).unwrap();
         Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128; 40].to_vec()), &mut node).unwrap().unwrap();
         Trie::update_root_hash(&mut f, &c).unwrap();
 
@@ -979,7 +978,7 @@ mod test {
                 _ => panic!("not a leaf")
             };
 
-            f.open_block(&block_header, true).unwrap();
+            f.open_block(&block_header).unwrap();
             let ptr = Trie::promote_leaf_to_node4(&mut f, &mut c, &mut leaf_data, &mut TrieLeaf::new(&vec![], &[(i + 128) as u8; 40].to_vec())).unwrap();
             ptrs.push(ptr);
 
@@ -1090,7 +1089,7 @@ mod test {
                 let mut c = TrieCursor::new(&TriePath::from_bytes(&path[..]).unwrap(), f.root_trieptr());
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                f.open_block(&block_header, true).unwrap();
+                f.open_block(&block_header).unwrap();
                 Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
                 Trie::update_root_hash(&mut f, &c).unwrap();
 
@@ -1117,7 +1116,7 @@ mod test {
 
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-            f.open_block(&block_header, true).unwrap();
+            f.open_block(&block_header).unwrap();
             let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
             ptrs.push(new_ptr);
 
@@ -1204,7 +1203,7 @@ mod test {
 
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                f.open_block(&block_header, true).unwrap();
+                f.open_block(&block_header).unwrap();
                 Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
 
                 Trie::update_root_hash(&mut f, &c).unwrap();
@@ -1232,7 +1231,7 @@ mod test {
 
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-            f.open_block(&block_header, true).unwrap();
+            f.open_block(&block_header).unwrap();
             let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
             ptrs.push(new_ptr);
 
@@ -1268,7 +1267,7 @@ mod test {
 
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                f.open_block(&block_header, true).unwrap();
+                f.open_block(&block_header).unwrap();
                 Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
 
                 Trie::update_root_hash(&mut f, &c).unwrap();
@@ -1296,7 +1295,7 @@ mod test {
 
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-            f.open_block(&block_header, true).unwrap();
+            f.open_block(&block_header).unwrap();
 
             let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
             ptrs.push(new_ptr);
@@ -1384,7 +1383,7 @@ mod test {
 
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                f.open_block(&block_header, true).unwrap();
+                f.open_block(&block_header).unwrap();
                 Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
 
                 Trie::update_root_hash(&mut f, &c).unwrap();
@@ -1412,7 +1411,7 @@ mod test {
 
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-            f.open_block(&block_header, true).unwrap();
+            f.open_block(&block_header).unwrap();
             let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
             ptrs.push(new_ptr);
 
@@ -1448,7 +1447,7 @@ mod test {
 
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                f.open_block(&block_header, true).unwrap();
+                f.open_block(&block_header).unwrap();
                 Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
                 Trie::update_root_hash(&mut f, &c).unwrap();
                 
@@ -1475,7 +1474,7 @@ mod test {
 
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-            f.open_block(&block_header, true).unwrap();
+            f.open_block(&block_header).unwrap();
             let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
             ptrs.push(new_ptr);
 
@@ -1511,7 +1510,7 @@ mod test {
 
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-                f.open_block(&block_header, true).unwrap();
+                f.open_block(&block_header).unwrap();
                 Trie::try_attach_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[128 + j as u8; 40].to_vec()), &mut node).unwrap().unwrap();
 
                 Trie::update_root_hash(&mut f, &c).unwrap();
@@ -1539,7 +1538,7 @@ mod test {
             
             let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
-            f.open_block(&block_header, true).unwrap();
+            f.open_block(&block_header).unwrap();
             let new_ptr = Trie::insert_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
             ptrs.push(new_ptr);
 
@@ -1605,7 +1604,7 @@ mod test {
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
                 test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
-                f.open_block(&block_header, true).unwrap();
+                f.open_block(&block_header).unwrap();
 
                 eprintln!("Splicing Node @ {}", nodeptr.ptr());
                 eprintln!("Splicing Node @ {:x}", c.chr().unwrap());
@@ -1665,7 +1664,7 @@ mod test {
                 let (nodeptr, mut node, node_hash) = walk_to_insertion_point(&mut f, &mut c);
 
                 test_debug!("Splice leaf pattern={} at {:?}", 192 + k, &c);
-                f.open_block(&block_header, true).unwrap();
+                f.open_block(&block_header).unwrap();
                 let new_ptr = Trie::splice_leaf(&mut f, &mut c, &mut TrieLeaf::new(&vec![], &[192 + k as u8; 40].to_vec()), &mut node).unwrap();
                 ptrs.push(new_ptr);
 

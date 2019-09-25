@@ -344,7 +344,7 @@ impl TrieMerkleProof {
         let mut block_header = storage.get_cur_block();
 
         let ancestor_block_hash = storage.get_block_from_local_id(backptr.back_block())?.clone();
-        storage.open_block(&ancestor_block_hash, false)?;
+        storage.open_block(&ancestor_block_hash)?;
 
         let ancestor_root_hash = read_root_hash(storage)?;
 
@@ -363,7 +363,7 @@ impl TrieMerkleProof {
         // find last and intermediate entries in the shunt proof -- exclude the root hashes; just
         // include the ancestor hashes.
         while current_height > ancestor_height && !found_backptr {
-            storage.open_block(&block_header, false)?;
+            storage.open_block(&block_header)?;
             let cur_root_hash = read_root_hash(storage)?;
             trace!("Shunt proof: walk heights {}->{} from {:?} ({:?})", current_height, ancestor_height, &block_header, &cur_root_hash);
 
@@ -441,7 +441,7 @@ impl TrieMerkleProof {
             proof.push(shunt_proof_node);
         }
 
-        storage.open_block(&block_header, false)?;
+        storage.open_block(&block_header)?;
         proof.reverse();
 
         // put the proof in the right order. we're done!
@@ -1134,7 +1134,7 @@ impl TrieMerkleProof {
         let mut block_header = root_block_header.clone();
 
         loop {
-            storage.open_block(&block_header, false)?;
+            storage.open_block(&block_header)?;
 
             trace!("Walk {:?} path {:?} to leaf or backptr", &storage.get_cur_block(), path);
             let (cursor, reached_node, backptr) = TrieMerkleProof::walk_to_leaf_or_backptr(storage, path)?;
@@ -1183,7 +1183,7 @@ impl TrieMerkleProof {
                 break;
             }
 
-            storage.open_block(&block_header, false)?;
+            storage.open_block(&block_header)?;
 
             trace!("Walk back for {:?} from {:?}", &backptr, &storage.get_cur_block());
             block_header = storage.get_block_from_local_id(backptr.back_block())?.clone();

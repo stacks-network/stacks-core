@@ -459,10 +459,8 @@ impl NodeHashReader for fs::File {
 // to extend_to_block() with a different block header hash.
 pub struct TrieFileStorage {
     pub dir_path: String,
-    readonly: bool,
 
-    last_extended: Option<BlockHeaderHash>,
-    last_extended_trie: Option<TrieRAM>,
+    last_extended: Option<(BlockHeaderHash, TrieRAM)>,
     
     cur_block: BlockHeaderHash,
     cur_block_fd: Option<fs::File>,
@@ -516,10 +514,8 @@ impl TrieFileStorage {
 
         let ret = TrieFileStorage {
             dir_path,
-            readonly: false,
 
             last_extended: None,
-            last_extended_trie: None,
 
             cur_block: TrieFileStorage::block_sentinel(),
             cur_block_fd: None,
@@ -842,12 +838,10 @@ impl TrieFileStorage {
     /// Generate a mapping between Trie root hashes and the blocks that contain them
     #[cfg(test)]
     pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, BlockHeaderHash>, Error> {
-        let last_extended_opt = self.last_extended.clone();
-
         let mut ret = HashMap::new();
 
         for bhh in self.block_map.iter() {
-            if let Some(ref last_extended) = last_extended_opt {
+            if let Some((ref last_extended, _)) = self.last_extended {
                 if *last_extended == *bhh {
                     // this hasn't been dumped yet
                     continue;
@@ -872,22 +866,21 @@ impl TrieFileStorage {
             ret.insert(root_hash.clone(), bhh.clone());
         }
 
-        let (last_extended_opt, last_extended_trie_opt) = match (self.last_extended.take(), self.last_extended_trie.take()) {
-            (Some(bhh), Some(mut trie_ram)) => {
+        let last_extended = match self.last_extended.take() {
+            Some((bhh, mut trie_ram)) => {
                 let ptr = TriePtr::new(set_backptr(TrieNodeID::Node256), 0, 0);
 
                 let root_hash = trie_ram.read_node_hash(&ptr)?;
 
                 ret.insert(root_hash.clone(), bhh.clone());
-                (Some(bhh), Some(trie_ram))
+                Some((bhh, trie_ram))
             },
-            (_, _) => {
-                (None, None)
+            _ => {
+                None
             }
         };
 
-        self.last_extended = last_extended_opt;
-        self.last_extended_trie = last_extended_trie_opt;
+        self.last_extended = last_extended;
 
         Ok(ret)
     }
@@ -903,11 +896,10 @@ impl TrieFileStorage {
         
          */
         
-        self.readonly = false;
         self.flush()?;
 
-        let size_hint = match self.last_extended_trie {
-            Some(ref trie_storage) => trie_storage.size_hint() * 2,
+        let size_hint = match self.last_extended {
+            Some((_, ref trie_storage)) => trie_storage.size_hint() * 2,
             None => (1024 * 1024)
         };
 
@@ -983,37 +975,36 @@ impl TrieFileStorage {
         self.cur_block = bhh.clone();
         self.cur_block_fd = None;
 
-        self.last_extended = Some(bhh.clone());
-        self.last_extended_trie = Some(trie_buf);
-                
+        self.last_extended = Some((bhh.clone(), trie_buf));
+
         trace!("Extended to {:?} in {:?}", &self.cur_block, &block_path);
         Ok(())
     }
 
-    pub fn open_block(&mut self, bhh: &BlockHeaderHash, readwrite: bool) -> Result<(), Error> {
+    pub fn open_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
         let sentinel = TrieFileStorage::block_sentinel();
         if *bhh == sentinel {
             // just reset to newly opened state
             self.cur_block_fd = None;
             self.cur_block = sentinel;
-            self.readonly = !readwrite;
             return Ok(());
         }
 
-        if Some(*bhh) == self.last_extended {
-            // nothing to do -- we're already ready.
-            // just clear out.
-            self.cur_block_fd = None;
-            self.cur_block = bhh.clone();
-            self.readonly = !readwrite;
-            return Ok(());
+        if let Some((ref last_extended, _)) = self.last_extended {
+            if last_extended == bhh {
+                // nothing to do -- we're already ready.
+                // just clear out.
+                self.cur_block_fd = None;
+                self.cur_block = bhh.clone();
+                return Ok(());
+            }
         }
 
         // opening a different Trie than the one we're extending
         let block_path = self.cached_block_path(bhh);
         let fd = fs::OpenOptions::new()
                     .read(true)
-                    .write(readwrite)
+                    .write(false)
                     .open(&block_path)
                     .map_err(|e| {
                         if e.kind() == io::ErrorKind::NotFound {
@@ -1027,17 +1018,17 @@ impl TrieFileStorage {
 
         self.cur_block = bhh.clone();
         self.cur_block_fd = Some(fd);
-        self.readonly = !readwrite;
         Ok(())
     }
 
     pub fn get_cur_block_identifier(&mut self) -> Result<u32, Error> {
-        if Some(self.cur_block) == self.last_extended {
-            self.last_extended_trie
-                .as_ref()
-                .map(|trie_ram| trie_ram.identifier)
-                .ok_or_else(|| Error::CorruptionError(format!("last_extended is_some(), but last_extended_trie is none")))
-        } else if let Some(ref mut cur_block_fd) = self.cur_block_fd {
+        if let Some((ref last_extended, ref last_extended_trie)) = self.last_extended {
+            if &self.cur_block == last_extended {
+                return Ok(last_extended_trie.identifier)
+            }
+        }
+
+        if let Some(ref mut cur_block_fd) = self.cur_block_fd {
             TrieFileStorage::read_block_identifier_from_fd(cur_block_fd)
         } else {
             Err(Error::NotOpenedError)
@@ -1054,12 +1045,13 @@ impl TrieFileStorage {
     }
 
     pub fn root_ptr(&self) -> u32 {
-        if Some(self.cur_block) == self.last_extended {
-            0
+        if let Some((ref last_extended, ref last_extended_trie)) = self.last_extended {
+            if &self.cur_block == last_extended {
+                return 0
+            }
         }
-        else {
-            TrieFileStorage::root_ptr_disk()
-        }
+
+        TrieFileStorage::root_ptr_disk()
     }
 
     pub fn root_trieptr(&self) -> TriePtr {
@@ -1072,16 +1064,7 @@ impl TrieFileStorage {
         (BLOCK_HEADER_HASH_ENCODED_SIZE as u32) + 4
     }
 
-    pub fn readwrite(&self) -> bool {
-        !self.readonly
-    }
-
     pub fn format(&mut self) -> Result<(), Error> {
-        if self.readonly {
-            trace!("Read-only!");
-            return Err(Error::ReadOnlyError);
-        }
-
         // blow away and recreate the Trie directory
         fs::remove_dir_all(self.dir_path.clone())
             .map_err(Error::IOError)?;
@@ -1089,15 +1072,14 @@ impl TrieFileStorage {
         fs::create_dir_all(self.dir_path.clone())
             .map_err(Error::IOError)?;
 
-        match self.last_extended_trie {
-            Some(ref mut trie_storage) => trie_storage.format()?,
+        match self.last_extended {
+            Some((_, ref mut trie_storage)) => trie_storage.format()?,
             None => {}
         };
 
         self.cur_block = TrieFileStorage::block_sentinel();
         self.cur_block_fd = None;
         self.last_extended = None;
-        self.last_extended_trie = None;
 
         self.block_map.clear();
         self.chain_tips.clear();
@@ -1129,15 +1111,17 @@ impl TrieFileStorage {
 
         let block_map = &self.block_map;
 
-        if Some(self.cur_block) == self.last_extended {
-            let hash_reader = self.last_extended_trie.as_mut()
-                .expect("MARF CORRUPTION: last_extended is set, but last_extended_trie is None.");
-            TrieFileStorage::inner_write_children_hashes(hash_reader, block_map, node, w)
-        } else {
-            let hash_reader = self.cur_block_fd.as_mut()
-                .ok_or(Error::NotFoundError)?;
-            TrieFileStorage::inner_write_children_hashes(hash_reader, block_map, node, w)
+        if let Some((ref last_extended, ref mut last_extended_trie)) = self.last_extended {
+            if &self.cur_block == last_extended {
+                let hash_reader = last_extended_trie;
+                return TrieFileStorage::inner_write_children_hashes(hash_reader, block_map, node, w)
+            }
         }
+
+        // otherwise, the current block is open as an FD
+        let hash_reader = self.cur_block_fd.as_mut()
+            .ok_or(Error::NotFoundError)?;
+        TrieFileStorage::inner_write_children_hashes(hash_reader, block_map, node, w)
     }
 
     fn inner_write_children_hashes<W: Write, H: NodeHashReader>(
@@ -1166,12 +1150,13 @@ impl TrieFileStorage {
     }
 
     pub fn read_node_hash_bytes(&mut self, ptr: &TriePtr) -> Result<TrieHash, Error> {
-        if Some(self.cur_block) == self.last_extended {
+        if let Some((ref last_extended, ref mut trie_ram)) = self.last_extended {
             // special case 
-            let trie_ram = self.last_extended_trie.as_mut()
-                .expect("MARF CORRUPTION: last_extended is set, but last_extended_trie is None.");
-            return trie_ram.read_node_hash(ptr)
+            if &self.cur_block == last_extended {
+                return trie_ram.read_node_hash(ptr)
+            }
         }
+
         // some other block or ptr, or cache miss
         match self.cur_block_fd {
             Some(ref mut f) => {
@@ -1202,13 +1187,11 @@ impl TrieFileStorage {
         
         let clear_ptr = ptr.from_backptr();
 
-        if Some(self.cur_block) == self.last_extended {
-            // special case
-            assert!(self.last_extended_trie.is_some());
-            return match self.last_extended_trie {
-                Some(ref mut trie_storage) => trie_storage.read_nodetype(&clear_ptr),
-                None => unreachable!()
-            };
+        if let Some((ref last_extended, ref mut trie_storage)) = self.last_extended {
+            // special case 
+            if &self.cur_block == last_extended {
+                return trie_storage.read_nodetype(&clear_ptr)
+            }
         }
 
         // some other block
@@ -1222,11 +1205,6 @@ impl TrieFileStorage {
     }
     
     pub fn write_nodetype(&mut self, disk_ptr: u32, node: &TrieNodeType, hash: TrieHash) -> Result<(), Error> {
-        if self.readonly {
-            trace!("Read-only!");
-            return Err(Error::ReadOnlyError);
-        }
-
         trace!("write_nodetype({:?}): at {}: {:?} {:?}", &self.cur_block, disk_ptr, &hash, node);
         
         self.write_count += 1;
@@ -1239,15 +1217,13 @@ impl TrieFileStorage {
             }
         }
 
-        if Some(self.cur_block) == self.last_extended {
-            // special case
-            assert!(self.last_extended_trie.is_some());
-            return match self.last_extended_trie {
-                Some(ref mut trie_storage) => trie_storage.write_nodetype(disk_ptr, node, hash),
-                None => unreachable!()
-            };
+        // Only allow writes when the cur_block is the current in-RAM extending block.
+        if let Some((ref last_extended, ref mut trie_storage)) = self.last_extended {
+            if &self.cur_block == last_extended {
+                return trie_storage.write_nodetype(disk_ptr, node, hash)
+            }
         }
-        
+
         panic!("Tried to write to another Trie besides the currently-bufferred one.  This should never happen -- only flush() can write to disk!");
     }
 
@@ -1266,18 +1242,17 @@ impl TrieFileStorage {
         // save the currently-bufferred Trie to disk, and atomically put it into place.
         // Idempotent.
         // Panics on I/O error.
-        match (self.last_extended.take(), self.last_extended_trie.take()) {
-            (Some(ref bhh), Some(ref mut trie_ram)) => {
-                let block_path_tmp = TrieFileStorage::block_path_tmp(&self.dir_path, bhh);
-                let block_path = self.cached_block_path(bhh);
+        if let Some((ref bhh, ref mut trie_ram)) = self.last_extended.take() {
+            let block_path_tmp = TrieFileStorage::block_path_tmp(&self.dir_path, bhh);
+            let block_path = self.cached_block_path(bhh);
                 
-                trace!("Flush {:?} to {:?} and then rename to {:?}", bhh, &block_path_tmp, block_path);
+            trace!("Flush {:?} to {:?} and then rename to {:?}", bhh, &block_path_tmp, block_path);
 
-                // wrap in context to force the FD to _close_ before we execute
-                //   a rename. would never be an issue in linux, but might cause problems
-                //   in Windows.
-                {
-                    let mut writer = BufWriter::new(fs::OpenOptions::new()
+            // wrap in context to force the FD to _close_ before we execute
+            //   a rename. would never be an issue in linux, but might cause problems
+            //   in Windows.
+            {
+                let mut writer = BufWriter::new(fs::OpenOptions::new()
                             .read(false)
                             .write(true)
                             .truncate(true)
@@ -1292,50 +1267,29 @@ impl TrieFileStorage {
                                 }
                             })?);
 
-                    trace!("Flush: identifier of {:?} is {:?}", bhh, trie_ram.identifier);
-                    trie_ram.dump(&mut writer, bhh)?;
+                trace!("Flush: identifier of {:?} is {:?}", bhh, trie_ram.identifier);
+                trie_ram.dump(&mut writer, bhh)?;
 
-                    // this OS-generic fsync's.
-                    let fd = writer.into_inner()
-                        .map_err(|e| { io::Error::from(e) })?;
-                    fd.sync_all()?;
-                }
+                // this OS-generic fsync's.
+                let fd = writer.into_inner()
+                    .map_err(|e| { io::Error::from(e) })?;
+                fd.sync_all()?;
+            }
 
                 
 
-                // atomically put this trie file in place
-                trace!("Rename {:?} to {:?}", &block_path_tmp, &block_path);
-                fs::rename(&block_path_tmp, &block_path)
-                    .unwrap_or_else(|_| panic!("Failed to rename {:?} to {:?}", &block_path_tmp, &block_path));
-            },
-            (None, None) => {},
-            (_, _) => {
-                // should never happen 
-                panic!("Inconsistent state: have either block header hash or trie IO buffer, but not both");
-            }
-        }
-
-        if !self.readonly {
-            match self.cur_block_fd {
-                Some(ref mut f) => f.flush()?,
-                None => {}
-            };
+            // atomically put this trie file in place
+            trace!("Rename {:?} to {:?}", &block_path_tmp, &block_path);
+            fs::rename(&block_path_tmp, &block_path)
+                .unwrap_or_else(|_| panic!("Failed to rename {:?} to {:?}", &block_path_tmp, &block_path));
         }
 
         Ok(())
     }
 
     pub fn last_ptr(&mut self) -> Result<u32, Error> {
-        if self.readonly {
-            error!("TrieFileStorage is opened in read-only mode");
-            return Err(Error::ReadOnlyError);
-        }
-
-        if self.last_extended_trie.is_some() {
-            match self.last_extended_trie {
-                Some(ref mut trie_storage) => trie_storage.last_ptr(),
-                _ => unreachable!()
-            }
+        if let Some((_, ref mut trie_ram)) = self.last_extended {
+            trie_ram.last_ptr()
         }
         else {
             panic!("Cannot allocate new ptrs in a Trie that is not in RAM");
