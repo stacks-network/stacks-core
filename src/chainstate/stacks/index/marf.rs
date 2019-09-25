@@ -1229,6 +1229,8 @@ mod test {
 
         let mut root_table_cache = None;
 
+        let mut blocks = vec![block_header.clone()];
+
         for i in 0..count {
             let i0 = i / 256;
             let i1 = i % 256;
@@ -1242,6 +1244,7 @@ mod test {
                 marf.commit().unwrap();
                 marf.begin(&block_header, &next_block_header).unwrap();
                 block_header = next_block_header;
+                blocks.push(block_header.clone())
             }
 
             marf.insert_raw(triepath, value.clone()).unwrap();
@@ -1255,6 +1258,13 @@ mod test {
                 root_table_cache = Some(
                     merkle_test_marf(marf.borrow_storage_backend(), &block_header, &path.to_vec(), &value.data.to_vec(), root_table_cache));
             }
+        }
+
+        for (i, block) in blocks.iter().enumerate() {
+            assert_eq!(MARF::get_block_height(marf.borrow_storage_backend(), block, &block_header).unwrap(),
+                       Some(i as u32));
+            assert_eq!(MARF::get_block_at_height(marf.borrow_storage_backend(), i as u32, &block_header).unwrap(),
+                       Some(block.clone()));
         }
 
         root_table_cache = None;
@@ -1809,6 +1819,15 @@ mod test {
                     m.insert_batch(&keys, values).unwrap();
                     m.commit().unwrap();
                 }
+            }
+        }
+
+        for (height, fork_row) in fork_headers.iter().enumerate() {
+            for block in fork_row.iter(){
+                assert_eq!(MARF::get_block_height(m.borrow_storage_backend(), block, block).unwrap(),
+                           Some(height as u32));
+                assert_eq!(MARF::get_block_at_height(m.borrow_storage_backend(), height as u32, block).unwrap(),
+                           Some(block.clone()));
             }
         }
 
