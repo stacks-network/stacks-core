@@ -91,16 +91,6 @@ struct WriteChainTip {
     height: u32
 }
 
-#[cfg(not(test))]
-fn short_circuit_genesis_test(_s: &TrieFileStorage) -> Option<BlockHeaderHash> {
-    None
-}
-
-#[cfg(test)]
-fn short_circuit_genesis_test(s: &TrieFileStorage) -> Option<BlockHeaderHash> {
-    s.test_genesis_block.clone()
-}
-
 impl MARF {
 
     #[cfg(test)]
@@ -518,8 +508,10 @@ impl MARF {
 
     pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
-        if short_circuit_genesis_test(storage).as_ref() == Some(current_block_hash) {
-            return Ok(Some(0))
+        #[cfg(test)] {
+            if storage.test_genesis_block.as_ref() == Some(current_block_hash) {
+                return Ok(Some(0))
+            }
         }
 
 
@@ -530,10 +522,12 @@ impl MARF {
     }
 
     pub fn get_block_at_height(storage: &mut TrieFileStorage, height: u32, current_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
-        if height == 0 {
-            match short_circuit_genesis_test(storage) {
-                Some(s) => return Ok(Some(s)),
-                _ => {}
+        #[cfg(test)] {
+            if height == 0 {
+                match storage.test_genesis_block {
+                    Some(ref s) => return Ok(Some(s.clone())),
+                    _ => {}
+                }
             }
         }
 
