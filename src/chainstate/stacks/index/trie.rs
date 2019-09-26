@@ -501,7 +501,7 @@ impl Trie {
                 // so make sure the root node _stays_ as a node256.
                 // Note that the hash we write here doesn't matter -- it'll get overwritten in the
                 // subsequent call to update_root_hash()
-                (TrieNodeID::Node256, new_node4.try_as_node256().unwrap())
+                (TrieNodeID::Node256, TrieNode256::from_node4(&new_node4).as_trie_node_type())
             }
             else {
                 (TrieNodeID::Node4, TrieNodeType::Node4(new_node4))

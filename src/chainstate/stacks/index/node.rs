@@ -184,13 +184,8 @@ pub trait TrieNode {
     /// Get a reference to the children of this node.
     fn path(&self) -> &Vec<u8>;
 
-    // this is a way to construct a TrieNodeType from an object that implements this trait
-    // DO NOT USE DIRECTLY
-    fn try_as_node4(&self) -> Option<TrieNodeType>;
-    fn try_as_node16(&self) -> Option<TrieNodeType>;
-    fn try_as_node48(&self) -> Option<TrieNodeType>;
-    fn try_as_node256(&self) -> Option<TrieNodeType>;
-    fn try_as_leaf(&self) -> Option<TrieNodeType>;
+    /// Construct a TrieNodeType from a TrieNode
+    fn as_trie_node_type(&self) -> TrieNodeType;
 
     /// Encode this node instance into a byte stream and write it to w.
     fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
@@ -753,6 +748,18 @@ impl TrieNode256 {
         }
     }
 
+    pub fn from_node4(node4: &TrieNode4) -> TrieNode256 {
+        let mut ptrs = [TriePtr::default(); 256];
+        for i in 0..4 {
+            let c = node4.ptrs[i].chr();
+            ptrs[c as usize] = node4.ptrs[i].clone();
+        }
+        TrieNode256 {
+            path: node4.path.clone(),
+            ptrs: ptrs,
+        }
+    }
+
     /// Promote a node48 to a node256
     pub fn from_node48(node48: &TrieNode48) -> TrieNode256 {
         let mut ptrs = [TriePtr::default(); 256];
@@ -831,11 +838,9 @@ impl TrieNode for TrieNode4 {
         &self.path
     }
 
-    fn try_as_node4(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node4(self.clone())) }
-    fn try_as_node16(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node16(TrieNode16::from_node4(&self))) }
-    fn try_as_node48(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node48(TrieNode48::from_node16(&TrieNode16::from_node4(&self)))) }
-    fn try_as_node256(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node256(TrieNode256::from_node48(&TrieNode48::from_node16(&TrieNode16::from_node4(&self))))) }
-    fn try_as_leaf(&self) -> Option<TrieNodeType> { None }
+    fn as_trie_node_type(&self) -> TrieNodeType {
+        TrieNodeType::Node4(self.clone())
+    }
 }
 
 impl TrieNode for TrieNode16 {
@@ -902,12 +907,10 @@ impl TrieNode for TrieNode16 {
     fn path(&self) -> &Vec<u8> {
         &self.path
     }
-    
-    fn try_as_node4(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node16(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node16(self.clone())) }
-    fn try_as_node48(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node48(TrieNode48::from_node16(&self))) }
-    fn try_as_node256(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node256(TrieNode256::from_node48(&TrieNode48::from_node16(&self)))) }
-    fn try_as_leaf(&self) -> Option<TrieNodeType> { None }
+
+    fn as_trie_node_type(&self) -> TrieNodeType {
+        TrieNodeType::Node16(self.clone())
+    }
 }
 
 impl TrieNode for TrieNode48 {
@@ -1025,11 +1028,9 @@ impl TrieNode for TrieNode48 {
         &self.path
     }
     
-    fn try_as_node4(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node16(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node48(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node48(self.clone())) }
-    fn try_as_node256(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node256(TrieNode256::from_node48(self))) }
-    fn try_as_leaf(&self) -> Option<TrieNodeType> { None }
+    fn as_trie_node_type(&self) -> TrieNodeType {
+        TrieNodeType::Node48(self.clone())
+    }
 }
 
 impl TrieNode for TrieNode256 {
@@ -1090,12 +1091,10 @@ impl TrieNode for TrieNode256 {
     fn path(&self) -> &Vec<u8> {
         &self.path
     }
-    
-    fn try_as_node4(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node16(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node48(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node256(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Node256(self.clone())) }
-    fn try_as_leaf(&self) -> Option<TrieNodeType> { None }
+
+    fn as_trie_node_type(&self) -> TrieNodeType {
+        TrieNodeType::Node256(self.clone())
+    }
 }
 
 impl TrieLeaf {
@@ -1178,12 +1177,10 @@ impl TrieNode for TrieLeaf {
     fn path(&self) -> &Vec<u8> {
         &self.path
     }
-    
-    fn try_as_node4(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node16(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node48(&self) -> Option<TrieNodeType> { None }
-    fn try_as_node256(&self) -> Option<TrieNodeType> { None }
-    fn try_as_leaf(&self) -> Option<TrieNodeType> { Some(TrieNodeType::Leaf(self.clone())) }
+
+    fn as_trie_node_type(&self) -> TrieNodeType {
+        TrieNodeType::Leaf(self.clone())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

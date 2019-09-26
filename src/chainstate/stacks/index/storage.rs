@@ -1230,14 +1230,8 @@ impl TrieFileStorage {
     }
 
     pub fn write_node<T: TrieNode + std::fmt::Debug>(&mut self, ptr: u32, node: &T, hash: TrieHash) -> Result<(), Error> {
-        match node.id() {
-            TrieNodeID::Node4 => self.write_nodetype(ptr, &node.try_as_node4().unwrap(), hash),
-            TrieNodeID::Node16 => self.write_nodetype(ptr, &node.try_as_node16().unwrap(), hash),
-            TrieNodeID::Node48 => self.write_nodetype(ptr, &node.try_as_node48().unwrap(), hash),
-            TrieNodeID::Node256 => self.write_nodetype(ptr, &node.try_as_node256().unwrap(), hash),
-            TrieNodeID::Leaf => self.write_nodetype(ptr, &node.try_as_leaf().unwrap(), hash),
-            _ => panic!("Unknown node type {}", node.id())
-        }
+        let node_type = node.as_trie_node_type();
+        self.write_nodetype(ptr, &node_type, hash)
     }
     
     pub fn flush(&mut self) -> Result<(), Error> {

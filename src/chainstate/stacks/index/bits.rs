@@ -350,12 +350,14 @@ pub fn get_node_byte_len(node: &TrieNodeType) -> usize {
 
 /// write all the bytes for a node, including its hash, to the given Writeable object.
 /// Returns the number of bytes written.
-pub fn write_nodetype_bytes<F: Write + Seek>(f: &mut F, node: &TrieNodeType, hash: TrieHash) -> Result<(), Error> {
+pub fn write_nodetype_bytes<F: Write + Seek>(f: &mut F, node: &TrieNodeType, hash: TrieHash) -> Result<u64, Error> {
+    let start = ftell(f)?;
     f.write_all(hash.as_bytes())?;
     node.write_bytes(f)?;
-    trace!("write_nodetype: {:?} {:?} at {}", node, &hash, ftell(f)?);
+    let end = ftell(f)?;
+    trace!("write_nodetype: {:?} {:?} at {}-{}", node, &hash, start, end);
 
-    Ok(())
+    Ok(end-start)
 }
 
 pub fn write_path_to_bytes<W: Write>(path: &[u8], w: &mut W) -> Result<(), Error> {
