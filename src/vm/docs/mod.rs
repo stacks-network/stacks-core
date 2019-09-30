@@ -560,8 +560,8 @@ principal and executes `expr` with that context. It returns the resulting value 
 };
 
 const ASSERTS_API: SpecialAPI = SpecialAPI {
-    input_type: "(optional A) | (response A B), C",
-    output_type: "A",
+    input_type: "bool, C",
+    output_type: "bool",
     signature: "(asserts! bool-expr thrown-value)",
     description: "The `asserts!` function admits a boolean argument and asserts its evaluation: 
 if bool-expr is `true`, `asserts!` returns `true` and proceeds in the program execution. 
