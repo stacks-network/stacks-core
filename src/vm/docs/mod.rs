@@ -475,7 +475,7 @@ the tuple. If the supplied option is a `(none)` option, get returns `(none)`.",
 };
 
 const HASH160_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|uint",
+    input_type: "buff|uint|int",
     output_type: "(buff 20)",
     signature: "(hash160 value)",
     description: "The `hash160` function computes `RIPEMD160(SHA256(x))` of the inputted value.
@@ -485,7 +485,7 @@ integer.",
 };
 
 const SHA256_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|uint",
+    input_type: "buff|uint|int",
     output_type: "(buff 32)",
     signature: "(sha256 value)",
     description: "The `sha256` function computes `SHA256(x)` of the inputted value.
@@ -495,7 +495,7 @@ integer.",
 };
 
 const SHA512_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|uint",
+    input_type: "buff|uint|int",
     output_type: "(buff 64)",
     signature: "(sha512 value)",
     description: "The `sha512` function computes `SHA512(x)` of the inputted value.
@@ -505,7 +505,7 @@ integer.",
 };
 
 const SHA512T256_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|uint",
+    input_type: "buff|uint|int",
     output_type: "(buff 32)",
     signature: "(sha512/256 value)",
     description: "The `sha512/256` function computes `SHA512/256(x)` (the SHA512 algorithm with the 512/256 initialization vector, truncated
@@ -516,7 +516,7 @@ integer.",
 };
 
 const KECCAK256_API: SpecialAPI = SpecialAPI {
-    input_type: "buff|uint",
+    input_type: "buff|uint|int",
     output_type: "(buff 32)",
     signature: "(keccak256 value)",
     description: "The `keccak256` function computes `KECCAK256(value)` of the inputted value.
