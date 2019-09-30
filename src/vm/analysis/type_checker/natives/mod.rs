@@ -300,27 +300,32 @@ impl TypedNativeFunction {
             Hash160 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![TypeSignature::max_buffer(),
-                         TypeSignature::UIntType],
+                         TypeSignature::UIntType,
+                         TypeSignature::IntType],
                     BUFF_20.clone()))),
             Sha256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![TypeSignature::max_buffer(),
-                         TypeSignature::UIntType],
+                         TypeSignature::UIntType,
+                         TypeSignature::IntType],
                     BUFF_32.clone()))),
             Sha512Trunc256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![TypeSignature::max_buffer(),
-                         TypeSignature::UIntType],
+                         TypeSignature::UIntType,
+                         TypeSignature::IntType],
                     BUFF_32.clone()))),
             Sha512 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![TypeSignature::max_buffer(),
-                         TypeSignature::UIntType],
+                         TypeSignature::UIntType,
+                         TypeSignature::IntType],
                     BUFF_64.clone()))),
             Keccak256 =>
                 Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                     vec![TypeSignature::max_buffer(),
-                         TypeSignature::UIntType],
+                         TypeSignature::UIntType,
+                         TypeSignature::IntType],
                     BUFF_32.clone()))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
