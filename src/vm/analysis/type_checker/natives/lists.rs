@@ -104,3 +104,16 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     
     Ok(return_type)
 }
+
+pub fn check_special_len(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
+    check_argument_count(1, args)?;
+
+    let collection_type = checker.type_check(&args[0], context)?;
+
+    match collection_type {
+        TypeSignature::ListType(_) | TypeSignature::BufferType(_) => Ok(()),
+        _ => Err(CheckErrors::ExpectedListOrBuffer(collection_type.clone()))
+    }?;
+
+    Ok(TypeSignature::UIntType)
+}
