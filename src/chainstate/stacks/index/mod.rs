@@ -178,7 +178,7 @@ impl From<MARFValue> for u32 {
         }
         for i in 4..h.len() {
             if h[i] != 0 {
-                panic!("Failed to convert MARF value into u64: data stored after 4th byte");
+                panic!("Failed to convert MARF value into u32: data stored after 4th byte");
             }
         }
         u32::from_le_bytes(d)
@@ -233,6 +233,7 @@ pub enum Error {
     ExistsError,
     BadSeekValue,
     CorruptionError(String),
+    BlockHashMapCorruptionError(Option<Box<Error>>),
     ReadOnlyError,
     NotDirectoryError,
     PartialWriteError,
@@ -255,6 +256,13 @@ impl fmt::Display for Error {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::CorruptionError(ref s) => fmt::Display::fmt(s, f),
             Error::CursorError(ref e) => fmt::Display::fmt(e, f),
+            Error::BlockHashMapCorruptionError(ref opt_e) => {
+                f.write_str(error::Error::description(self))?;
+                match opt_e {
+                    Some(e) => write!(f, ": {}", e),
+                    None => Ok(())
+                }
+            },
             _ => f.write_str(error::Error::description(self)),
         }
     }
@@ -265,6 +273,10 @@ impl error::Error for Error {
         match *self {
             Error::IOError(ref e) => Some(e),
             Error::RestoreMarfBlockError(ref e) => Some(e),
+            Error::BlockHashMapCorruptionError(ref opt_e) => match opt_e {
+                Some(ref e) => Some(e),
+                None => None
+            },
             _ => None
         }
     }
@@ -278,6 +290,7 @@ impl error::Error for Error {
             Error::ExistsError => "Object exists",
             Error::BadSeekValue => "Bad seek value",
             Error::CorruptionError(ref s) => s.as_str(),
+            Error::BlockHashMapCorruptionError(ref opt_e) => "Corrupted MARF BlockHashMap",
             Error::ReadOnlyError => "Storage is in read-only mode",
             Error::NotDirectoryError => "Not a directory",
             Error::PartialWriteError => "Data is partially written and not yet recovered",

@@ -260,7 +260,7 @@ pub fn read_hash_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODE
     Ok(hashbytes)
 }
 
-pub fn read_4_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; 4], Error> {
+pub fn read_block_identifier<F: Read + Seek>(f: &mut F) -> Result<u32, Error> {
     let mut bytes = [0u8; 4];
     f.read_exact(&mut bytes)
         .map_err(|e| {
@@ -273,7 +273,7 @@ pub fn read_4_bytes<F: Read + Seek>(f: &mut F) -> Result<[u8; 4], Error> {
             }
         })?;
     
-    Ok(bytes)
+    Ok(u32::from_le_bytes(bytes))
 }
 
 /// Low-level method for reading a node's hash bytes into a buffer from a Read-able and Seek-able struct.

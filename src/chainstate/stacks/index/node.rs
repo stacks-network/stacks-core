@@ -209,6 +209,11 @@ pub trait TrieNode {
 }
 
 /// Trait for types that can serialize to consensus bytes
+/// This is implemented by `TrieNode`s and `ProofTrieNode`s
+///  and allows hash calculation routines to be the same for
+///  both types.
+/// The type `M` is used for any additional data structures required
+///   (BlockHashMap for TrieNode and () for ProofTrieNode)
 pub trait ConsensusSerializable <M> {
     /// Encode the consensus-relevant bytes of this node and write it to w.
     fn write_consensus_bytes<W: Write>(&self, additional_data: &M, w: &mut W) -> Result<(), Error>;

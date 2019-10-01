@@ -163,7 +163,8 @@ impl MARF {
 
         // update child_node with new ptrs and hashes
         storage.open_block(&cur_block_hash)?;
-        let child_hash = MARF::node_copy_update(&mut child_node, child_block_identifier)?;
+        let child_hash = MARF::node_copy_update(&mut child_node, child_block_identifier)
+            .map_err(|e| Error::BlockHashMapCorruptionError(Some(Box::new(e))))?;
 
         // store it in this trie
         storage.open_block(&cur_block_hash)?;
@@ -509,6 +510,8 @@ impl MARF {
     pub fn get_block_height(storage: &mut TrieFileStorage, block_hash: &BlockHeaderHash, current_block_hash: &BlockHeaderHash) -> Result<Option<u32>, Error> {
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
         #[cfg(test)] {
+            // used in testing in order to short-circuit block-height lookups
+            //   when the trie struct is tested outside of marf.rs usage
             if storage.test_genesis_block.as_ref() == Some(current_block_hash) {
                 return Ok(Some(0))
             }
@@ -523,6 +526,8 @@ impl MARF {
 
     pub fn get_block_at_height(storage: &mut TrieFileStorage, height: u32, current_block_hash: &BlockHeaderHash) -> Result<Option<BlockHeaderHash>, Error> {
         #[cfg(test)] {
+            // used in testing in order to short-circuit block-height lookups
+            //   when the trie struct is tested outside of marf.rs usage
             if height == 0 {
                 match storage.test_genesis_block {
                     Some(ref s) => return Ok(Some(s.clone())),

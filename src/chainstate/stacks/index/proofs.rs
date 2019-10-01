@@ -356,8 +356,8 @@ impl TrieMerkleProof {
             .ok_or_else(|| Error::CorruptionError(format!("Could not find block height of {}", &block_header)))?;
 
         if current_height == ancestor_height {
-            eprintln!("Already at the ancestor: {} =? {}, heights: {} =? {}", &ancestor_block_hash, &block_header,
-                      ancestor_height, current_height);
+            debug!("Already at the ancestor: {} =? {}, heights: {} =? {}", &ancestor_block_hash, &block_header,
+                   ancestor_height, current_height);
         }
 
         // find last and intermediate entries in the shunt proof -- exclude the root hashes; just

@@ -44,12 +44,6 @@ use std::path::{
 use std::os;
 use std::iter::FromIterator;
 
-#[cfg(target_os = "unix")]
-use std::os::unix::io::AsRawFd;
-
-#[cfg(target_os = "unix")]
-use libc;
-
 use regex::Regex;
 
 use chainstate::burn::BlockHeaderHash;
@@ -64,7 +58,7 @@ use chainstate::stacks::index::bits::{
     get_node_byte_len,
     write_nodetype_bytes,
     read_hash_bytes,
-    read_4_bytes,
+    read_block_identifier,
     read_node_hash_bytes,
     read_nodetype,
     get_node_hash,
@@ -250,6 +244,8 @@ impl TrieRAM {
 
     pub fn write_trie_file<F: Write + Seek>(f: &mut F, node_data: &[(TrieNodeType, TrieHash)], offsets: &[u32],
                                                    identifier: u32, parent_hash: &BlockHeaderHash) -> Result<(), Error> {
+        assert_eq!(node_data.len(), offsets.len());
+
         // write parent block ptr
         fseek(f, 0)?;
         f.write_all(parent_hash.as_bytes())
@@ -485,6 +481,9 @@ pub struct TrieFileStorage {
 
     pub trie_ancestor_hash_bytes_cache: Option<(BlockHeaderHash, Vec<TrieHash>)>,
 
+    // used in testing in order to short-circuit block-height lookups
+    //   when the trie struct is tested outside of marf.rs usage
+    #[cfg(test)]
     pub test_genesis_block: Option<BlockHeaderHash>,
 }
 
@@ -538,7 +537,9 @@ impl TrieFileStorage {
             trie_ancestor_hash_bytes_cache: None,
   
 
-            // these are only ever used in testing, we should flag on cfg(test).
+            // used in testing in order to short-circuit block-height lookups
+            //   when the trie struct is tested outside of marf.rs usage
+            #[cfg(test)]
             test_genesis_block: None,
         };
 
@@ -691,9 +692,7 @@ impl TrieFileStorage {
 
     fn read_block_identifier_from_fd<F: Seek + Read>(fd: &mut F) -> Result<u32, Error> {
         fseek(fd, BLOCK_HEADER_HASH_ENCODED_SIZE as u64)?;
-        let bytes = read_4_bytes(fd)?;
-
-        Ok( u32::from_le_bytes(bytes) )
+        read_block_identifier(fd)
     }
 
 
@@ -889,15 +888,6 @@ impl TrieFileStorage {
 
     /// Extend the forest of Tries to include a new block.
     pub fn extend_to_block(&mut self, bhh: &BlockHeaderHash) -> Result<(), Error> {
-        /*
-
-        TODO:
-          must still test that:
-             * cur_block has an identifier.
-             * cur_block has written it's block height
-        
-         */
-        
         self.flush()?;
 
         let size_hint = match self.last_extended {

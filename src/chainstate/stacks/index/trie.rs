@@ -159,7 +159,6 @@ impl Trie {
     /// found (it will _not_ be a back-pointer).
     pub fn walk_backptr(storage: &mut TrieFileStorage, ptr: &TriePtr, cursor: &mut TrieCursor) -> Result<(TrieNodeType, TrieHash, TriePtr), Error> {
         if !is_backptr(ptr.id()) {
-            eprintln!("Walking to same block?");
             // child is in this block
             if ptr.id() == TrieNodeID::Empty {
                 // shouldn't happen
