@@ -42,7 +42,7 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
         TypeSignature::BufferType(buffer_data) => {
             let mapped_type = function_type.check_args(&[TypeSignature::min_buffer()])?;
             TypeSignature::list_of(mapped_type, buffer_data.into())
-                .map_err(|_| CheckErrors::ConstructedListTooLarge.into()) // todo(ludo): adjust error type
+                .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
         },
         _ => Err(CheckErrors::ExpectedListOrBuffer(argument_type).into())
     }

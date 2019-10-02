@@ -1,5 +1,5 @@
 use vm::errors::{CheckErrors, InterpreterResult as Result, check_argument_count};
-use vm::types::{Value, TypeSignature::BoolType};
+use vm::types::{Value, TypeSignature::BoolType, TypeSignature};
 use vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use vm::{LocalContext, Environment, eval, apply, lookup_function};
 
@@ -48,7 +48,7 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
             }
             Value::buff_from(filtered_vec)
         },
-        _ => Err(CheckErrors::ExpectedListApplication.into())
+        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&filter_target)).into())
     }
 }
 
@@ -79,7 +79,7 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &L
                 apply(&function, &arguments, env, context)
             })
         },
-        _ => Err(CheckErrors::ExpectedListApplication.into())
+        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&fold_target)).into())
     }
 }
 
@@ -112,7 +112,7 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
             }).collect();
             Value::buff_from(mapped_vec)
         },
-        _ => Err(CheckErrors::ExpectedListApplication.into())
+        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&map_target)).into())
     }
 }
 
@@ -123,6 +123,6 @@ pub fn list_len(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
     match len_target {
         Value::List(list) => Ok(Value::UInt(list.data.len() as u128)),
         Value::Buffer(buff) => Ok(Value::UInt(buff.data.len() as u128)),
-        _ => Err(CheckErrors::ExpectedListApplication.into()) // todo(ludo): Update error
+        _ => Err(CheckErrors::ExpectedListOrBuffer(TypeSignature::type_of(&len_target)).into())
     }
 }
