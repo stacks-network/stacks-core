@@ -112,7 +112,7 @@ impl FunctionType {
             },
             FunctionType::ArithmeticComparison => {
                 check_argument_count(2, args)?;
-                let (first, second) = (&args[0], &args[1]);
+                let (first, second) = (&args[1], &args[0]);
                 if first != &TypeSignature::IntType && first != &TypeSignature::UIntType {
                     return Err(CheckErrors::UnionTypeError(
                         vec![TypeSignature::IntType, TypeSignature::UIntType],

@@ -32,15 +32,20 @@ pub fn check_special_map(checker: &mut TypeChecker, args: &[SymbolicExpression],
     
     let argument_type = checker.type_check(&args[1], context)?;
     
-    let (argument_items_type, argument_length) = match argument_type {
-        TypeSignature::ListType(list_data) => Ok(list_data.destruct()),
-        _ => Err(CheckErrors::ExpectedListApplication)
-    }?;
-    
-    let mapped_type = function_type.check_args(&[argument_items_type])?;
-    
-    TypeSignature::list_of(mapped_type, argument_length)
-        .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
+    match argument_type {
+        TypeSignature::ListType(list_data) => {
+            let (arg_items_type, arg_length) = list_data.destruct();
+            let mapped_type = function_type.check_args(&[arg_items_type])?;
+            TypeSignature::list_of(mapped_type, arg_length)
+                .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
+        },
+        TypeSignature::BufferType(buffer_data) => {
+            let mapped_type = function_type.check_args(&[TypeSignature::min_buffer()])?;
+            TypeSignature::list_of(mapped_type, buffer_data.into())
+                .map_err(|_| CheckErrors::ConstructedListTooLarge.into()) // todo(ludo): adjust error type
+        },
+        _ => Err(CheckErrors::ExpectedListOrBuffer(argument_type).into())
+    }
 }
 
 pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpression], context: &TypingContext) -> TypeResult {
@@ -57,12 +62,13 @@ pub fn check_special_filter(checker: &mut TypeChecker, args: &[SymbolicExpressio
     let argument_type = checker.type_check(&args[1], context)?;
 
     {
-        let argument_items_type = match &argument_type {
-            TypeSignature::ListType(list_data) => Ok(list_data.get_list_item_type()),
-            _ => Err(CheckErrors::ExpectedListApplication)
+        let input_type = match argument_type {
+            TypeSignature::ListType(ref list_data) => Ok(list_data.clone().destruct().0),
+            TypeSignature::BufferType(_) => Ok(TypeSignature::min_buffer()),
+            _ => Err(CheckErrors::ExpectedListOrBuffer(argument_type.clone()))
         }?;
     
-        let filter_type = function_type.check_args(&[argument_items_type.clone()])?;
+        let filter_type = function_type.check_args(&[input_type.clone()])?;
 
         if TypeSignature::BoolType != filter_type {
             return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into())
@@ -83,11 +89,12 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     
     checker.type_map.set_type(&args[0], no_type())?;
     
-    let list_argument_type = checker.type_check(&args[1], context)?;
+    let argument_type = checker.type_check(&args[1], context)?;
 
-    let list_items_type = match list_argument_type {
+    let input_type = match argument_type {
         TypeSignature::ListType(list_data) => Ok(list_data.destruct().0),
-        _ => Err(CheckErrors::ExpectedListApplication)
+        TypeSignature::BufferType(_) => Ok(TypeSignature::min_buffer()),
+        _ => Err(CheckErrors::ExpectedListOrBuffer(argument_type))
     }?;
 
     let initial_value_type = checker.type_check(&args[2], context)?;
@@ -97,10 +104,10 @@ pub fn check_special_fold(checker: &mut TypeChecker, args: &[SymbolicExpression]
     //           B = list items type
     
     // f must accept the initial value and the list items type
-    let return_type = function_type.check_args(&[initial_value_type, list_items_type.clone()])?;
+    let return_type = function_type.check_args(&[input_type.clone(), initial_value_type])?;
 
     // f must _also_ accepts its own return type!
-    let return_type = function_type.check_args(&[return_type, list_items_type])?;
+    let return_type = function_type.check_args(&[input_type, return_type])?;
     
     Ok(return_type)
 }
