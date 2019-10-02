@@ -14,23 +14,41 @@ pub fn list_filter(args: &[SymbolicExpression], env: &mut Environment, context: 
         .ok_or(CheckErrors::ExpectedName)?;
 
     let function = lookup_function(&function_name, env)?;
-    let list = eval(&args[1], env, context)?;
-    if let Value::List(mut list_data) = list { 
-        let mut output = Vec::new();
-        for x in list_data.data.drain(..) {
-            let argument = [ SymbolicExpression::atom_value(x.clone()) ];
-            let filter_eval = apply(&function, &argument, env, context)?;
-            if let Value::Bool(include) = filter_eval {
-                if include {
-                    output.push(x);
-                } // else, filter out.
-            } else {
-                return Err(CheckErrors::TypeValueError(BoolType, filter_eval).into())
+    let filter_target = eval(&args[1], env, context)?;
+
+    match filter_target {
+        Value::List(mut list) => {
+            let mut filtered_vec = Vec::new();
+            for x in list.data.drain(..) {
+                let argument = [ SymbolicExpression::atom_value(x.clone()) ];
+                let filter_eval = apply(&function, &argument, env, context)?;
+                if let Value::Bool(include) = filter_eval {
+                    if include {
+                        filtered_vec.push(x);
+                    } // else, filter out.
+                } else {
+                    return Err(CheckErrors::TypeValueError(BoolType, filter_eval).into())
+                }
             }
-        }
-        Value::list_with_type(output, list_data.type_signature)
-    } else {
-        Err(CheckErrors::ExpectedListApplication.into())
+            Value::list_with_type(filtered_vec, list.type_signature)
+        },
+        Value::Buffer(mut buff) => {
+            let mut filtered_vec = Vec::new();
+            for x in buff.data.drain(..) {
+                let v = Value::buff_from(vec![x.clone()]).unwrap();
+                let argument = [ SymbolicExpression::atom_value(v) ];
+                let filter_eval = apply(&function, &argument, env, context)?;
+                if let Value::Bool(include) = filter_eval {
+                    if include {
+                        filtered_vec.push(x);
+                    } // else, filter out.
+                } else {
+                    return Err(CheckErrors::TypeValueError(BoolType, filter_eval).into())
+                }
+            }
+            Value::buff_from(filtered_vec)
+        },
+        _ => Err(CheckErrors::ExpectedListApplication.into())
     }
 }
 
@@ -41,18 +59,27 @@ pub fn list_fold(args: &[SymbolicExpression], env: &mut Environment, context: &L
         .ok_or(CheckErrors::ExpectedName)?;
 
     let function = lookup_function(&function_name, env)?;
-    let list = eval(&args[1], env, context)?;
+    let fold_target = eval(&args[1], env, context)?;
     let initial = eval(&args[2], env, context)?;
-    if let Value::List(mut list_data) = list {
-        list_data.data.drain(..).try_fold(
-            initial,
-            |acc, x| {
-                let argument = [ SymbolicExpression::atom_value(x),
-                                 SymbolicExpression::atom_value(acc) ];
-                apply(&function, &argument, env, context)
+
+    match fold_target {
+        Value::List(mut list) => {
+            list.data.drain(..).try_fold(initial, |acc, x| {
+                let arguments = vec![
+                    SymbolicExpression::atom_value(x), 
+                    SymbolicExpression::atom_value(acc)];
+                apply(&function, &arguments, env, context)
             })
-    } else {
-        Err(CheckErrors::ExpectedListApplication.into())
+        },
+        Value::Buffer(mut buff) => {
+            buff.data.drain(..).try_fold(initial, |acc, x| {
+                let arguments = vec![
+                    SymbolicExpression::atom_value(Value::buff_from(vec![x]).unwrap()), 
+                    SymbolicExpression::atom_value(acc)];
+                apply(&function, &arguments, env, context)
+            })
+        },
+        _ => Err(CheckErrors::ExpectedListApplication.into())
     }
 }
 
@@ -63,15 +90,29 @@ pub fn list_map(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
         .ok_or(CheckErrors::ExpectedName)?;
     let function = lookup_function(&function_name, env)?;
 
-    let list = eval(&args[1], env, context)?;
-    if let Value::List(mut list_data) = list {
-        let mapped_vec: Result<Vec<_>> = list_data.data.drain(..).map(|x| {
-            let argument = [ SymbolicExpression::atom_value(x) ];
-            apply(&function, &argument, env, context)
-        }).collect();
-        Value::list_from(mapped_vec?)
-    } else {
-        Err(CheckErrors::ExpectedListApplication.into())
+    let map_target = eval(&args[1], env, context)?;
+    match map_target {
+        Value::List(mut list) => {
+            let mapped_vec = list.data.drain(..).map(|x| {
+                let argument = vec![SymbolicExpression::atom_value(x)];
+                apply(&function, &argument, env, context).unwrap()
+            }).collect();
+            Value::list_from(mapped_vec)
+        },
+        Value::Buffer(mut buff) => {
+            let mapped_vec = buff.data.drain(..).map(|x| {
+                let element = Value::buff_from(vec![x]).unwrap();
+                let argument = vec![SymbolicExpression::atom_value(element)];
+                let result = apply(&function, &argument, env, context);
+                if let Ok(Value::Buffer(output)) = result {
+                    output.data[0]
+                } else {
+                    panic!();
+                }
+            }).collect();
+            Value::buff_from(mapped_vec)
+        },
+        _ => Err(CheckErrors::ExpectedListApplication.into())
     }
 }
 
@@ -82,6 +123,6 @@ pub fn list_len(args: &[SymbolicExpression], env: &mut Environment, context: &Lo
     match len_target {
         Value::List(list) => Ok(Value::UInt(list.data.len() as u128)),
         Value::Buffer(buff) => Ok(Value::UInt(buff.data.len() as u128)),
-        _ => Err(CheckErrors::ExpectedListApplication.into())
+        _ => Err(CheckErrors::ExpectedListApplication.into()) // todo(ludo): Update error
     }
 }
