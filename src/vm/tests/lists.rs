@@ -33,7 +33,7 @@ fn test_simple_list_admission() {
 }
 
 #[test]
-fn test_simple_map() {
+fn test_simple_map_list() {
     let test1 =
         "(define-private (square (x int)) (* x x))
          (map square (list 1 2 3 4))";
@@ -60,10 +60,19 @@ fn test_simple_map() {
 }
 
 #[test]
-fn test_simple_filter() {
+fn test_simple_map_buffer() {
     let test1 =
-"    (define-private (test (x int)) (eq? 0 (mod x 2)))
-    (filter test (list 1 2 3 4 5))";
+        "(define-private (incr (x (buff 1))) \"1\")
+         (map incr \"0000\")";
+
+    let expected = Value::buff_from(vec![49, 49, 49, 49]).unwrap();
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
+}
+
+#[test]
+fn test_simple_filter_list() {
+    let test1 = "(define-private (test (x int)) (eq? 0 (mod x 2)))
+                 (filter test (list 1 2 3 4 5))";
 
     let bad_tests = [
         "(filter 123 (list 123))",     // must have function name supplied
@@ -82,6 +91,15 @@ fn test_simple_filter() {
     for t in bad_tests.iter() {
         execute(t).unwrap_err();
     }
+}
+
+#[test]
+fn test_simple_filter_buffer() {
+    let test1 = "(define-private (test (x (buff 1))) (not (eq? x \"0\")))
+                 (filter test \"000123\")";
+
+    let expected = Value::buff_from(vec![49, 50, 51]).unwrap();
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 
 #[test]
@@ -120,7 +138,7 @@ fn test_list_tuple_admission() {
 }
 
 #[test]
-fn test_simple_folds() {
+fn test_simple_folds_list() {
     let test1 =
         "(define-private (multiply-all (x int) (acc int)) (* x acc))
          (fold multiply-all (list 1 2 3 4) 1)";
@@ -130,6 +148,16 @@ fn test_simple_folds() {
     assert_eq!(expected, execute(test1).unwrap().unwrap());
 }
 
+#[test]
+fn test_simple_folds_buffer() {
+    let test1 =
+        "(define-private (get-len (x (buff 1)) (acc int)) (+ acc 1))
+         (fold get-len \"blockstack\" 0)";
+
+    let expected = Value::Int(10);
+
+    assert_eq!(expected, execute(test1).unwrap().unwrap());
+}
 
 #[test]
 fn test_list_len() {
