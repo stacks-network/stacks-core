@@ -81,10 +81,19 @@ def check( state_engine, token_op, block_id, checked_ops ):
         log.warning('Cannot transfer token from the account to itself ({})'.format(address))
         return False
 
-    # consensus hash must be valid
-    if not state_engine.is_consensus_hash_valid(block_id, consensus_hash):
-        log.warning('Invalid consensus hash {}'.format(consensus_hash))
-        return False
+    # consensus hash must be valid, if given.
+    if EPOCH_FEATURE_TOKEN_TRANSFER_CONSENSUS_HASH_OPTIONAL in epoch_features:
+        # if the consensus hash is all 0's, and we're past epoch 4, then it's acceptable.
+        # if it's not all 0's, then check it.
+        if consensus_hash != '00' * LENGTHS['consensus_hash'] and not state_engine.is_consensus_hash_valid(block_id, consensus_hash):
+            log.warning('Invalid consensus hash {}'.format(consensus_hash))
+            return False
+    else:
+        # unconditional requirement that the consensus hash is valid
+        if not state_engine.is_consensus_hash_valid(block_id, consensus_hash):
+            log.warning('Invalid consensus hash {}'.format(consensus_hash))
+            return False
+
 
     # sender account must exist
     account_info = state_engine.get_account(address, token_type)
