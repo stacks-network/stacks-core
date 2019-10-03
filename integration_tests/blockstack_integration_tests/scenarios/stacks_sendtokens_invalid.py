@@ -65,7 +65,7 @@ def scenario( wallets, **kw ):
 
     assert virtualchain.lib.indexer.StateEngine.get_block_statistics(testlib.get_current_block(**kw))['num_processed_ops'] == 0
    
-    # try to spend tokens with an invalid consensus hash
+    # try to spend tokens with an invalid consensus hash (note that this is epoch 4)
     testlib.blockstack_send_tokens(wallets[1].addr, "STACKS", 600000, wallets[0].privkey, consensus_hash='00' * 16, safety_checks=False, expect_fail=True)
     testlib.next_block(**kw)
     
