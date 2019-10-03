@@ -790,7 +790,7 @@ def transaction_broadcaster_start(config_path):
     TRANSACTION_BROADCASTER_SUBPROCESS = p
 
     print 'Waiting for transaction broadcaster to start up...'
-    attempts = 10
+    attempts = 30
     while attempts > 0:
         time.sleep(2)
         try:
