@@ -57,7 +57,7 @@ jobs:
           name: Collect debug outputs
           command: |
             zip -0 ccov.zip `find . \( -name "blockstack_*.gc*" \) -print` &&
-            ./grcov ccov.zip -s . -t lcov --llvm --ignore-not-existing --ignore-dir "/*" -o lcov.info;
+            ./grcov ccov.zip -s . -t lcov --llvm --ignore-not-existing --ignore "/*" -o lcov.info;
       - run:
           name: Upload to codecov.io
           command: |
