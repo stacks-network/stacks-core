@@ -96,7 +96,7 @@ impl MarfedKV {
 impl KeyValueStorage for &mut MarfedKV {
     /// returns the previous block header hash
     fn set_block_hash(&mut self, bhh: BlockHeaderHash) -> Result<BlockHeaderHash> {
-        self.marf.is_ancestor_block_hash(&bhh).map_err(|e| {
+        self.marf.check_ancestor_block_hash(&bhh).map_err(|e| {
             match e {
                 MarfError::NotFoundError => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
                 MarfError::NonMatchingForks(_,_) => RuntimeErrorType::UnknownBlockHeaderHash(bhh),
