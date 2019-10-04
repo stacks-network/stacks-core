@@ -4,6 +4,7 @@ use vm::types::{TypeSignature, FunctionType, QualifiedContractIdentifier};
 use vm::database::{KeyValueStorage, ClaritySerializable, ClarityDeserializable, RollbackWrapper};
 use vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use vm::analysis::type_checker::{ContractAnalysis};
+use vm::analysis::cost_counter::{ContractCostAnalysis, SimpleCostSpecification};
 
 pub struct AnalysisDatabase <'a> {
     store: RollbackWrapper <'a>
@@ -17,6 +18,21 @@ impl ClaritySerializable for ContractAnalysis {
 }
 
 impl ClarityDeserializable<ContractAnalysis> for ContractAnalysis {
+    fn deserialize(json: &str) -> Self {
+        serde_json::from_str(json)
+            .expect("Failed to serialize vm.Value")
+    }
+}
+
+
+impl ClaritySerializable for ContractCostAnalysis {
+    fn serialize(&self) -> String {
+        serde_json::to_string(self)
+            .expect("Failed to serialize vm.Value")
+    }
+}
+
+impl ClarityDeserializable<ContractCostAnalysis> for ContractCostAnalysis {
     fn deserialize(json: &str) -> Self {
         serde_json::from_str(json)
             .expect("Failed to serialize vm.Value")
@@ -68,17 +84,22 @@ impl <'a> AnalysisDatabase <'a> {
     }
 
     // Creates the key used to store the given contract in the underlying Key-Value store.
-    fn make_storage_key(contract_identifier: &QualifiedContractIdentifier) -> String {
-        format!("analysis::{}", contract_identifier)
+    fn make_storage_key(prefix: &'static str, contract_identifier: &QualifiedContractIdentifier) -> String {
+        format!("analysis::{}::{}", prefix, contract_identifier)
     }
 
     fn load_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractAnalysis> {
-        let key = AnalysisDatabase::make_storage_key(contract_identifier);
+        let key = AnalysisDatabase::make_storage_key("types", contract_identifier);
+        self.get(&key)
+    }
+
+    fn load_contract_costs(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractCostAnalysis> {
+        let key = AnalysisDatabase::make_storage_key("cost", contract_identifier);
         self.get(&key)
     }
 
     pub fn insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, contract: &ContractAnalysis) -> CheckResult<()> {
-        let key = AnalysisDatabase::make_storage_key(contract_identifier);
+        let key = AnalysisDatabase::make_storage_key("types", contract_identifier);
         if self.store.has_entry(&key) {
             return Err(CheckError::new(CheckErrors::ContractAlreadyExists(contract_identifier.to_string())))
         }
@@ -106,5 +127,10 @@ impl <'a> AnalysisDatabase <'a> {
         let map_type = contract.get_map_type(map_name)
             .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
         Ok(map_type.clone())
+    }
+
+    pub fn get_contract_function_cost(&mut self, contract_identifier: &QualifiedContractIdentifier, function_name: &str) -> Option<SimpleCostSpecification> {
+        let contract = self.load_contract_costs(contract_identifier)?;
+        contract.get_function_cost(function_name)
     }
 }
